@@ -106,16 +106,16 @@ class StorefrontLegalTextCommandTest extends TestCase
 
     private function draftTerms(): int
     {
-        $this->text('draft', ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => $this->file('template.txt', 'TEMPLATE: the terms.')])->assertExitCode(0);
+        $this->text(action: 'draft', options: ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => $this->file('template.txt', 'TEMPLATE: the terms.')])->assertExitCode(0);
 
         return (int) StorefrontLegalDocument::query()->latest('id')->value('id');
     }
 
     private function writeText(string $type, string $locale, string $words): int
     {
-        $this->text('draft', ['--country' => 'KW', '--type' => $type, '--locale' => $locale, '--admin' => 11, '--template-file' => $this->file('template.txt', "TEMPLATE: the {$type}.")])->assertExitCode(0);
+        $this->text(action: 'draft', options: ['--country' => 'KW', '--type' => $type, '--locale' => $locale, '--admin' => 11, '--template-file' => $this->file('template.txt', "TEMPLATE: the {$type}.")])->assertExitCode(0);
         $id = (int) StorefrontLegalDocument::query()->latest('id')->value('id');
-        $this->text('edit', ['--id' => $id, '--admin' => 11, '--body-file' => $this->file('body.txt', $words)])->assertExitCode(0);
+        $this->text(action: 'edit', options: ['--id' => $id, '--admin' => 11, '--body-file' => $this->file('body.txt', $words)])->assertExitCode(0);
 
         return $id;
     }
@@ -128,7 +128,7 @@ class StorefrontLegalTextCommandTest extends TestCase
     private function editedTerms(string $words = 'The terms of Kuwait.'): int
     {
         $id = $this->draftTerms();
-        $this->text('edit', ['--id' => $id, '--admin' => 11, '--body-file' => $this->file('body.txt', $words)])->assertExitCode(0);
+        $this->text(action: 'edit', options: ['--id' => $id, '--admin' => 11, '--body-file' => $this->file('body.txt', $words)])->assertExitCode(0);
 
         return $id;
     }
@@ -155,21 +155,21 @@ class StorefrontLegalTextCommandTest extends TestCase
 
     public function test_a_text_goes_from_a_template_to_a_published_text_through_the_command(): void
     {
-        $this->text('draft', ['--country' => 'kw', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => $this->file('template.txt', 'TEMPLATE: the terms.')])
+        $this->text(action: 'draft', options: ['--country' => 'kw', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => $this->file('template.txt', 'TEMPLATE: the terms.')])
             ->expectsOutputToContain('Draft 1: the terms (en) of KW, version 1, a copy of the template.')
             ->expectsOutputToContain('A text that is still the template is not approved')
             ->assertExitCode(0);
 
-        $this->text('edit', ['--id' => 1, '--admin' => 11, '--body-file' => $this->file('body.txt', 'The terms of Kuwait.')])
+        $this->text(action: 'edit', options: ['--id' => 1, '--admin' => 11, '--body-file' => $this->file('body.txt', 'The terms of Kuwait.')])
             ->expectsOutputToContain('Text 1 is changed and is a draft of admin 11')
             ->assertExitCode(0);
 
-        $this->text('approve', ['--id' => 1, '--admin' => 12])
+        $this->text(action: 'approve', options: ['--id' => 1, '--admin' => 12])
             ->expectsOutputToContain('Text 1 is approved by admin 12 (written by admin 11). It is not in force until it is published.')
             ->expectsOutputToContain('KW: a required text is still missing')
             ->assertExitCode(0);
 
-        $this->text('publish', ['--id' => 1, '--admin' => 12, '--effective-from' => now()->addDay()->utc()->format('Y-m-d H:i')])
+        $this->text(action: 'publish', options: ['--id' => 1, '--admin' => 12, '--effective-from' => now()->addDay()->utc()->format('Y-m-d H:i')])
             ->expectsOutputToContain('Text 1 is published and takes effect on')
             ->assertExitCode(0);
 
@@ -181,9 +181,9 @@ class StorefrontLegalTextCommandTest extends TestCase
     public function test_the_author_cannot_approve_and_the_command_fails_with_the_reason(): void
     {
         $id = $this->draftTerms();
-        $this->text('edit', ['--id' => $id, '--admin' => 11, '--body-file' => $this->file('body.txt', 'The terms of Kuwait.')])->assertExitCode(0);
+        $this->text(action: 'edit', options: ['--id' => $id, '--admin' => 11, '--body-file' => $this->file('body.txt', 'The terms of Kuwait.')])->assertExitCode(0);
 
-        $this->text('approve', ['--id' => $id, '--admin' => 11])
+        $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 11])
             ->expectsOutputToContain('someone other than its author')
             ->assertExitCode(1);
 
@@ -192,11 +192,11 @@ class StorefrontLegalTextCommandTest extends TestCase
 
     public function test_an_admin_who_does_not_exist_takes_no_step(): void
     {
-        $this->text('draft', ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 99, '--template-file' => $this->file('template.txt', 'TEMPLATE')])
+        $this->text(action: 'draft', options: ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 99, '--template-file' => $this->file('template.txt', 'TEMPLATE')])
             ->expectsOutputToContain('There is no admin 99.')
             ->assertExitCode(1);
 
-        $this->text('draft', ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--template-file' => $this->file('template.txt', 'TEMPLATE')])
+        $this->text(action: 'draft', options: ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--template-file' => $this->file('template.txt', 'TEMPLATE')])
             ->expectsOutputToContain('--admin is the id of an admin.')
             ->assertExitCode(1);
 
@@ -207,16 +207,16 @@ class StorefrontLegalTextCommandTest extends TestCase
     {
         $id = $this->editedTerms();
 
-        $this->text('draft', ['--country' => 'AE', '--type' => 'terms', '--locale' => 'en', '--admin' => 13, '--template-file' => $this->file('template2.txt', 'TEMPLATE')])
+        $this->text(action: 'draft', options: ['--country' => 'AE', '--type' => 'terms', '--locale' => 'en', '--admin' => 13, '--template-file' => $this->file('template2.txt', 'TEMPLATE')])
             ->expectsOutputToContain('Admin 13 is switched off and takes no step.')
             ->assertExitCode(1);
-        $this->text('edit', ['--id' => $id, '--admin' => 13, '--body-file' => $this->file('body2.txt', 'The terms of Kuwait, changed.')])
+        $this->text(action: 'edit', options: ['--id' => $id, '--admin' => 13, '--body-file' => $this->file('body2.txt', 'The terms of Kuwait, changed.')])
             ->expectsOutputToContain('Admin 13 is switched off')
             ->assertExitCode(1);
-        $this->text('approve', ['--id' => $id, '--admin' => 13])
+        $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 13])
             ->expectsOutputToContain('Admin 13 is switched off')
             ->assertExitCode(1);
-        $this->text('discard', ['--id' => $id, '--admin' => 13, '--reason' => 'Not wanted'])
+        $this->text(action: 'discard', options: ['--id' => $id, '--admin' => 13, '--reason' => 'Not wanted'])
             ->expectsOutputToContain('Admin 13 is switched off')
             ->assertExitCode(1);
 
@@ -225,7 +225,7 @@ class StorefrontLegalTextCommandTest extends TestCase
         $this->assertSame(2, DB::table('audit_logs')->count(), 'only the draft and the edit of the admin who is on were audited');
 
         DB::table('admins')->where('id', 13)->update(['status' => 1]);
-        $this->text('approve', ['--id' => $id, '--admin' => 13])->assertExitCode(0);
+        $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 13])->assertExitCode(0);
     }
 
     public function test_the_admin_with_the_id_one_is_not_exempt_from_the_status_check(): void
@@ -249,13 +249,37 @@ class StorefrontLegalTextCommandTest extends TestCase
         $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 1])->assertExitCode(0);
     }
 
+    public function test_an_admin_who_is_switched_off_takes_neither_a_publication_nor_a_revocation(): void
+    {
+        $id = $this->editedTerms();
+        $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+        $linesBefore = DB::table('audit_logs')->count();
+
+        $this->text(action: 'publish', options: ['--id' => $id, '--admin' => 13])
+            ->expectsOutputToContain('Admin 13 is switched off')
+            ->assertExitCode(1);
+
+        $this->assertSame(StorefrontLegalDocument::STATUS_APPROVED, StorefrontLegalDocument::query()->findOrFail($id)->status);
+        $this->assertSame($linesBefore, DB::table('audit_logs')->count());
+
+        $this->text(action: 'publish', options: ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+        $linesBefore = DB::table('audit_logs')->count();
+
+        $this->text(action: 'revoke', options: ['--id' => $id, '--admin' => 13, '--reason' => 'Wrong clause'])
+            ->expectsOutputToContain('Admin 13 is switched off')
+            ->assertExitCode(1);
+
+        $this->assertNull(StorefrontLegalDocument::query()->findOrFail($id)->revoked_at);
+        $this->assertSame($linesBefore, DB::table('audit_logs')->count());
+    }
+
     public function test_a_file_that_is_not_there_is_refused(): void
     {
-        $this->text('draft', ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => "{$this->directory}/missing.txt"])
+        $this->text(action: 'draft', options: ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => "{$this->directory}/missing.txt"])
             ->expectsOutputToContain('is not a readable file')
             ->assertExitCode(1);
 
-        $this->text('draft', ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11])
+        $this->text(action: 'draft', options: ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11])
             ->expectsOutputToContain('--template-file names the file')
             ->assertExitCode(1);
     }
@@ -278,7 +302,7 @@ class StorefrontLegalTextCommandTest extends TestCase
                 $options["--{$option}"] = $value;
             }
 
-            $this->text('draft', $options)
+            $this->text(action: 'draft', options: $options)
                 ->expectsOutputToContain("--{$option} is missing: it is {$meaning}")
                 ->assertExitCode(1);
         }
@@ -291,10 +315,10 @@ class StorefrontLegalTextCommandTest extends TestCase
     {
         $limit = StorefrontLegalTextCommand::MAXIMUM_FILE_BYTES;
 
-        $this->text('draft', ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => $this->file('exact.txt', str_repeat('a', $limit))])->assertExitCode(0);
+        $this->text(action: 'draft', options: ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => $this->file('exact.txt', str_repeat('a', $limit))])->assertExitCode(0);
         $this->assertSame($limit, strlen(StorefrontLegalDocument::query()->firstOrFail()->body));
 
-        $this->text('draft', ['--country' => 'KW', '--type' => 'terms', '--locale' => 'ar', '--admin' => 11, '--template-file' => $this->file('over.txt', str_repeat('a', $limit + 1))])
+        $this->text(action: 'draft', options: ['--country' => 'KW', '--type' => 'terms', '--locale' => 'ar', '--admin' => 11, '--template-file' => $this->file('over.txt', str_repeat('a', $limit + 1))])
             ->expectsOutputToContain("is not a readable file of at most {$limit} bytes")
             ->assertExitCode(1);
 
@@ -303,28 +327,28 @@ class StorefrontLegalTextCommandTest extends TestCase
 
     public function test_a_directory_is_not_a_file_that_can_be_read(): void
     {
-        $this->text('draft', ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => $this->directory])
+        $this->text(action: 'draft', options: ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => $this->directory])
             ->expectsOutputToContain('is not a readable file')
             ->assertExitCode(1);
 
         $id = $this->draftTerms();
-        $this->text('edit', ['--id' => $id, '--admin' => 11, '--body-file' => $this->directory])
+        $this->text(action: 'edit', options: ['--id' => $id, '--admin' => 11, '--body-file' => $this->directory])
             ->expectsOutputToContain('is not a readable file')
             ->assertExitCode(1);
     }
 
     public function test_an_empty_file_is_a_blank_template_and_a_blank_text(): void
     {
-        $this->text('draft', ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => $this->file('empty.txt', '')])
+        $this->text(action: 'draft', options: ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => $this->file('empty.txt', '')])
             ->expectsOutputToContain('The template is blank.')
             ->assertExitCode(1);
 
-        $this->text('draft', ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => $this->file('mark-only.txt', "\xEF\xBB\xBF\n")])
+        $this->text(action: 'draft', options: ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => $this->file('mark-only.txt', "\xEF\xBB\xBF\n")])
             ->expectsOutputToContain('The template is blank.')
             ->assertExitCode(1);
 
         $id = $this->draftTerms();
-        $this->text('edit', ['--id' => $id, '--admin' => 11, '--body-file' => $this->file('empty-body.txt', '')])
+        $this->text(action: 'edit', options: ['--id' => $id, '--admin' => 11, '--body-file' => $this->file('empty-body.txt', '')])
             ->expectsOutputToContain('The text is blank.')
             ->assertExitCode(1);
 
@@ -346,14 +370,14 @@ class StorefrontLegalTextCommandTest extends TestCase
     #[DataProvider('filesThatAreNotUtf8')]
     public function test_a_file_that_is_not_utf8_is_refused_whether_it_is_a_template_or_a_text(string $bytes): void
     {
-        $this->text('draft', ['--country' => 'KW', '--type' => 'terms', '--locale' => 'ar', '--admin' => 11, '--template-file' => $this->file('template.txt', $bytes)])
+        $this->text(action: 'draft', options: ['--country' => 'KW', '--type' => 'terms', '--locale' => 'ar', '--admin' => 11, '--template-file' => $this->file('template.txt', $bytes)])
             ->expectsOutputToContain('is not UTF-8 text')
             ->assertExitCode(1);
 
         $this->assertSame(0, StorefrontLegalDocument::query()->count());
 
         $id = $this->draftTerms();
-        $this->text('edit', ['--id' => $id, '--admin' => 11, '--body-file' => $this->file('body.txt', $bytes)])
+        $this->text(action: 'edit', options: ['--id' => $id, '--admin' => 11, '--body-file' => $this->file('body.txt', $bytes)])
             ->expectsOutputToContain('save the file as UTF-8')
             ->assertExitCode(1);
 
@@ -362,24 +386,24 @@ class StorefrontLegalTextCommandTest extends TestCase
 
     public function test_a_utf8_file_with_a_byte_order_mark_is_read_without_it(): void
     {
-        $this->text('draft', ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => $this->file('template.txt', "\xEF\xBB\xBFTEMPLATE: the terms.")])->assertExitCode(0);
+        $this->text(action: 'draft', options: ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => $this->file('template.txt', "\xEF\xBB\xBFTEMPLATE: the terms.")])->assertExitCode(0);
 
         $draft = StorefrontLegalDocument::query()->firstOrFail();
         $this->assertSame('TEMPLATE: the terms.', $draft->body);
         $this->assertSame(hash('sha256', 'TEMPLATE: the terms.'), $draft->body_hash);
         $this->assertSame($draft->body_hash, $draft->template_hash);
 
-        $this->text('edit', ['--id' => $draft->id, '--admin' => 11, '--body-file' => $this->file('body.txt', "\xEF\xBB\xBFThe terms of Kuwait.")])->assertExitCode(0);
+        $this->text(action: 'edit', options: ['--id' => $draft->id, '--admin' => 11, '--body-file' => $this->file('body.txt', "\xEF\xBB\xBFThe terms of Kuwait.")])->assertExitCode(0);
         $this->assertSame('The terms of Kuwait.', $draft->fresh()->body);
     }
 
     public function test_a_valid_arabic_utf8_file_is_stored_as_it_is(): void
     {
         $arabic = "شروط الاستخدام في دولة الكويت\nالمادة الأولى: التعريفات";
-        $this->text('draft', ['--country' => 'KW', '--type' => 'terms', '--locale' => 'ar', '--admin' => 11, '--template-file' => $this->file('template.txt', 'TEMPLATE: ' . $arabic)])->assertExitCode(0);
+        $this->text(action: 'draft', options: ['--country' => 'KW', '--type' => 'terms', '--locale' => 'ar', '--admin' => 11, '--template-file' => $this->file('template.txt', 'TEMPLATE: ' . $arabic)])->assertExitCode(0);
         $id = (int) StorefrontLegalDocument::query()->value('id');
 
-        $this->text('edit', ['--id' => $id, '--admin' => 11, '--body-file' => $this->file('body.txt', $arabic)])->assertExitCode(0);
+        $this->text(action: 'edit', options: ['--id' => $id, '--admin' => 11, '--body-file' => $this->file('body.txt', $arabic)])->assertExitCode(0);
 
         $this->assertSame($arabic, StorefrontLegalDocument::query()->findOrFail($id)->body);
     }
@@ -387,11 +411,11 @@ class StorefrontLegalTextCommandTest extends TestCase
     public function test_a_day_that_is_not_a_day_is_refused_and_the_text_stays_approved(): void
     {
         $id = $this->draftTerms();
-        $this->text('edit', ['--id' => $id, '--admin' => 11, '--body-file' => $this->file('body.txt', 'The terms of Kuwait.')])->assertExitCode(0);
-        $this->text('approve', ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+        $this->text(action: 'edit', options: ['--id' => $id, '--admin' => 11, '--body-file' => $this->file('body.txt', 'The terms of Kuwait.')])->assertExitCode(0);
+        $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 12])->assertExitCode(0);
 
         foreach (['tomorrow', '2026-13-01 10:00', '2026-12-01'] as $day) {
-            $this->text('publish', ['--id' => $id, '--admin' => 12, '--effective-from' => $day])
+            $this->text(action: 'publish', options: ['--id' => $id, '--admin' => 12, '--effective-from' => $day])
                 ->expectsOutputToContain('--effective-from is a day and a time in UTC')
                 ->assertExitCode(1);
         }
@@ -402,17 +426,17 @@ class StorefrontLegalTextCommandTest extends TestCase
     public function test_a_day_after_the_last_moment_the_database_keeps_is_refused_and_the_last_moment_is_accepted(): void
     {
         $id = $this->editedTerms();
-        $this->text('approve', ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+        $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 12])->assertExitCode(0);
 
         foreach (['2038-01-01 00:00', '2099-12-31 23:59'] as $day) {
-            $this->text('publish', ['--id' => $id, '--admin' => 12, '--effective-from' => $day])
+            $this->text(action: 'publish', options: ['--id' => $id, '--admin' => 12, '--effective-from' => $day])
                 ->expectsOutputToContain('does not take effect after 2037-12-31 23:59:59 UTC')
                 ->assertExitCode(1);
         }
 
         $this->assertSame(StorefrontLegalDocument::STATUS_APPROVED, StorefrontLegalDocument::query()->findOrFail($id)->status);
 
-        $this->text('publish', ['--id' => $id, '--admin' => 12, '--effective-from' => '2037-12-31 23:59'])
+        $this->text(action: 'publish', options: ['--id' => $id, '--admin' => 12, '--effective-from' => '2037-12-31 23:59'])
             ->expectsOutputToContain('takes effect on 2037-12-31 23:59 UTC')
             ->assertExitCode(0);
     }
@@ -425,10 +449,10 @@ class StorefrontLegalTextCommandTest extends TestCase
 
         try {
             $id = $this->editedTerms();
-            $this->text('approve', ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+            $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 12])->assertExitCode(0);
             $moment = CarbonImmutable::now('UTC')->addHour()->startOfMinute();
 
-            $this->text('publish', ['--id' => $id, '--admin' => 12, '--effective-from' => $moment->format('Y-m-d H:i')])
+            $this->text(action: 'publish', options: ['--id' => $id, '--admin' => 12, '--effective-from' => $moment->format('Y-m-d H:i')])
                 ->expectsOutputToContain("takes effect on {$moment->format('Y-m-d H:i')} UTC")
                 ->assertExitCode(0);
 
@@ -443,10 +467,10 @@ class StorefrontLegalTextCommandTest extends TestCase
     public function test_a_text_without_a_day_takes_effect_now(): void
     {
         $id = $this->draftTerms();
-        $this->text('edit', ['--id' => $id, '--admin' => 11, '--body-file' => $this->file('body.txt', 'The terms of Kuwait.')])->assertExitCode(0);
-        $this->text('approve', ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+        $this->text(action: 'edit', options: ['--id' => $id, '--admin' => 11, '--body-file' => $this->file('body.txt', 'The terms of Kuwait.')])->assertExitCode(0);
+        $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 12])->assertExitCode(0);
 
-        $this->text('publish', ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+        $this->text(action: 'publish', options: ['--id' => $id, '--admin' => 12])->assertExitCode(0);
 
         $this->assertTrue(StorefrontLegalDocument::query()->findOrFail($id)->effective_from->lessThanOrEqualTo(now()));
     }
@@ -454,18 +478,18 @@ class StorefrontLegalTextCommandTest extends TestCase
     public function test_it_revokes_with_a_reason_and_the_replacement_is_written_from_a_template(): void
     {
         $id = $this->draftTerms();
-        $this->text('edit', ['--id' => $id, '--admin' => 11, '--body-file' => $this->file('body.txt', 'The terms of Kuwait.')])->assertExitCode(0);
-        $this->text('approve', ['--id' => $id, '--admin' => 12])->assertExitCode(0);
-        $this->text('publish', ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+        $this->text(action: 'edit', options: ['--id' => $id, '--admin' => 11, '--body-file' => $this->file('body.txt', 'The terms of Kuwait.')])->assertExitCode(0);
+        $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+        $this->text(action: 'publish', options: ['--id' => $id, '--admin' => 12])->assertExitCode(0);
 
-        $this->text('revoke', ['--id' => $id, '--admin' => 12])->expectsOutputToContain('The reason is blank.')->assertExitCode(1);
-        $this->text('revoke', ['--id' => $id, '--admin' => 12, '--reason' => 'Wrong clause'])->expectsOutputToContain('Text 1 is revoked')->assertExitCode(0);
+        $this->text(action: 'revoke', options: ['--id' => $id, '--admin' => 12])->expectsOutputToContain('The reason is blank.')->assertExitCode(1);
+        $this->text(action: 'revoke', options: ['--id' => $id, '--admin' => 12, '--reason' => 'Wrong clause'])->expectsOutputToContain('Text 1 is revoked')->assertExitCode(0);
 
-        $this->text('draft', ['--new-version-of' => $id, '--admin' => 11])
+        $this->text(action: 'draft', options: ['--new-version-of' => $id, '--admin' => 11])
             ->expectsOutputToContain('Text 1 is revoked: a revoked text is not copied into a new version.')
             ->assertExitCode(1);
 
-        $this->text('draft', ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => $this->file('template.txt', 'TEMPLATE: the terms.')])
+        $this->text(action: 'draft', options: ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => $this->file('template.txt', 'TEMPLATE: the terms.')])
             ->expectsOutputToContain('Draft 2: the terms (en) of KW, version 2, a copy of the template.')
             ->assertExitCode(0);
     }
@@ -473,10 +497,10 @@ class StorefrontLegalTextCommandTest extends TestCase
     public function test_it_says_what_the_revocation_of_a_text_in_force_means(): void
     {
         $id = $this->editedTerms();
-        $this->text('approve', ['--id' => $id, '--admin' => 12])->assertExitCode(0);
-        $this->text('publish', ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+        $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+        $this->text(action: 'publish', options: ['--id' => $id, '--admin' => 12])->assertExitCode(0);
 
-        $this->text('revoke', ['--id' => $id, '--admin' => 12, '--reason' => 'Wrong clause'])
+        $this->text(action: 'revoke', options: ['--id' => $id, '--admin' => 12, '--reason' => 'Wrong clause'])
             ->expectsOutputToContain("Text {$id} is revoked: while it is the text in force the storefront does not sell. Write its replacement from a template")
             ->doesntExpectOutputToContain('never takes effect')
             ->assertExitCode(0);
@@ -487,10 +511,10 @@ class StorefrontLegalTextCommandTest extends TestCase
     public function test_it_says_that_a_text_revoked_before_it_took_effect_is_archived_and_the_text_in_force_stays(): void
     {
         $id = $this->editedTerms();
-        $this->text('approve', ['--id' => $id, '--admin' => 12])->assertExitCode(0);
-        $this->text('publish', ['--id' => $id, '--admin' => 12, '--effective-from' => now()->addDays(10)->utc()->format('Y-m-d H:i')])->assertExitCode(0);
+        $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+        $this->text(action: 'publish', options: ['--id' => $id, '--admin' => 12, '--effective-from' => now()->addDays(10)->utc()->format('Y-m-d H:i')])->assertExitCode(0);
 
-        $this->text('revoke', ['--id' => $id, '--admin' => 12, '--reason' => 'Wrong clause, found before it took effect'])
+        $this->text(action: 'revoke', options: ['--id' => $id, '--admin' => 12, '--reason' => 'Wrong clause, found before it took effect'])
             ->expectsOutputToContain("Text {$id} is revoked before it took effect: it is archived and never takes effect, and the text in force stays in force.")
             ->doesntExpectOutputToContain('the storefront does not sell')
             ->doesntExpectOutputToContain('Write its replacement')
@@ -514,41 +538,41 @@ class StorefrontLegalTextCommandTest extends TestCase
             $id = $this->writeText(type: $type, locale: $locale, words: $words);
             $isTheLast = $position === array_key_last($required);
 
-            $this->text('approve', ['--id' => $id, '--admin' => 12, '--hash' => $this->hashPrefixOf($words)])
+            $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 12, '--hash' => $this->hashPrefixOf($words)])
                 ->expectsOutputToContain('KW: a required text is still missing')
                 ->assertExitCode(0);
 
-            $this->text('publish', ['--id' => $id, '--admin' => 12, '--hash' => $this->hashPrefixOf($words)])
+            $this->text(action: 'publish', options: ['--id' => $id, '--admin' => 12, '--hash' => $this->hashPrefixOf($words)])
                 ->expectsOutputToContain($isTheLast ? 'KW: every required text is published and approved.' : 'KW: a required text is still missing')
                 ->assertExitCode(0);
         }
 
         $this->assertSame(count($required), StorefrontLegalDocument::query()->where('status', StorefrontLegalDocument::STATUS_PUBLISHED)->count());
-        $this->assertTrue(app(StorefrontLegalReadiness::class)->isReady('KW'));
-        $this->assertFalse(app(StorefrontLegalReadiness::class)->isReady('AE'), 'another storefront has none of them');
+        $this->assertTrue(app(StorefrontLegalReadiness::class)->isReady(countryCode: 'KW'));
+        $this->assertFalse(app(StorefrontLegalReadiness::class)->isReady(countryCode: 'AE'), 'another storefront has none of them');
     }
 
     public function test_it_starts_a_new_version_of_a_published_text_that_cannot_be_approved_until_it_is_edited(): void
     {
         $id = $this->editedTerms();
-        $this->text('approve', ['--id' => $id, '--admin' => 12])->assertExitCode(0);
-        $this->text('publish', ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+        $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+        $this->text(action: 'publish', options: ['--id' => $id, '--admin' => 12])->assertExitCode(0);
 
-        $this->text('draft', ['--new-version-of' => $id, '--admin' => 11])
+        $this->text(action: 'draft', options: ['--new-version-of' => $id, '--admin' => 11])
             ->expectsOutputToContain('Draft 2 is version 2 of the terms (en) of KW, a copy of the text it replaces.')
             ->assertExitCode(0);
 
-        $this->text('approve', ['--id' => 2, '--admin' => 12])->expectsOutputToContain('still the template it was copied from')->assertExitCode(1);
+        $this->text(action: 'approve', options: ['--id' => 2, '--admin' => 12])->expectsOutputToContain('still the template it was copied from')->assertExitCode(1);
 
-        $this->text('edit', ['--id' => 2, '--admin' => 11, '--body-file' => $this->file('body2.txt', 'The terms of Kuwait, version 2.')])->assertExitCode(0);
-        $this->text('approve', ['--id' => 2, '--admin' => 12])->assertExitCode(0);
+        $this->text(action: 'edit', options: ['--id' => 2, '--admin' => 11, '--body-file' => $this->file('body2.txt', 'The terms of Kuwait, version 2.')])->assertExitCode(0);
+        $this->text(action: 'approve', options: ['--id' => 2, '--admin' => 12])->assertExitCode(0);
     }
 
     public function test_it_discards_a_draft_that_is_not_wanted(): void
     {
         $id = $this->draftTerms();
 
-        $this->text('discard', ['--id' => $id, '--admin' => 11, '--reason' => 'Wrong template'])->expectsOutputToContain('Text 1 is discarded and kept as history.')->assertExitCode(0);
+        $this->text(action: 'discard', options: ['--id' => $id, '--admin' => 11, '--reason' => 'Wrong template'])->expectsOutputToContain('Text 1 is discarded and kept as history.')->assertExitCode(0);
 
         $this->assertSame(StorefrontLegalDocument::STATUS_ARCHIVED, StorefrontLegalDocument::query()->findOrFail($id)->status);
     }
@@ -556,34 +580,34 @@ class StorefrontLegalTextCommandTest extends TestCase
     public function test_the_list_shows_the_texts_without_their_words_and_can_be_narrowed(): void
     {
         $this->draftTerms();
-        $this->text('draft', ['--country' => 'AE', '--type' => 'privacy', '--locale' => 'ar', '--admin' => 11, '--template-file' => $this->file('other.txt', 'TEMPLATE: privacy.')])->assertExitCode(0);
+        $this->text(action: 'draft', options: ['--country' => 'AE', '--type' => 'privacy', '--locale' => 'ar', '--admin' => 11, '--template-file' => $this->file('other.txt', 'TEMPLATE: privacy.')])->assertExitCode(0);
 
-        $this->text('list', ['--country' => 'KW'])
+        $this->text(action: 'list', options: ['--country' => 'KW'])
             ->expectsOutputToContain('terms')
             ->doesntExpectOutputToContain('privacy')
             ->doesntExpectOutputToContain('TEMPLATE')
             ->assertExitCode(0);
 
-        $this->text('list')->expectsOutputToContain('privacy')->expectsOutputToContain('terms')->assertExitCode(0);
+        $this->text(action: 'list')->expectsOutputToContain('privacy')->expectsOutputToContain('terms')->assertExitCode(0);
     }
 
     // ---- an approval and a publication are bound to the words that were read ---------------------------------------------------------------------
 
     public function test_the_list_and_every_step_that_leaves_a_text_show_the_first_twelve_characters_of_its_hash(): void
     {
-        $this->text('draft', ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => $this->file('template.txt', 'TEMPLATE: the terms.')])
+        $this->text(action: 'draft', options: ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => $this->file('template.txt', 'TEMPLATE: the terms.')])
             ->expectsOutputToContain($this->hashPrefixOf('TEMPLATE: the terms.'))
             ->assertExitCode(0);
 
-        $this->text('edit', ['--id' => 1, '--admin' => 11, '--body-file' => $this->file('body.txt', 'The terms of Kuwait.')])
+        $this->text(action: 'edit', options: ['--id' => 1, '--admin' => 11, '--body-file' => $this->file('body.txt', 'The terms of Kuwait.')])
             ->expectsOutputToContain($this->hashPrefixOf('The terms of Kuwait.'))
             ->assertExitCode(0);
 
-        $this->text('approve', ['--id' => 1, '--admin' => 12])
+        $this->text(action: 'approve', options: ['--id' => 1, '--admin' => 12])
             ->expectsOutputToContain($this->hashPrefixOf('The terms of Kuwait.'))
             ->assertExitCode(0);
 
-        $this->text('list')
+        $this->text(action: 'list')
             ->expectsOutputToContain('hash')
             ->expectsOutputToContain($this->hashPrefixOf('The terms of Kuwait.'))
             ->doesntExpectOutputToContain(hash('sha256', 'The terms of Kuwait.'))
@@ -593,10 +617,10 @@ class StorefrontLegalTextCommandTest extends TestCase
     public function test_a_new_version_shows_the_hash_of_the_copy(): void
     {
         $id = $this->editedTerms();
-        $this->text('approve', ['--id' => $id, '--admin' => 12])->assertExitCode(0);
-        $this->text('publish', ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+        $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+        $this->text(action: 'publish', options: ['--id' => $id, '--admin' => 12])->assertExitCode(0);
 
-        $this->text('draft', ['--new-version-of' => $id, '--admin' => 11])
+        $this->text(action: 'draft', options: ['--new-version-of' => $id, '--admin' => 11])
             ->expectsOutputToContain($this->hashPrefixOf('The terms of Kuwait.'))
             ->assertExitCode(0);
     }
@@ -605,11 +629,11 @@ class StorefrontLegalTextCommandTest extends TestCase
     {
         $id = $this->editedTerms();
 
-        $this->text('approve', ['--id' => $id, '--admin' => 12, '--hash' => strtoupper($this->hashPrefixOf('The terms of Kuwait.'))])
+        $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 12, '--hash' => strtoupper($this->hashPrefixOf('The terms of Kuwait.'))])
             ->expectsOutputToContain("Text {$id} is approved by admin 12")
             ->assertExitCode(0);
 
-        $this->text('publish', ['--id' => $id, '--admin' => 12, '--hash' => hash('sha256', 'The terms of Kuwait.')])
+        $this->text(action: 'publish', options: ['--id' => $id, '--admin' => 12, '--hash' => hash('sha256', 'The terms of Kuwait.')])
             ->expectsOutputToContain("Text {$id} is published")
             ->assertExitCode(0);
     }
@@ -619,23 +643,23 @@ class StorefrontLegalTextCommandTest extends TestCase
         $id = $this->editedTerms();
         $linesBefore = DB::table('audit_logs')->count();
 
-        $this->text('approve', ['--id' => $id, '--admin' => 12, '--hash' => $this->hashPrefixOf('Other words.')])
+        $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 12, '--hash' => $this->hashPrefixOf('Other words.')])
             ->expectsOutputToContain("Text {$id} changed after it was read")
             ->assertExitCode(1);
 
         $this->assertSame(StorefrontLegalDocument::STATUS_DRAFT, StorefrontLegalDocument::query()->findOrFail($id)->status);
 
-        $this->text('edit', ['--id' => $id, '--admin' => 11, '--body-file' => $this->file('body2.txt', 'The terms of Kuwait, with a clause added.')])->assertExitCode(0);
-        $this->text('approve', ['--id' => $id, '--admin' => 12, '--hash' => $this->hashPrefixOf('The terms of Kuwait.')])
+        $this->text(action: 'edit', options: ['--id' => $id, '--admin' => 11, '--body-file' => $this->file('body2.txt', 'The terms of Kuwait, with a clause added.')])->assertExitCode(0);
+        $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 12, '--hash' => $this->hashPrefixOf('The terms of Kuwait.')])
             ->expectsOutputToContain('changed after it was read')
             ->assertExitCode(1);
 
         $this->assertSame(StorefrontLegalDocument::STATUS_DRAFT, StorefrontLegalDocument::query()->findOrFail($id)->status);
         $this->assertSame($linesBefore + 1, DB::table('audit_logs')->count(), 'only the edit was audited');
 
-        $this->text('approve', ['--id' => $id, '--admin' => 12, '--hash' => $this->hashPrefixOf('The terms of Kuwait, with a clause added.')])->assertExitCode(0);
+        $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 12, '--hash' => $this->hashPrefixOf('The terms of Kuwait, with a clause added.')])->assertExitCode(0);
 
-        $this->text('publish', ['--id' => $id, '--admin' => 12, '--hash' => $this->hashPrefixOf('The terms of Kuwait.')])
+        $this->text(action: 'publish', options: ['--id' => $id, '--admin' => 12, '--hash' => $this->hashPrefixOf('The terms of Kuwait.')])
             ->expectsOutputToContain('changed after it was read')
             ->assertExitCode(1);
 
@@ -648,7 +672,7 @@ class StorefrontLegalTextCommandTest extends TestCase
         $prefix = $this->hashPrefixOf('The terms of Kuwait.');
 
         foreach ([substr($prefix, 0, 11), 'abc', str_repeat('g', 12), $prefix . 'z', hash('sha256', 'x') . 'a'] as $hash) {
-            $this->text('approve', ['--id' => $id, '--admin' => 12, '--hash' => $hash])
+            $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 12, '--hash' => $hash])
                 ->expectsOutputToContain('--hash is the first 12 characters, or all 64')
                 ->assertExitCode(1);
         }
@@ -738,7 +762,7 @@ class StorefrontLegalTextCommandTest extends TestCase
 
     public function test_a_hash_named_for_a_text_that_does_not_exist_is_refused(): void
     {
-        $this->text('approve', ['--id' => 99, '--admin' => 12, '--hash' => $this->hashPrefixOf('The terms of Kuwait.')])
+        $this->text(action: 'approve', options: ['--id' => 99, '--admin' => 12, '--hash' => $this->hashPrefixOf('The terms of Kuwait.')])
             ->expectsOutputToContain('There is no legal text 99.')
             ->assertExitCode(1);
     }
@@ -786,12 +810,12 @@ class StorefrontLegalTextCommandTest extends TestCase
 
     public function test_an_action_it_does_not_know_is_refused(): void
     {
-        $this->text('publicise')->expectsOutputToContain('The action is list, draft, edit, approve, publish, revoke or discard.')->assertExitCode(1);
+        $this->text(action: 'publicise')->expectsOutputToContain('The action is list, draft, edit, approve, publish, revoke or discard.')->assertExitCode(1);
     }
 
     public function test_a_number_that_is_not_a_number_is_refused(): void
     {
-        $this->text('approve', ['--id' => 'one', '--admin' => 12])->expectsOutputToContain('--id is the number of a text.')->assertExitCode(1);
-        $this->text('approve', ['--admin' => 12])->expectsOutputToContain('--id is the number of a text.')->assertExitCode(1);
+        $this->text(action: 'approve', options: ['--id' => 'one', '--admin' => 12])->expectsOutputToContain('--id is the number of a text.')->assertExitCode(1);
+        $this->text(action: 'approve', options: ['--admin' => 12])->expectsOutputToContain('--id is the number of a text.')->assertExitCode(1);
     }
 }

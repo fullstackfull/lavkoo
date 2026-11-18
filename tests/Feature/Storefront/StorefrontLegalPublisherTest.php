@@ -380,7 +380,7 @@ class StorefrontLegalPublisherTest extends TestCase
         $this->publisher()->approve(textId: $new->id, approver: self::APPROVER);
         $this->publisher()->publish(textId: $new->id, publisher: self::APPROVER, effectiveFrom: now()->addDays(10));
 
-        $current = app(StorefrontLegalReadiness::class)->currentTextFor('KW', 'terms', 'en');
+        $current = app(StorefrontLegalReadiness::class)->currentTextFor(countryCode: 'KW', documentType: 'terms', locale: 'en');
         $this->assertSame(1, (int) $current->version, 'the text in force stays in force until the new one takes effect');
         $this->assertTrue($this->ready());
     }
@@ -407,13 +407,13 @@ class StorefrontLegalPublisherTest extends TestCase
             $this->publisher()->approve(textId: $second->id, approver: self::APPROVER);
             $this->publisher()->publish(textId: $second->id, publisher: self::APPROVER, effectiveFrom: CarbonImmutable::now('UTC')->addHours(3));
 
-            $this->assertSame(1, (int) app(StorefrontLegalReadiness::class)->currentTextFor('KW', 'terms', 'en')->version, "three hours before it takes effect, the first text is still in force ({$zone})");
+            $this->assertSame(1, (int) app(StorefrontLegalReadiness::class)->currentTextFor(countryCode: 'KW', documentType: 'terms', locale: 'en')->version, "three hours before it takes effect, the first text is still in force ({$zone})");
 
             $this->travelTo(CarbonImmutable::now()->addHours(2));
-            $this->assertSame(1, (int) app(StorefrontLegalReadiness::class)->currentTextFor('KW', 'terms', 'en')->version, "two hours later it is still the first ({$zone})");
+            $this->assertSame(1, (int) app(StorefrontLegalReadiness::class)->currentTextFor(countryCode: 'KW', documentType: 'terms', locale: 'en')->version, "two hours later it is still the first ({$zone})");
 
             $this->travelTo(CarbonImmutable::now()->addHours(2));
-            $this->assertSame(2, (int) app(StorefrontLegalReadiness::class)->currentTextFor('KW', 'terms', 'en')->version, "four hours later the second is in force ({$zone})");
+            $this->assertSame(2, (int) app(StorefrontLegalReadiness::class)->currentTextFor(countryCode: 'KW', documentType: 'terms', locale: 'en')->version, "four hours later the second is in force ({$zone})");
         } finally {
             $this->travelBack();
             date_default_timezone_set($original);
@@ -567,7 +567,7 @@ class StorefrontLegalPublisherTest extends TestCase
             'status' => StorefrontLegalDocument::STATUS_PUBLISHED, 'approved_by' => self::APPROVER, 'approved_at' => now()->subDay(), 'published_at' => now()->subHour(), 'effective_from' => now()->subHour(),
         ]);
 
-        $this->assertSame(2, (int) app(StorefrontLegalReadiness::class)->currentTextFor('KW', 'terms', 'en')->version);
+        $this->assertSame(2, (int) app(StorefrontLegalReadiness::class)->currentTextFor(countryCode: 'KW', documentType: 'terms', locale: 'en')->version);
         $this->assertFalse($this->ready(), 'a copy nobody edited is not a text, whatever wrote its status');
     }
 
@@ -707,7 +707,7 @@ class StorefrontLegalPublisherTest extends TestCase
 
         $this->travelTo(now()->addDays(31));
         $this->assertTrue($this->ready(), 'the revoked text never became the text in force, so the storefront did not close on its day');
-        $this->assertSame(1, (int) app(StorefrontLegalReadiness::class)->currentTextFor('KW', 'terms', 'en')->version);
+        $this->assertSame(1, (int) app(StorefrontLegalReadiness::class)->currentTextFor(countryCode: 'KW', documentType: 'terms', locale: 'en')->version);
 
         $this->travelBack();
         $third = $this->publisher()->draftNewVersionOf(textId: $terms->id, author: self::AUTHOR);
