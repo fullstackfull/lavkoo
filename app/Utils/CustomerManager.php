@@ -12,7 +12,6 @@ use App\Models\RestockProduct;
 use App\Models\BusinessSetting;
 use App\Models\ReferralCustomer;
 use App\Models\WalletTransaction;
-use Illuminate\Support\Facades\DB;
 use App\Models\LoyaltyPointTransaction;
 use App\Services\Customer\CustomerBalanceLock;
 
@@ -95,41 +94,35 @@ class CustomerManager
 
         $credit = 0;
         $debit = 0;
-        $user = User::find($user_id);
-
-        $loyalty_point_transaction = new LoyaltyPointTransaction();
-        $loyalty_point_transaction->user_id = $user->id;
-        $loyalty_point_transaction->transaction_id = \Str::uuid();
-        $loyalty_point_transaction->reference = $reference;
-        $loyalty_point_transaction->transaction_type = $transaction_type;
-
         if ($transaction_type == 'order_place') {
             $credit = (int)($amount * $settings['loyalty_point_item_purchase_point'] / 100);
-        } else if ($transaction_type == 'point_to_wallet') {
-            $debit = $amount;
-        } else if ($transaction_type == 'refund_order') {
+        } else if ($transaction_type == 'point_to_wallet' || $transaction_type == 'refund_order') {
             $debit = $amount;
         }
 
-        $current_balance = $user->loyalty_point + $credit - $debit;
-        $loyalty_point_transaction->balance = $current_balance;
-        $loyalty_point_transaction->credit = $credit;
-        $loyalty_point_transaction->debit = $debit;
-        $loyalty_point_transaction->created_at = now();
-        $loyalty_point_transaction->updated_at = now();
-        $user->loyalty_point = $current_balance;
+        return CustomerBalanceLock::apply($user_id, function (User $user) use ($reference, $transaction_type, $credit, $debit) {
+            $current_balance = $user->loyalty_point + $credit - $debit;
+            if ($transaction_type == 'point_to_wallet' && $current_balance < 0) {
+                return false;
+            }
 
-        try {
-            DB::beginTransaction();
+            $loyalty_point_transaction = new LoyaltyPointTransaction();
+            $loyalty_point_transaction->user_id = $user->id;
+            $loyalty_point_transaction->transaction_id = \Str::uuid();
+            $loyalty_point_transaction->reference = $reference;
+            $loyalty_point_transaction->transaction_type = $transaction_type;
+            $loyalty_point_transaction->balance = $current_balance;
+            $loyalty_point_transaction->credit = $credit;
+            $loyalty_point_transaction->debit = $debit;
+            $loyalty_point_transaction->created_at = now();
+            $loyalty_point_transaction->updated_at = now();
+            $user->loyalty_point = $current_balance;
+
             $user->save();
             $loyalty_point_transaction->save();
-            DB::commit();
+
             return true;
-        } catch (\Exception $ex) {
-            info($ex);
-            DB::rollback();
-        }
-        return false;
+        });
     }
 
     public static function countLoyaltyPointForAmount($id): int

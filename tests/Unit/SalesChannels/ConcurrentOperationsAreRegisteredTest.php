@@ -30,6 +30,13 @@ class ConcurrentOperationsAreRegisteredTest extends TestCase
         'layers_from_purchase_orders',
         'layer_purchase_order_tranche',
         'stock.ingest_many',
+        'wallet.repository',
+        'wallet.customer_manager',
+        'wallet.order_manager',
+        'wallet.customer_trait',
+        'loyalty.repository',
+        'loyalty.customer_manager',
+        'loyalty.convert',
     ];
 
     /**

@@ -6,11 +6,10 @@ use App\Contracts\Repositories\LoyaltyPointTransactionRepositoryInterface;
 use App\Models\BusinessSetting;
 use App\Models\LoyaltyPointTransaction;
 use App\Models\User;
-use Exception;
+use App\Services\Customer\CustomerBalanceLock;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Pagination\LengthAwarePaginator;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class LoyaltyPointTransactionRepository implements LoyaltyPointTransactionRepositoryInterface
@@ -117,45 +116,40 @@ class LoyaltyPointTransactionRepository implements LoyaltyPointTransactionReposi
         if ($settings['loyalty_point_status'] != 1) {
             return true;
         }
+
         $credit = 0;
         $debit = 0;
-        $user = $this->user->find($userId);
         if ($transactionType == 'order_place') {
             $credit = (int)($amount * $settings['loyalty_point_item_purchase_point'] / 100);
-        } else if ($transactionType == 'point_to_wallet') {
-            $debit = $amount;
-        } else if ($transactionType == 'refund_order') {
+        } else if ($transactionType == 'point_to_wallet' || $transactionType == 'refund_order') {
             $debit = $amount;
         }
 
         if ($credit == 0 && $debit == 0) {
             return false;
         }
-        $currentBalance = $user['loyalty_point'] + $credit - $debit;
 
-        $loyaltyPointTransaction = [
-            'user_id' => $user['id'],
-            'transaction_id' => Str::uuid(),
-            'transaction_type' => $transactionType,
-            'reference' => $reference,
-            'balance' => $currentBalance,
-            'credit' => $credit,
-            'debit' => $debit,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ];
+        return CustomerBalanceLock::apply($userId, function (User $user) use ($reference, $transactionType, $credit, $debit) {
+            $currentBalance = $user['loyalty_point'] + $credit - $debit;
+            if ($transactionType == 'point_to_wallet' && $currentBalance < 0) {
+                return false;
+            }
 
-        try {
-            DB::beginTransaction();
             $user->loyalty_point = $currentBalance;
             $user->save();
-            $this->loyaltyPointTransaction->create($loyaltyPointTransaction);
-            DB::commit();
+            $this->loyaltyPointTransaction->create([
+                'user_id' => $user['id'],
+                'transaction_id' => Str::uuid(),
+                'transaction_type' => $transactionType,
+                'reference' => $reference,
+                'balance' => $currentBalance,
+                'credit' => $credit,
+                'debit' => $debit,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
             return true;
-        } catch (Exception $ex) {
-            info($ex);
-            DB::rollback();
-        }
-        return false;
+        });
     }
 }
