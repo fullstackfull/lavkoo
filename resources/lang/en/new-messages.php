@@ -11273,4 +11273,5 @@ return [
 	'coupon_storefront' => 'Storefront',
 	'the_amounts_of_a_coupon_are_in_the_currency_of_its_storefront_it_cannot_be_changed_after_the_coupon_is_added' => 'The amounts of a coupon are in the currency of its storefront. It cannot be changed after the coupon is added.',
 	'tax_registration_number' => 'Tax registration number',
+	'the_wallet_is_not_available_in_the_currency_of_this_storefront' => 'The wallet is not available in the currency of this storefront.',
 ];

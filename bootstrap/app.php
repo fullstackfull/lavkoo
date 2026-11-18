@@ -140,6 +140,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'platform_admin' => \App\Http\Middleware\PlatformAdminGate::class,
             'platform_admin_auth' => \App\Http\Middleware\AuthenticatePlatformAdmin::class,
             'platform_admin_can' => \App\Http\Middleware\EnsurePlatformAdminCapability::class,
+            'storefront.wallet' => \App\Http\Middleware\EnsureWalletIsOpenInStorefront::class,
             // Adopted by the admin screens that work on the products of one country, so their money is that country's (GCC-05).
             'money.market' => \App\Http\Middleware\ScopeMoneyToMarket::class,
         ]);

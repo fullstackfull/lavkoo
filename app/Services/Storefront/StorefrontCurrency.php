@@ -34,10 +34,16 @@ final class StorefrontCurrency
     /** The amounts an operator may give a storefront (gcc:storefront:money). The others answer the neutral value while its money is in force. */
     public const STOREFRONT_AMOUNTS = ['minimum_order_amount', 'free_delivery_over_amount'];
 
-    /** The business settings a storefront answers for itself while it trades in its own currency. */
-    public const OVERRIDDEN_SETTINGS = [...self::CURRENCY_SETTINGS, ...self::AMOUNT_SETTINGS];
+    /**
+     * The settings that open the wallet. A customer has one balance, kept in the platform's money, until the balances are per market (GCC-15), so nothing may be
+     * paid from it or put into it in the currency of a storefront that trades in its own: both answer closed there.
+     */
+    public const CLOSED_SETTINGS = ['wallet_status', 'add_funds_to_wallet'];
 
-    /** No minimum, no free delivery, and no top-up (a maximum of zero refuses every amount): a number that cannot be in the wrong currency. */
+    /** The business settings a storefront answers for itself while it trades in its own currency. */
+    public const OVERRIDDEN_SETTINGS = [...self::CURRENCY_SETTINGS, ...self::AMOUNT_SETTINGS, ...self::CLOSED_SETTINGS];
+
+    /** No minimum, no free delivery, no top-up (a maximum of zero refuses every amount) and a closed wallet: a value that cannot be in the wrong currency. */
     public const NEUTRAL_AMOUNT = '0';
 
     /** The shipping type a storefront with its own currency uses: the cost typed on each product, in that storefront's currency. */

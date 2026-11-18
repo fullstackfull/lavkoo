@@ -389,7 +389,7 @@ Route::get('/cash', function () {
 
         Route::group(['prefix' => 'order'], function () {
             Route::controller(OrderController::class)->group(function () {
-                Route::get('place-by-wallet', 'placeOrderByWallet')->middleware(['storefront', 'storefront.sellable']);
+                Route::get('place-by-wallet', 'placeOrderByWallet')->middleware(['storefront', 'storefront.sellable', 'storefront.wallet']);
                 Route::get('refund', 'refund_request');
                 Route::post('refund-store', 'store_refund');
                 Route::get('refund-details', 'refund_details');
