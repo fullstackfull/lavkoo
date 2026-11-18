@@ -108,6 +108,10 @@ class ProductCodeLookupGuardTest extends TestCase
             'count' => 2, 'sites' => [], 'routed' => false,
             'reason' => 'Not a product: the `code` of a language, found in collections of languages and countries.',
         ],
+        'app/Http/Controllers/SharedController.php' => [
+            'count' => 1, 'sites' => [], 'routed' => false,
+            'reason' => 'Not a product: the `code` of the language a visitor picks, found in the store\'s list of languages (the security change that refuses a language the store does not list).',
+        ],
     ];
 
     /**
