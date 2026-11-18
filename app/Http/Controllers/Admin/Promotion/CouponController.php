@@ -63,7 +63,7 @@ class CouponController extends BaseController
             if ($request['discount_type'] == 'amount' && $request['discount'] > $request['min_purchase']) {
                 return response()->json([
                     'status' => 0,
-                    'message' =>translate('the_minimum_purchase_amount_must_be_greater_than_discount_amount')
+                    'message' =>translate('The_minimum_purchase_amount_must_be_greater_than_discount_amount')
                 ]);
             }
             $data = $couponService->getAddData(request: $request);
@@ -99,7 +99,7 @@ class CouponController extends BaseController
            if ($request['discount_type'] == 'amount' && $request['discount'] > $request['min_purchase']) {
                return response()->json([
                    'status' => 0,
-                   'message' =>translate('the_minimum_purchase_amount_must_be_greater_than_discount_amount')
+                   'message' =>translate('The_minimum_purchase_amount_must_be_greater_than_discount_amount')
                ]);
            }
            $data = $couponService->getUpdateData(request: $request);
