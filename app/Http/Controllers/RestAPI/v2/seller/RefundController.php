@@ -133,6 +133,12 @@ class RefundController extends Controller
                                     $query->where('seller_is', 'seller')->where('seller_id',$data['data']['id']);
                                 })->find($request->refund_request_id);
 
+        if (!$refund) {
+            return response()->json(['errors' => [
+                ['code' => 'refund', 'message' => translate('refund_request_not_found')],
+            ]], 404);
+        }
+
         $user = User::find($refund->customer_id);
 
         $loyalty_point_status = getWebConfig(name: 'loyalty_point_status');
