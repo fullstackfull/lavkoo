@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\HidesCustomerBalances;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -33,6 +34,7 @@ use Modules\TaxModule\app\Models\OrderTax;
  */
 class OrderTransaction extends Model
 {
+    use HidesCustomerBalances;
     /**
      * The attributes that are mass assignable.
      *

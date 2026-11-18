@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\HidesCustomerBalances;
 use App\Services\Address\AddressSnapshot;
 use App\Traits\DemoMaskingTrait;
 use Carbon\Carbon;
@@ -70,6 +71,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  */
 class Order extends Model
 {
+    use HidesCustomerBalances;
     use DemoMaskingTrait;
 
     protected $fillable = [
