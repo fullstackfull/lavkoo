@@ -24,11 +24,11 @@ Nothing is deleted. The default storefront keeps the documents it has always had
 
 ## The command
 
-`php artisan gcc:storefront:legal-text {list|draft|edit|approve|publish|revoke|discard} --admin=ID ...` is the entry point until an admin screen exists. It reads a template or a text from a file (at most 1 MB), refuses an admin id that is not in the table of admins, reads the day as `YYYY-MM-DD HH:MM` in UTC, says after each step what it did and whether the storefront's texts are complete now, and exits 1 with the reason in words when the service refuses. `list` shows the texts without their words. It works while the switches are off.
+`php artisan gcc:storefront:legal-text {list|draft|edit|approve|publish|revoke|discard} --admin=ID ...` is the entry point of the operator; the admin screen with its permissions is `docs/gcc/I2-STOREFRONT-ADMIN-SCREENS.md`. It reads a template or a text from a file (at most 1 MB), refuses an admin id that is not in the table of admins, reads the day as `YYYY-MM-DD HH:MM` in UTC, says after each step what it did and whether the storefront's texts are complete now, and exits 1 with the reason in words when the service refuses. `list` shows the texts without their words. It works while the switches are off.
 
 ## What it does not do
 
-- **No admin screen and no permission gate.** The person is the admin id typed by whoever runs the command (an id that exists, not a name). Who may take which step, a screen with its permission and a step-up or a dual approval for publishing and revoking (I2-03 criterion 2, GCC-20 level 3) belong to the admin slice.
+- **The command has no permission gate.** The person is the admin id typed by whoever runs the command (an id that exists, not a name). The screen has its permissions and takes the person from the session (`docs/gcc/I2-STOREFRONT-ADMIN-SCREENS.md`); a step-up or a dual approval for publishing and revoking (I2-03 criterion 5, GCC-20 level 3) is still not built.
 - **No template source.** A template is a file the operator names. The Saudi business pages are not read as templates yet.
 - **No retention rule** for texts and acceptance rows (I2-01 criterion 2): nothing here deletes a row, and no rule says how long they are kept.
 - **No Saudi baseline** (I2-01 criterion 1): the default storefront keeps its pages as they are.

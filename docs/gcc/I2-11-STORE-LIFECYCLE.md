@@ -42,7 +42,7 @@ While storefronts are on, `GET /api/v1/storefronts` adds `state` to every entry 
 ## What it does not do
 
 - **No web redirect and no web maintenance page.** The website does not resolve a storefront from the request yet (no route group under a country prefix; the `storefront` middleware is on the API routes only), so there is nothing to redirect to or to put in maintenance on the web, and the maintenance answer is always JSON (a page would need the error view, which needs the web layout's variables). The redirect mode is data and an answer for the apps; I2-15 criterion 1 (a GET on the web) waits for country paths.
-- **No admin screen and no permission gate.** The commands are the operator's, with a name typed in. Permission-gating a screen and a step-up for publishing belong to the admin slice and to GCC-20.
+- **The commands are the operator's, with a name typed in.** The admin screen with its permission is `docs/gcc/I2-STOREFRONT-ADMIN-SCREENS.md` (branch `gcc/p1-storefront-admin-screens`); a step-up for activating and pausing belongs to GCC-20.
 - **I2-17 criteria 1 and 2** (a new default must be active, legal-ready and not paused; changing the default is an authorised, audited action, not an environment edit) are not done: the default country is still `GCC_DEFAULT_COUNTRY`.
 - The customer app and the seller app do not read the new fields yet (J-08), and the customer app does not tell a customer why a storefront disappeared (I2-15 criterion 3).
 - **The new gate condition closes every non-default storefront that was selling.** None is, because storefronts are off everywhere; turning them on needs each one marked ready and activated first.

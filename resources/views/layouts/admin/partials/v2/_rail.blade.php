@@ -7,7 +7,7 @@
     $v2HasMarketing = Helpers::module_permission_check('marketing');
     $v2HasPeople   = Helpers::module_permission_check('people');
     $v2HasReports  = Helpers::module_permission_check('reports');
-    $v2HasChannels = Helpers::module_permission_check('sales_channels') || Helpers::module_permission_check('operational_costs');
+    $v2HasChannels = Helpers::module_permission_check('sales_channels') || Helpers::module_permission_check('operational_costs') || \App\Services\Storefront\StorefrontPermissionService::canOpenTheScreens();
     $v2HasSettings = Helpers::module_permission_check('business_settings')
                      || Helpers::module_permission_check('system_settings')
                      || Helpers::module_permission_check('3rd_party_setup')
