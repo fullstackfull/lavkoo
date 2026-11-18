@@ -141,6 +141,25 @@ class DigitalFilesAnswersTest extends TestCase
         return ['order-line' => ['order-line', 1], 'product' => ['product', 5], 'variation' => ['variation', 1]][$kind];
     }
 
+    #[DataProvider('kinds')]
+    public function test_a_row_read_without_its_id_is_answered_as_always_in_both_modes_and_never_fails(string $kind): void
+    {
+        foreach ([false, true] as $private) {
+            $this->useDigitalDisks(private: $private);
+            $this->putOnPublicDisk($this->nameOf($kind));
+            $this->askedAt('/admin/orders/details/1');
+            $row = match ($kind) {
+                'order-line' => OrderDetail::query()->select('digital_file_after_sell')->findOrFail(1),
+                'product' => Product::withoutGlobalScopes()->select('digital_file_ready', 'digital_file_ready_storage_type')->findOrFail(5),
+                'variation' => DigitalProductVariation::query()->select('file')->findOrFail(1),
+            };
+
+            $answer = $row->toArray();
+
+            $this->assertIsArray($answer, 'the row serializes without raising for the mode ' . ($private ? 'on' : 'off'));
+        }
+    }
+
     #[DataProvider('areasAndKinds')]
     public function test_while_the_mode_is_off_the_answer_is_the_public_address_in_every_area_as_always(string $path, string $area, string $kind): void
     {

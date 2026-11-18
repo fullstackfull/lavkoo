@@ -253,9 +253,9 @@ class StaffOrderRoutesTest extends TestCase
         $expected = [DeliverySyriaDispatchController::class, OrderController::class, OrderEditController::class, RefundController::class, CartController::class, POSController::class, POSOrderController::class];
         sort($expected);
 
-        $this->assertSame(['cart', 'edit', 'line.input', 'list', 'none', 'order.input', 'order.inputs', 'order.route', 'product.input', 'refund.input', 'refund.route'], $kinds);
+        $this->assertSame(['cart', 'edit', 'line.input', 'line.route', 'list', 'none', 'order.input', 'order.inputs', 'order.route', 'product.input', 'refund.input', 'refund.route'], $kinds);
         $this->assertSame($expected, $controllers);
-        $this->assertCount(48, $this->coveredRoutes());
+        $this->assertCount(49, $this->coveredRoutes());
     }
 
     // ---- a restricted employee ---------------------------------------------------------------------------------------------------

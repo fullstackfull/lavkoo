@@ -47,7 +47,7 @@ use Illuminate\Support\Facades\Session;
  *                    the order line it belongs to, and a screen names the ones it reads
  *   unavailable      it shows what cannot be told apart by country (a wallet, a total of every order): a restricted employee is answered like for something that does not exist
  *   order.route:n    one order id in the path; order.input:n one in the request; order.inputs:n a list in the request, all of which must be visible
- *   line.input:n     one order LINE id in the request: the order it belongs to must be visible
+ *   line.input:n     one order LINE id in the request: the order it belongs to must be visible; line.route:n one in the path
  *   refund.route:n   one refund request id in the path; refund.input:n one in the request
  *   product.input:n  one product id in the request: it must be one of the employee's (the product screens' rule, for the POS cart and the order edit)
  *   cart             every product in the POS cart that is in use must be one of theirs
@@ -75,6 +75,7 @@ final class StaffOrderRoutes
             'updatePaymentStatus' => ['order.input:id'],
             'filterInHouseOrder' => ['none'],
             'uploadDigitalFileAfterSell' => ['line.input:order_id'],
+            'downloadDigitalFile' => ['line.route:id'],
             'updateStatus' => ['order.input:id'],
             'bulkUpdateStatus' => ['order.inputs:ids'],
             'orderReturnAmountToCustomer' => ['order.input:order_id'],

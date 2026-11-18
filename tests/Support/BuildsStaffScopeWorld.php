@@ -42,6 +42,7 @@ trait BuildsStaffScopeWorld
             ['id' => 2, 'name' => 'Catalog', 'module_access' => json_encode(['catalog']), 'status' => 1],
             ['id' => 3, 'name' => 'Catalog and marketplace', 'module_access' => json_encode(['catalog', 'marketplace']), 'status' => 1],
             ['id' => 4, 'name' => 'Orders', 'module_access' => json_encode(['orders']), 'status' => 1],
+            ['id' => 50, 'name' => 'Catalog and marketing', 'module_access' => json_encode(['catalog', 'marketing']), 'status' => 1],
         ]);
 
         Schema::create('admins', function (Blueprint $table) {
@@ -59,6 +60,7 @@ trait BuildsStaffScopeWorld
             ['id' => 4, 'name' => 'No role', 'email' => 'none@example.test', 'admin_role_id' => null],
             ['id' => 5, 'name' => 'Marketplace', 'email' => 'five@example.test', 'admin_role_id' => 3],
             ['id' => 6, 'name' => 'Orders only', 'email' => 'six@example.test', 'admin_role_id' => 4],
+            ['id' => 70, 'name' => 'Catalog and marketing', 'email' => 'seventy@example.test', 'admin_role_id' => 50],
         ]);
     }
 
@@ -70,7 +72,7 @@ trait BuildsStaffScopeWorld
     {
         $this->refuseToDropStaffTablesOutsideATestDatabase();
 
-        foreach (['restock_product_customers', 'restock_products', 'stock_clearance_products', 'order_details', 'reviews', 'translations', 'categories', 'brands', 'shops', 'sellers', 'products', 'storages', 'business_settings'] as $table) {
+        foreach (['digital_product_variations', 'restock_product_customers', 'restock_products', 'stock_clearance_products', 'order_details', 'reviews', 'translations', 'categories', 'brands', 'shops', 'sellers', 'products', 'storages', 'business_settings'] as $table) {
             Schema::dropIfExists($table);
         }
 
@@ -160,6 +162,12 @@ trait BuildsStaffScopeWorld
             $table->boolean('is_active')->default(true);
             $table->string('discount_type')->nullable();
             $table->decimal('discount_amount', 24, 2)->default(0);
+            $table->timestamps();
+        });
+        Schema::create('digital_product_variations', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('product_id')->nullable();
+            $table->string('file')->nullable();
             $table->timestamps();
         });
         Schema::create('restock_products', function (Blueprint $table) {

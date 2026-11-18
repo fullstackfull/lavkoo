@@ -129,9 +129,9 @@ class StaffScopeDocTest extends TestCase
         }
 
         $this->assertSame([], $missing);
-        $this->assertStringContainsString('The rules of the 42 routes', $this->doc);
-        $this->assertStringContainsString('The rules of the 48 routes', $this->doc);
-        $this->assertSame(48, array_sum(array_map(static fn (string $controller): int => count(StaffOrderRoutes::rulesOf($controller)), StaffOrderRoutes::orderScreenControllers())));
+        $this->assertStringContainsString('The rules of the 44 routes', $this->doc);
+        $this->assertStringContainsString('The rules of the 49 routes', $this->doc);
+        $this->assertSame(49, array_sum(array_map(static fn (string $controller): int => count(StaffOrderRoutes::rulesOf($controller)), StaffOrderRoutes::orderScreenControllers())));
     }
 
     public function test_the_doc_carries_the_permission_each_covered_route_asks_for(): void

@@ -21,6 +21,7 @@ use Illuminate\Support\Facades\DB;
  *   input:{name}   one product id in the request (`name?` when it may be missing)
  *   inputs:{name}  a list of product ids in the request: all of them must be in scope, or none is touched
  *   restock:{name} one restock request id in the path: the product it asks for must be in scope
+ *   variation:{name} one digital product variation id in the path: the product it belongs to must be in scope
  *
  * A product out of scope is answered like a product that does not exist (a 404), for the id of a route and for an id that is not a product id at all, so that
  * belonging to a country is not something an employee can find out by asking.
@@ -36,6 +37,8 @@ final class StaffProductRoutes
             'getSkuCombinationView' => 'input:product_id?',
             'getDigitalVariationCombinationView' => 'input:product_id?',
             'deleteDigitalVariationFile' => 'input:product_id',
+            'downloadDigitalFile' => 'route:id',
+            'downloadDigitalVariationFile' => 'variation:id',
             'updateFeaturedStatus' => 'input:id',
             'getCategories' => 'none',
             'updateStatus' => 'input:id',
@@ -110,6 +113,7 @@ final class StaffProductRoutes
             'input' => $optional && StaffRouteIds::blank(value: $request->input($name)) ? [] : StaffRouteIds::one(value: $request->input($name)),
             'inputs' => StaffRouteIds::many(value: $request->input($name)),
             'restock' => self::productIdsOfRestockRequest(restockRequestId: $request->route($name)),
+            'variation' => self::productIdsOfDigitalVariation(variationId: $request->route($name)),
             default => null,
         };
     }
@@ -123,6 +127,19 @@ final class StaffProductRoutes
         }
 
         $productId = DB::table('restock_products')->where('id', $restockRequest[0])->value('product_id');
+
+        return $productId === null ? null : [(int) $productId];
+    }
+
+    /** @return list<int>|null */
+    private static function productIdsOfDigitalVariation(mixed $variationId): ?array
+    {
+        $variation = StaffRouteIds::one(value: $variationId);
+        if ($variation === null) {
+            return null;
+        }
+
+        $productId = DB::table('digital_product_variations')->where('id', $variation[0])->value('product_id');
 
         return $productId === null ? null : [(int) $productId];
     }

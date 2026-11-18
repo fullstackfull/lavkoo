@@ -133,7 +133,7 @@ class StaffProductRouteInventoryTest extends TestCase
             $this->assertSame([], array_values(array_diff_key($actions, $rules)), $controller . ' has routes without a rule in StaffProductRoutes');
             $this->assertSame([], array_values(array_diff(array_keys($rules), array_keys($actions))), $controller . ' has rules for actions that no route reaches');
             foreach ($rules as $action => $rule) {
-                $this->assertMatchesRegularExpression('/^(list|none|new|(route|input|inputs|restock):[A-Za-z_]+\??)$/', $rule, $controller . '@' . $action);
+                $this->assertMatchesRegularExpression('/^(list|none|new|(route|input|inputs|restock|variation):[A-Za-z_]+\??)$/', $rule, $controller . '@' . $action);
             }
         }
         foreach (StaffOrderRoutes::controllers() as $controller) {
@@ -227,7 +227,7 @@ class StaffProductRouteInventoryTest extends TestCase
         $found = $this->scanner->controllers();
 
         $this->assertArrayHasKey('App\Http\Controllers\Admin\Product\ProductController', $found);
-        $this->assertCount(38, $found['App\Http\Controllers\Admin\Product\ProductController']['productRoutes']);
+        $this->assertCount(40, $found['App\Http\Controllers\Admin\Product\ProductController']['productRoutes']);
         $this->assertGreaterThan(40, count($found));
         $this->assertGreaterThan(140, array_sum(array_map(static fn (array $controller): int => count($controller['productRoutes']), $found)));
     }

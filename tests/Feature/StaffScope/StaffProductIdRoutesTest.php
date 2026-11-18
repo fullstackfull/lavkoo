@@ -69,6 +69,10 @@ class StaffProductIdRoutesTest extends TestCase
             ['id' => 2, 'product_id' => self::FOREIGN, 'variant' => 'b'],
             ['id' => 3, 'product_id' => self::UNKNOWN, 'variant' => 'c'],
         ]);
+        DB::table('digital_product_variations')->insert([
+            ['id' => 1, 'product_id' => self::IN_SCOPE],
+            ['id' => 2, 'product_id' => self::FOREIGN],
+        ]);
     }
 
     protected function tearDown(): void
@@ -105,7 +109,7 @@ class StaffProductIdRoutesTest extends TestCase
     /** @return list<array{route: RoutingRoute, method: string, rule: string}> the covered routes whose rule names a product, or restock request, by an id */
     private function idRoutes(): array
     {
-        return array_values(array_filter($this->coveredRoutes(), static fn (array $covered): bool => preg_match('/^(route|input|inputs|restock):/', $covered['rule']) === 1));
+        return array_values(array_filter($this->coveredRoutes(), static fn (array $covered): bool => preg_match('/^(route|input|inputs|restock|variation):/', $covered['rule']) === 1));
     }
 
     /**
@@ -117,7 +121,7 @@ class StaffProductIdRoutesTest extends TestCase
     {
         [$kind, $name] = array_pad(explode(':', $rule, 2), 2, '');
         $name = rtrim($name, '?');
-        $inPath = in_array($kind, ['route', 'restock'], true);
+        $inPath = in_array($kind, ['route', 'restock', 'variation'], true);
 
         $uri = preg_replace_callback('/\{(\w+)\??\}/', static fn (array $match): string => $inPath && $match[1] === $name ? (is_scalar($value) ? rawurlencode((string) $value) : 'x') : ($match[1] === 'addedBy' ? 'in-house' : 'in_house'), '/' . $route->uri());
 
@@ -149,12 +153,12 @@ class StaffProductIdRoutesTest extends TestCase
         return true;
     }
 
-    /** What a request puts where the rule looks, to name a product: the id, a list of one, or the restock request that asks for it. */
+    /** What a request puts where the rule looks, to name a product: the id, a list of one, or the restock request or digital variation that belongs to it. */
     private function valueFor(string $rule, int $product): mixed
     {
         return match (true) {
             str_starts_with($rule, 'inputs:') => [$product],
-            str_starts_with($rule, 'restock:') => match ($product) {
+            str_starts_with($rule, 'restock:'), str_starts_with($rule, 'variation:') => match ($product) {
                 self::IN_SCOPE => 1,
                 self::FOREIGN => 2,
                 default => 99,
@@ -170,9 +174,9 @@ class StaffProductIdRoutesTest extends TestCase
         $controllers = array_values(array_unique(array_map(static fn (array $covered): string => ltrim((string) $covered['route']->getControllerClass(), '\\'), $this->coveredRoutes())));
         sort($controllers);
 
-        $this->assertSame(['input', 'inputs', 'list', 'new', 'none', 'restock', 'route'], $kinds);
+        $this->assertSame(['input', 'inputs', 'list', 'new', 'none', 'restock', 'route', 'variation'], $kinds);
         $this->assertSame([ProductModerationController::class, ProductController::class], $controllers);
-        $this->assertCount(42, $this->coveredRoutes());
+        $this->assertCount(44, $this->coveredRoutes());
     }
 
     // ---- a restricted employee ---------------------------------------------------------------------------------------------------
@@ -263,7 +267,7 @@ class StaffProductIdRoutesTest extends TestCase
     public function test_the_routes_that_name_no_product_pass_a_restricted_employee(): void
     {
         $this->asKuwaitEmployee();
-        $others = array_values(array_filter($this->coveredRoutes(), static fn (array $covered): bool => !in_array(explode(':', $covered['rule'])[0], ['route', 'input', 'inputs', 'restock'], true)));
+        $others = array_values(array_filter($this->coveredRoutes(), static fn (array $covered): bool => !in_array(explode(':', $covered['rule'])[0], ['route', 'input', 'inputs', 'restock', 'variation'], true)));
 
         $this->assertGreaterThan(10, count($others));
         foreach ($others as $covered) {

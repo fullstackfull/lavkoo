@@ -247,7 +247,7 @@ class StaffOrderRouteInventoryTest extends TestCase
         $found = $this->scanner->controllers();
 
         $this->assertArrayHasKey('App\Http\Controllers\Admin\Order\OrderController', $found);
-        $this->assertCount(17, $found['App\Http\Controllers\Admin\Order\OrderController']['orderRoutes']);
+        $this->assertCount(18, $found['App\Http\Controllers\Admin\Order\OrderController']['orderRoutes']);
         $this->assertGreaterThan(25, count($found));
         $this->assertGreaterThan(90, array_sum(array_map(static fn (array $controller): int => count($controller['orderRoutes']), $found)));
     }

@@ -86,6 +86,15 @@ class StaffProductListScopeTest extends TestCase
         return $this->signInAsStaff(adminId: 2);
     }
 
+    /** The searches that the reviews filter and the deal page share are for the people and marketing screens, so the employee who calls them holds marketing too. */
+    private function asKuwaitEmployeeWhoMayAlsoSearch(): static
+    {
+        $this->switchStaffScopesOn();
+        $this->giveCountries(adminId: 70, countries: ['KW']);
+
+        return $this->signInAsStaff(adminId: 70);
+    }
+
     /**
      * @param TestResponse|string $page the answer of a page, which must have been a success (the page of an error holds no id, and would pass for an empty list), or the
      *                                  markup a JSON answer carried
@@ -190,7 +199,7 @@ class StaffProductListScopeTest extends TestCase
 
     public function test_the_product_search_offers_only_the_products_of_the_country(): void
     {
-        $response = $this->asKuwaitEmployee()->getJson('/admin/products/search?searchValue=Product')->assertOk();
+        $response = $this->asKuwaitEmployeeWhoMayAlsoSearch()->getJson('/admin/products/search?searchValue=Product')->assertOk();
 
         $this->assertEqualsCanonicalizing([2, 3, 5], $this->productsOf($response->json('result')));
         $this->assertSame(3, $response->json('count'));
@@ -198,7 +207,7 @@ class StaffProductListScopeTest extends TestCase
 
     public function test_the_search_with_the_code_of_a_product_of_another_country_finds_nothing_while_the_master_admin_finds_it(): void
     {
-        $this->asKuwaitEmployee();
+        $this->asKuwaitEmployeeWhoMayAlsoSearch();
 
         $restricted = $this->getJson('/admin/products/search?searchValue=zzz&name=SKU1')->assertOk();
         $master = $this->signInAsStaff(adminId: 1)->getJson('/admin/products/search?searchValue=zzz&name=SKU1')->assertOk();
@@ -209,7 +218,7 @@ class StaffProductListScopeTest extends TestCase
 
     public function test_the_deal_picker_search_is_narrowed(): void
     {
-        $response = $this->asKuwaitEmployee()->getJson('/admin/products/search-all-product?searchValue=Product')->assertOk();
+        $response = $this->asKuwaitEmployeeWhoMayAlsoSearch()->getJson('/admin/products/search-all-product?searchValue=Product')->assertOk();
 
         $this->assertEqualsCanonicalizing([2, 3, 5], $this->productsOf($response->json('result')));
     }
@@ -233,7 +242,7 @@ class StaffProductListScopeTest extends TestCase
 
     public function test_the_selected_products_of_a_deal_page_leave_out_the_ids_of_other_countries(): void
     {
-        $response = $this->asKuwaitEmployee()->getJson('/admin/products/multiple-product-details?productIds[]=1&productIds[]=2&productIds[]=4&productIds[]=5')->assertOk();
+        $response = $this->asKuwaitEmployeeWhoMayAlsoSearch()->getJson('/admin/products/multiple-product-details?productIds[]=1&productIds[]=2&productIds[]=4&productIds[]=5')->assertOk();
 
         $this->assertEqualsCanonicalizing([2, 5], $this->productsOf($response->json('result')));
     }
@@ -300,9 +309,9 @@ class StaffProductListScopeTest extends TestCase
     public function test_an_employee_whose_every_value_is_damaged_sees_no_product_at_all(): void
     {
         $this->switchStaffScopesOn();
-        $this->giveCountries(adminId: 2, countries: ['zz']);
+        $this->giveCountries(adminId: 70, countries: ['zz']);
 
-        $this->signInAsStaff(adminId: 2);
+        $this->signInAsStaff(adminId: 70);
 
         $this->assertSame([], $this->productsOf($this->get('/admin/products/list/in_house')));
         $this->assertSame([], $this->productsOf($this->getJson('/admin/products/search?searchValue=Product')->json('result')));

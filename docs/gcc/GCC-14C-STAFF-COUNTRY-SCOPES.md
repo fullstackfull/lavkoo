@@ -99,7 +99,7 @@ combination views of the add form have no product yet) passes when it is missing
 (a redirect, an error page): only the restricted employee's answers are uniform, because only theirs can leak.
 
 **A route of a covered controller that has no rule is refused to a restricted employee**, never let through, and a test fails for it, so a screen added later cannot widen
-anybody. The rules of the 42 routes:
+anybody. The rules of the 44 routes:
 
 | Rule | Meaning |
 |---|---|
@@ -120,6 +120,8 @@ anybody. The rules of the 42 routes:
 | `POST admin/products/sku-combination` | `ProductController::getSkuCombinationView` | `input:product_id?` | module:catalog |
 | `POST admin/products/digital-variation-combination` | `ProductController::getDigitalVariationCombinationView` | `input:product_id?` | module:catalog |
 | `POST admin/products/digital-variation-file-delete` | `ProductController::deleteDigitalVariationFile` | `input:product_id` | module:catalog |
+| `GET admin/products/digital-file/{id}/{fileName?}` | `ProductController::downloadDigitalFile` | `route:id` | module:catalog |
+| `GET admin/products/digital-variation-file/{id}/{fileName?}` | `ProductController::downloadDigitalVariationFile` | `variation:id` | module:catalog |
 | `POST admin/products/featured-status` | `ProductController::updateFeaturedStatus` | `input:id` | module:catalog |
 | `GET admin/products/get-categories` | `ProductController::getCategories` | `none` | module:catalog |
 | `POST admin/products/status-update` | `ProductController::updateStatus` | `input:id` | module:catalog |
@@ -250,13 +252,13 @@ the action **lists**.
 | `cart` | every product of the POS cart in use must be one of the employee's |
 | `edit:n` | every product of the edit of the order named by input `n` must be one of the employee's |
 
-The rules of the 48 routes:
+The rules of the 49 routes:
 
 | Route | Action | Rule | Permission |
 |---|---|---|---|
 | `GET admin/orders/list/{status}` | `OrderController::index` | `list:orders` | module:orders |
 | `GET admin/orders/export-excel/{status}` | `OrderController::exportList` | `list:orders` | module:orders |
-| `GET admin/orders/generate-invoice/{id}` | `OrderController::generateInvoice` | `order.route:id` | none |
+| `GET admin/orders/generate-invoice/{id}` | `OrderController::generateInvoice` | `order.route:id` | module:orders,pos,people |
 | `GET admin/orders/details/{id}` | `OrderController::getView` | `order.route:id` + `list:orders` | module:orders |
 | `POST admin/orders/address-update` | `OrderController::updateAddress` | `order.input:order_id` | module:orders |
 | `POST admin/orders/update-deliver-info` | `OrderController::updateDeliverInfo` | `order.input:order_id` | module:orders |
@@ -266,6 +268,7 @@ The rules of the 48 routes:
 | `POST admin/orders/payment-status` | `OrderController::updatePaymentStatus` | `order.input:id` | module:orders |
 | `GET admin/orders/inhouse-order-filter` | `OrderController::filterInHouseOrder` | `none` | module:orders |
 | `POST admin/orders/digital-file-upload-after-sell` | `OrderController::uploadDigitalFileAfterSell` | `line.input:order_id` | module:orders |
+| `GET admin/orders/digital-file/{id}/{fileName?}` | `OrderController::downloadDigitalFile` | `line.route:id` | module:orders |
 | `POST admin/orders/status` | `OrderController::updateStatus` | `order.input:id` | module:orders |
 | `POST admin/orders/bulk-status` | `OrderController::bulkUpdateStatus` | `order.inputs:ids` | module:orders |
 | `POST admin/orders/customer-return-amount` | `OrderController::orderReturnAmountToCustomer` | `order.input:order_id` | module:orders |
@@ -414,9 +417,9 @@ constructors, after the sign-in check and the module permission of the route (th
 | Route | Action | Rule | Permission |
 |---|---|---|---|
 | `GET admin/dashboard` | `DashboardController::index` | `list:orders` + `list:order_lines` + `list:order_transactions` + `list:refunds` | none |
-| `POST admin/dashboard/order-status` | `DashboardController::getOrderStatus` | `list:orders` | none |
-| `GET admin/dashboard/earning-statistics` | `DashboardController::getEarningStatistics` | `list:order_transactions` | none |
-| `GET admin/dashboard/order-statistics` | `DashboardController::getOrderStatistics` | `list:orders` | none |
+| `POST admin/dashboard/order-status` | `DashboardController::getOrderStatus` | `list:orders` | module:dashboard |
+| `GET admin/dashboard/earning-statistics` | `DashboardController::getEarningStatistics` | `list:order_transactions` | module:dashboard |
+| `GET admin/dashboard/order-statistics` | `DashboardController::getOrderStatistics` | `list:orders` | module:dashboard |
 | `GET admin/dashboard/real-time-activities` | `DashboardController::getRealTimeActivities` | `list:orders` | none |
 | `GET admin/analytics` | `AnalyticsController::index` | `unavailable` | module:reports |
 | `GET admin/analytics/live-feed` | `AnalyticsController::live` | `unavailable` | module:reports |
@@ -502,14 +505,14 @@ constructors, after the sign-in check and the module permission of the route (th
 | `GET admin/delivery-man/ajax-order-status-history/{order}` | `DeliveryManController::getOrderStatusHistory` | `order.route:order` | module:people |
 | `GET admin/business-settings/customer-settings` | `CustomerController::getCustomerSettingsView` | `none` | module:business_settings |
 | `POST admin/business-settings/customer-settings` | `CustomerController::updateCustomer` | `none` | module:business_settings |
-| `GET admin/report/get-tax-report` | `AdminTaxReportController::getTaxReport` | `list:orders` + `list:order_transactions` | none |
-| `GET admin/report/get-tax-details` | `AdminTaxReportController::getTaxDetails` | `list:orders` + `list:order_transactions` | none |
-| `GET admin/report/tax-details-report-export` | `AdminTaxReportController::adminTaxDetailsExport` | `list:orders` + `list:order_transactions` | none |
-| `GET admin/report/admin-tax-report-export` | `AdminTaxReportController::adminTaxReportExport` | `list:orders` + `list:order_transactions` | none |
-| `GET admin/report/vendor-wise-taxes` | `VendorTaxReportController::vendorWiseTaxes` | `list:orders` + `list:order_transactions` | none |
-| `GET admin/report/vendor-wise-taxes-export` | `VendorTaxReportController::vendorWiseTaxExport` | `list:orders` + `list:order_transactions` | none |
-| `GET admin/report/vendor-tax-report` | `VendorTaxReportController::vendorTax` | `list:orders` + `list:order_transactions` | none |
-| `GET admin/report/vendor-tax-export` | `VendorTaxReportController::vendorTaxExport` | `list:orders` + `list:order_transactions` | none |
+| `GET admin/report/get-tax-report` | `AdminTaxReportController::getTaxReport` | `list:orders` + `list:order_transactions` | module:reports |
+| `GET admin/report/get-tax-details` | `AdminTaxReportController::getTaxDetails` | `list:orders` + `list:order_transactions` | module:reports |
+| `GET admin/report/tax-details-report-export` | `AdminTaxReportController::adminTaxDetailsExport` | `list:orders` + `list:order_transactions` | module:reports |
+| `GET admin/report/admin-tax-report-export` | `AdminTaxReportController::adminTaxReportExport` | `list:orders` + `list:order_transactions` | module:reports |
+| `GET admin/report/vendor-wise-taxes` | `VendorTaxReportController::vendorWiseTaxes` | `list:orders` + `list:order_transactions` | module:reports |
+| `GET admin/report/vendor-wise-taxes-export` | `VendorTaxReportController::vendorWiseTaxExport` | `list:orders` + `list:order_transactions` | module:reports |
+| `GET admin/report/vendor-tax-report` | `VendorTaxReportController::vendorTax` | `list:orders` + `list:order_transactions` | module:reports |
+| `GET admin/report/vendor-tax-export` | `VendorTaxReportController::vendorTaxExport` | `list:orders` + `list:order_transactions` | module:reports |
 <!-- slice-3-rules-end -->
 
 ## The survey: every admin route that reads products or names one
@@ -522,7 +525,7 @@ each action, its path and its parameters, and the file of each controller (so a 
 product manager, the products table, and a product id in a request.
 
 **49 controllers: 2 scoped in slice 1, 5 scoped in slice 2, 9 scoped in slice 3, 6 not needed, 27 out of slice 3.**
-**153 routes read or name a product: 42 scoped in slice 1, 16 scoped in slice 2, 13 scoped in slice 3, 22 not needed, 60 out of slice 3.**
+**155 routes read or name a product: 44 scoped in slice 1, 16 scoped in slice 2, 13 scoped in slice 3, 22 not needed, 60 out of slice 3.**
 
 The slices that follow slice 3 (the people, the dashboard, the reports and the shared layout), in the order proposed:
 
@@ -534,7 +537,7 @@ The slices that follow slice 3 (the people, the dashboard, the reports and the s
 
 | Controller | Admin routes | Routes that read or name a product | Status | Why |
 |---|---:|---:|---|---|
-| `Admin\Product\ProductController` | 38 | 38 | scoped in slice 1 | The product screens: lists, counters, pickers, exports, the add and edit forms, and every action on a product. Every action has a rule in StaffProductRoutes. |
+| `Admin\Product\ProductController` | 40 | 40 | scoped in slice 1 | The product screens: lists, counters, pickers, exports, the add and edit forms, and every action on a product. Every action has a rule in StaffProductRoutes. |
 | `Admin\Marketplace\ProductModerationController` | 4 | 4 | scoped in slice 1 | Approve, reject or suspend a seller product by its id, singly or in bulk, and read its history: an id route like the product screens. |
 | `Admin\Product\BrandController` | 9 | 1 | not needed | Reads the products of a brand only to refuse deleting a brand that is in use. The answer must count every country's products, or a brand a product of another country uses could be deleted. |
 | `Admin\Product\CategoryController` | 7 | 2 | not needed | As the brands: the products of a category are read only to refuse deleting or moving a category that is in use, and that count must include every country. |
@@ -552,7 +555,7 @@ The slices that follow slice 3 (the people, the dashboard, the reports and the s
 | `Admin\Settings\ThemeBuilderController` | 25 | 2 | out of slice 3 (slice 4) | The pickers of the theme builder list and name products of every country. |
 | `Admin\Settings\SeoHealthController` | 1 | 1 | out of slice 3 (slice 4) | Audits the SEO of the products a storefront shows, of every country. |
 | `Admin\Settings\SiteMapController` | 6 | 0 | out of slice 3 (slice 4) | The site map lists the active products of every country. |
-| `Admin\Order\OrderController` | 17 | 1 | scoped in slice 2 | Every order screen: the lists per status with their filters and counters, the exports, the details with the neighbours of an order, and every action on an order (status, payment, address, courier, invoice, bulk change). Every action has a rule in StaffOrderRoutes. |
+| `Admin\Order\OrderController` | 18 | 1 | scoped in slice 2 | Every order screen: the lists per status with their filters and counters, the exports, the details with the neighbours of an order, and every action on an order (status, payment, address, courier, invoice, bulk change). Every action has a rule in StaffOrderRoutes. |
 | `Admin\Order\OrderEditController` | 7 | 6 | scoped in slice 2 | The order edit: the product picker is narrowed by the product scope, the order is looked up by id and a product of another country is refused. Every action has a rule in StaffOrderRoutes. |
 | `Admin\POS\POSController` | 6 | 5 | scoped in slice 2 | The POS grid and search offer the products of the employee's countries (the product scope), and a product of another country is refused by id. Every action has a rule in StaffOrderRoutes. |
 | `Admin\POS\CartController` | 9 | 3 | scoped in slice 2 | The POS cart takes, prices and counts a product by id: a product of another country is refused. Every action has a rule in StaffOrderRoutes. |
@@ -682,8 +685,8 @@ It walks the real route table and fails for an admin controller that reads any o
 The scan reads the models, the repositories, the tables, the relations, the services that hold the sums, the wallets, and an order id in a request, in the source of each action and
 in the file of each controller. The scoped controllers are exactly the ones that have rules in `StaffOrderRoutes`, and a test keeps this document in step.
 
-**33 controllers: 6 scoped in slice 2, 15 scoped in slice 3, 4 not needed, 8 out of slice 3.**
-**113 routes read or name an order: 35 scoped in slice 2, 49 scoped in slice 3, 13 not needed, 16 out of slice 3.**
+**32 controllers: 6 scoped in slice 2, 14 scoped in slice 3, 4 not needed, 8 out of slice 3.**
+**114 routes read or name an order: 36 scoped in slice 2, 49 scoped in slice 3, 13 not needed, 16 out of slice 3.**
 
 | Slice | What it takes |
 |---|---|
@@ -695,7 +698,7 @@ in the file of each controller. The scoped controllers are exactly the ones that
 
 | Controller | Admin routes | Routes that read or name an order | Status | Why |
 |---|---:|---:|---|---|
-| `Admin\Order\OrderController` | 17 | 17 | scoped in slice 2 | Every order screen: the lists per status with their filters and counters, the exports, the details with the neighbours of an order, and every action on an order. Every action has a rule in StaffOrderRoutes. |
+| `Admin\Order\OrderController` | 18 | 18 | scoped in slice 2 | Every order screen: the lists per status with their filters and counters, the exports, the details with the neighbours of an order, and every action on an order. Every action has a rule in StaffOrderRoutes. |
 | `Admin\Order\OrderEditController` | 7 | 7 | scoped in slice 2 | The order edit: the order is looked up by id, the product picker is narrowed by the product scope and a product of another country is refused. Every action has a rule in StaffOrderRoutes. |
 | `Admin\Order\DeliverySyriaDispatchController` | 1 | 1 | scoped in slice 2 | Dispatches an order to the Delivery Syria courier by its id: an order route like the order screens. Every action has a rule in StaffOrderRoutes. |
 | `Admin\Order\RefundController` | 4 | 4 | scoped in slice 2 | The refund requests: the lists, their exports, the details and the decision follow the order line each request is about. Every action has a rule in StaffOrderRoutes. |
@@ -715,8 +718,7 @@ in the file of each controller. The scoped controllers are exactly the ones that
 | `Admin\Telemetry\AnalyticsController` | 7 | 1 | scoped in slice 3 | The analytics screens count visits, orders and revenue from rollups that carry no country of the shop, so they cannot be told apart by country: every action is unavailable to a restricted employee until the owner decides what they may see. Every action has a rule in StaffOrderRoutes. |
 | `Modules\TaxModule\Admin\Reports\AdminTaxReportController` | 4 | 0 | scoped in slice 3 | The tax report and its details and exports sum the taxes of the money records of the orders of the employee's countries. Every action has a rule in StaffOrderRoutes. |
 | `Modules\TaxModule\Admin\Reports\VendorTaxReportController` | 4 | 2 | scoped in slice 3 | The vendor tax reports and their exports sum the orders and taxes of the employee's countries; the raw sum over the orders table is narrowed by the same rule. Every action has a rule in StaffOrderRoutes. |
-| `Admin\V2AdvancedSearchController` | 1 | 0 | scoped in slice 3 | The header search of the new layout finds an order or a refund request by its number only when it is the employee's, and a product only when it is one of their countries'. It narrows what it hands back, with no middleware: it fills a cache every employee shares (App\Services\Staff\StaffSearchHits). |
-| `Admin\Product\ProductController` | 38 | 2 | not needed | Counts the order lines of a product the employee works with: the lines of their own products, narrowed by the product scope of slice 1. It lists no order. |
+| `Admin\Product\ProductController` | 40 | 2 | not needed | Counts the order lines of a product the employee works with: the lines of their own products, narrowed by the product scope of slice 1. It lists no order. |
 | `Admin\Settings\BusinessSettingsController` | 15 | 2 | not needed | The refund setup page is a setting of the shop. It reads no order. |
 | `Admin\Settings\OrderSettingsController` | 2 | 2 | not needed | The order settings page is a setting of the shop. It reads no order. |
 | `Admin\Marketplace\PurchaseOrderController` | 7 | 7 | not needed | Purchase orders to suppliers are not customer orders: they have no order, no order line and no country of their own. |
@@ -747,7 +749,6 @@ in the file of each controller. The scoped controllers are exactly the ones that
 | `Admin\Telemetry\AnalyticsController` | `GET admin/analytics/export/{dimension}` |
 | `Modules\TaxModule\Admin\Reports\AdminTaxReportController` |  |
 | `Modules\TaxModule\Admin\Reports\VendorTaxReportController` | `GET admin/report/vendor-tax-report`<br>`GET admin/report/vendor-tax-export` |
-| `Admin\V2AdvancedSearchController` |  |
 
 ### Routes that read or name an order, of the controllers that are not needed
 
@@ -781,6 +782,7 @@ fails the day one reaches it.
 
 | Controller | Status | Why it is not seen by the scan |
 |---|---|---|
+| `Admin\V2AdvancedSearchController` | scoped in slice 3 | The header search of the new layout finds an order or a refund request by its number only when it is the employee's, and a product only when it is one of their countries'. It narrows what it hands back, with no middleware: it fills a cache every employee shares (App\Services\Staff\StaffSearchHits). |
 | `Admin\AdvancedSearchController` | scoped in slice 3 | The header search of the classic layout is the same search as the new one (StaffSearchHits): an order or a refund request is found only when it is the employee's, with no middleware. |
 | `Admin\InhouseProductSaleController` | scoped in slice 3 | The in-house sales report counts the sales of the order lines of the employee's countries through the product repository, for their products. Every action has a rule in StaffOrderRoutes. |
 | `Admin\Customer\CustomerWalletController` | out of slice 3 (owner) | The wallet report and the wallet transactions of the customers carry no order and no country, so they cannot be told apart by country. |

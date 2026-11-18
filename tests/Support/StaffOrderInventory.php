@@ -30,7 +30,6 @@ use App\Http\Controllers\Admin\Settings\InhouseShopController;
 use App\Http\Controllers\Admin\Settings\OrderSettingsController;
 use App\Http\Controllers\Admin\Telemetry\AnalyticsController;
 use App\Http\Controllers\Admin\TransactionReportController;
-use App\Http\Controllers\Admin\V2AdvancedSearchController;
 use App\Http\Controllers\Admin\Vendor\VendorController;
 use App\Http\Controllers\Admin\VendorProductSaleReportController;
 use Modules\TaxModule\app\Http\Controllers\Admin\Reports\AdminTaxReportController;
@@ -145,10 +144,6 @@ final class StaffOrderInventory
             'class' => self::SCOPED, 'slice' => 'slice 3',
             'reason' => 'The vendor tax reports and their exports sum the orders and taxes of the employee\'s countries; the raw sum over the orders table is narrowed by the same rule. Every action has a rule in StaffOrderRoutes.',
         ],
-        V2AdvancedSearchController::class => [
-            'class' => self::SCOPED, 'slice' => 'slice 3', 'by' => 'the search',
-            'reason' => 'The header search of the new layout finds an order or a refund request by its number only when it is the employee\'s, and a product only when it is one of their countries\'. It narrows what it hands back, with no middleware: it fills a cache every employee shares (App\Services\Staff\StaffSearchHits).',
-        ],
         ProductController::class => [
             'class' => self::NOT_NEEDED, 'slice' => null,
             'reason' => 'Counts the order lines of a product the employee works with: the lines of their own products, narrowed by the product scope of slice 1. It lists no order.',
@@ -206,6 +201,7 @@ final class StaffOrderInventory
      * @var array<class-string, array{slice: string, reason: string, class?: string}>
      */
     public const READ_THROUGH_SERVICES = [
+        'App\Http\Controllers\Admin\V2AdvancedSearchController' => ['class' => self::SCOPED, 'slice' => 'slice 3', 'by' => 'the search', 'reason' => 'The header search of the new layout finds an order or a refund request by its number only when it is the employee\'s, and a product only when it is one of their countries\'. It narrows what it hands back, with no middleware: it fills a cache every employee shares (App\Services\Staff\StaffSearchHits).'],
         'App\Http\Controllers\Admin\AdvancedSearchController' => ['class' => self::SCOPED, 'slice' => 'slice 3', 'by' => 'the search', 'reason' => 'The header search of the classic layout is the same search as the new one (StaffSearchHits): an order or a refund request is found only when it is the employee\'s, with no middleware.'],
         'App\Http\Controllers\Admin\InhouseProductSaleController' => ['class' => self::SCOPED, 'slice' => 'slice 3', 'reason' => 'The in-house sales report counts the sales of the order lines of the employee\'s countries through the product repository, for their products. Every action has a rule in StaffOrderRoutes.'],
         'App\Http\Controllers\Admin\Customer\CustomerWalletController' => ['slice' => 'owner', 'reason' => 'The wallet report and the wallet transactions of the customers carry no order and no country, so they cannot be told apart by country.'],
