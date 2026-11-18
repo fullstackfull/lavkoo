@@ -44,8 +44,9 @@ jobs:
   tests-sqlite:
     name: Tests, SQLite (PHP ${{ matrix.php }})
     runs-on: ubuntu-latest
-    # The whole suite is now about 4,700 tests: 14 minutes on one runner, more than 20 on another, so the limit leaves room.
-    timeout-minutes: 45
+    # The whole suite took 14 minutes on one runner, 37 on another (run 293) and 45 minutes 16 seconds on a third (run 334, PHP 8.3, which this job's old ceiling of 45 minutes cancelled);
+    # it has grown by about a thousand tests since. The ceiling is the one the MySQL sales-channel jobs already have.
+    timeout-minutes: 110
     strategy:
       fail-fast: false
       matrix:
