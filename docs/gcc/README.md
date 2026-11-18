@@ -19,6 +19,7 @@
 2. [STATUS.md](./STATUS.md) — current stage, risks, pending work, and ownership.
 3. [DISCOVERY_PROMPT_01.md](./DISCOVERY_PROMPT_01.md) — Claude Code audit prompt; **code read-only**.
 4. [COLLABORATION.md](./COLLABORATION.md) — mandatory collaboration, handoff and immediate GitHub publishing protocol.
+5. [MASTER_IMPLEMENTATION_TRACKER.md](./MASTER_IMPLEMENTATION_TRACKER.md) — every requirement of the original plan by axis A to M, with its state, evidence, what remains and the next coding task; progress is read from here, not from the pull request list.
 
 ## Working agreement
 

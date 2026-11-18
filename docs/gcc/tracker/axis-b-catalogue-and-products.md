@@ -1,0 +1,402 @@
+# Axis B: Catalogue and products
+
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 18. Acceptance criteria: 91 (MET 34, CODED 17, MISSING 40). Code completion 56%, proven by a passing test 37%, release readiness 0%.
+
+Independent verification: done for unit(s) B.
+
+Every card gives the ten fields of the directive: (1) id and name, (2) functional requirement, (3) what exists in main, (4) what the draft pull requests did, (5) what remains, (6) pull requests and commits, (7) tests that exist and where they ran, (8) dependencies and blockers, (9) acceptance criteria marked MET (a named passing test or CI job on a named head), CODED (code exists, no passing test cited) or MISSING, (10) the next coding task.
+
+#### B-01. Country-owned products: each product row belongs to one country and a storefront shows only its own
+
+- **State: IN PROGRESS** | plan lines 221-222 | Foundation (independent catalogues per country), GCC-08, GCC-18 | reviews: security, owner-decision
+- **(2) Functional requirement.** A product row belongs to exactly one of the six countries (SA, AE, KW, QA, BH, OM). A storefront request lists, searches and opens only its own country's products; the Saudi default storefront keeps serving today's catalogue unchanged.
+- **(3) Exists now in code (main).** Nothing country-aware: Product::scopeActive applies status, approval, brand and product-type rules from global settings, so the one Saudi storefront shows every product (app/Models/Product.php). No storefront_country column exists on main.
+- **(4) Done in the draft PRs.** #47: products.storefront_country (CHAR(2), default SA, additive, no index) and StorefrontCatalog::restrict() via Product::scopeInCurrentStorefront, ended by active(). #46 (carried in #47): searches and by-id reads use active(). #48 cart, banners, search pool; #50 caches; #37 binds product routes. All behind GCC_STOREFRONTS_ENABLED (default off).
+- **(5) What remains.** (1) Modules/Auction products carry no country. (2) Wishlist and compare adds accept another country's product id. (3) No guard test for customer-facing product reads that bypass active() (discovery E08 counted 142 static query starts and 67 raw products queries outside it). (4) No index on storefront_country: read plans on real data before the first import. (5) Seller products are always SA (B-09).
+- **(6) PRs and commits.** [lavkoo#28](https://github.com/fullstackfull/lavkoo/pull/28) `8c8d32a`; [lavkoo#37](https://github.com/fullstackfull/lavkoo/pull/37) `2344fa3`; [lavkoo#46](https://github.com/fullstackfull/lavkoo/pull/46) `c07cd36`; [lavkoo#47](https://github.com/fullstackfull/lavkoo/pull/47) `e0dd5dc`; [lavkoo#48](https://github.com/fullstackfull/lavkoo/pull/48) `4a821d3`; [lavkoo#50](https://github.com/fullstackfull/lavkoo/pull/50) `98191ff`; [lavkoo#53](https://github.com/fullstackfull/lavkoo/pull/53) `7e32bba`; [lavkooapp#1](https://github.com/fullstackfull/lavkooapp/pull/1) `2a8c84c`
+- **(7) Tests.**
+  - `ci` StorefrontCatalogTest (22): AE shows only AE products, flag-off SQL unchanged, migration idempotent, rollback refused while another country has products (tests/Feature/Storefront/StorefrontCatalogTest.php; PR 47 e0dd5dc: SQLite 8.2/8.3 + Storefront tests MySQL 8 and MariaDB 11.4.2 green; PR 83 8ff3410 green)
+  - `ci` StorefrontByIdReadsTest (6): reviews, related products, rating, counter and share link of another country's product answer like an unknown product (tests/Feature/Storefront/StorefrontByIdReadsTest.php; same PR 47 jobs; PR 83)
+  - `ci` HiddenProductExposureTest and SearchVisibilityTest: hidden products answer exactly like unknown ones (tests/Feature/Security/; PR 46 c07cd36: SQLite + Fulfillment+security tests MySQL 8 and MariaDB 11.4.2 green)
+- **(8) Dependencies and blockers.** Chain #8, #19, #28, #37-#39, #42, #43, #47-#50, #53 merges bottom to top, #46 first. Product.php, ProductManager.php, RestAPI/v1/ProductController.php and CartManager.php are changed by both the security set and the GCC chain; PR 75 and PR 83 conflict in five files, so no tree combines them.
+- **(9) Acceptance criteria.**
+  - [MET] With storefronts on, the AE storefront lists only AE products and the SA storefront only SA ones (StorefrontCatalogTest::test_another_storefront_shows_only_its_own_products; PR 47 e0dd5dc SQLite + Storefront MySQL 8/MariaDB; PR 83 8ff3410)
+  - [MET] Reviews, related products, rating, counter and share link of another country's product answer like an unknown product (StorefrontByIdReadsTest (HTTP with X-Storefront); PR 47 e0dd5dc jobs; PR 83)
+  - [MET] With the flag off no query mentions the column and every product shows as today (StorefrontCatalogTest::test_the_visibility_query_is_unchanged_while_storefronts_are_off_or_the_request_is_not_bound; PR 47)
+  - [MET] Existing products stay Saudi: the migration is additive and idempotent, and rolling it back is refused while another country's product exists (StorefrontCatalogTest migration tests; PR 47 e0dd5dc; PR 83)
+  - [MISSING] Auction module products belong to one country or are hidden outside the default storefront (No storefront_country use under Modules/; runbook: the auction module's products carry no country)
+  - [MISSING] A test fails when a customer-facing product read bypasses the storefront narrowing (Only caches (StorefrontProductCachesTest) and code lookups (ProductCodeLookupGuardTest) have source scans)
+- **(10) Next coding task.** Branch stacked on #53: add tests/Feature/Storefront/StorefrontReadGuardTest.php (scan app/ for customer-facing Product reads that neither use active()/StorefrontCatalog nor are listed with a reason, modelled on ProductCodeLookupGuardTest). For auctions, first get the add-on source into a tracked location or decide with the owner to gate auctions outside the default storefront in the host app (AuctionMenuWithRoutesTrait, routes, theme sections); the add-on's own tables cannot be changed from these trees. Wishlist and compare adds stay a documented known limit.
+- **Open owner decisions.** Whether auctions are sold per country or only in the default storefront; whether to add the (storefront_country, id) index after reading plans on real data (runbook).
+- **Verifier note (not applied automatically).** remaining (item 1): 'Modules/Auction products carry no country' implies the add-on was inspected. The Auction source is not in any ref of this repository: git log --all -- Modules/Auction is empty, and origin/main, PR 75 and PR 83 contain only Modules/AI, Blog and TaxModule, although main imports Modules\Auction\app\Models\AuctionProduct (Admin/Customer/CustomerController.php line 48) and modules_statuses.json lists Auction as true. Proposed: (1) The Auction add-on is not tracked in this repository (no commit holds Modules/Auction), so whether its products carry a country cannot be verified or changed here; the only statement is the runbook's known limit 'The auction module's products carry no country.' Production state (enabled or not) is unknown, but modules_statuses.json on main lists Auction as true.
+- **Verifier note (not applied automatically).** ac[4].e (criterion 'Auction module products belong to one country ...'): 'No storefront_country use under Modules/' is vacuous: the grep finds nothing because Modules/Auction does not exist in any tree. Proposed: Modules/Auction is absent from every ref (git log --all -- Modules/Auction is empty); the only evidence is docs/gcc/STOREFRONT_FLAG_RUNBOOK.md, Known limits: 'The auction module's products carry no country.' Status MISSING stands, with unverifiable scope.
+- **Verifier note (not applied automatically).** next_task corrected by the verifier (applied above).
+
+#### B-02. Independent local prices: each store prices its own copy, with no conversion or sync between countries
+
+- **State: IN PROGRESS** | plan lines 222, 284-285 | Foundation (local pricing, not auto-FX), GCC-18 | reviews: none
+- **(2) Functional requirement.** A product's price (unit_price, discount) and stock live on its own country row. No storefront price is derived, converted or synced from another country's price, and a copy of a product in another country is priced on its own.
+- **(3) Exists now in code (main).** Price and discount sit on the product row (products.unit_price, discount), stored in a USD-based unit under multi_currency and as entered under single_currency (ProductService, currencyConverter). One Saudi catalogue, so nothing was ever shared across countries.
+- **(4) Done in the draft PRs.** #47 makes the row country-owned, so price and stock are that country's alone and none of the roughly 400 price sites changes. #64 gallery copy creates an independent row, but its form reads the source row's unit_price and current_stock as editable defaults. The writers (admin, seller v2/v3, bulk, automation, import) change the one row they name.
+- **(5) What remains.** The gallery copy form pre-fills the source row's unit_price and current_stock (admin-views/product/update/_pricing-others.blade.php lines 46-48 and 83) into a new row of another country, so a copy starts with the other country's base price and stock until the admin overwrites them (see B-07). Prices of every country are still entered in the system default currency and converted by currencyConverter() at save (ProductService lines 620-639 and 699); the add form labels the field with getCurrencyCode(); a non-Saudi price has no entry unit of its own (see B-03). Also open: price history records no country or currency (price-stock map gap 5); amount-type deal and clearance discounts (B-16).
+- **(6) PRs and commits.** [lavkoo#47](https://github.com/fullstackfull/lavkoo/pull/47) `e0dd5dc`; [lavkoo#64](https://github.com/fullstackfull/lavkoo/pull/64) `216c279`
+- **(7) Tests.**
+  - `ci` StorefrontCatalogTest::test_each_country_keeps_its_own_price_and_stock_for_the_same_product (tests/Feature/Storefront/StorefrontCatalogTest.php; PR 47 e0dd5dc SQLite + Storefront MySQL 8/MariaDB 11.4.2 green; PR 83)
+- **(8) Dependencies and blockers.** Needs the #47 migration. Product.php and ProductService.php are changed by both the security set and the GCC chain, so it cannot be INTEGRATED AND TESTED before a combined tree exists.
+- **(9) Acceptance criteria.**
+  - [MET] Two copies of one product in two countries are read back with their own price and stock (StorefrontCatalogTest::test_each_country_keeps_its_own_price_and_stock_for_the_same_product; PR 47 e0dd5dc; PR 83)
+  - [CODED] Editing price, discount or stock of one copy leaves the other copy unchanged (Separate rows with no link column or sync job; no test edits one copy and re-reads the other)
+  - [MISSING] No code path converts or copies a country's catalogue price into another country's (None found in app/Services/Storefront, the gallery copy form or the writers (price-stock map finding 4); a negative, untested)
+  - [CODED] Every price writer (admin, seller v2/v3, bulk price job, automation, import) changes only the row it names (price-stock map README finding 4; no test across countries)
+- **(10) Next coding task.** On #47 add tests/Feature/Storefront/StorefrontPriceIndependenceTest.php: update price, discount and stock of the SA copy through ProductService, BulkPriceOperation and the seller v3 update, then assert the AE and KW copies are unchanged; assert no products column or table links a copy to its source.
+- **Verifier note (not applied automatically).** remaining corrected by the verifier (applied above).
+- **Verifier note (not applied automatically).** done_in_drafts corrected by the verifier (applied above).
+- **Verifier note (not applied automatically).** ac[2].e (criterion 'No code path converts or copies ...'): Evidence text says nothing was found in 'the gallery copy form'; that form is where the price is copied. Proposed: The gallery copy form pre-fills the source product's unit_price and current_stock (update/_pricing-others.blade.php lines 46-48 and 83 at origin/gcc/release/gcc-integration-ci); nothing else found in app/Services/Storefront or the writers (price-stock map finding 4); a negative, untested. Status MISSING as written.
+- **Update after the assessment.** PR 87 (GCC-05 slice 4): an amount typed in the admin product form for a country is stored as typed in that country's currency (money.market middleware); bulk import and bulk price tools still use the platform settings.
+
+#### B-03. Local price and availability display: a storefront shows its own market currency, decimals and stock
+
+- **State: IN PROGRESS** | plan lines 222, 284 | Foundation (prices in the market currency); owner questions Q-07 and Q-08 of discovery report 11 | reviews: finance, owner-decision
+- **(2) Functional requirement.** Prices on a storefront are shown in that storefront's currency with its decimal rule (three decimals for KWD, BHD, OMR), and the availability shown is the stock of the country's own row.
+- **(3) Exists now in code (main).** Web converts the stored price with the session currency (webCurrencyConverter, default is the system default currency); the API returns the stored value; the customer app multiplies by its chosen currency and prints zero decimals (price_converter.dart). Availability is products.current_stock of the row.
+- **(4) Done in the draft PRs.** Per-country availability follows from #47. #28 publishes each storefront's currency in GET /api/v1/storefronts and the customer app keeps it (StorefrontCountry.currency). StorefrontContext carries the currency but no price code reads it (runbook step 5); no draft changes a converter.
+- **(5) What remains.** (1) Feed the storefront currency to webCurrencyConverter, usdToDefaultCurrency, Helpers::set_data_format and the apps' price converter. (2) Per-currency decimals (three for KWD, BHD, OMR; Q-07). (3) Price filter bounds: web converts, the API compares the stored column. (4) JSON-LD priceCurrency, e-mails, invoices and exports use the system currency; orders record none (D1).
+- **(6) PRs and commits.** [lavkoo#28](https://github.com/fullstackfull/lavkoo/pull/28) `8c8d32a`; [lavkoo#47](https://github.com/fullstackfull/lavkoo/pull/47) `e0dd5dc`; [lavkooapp#1](https://github.com/fullstackfull/lavkooapp/pull/1) `2a8c84c`
+- **(7) Tests.**
+  - `ci` StorefrontListApiTest::test_flag_on_lists_active_countries (country, path, currency per storefront) (tests/Feature/Storefront/StorefrontListApiTest.php; PR 28 8c8d32a SQLite 8.2/8.3 green; PR 83)
+  - `ci` StorefrontCatalogTest: each country keeps its own stock (tests/Feature/Storefront/StorefrontCatalogTest.php; PR 47 e0dd5dc; PR 83)
+- **(8) Dependencies and blockers.** Needs the owner's currency decisions. Orders, invoices and e-mails carrying a currency belong to D1. The core price helpers (currency.php, Helpers.php) are shared with every flow, so a flag-off byte-identical output must be pinned first.
+- **(9) Acceptance criteria.**
+  - [MET] The stock a storefront shows for a product is its own country row's stock (StorefrontCatalogTest::test_each_country_keeps_its_own_price_and_stock_for_the_same_product; PR 47; PR 83)
+  - [MET] The storefront list API publishes each storefront's currency to the apps (StorefrontListApiTest::test_flag_on_lists_active_countries; PR 28 8c8d32a SQLite; PR 83)
+  - [MISSING] On the KW storefront a Kuwaiti product shows its price in KWD (symbol, rate, three decimals) on web and API (No price code reads StorefrontContext::currency (runbook, price-stock map finding 1))
+  - [MISSING] The customer app shows the chosen storefront's currency with that currency's decimals (price_converter.dart hard-codes singleCurrency=false and toStringAsFixed(0); unchanged by lavkooapp #1-#7)
+  - [MISSING] JSON-LD offers carry the storefront's price and currency (StructuredDataBuilder and ProductSeoSupplementComposer are identical to main)
+- **(10) Next coding task.** Branch stacked on #64 (currency slice): one seam reading StorefrontContext::currency used by webCurrencyConverter, usdToDefaultCurrency and Helpers::set_data_format while storefronts are on (flag-off output byte-identical), per-currency decimals, tests for SA, AE, KW and OM display and the price filter. Take the Q-07 default (three decimals for KWD, BHD, OMR; SA unchanged) until the owner answers.
+- **Open owner decisions.** Rounding rule and decimals per currency, and whether Saudi display keeps zero decimals (Q-07); the currency policy for new storefronts (Q-08); production currency_model is unknown.
+- **Verifier note (not applied automatically).** ac (missing criterion): No criterion in B-02 or B-03 covers the write side of 'local prices' (plan line 284): the unit in which an admin, vendor or seller enters the price of a non-Saudi product. It appears only as an open remark in B-02 remaining. Proposed: Add criterion 'A product's price, discount, tax and shipping are entered in its own market currency (form label and conversion at save)' - MISSING. Evidence: resources/views/admin-views/product/add/_pricing-others.blade.php line 36 uses getCurrencySymbol(getCurrencyCode()); ProductService (lines 620-639, 699 at PR 83) calls currencyConverter(amount:), which converts from the system default currency to USD (app/Utils/currency.php lines 44-65) and never reads storefront_country.
+- **Update after the assessment.** PR 87 (GCC-05 slices 1 and 4): a non-default storefront shows its own currency symbol and decimals (getWebConfig seam) and the admin product list prints each row in its own country's currency; the apps and the exports still format with the platform settings.
+
+#### B-04. SKU and barcode unique inside a country: form gates, seller APIs and importers (GCC-14b)
+
+- **State: IN PROGRESS** | plan lines 222, 490 | Foundation (independent SKUs per country), GCC-18 | reviews: owner-decision, native-arabic
+- **(2) Functional requirement.** The same SKU or barcode may exist in two countries and never twice in one. Every path that creates or edits a product (admin and vendor forms, seller apps v2 and v3, bulk import, M5AZN import) applies the rule of the product's own country.
+- **(3) Exists now in code (main).** Uniqueness is global and validation-only: unique:products on code and barcode in ProductAddRequest, ProductUpdateRequest and the seller v2/v3 controllers, global generators in the bulk import and the M5AZN clash check. No unique index exists (only idx_products_code).
+- **(4) Done in the draft PRs.** #72 (switch GCC_COUNTRY_SCOPED_CODES, default off, acts off until the column exists): ProductCodeScope scopes gates A1-A10 and B1-B2, adds gcc:catalog:code-readiness, the ProductCodeSites registry and a source guard. #76 adds nine six-country matrix classes: every ordered pair saved, refused inside one country, switch-off twins.
+- **(5) What remains.** (1) No database unique index: composite unique (storefront_country, code) and barcode is a later owner-approved step needing duplicate clean-up. (2) Variant SKUs (B-06). (3) Copy-to-country tool (B-07). (4) Two Arabic strings need review. (5) Once two countries share a code the switch must never go off. (6) Catalog tests run on MySQL and MariaDB only in #83.
+- **(6) PRs and commits.** [lavkoo#64](https://github.com/fullstackfull/lavkoo/pull/64) `216c279`; [lavkoo#72](https://github.com/fullstackfull/lavkoo/pull/72) `1c779d2`; [lavkoo#76](https://github.com/fullstackfull/lavkoo/pull/76) `0ad49d2`
+- **(7) Tests.**
+  - `ci` SixCountryFormGatesTest, SixCountrySellerGatesTest, SixCountryImportGatesTest, SixCountryM5aznTest: every ordered pair across the six countries, switch-off twins (tests/Feature/Catalog/SixCountry*.php; PR 76 0ad49d2 SQLite 8.2/8.3 green; PR 83 8ff3410 Catalog tests MySQL 8 and MariaDB 11.4.2 green)
+  - `ci` ProductFormGatesTest and SellerProductCodeGatesTest: add and edit gates of admin, vendor, seller v2 and v3 (tests/Feature/Catalog/; PR 72 1c779d2 SQLite green; PR 83)
+  - `ci` ProductCodeReadinessTest: gcc:catalog:code-readiness exit codes and counts (tests/Feature/Catalog/ProductCodeReadinessTest.php; PR 83 Catalog tests green)
+  - `ci` ProductCodeDocTest pins that no migration adds a unique index on a product code (tests/Feature/Catalog/ProductCodeDocTest.php; PR 83)
+- **(8) Dependencies and blockers.** Stacked on the #64 chain (column from #47). The code rule line of the seller v2 and v3 update() validators conflicts with #63 and #69 (keep both); PR 75 and PR 83 conflict in those controllers, so no tree combines them. ProductAddRequest and ProductService are also in the security set.
+- **(9) Acceptance criteria.**
+  - [MET] With the switch on the same code and barcode can be saved in a second country through the admin form, vendor form, seller apps v2 and v3, bulk import and M5AZN import (SixCountryFormGatesTest, SixCountrySellerGatesTest, SixCountryImportGatesTest, SixCountryM5aznTest; PR 76 SQLite; PR 83 Catalog MySQL 8 + MariaDB)
+  - [MET] Inside one country a second product with the same code or barcode is refused (SixCountryFormGatesTest::test_with_the_switch_on_the_add_form_accepts_a_pair_in_the_other_country_saves_it_and_then_refuses_it_inside_each_country_that_holds_it; PR 83)
+  - [MET] An edit is checked in the product's own country and ignores a country named in the request (ProductFormGatesTest::test_an_edit_ignores_a_country_in_the_request_because_the_save_ignores_it; PR 72 SQLite; PR 83)
+  - [MET] With the switch off every gate still refuses a code held by any country (ProductFormGatesTest::test_the_add_form_refuses_a_code_and_a_barcode_held_by_any_country_while_the_switch_is_off; PR 72; PR 83)
+  - [MET] gcc:catalog:code-readiness exits 1 for a code held twice inside one country (ProductCodeReadinessTest::test_a_code_held_twice_inside_one_country_makes_the_catalog_not_ready; PR 83)
+  - [MISSING] The database refuses two products with the same code or barcode in one country (Validation only: ProductCodeDocTest pins that no migration adds a unique index)
+- **(10) Next coding task.** Extend #76: an additive migration proposal (not run) with unique indexes (storefront_country, code) and (storefront_country, barcode), guarded by the readiness command, tested on isolated MySQL 8 and MariaDB 11.4.2 with rollback and a two-writer race; update ProductCodeDocTest to expect it only behind an explicit approval constant.
+- **Open owner decisions.** Accept the open sites (D1 partial, G9 deferred) before the switch; approve the composite index and the duplicate clean-up; review the Arabic strings the_scanned_code_matches_more_than_one_product and the_country_must_be_one_of_the_configured_storefront_countries.
+- **Verifier note (not applied automatically).** ac[0].t: Says the pair can be saved in a second country through the vendor form, seller apps v2 and v3, bulk import and M5AZN import. The tests prove those paths only ever save in the table default country SA: SixCountryFormGatesTest::test_with_the_switch_on_a_vendor_add_is_checked_in_the_table_default_country_whatever_country_the_request_names; SixCountrySellerGatesTest::test_the_default_storefront_does_not_move_where_a_seller_product_is_saved; SixCountryImportGatesTest::test_with_the_switch_on_an_import_saves_a_code_another_country_holds_in_the_default_country_and_never_twice_there; SixCountryM5aznTest::test_an_item_that_is_imported_is_saved_in_the_table_default_country_next_to_the_twin_of_another_country. B-08 criterion 6 and B-09 criterion 1 say the same. Proposed: With the switch on, the admin add form saves the same code and barcode in a second country (the country the admin choose
+
+#### B-05. SKU and barcode lookups are country-aware: POS scan, channel matcher, routing rules, provider pickers
+
+- **State: IN PROGRESS** | plan lines 490 | Foundation, GCC-18, sku-barcode lookup map of 2026-11-16 (35 sites) | reviews: owner-decision, native-arabic
+- **(2) Functional requirement.** Every place that finds a product from a typed or scanned SKU or barcode narrows to a country, labels the country, or answers an ambiguity, so a code that two countries share never silently picks one twin.
+- **(3) Exists now in code (main).** The seller POS scan (RestAPI/v3/seller/POSController::get_product_by_barcode) looks at code only and takes the first match (lowest id) among the seller's own products (added_by = seller, user_id = the seller); seller products are all SA today (B-09), so a wrong-country twin is latent until a seller can hold two countries. The channel matcher and routing rules see every country, and the Torod and cost-layer pickers show unlabelled twins (sku-barcode lookup map).
+- **(4) Done in the draft PRs.** #72/#76: POS scan narrowed by country (409 ambiguous_code, 422 country), channel matcher, SKU routing rules, listing key, Torod suggestions (default storefront), M5AZN; seven pickers and the admin export name the country. Registry: 17 covered, 7 labelled, 18 id-keyed, 2 open. Seller app #5 reads 409 and 422.
+- **(5) What remains.** (1) D1 partial: Amazon accounts outside the SA and AE marketplaces, accounts of no country and the Turkish Trendyol marketplace are not narrowed. (2) Provider connections (Torod, M5AZN) have no country; E1 and E2 serve the default storefront. (3) The seller app must send country and handle 409 and 422 before a non-Saudi seller scans. (4) Promotions have no country, so their pickers only label.
+- **(6) PRs and commits.** [lavkoo#72](https://github.com/fullstackfull/lavkoo/pull/72) `1c779d2`; [lavkoo#76](https://github.com/fullstackfull/lavkoo/pull/76) `0ad49d2`; [lavkooappseller#2](https://github.com/fullstackfull/lavkooappseller/pull/2) `e5fd716`; [lavkooappseller#5](https://github.com/fullstackfull/lavkooappseller/pull/5) `90b9d33`
+- **(7) Tests.**
+  - `ci` PosScanCodeScopeTest and SixCountryPosScanTest: country narrowing, 409, 422, empty code (tests/Feature/Catalog/; PR 76 0ad49d2 SQLite green; PR 83 8ff3410 Catalog tests MySQL 8 and MariaDB 11.4.2 green)
+  - `ci` SixCountryChannelMatcherTest, SixCountryRoutingRuleTest, SixCountryProviderPickersTest (tests/Feature/Catalog/; same jobs)
+  - `ci` PickerCountryLabelTest and ProductCodeLookupGuardTest: labels drawn; an unregistered lookup fails (tests/Feature/Catalog/; same jobs)
+  - `pr-body` lavkooappseller test/pos_scan (106 tests: sheet, repository, controller); PR body reports flutter test 267 passed, 1 failed (app_version_gate_test) (test/pos_scan/; PR 5 is stacked on #2, so ci-table shows no CI run)
+- **(8) Dependencies and blockers.** Stacked on the #64 chain and #72. RestAPI/v3/seller/POSController.php and the seller controllers are also changed by the security set (no combined tree). A country for provider connections needs the fulfilment unit (C).
+- **(9) Acceptance criteria.**
+  - [MET] With the switch on a POS scan is narrowed to the country named (the default storefront's when none): two matches in one country answer 409 ambiguous_code, an unknown country 422, an empty code finds nothing (SixCountryPosScanTest, PosScanCodeScopeTest; PR 76 SQLite; PR 83 Catalog MySQL 8 + MariaDB)
+  - [MET] A channel listing is proposed only the products of its account's country when the account has one (SixCountryChannelMatcherTest; PR 83 Catalog MySQL 8 + MariaDB)
+  - [MET] A SKU routing rule fires only for products of the rule's country (the default storefront's when it names none) (SixCountryRoutingRuleTest; PR 83)
+  - [MET] Pickers that cannot narrow name each row's country, and a guard fails for any new unregistered lookup by code or barcode (PickerCountryLabelTest, ProductCodeLookupGuardTest; PR 83)
+  - [MISSING] Provider connections and Amazon accounts of any other marketplace or country are narrowed by their own country (ProductCodeSites: D1 partial; provider connections have no country (doc, open decision 3 and 4))
+  - [CODED] The seller app sends country with the scan and shows the 409 and 422 answers (lavkooappseller #5 90b9d33 (ambiguous_code_sheet_widget.dart); local run only, no CI)
+- **(10) Next coding task.** Extend #76: add a country setting to provider connections and the country list for the other Amazon marketplaces; use it in ProviderMappingService::suggestionsFor, TorodMatchingController::productSearch and ProductMatcher; add provider pairs to the six-country matrix. Seller app: retarget lavkooappseller #5 to main so CI runs on it.
+- **Open owner decisions.** Which open sites are acceptable (D1 partial, G9); a country for provider connections; Amazon accounts of other marketplaces; whether a promotion has a country; who changes the seller app; native read of the seller app's 11 new Arabic keys and the two backend strings.
+- **Verifier note (not applied automatically).** exists_now corrected by the verifier (applied above).
+
+#### B-06. Variants: variant SKU, price and stock follow the product's country
+
+- **State: IN PROGRESS** | plan lines 490 | Foundation, GCC-18 | reviews: owner-decision
+- **(2) Functional requirement.** A variant (an entry of products.variation with type, sku, price, qty) belongs to its product row's country. A variant SKU is unique inside its product and inside its country, and every lookup that matches a variant SKU is country-aware.
+- **(3) Exists now in code (main).** Variants are JSON inside the product row; variant SKUs are free text built from the form (ProductService) with no uniqueness gate; the channel matcher matches variant SKUs; the web variant-price route answers for any product id.
+- **(4) Done in the draft PRs.** Variant price and stock follow the row, so a variant is country-owned by construction (#47). #48: the variant-price route answers only for a product the storefront owns. #72: the channel matcher narrows variant-SKU matches to the account's country.
+- **(5) What remains.** (1) No gate checks a variant SKU for duplicates inside a product or a country (GCC-14B doc: not checked by any gate today). (2) The seller POS scan, pickers and routing rules do not match variant SKUs. (3) No variant barcode field. (4) A copy-to-country tool must decide what happens to variant SKUs.
+- **(6) PRs and commits.** [lavkoo#47](https://github.com/fullstackfull/lavkoo/pull/47) `e0dd5dc`; [lavkoo#48](https://github.com/fullstackfull/lavkoo/pull/48) `4a821d3`; [lavkoo#72](https://github.com/fullstackfull/lavkoo/pull/72) `1c779d2`
+- **(7) Tests.**
+  - `ci` StorefrontCartIsolationTest::test_the_price_and_stock_of_another_storefronts_product_are_not_answered_by_the_cart (variant_price answers 404) (tests/Feature/Storefront/StorefrontCartIsolationTest.php; PR 48 4a821d3 SQLite + Storefront MySQL 8/MariaDB 11.4.2 green; PR 83)
+  - `ci` ChannelProductMatcherCountryTest::test_the_variant_sku_of_a_product_is_narrowed_to_the_country_too (tests/Feature/Catalog/ChannelProductMatcherCountryTest.php; PR 72 1c779d2 SQLite green; PR 83 Catalog MySQL 8 + MariaDB)
+- **(8) Dependencies and blockers.** Builds on ProductCodeScope (#72, #76). ProductService.php, the seller v2/v3 controllers and Web/CartController.php are changed by both sets, so no combined tree exists.
+- **(9) Acceptance criteria.**
+  - [MET] The variant-price endpoint answers only for a product the storefront owns (StorefrontCartIsolationTest; PR 48 4a821d3; PR 83 8ff3410)
+  - [MET] The channel matcher matches a variant SKU only inside the account's country (ChannelProductMatcherCountryTest::test_the_variant_sku_of_a_product_is_narrowed_to_the_country_too; PR 83)
+  - [MISSING] Two variants of a product cannot share a SKU, and a variant SKU held by another product of the same country is refused (GCC-14B doc: variants' own SKUs are not checked by any gate; ProductService sets sku from the form)
+  - [MISSING] The seller POS scan finds a product by its variant SKU, narrowed to a country (ProductCodeScope::scan matches code and barcode only)
+- **(10) Next coding task.** Stack on #76: a variant-SKU gate (ProductService variation build and the seller v2/v3 variation save) unique inside the product and, with GCC_COUNTRY_SCOPED_CODES on, inside the product's country; add a ProductCodeSites row; extend the POS scan to variant sku; add SixCountryVariantSkuTest.
+- **Open owner decisions.** Whether variant SKUs must be unique at all (free text today) and how a copy treats them (GCC-14B copy tool, point 4).
+
+#### B-07. Deliberate cross-country product creation: explicit admin copy, no shared stock or price sync, nothing created automatically
+
+- **State: IN PROGRESS** | plan lines 223, 229 | Foundation (admin-only copying), GCC-08, GCC-18 | reviews: owner-decision, security
+- **(2) Functional requirement.** A product reaches another country only through an explicit admin copy that creates an independent row (own stock, own price, no link or sync). Creating a category or a brand never creates products in any country.
+- **(3) Exists now in code (main).** Product Gallery 'use this product info' copies a product through the add form: SKU and barcode are blanked, image file names are re-submitted (files are not copied), price and stock are pre-filled from the source. No country concept and no copy-to-country tool.
+- **(4) Done in the draft PRs.** #64: while storefronts are on the gallery copy form offers the country select (the source's country preselected) and the new row is saved in the chosen country. #72/#76: the copy is saved by the add action, so its code is checked in the target country. Every product creator is an explicit admin, vendor, seller, bulk or M5AZN action; none keys on a category or brand.
+- **(5) What remains.** Copy-to-country tool (GCC-14B doc G9, eight points): explicit target, refusal for the source country, code kept only if free in the target, price and stock set for the target (the form pre-fills the source's), image files duplicated (a copy shares file names; #63's shared-file rule is only in the security set), permission and audit record, six-country matrix for copy pairs.
+- **(6) PRs and commits.** [lavkoo#64](https://github.com/fullstackfull/lavkoo/pull/64) `216c279`; [lavkoo#72](https://github.com/fullstackfull/lavkoo/pull/72) `1c779d2`; [lavkoo#76](https://github.com/fullstackfull/lavkoo/pull/76) `0ad49d2`
+- **(7) Tests.**
+  - `ci` AdminProductCountryTest::test_a_new_product_gets_the_country_the_admin_chose and AdminProductCountryViewTest gallery-copy test (tests/Feature/Storefront/AdminProductCountry*Test.php; PR 64 216c279 SQLite + Storefront MySQL 8/MariaDB 11.4.2 green; PR 83)
+  - `none` ProductGalleryCountryTest: copy blanks code and barcode and is saved by the add action (refuted by the verifier: The two copy tests (test_the_copy_of_a_gallery_product_blanks_the_code_and_the_barcode_in_the_form and test_the_copy_is_saved_by_the_add_action_so_it_is_checked)
+- **(8) Dependencies and blockers.** Builds on #64 (country select) and #72/#76 (code scope). The shared-image deletion fix is #63 in the security set, so a safe copy needs both sets; Admin/Product/ProductController.php and ProductService.php are changed by both.
+- **(9) Acceptance criteria.**
+  - [MET] The admin can create a product in another country through the gallery copy by choosing the country, and the new row belongs to the chosen country (AdminProductCountryTest::test_a_new_product_gets_the_country_the_admin_chose; PR 64 216c279; PR 83)
+  - [CODED] A copy shares no stock and has no link or sync with its source (The add action writes a new row; no link column or job exists; untested after edit)
+  - [MISSING] The copy form does not carry the source's stock and price into the target country unflagged (_pricing-others.blade.php pre-fills current_stock and unit_price from the source product)
+  - [MISSING] A copy-to-country action needs an explicit target, refuses the source country, keeps the code only when free there, and is audited (ProductCodeSites G9 is deferred; the doc lists what the tool needs)
+  - [MISSING] A copy does not share image files with its source (ProductService re-submits existing_images by name; #63 SharedProductFile is not in the GCC tree)
+  - [CODED] Creating a category or a brand creates no product, and every product creator is an explicit admin, seller or import action (Creators: ProductRepository add and addArray, seller v2 and v3, M5aznProductImporter; none keyed on a category or brand; untested)
+- **(10) Next coding task.** Stack on #76: build the copy-to-country action per the eight points of the GCC-14B doc (explicit target, same-country refusal, code kept only if free in the target, stock reset and price required, image files duplicated, catalog permission, audit row) as an admin action with a SixCountryCopyTest for every ordered pair; only an audit table as migration.
+- **Open owner decisions.** What a copy carries (tax set-up, the price and in which unit, variant SKUs); who may copy and how it is audited; eligibility of regulated or pharmacy goods in the target country.
+
+#### B-08. Admin product tools: choose, show and filter a product's country; staff limited to their countries (GCC-14a, 14c slice 1)
+
+- **State: IN PROGRESS** | plan lines 221-223 | GCC-14 (one staff login with country scopes), Foundation | reviews: security, owner-decision, native-arabic
+- **(2) Functional requirement.** The admin chooses a product's country when adding it and sees and filters it in the list and export. A restricted employee lists, edits and adds only the products of their assigned countries, enforced in the backend, and a foreign product id answers 404 like an unknown one.
+- **(3) Exists now in code (main).** Admin product add, edit, list, export and moderation screens show every product; there is no country field, column or filter. Employees have role and module permissions only (AdminRole module_access); nothing narrows them by country.
+- **(4) Done in the draft PRs.** #64 (needs the #47 migration, flag off): country select on add, read-only on edit, list column and filter, export follows. #74 (GCC_STAFF_COUNTRY_SCOPES, off): admin_country_scopes table, gcc:staff-country:assign, revoke and list, an Eloquent global scope on Product, 42 routes with id rules (404), add and import rules, a route-table guard. #76 names the country in pickers and the export.
+- **(5) What remains.** (1) Bulk import (admin and vendor) always creates products in the default country SA; an employee with several countries is refused. (2) Moderation of seller products (all SA) for restricted staff. (3) #69's two digital-file routes need rules once it merges. (4) Real admin layout not rendered (tests use stub views). (5) MariaDB ran StaffScope only in #83.
+- **(6) PRs and commits.** [lavkoo#64](https://github.com/fullstackfull/lavkoo/pull/64) `216c279`; [lavkoo#74](https://github.com/fullstackfull/lavkoo/pull/74) `712509a`; [lavkoo#76](https://github.com/fullstackfull/lavkoo/pull/76) `0ad49d2`
+- **(7) Tests.**
+  - `ci` AdminProductCountryTest (19) and AdminProductCountryViewTest (13): add form, read-only edit, list column and filter, nothing drawn while untracked (tests/Feature/Storefront/; PR 64 216c279 SQLite + Storefront MySQL 8/MariaDB 11.4.2 green; PR 83)
+  - `ci` StaffProductListScopeTest, StaffProductIdRoutesTest, StaffNewProductCountryTest, StaffBulkImportTest, StaffProductRouteInventoryTest (tests/Feature/StaffScope/; PR 74 712509a SQLite 8.2/8.3 green; PR 83 8ff3410 Staff scope tests MySQL 8 and MariaDB 11.4.2 green)
+- **(8) Dependencies and blockers.** #74 is stacked on #64. Admin/Product/ProductController.php and ProductService.php are changed by both sets; #69 adds routes the #74 guard does not know. Slices 2 to 6 (orders, POS, reports, vendors, promotions) are not product screens and stay with the staff-permissions unit.
+- **(9) Acceptance criteria.**
+  - [MET] The admin add form offers every configured country, saves the chosen one, and falls back to the default storefront for none or an unknown code (AdminProductCountryTest::test_a_new_product_gets_the_country_the_admin_chose and the fallback test; PR 64; PR 83)
+  - [MET] A product's country is read-only after creation and no update moves it (AdminProductCountryTest::test_a_product_is_never_moved_to_another_country_by_an_update; PR 64; PR 83)
+  - [MET] The admin list shows a country column and filters by country, and the export follows the filter (AdminProductCountryViewTest list and filter tests; PR 64 216c279 jobs; PR 83)
+  - [MET] With the flag off or before the migration there is no field, column or filter (AdminProductCountryViewTest::test_the_form_draws_nothing_while_countries_are_not_tracked; PR 64)
+  - [MET] A restricted employee lists, edits and adds only the products of assigned countries, and a foreign id answers 404 like an unknown one (StaffProductListScopeTest, StaffProductIdRoutesTest, StaffNewProductCountryTest; PR 74 SQLite; PR 83 Staff scope MySQL 8 + MariaDB)
+  - [MISSING] Bulk import can target a chosen country, and an employee with several countries may import (PR 64 body: the sheet has no country column; StaffBulkImportTest pins the refusal for several countries)
+- **(10) Next coding task.** Extend #74 (and #64): add a country choice to the bulk-import form with sheet validation for admins and multi-country employees (replace today's refusal), tests in tests/Feature/StaffScope/StaffBulkImportTest.php; add 'route:id' rules for #69's digital-file routes when it merges; render the real product list and add pages once on staging.
+- **Open owner decisions.** Import for several countries; whether the master admin may restrict itself; moderation of seller products by country; legal-entity scopes; the intersection with a platform admin's grant countries (#71); native read of three Arabic strings in new-messages.php.
+- **Verifier note (not applied automatically).** ac[0].t: Says the add form 'falls back to the default storefront for none or an unknown code'. For an unknown code the form refuses it by validation (AdminProductCountryTest::test_the_add_form_accepts_a_configured_country_a_missing_one_and_refuses_the_rest_while_countries_are_tracked asserts that 'XX' fails); the fallback for an unknown code exists only in the helper ProductCountry::newProductAttributes. Proposed: The admin add form offers every configured country, saves the chosen one, takes the default storefront when none is sent, and refuses an unknown code by validation (the helper itself falls back to the default storefront for any unusable value). Status stays MET.
+
+#### B-09. Seller and vendor products belong to a market (seller markets)
+
+- **State: IN PROGRESS** | plan lines 221-222 | Foundation (never repurpose seller_id or shop_id as a country), owner guide section 7 | reviews: owner-decision, native-arabic
+- **(2) Functional requirement.** A seller or vendor can create, list and scan products in the market or markets they are allowed to sell in; seller_id and shop_id never stand for a country.
+- **(3) Exists now in code (main).** The vendor form, seller APIs v2 and v3 and the imports create products without naming a country, so once the column exists they take the table default SA. The seller app has no market concept.
+- **(4) Done in the draft PRs.** Every seller path saves SA, pinned by tests that fail the day a seller holds two countries (#76). #72: the POS scan accepts country. Seller app (default off): #1 MarketScope and X-Storefront header, #2 SellerMarketChoice, #5 POS scan reads 409 and 422.
+- **(5) What remains.** (1) Owner decision: may a seller list in more than one country, and how a market reaches the v3 add. (2) Backend: seller add and update and the vendor form accept a market, with allowed markets per seller. (3) App: nothing writes the stored market, and X-Storefront does not reach api/v3. (4) Seller views must label the country once a seller can hold two.
+- **(6) PRs and commits.** [lavkoo#72](https://github.com/fullstackfull/lavkoo/pull/72) `1c779d2`; [lavkoo#76](https://github.com/fullstackfull/lavkoo/pull/76) `0ad49d2`; [lavkooappseller#1](https://github.com/fullstackfull/lavkooappseller/pull/1) `964557e`; [lavkooappseller#2](https://github.com/fullstackfull/lavkooappseller/pull/2) `e5fd716`; [lavkooappseller#5](https://github.com/fullstackfull/lavkooappseller/pull/5) `90b9d33`
+- **(7) Tests.**
+  - `ci` SixCountrySellerGatesTest and SellerProductCodeGatesTest: seller add is saved and checked in the table default country (tests/Feature/Catalog/; PR 76 0ad49d2 SQLite green; PR 83 Catalog MySQL 8 + MariaDB green)
+  - `ci` SellerSurfacesCountryTest: seller lists and pickers are the same with the switch on and off; fails when a seller can hold two countries (tests/Feature/Catalog/SellerSurfacesCountryTest.php; PR 76; PR 83)
+  - `pr-body` lavkooappseller test/seller_market_choice_test.dart (7 tests) and test/pos_scan (PR 2 and PR 5 are stacked, ci-table no-runs; PR 1 analyze-and-test is red on the known baseline failures named in the PR 2 and PR 5 bodies)
+- **(8) Dependencies and blockers.** Owner decision on seller markets. The seller app version gate (app_version_gate_test red on main) blocks an app release. Seller controllers v2 and v3 are changed by the security set (#52, #63), so no combined tree exists.
+- **(9) Acceptance criteria.**
+  - [MET] Every seller path (vendor form, v2, v3, bulk import) saves a product in the table default country SA whatever the request names (SixCountrySellerGatesTest::test_the_default_storefront_does_not_move_where_a_seller_product_is_saved; SellerSurfacesCountryTest; PR 83)
+  - [MISSING] A seller can choose the market of a new product from the markets allowed for that seller (No seller path reads or writes storefront_country (grep of the seller controllers))
+  - [MISSING] The seller app lets a seller choose a market and sends it with product requests that reach api/v3 (PR 5 body: the market picker does not exist; the storefront middleware is not applied to api/v3)
+  - [CODED] The seller POS scan sends the market and shows the server's ambiguity and country refusals (lavkooappseller #5 90b9d33; Flutter tests ran locally only)
+- **(10) Next coding task.** After the owner decision: branch stacked on #72 with an additive seller_markets table and an optional market field on the v3 seller add and update and the vendor form behind GCC_SELLER_MARKETS (default off), validated against the seller's allowed markets; flip SellerSurfacesCountryTest to expect labels. App: add the market picker that writes SellerMarketChoice and send country on product calls.
+- **Open owner decisions.** One market or several per seller; whether a seller's product in another country is an admin copy or a seller creation; the seller's legal entity per market (discovery D-11).
+
+#### B-10. One central category tree for all countries: no parallel tree, depth examined
+
+- **State: IN PROGRESS** | plan lines 224, 231, 27 | GCC-08 | reviews: owner-decision
+- **(2) Functional requirement.** One categories table (parent_id, position 0 to 2) serves every storefront. Categories are never cloned per country or linked to country products, and category lists, counts and cached lists follow the storefront.
+- **(3) Exists now in code (main).** categories holds parent_id, position (0 main, 1 sub, 2 sub-sub), priority and home_status, with no status or country column in Category::$fillable. Depth is fixed at three levels by CategoryPageService ('three levels deep') and by the products' category_id, sub_category_id, sub_sub_category_id columns and category_ids JSON.
+- **(4) Done in the draft PRs.** #37/#50: main and home category lists and counts are cached per storefront and cleared in every storefront on a change; counts read Product::active(), so they follow the storefront. Discovery E08 section 2.4 examined parent_id, position and the depth. No GCC draft changes a category table, model or controller (security PR 51 only swaps the model's API-request test).
+- **(5) What remains.** (1) The API category product list (CategoryManager::products) selects by a LIKE on the category_ids JSON text, not by the three id columns the web list uses (audit E08-F23). (2) A depth beyond three needs product columns and forms: owner decides if needed. (3) Category tax class, shipping cost, SEO and governance are single global rows (other units). (4) No test pins that categories carry no country.
+- **(6) PRs and commits.** [lavkoo#37](https://github.com/fullstackfull/lavkoo/pull/37) `2344fa3`; [lavkoo#50](https://github.com/fullstackfull/lavkoo/pull/50) `98191ff`
+- **(7) Tests.**
+  - `ci` StorefrontCacheScopeTest::test_a_category_change_clears_the_home_categories_of_every_storefront (tests/Feature/Storefront/StorefrontCacheScopeTest.php; PR 37 2344fa3 SQLite 8.2/8.3 green; PR 83)
+  - `ci` StorefrontProductCachesTest: product caches (main and home category lists, brand list) never written or cleared without the storefront key (tests/Feature/Storefront/StorefrontProductCachesTest.php; PR 50 98191ff SQLite + Storefront MySQL 8/MariaDB 11.4.2 green; PR 83)
+- **(8) Dependencies and blockers.** Per-store show or hide is B-13. CacheManagerTrait.php (the home category list cache) is changed by both the security set and the GCC chain, so no combined tree exists; CategoryManager.php is changed only by the GCC chain.
+- **(9) Acceptance criteria.**
+  - [CODED] One categories table with no country column serves every storefront (no per-country copy of the tree) (app/Models/Category.php on main and unchanged in PR 83; no test pins it)
+  - [MET] The home category list cache is kept per storefront and a category change clears every storefront's copy (StorefrontCacheScopeTest (home categories key and clearing), StorefrontProductCachesTest; PR 37, PR 50, PR 83. CategoryManager's dynamic main-list key uses storefrontCacheKey but is not under test)
+  - [CODED] A category's product list and count include only the storefront's own products (Counts and lists read Product::active(); no category-specific storefront test)
+  - [MISSING] The API category product list selects by the three category id columns like the web list (CategoryManager::products still uses where category_ids like (identical in main, PR 75 and PR 83))
+- **(10) Next coding task.** Fix on a branch from #50: change CategoryManager::products to whereIn on category_id, sub_category_id, sub_sub_category_id as the web list does, with a test over ids 1, 11 and 21; add a pin test that categories has no storefront_country column and one row serves the SA and KW storefronts.
+- **Open owner decisions.** Is a category depth beyond three levels needed for the GCC catalogues? (it means new product columns and forms); who may change the central tree.
+- **Verifier note (not applied automatically).** ac (missing criterion): Plan line 231 (examine parent_id and the existing levels; do not assume deeper levels need a rebuild without evidence) is listed in plan_lines and the name says 'depth examined', but no criterion covers it. Proposed: Add criterion 'The existing tree (parent_id, position 0 to 2, the products' three category id columns plus the category_ids JSON) is examined and the fixed three-level depth is recorded with evidence' - CODED (documentation only): discovery E08 section 2.4 and 'Categories are three levels deep' in app/Services/CategoryPageService.php; no test.
+
+#### B-11. Central brands: one brand table for all countries
+
+- **State: IN PROGRESS** | plan lines 225 | GCC-18; GCC-10 (storefront brand identity is separate) | reviews: none
+- **(2) Functional requirement.** Brands are central reference data (name, slug, image, status) shared by every storefront and by the seller brand-claim registry; brand lists and counts show only the storefront's own products.
+- **(3) Exists now in code (main).** brands has name, slug, image and status and no country. Brand::active(), seller brand claims (BrandClaim, BrandRegistryService with brand_claim_enforcement) and Product::scopeActive (a disabled brand hides its products) are global.
+- **(4) Done in the draft PRs.** #50: the priority-wise brand list and the brand page categories are cached per storefront and cleared in every storefront (BrandManager, BrandPageService); counts read Product::active(), so they follow the storefront. No GCC draft changes the brands table, model or claim registry.
+- **(5) What remains.** (1) No test pins that brands carry no country, that one brand is listed in every storefront, or that counts differ per storefront. (2) A brand disabled centrally hides its products in every country (per-store hide is B-13). (3) BrandManager has no zero-count filter, so brands without products in a storefront stay listed.
+- **(6) PRs and commits.** [lavkoo#50](https://github.com/fullstackfull/lavkoo/pull/50) `98191ff`
+- **(7) Tests.**
+  - `ci` StorefrontProductCachesTest: the brand list key is never written or cleared without the storefront key (tests/Feature/Storefront/StorefrontProductCachesTest.php; PR 50 98191ff SQLite + Storefront MySQL 8/MariaDB 11.4.2 green; PR 83)
+- **(8) Dependencies and blockers.** Per-store brand visibility depends on B-13. CacheManagerTrait.php is changed by both sets, so no combined tree exists.
+- **(9) Acceptance criteria.**
+  - [CODED] One brands table with no country column; a brand created once is listed in every storefront (app/Models/Brand.php on main, unchanged in PR 83; no test pins it)
+  - [MET] The brand list and its counts are cached per storefront and cleared for every storefront on a change (StorefrontProductCachesTest (CACHE_PRIORITY_WISE_BRANDS_LIST in the scanned keys); PR 50 98191ff; PR 83)
+  - [CODED] The brand claim registry stays global (a claim names a seller and a brand, never a country) (BrandRegistryService and BrandClaim unchanged in every draft)
+  - [MISSING] A test pins that brands carry no country and that one brand is listed in every storefront with its own product count (No such test in the PR 83 tree)
+- **(10) Next coding task.** On a branch from #50 add tests/Feature/Storefront/StorefrontBrandsTest.php: brands has no storefront_country column; the brand list API returns the same brands for SA and KW with brand_products_count narrowed per storefront; the claim registry ignores the storefront. No production code.
+- **Open owner decisions.** none (per-store hide is B-13)
+
+#### B-12. Reusable base attributes plus local attributes per country or store
+
+- **State: IN PROGRESS** | plan lines 226-227 | GCC-18 | reviews: owner-decision
+- **(2) Functional requirement.** Base attributes are defined once and reused by products in every country, and an attribute can be added for one country or storefront only without appearing in the others.
+- **(3) Exists now in code (main).** attributes (name plus translations) is global and reusable; option values are free text per product in products.choice_options; colors and tags are global; category_governance holds required_attributes. No country or storefront dimension and no value dictionary.
+- **(4) Done in the draft PRs.** Nothing: no GCC draft touches attributes, colors, tags or choice options.
+- **(5) What remains.** Everything for the local part: a country or storefront marker or mapping for attributes (and values), admin screens, product forms and storefront filters that honour it, the rule for promoting a local attribute to base, and a central value dictionary if reuse of values is wanted.
+- **(6) PRs and commits.** none
+- **(7) Tests.**
+  - `none` No test pins base-attribute reuse or local attributes (-)
+- **(8) Dependencies and blockers.** Needs the product country from #64. Storefront attribute filters touch the theme and filter code (B-14, F).
+- **(9) Acceptance criteria.**
+  - [CODED] A base attribute defined once is selectable on products of every country (Attribute model and ProductService choice_attributes on main; no test)
+  - [MISSING] An attribute defined for one country is offered on that country's product forms and filters only (No country or storefront field on attributes in any branch)
+  - [MISSING] A local attribute never appears in another storefront's filters or product pages (No filter code reads an attribute scope)
+  - [MISSING] Reusable option values can be picked from a central list instead of free text (Option values are free text per product (ProductService getChoiceOptions))
+- **(10) Next coding task.** Owner decision first. Executable now: branch from #64 adding a nullable attributes.storefront_country (NULL = base) by an additive migration, an AttributeRepository::forCountry() used by the admin product add and edit forms (the product's country) and the storefront filters, with tests for base versus local visibility across SA and KW and flag-off identical output.
+- **Open owner decisions.** Where local attributes live (a column or a mapping table); whether a value dictionary is wanted; whether a local attribute can be promoted to base; required attributes per category and country.
+
+#### B-13. Show or hide a category or brand per store without deleting its central origin
+
+- **State: NOT STARTED** | plan lines 228 | GCC-08, GCC-18 | reviews: owner-decision
+- **(2) Functional requirement.** An admin can hide a category, with its place in lists, filters and search, or a brand in one storefront while the central row and the other storefronts keep it. No mapping row means visible, so the Saudi storefront stays as today.
+- **(3) Exists now in code (main).** Only global switches: brands.status and the product_brand setting hide a brand and its products everywhere; home_status and auction_home_status choose home display; categories have no status column. No per-store visibility table or code exists.
+- **(4) Done in the draft PRs.** Nothing. Discovery proposes a (store, category) visibility mapping table (category_storefronts, data-ownership matrix, row 10); no branch implements it.
+- **(5) What remains.** All of it: additive mapping tables for category and brand visibility per storefront, one service read by CategoryManager, BrandManager, CategoryPageService, BrandPageService, the Product::scopeActive brand clause and the category and brand APIs; admin screens; search facets and customer app lists honouring it (per-storefront cache keys already exist).
+- **(6) PRs and commits.** none
+- **(7) Tests.**
+  - `none` No test: nothing is built (-)
+- **(8) Dependencies and blockers.** Needs the #64 chain and the per-storefront caches (#37, #50), which exist. Product.php (the brand clause of scopeActive) and CacheManagerTrait.php are changed by both the security set and the GCC chain, so no combined tree exists.
+- **(9) Acceptance criteria.**
+  - [MISSING] A category hidden for KW is absent from the KW tree, home, filters and category page and present in SA (No visibility mapping on any branch)
+  - [MISSING] A brand hidden for KW is absent from the KW brand list and filters, and its products follow their own visibility (Brand status is global (Product::scopeActive brand clause))
+  - [MISSING] Hiding changes no central row and no other storefront, and removing the mapping restores it (Not built)
+  - [MISSING] With no mapping rows every storefront shows what it shows today (Not built)
+  - [MISSING] Caches, the APIs and the customer app lists honour the hide per storefront (Per-storefront cache keys exist (PR 50) but nothing sets a hide)
+- **(10) Next coding task.** After the owner decision on semantics: branch from #64 with an additive table storefront_visibilities (storefront_country, entity_type category or brand, entity_id, hidden; unique), a StorefrontVisibility service read by CategoryManager, BrandManager, the two page services and the v1 category and brand controllers (no row = visible), an admin toggle, tests across SA and KW for tree, brand list, facets and caches; flag-off byte-identical.
+- **Open owner decisions.** Does hiding a category hide its sub-categories and products or only its entry; the products of a hidden brand; per-storefront display names for categories and brands (GCC-10).
+
+#### B-14. Search and filters follow the storefront
+
+- **State: IN PROGRESS** | plan lines 490 | GCC-08; decisions: shared caching and search must be market-scoped | reviews: security
+- **(2) Functional requirement.** Search (API, web, typeahead, translated-name fallback, hints), the filters, the price bounds and the home lists return only the storefront's own products, from caches and a search pool kept per storefront.
+- **(3) Exists now in code (main).** Search merges a LIKE search, a translations search and the Arabic-normalised product_search_index (keyed by language only, indexing every product, 500-id cap before visibility). Caches are keyed by language; filters read global settings.
+- **(4) Done in the draft PRs.** #46: every search path starts from Product::active() with a grouped category filter, and the hint counts visible products. #48: the index pool is narrowed to the storefront before the 500-id cap. #50: 19 product-derived caches (home lists, price range, colours, brand and category counts, flash deals) are per storefront and cleared in all. Customer app #7 drops and reloads its lists on a storefront change.
+- **(5) What remains.** (1) Price filter bounds: the web converts with the session currency, the API compares the stored column; neither reads the storefront currency (B-03). (2) Facet lists keep brands without a product in the storefront (no zero-count filter). (3) Honouring a store-level hide (B-13). (4) No endpoint-level storefront test per search entry (suggestions, typeahead, translated fallback).
+- **(6) PRs and commits.** [lavkoo#46](https://github.com/fullstackfull/lavkoo/pull/46) `c07cd36`; [lavkoo#48](https://github.com/fullstackfull/lavkoo/pull/48) `4a821d3`; [lavkoo#50](https://github.com/fullstackfull/lavkoo/pull/50) `98191ff`; [lavkooapp#6](https://github.com/fullstackfull/lavkooapp/pull/6) `547c9d9`; [lavkooapp#7](https://github.com/fullstackfull/lavkooapp/pull/7) `56deea7`
+- **(7) Tests.**
+  - `ci` SearchVisibilityTest and HiddenProductExposureTest: no search path returns a hidden product; the hint counts visible products (tests/Feature/Security/; PR 46 c07cd36 SQLite + Fulfillment+security tests MySQL 8 and MariaDB 11.4.2 green)
+  - `ci` StorefrontSearchIndexTest (4): pool narrowed before the cap, a term of another country is not found, off means not narrowed (tests/Feature/Storefront/StorefrontSearchIndexTest.php; PR 48 4a821d3 SQLite + Storefront MySQL 8/MariaDB green; PR 83)
+  - `ci` StorefrontProductCachesTest (14): per-storefront keys, clearing in all storefronts, source scan of the 19 keys (tests/Feature/Storefront/StorefrontProductCachesTest.php; PR 50 98191ff; PR 83)
+  - `ci` lavkooapp storefront_catalogue_reload_test.dart and storefront_cache_inventory_test.dart (lavkooapp #7 56deea7 job storefront-header (flutter test list in .github/workflows/ci.yml) green)
+- **(8) Dependencies and blockers.** ProductManager.php, ProductSearchService.php, CacheManagerTrait.php and RestAPI/v1/ProductController.php are changed by both sets (PR 75 and PR 83 never combined), so it cannot be INTEGRATED AND TESTED yet. The price filter needs B-03.
+- **(9) Acceptance criteria.**
+  - [MET] The search index pool and the not-found hint use only the storefront's own products, narrowed before the 500-id cap (StorefrontSearchIndexTest; PR 48 4a821d3; PR 83 8ff3410)
+  - [MET] The search paths the audit found (translated fallbacks, grouped category filter, web list filter, quick view, hint) return no hidden product (SearchVisibilityTest, HiddenProductExposureTest; PR 46 c07cd36 incl. MySQL 8 and MariaDB)
+  - [CODED] Every search entry returns only the storefront's own country's products (All start from Product::active(), which ends with the storefront narrowing; the tests are service-level, none per endpoint)
+  - [MET] Home lists, price range, colours, and brand and category counts are cached per storefront and cleared in every storefront on a product change (StorefrontProductCachesTest::test_a_change_to_the_products_clears_every_storefronts_product_caches; PR 50; PR 83)
+  - [MET] The customer app drops and reloads its category, brand, banner and product lists when the storefront changes (lavkooapp #7 56deea7 job storefront-header: storefront_catalogue_reload_test.dart; the search controller registers the same listener (untested behaviour))
+  - [MISSING] Filter facets and the price filter use the storefront's own products and currency only (Price filter units differ between web and API and ignore the storefront currency; brand list has no zero-count filter)
+- **(10) Next coding task.** On #50 add tests/Feature/Storefront/StorefrontSearchEntriesTest.php: one case per entry (API search, suggestion-product, web typeahead, searched-products, translated fallback) asserting a KW-only term is not found on SA and the reverse; then drop brands and categories without a product in the storefront from its facet lists behind the flag (flag-off identical) with tests.
+- **Open owner decisions.** Whether empty brands and categories are hidden in a storefront's facets or only through the B-13 visibility.
+
+#### B-15. Banners per store
+
+- **State: IN PROGRESS** | plan lines 490 | GCC-07 (independent theme per country); decisions: caches market-scoped | reviews: owner-decision
+- **(2) Functional requirement.** A storefront shows only its own banners: a banner can be assigned to one, several or all storefronts, and a banner that points at a product not offered in the storefront is not served.
+- **(3) Exists now in code (main).** banners has no country; one banner cache holds every banner, and a banner of type product inlines the product's row (price, stock).
+- **(4) Done in the draft PRs.** #46: a banner of a hidden product is left out. #48: a banner whose product another storefront owns is not served or inlined (GET /api/v1/banners, home promos, the web home through BannerPlacementService), the filter running after the cache. Customer app #7 reloads banners when the storefront changes.
+- **(5) What remains.** (1) No per-storefront banner assignment: Banner has no country and no pivot. (2) The banner cache holds every banner, so a storefront-keyed copy is needed once assignment exists. (3) Banners pointing at categories, brands or shops are not checked against store visibility (B-13). (4) Admin banner screens do not show or set a market.
+- **(6) PRs and commits.** [lavkoo#46](https://github.com/fullstackfull/lavkoo/pull/46) `c07cd36`; [lavkoo#48](https://github.com/fullstackfull/lavkoo/pull/48) `4a821d3`; [lavkooapp#7](https://github.com/fullstackfull/lavkooapp/pull/7) `56deea7`
+- **(7) Tests.**
+  - `ci` StorefrontBannerTest (5): banners of another country's products left out, nothing inlined, promo grid follows, flag-off unchanged (tests/Feature/Storefront/StorefrontBannerTest.php; PR 48 4a821d3 SQLite + Storefront MySQL 8/MariaDB 11.4.2 green; PR 83)
+  - `ci` HiddenProductExposureTest banner tests: a banner of a hidden product is left out (tests/Feature/Security/HiddenProductExposureTest.php; PR 46 c07cd36 incl. MySQL 8 and MariaDB)
+  - `ci` lavkooapp storefront_catalogue_reload_test.dart (banners group) (lavkooapp #7 56deea7 job storefront-header)
+- **(8) Dependencies and blockers.** Which banner types a storefront has depends on the per-country theme (F). RestAPI/v1/BannerController.php is changed by both sets (the #46 content is in both), so no combined tree exists.
+- **(9) Acceptance criteria.**
+  - [MET] A banner of a product another storefront owns is not served, inlined or opened, and the promo grid follows (StorefrontBannerTest::test_a_storefront_is_shown_only_the_banners_of_products_it_may_sell and promo-grid test; PR 48; PR 83)
+  - [MET] With storefronts off every banner is answered as before (StorefrontBannerTest::test_while_storefronts_are_off_every_banner_is_answered_as_before; PR 48)
+  - [MISSING] A banner can be assigned to chosen storefronts, and a storefront shows only its own plus the unassigned ones (Banner model and migrations carry no country or pivot)
+  - [MISSING] The banner caches are kept per storefront once banners can be assigned (BannerPlacementService filters after a cache that holds every banner)
+  - [MET] The customer app reloads its banners when the storefront changes (lavkooapp #7 56deea7 job storefront-header: storefront_catalogue_reload_test.dart)
+- **(10) Next coding task.** Stack on #48: an additive banner_storefronts pivot (banner_id, storefront_country; no rows = every storefront); BannerPlacementService and RestAPI/v1/BannerController filter by it before the product check; storefrontCacheKey on the banner caches; a multi-select on the admin banner form; tests: a KW-only banner is not served on SA, an unassigned banner serves everywhere, flag-off identical.
+- **Open owner decisions.** The banner assignment model (pivot or country column), and whether banners follow the per-country theme (theme unit).
+
+#### B-16. Campaigns, deals and coupon display per store
+
+- **State: IN PROGRESS** | plan lines 490 | GCC-17 (central campaigns, local coupon rules) | reviews: owner-decision, finance
+- **(2) Functional requirement.** A central campaign can select markets, and the deals, clearance sales and coupons offered to a customer are those of the customer's storefront (own products, amounts and currency). The coupon rules themselves belong to I1.
+- **(3) Exists now in code (main).** No market on coupons, flash and featured deals, deal of the day, clearance setups or experience campaigns. One flash deal is active system-wide; the coupon list API returns every active coupon; campaign overrides are cached under commerce_campaign_overrides_<page> with no storefront.
+- **(4) Done in the draft PRs.** #46: a flash deal lists and counts only members a customer may see (FlashDeal::activeProducts). #47/#50: members follow the storefront through active(); the flash and featured deal caches are per storefront. Customer app #7 clears the applied coupon and coupon lists on a storefront change. No coupon, campaign or deal table or market field was added.
+- **(5) What remains.** (1) A market (or all) on coupons, deals, clearance setups and campaigns, with the coupon list and applicable_list narrowed by it. (2) The experience-campaign cache key is not storefront-keyed. (3) Fixed-amount deal and clearance discounts have no defined unit per country (price-stock map gaps 24 and 25). (4) One active flash deal system-wide.
+- **(6) PRs and commits.** [lavkoo#46](https://github.com/fullstackfull/lavkoo/pull/46) `c07cd36`; [lavkoo#50](https://github.com/fullstackfull/lavkoo/pull/50) `98191ff`; [lavkooapp#7](https://github.com/fullstackfull/lavkooapp/pull/7) `56deea7`
+- **(7) Tests.**
+  - `ci` HiddenProductExposureTest flash deal tests: counts and lists hold only members a customer may see (tests/Feature/Security/HiddenProductExposureTest.php; PR 46 c07cd36 incl. MySQL 8 and MariaDB)
+  - `ci` StorefrontProductCachesTest::test_a_registered_scoped_key_is_cleared_with_its_group (flash deal key) (tests/Feature/Storefront/StorefrontProductCachesTest.php; PR 50 98191ff; PR 83)
+- **(8) Dependencies and blockers.** Coupon rules, amounts and currency belong to I1; currency units depend on B-03. FlashDeal.php and SectionDataResolver.php carry only #46's change, present in both the security set and the GCC chain, so they are not conflict sources; the real overlaps for B-16's code are ProductManager.php (cache_flash_deal_ key) and CacheManagerTrait.php, changed differently by both sets, so no combined tree exists.
+- **(9) Acceptance criteria.**
+  - [CODED] A flash or featured deal lists and counts only members the storefront may show (FlashDeal::activeProducts uses Product::active(); the visibility half is tested (PR 46), the storefront half has no deal-level test)
+  - [CODED] The flash and featured deal caches are kept per storefront (ProductManager.php and product.php write them under storefrontCacheKey; StorefrontProductCachesTest pins only the clearing of a scoped flash key, not the write key)
+  - [MISSING] A campaign, deal, clearance sale or coupon can be limited to chosen storefronts, and the coupon list API shows only that storefront's (No country or market column on Coupon, FlashDeal, StockClearanceSetup, ExperienceCampaign)
+  - [MISSING] Experience-campaign overlays are cached per storefront (CampaignResolver key 'commerce_campaign_overrides_' . $page has no storefront)
+  - [MISSING] A fixed-amount deal or clearance discount states its unit per country (price-stock map gaps 24 and 25)
+  - [CODED] The customer app drops the applied coupon and the coupon lists when the storefront changes (lavkooapp #7 coupon_controller.dart onStorefrontChanged; controller registration pinned by storefront_cache_inventory_test.dart)
+- **(10) Next coding task.** Executable now: key CampaignResolver's commerce_campaign_overrides_<page> cache with storefrontCacheKey and clear it with cacheForgetInEveryStorefront, with a test. After the GCC-17 decision: nullable storefront_country (NULL = all) on coupons, flash_deals, stock_clearance_setups and experience_campaigns, narrowing CouponController list and applicable_list and the deal readers.
+- **Open owner decisions.** GCC-17 details: does a campaign, deal or coupon belong to one market or select several; how a fixed amount is expressed per currency; one active flash deal system-wide or per storefront.
+- **Verifier note (not applied automatically).** deps_blockers corrected by the verifier (applied above).
+
+#### B-17. SEO, canonical and hreflang per storefront: meta, structured data, sitemap
+
+- **State: NOT STARTED** | plan lines 193, 490 | Foundation (SEO must be market-scoped), GCC-10 | reviews: owner-decision
+- **(2) Functional requirement.** Each storefront page carries the canonical URL, hreflang alternates, structured-data price and currency, and sitemap entries of its own storefront, and no page of one storefront advertises another's products.
+- **(3) Exists now in code (main).** The product page canonical is route('product', slug) with no storefront, and hreflang alternates are ?language=<code> on the same URL. JSON-LD uses unit_price with the system currency code. One sitemap.xml is generated by hand from the admin for every active product; SitemapHreflangGenerator has no caller; redirects have no store.
+- **(4) Done in the draft PRs.** Nothing: ProductSeoSupplementComposer, StructuredDataBuilder, SitemapHreflangGenerator, SiteMapController, ApplySeoRedirects and AppLinkService are byte-identical to main in the GCC integration tree. The sitemap is built in an admin request, which is not narrowed to a storefront.
+- **(5) What remains.** Storefront-aware canonical and hreflang (country path plus language), a sitemap per storefront (or an index) and robots pointers, JSON-LD currency from the storefront (B-03), per-storefront SEO templates, noindex while a storefront is not live, and a policy for copies of one product in several countries.
+- **(6) PRs and commits.** none
+- **(7) Tests.**
+  - `none` No test: nothing is built (-)
+- **(8) Dependencies and blockers.** Needs the storefront URL scheme (B-18) and, for prices, B-03. Only unprefixed web routes exist today.
+- **(9) Acceptance criteria.**
+  - [MISSING] A KW product page's canonical URL is that product's KW storefront URL (Canonical is route('product', slug) in ProductSeoSupplementComposer, identical to main)
+  - [MISSING] hreflang alternates list the storefront and language variants of the same page (Alternates are ?language=<code> on one URL)
+  - [MISSING] JSON-LD offers carry the storefront's price and currency (StructuredDataBuilder identical to main; priceCurrency from the system currency)
+  - [MISSING] A storefront's sitemap lists only its own products with its own URLs (SiteMapController builds one file from every active product in an unnarrowed admin request)
+  - [MISSING] A storefront that is not live is not indexable (No noindex or robots handling per storefront)
+- **(10) Next coding task.** Stack on #37: a StorefrontUrl helper (country path plus route) used by ProductSeoSupplementComposer (canonical, hreflang), StructuredDataBuilder (priceCurrency) and SiteMapController (one sitemap per active storefront through SitemapHreflangGenerator), flag-off output byte-identical; tests for the AE and KW product canonical, sitemap contents and robots. Needs the URL scheme of B-18.
+- **Open owner decisions.** Canonical scheme (country path as the plan proposes, and whether Saudi stays at the root or moves to /sa with 301); one sitemap per storefront or an index; indexing of copies of one product in several countries.
+
+#### B-18. Old product URLs, redirects, app links and deep links keep working next to the country paths
+
+- **State: IN PROGRESS** | plan lines 193, 490 | Foundation (old links, App Links and Deep Links preserved), GCC-19 | reviews: owner-decision
+- **(2) Functional requirement.** Existing Saudi URLs (/product/{slug}, /category/{slug}, /brand/{slug}), the SEO redirects, App Links and deep links keep working once the country paths (/sa, /ae, /kw, /qa, /bh, /om) exist, and each country's product is reachable at its own path.
+- **(3) Exists now in code (main).** Slug URLs /product/{slug} (slug is name plus six random characters, unique per row); the redirects table with ApplySeoRedirects (global rules, no store); DeepLinkResolver and config/deeplinks.php patterns /product/*, /brand/*, /products with no storefront knowledge. No path-prefixed web route exists.
+- **(4) Done in the draft PRs.** #8/#37: the resolver reads the first path segment as a storefront, but only a test probe route (/ae/__storefront-probe) uses it; no /{country}/... web route is registered. With the flag off or for Saudi, old URLs are unchanged; a product of another country at an unprefixed URL answers like an unknown product.
+- **(5) What remains.** Country-prefixed web routes and names; the redirect policy (Saudi root to /sa, or stay); redirect rules with a storefront; deep-link and association patterns for prefixed paths; app links that carry or resolve the storefront; a slug policy for copies; tests that old URLs behave the same with the flag on.
+- **(6) PRs and commits.** [lavkoo#8](https://github.com/fullstackfull/lavkoo/pull/8) `a8c6a42`; [lavkoo#37](https://github.com/fullstackfull/lavkoo/pull/37) `2344fa3`
+- **(7) Tests.**
+  - `ci` ResolveStorefrontMiddlewareTest (27): resolver, header and Vary with a probe route, not real URLs (tests/Feature/Storefront/ResolveStorefrontMiddlewareTest.php; PR 47 e0dd5dc SQLite + Storefront MySQL 8/MariaDB green; PR 83)
+- **(8) Dependencies and blockers.** The store-context unit owns the resolver and the manual storefront choice. B-17 depends on this. routes/web/routes.php is changed by both the security set and the GCC chain, so no combined tree exists.
+- **(9) Acceptance criteria.**
+  - [CODED] With storefronts off every existing URL, redirect and deep link answers as today (Flag defaults off and the resolver returns the default storefront; no URL-level test)
+  - [CODED] An unprefixed product URL of another country's product answers like an unknown product on the default storefront (Web product page uses getWebFirstWhereActive (active() narrowing); only the API by-id reads are tested)
+  - [MISSING] A country-prefixed URL (/kw/product/{slug}) serves the KW storefront's product page (routes/web/routes.php has no prefixed group; only a test probe route uses the path)
+  - [MISSING] Old Saudi URLs resolve to the chosen canonical form (301 or stay) with redirect rules per storefront (Redirect model and ApplySeoRedirects are global)
+  - [MISSING] App links and deep links for prefixed paths open the app in the right storefront (config/deeplinks.php lists only unprefixed patterns)
+- **(10) Next coding task.** Stack on #37: register the web route group for the configured storefront paths behind the flag (RouteServiceProvider mapBetaWebRoutes with a path-prefix regex built from gcc.storefronts.countries; unprefixed routes stay the default storefront), extend config/deeplinks.php, add an optional storefront to the redirects; tests that /kw/product/{slug} is 200 for a KW product and 404 on SA, old URLs unchanged, deep-link resolver cases.
+- **Open owner decisions.** URL scheme and redirect policy for Saudi (root or /sa), whether the path applies to the blog and the API, and the deep-link association policy per storefront.

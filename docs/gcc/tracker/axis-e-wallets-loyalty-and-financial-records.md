@@ -1,0 +1,385 @@
+# Axis E: Wallets, loyalty and financial records
+
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 17. Acceptance criteria: 83 (MET 26, CODED 3, MISSING 54). Code completion 35%, proven by a passing test 31%, release readiness 2%.
+
+Independent verification: not done yet.
+
+Every card gives the ten fields of the directive: (1) id and name, (2) functional requirement, (3) what exists in main, (4) what the draft pull requests did, (5) what remains, (6) pull requests and commits, (7) tests that exist and where they ran, (8) dependencies and blockers, (9) acceptance criteria marked MET (a named passing test or CI job on a named head), CODED (code exists, no passing test cited) or MISSING, (10) the next coding task.
+
+#### E-01. Customer wallet separate per market (storefront, company, currency)
+
+- **State: NOT STARTED** | plan lines 23, 351, 359-361, 511 | GCC-13, GCC-15, GCC-19; DECISIONS: wallet balances and ledgers separate by store, legal entity and currency | reviews: finance, legal, security, owner-decision
+- **(2) Functional requirement.** One login holds one independent wallet per market (storefront, selling company, currency). Credits, debits, top-ups, refunds and rewards touch only the wallet of the market where they happen. The Saudi wallet stays the default market and keeps its balance.
+- **(3) Exists now in code (main).** One global balance per customer: users.wallet_balance (decimal 18,12), with platform-wide wallet_status and top-up settings. wallet_transactions has no storefront, entity or currency column (nor have seller_wallets, admin_wallets, order_transactions, withdraw_requests). config/gcc.php keeps a currency per country and one GCC_LEGAL_ENTITY value, nothing for wallets. Gateway top-ups credit the same global balance.
+- **(4) Done in the draft PRs.** Nothing separates balances: no gcc/* branch adds a wallet, loyalty or ledger table beyond referral_reward_grants (PR 29) and pos_sale_idempotency_keys (PR 35). Related only: wallet checkout and top-up routes carry the storefront sale gate (PR 42/49, in the PR 83 tree), lavkooapp#5 refuses a top-up on a browse-only storefront, wallet due payment stays open.
+- **(5) What remains.** 1 Market and legal-entity registry as the key (GCC-05, entity unit). 2 Account table unique per (customer, market, currency) with row lock. 3 One writer that takes the market; the four writers, POS, referral, refund and top-up callbacks pass it. 4 Saudi balance stays the default-market projection. 5 Per-market wallet switch, limits and bonus tiers. 6 Six-market isolation tests.
+- **(6) PRs and commits.** [lavkoo#6](https://github.com/fullstackfull/lavkoo/pull/6) `5c4b3e6`; [lavkoo#34](https://github.com/fullstackfull/lavkoo/pull/34) `832377a`; [lavkoo#42](https://github.com/fullstackfull/lavkoo/pull/42) `2534953`; [lavkoo#49](https://github.com/fullstackfull/lavkoo/pull/49) `b52d9b2`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`; [lavkooapp#5](https://github.com/fullstackfull/lavkooapp/pull/5) `5526c4b`
+- **(7) Tests.**
+  - `ci` Saudi wallet ledger characterization: admin top-up, order payment, points credit, wallet off, unknown customer (tests/Feature/Wallet/WalletLedgerCharacterizationTest.php, PR 6 5c4b3e6; Tests, SQLite (PHP 8.2/8.3) green)
+  - `ci` Checkout and POS wallet debit boundaries pinned (exact balance, one cent over, zero) (tests/Feature/Wallet/WalletDebitBoundaryCharacterizationTest.php, PR 34 832377a; Tests, SQLite (PHP 8.2/8.3) green)
+  - `ci` Sale gate on wallet checkout and wallet top-up routes; wallet due payment stays open (tests/Feature/Storefront/StorefrontSalesRoutesTest.php, PR 83 8ff3410; Storefront tests MySQL 8 and MariaDB 11.4.2, SQLite jobs green)
+  - `none` No test asserts per-market wallet separation
+- **(8) Dependencies and blockers.** GCC-05 (market and currency on orders) and the legal-entity registry (other units); owner decisions on the wallet key and the storage unit of old balances (E04-F02); one write path first (E-09, E-10, E-16). The money PRs are in neither PR 75 nor PR 83.
+- **(9) Acceptance criteria.**
+  - [MISSING] A KWD top-up or credit on storefront KW leaves the same customer's SAR wallet balance and ledger unchanged (no per-market account on any branch (scan of every gcc/* migration))
+  - [MISSING] A wallet checkout on storefront AE debits only the AED wallet, and is refused when only the SAR wallet holds money (no market argument in any writer (PR 9-13, 36 all keep users.wallet_balance))
+  - [MISSING] A gateway top-up of legal entity X credits only entity X's wallet (add_fund_to_wallet_success credits users.wallet_balance (app/Utils/module-helper.php))
+  - [MET] With the market switch off, the Saudi wallet credit, debit, balance and ledger row behave exactly as today (pinned by WalletLedgerCharacterizationTest (PR 6) and WalletDebitBoundaryCharacterizationTest (PR 34); Tests, SQLite (PHP 8.2/8.3) green)
+- **(10) Next coding task.** Branch from PR 9 (CustomerBalanceLock) behind a default-off GCC_MARKET_WALLETS switch: additive migration customer_balance_accounts (customer, storefront code, legal entity, currency, wallet, points; unique key), a MarketBalanceAccounts service reusing the lock, shadow-written by the four writers; MarketWalletIsolationTest for six markets on SQLite plus the MySQL concurrency group.
+- **Open owner decisions.** Wallet key: per storefront, or per legal entity when two storefronts share one; stored-value rules per country (legal); storage unit of historical balances; per-market wallet switch, top-up limits and bonus tiers.
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### E-02. Loyalty points independent per market, sharing structure off
+
+- **State: NOT STARTED** | plan lines 23, 363-364 | GCC-15 | reviews: finance, owner-decision
+- **(2) Functional requirement.** Points are earned, redeemed, converted and reversed inside one market, with that market's own rates. The structure leaves room to study shared points later through a disabled, unused key; nothing shares points now.
+- **(3) Exists now in code (main).** One global users.loyalty_point (decimal 18,4) and one ledger without a market. Earn rate, exchange rate and minimum points are single platform settings (loyalty_point_status, loyalty_point_exchange_rate, loyalty_point_item_purchase_point, loyalty_point_minimum_point) published as one value by /api/v1/config. Conversion credits the global wallet.
+- **(4) Done in the draft PRs.** Nothing market-aware. PR 10 locks both points writers and makes points-to-wallet atomic inside one account (state in E-14); no sharing key and no per-market setting exist on any branch.
+- **(5) What remains.** Points account per (customer, market); per-market earn, exchange and minimum settings in the market currency; conversion credits the same market's wallet only; a disabled sharing hook (nullable group key that no code path reads); refund reversal inside the market; six-market tests.
+- **(6) PRs and commits.** [lavkoo#10](https://github.com/fullstackfull/lavkoo/pull/10) `9b39874`
+- **(7) Tests.**
+  - `none` No test asserts market-independent points
+- **(8) Dependencies and blockers.** E-01 market key; E-14 (one earn and redeem formula first); GCC-05.
+- **(9) Acceptance criteria.**
+  - [MISSING] Points earned on a KW order leave the SA points balance unchanged (single users.loyalty_point; no market key)
+  - [MISSING] Converting KW points credits only the KW wallet at the KW exchange rate (PointsToWalletConversion (PR 10) works inside one global account)
+  - [MISSING] Each market has its own loyalty status, earn rate, exchange rate and minimum (settings are single business_settings rows (Admin/Customer/CustomerController.php))
+  - [MISSING] A sharing key exists in the structure, nothing reads it, and enabling sharing needs a code change (no such key on any branch)
+- **(10) Next coding task.** After E-01: add a points column and per-market settings to the account table, route LoyaltyPointTransactionRepository and CustomerManager::create_loyalty_point_transaction through the market account behind the same switch, and add LoyaltyMarketIsolationTest (earn KW, convert KW, SA untouched) on SQLite and in the concurrency group.
+- **Open owner decisions.** Earn rate, exchange rate and minimum per market; the shape of the future sharing key; whether points expire.
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### E-03. No automatic transfer or conversion of balances between markets
+
+- **State: NOT STARTED** | plan lines 362 | GCC-15; DECISIONS: no automatic transfers between legal companies | reviews: finance, security
+- **(2) Functional requirement.** No code path moves or converts a balance between markets, legal entities or currencies: no job, admin action, API, refund or points conversion crosses from one market's wallet or points account to another's.
+- **(3) Exists now in code (main).** Impossible today only because one global balance exists. Amounts are held in a USD base and shown in the platform default currency by rate (Convert::usd, usdToDefaultCurrency), so a balance is implicitly spendable at any rate. Six places write the balances (four wallet writers, two points writers), none takes a market.
+- **(4) Done in the draft PRs.** Nothing. PR 10's PointsToWalletConversion keeps a conversion inside one customer account but is not market-aware.
+- **(5) What remains.** A market argument on every writer; a refusal when a debit's market differs from the account's; cross-market guard tests; a source-scan test that fails when code writes wallet_balance or loyalty_point outside the single writer; no admin-side transfer screen.
+- **(6) PRs and commits.** [lavkoo#10](https://github.com/fullstackfull/lavkoo/pull/10) `9b39874`
+- **(7) Tests.**
+  - `none` No test asserts that markets cannot transfer
+- **(8) Dependencies and blockers.** E-01 (market accounts); one write path (E-09, E-10, E-16).
+- **(9) Acceptance criteria.**
+  - [MISSING] A debit tagged storefront AE cannot reduce a KW account (no market in any writer)
+  - [MISSING] Points of market A cannot be converted into the wallet of market B (PointsToWalletConversion has no market)
+  - [MISSING] No route, command or schedule changes two market accounts of one customer in one operation (no market accounts exist)
+  - [MISSING] A source-scan test fails when code assigns wallet_balance or loyalty_point outside the single writer (six writer sites today (WalletTransactionRepository, CustomerTrait, CustomerManager x2, OrderManager, LoyaltyPointTransactionRepository))
+- **(10) Next coding task.** Write the red tests first on a branch from main: MarketBalanceIsolationTest (six markets, two currencies) against the E-01 service interface, and a source-scan test listing the only allowed writers of wallet_balance and loyalty_point.
+- **Open owner decisions.** none open (decided: no automatic transfer between legal companies); manual goodwill transfers stay out of scope until separately approved.
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### E-04. Wallet and loyalty readers show one market's balance, API keys keep meaning
+
+- **State: NOT STARTED** | plan lines 23, 351, 368 | GCC-13, GCC-14, GCC-15; E04 section 5.2 (add keys, never change meaning) | reviews: security, owner-decision
+- **(2) Functional requirement.** Every reader of balances (customer web and REST statements, profile, checkout pre-checks, seller POS customer lookup, admin and vendor screens, both Flutter apps) uses the request's market; existing keys keep their meaning for the default market.
+- **(3) Exists now in code (main).** Outside the writers, 8 PHP sites read users.wallet_balance and 13 read loyalty_point (checkout pre-checks, statements, POS, refunds), plus Blade and Flutter reads of wallet_balance, total_wallet_balance, total_loyalty_point. The seller POS customer list returns whole User rows, wallet_balance included (not hidden). The customer app files wallet and points ledgers as the customer's own, not storefront data.
+- **(4) Done in the draft PRs.** Nothing for customers. PR 82 (GCC-14c slice 3) hides the admin wallet and the vendor and delivery-man wallet cards from a restricted employee but leaves the customer wallet and loyalty reports and the wallet bonus tab un-narrowed (open decision). lavkooapp#7 pins wallet and points controllers as customer-own data.
+- **(5) What remains.** Resolve the market in each reader and read the market account; per-market statements and pagination; seller-app payload as an explicit resource limited to the seller's market; admin and vendor customer-wallet screens scoped by staff country or hidden; apps drop and reload cached wallet data on a market change; contract tests that keys keep type and meaning.
+- **(6) PRs and commits.** [lavkoo#82](https://github.com/fullstackfull/lavkoo/pull/82) `d1fc5f4`; [lavkooapp#7](https://github.com/fullstackfull/lavkooapp/pull/7) `56deea7`
+- **(7) Tests.**
+  - `ci` storefront_cache_inventory_test lists the wallet and loyalty controllers as customer-own data with no storefront key (test/storefront_cache_inventory_test.dart, lavkooapp#7 56deea7; job storefront-header green)
+  - `none` No test covers per-market balance readers
+- **(8) Dependencies and blockers.** E-01 account service; GCC-14c staff-scope chain (PR 82); app changes in lavkooapp and lavkooappseller; GCC-05.
+- **(9) Acceptance criteria.**
+  - [MISSING] A statement request under storefront KW returns only KW ledger rows and the KW balance (REST v1 and web) (UserWalletController reads $user->wallet_balance and all rows by user_id)
+  - [MISSING] The seller app POS customer lookup returns only the seller's market balance, through an explicit resource (RestAPI/v3/seller/POSController::customers returns toArray() of User rows)
+  - [CODED] wallet_balance, total_wallet_balance and total_loyalty_point keep key and meaning for the default market (baseline: read by profile_model, wallet_transaction_model, loyalty_point_model; no contract test)
+  - [MISSING] The customer app drops and reloads wallet and points data when the market changes (lavkooapp#7 inventory lists both controllers as not storefront data)
+  - [MISSING] A restricted employee sees wallet and loyalty reports of their own market's customers only (PR 82 doc: reports and wallet bonus tab not narrowed)
+- **(10) Next coding task.** Branch from the PR 82 tree: add a MarketBalanceReader used by RestAPI/v1 and Web UserWalletController, UserLoyaltyController and the seller POS customers resource (explicit fields), contract tests that the three keys keep type and meaning for SA, and extend lavkooapp storefront_cache_inventory_test so wallet and points are dropped on a market change.
+- **Open owner decisions.** What a restricted employee may see of customer wallet and loyalty reports and the wallet bonus tab (GCC-14c decision 15); which customer fields the seller app may receive.
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### E-05. Ledger rows reconcilable: attribution, reference, actor, idempotency
+
+- **State: IN PROGRESS** | plan lines 351, 361, 513 | GCC-13, GCC-15; E04-F06, E04-F07; owner axis (reconcilable financial records) | reviews: finance, owner-decision
+- **(2) Functional requirement.** Every wallet and loyalty movement leaves one ledger row, written with the balance in one transaction, that names market, legal entity, currency, the order, payment or refund behind it and the actor, and carries an idempotency key so a replay writes once.
+- **(3) Exists now in code (main).** wallet_transactions: user_id, transaction_id, credit, debit, admin_bonus, balance, transaction_type, reference (free text such as 'order payment' or 'order_refund'), payment_method. No order, payment or refund id, actor, currency, market or idempotency key. The admin top-up passes no admin id. The balance column leaves out the add-fund bonus. Main has two tests that touch wallet columns.
+- **(4) Done in the draft PRs.** PR 9: ledger row and balance move in one locked transaction, so a failed ledger write leaves the balance unchanged. PR 6 and PR 9 pin today's defects (bonus missing from the ledger balance, an identical retry debits again). PR 15 documents RF-02 and IDEM-06/07 as proposals only. PR 29 and PR 35 add key tables for two paths (referral_reward_grants, pos_sale_idempotency_keys).
+- **(5) What remains.** Additive nullable columns for market, legal entity, currency, reference type and id, actor and a unique idempotency key on both ledgers, filled by the writers; refund id as the reference (RF-02); actor on admin top-up; replay-safe top-up and refund credits; ledger balance rule for the bonus; marking of old rows (Saudi, no currency until the unit is decided).
+- **(6) PRs and commits.** [lavkoo#6](https://github.com/fullstackfull/lavkoo/pull/6) `5c4b3e6`; [lavkoo#9](https://github.com/fullstackfull/lavkoo/pull/9) `f286684`; [lavkoo#15](https://github.com/fullstackfull/lavkoo/pull/15) `59133c3`; [lavkoo#29](https://github.com/fullstackfull/lavkoo/pull/29) `7370895`; [lavkoo#35](https://github.com/fullstackfull/lavkoo/pull/35) `7c75b7f`
+- **(7) Tests.**
+  - `ci` WalletWriteAtomicityTest: a failed ledger write leaves the wallet unchanged for each writer (tests/Feature/Wallet/WalletWriteAtomicityTest.php, PR 9 f286684; Tests, SQLite (PHP 8.2/8.3) green; also run on MySQL and MariaDB at PR 14 2ae7459)
+  - `ci` Characterization: ledger balance leaves out the bonus; an identical retry debits again (WalletLedgerCharacterizationTest (PR 6) and WalletWriteAtomicityTest (PR 9); Tests, SQLite (PHP 8.2/8.3) green)
+- **(8) Dependencies and blockers.** Owner decisions RF-02, IDEM-06/07 (D6) and the bonus rule; E-01 for market and entity columns; GCC-05 for currency; the migration time on a large wallet_transactions table is UNKNOWN (07 plan, M-05).
+- **(9) Acceptance criteria.**
+  - [MET] A wallet balance change and its ledger row commit or roll back together (all four writers) (WalletWriteAtomicityTest, PR 9 f286684; SQLite jobs; MySQL and MariaDB at PR 14)
+  - [MISSING] A ledger row names the order, payment or refund behind it, not a literal (reference is the literal 'order payment' or 'order_refund')
+  - [MISSING] A ledger row records the actor of a manual admin top-up (CustomerWalletController::addFund passes no admin id)
+  - [MISSING] A replayed credit with the same key (top-up callback, refund, return credit) writes one row (pinned: test_current_behaviour_an_identical_retry_debits_again (PR 9))
+  - [MISSING] The ledger balance column equals the wallet balance after the row, bonus included (pinned: test_current_behaviour_the_ledger_balance_leaves_out_an_add_fund_bonus_the_wallet_includes (PR 6))
+  - [MISSING] Each row carries storefront, legal entity and currency (no such columns on any branch)
+- **(10) Next coding task.** On the money-chain base: additive nullable columns (storefront_code, legal_entity, currency_code, reference_type, reference_id, actor_type, actor_id, idempotency_key unique) on both ledgers, filled by the writers behind GCC_LEDGER_ATTRIBUTION; tests: replay with one key writes one row (SQLite and MySQL concurrency group), refund id reference, bonus rule once decided.
+- **Open owner decisions.** Whether the ledger balance includes the add-fund bonus (PR 6); the refund reference format (RF-02); a writer-level idempotency key (IDEM-06/07, D6); how old rows are marked.
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### E-06. Historical balances reconciled against the ledgers (read-only proof)
+
+- **State: NOT STARTED** | plan lines 23, 366, 370, 513 | GCC-15; DECISIONS: careful reconciliation of historical Saudi balances; 07 migration plan sections 3.1 and 3.2 | reviews: finance, security, owner-decision
+- **(2) Functional requirement.** A read-only report proves that, per customer, the ledger sum equals users.wallet_balance and users.loyalty_point, classifies every difference and blocks any migration while one is unexplained. It runs on a test or authorised copy and prints no personal data.
+- **(3) Exists now in code (main).** Only the Discovery method: balance = sum(credit + admin_bonus - debit), points = sum(credit - debit), judged computable but UNKNOWN on production (E04 5.1; 07 plan 3.1/3.2). No command, query or test does it. A legacy customer_wallets system with a GET route (RewardPointController::convert) holds a second balance outside the ledger.
+- **(4) Done in the draft PRs.** Nothing coded on any branch. Concurrency tests assert the final wallet value after simultaneous writes, which is not a reconciliation tool.
+- **(5) What remains.** Artisan command (dry, counts and sums only) with database-side decimal sums; classes: orphan rows, deleted user, NULL balance, float residue, manual edit, unexplained; debit rows matched to pay_by_wallet orders by reference, time and amount; legacy customer_wallets included or frozen; fixtures on SQLite and MySQL; a go/no-go rule of zero unexplained.
+- **(6) PRs and commits.** none
+- **(7) Tests.**
+  - `none` No test or tool reconciles ledger and balance
+- **(8) Dependencies and blockers.** Charter section 4: no production access without a named operator and scope; storage unit of old balances (E04-F02) UNKNOWN; a restored copy is needed to run it for real.
+- **(9) Acceptance criteria.**
+  - [MISSING] A read-only report compares, per customer, the ledger sums with users.wallet_balance and users.loyalty_point using database decimals (no command on any branch)
+  - [MISSING] Every difference falls in a named class and zero unexplained differences are allowed to pass (classes exist only in 07 plan 3.1/3.2)
+  - [MISSING] Debit rows are matched to pay_by_wallet orders by reference, time and amount, unmatched ones counted (no matcher)
+  - [MISSING] The report writes nothing, prints no names or contact data and refuses to run outside a test or authorised copy (no report)
+  - [MISSING] The legacy customer_wallets and customer_wallet_histories tables are included or declared frozen (RewardPointController::convert still live on a GET route)
+- **(10) Next coding task.** New read-only artisan command wallet:reconcile implementing 07-plan 3.1 and 3.2 (decimal sums in SQL, classes A-F, counts only), with tests on a seeded SQLite and MySQL fixture: equal, float residue, orphan rows, deleted user, NULL balance, legacy customer_wallets. Run on test databases only until the owner authorises a named operator.
+- **Open owner decisions.** Who runs the read-only check, on which copy and when; the storage unit (E04-F02); whether any unexplained difference blocks go-live.
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### E-07. Saudi balances migrated into per-market accounts without loss
+
+- **State: NOT STARTED** | plan lines 23, 365-366, 370, 513 | GCC-15, GCC-19; guardrails 1 and 2; 07 migration plan phases 1-5 | reviews: finance, security, owner-decision
+- **(2) Functional requirement.** Saudi wallet and loyalty balances move into the per-market accounts with expand-only schema, backfill, shadow dual-write, a read switch per market and a rollback. No balance is copied, zeroed or replaced before the E-06 report is clean.
+- **(3) Exists now in code (main).** Plan only: the 07 migration plan proposes nullable columns, new tables (storefronts, legal_entities, customer_balance_accounts), a unified writer in shadow mode, derived accounts built from the ledger and a balance_read_source flag. No migration, command or flag exists. The charter forbids running backfills on real data without separate approval.
+- **(4) Done in the draft PRs.** Nothing for wallets. Pattern only: PR 29 adds an additive, repeatable, reversible migration (referral_reward_grants, no backfill) and a test that pins it.
+- **(5) What remains.** Expand-only migration for accounts and ledger columns; Saudi backfill command that refuses to run unless E-06 shows zero unexplained; shadow dual-write behind GCC_MARKET_WALLETS; per-market read switch; rollback test restoring exact balances; staging rehearsal on a disposable copy; owner approval before any real data.
+- **(6) PRs and commits.** none
+- **(7) Tests.**
+  - `none` No test covers a wallet migration or backfill
+- **(8) Dependencies and blockers.** E-06 clean report; E-01 schema; E-05 columns; owner approval to touch real data (charter section 4); Saudi default mapping (GCC-19).
+- **(9) Acceptance criteria.**
+  - [MISSING] The expand migration adds only nullable columns and empty tables, changes no existing row, runs twice and rolls back (no wallet migration; the referral_reward_grants migration shows the pattern (PR 29))
+  - [MISSING] The Saudi backfill gives each customer an account equal to users.wallet_balance and loyalty_point, and E-06 then reports zero unexplained (no backfill command)
+  - [MISSING] In shadow mode every write updates the old column and the account in one transaction and compares them (no unified writer)
+  - [MISSING] Switching a market back to legacy reads restores the old behaviour with no loss (no read switch)
+  - [MISSING] No row is copied, zeroed or replaced before E-06 passes, and rollback restores exact old balances (no rollback test)
+- **(10) Next coding task.** Write the migration pack as code only: expand-only migration, wallet:backfill-saudi-accounts --dry-run that exits unless wallet:reconcile reports zero unexplained, shadow dual-write behind GCC_MARKET_WALLETS, per-market read switch and a rollback test on disposable MySQL and MariaDB with fixtures only.
+- **Open owner decisions.** Approval to run any backfill on real data; the Saudi opening-balance rule; the cut-over date and rollback window; the storage unit of historical balances.
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### E-08. Old movements preserved: append-only ledgers, account deletion keeps records
+
+- **State: IN PROGRESS** | plan lines 365-366 | GCC-15; guardrail 2 (preserve balances and history) | reviews: legal, finance, owner-decision
+- **(2) Functional requirement.** Old wallet and loyalty movements stay preserved and readable: ledger rows are append-only and survive account deletion and every migration of the plan.
+- **(3) Exists now in code (main).** No application code updates or deletes a ledger row (the six writers insert; customer statements and admin reports read). User has no SoftDeletes; REST v1 and web account_delete call $user->delete() after checking ongoing orders and the Auction guard, with no wallet or points check. wallet_transactions.user_id has no foreign key, so rows stay as orphans. No test pins either fact.
+- **(4) Done in the draft PRs.** PR 29 adds referral_reward_grants as an additive, repeatable, reversible migration with no backfill, pinned by a test. PR 15 pins the sequential refund guards. No draft touches account deletion or ledger retention.
+- **(5) What remains.** Block or anonymise account deletion when a balance exists (keep ledger and grants); a retention rule for ledgers (legal view); a test that pins append-only behaviour; the same guarantee for every migration of the plan (no copy, no zeroing).
+- **(6) PRs and commits.** [lavkoo#29](https://github.com/fullstackfull/lavkoo/pull/29) `7370895`
+- **(7) Tests.**
+  - `ci` The referral_reward_grants migration is additive, repeatable and reversible (ReferralRewardIdempotencyTest::test_the_migration_is_additive_repeatable_and_reversible, PR 29 7370895; Tests, SQLite (PHP 8.2/8.3) green)
+  - `none` No test covers account deletion or append-only ledgers
+- **(8) Dependencies and blockers.** Legal view on retention and anonymisation; E-05 ledger references; account deletion callers (REST v1 CustomerController, Web UserProfileController).
+- **(9) Acceptance criteria.**
+  - [CODED] No application code updates or deletes a wallet or loyalty ledger row (grep of app, Modules and routes on main: inserts by the six writers, reads by user_id; no test)
+  - [MISSING] Deleting a customer account keeps the ledger rows and the balance record, or is refused while a balance remains (account_delete hard-deletes the user (REST v1, web); no test)
+  - [MET] The additive referral_reward_grants migration touches no existing row, runs twice and rolls back (ReferralRewardIdempotencyTest, PR 29 7370895; Tests, SQLite (PHP 8.2/8.3) green)
+- **(10) Next coding task.** Guard RestAPI/v1/CustomerController::account_delete and Web/UserProfileController::account_delete: refuse while wallet_balance or loyalty_point is non-zero, or anonymise instead of $user->delete(); add AccountDeletionKeepsLedgerTest and a source-scan test that nothing updates or deletes ledger rows.
+- **Open owner decisions.** Anonymise, or refuse deletion while a balance exists; ledger retention period (legal).
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### E-09. Balance writes serialised per customer (row lock), wallet and loyalty
+
+- **State: IMPLEMENTED IN DRAFT** | plan lines 368 | GCC-15; charter section 5 (finance review); finding LO-01 | reviews: finance, security
+- **(2) Functional requirement.** Wallet and loyalty balance writes are serialised per customer: no lost update between overlapping debits, credits or point conversions, and a deadlock or lock timeout is never read as an ordinary refusal.
+- **(3) Exists now in code (main).** Four wallet writers (WalletTransactionRepository, CustomerManager, CustomerTrait, OrderManager) and two points writers (LoyaltyPointTransactionRepository, CustomerManager) read the balance before their transaction and write absolute values without a lock. On MySQL 8.0.46, ten simultaneous 1.0 debits left 99.0, not 90.0 (PR 9 body).
+- **(4) Done in the draft PRs.** PR 9: CustomerBalanceLock::apply (transaction, SELECT ... FOR UPDATE on the user row) wraps all four wallet writers; deadlock and lock-wait are rethrown, not returned as false. PR 10: the same lock for both points writers and an atomic points-to-wallet conversion. PR 14: wallet and loyalty tests join the MySQL 8 and MariaDB 11.4.2 groups; a job without a real engine fails instead of skipping.
+- **(5) What remains.** No tree holds PR 9, 10 and 14 with the other money PRs; none is in PR 75 or PR 83, and OrderManager.php is also changed by the security set, so it cannot be INTEGRATED yet. Finance and security review (charter section 5). Owner decision D5: a lock timeout reaches the four callers as an exception (HTTP 500, no money lost); retries are deferred.
+- **(6) PRs and commits.** [lavkoo#9](https://github.com/fullstackfull/lavkoo/pull/9) `f286684`; [lavkoo#10](https://github.com/fullstackfull/lavkoo/pull/10) `9b39874`; [lavkoo#14](https://github.com/fullstackfull/lavkoo/pull/14) `2ae7459`
+- **(7) Tests.**
+  - `ci` WalletConcurrencyTest: ten simultaneous writes per path leave the exact balance (4 writers) (tests/Feature/Concurrency/WalletConcurrencyTest.php, PR 9 f286684; concurrency jobs (MySQL 8.0, MariaDB 11.4.2) green)
+  - `ci` LoyaltyConcurrencyTest: simultaneous credits reach the balance; simultaneous conversions spend points once (tests/Feature/Concurrency/LoyaltyConcurrencyTest.php, PR 10 9b39874; concurrency jobs (MySQL 8.0, MariaDB 11.4.2) green)
+  - `ci` CustomerBalanceLockTest: deadlock and lock-wait rethrown after rollback (tests/Unit/Customer/CustomerBalanceLockTest.php, PR 9; Tests, SQLite (PHP 8.2/8.3) green)
+  - `ci` CiWalletLoyaltyEngineCoverageTest and ConcurrentRunnerEngineGuardTest: wallet and loyalty tests on both engines, no silent skip (tests/Unit/Ci, PR 14 2ae7459; all jobs green)
+- **(8) Dependencies and blockers.** PR 9 is the base of 10, 11, 12, 13 and 14 and no head holds all of them; OrderManager.php is also changed by the security set (PR 75); finance and security review before merge (charter section 5); not in PR 75 or PR 83.
+- **(9) Acceptance criteria.**
+  - [MET] Ten simultaneous debits or credits through each of the four wallet writers leave the exact balance with one ledger row each (WalletConcurrencyTest, PR 9 f286684; concurrency jobs (MySQL 8.0, MariaDB 11.4.2) green)
+  - [MET] Ten simultaneous point credits reach the balance, and four simultaneous conversions of 60 of 100 points succeed once (LoyaltyConcurrencyTest, PR 10 9b39874; concurrency jobs (MySQL 8.0, MariaDB 11.4.2) green)
+  - [MET] A deadlock or lock-wait timeout is rethrown after rollback and never returned as a refusal (CustomerBalanceLockTest, PR 9; Tests, SQLite (PHP 8.2/8.3) green)
+  - [MET] A job without a real engine fails the wallet and loyalty tests instead of skipping them (PR 14 2ae7459 (tests/Unit/Ci); jobs green)
+- **(10) Next coding task.** Build one stack head with PR 9, 10 and 14, run it on MySQL 8 and MariaDB 11.4.2; then decide D5 and, if wanted, add a bounded retry or a clean 'try again' answer for lock timeouts in the four callers (audit the closures' side effects first), with a test per caller.
+- **Open owner decisions.** D5: whether a lock timeout needs retries or a clean answer (today HTTP 500, no money lost); financial-owner review of PR 9 and PR 10.
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### E-10. Overdraft floor inside the lock; callers honour a refused debit or credit
+
+- **State: IMPLEMENTED IN DRAFT** | plan lines 368 | GCC-15; finding LO-01; charter section 5 | reviews: finance, security
+- **(2) Functional requirement.** A wallet debit that would take the balance below zero is refused inside the customer lock, and every caller (checkout, return credit, edited-order due payment) treats the refusal as a refusal: no order paid without a debit, no amount cleared without a credit.
+- **(3) Exists now in code (main).** REST v1 and web wallet checkout, edited-order due payment and POS read the balance outside any lock, then debit; the writers accept a debit above the balance, and callers ignore a false result, so a paid order can exist without a debit (PR 6, PR 12 and PR 34 bodies, main code).
+- **(4) Done in the draft PRs.** PR 11: WalletOverdraft::refuses inside the lock in all four writers. PR 12: the debit runs last inside the order transaction, WalletPaymentRefused rolls back order, stock and tax rows; return credit throws WalletCreditRefused. PR 13: POS and edited-order due payments atomic, a due of zero refused. PR 11 states it is unsafe without PR 12 and 13.
+- **(5) What remains.** One head with PR 11, 12 and 13 (12 and 13 are siblings on 11; no head holds both); conflicts with PR 36 and the security set in OrderManager, WebController and RestAPI/v1 OrderController; finance and security review; a dedicated message when the wallet is off (PR 12 follow-up); not in PR 75 or PR 83.
+- **(6) PRs and commits.** [lavkoo#9](https://github.com/fullstackfull/lavkoo/pull/9) `f286684`; [lavkoo#11](https://github.com/fullstackfull/lavkoo/pull/11) `7fc382c`; [lavkoo#12](https://github.com/fullstackfull/lavkoo/pull/12) `dd5f95e`; [lavkoo#13](https://github.com/fullstackfull/lavkoo/pull/13) `516881c`
+- **(7) Tests.**
+  - `ci` WalletOverdraftTest (feature, unit): above-balance debit refused with no trace, exact balance allowed (tests/Feature/Wallet and tests/Unit/Wallet, PR 11 7fc382c; Tests, SQLite (PHP 8.2/8.3) green)
+  - `ci` WalletOverdraftConcurrencyTest: two debits of 60 from 100 let one through; ten of 15 never go below zero (tests/Feature/Concurrency, PR 11; concurrency jobs (MySQL 8.0, MariaDB 11.4.2) green)
+  - `ci` WalletCheckoutTest and WalletCheckoutConcurrencyTest; ReturnCreditTest (tests/Feature/Wallet and tests/Feature/Concurrency, PR 12 dd5f95e; SQLite and concurrency jobs green)
+  - `ci` OrderEditDueWalletPaymentTest and OrderEditDueConcurrencyTest (PR 13 516881c; SQLite and concurrency jobs green)
+- **(8) Dependencies and blockers.** PR 11 is unsafe alone: it needs PR 12 and PR 13 (siblings, no head holds both) and PR 9's lock; conflicts with PR 36 and the security set in OrderManager.php, WebController.php, RestAPI/v1 OrderController.php; not in PR 75 or PR 83.
+- **(9) Acceptance criteria.**
+  - [MET] A debit above the balance is refused inside the lock and writes no ledger row; a debit equal to the balance is allowed (WalletOverdraftTest feature and unit, PR 11 7fc382c; Tests, SQLite (PHP 8.2/8.3) green)
+  - [MET] Two simultaneous debits of 60 from 100 let exactly one through; ten of 15 never take the balance below zero (WalletOverdraftConcurrencyTest, PR 11; concurrency jobs (MySQL 8.0, MariaDB 11.4.2) green)
+  - [MET] A wallet checkout whose debit is refused takes nothing (no order, no order line, stock unchanged, no ledger row); two simultaneous checkouts of 60 from 100 place one order (WalletCheckoutTest, WalletCheckoutConcurrencyTest, PR 12 dd5f95e; SQLite and concurrency jobs)
+  - [MET] A return credit the writer refuses leaves the amount owed and writes nothing (ReturnCreditTest, PR 12; Tests, SQLite (PHP 8.2/8.3) green)
+  - [MET] An edited-order due payment by wallet is one transaction, a refused debit changes nothing, a zero due is refused (OrderEditDueWalletPaymentTest, OrderEditDueConcurrencyTest, PR 13 516881c)
+- **(10) Next coding task.** Build one combined head of PR 11, 12 and 13 on PR 9 (and PR 14's CI change); settle conflicts in OrderManager, WebController and RestAPI/v1 OrderController; run Wallet, Concurrency and Address groups on SQLite, MySQL 8 and MariaDB 11.4.2; then rebase PR 35 and PR 36 on it.
+- **Open owner decisions.** D6: whether every writer refuses overdraft for every caller (PR 11 does it for order and due debits); a dedicated message when the wallet is off.
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### E-11. POS wallet sales: atomic, server total, guarded amount, idempotent
+
+- **State: IN PROGRESS** | plan lines 368 | GCC-15; findings DC-01, DC-02, DC-06, DC-07, INV-04, INV-05, IDEM-04 | reviews: finance, security, owner-decision
+- **(2) Functional requirement.** Point-of-sale wallet sales (admin, vendor, seller app v3) are atomic, charge the server-computed total in the store currency, refuse zero, negative or walk-in wallet payments, and a retried or replayed sale is debited once.
+- **(3) Exists now in code (main).** Admin, vendor and seller-app (v3) POS debit the posted amount (admin: currencyConverter($amount); v3: paid_amount) before the order is written, ignore a refused debit, and v3 debits before its stock check. No idempotency key. The seller app parks a sale it could not send in an offline outbox that replays it automatically.
+- **(4) Done in the draft PRs.** PR 13: wallet POS sales debit inside the sale transaction, a refusal rolls the sale back, stock updates in ascending product id. PR 30: v3 refuses non-positive paid amounts and walk-in wallet sales and normalises 'Wallet'. PR 35: v3 charges the server total in store currency, refuses cash below total, optional Idempotency-Key (table pos_sale_idempotency_keys). PR 34 pins checkout and POS boundaries.
+- **(5) What remains.** PR 30 and PR 35 both change RestAPI/v3/seller/POSController.php and are not combined; admin and vendor POS still charge the posted amount; the seller app sends no Idempotency-Key (none in any app ref), so its outbox replay can still double-charge; double conversion DC-06/07; product locks up front (owner).
+- **(6) PRs and commits.** [lavkoo#13](https://github.com/fullstackfull/lavkoo/pull/13) `516881c`; [lavkoo#30](https://github.com/fullstackfull/lavkoo/pull/30) `4f66dce`; [lavkoo#34](https://github.com/fullstackfull/lavkoo/pull/34) `832377a`; [lavkoo#35](https://github.com/fullstackfull/lavkoo/pull/35) `7c75b7f`
+- **(7) Tests.**
+  - `ci` PosWalletSaleTest: refused or drained wallet sale persists nothing (admin, vendor, seller app); stock refusal leaves wallet untouched (tests/Feature/Wallet/PosWalletSaleTest.php, PR 13 516881c; Tests, SQLite (PHP 8.2/8.3) green)
+  - `ci` V3PosPaidAmountGuardTest: zero, negative, walk-in and mis-cased wallet payments (tests/Feature/Wallet/V3PosPaidAmountGuardTest.php, PR 30 4f66dce; Tests, SQLite (PHP 8.2/8.3) green)
+  - `ci` PosWalletSaleTest server total and key cases; PosSaleIdempotencyConcurrencyTest (PR 35 7c75b7f; SQLite and concurrency jobs green)
+- **(8) Dependencies and blockers.** PR 35 sits on PR 13; PR 30 sits on main; both change RestAPI/v3/seller/POSController.php, which PR 75 and PR 83 also change; the seller app (lavkooappseller) must send the key; PR 12 and PR 36 are separate branches.
+- **(9) Acceptance criteria.**
+  - [MET] A wallet POS sale whose debit is refused leaves wallet, order and stock unchanged (admin, vendor, seller app); a seller-app sale short of stock leaves the wallet untouched (PosWalletSaleTest, PR 13 516881c; Tests, SQLite (PHP 8.2/8.3) green)
+  - [MET] A seller-app wallet sale is charged the server total in store currency whatever paid_amount says; a cash sale below total is refused (PosWalletSaleTest, PR 35 7c75b7f; Tests, SQLite (PHP 8.2/8.3) green)
+  - [MET] A wallet payment of zero or less, for a walk-in customer, or written 'Wallet' is refused or normalised before any write (V3PosPaidAmountGuardTest, PR 30 4f66dce (conflicts with PR 35 in POSController))
+  - [MET] Two submits with one Idempotency-Key give one order and one debit (PosWalletSaleTest and PosSaleIdempotencyConcurrencyTest, PR 35; concurrency jobs)
+  - [MISSING] The seller app sends an Idempotency-Key and its offline outbox replay reuses it (no Idempotency-Key in any seller-app ref; cart_controller.dart replays parked sales)
+  - [MISSING] The admin and vendor POS charge the server-computed sale total in whole cents (admin POS still debits currencyConverter(posted amount) (DC-06/07))
+- **(10) Next coding task.** Reconcile the POS branches: merge PR 30's guard into PR 35's POSController (normalise method, walk-in refusal, server total, key), make admin and vendor POS charge the server total in whole cents (after D18), and add Idempotency-Key with outbox replay reuse in lavkooappseller (cart_controller.dart, PlaceOrderBody) with a Flutter test.
+- **Open owner decisions.** DC-06/DC-07: the debit amount source and the double conversion; whether POS paths lock products up front; D18 rounding; which key the seller app sends.
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### E-12. Seller wallet and withdrawals: scoped, locked, POST with CSRF, one conversion
+
+- **State: IN PROGRESS** | plan lines 368 | GCC-15; owner axis (seller wallet and withdrawals); D18 | reviews: finance, security
+- **(2) Functional requirement.** Seller withdrawals over seller_wallets and withdraw_requests act only on the owning seller's undecided request, never overdraw under concurrency, close only by POST with CSRF, and convert currency identically in guard and debit.
+- **(3) Exists now in code (main).** Legacy withdraw (v2, v3 balance-withdraw, vendor panel): v3 update and close look a request up by id alone (WithdrawRequest::find), a decided request can be changed, the wallet is read without a lock, the vendor panel closes on GET without CSRF. A ledger-based payout path (PayoutService, seller-center/payouts) runs beside it and the seller app uses both.
+- **(4) Done in the draft PRs.** PR 32: every lookup and write scoped to the signed-in seller and to approved = 0 in the WHERE clause, wallet and request row-locked in one order, admin approval locked (commit 726e681e checked by its author only). PR 33: close is POST with CSRF. PR 31 pins create boundaries on v3 and v2, including the stale-cache conversion defect.
+- **(5) What remains.** Fix the guard and debit conversion mismatch (pinned as currently in PR 31); the v2 close amount skew (D18); the no-USD-row case; independent review of 726e681e; staff principals untested; decide whether the legacy path stays beside ledger payouts; PR 32 shares files with the security set (SellerController v2 and v3, VendorController); not in PR 75 or PR 83.
+- **(6) PRs and commits.** [lavkoo#31](https://github.com/fullstackfull/lavkoo/pull/31) `00b9974`; [lavkoo#32](https://github.com/fullstackfull/lavkoo/pull/32) `726e681`; [lavkoo#33](https://github.com/fullstackfull/lavkoo/pull/33) `8af7d14`
+- **(7) Tests.**
+  - `ci` SellerWithdrawScopingTest (18): scoping, decided-request refusal, own-request controls (tests/Feature/Wallet/SellerWithdrawScopingTest.php, PR 32 726e681; Tests, SQLite (PHP 8.2/8.3) green)
+  - `ci` SellerWithdrawConcurrencyTest (7): creates, closes, updates, approvals race (tests/Feature/Concurrency, PR 32; concurrency jobs (MySQL 8.0, MariaDB 11.4.2) green)
+  - `ci` VendorWithdrawClosePostTest (7): GET refused, POST needs CSRF (PR 33 8af7d14; Tests, SQLite (PHP 8.2/8.3) green)
+  - `ci` WithdrawBoundaryCharacterizationTest (9): exact, partial, above, zero and the stale-cache defect (PR 31 00b9974; Tests, SQLite (PHP 8.2/8.3) green)
+- **(8) Dependencies and blockers.** PR 31, 32, 33 are independent branches from main; PR 32 shares files with the security set; D18 currency decision; the owner's finance review of the withdraw paths (PR 32 body).
+- **(9) Acceptance criteria.**
+  - [MET] A seller cannot update or close another seller's pending withdraw request (v3, v2, vendor panel) (SellerWithdrawScopingTest, PR 32 726e681; Tests, SQLite (PHP 8.2/8.3) green)
+  - [MET] An approved or denied request cannot be updated or closed, even when decided between read and write (SellerWithdrawScopingTest, PR 32)
+  - [MET] Two creates that each fit the balance give one request, and two approvals of one request pay once (SellerWithdrawConcurrencyTest, PR 32; concurrency jobs (726e681e reviewed by its author only))
+  - [MET] The vendor panel closes a request only by POST with a valid CSRF token (VendorWithdrawClosePostTest, PR 33 8af7d14; Tests, SQLite (PHP 8.2/8.3) green)
+  - [MET] A request above the balance, zero or negative is refused with nothing written (v3 and v2) (WithdrawBoundaryCharacterizationTest, PR 31 00b9974; Tests, SQLite (PHP 8.2/8.3) green)
+  - [MISSING] The withdraw guard and the debit use one currency conversion, so total_earning never goes negative (pinned as currently: test_v3_currently_debits_through_a_different_currency_lookup_than_the_guard... (PR 31))
+- **(10) Next coding task.** On PR 32: make guard and debit use the same conversion (BackEndHelper::currency_to_usd or Convert::usd for both), flip the two currently tests in WithdrawBoundaryCharacterizationTest, add the no-USD-row case and a staff-principal test, and request the independent review of commit 726e681e.
+- **Open owner decisions.** The fix for the stale-cache conversion defect and the v2 close amount skew (D18); the no-USD-row case; whether the legacy withdraw stays beside the ledger payouts.
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### E-13. Refunds, return amounts and cancellations paid to the wallet
+
+- **State: IN PROGRESS** | plan lines 368 | GCC-15; findings RF-01 to RF-11, IDEM-06 to IDEM-09, E04-F10 | reviews: finance, owner-decision
+- **(2) Functional requirement.** A refund, return amount or cancellation that pays the customer's wallet pays once, names the refund it belongs to, reverses points and seller earnings, and is one transaction, on admin, vendor and API paths.
+- **(3) Exists now in code (main).** Admin 'refunded' credits the wallet (order_refund, reference 'order_refund'), debits points, reduces seller earnings and writes a refund transaction as separate unclaimed writes; return-amount credit and POS-cancel refund check duplicates by a read. Only POS wallet orders are refunded on cancel. The vendor-panel return credit never fires (customer resolved as offline) but still clears the amount.
+- **(4) Done in the draft PRs.** PR 12: a refused return credit throws WalletCreditRefused and keeps the amount owed (admin; the vendor-panel check is unreachable). PR 15: tests pin the sequential guards (refunded twice, resubmitted return amount, reward_delivered, POS cancel reference) and a document proposes RF-01 to RF-11; four race tests exist and are skipped pending the owner.
+- **(5) What remains.** Conditional claim before paying (RF-01, RF-03, RF-04), refund id as ledger reference (RF-02), one transaction per refund (RF-11), vendor-panel return credit (owner), refund of cancelled non-POS wallet-paid orders (E04-F10), un-skip the four race tests; PR 12 and PR 15 sit on different stacks (PR 11, PR 10) and are not combined.
+- **(6) PRs and commits.** [lavkoo#12](https://github.com/fullstackfull/lavkoo/pull/12) `dd5f95e`; [lavkoo#15](https://github.com/fullstackfull/lavkoo/pull/15) `59133c3`
+- **(7) Tests.**
+  - `ci` RefundSequentialGuardCharacterizationTest (7): sequential guards pinned (tests/Feature/Refund, PR 15 59133c3; Tests, SQLite (PHP 8.2/8.3) green)
+  - `ci` ReturnCreditTest: refused credit keeps the amount owed; accepted credit clears it with one row (tests/Feature/Wallet/ReturnCreditTest.php, PR 12 dd5f95e; Tests, SQLite (PHP 8.2/8.3) green)
+  - `none` RefundConcurrencyTest: four race cases exist but are skipped pending an owner decision (tests/Feature/Concurrency/RefundConcurrencyTest.php, PR 15)
+- **(8) Dependencies and blockers.** Owner decisions RF-01 to RF-11 and LO-04; PR 15 stacks on PR 10, PR 12 on PR 11; ownership fixes for who may trigger refunds (PR 20, 21, 22, 27) belong to the security unit.
+- **(9) Acceptance criteria.**
+  - [MET] A second 'refunded' status after the first commit credits the wallet and debits points once (RefundSequentialGuardCharacterizationTest, PR 15 59133c3; Tests, SQLite (PHP 8.2/8.3) green)
+  - [MISSING] Overlapping 'refunded' updates, return-amount submissions or POS cancels credit once (RefundConcurrencyTest: four cases skipped (RF-01, RF-03, RF-04, IDEM-08))
+  - [MISSING] Each refund credit row names its refund request (reference is the literal order_refund (RefundStatusService); RF-02 proposal)
+  - [MISSING] A vendor-panel return amount is credited to the customer's wallet (wallet branch skipped for offline customer, amount still cleared (PR 12 body))
+  - [MISSING] An admin-cancelled non-POS wallet-paid order returns its debit exactly once (only POS wallet cancels refund (Admin/Order/OrderController))
+  - [MISSING] One refund is one transaction: claim, wallet credit, points debit, earnings reversal (RF-11 proposal only)
+- **(10) Next coding task.** Branch on PR 15 once the owner approves: conditional UPDATE claims inside the customer lock for RF-01, RF-03 and RF-04, refund id as reference, one transaction in updateRefundStatus, and un-skip the four RefundConcurrencyTest cases; add the vendor-panel return credit test when decided.
+- **Open owner decisions.** RF-01 to RF-11 (claims, refund-id reference, one transaction, rounding); the points floor LO-04; the vendor-panel return credit; automatic refund of cancelled wallet-paid orders (E04-F10).
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### E-14. Loyalty redeem and earn: atomic conversion, one formula, one rule
+
+- **State: IN PROGRESS** | plan lines 363, 368 | GCC-15; findings LO-04 to LO-08, LF-1 to LF-7 | reviews: finance, owner-decision
+- **(2) Functional requirement.** Points redeemed to the wallet and points earned or reversed on delivery and refund follow one formula and one rule on every channel, never go negative unexpectedly, and conversion is atomic.
+- **(3) Exists now in code (main).** Points are earned on delivery by different rules per path (admin, vendor, seller API v2 and v3; the delivery-man app has no earn call). REST and web redeem with different formulas that credit different wallet amounts under multi_currency (1.0 against 0.2667 USD for 100 points). A refund can take points below zero. Conversion debited points and credited the wallet in separate steps.
+- **(4) Done in the draft PRs.** PR 10: both points writers locked; points-to-wallet is one transaction (PointsToWalletConversion): a refused points debit rolls back the wallet credit; concurrency and characterization tests. PR 15: pins LF-1 to LF-7 and LO-04 as current behaviour and proposes one helper; nothing changes.
+- **(5) What remains.** One points-to-USD helper (LF-1 to LF-3), one earn rule (LO-08), per-line recorded points for credit and refund (LF-6, LF-7), a refund floor (LO-04, LO-05), all reward rows marked delivered (LO-07); each needs an owner decision; PR 10 is in no integration tree and shares OrderManager and CustomerManager with other PRs.
+- **(6) PRs and commits.** [lavkoo#10](https://github.com/fullstackfull/lavkoo/pull/10) `9b39874`; [lavkoo#15](https://github.com/fullstackfull/lavkoo/pull/15) `59133c3`
+- **(7) Tests.**
+  - `ci` LoyaltyConcurrencyTest; LoyaltyPointCharacterizationTest (10); LoyaltyExchangeEndpointTest (3) (PR 10 9b39874; Tests, SQLite (PHP 8.2/8.3) green; concurrency jobs for the first)
+  - `ci` PointsToWalletFormulaCharacterizationTest (4): REST and web credits pinned as they diverge (tests/Feature/Loyalty, PR 15 59133c3; Tests, SQLite (PHP 8.2/8.3) green)
+- **(8) Dependencies and blockers.** PR 10 stacks on PR 9; owner decisions LF-1 to LF-7 and LO-04 to LO-08; finance review; GCC-05 for per-market rates.
+- **(9) Acceptance criteria.**
+  - [MET] Four simultaneous conversions of 60 of 100 points: one succeeds; a refused points debit rolls back the wallet credit (LoyaltyConcurrencyTest, LoyaltyPointCharacterizationTest, PR 10 9b39874; SQLite and concurrency jobs)
+  - [MISSING] REST and web conversions credit the same wallet amount for the same points under multi_currency (pinned 1.0 against 0.2667 USD for 100 points (PR 15, LF-1))
+  - [MISSING] A refund cannot take points below zero (refuse, clamp or allow and report: owner choice) (test_current_behaviour_a_refund_can_take_the_points_below_zero (PR 10))
+  - [MISSING] Admin, vendor, seller API and delivery-man deliveries earn points under one rule (LO-08: vendor requires wallet on; no earn call in the delivery-man app)
+  - [MISSING] Delivery credits the points recorded per line and a refund debits the recorded points of that line (LF-6 and LF-7 pinned (PR 15))
+- **(10) Next coding task.** Branch on PR 10: add one canonical points-to-USD helper (LF-1) used by CustomerManager, CustomerTrait and the web preview, one earn-rule service for admin, vendor, seller API and delivery-man deliveries, and a refund_order floor per LO-04; flip the pinned PointsToWalletFormulaCharacterizationTest cases on purpose.
+- **Open owner decisions.** What loyalty_point_exchange_rate means (LF-1); the rounding rule (LF-4); recorded per-line points as the source (LF-6); the refund floor (LO-04); whether points depend on the wallet being on (LO-08).
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### E-15. Referral rewards: once, to the referrer, one amount
+
+- **State: IN PROGRESS** | plan lines 368 | GCC-15; finding LO-02; owner decisions D15 to D19 | reviews: finance, owner-decision
+- **(2) Functional requirement.** The first-order referral reward goes to the referrer once, in one amount, on every delivery path, and the first order of a referred customer completes without error after commit.
+- **(3) Exists now in code (main).** Six delivery paths pay the reward through three writers: the delivery-man app and seller API v3 pay twice for one first delivery, admin pays again on a second 'delivered', the vendor panel credits the referee, its first-order count includes cancelled orders, and amounts differ by writer (10.0 against 2.67 on SAR). The first order of a referred customer throws after commit.
+- **(4) Done in the draft PRs.** PR 29: ReferralRewardService::creditOnce (user-row lock, unique grant row referral_reward_grants, credit and grant in one transaction) on every path: at most once per (referee, beneficiary); 52 referral tests plus race tests. PR 55 (also in PR 75): the referrer notification no longer throws after commit. PR 25 pins the defects. PR 56 settles gateway payments for the named payer (referral part not asserted).
+- **(5) What remains.** Owner decisions D15 (surviving amount), D16 (credit the referrer in the vendor panel), D17, D18 (unit), D19 (first-order rule); a read-only check of earned_by_referral rows by an authorised person; run the migration before the code; credit the order's market wallet once E-01 exists; PR 29 and PR 55 both edit OrderManager.php and are not combined.
+- **(6) PRs and commits.** [lavkoo#25](https://github.com/fullstackfull/lavkoo/pull/25) `bb0ec13`; [lavkoo#29](https://github.com/fullstackfull/lavkoo/pull/29) `7370895`; [lavkoo#55](https://github.com/fullstackfull/lavkoo/pull/55) `cbd976a`; [lavkoo#56](https://github.com/fullstackfull/lavkoo/pull/56) `f2e6f2c`
+- **(7) Tests.**
+  - `ci` ReferralRewardIdempotencyTest (24) and ReferralRewardConcurrencyTest (2): one grant per referee and beneficiary across paths and races (PR 29 7370895; SQLite and concurrency jobs green)
+  - `ci` ReferralRewardCharacterizationTest (28): the double credits, referee credit and amount splits pinned (tests/Feature/Referral, PR 25 bb0ec13; Tests, SQLite (PHP 8.2/8.3) green)
+  - `ci` ReferredCustomersFirstOrderTest (2): first order completes, cart emptied, referrer notified (PR 55 cbd976a and the PR 75 tree 47b78ab; Tests, SQLite (PHP 8.2/8.3) green)
+- **(8) Dependencies and blockers.** The PR 29 migration must run before its code; PR 29 carries two commits of PR 25; PR 29 and PR 55 both edit OrderManager.php; owner decisions D15 to D19; production read-only check by an authorised person.
+- **(9) Acceptance criteria.**
+  - [MET] A first-order referral reward is granted at most once per (referee, beneficiary) on every path, repeated delivery and concurrent request (ReferralRewardIdempotencyTest, ReferralRewardConcurrencyTest, PR 29 7370895; SQLite and concurrency jobs)
+  - [MET] The first order of a referred customer completes, empties the cart and notifies the referrer (ReferredCustomersFirstOrderTest, PR 55 cbd976a and PR 75 tree; Tests, SQLite (PHP 8.2/8.3) green)
+  - [MISSING] The reward goes to the referrer on every path (the vendor panel credits the referee today) (test_vendor_panel_delivery_currently_credits_the_referee_instead_of_the_referrer (PR 25); D16)
+  - [MISSING] One reward is one amount on a multi-currency store (10.0 against 2.67 on SAR today) (pinned in PR 25; PR 29 keeps the first writer's amount; D15, D18)
+  - [MISSING] The first-order rule counts delivered and paid orders only (vendor count includes cancelled orders (pinned, PR 25); D19)
+  - [MISSING] The reward is credited to the wallet of the market where the order was placed (needs E-01; one global wallet today)
+- **(10) Next coding task.** On a branch from main merge PR 29 with PR 55 (both change OrderManager.php) and run the Referral, Address and Concurrency groups; once D15, D16 and D19 are decided, implement them with one test per path; credit through the market account when E-01 exists.
+- **Open owner decisions.** D15 (pay once, through which writer), D16 (credit the referrer in the vendor panel; correct past referee credits?), D17 (admin resubmission guard), D18 (USD or default currency), D19 (first-order rule).
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### E-16. One currency unit and rounding for wallet debits and credits
+
+- **State: IN PROGRESS** | plan lines 351, 368 | GCC-15; D18; findings DC-06, DC-07, LF-1, LF-2, RF-10, E04-F05, E04-F17 | reviews: finance, owner-decision
+- **(2) Functional requirement.** Wallet debits and credits use one currency unit and one rounding rule across checkout, POS, points conversion, refunds and referral, in each market currency (SAR, AED, KWD, QAR, BHD, OMR), so a balance check never disagrees with the debit.
+- **(3) Exists now in code (main).** Amounts are held in a USD base and converted by the platform default currency (Convert::usd, Convert::default, usdToDefaultCurrency which floors) differently in each of four writer copies. Checkout checked and debited different roundings: a 10.01 USD order debited 10.010667 and left -0.000667. No ledger row stores a currency.
+- **(4) Done in the draft PRs.** PR 36: REST v1 and web wallet checkout check and debit the USD order amount in whole cents (WalletOrderDebit) for SAR, USD, KWD, BHD, OMR. PR 34 pins the boundaries and the old defect. PR 35 charges the seller-app POS server total in store currency, unrounded. PR 15 pins the points-to-wallet formula split (LF-1, LF-2) and refund rounding (RF-10).
+- **(5) What remains.** Finance sign-off of the rounding rule and of the Saudi behaviour change (PR 36, D18); the same cents rule in admin, vendor and seller POS; one conversion in the four writers; points, refund and referral credits through it; tests for AED and QAR too; PR 36 sits on PR 34, not on the lock chain, and overlaps PR 9 to 12 in CustomerManager, OrderController and WebController.
+- **(6) PRs and commits.** [lavkoo#15](https://github.com/fullstackfull/lavkoo/pull/15) `59133c3`; [lavkoo#34](https://github.com/fullstackfull/lavkoo/pull/34) `832377a`; [lavkoo#35](https://github.com/fullstackfull/lavkoo/pull/35) `7c75b7f`; [lavkoo#36](https://github.com/fullstackfull/lavkoo/pull/36) `8a4eca3`
+- **(7) Tests.**
+  - `ci` WalletCurrencyConsistencyTest, WalletOrderDebitTest: whole-cent check and debit in SAR, USD, KWD, BHD, OMR (PR 36 8a4eca3; Tests, SQLite (PHP 8.2/8.3) green; race test on MariaDB flaked once on 2026-11-15, passed on re-run)
+  - `ci` WalletDebitBoundaryCharacterizationTest: the old below-zero defect pinned in PR 34 (PR 34 832377a; Tests, SQLite (PHP 8.2/8.3) green)
+- **(8) Dependencies and blockers.** PR 36 is based on PR 34, not on the lock chain; D18 rounding decision and Saudi behaviour sign-off; overlaps PR 9 to 12 in CustomerManager.php, RestAPI/v1 OrderController.php, WebController.php; GCC-05 for the market currency.
+- **(9) Acceptance criteria.**
+  - [MET] REST v1 and web wallet checkout check and debit the USD order amount in whole cents in SAR, USD, KWD, BHD and OMR (WalletCurrencyConsistencyTest, PR 36 8a4eca3; SQLite and concurrency jobs)
+  - [MISSING] Admin, vendor and seller-app POS debit the same cent amount as checkout (admin POS debits currencyConverter(posted amount) unrounded; PR 35 unrounded (D18))
+  - [MISSING] The four wallet writers apply one conversion, with no double conversion (four copies remain after PR 9 to 13 (E04-F05))
+  - [MISSING] Points-to-wallet, refund and referral credits are computed with the same helper (LF-1, LF-2, RF-10 and D18 are pinned, not fixed)
+- **(10) Next coding task.** On the combined money head: add one WalletMoney converter used by the four writers and the POS paths, apply PR 36's cents rule to POS after the D18 decision, point points-to-wallet, refund and referral credits at it, and flip the currently tests of PR 15, 31, 34 and 36 with a six-currency data provider (SAR, AED, KWD, QAR, BHD, OMR).
+- **Open owner decisions.** D18: the rounding rule (half up to cents) and sign-off of the Saudi behaviour change in PR 36; whether POS follows it; what loyalty_point_exchange_rate means.
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### E-17. Financial records by legal entity and currency (ledgers, settlements, summaries)
+
+- **State: NOT STARTED** | plan lines 351, 361 | Owner axis: ledgers and settlement summaries by legal entity and currency; GCC-20 mobile document; 07 plan (ledger key seller, entity, currency) | reviews: finance, legal, owner-decision
+- **(2) Functional requirement.** Seller ledgers, settlements, the platform's own wallet and the platform summary are keyed by legal entity and currency, and different currencies are never added together.
+- **(3) Exists now in code (main).** Marketplace code on main has a seller ledger (currency column, immutable rows, idempotent record, row lock), a SettlementEngine (nets all available entries, copies the currency of the first) and payouts, but their tables are in no migration or tracked dump and no test reads them. seller_wallets, admin_wallets, order_transactions and withdraw_requests have no currency; the admin wallet is one row (admin_id = 1). No legal-entity key; Odoo reconciliations are per company and currency (H2).
+- **(4) Done in the draft PRs.** Nothing computes entity- or currency-split money. PR 71 (GCC-20 API) returns sales as null with reason order_currency_not_recorded so no figure adds currencies; PR 82 hides the admin and vendor wallet figures from restricted employees.
+- **(5) What remains.** Legal-entity registry and order market and currency (GCC-05) first; ledger chain and settlement keyed by (seller, entity, currency) for new entries; settlement refusing mixed currencies; admin wallet per entity; platform summary per entity and currency; tests with a fixture schema; a signed opening balance for the Saudi chain (07 plan).
+- **(6) PRs and commits.** [lavkoo#71](https://github.com/fullstackfull/lavkoo/pull/71) `b83a815`; [lavkoo#82](https://github.com/fullstackfull/lavkoo/pull/82) `d1fc5f4`
+- **(7) Tests.**
+  - `none` No test reads VendorLedger, SettlementEngine or PayoutService in main or the PR 83 tree
+- **(8) Dependencies and blockers.** GCC-05 (order market and currency), legal-entity registry, Odoo company mapping (H2), marketplace ledger schema outside migrations, owner decision on the opening balance of the Saudi chain.
+- **(9) Acceptance criteria.**
+  - [CODED] A seller ledger entry records its currency, is never edited and a repeated event is recorded once (VendorLedger::record on main; no test; table schema not in migrations)
+  - [MISSING] A settlement never nets entries of different currencies (SettlementEngine::calculate sums all entries and copies the first entry's currency)
+  - [MISSING] A ledger chain and a settlement are keyed by seller, legal entity and currency (chain keyed by seller and seller_is only)
+  - [MISSING] The platform's own wallet is kept per legal entity and currency (AdminWallet::where('admin_id', 1) in OrderManager)
+  - [MISSING] A platform summary reports sales and settlements per entity and currency and never across currencies (PR 71 returns sales null, order_currency_not_recorded)
+- **(10) Next coding task.** Add a currency (later entity) key to the VendorLedger chain and SettlementEngine::calculate so a settlement groups by (seller, currency) and refuses mixed currencies; first write the missing VendorLedger and SettlementEngine tests on a fixture schema; defer the platform summary until GCC-05 records order currency.
+- **Open owner decisions.** The legal-entity model; the opening balance of the Saudi seller chain (signed by the owner); settlement currency policy; conversion rules for any cross-currency reporting view.
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.

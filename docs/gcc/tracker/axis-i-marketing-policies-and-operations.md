@@ -1,0 +1,797 @@
+# Axis I: Marketing, policies and operations
+
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 37. Acceptance criteria: 183 (MET 51, CODED 33, MISSING 99). Code completion 46%, proven by a passing test 28%, release readiness 2%.
+
+Independent verification: done for unit(s) I2; not done yet for I1.
+
+Every card gives the ten fields of the directive: (1) id and name, (2) functional requirement, (3) what exists in main, (4) what the draft pull requests did, (5) what remains, (6) pull requests and commits, (7) tests that exist and where they ran, (8) dependencies and blockers, (9) acceptance criteria marked MET (a named passing test or CI job on a named head), CODED (code exists, no passing test cited) or MISSING, (10) the next coding task.
+
+#### I1-01. E-mail sender account, shared or separate per store
+
+- **State: NOT STARTED** | plan lines 407 | DECISIONS (safe branding and templates may inherit global defaults; accounts are not inherited across companies); Discovery E06-F06, Q-32 | reviews: security, owner-decision
+- **(2) Functional requirement.** Each storefront can send e-mail through the shared account or through its own (host, port, encryption, credentials, from address and name). A message uses the account of the store it belongs to and falls back to the shared one; while the switch is off every Saudi e-mail leaves exactly as it does today.
+- **(3) Exists now in code (main).** One account for the whole install. MailConfigServiceProvider::boot replaces the mail config at every boot from business_settings mail_config (or mail_config_sendgrid when the first is off), from address and name included; EmailTemplateTrait::sendingMail sends with Mail::to(...)->send(). No per-store or per-message account, and no test touches either class.
+- **(4) Done in the draft PRs.** Nothing. MailConfigServiceProvider and EmailTemplateTrait are identical to main in the PR 83 and PR 75 trees. PR 48 only makes the abandoned-cart e-mail link name the cart's storefront; the e-mail still leaves through the one account.
+- **(5) What remains.** (1) a per-storefront mail profile (host, port, encryption, from, credentials stored encrypted, active) falling back to the shared account; (2) the account chosen per send from the order or cart storefront, not at boot, so a queued job does not use the account its worker started with; (3) admin screen with masked secrets, staff scope and a test send; (4) a readiness check before a store opens.
+- **(6) PRs and commits.** none
+- **(7) Tests.**
+  - `none` No test of MailConfigServiceProvider, sendingMail or the mail settings in main, PR 83 or PR 75
+- **(8) Dependencies and blockers.** Order storefront record (GCC-05 slice 2 is on a branch without a PR). Production mail identity UNVERIFIED (Q-32). A secret-storage pattern exists to reuse: integration_settings credentials are encrypted for Chatwoot. EmailTemplateTrait is a shared file (A1-17 reads it too).
+- **(9) Acceptance criteria.**
+  - [MISSING] An e-mail about a KW order leaves through the KW profile's host and from address (no per-store mail profile in any tree)
+  - [MISSING] A queued listener uses the account of the storefront recorded on its order, not the account its worker booted with (the account is set once at boot (MailConfigServiceProvider::boot))
+  - [MISSING] A profile's password is stored encrypted and never shown in the admin screen or written to a log (mail_config is stored as plain JSON in business_settings and read back without decryption)
+  - [MISSING] An admin sends a test e-mail through a chosen store profile and sees the real result (only the one shared account can be tested today)
+- **(10) Next coding task.** Branch gcc/p1-notification-profiles off the PR 64 head: additive migration notification_channel_profiles (storefront_country, channel, settings JSON, credentials via Crypt as integration_settings does, active) and NotificationProfileResolver::for(channel, country), null unless GCC_NOTIFICATION_PROFILES is on; sendingMail asks it. Tests: mailer config per storefront, fallback, queued send, flag-off identical config.
+- **Open owner decisions.** One shared sender or one per store at launch, and who owns each market's sender domain (SPF, DKIM). Production's mail identity is UNVERIFIED (Discovery Q-32); no owner document answers it.
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### I1-02. SMS, WhatsApp and push profiles per store
+
+- **State: NOT STARTED** | plan lines 408 | Discovery E06-F06, Q-24, Q-32, Q-44 | reviews: security, owner-decision
+- **(2) Functional requirement.** Each storefront can have its own SMS/OTP gateway, WhatsApp account (Chatwoot inbox and templates, Zender) and push credentials, with the shared profile as fallback. A message uses the profile of the store it belongs to; a number or device of one market does not go through another market's account unless allowed.
+- **(3) Exists now in code (main).** One of each for the whole install. SMSModule and SmsGateway try the gateways in a fixed order and use the first enabled one from the sms_config settings; ZenderOtpService reads ZenderSetting::first(); ChatwootService reads the first enabled integration_settings row 'chatwoot' (one account, one inbox); push uses the single setting push_notification_key (FirebaseServiceProvider builds one singleton from it) and one web-push config.
+- **(4) Done in the draft PRs.** Nothing. The PR 83 tree leaves every sender class identical to main. The PR 75 tree changes only PushNotificationService (the Firebase web-worker file generator, PR 63), not which credentials are used. The customer and seller app PRs change no Firebase setting.
+- **(5) What remains.** (1) the same profile table as I1-01 for sms, whatsapp and push; (2) gateway chosen by the order's or the number's market before the provider chain; (3) per-store Chatwoot inbox and WhatsApp template names (approval is per sender number); (4) push: FCM tokens belong to the Firebase project of the app build, so a second credential helps only where that market's build uses that project (Q-32, Q-18); (5) readiness checks and test sends.
+- **(6) PRs and commits.** none
+- **(7) Tests.**
+  - `none` No test chooses an SMS, WhatsApp or push account per store (none exists)
+  - `ci` Password-reset tests assert one OTP text per phone through a faked Zender gateway (the OTP path only, not a per-store choice) (tests/Feature/Security/CustomerPasswordResetTestCase.php and SellerPasswordResetTest.php; PR 75 @47b78ab: Tests SQLite 8.2/8.3, Fulfillment + security MySQL 8 and MariaDB 11.4.2)
+- **(8) Dependencies and blockers.** Production values UNVERIFIED: which SMS, Zender, Chatwoot and Firebase accounts exist per market (Q-24, Q-32). Needs the profile resolver of I1-01. A Firebase project change is an app-build decision for the customer and seller apps (Q-18).
+- **(9) Acceptance criteria.**
+  - [MISSING] A KW customer's one-time code goes through the KW SMS profile and an AE customer's through AE's (SMSModule::send and ZenderOtpService::send read one global setting)
+  - [MISSING] A WhatsApp template send uses the Chatwoot inbox and template of the order's storefront (ChatwootService reads the first enabled chatwoot row)
+  - [MISSING] A push to a KW device is sent with the KW push credentials (sendNotificationToHttp reads one push_notification_key)
+  - [MISSING] A market with no profile falls back to the shared one, and a missing credential is reported by a readiness check before launch (no readiness check for notification accounts exists)
+- **(10) Next coding task.** Same branch as I1-01: extend NotificationProfileResolver to sms, whatsapp and push; SMSModule::sendCentralizedSMS, ZenderOtpService::send, the ChatwootService constructor (named argument storefront) and PushNotificationTrait::sendNotificationToHttp read it behind GCC_NOTIFICATION_PROFILES. Tests with Http::fake: URL and token per storefront, FCM token cached per credential, fallback, flag-off identical requests.
+- **Open owner decisions.** Whether each market gets its own Firebase project (needs separate app builds) or one shared project with per-market topics (A1-17 lists it as open), and which SMS and WhatsApp accounts each market uses (Q-24, Q-32). No owner document answers either.
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### I1-03. Notification templates: global, with country and language overrides
+
+- **State: IN PROGRESS** | plan lines 409 | GCC-10; DECISIONS (safe templates may inherit global defaults); Discovery E06-F07, E06-F17 | reviews: native-arabic, owner-decision
+- **(2) Functional requirement.** One global set of notification texts (push messages, e-mail templates, WhatsApp template mappings) with an optional override per country and per language. A send picks country plus language, then language, then the global text, and shows the market's brand, link and currency instead of text fixed at install.
+- **(3) Exists now in code (main).** Language overrides exist, country ones do not. email_templates (user_type, template_name) and notification_messages (user_type, key) carry translations by locale; push picks the recipient's app_language, e-mail uses the request language (getDefaultLanguage, so the install default in a queued job, inferred, no test); notification_template_mappings has template_language. No table has a store column. Default e-mail text embeds company_name and url('/'); translated footer and copyright texts are swapped in sendingMail.
+- **(4) Done in the draft PRs.** Nothing for templates. The PR 83 tree adds English and Arabic texts for its own new keys only; PR 63 changes the Firebase worker file generator, not message templates.
+- **(5) What remains.** (1) override rows keyed by storefront country and locale for notification_messages, email_templates and notification_template_mappings, with the fallback order; (2) templates read the market's brand name, URL and currency at send time (GCC-10, GCC-05); (3) the recipient's language passed to sendingMail and queued listeners; (4) fix the swapped footer and copyright translation; (5) admin screens by country and language; (6) native Arabic review.
+- **(6) PRs and commits.** none
+- **(7) Tests.**
+  - `none` No test of EmailTemplate translation, the template service, NotificationMessage lookup or the WhatsApp mapping in main, PR 83 or PR 75
+- **(8) Dependencies and blockers.** GCC-10 brand per country (unit F) supplies name, logo and URL; the order's storefront record (GCC-05 slice 2, branch without a PR) decides which override applies; WhatsApp templates need per-sender approval at the provider. Texts in the database are production data, UNVERIFIED.
+- **(9) Acceptance criteria.**
+  - [MISSING] A KW order's push text comes from the KW override, else the recipient-language text, else the global message (no storefront column on notification_messages or email_templates)
+  - [CODED] A push body is in the recipient's app_language when a translation exists, else the global message (PushNotificationTrait::pushNotificationMessage selects NotificationMessage translations by locale; no test)
+  - [MISSING] A translated e-mail shows its own footer and its own copyright text (EmailTemplateTrait assigns the copyright translation to footer_text and the footer translation to copyright_text)
+  - [MISSING] A queued e-mail renders in the recipient's language, not the worker's default (sendingMail takes no language; EmailTemplate::translationCurrentLanguage filters by getDefaultLanguage())
+  - [MISSING] Default templates carry no market-specific company name or URL (EmailTemplateService writes company_name and url('/') into the stored text)
+- **(10) Next coding task.** Test-first on a branch cut from main: tests/Feature/Notifications/EmailTemplateLanguageTest (Mail::fake, in-memory tables) pinning today's output and the swapped footer and copyright as a failing-then-fixed test. Then the recipient locale as a named argument of sendingMail and the override tables behind GCC_NOTIFICATION_TEMPLATES; add tests/Feature/Notifications to the Fulfillment + security CI paths.
+- **Open owner decisions.** Which texts must differ per country (brand, currency, legal wording, Gulf Arabic) and who approves each variant. No owner document answers it; DECISIONS only allows inheritable branding defaults.
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### I1-04. Marketing audiences are isolated by store
+
+- **State: IN PROGRESS** | plan lines 410 | DECISIONS (marketing consents have correct scopes; notifications market-scoped); Discovery E06-F08 | reviews: owner-decision
+- **(2) Functional requirement.** A marketing message (push broadcast, in-app notification, newsletter, WhatsApp cart marketing, abandoned-cart e-mail) names its store or stores and reaches only the customers of those stores. No list, topic or inbox spans markets by accident, and an employee restricted to a country can target only that country.
+- **(3) Exists now in code (main).** No audience has a store. The admin broadcast saves a notifications row (title, text, image) with no store and pushes it to the topic sixvalley and to every approved seller token; GET notifications returns every sent_to=customer row to every customer. subscriptions holds an e-mail only. CartMarketingController lists every registered customer with a cart and a phone. Abandoned-cart reminders are chosen from all carts, each about its recipient's own cart.
+- **(4) Done in the draft PRs.** PR 48 (in PR 83): the signed abandoned-cart link names the cart's storefront (AbandonedCartService::recoveryUrl) and the recovery redirect keeps it; carts are isolated by storefront (StorefrontCartScope). No broadcast, in-app list, newsletter, WhatsApp list or admin screen gained a store, and no staff-scope rule mentions NotificationController or CartMarketingController.
+- **(5) What remains.** (1) nullable storefront_country (NULL = all, for old rows) on notifications and subscriptions, saved from the request's storefront at signup; (2) the notifications API filters by the request's storefront; (3) cart-marketing list and send limited to the chosen storefront; (4) push broadcast targets that storefront's topic (I1-05); (5) the admin picks stores, narrowed by staff country scope; (6) tests.
+- **(6) PRs and commits.** [lavkoo#48](https://github.com/fullstackfull/lavkoo/pull/48) `4a821d3`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`
+- **(7) Tests.**
+  - `ci` StorefrontRecoveryLinkTest (5): the reminder link of a cart made in another country names that storefront and stays signed, opens that storefront's cart, and is unchanged while storefronts are off (tests/Feature/Storefront/StorefrontRecoveryLinkTest.php; PR 83 @8ff3410: Tests SQLite 8.2/8.3, Storefront tests MySQL 8 and MariaDB 11.4.2)
+  - `none` No test of the admin broadcast, the notifications API, the newsletter or the WhatsApp cart-marketing list by store
+- **(8) Dependencies and blockers.** Staff country scope for these screens is GCC-14c slice 4, not started (unit G); topic naming is I1-05; consent is I1-08 and A2-13. Production audience sizes UNVERIFIED.
+- **(9) Acceptance criteria.**
+  - [MET] The link in an abandoned-cart e-mail opens the storefront the cart was made in, signed, and is unchanged while storefronts are off (StorefrontRecoveryLinkTest::test_the_link_of_a_cart_made_in_another_country_names_that_storefront_and_stays_signed and 4 more; PR 83 @8ff3410: SQLite 8.2/8.3, Storefront MySQL 8, MariaDB 11.4.2)
+  - [MISSING] An admin broadcast can be limited to chosen stores, and another store's app inbox does not list it (Notification has no store; RestAPI v1 NotificationController::list returns every sent_to=customer row)
+  - [MISSING] A newsletter signup records its storefront and a send reaches only that storefront's subscribers (subscriptions has one column, email)
+  - [MISSING] The WhatsApp cart-marketing list shows only customers with carts in the chosen storefront (CartMarketingController::index reads every registered customer cart)
+  - [MISSING] An employee restricted to KW can target only KW in a broadcast or campaign (no staff-scope rule covers the notification, cart-marketing or campaign screens)
+- **(10) Next coding task.** On the PR 64 head add GCC_NOTIFICATION_AUDIENCES (off): nullable storefront_country on notifications and subscriptions; Admin NotificationController::add saves the chosen store; RestAPI v1 NotificationController::list and WebController::subscription read StorefrontCatalog::country(). Tests in tests/Feature/Storefront: a KW-only row is not listed in SA, NULL is listed everywhere, signup records the storefront, flag-off unchanged.
+- **Open owner decisions.** How a broadcast chooses its audience: one store, several or all, and whether 'all' stays possible for the platform owner. No owner document answers it (Discovery E06-F08).
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### I1-05. Push topics do not overlap between markets
+
+- **State: IN PROGRESS** | plan lines 418 | GCC-20 document (admin topics must not reuse customer topics); Discovery E06 section 2.2, Q-32, Q-44; A1-17 | reviews: owner-decision
+- **(2) Functional requirement.** Push topics carry the market, so a broadcast reaches one country and no device is subscribed to two markets' marketing topics. The apps subscribe to the topic of the chosen storefront and leave the one they left; the names Saudi apps hold today keep working; admin and seller topics never reuse customer topics.
+- **(3) Exists now in code (main).** Global topics only. Admin broadcasts go to the default topic sixvalley; the website subscribes to sixvalley and maintenance_mode_start_user_app; the customer app subscribes to sixvalley (as topic and demoTopic), maintenance_mode_start_user_app and theme_updates_user_app and never unsubscribes; the theme publish beacon goes to one topic; restock topics are per request and product. No topic name carries a market, language or audience.
+- **(4) Done in the draft PRs.** PR 48 (in PR 83): a restock request for a product only another storefront sells is refused and creates nothing, so restock topics stay with the product's own country. No PR changes a topic name or an app subscription: customer app PR 7 clears caches on a storefront change and touches no topic.
+- **(5) What remains.** (1) a topic naming rule (sixvalley stays for SA, another suffix per market) and a market on every marketing send; (2) apps and the website subscribe to the chosen storefront's topic and unsubscribe from the old one on a change; (3) maintenance and theme-update beacons scoped per market or documented as global; (4) admin (GCC-20) and seller topics kept in their own namespace; (5) a test that no two markets share a marketing topic.
+- **(6) PRs and commits.** [lavkoo#48](https://github.com/fullstackfull/lavkoo/pull/48) `4a821d3`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`
+- **(7) Tests.**
+  - `ci` StorefrontCartEdgesTest: a restock request for a product only another storefront sells is refused and creates nothing (tests/Feature/Storefront/StorefrontCartEdgesTest.php; PR 83 @8ff3410: Tests SQLite 8.2/8.3, Storefront tests MySQL 8 and MariaDB 11.4.2)
+  - `none` No test in the backend or the customer app names or asserts a topic
+- **(8) Dependencies and blockers.** Owner choice of one topic or one per market. The app change is a customer-app release (unit J); the seller topic lavkoo_seller has no sender (Q-44, unit K); the broadcast target depends on I1-04.
+- **(9) Acceptance criteria.**
+  - [MET] A restock topic subscription exists only for a product the request's storefront sells (StorefrontCartEdgesTest::test_a_restock_request_for_a_product_only_another_storefront_sells_is_refused_and_creates_nothing; PR 83 @8ff3410: SQLite 8.2/8.3, Storefront MySQL 8, MariaDB 11.4.2)
+  - [MISSING] Each market has its own marketing topic, and a broadcast to KW is published to KW's topic only (sendPushNotificationToTopic defaults to 'sixvalley' and the admin broadcast passes no topic)
+  - [MISSING] The customer app subscribes to its storefront's topic and unsubscribes from the previous one when the storefront changes (auth_repository subscribes to AppConstants.topic only; the app has no unsubscribe call)
+  - [CODED] The topics Saudi apps already hold keep receiving messages (topic names are unchanged in the backend and in every customer-app branch; no test names a topic)
+  - [MISSING] A maintenance or theme-update beacon of one market does not wake another market's apps, or is documented as global (ThemeSyncBeacon::TOPIC and the maintenance topics are single names)
+- **(10) Next coding task.** After the owner picks one topic or one per market: on the PR 64 head add StorefrontTopics::marketing(country) ('sixvalley' for SA, a suffix for others, off by default); use it in Admin NotificationController::add and resend and in getFCMTopicListToSubscribe; in lavkooapp PR 7's branch subscribe and unsubscribe in the storefront-change notifier. Tests: name per storefront, SA unchanged, flag-off identical, Dart test with a fake messaging client.
+- **Open owner decisions.** One topic or one per market (A1-17 records it as open; no owner document answers it); whether the seller topic lavkoo_seller gets a sender (Discovery Q-44); which Firebase project each app uses (Q-32).
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### I1-06. Order notifications are built from the store that created the order
+
+- **State: NOT STARTED** | plan lines 411 | GCC-13; DECISIONS (notifications market-scoped); Discovery E06-F07, E06-F16, E06-F17 | reviews: none
+- **(2) Functional requirement.** A notification about an order (placed, status change, refund, edit, due payment, referral reward) is built from the order's own store: sender account, template, language, currency of amounts, link and topic. A queued job serves the storefront of its order and never takes these from whichever process happens to send it.
+- **(3) Exists now in code (main).** Orders carry no storefront on main. OrderPlacedListener is queued; OrderStatusListener and RefundListener run inline. They build the push from the recipient's app_language or the default language, take the title from translate('order') in the request's language, send e-mail through the one mail account and show amounts in the install's default currency. Nothing binds a storefront around a listener.
+- **(4) Done in the draft PRs.** Nothing in the notification path. PR 53 (in PR 83) records the storefront with a payment and serves it again while the paid order is built, the only job-like path bound to a storefront; listeners are not wrapped. No open PR gives the order a storefront column: GCC-05 slice 2 (orders.storefront_country) is on a branch without a PR, CI not read.
+- **(5) What remains.** (1) the order's storefront record read through one OrderNotificationContext (default storefront for legacy orders); (2) listeners run inside StorefrontContext::serve for their order and restore the previous context after each job; (3) profile, template, language and currency lookups (I1-01 to I1-03) take the order's storefront; (4) tests with two orders of different storefronts on one worker.
+- **(6) PRs and commits.** none
+- **(7) Tests.**
+  - `none` No test builds a notification per storefront; the payment-callback tests bind a storefront only while the order is built
+- **(8) Dependencies and blockers.** Order storefront record (GCC-05 slice 2, no PR). Precondition: PR 53 builds a paid order inside its storefront (StorefrontPaymentCallbackTest, A1-13). Profiles and templates of I1-01 to I1-03; amounts in the order's currency need GCC-05.
+- **(9) Acceptance criteria.**
+  - [MISSING] An order of a KW customer produces a push and an e-mail built from KW's profile, template, language and currency (no storefront on the order and no per-store lookup in the listeners)
+  - [MISSING] A queued listener serves the storefront of its order, and the next job on the same worker does not inherit it (StorefrontContext::serve is used only by PaymentStorefront::within and StorefrontCatalog)
+  - [MISSING] An order with no storefront record is notified as the default Saudi storefront, exactly as today (no resolver exists to test)
+  - [MISSING] Amounts shown in a push (cash collect, due payment, refund) are in the order's currency (cashCollectNotification uses usdToDefaultCurrency and getCurrencyCode())
+- **(10) Next coding task.** When the GCC-05 slice 2 PR exists: OrderNotificationContext::for(Order) (default storefront without a record) and OrderPlacedListener, OrderStatusListener, RefundListener and OrderEditListener::handle wrapped in StorefrontContext::serve. Tests: fake queue, two orders of different storefronts on one worker, context bound per job and restored. Until then a test-only branch can pin today's inline versus queued split.
+- **Open owner decisions.** none beyond the GCC-05 decisions (Discovery Q-07 rounding, Q-08 conversion policy).
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### I1-07. Necessary notifications for old orders continue when a store stops selling
+
+- **State: IN PROGRESS** | plan lines 412 | GCC-12 (preserve prior orders, payments, refund, support, webhook processing); Discovery E06 section 2.7, Q-40 | reviews: legal, owner-decision
+- **(2) Functional requirement.** When a store stops selling (browse-only, not sellable, paused), the notifications an existing order needs still go out: status changes, refunds, due payments, payment confirmations and support replies. Only marketing and new-sale messages stop.
+- **(3) Exists now in code (main).** No pause exists yet (GCC-12 is I2's). On main maintenance mode does not touch queues, the scheduler or the REST API (Discovery E06 2.7), and no listener checks a store's state, so order notifications are not gated. Nothing classifies a notification as necessary or marketing; the abandoned-cart job checks only its own switch.
+- **(4) Done in the draft PRs.** PR 42 and 49 (in PR 83): the sale gate (storefront.sellable) is on the routes that start a sale only; cancellation, refund, due-payment and payment-status routes stay open, pinned by StorefrontSalesRoutesTest. The abandoned-cart job is not stopped for a store that cannot sell, so a reminder can link to a store that refuses checkout.
+- **(5) What remains.** (1) classify every notification type as necessary or marketing in one registry, with a test that fails on an unclassified type; (2) a test per necessary type that its push and e-mail still go out for an order of a non-sellable storefront; (3) marketing and cart reminders skip such a storefront; (4) the GCC-12 pause (I2) must gate marketing only, never the listeners.
+- **(6) PRs and commits.** [lavkoo#42](https://github.com/fullstackfull/lavkoo/pull/42) `2534953`; [lavkoo#49](https://github.com/fullstackfull/lavkoo/pull/49) `b52d9b2`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`
+- **(7) Tests.**
+  - `ci` StorefrontSalesRoutesTest: every route that starts a new sale carries the sale gate; refunds, cancellations, callbacks and due payments of placed orders carry none (tests/Feature/Storefront/StorefrontSalesRoutesTest.php; PR 42 @2534953: Tests SQLite 8.2/8.3; PR 83 @8ff3410: also Storefront tests MySQL 8 and MariaDB 11.4.2)
+  - `none` No test sends a notification for an order of a storefront that cannot sell
+- **(8) Dependencies and blockers.** The GCC-12 pause is I2's (Q-40 open). The necessary-versus-marketing line needs a legal reading per country. Skipping reminders needs the sellable answer of StorefrontLegalReadiness (PR 38).
+- **(9) Acceptance criteria.**
+  - [MET] Cancel, refund, due-payment and payment-status routes of a placed order carry no sale gate (StorefrontSalesRoutesTest::test_refunds_cancellations_callbacks_and_obligations_on_placed_orders_stay_open; PR 42 @2534953 SQLite 8.2/8.3; PR 83 @8ff3410 also Storefront MySQL 8, MariaDB 11.4.2)
+  - [CODED] Order status, refund and due-payment push and e-mail are sent for an order of a storefront that may not sell (no listener checks store state; no test sends one for a non-sellable storefront)
+  - [MISSING] Abandoned-cart reminders and other marketing sends skip a storefront that may not sell (AbandonedCartService::findAbandoned and the reminder command ignore sellability)
+  - [MISSING] A registry lists every notification type as necessary or marketing, and a test fails for an unclassified type (no classification exists in code)
+- **(10) Next coding task.** On the PR 42 head add tests/Feature/Storefront/StorefrontNecessaryNotificationsTest: a storefront without approved legal texts, real listeners, Http::fake for FCM and Mail::fake; fire OrderStatusEvent, RefundEvent and OrderPlacedEvent for its order and assert push and mail still go out. Then a NotificationClass registry and AbandonedCartService::findAbandoned skipping non-sellable storefronts behind the flag.
+- **Open owner decisions.** Which obligations continue during a pause and whether support replies and one-time codes count as necessary (Discovery Q-40, open). The necessary-versus-marketing line needs a legal reading per country.
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### I1-08. Marketing sends respect consent
+
+- **State: NOT STARTED** | plan lines 413 | DECISIONS (marketing and legal consents have correct scopes); Discovery E06-F09, Q-15; A2-13 | reviews: legal, native-arabic, owner-decision
+- **(2) Functional requirement.** A marketing message (newsletter, abandoned-cart e-mail, WhatsApp template, push broadcast, SMS) is sent only to a customer whose consent for that store, channel and purpose is on record, and carries a working unsubscribe. Necessary notifications never depend on it. Recording the consent is A2-13; this is the sender side.
+- **(3) Exists now in code (main).** No marketing consent record for any channel; the only consent is the analytics cookie (PrivacyGate). Baseline guards: the abandoned-cart job is off until enabled and skips guests unless a second switch is on. The reminder e-mail has no unsubscribe link, CartMarketingController sends WhatsApp templates to the customers an admin picks without a consent check, subscriptions holds an e-mail only, and the broadcast goes to the global topic.
+- **(4) Done in the draft PRs.** Nothing. PR 43's write-once legal acceptance recorder (82b6dfa) is the pattern to mirror for consent rows (A2-13); no sender in any tree reads a consent.
+- **(5) What remains.** (1) the consent table and gate service (A2-13); (2) every marketing sender asks the gate: newsletter, abandoned-cart job, cart-marketing send, WhatsApp automation, push broadcast, SMS; (3) a signed unsubscribe link and route in every marketing e-mail; (4) WhatsApp opt-in evidence kept; (5) per-country rules from legal review; (6) tests with and without consent for each sender.
+- **(6) PRs and commits.** none
+- **(7) Tests.**
+  - `none` No consent or unsubscribe test in main, PR 83 or PR 75
+- **(8) Dependencies and blockers.** A2-13 supplies the records. Legal review of opt-in rules per country (Discovery Q-15, outside this audit). Arabic consent texts need native review. WhatsApp template rules at the provider.
+- **(9) Acceptance criteria.**
+  - [MISSING] A marketing send is skipped for a customer with no consent for that store and channel (no consent record or gate in any tree)
+  - [MISSING] Withdrawing consent stops the next send of the same schedule (no consent record or gate in any tree)
+  - [MISSING] Every marketing e-mail carries a signed unsubscribe link that records the withdrawal (the abandoned-cart reminder template has no unsubscribe link)
+  - [MISSING] Order status, refund, payment and one-time-code messages are sent whatever the marketing consent (no consent gate exists to test against)
+- **(10) Next coding task.** After A2-13's recorder exists (branch off PR 43): MarketingConsentGate::allows(customer, storefront, channel, purpose) called in AbandonedCartService::findAbandoned and the CartMarketingController send, behind GCC_MARKETING_CONSENT (off). Tests: skipped without consent, sent with it, unsubscribe link signed, necessary messages unaffected. The rule stays configuration until the legal answer.
+- **Open owner decisions.** Opt-in model per channel and market, and whether abandoned-cart reminders may run before consent is recorded (Discovery Q-15, open; its proposal is explicit opt-in per channel and market and no cart reminders in new markets until approved).
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### I1-09. Notification sends are idempotent and logged
+
+- **State: IN PROGRESS** | plan lines 414 | Discovery E06 sections 2.2 to 2.4 (E06-F16, E06-F18) | reviews: security, owner-decision
+- **(2) Functional requirement.** Every notification attempt (push, e-mail, SMS, WhatsApp, in-app) is recorded once with channel, store, template key, an idempotency key, status and provider answer or error, without raw phone or e-mail. A replay of the same business event sends nothing twice, a failed send is retried within a budget, and an admin can read the log of their store.
+- **(3) Exists now in code (main).** Two ledgers exist for single features: abandoned_cart_reminders is written before the mail leaves and is unique on (cart_group_id, stage); seller_notification_deliveries has a unique digest key (per its own documentation). Mail listeners are queued with 2 tries, but sendingMail and OrderPlacedListener catch the send exception, so a failed SMTP send through them never reaches failed_jobs. Everything else is fire and forget: sendNotificationToHttp returns the answer or false and stores nothing; SMS, Zender and WhatsApp failures are only logged.
+- **(4) Done in the draft PRs.** PR 55 (in PR 75): the first-order referral notification was added as one event where the sender reads a group of events, which raised an error after the order committed; it is now a group of one, so the order completes, empties the cart and notifies the referrer once. No PR adds a delivery log or an idempotency key for transactional notifications.
+- **(5) What remains.** (1) a notification_deliveries ledger (channel, storefront, event key, recipient reference hash, unique idempotency key, status, provider id, error, attempts, times) written before sending and updated after; (2) one wrapper for the push, mail, SMS and WhatsApp senders; (3) retry rules and a visible final failure per store; (4) retention and PII redaction; (5) an admin list scoped by staff country; (6) tests with duplicate events and Http::fake.
+- **(6) PRs and commits.** [lavkoo#55](https://github.com/fullstackfull/lavkoo/pull/55) `cbd976a`; [lavkoo#75](https://github.com/fullstackfull/lavkoo/pull/75) `47b78ab`
+- **(7) Tests.**
+  - `ci` ReferredCustomersFirstOrderTest (2): the first order of a referred customer completes, empties the cart and marks the referral used; the referrer is notified once (OrderPlacedEvent, type promoter) (tests/Feature/Referral/ReferredCustomersFirstOrderTest.php; PR 55 @cbd976a and PR 75 @47b78ab: Tests SQLite 8.2/8.3 (no MySQL or MariaDB group covers tests/Feature/Referral))
+  - `none` No test of the abandoned-cart ledger, of a duplicate order event, of a failed FCM, SMS or mail send, or of any delivery log
+- **(8) Dependencies and blockers.** Retention and redaction rules for logs are not decided. I1-01 to I1-03 supply profile, store and template fields; the order storefront record (GCC-05 slice 2); PushNotificationTrait and EmailTemplateTrait are shared files.
+- **(9) Acceptance criteria.**
+  - [MET] The first order of a referred customer completes and notifies the referrer once (ReferredCustomersFirstOrderTest (2 tests); PR 55 @cbd976a and PR 75 @47b78ab: Tests SQLite 8.2/8.3)
+  - [CODED] An abandoned-cart reminder for one cart group and stage is sent once, also after a run that died halfway (SendAbandonedCartReminders writes the ledger row first, unique on (cart_group_id, stage); no test)
+  - [MISSING] A replay of the same business event gives one push and one e-mail per recipient (OrderManager dispatches order events with no idempotency key)
+  - [MISSING] Every attempt is stored with channel, store, template key, status and provider error, without raw phone or e-mail (sendNotificationToHttp stores nothing and sendingMail swallows the exception)
+  - [MISSING] A failed send is retried within a stated budget, and the final failure is visible to that store's admin (retry settings exist for mail listeners only, and sendingMail catches the exception first)
+- **(10) Next coding task.** Test-first on a branch off main: tests/Feature/Notifications/NotificationAttemptTest with Http::fake and Mail::fake pinning today's silent failures. Then migration notification_deliveries, NotificationDeliveryLedger::attempt(key, channel, storefront) and a decorator used by sendNotificationToHttp and sendingMail behind GCC_NOTIFICATION_LOG (off). Tests: duplicate event sends once, a failure is recorded and retried, PII hashed.
+- **Open owner decisions.** Retention period and redaction rule for delivery logs (not decided), and whether the log is per store or central.
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### I1-10. Existing notification classes and senders are kept and pinned
+
+- **State: IN PROGRESS** | plan lines 416 | DECISIONS guardrail 1 (expand and protect, no rewrite); charter section 3 | reviews: none
+- **(2) Functional requirement.** PushNotificationTrait, the admin NotificationController, the EmailTemplates screens and the sending services (mail, SMS, Zender, Chatwoot, listeners) stay in place and are extended, not replaced. While every GCC switch is off, Saudi push, e-mail, OTP and WhatsApp behaviour is identical, and a test pins each.
+- **(3) Exists now in code (main).** All of them exist on main. Of 18 notification and coupon files compared with main, 17 are identical in the PR 83 tree (only WebController differs, product pages) and 16 in the PR 75 tree (WebController and PushNotificationService differ). No test in main, PR 83 or PR 75 pins the push payload, the admin broadcast, an e-mail template or the SMS provider order, so nothing proves the baseline stays identical.
+- **(4) Done in the draft PRs.** Repairs, not replacements: PR 55 fixes the first-order referral notification (2 tests); PR 63 makes the Firebase web-worker file generator safe against stored values (FirebaseServiceWorkerTest); PR 52 lets only the seller owner register a push token (SellerApiStaffPushTokenTest). Nothing is renamed or removed.
+- **(5) What remains.** Characterization tests on a branch cut from main with Http::fake and Mail::fake: the push payload per order-status key and user type, the default topic of the admin broadcast and its seller token loop, e-mail variable substitution, the SMS provider order and the inert NotificationAutomationService; then a CI group on MySQL 8 and MariaDB 11.4.2 for tests/Feature/Notifications.
+- **(6) PRs and commits.** [lavkoo#55](https://github.com/fullstackfull/lavkoo/pull/55) `cbd976a`; [lavkoo#63](https://github.com/fullstackfull/lavkoo/pull/63) `de0a7d5`; [lavkoo#52](https://github.com/fullstackfull/lavkoo/pull/52) `ead8e2a`; [lavkoo#75](https://github.com/fullstackfull/lavkoo/pull/75) `47b78ab`
+- **(7) Tests.**
+  - `ci` FirebaseServiceWorkerTest: the web-worker file is built from the stored settings and runs as configuration only (tests/Feature/Security/FirebaseServiceWorkerTest.php; PR 63 @de0a7d5: Tests SQLite 8.2/8.3, Fulfillment + security MySQL 8 and MariaDB 11.4.2)
+  - `ci` SellerApiStaffPushTokenTest: a staff member cannot replace the owner's phone push token; the owner still registers it (tests/Feature/Security; PR 52 @ead8e2a: SQLite, Fulfillment + security MySQL 8 and MariaDB 11.4.2)
+  - `ci` ReferredCustomersFirstOrderTest (2) (PR 55 @cbd976a and PR 75 @47b78ab: Tests SQLite 8.2/8.3)
+  - `none` No test pins the push payload, the admin broadcast, an e-mail template or the SMS provider order
+- **(8) Dependencies and blockers.** None for code. A new CI group edits .github/workflows/ci.yml, which the CI-only branches also edit (unit M).
+- **(9) Acceptance criteria.**
+  - [MET] The first order of a referred customer completes and notifies the referrer (ReferredCustomersFirstOrderTest; PR 55 @cbd976a and PR 75 @47b78ab: Tests SQLite 8.2/8.3)
+  - [MET] The Firebase web-worker file is generated from the stored settings and never executes a stored value (FirebaseServiceWorkerTest; PR 63 @de0a7d5: SQLite, Fulfillment + security MySQL 8 and MariaDB 11.4.2)
+  - [MET] Only the seller owner registers a push token; a staff phone cannot replace it (SellerApiStaffPushTokenTest::test_a_staff_member_cannot_replace_the_owners_phone_push_token and ::test_the_owner_still_registers_their_phone; PR 52 @ead8e2a: SQLite, Fulfillment + security MySQL 8, MariaDB 11.4.2)
+  - [CODED] The push payload per order-status key and user type, the admin broadcast to topic sixvalley and the seller tokens, the e-mail variable substitution and the SMS provider order equal today's while storefronts are off (PushNotificationTrait, NotificationController, EmailTemplateTrait and SMSModule are identical to main in the PR 83 tree)
+  - [MISSING] A characterization test pins each of those behaviours, on SQLite, MySQL 8 and MariaDB 11.4.2 (no test in main, PR 83 or PR 75 references them)
+- **(10) Next coding task.** Test-only branch off main: tests/Feature/Notifications/{PushPayloadTest,AdminBroadcastTest,EmailTemplateTest,SmsProviderOrderTest}.php with Http::fake for fcm.googleapis.com and Mail::fake, no source change; add tests/Feature/Notifications to the Fulfillment + security paths of .github/workflows/ci.yml so it also runs on MySQL 8 and MariaDB 11.4.2.
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### I1-11. Coupon and CouponService logic is kept, its boundary pinned and its messages defined
+
+- **State: IN PROGRESS** | plan lines 428 | Charter section 3 item 6 (eligibleSubtotal >= min_purchase; no writes into resources/lang by tests); GCC-17; Discovery E08 | reviews: native-arabic, owner-decision
+- **(2) Functional requirement.** Coupon, CouponService and OrderManager::getTotalCouponAmount stay as they are. A cart whose eligible subtotal equals min_purchase is accepted (the approved >= rule); the admin rule comparing min_purchase with the discount amount stays a different rule. Every message these paths show is a defined key in Arabic and English, and no refusal writes a language file.
+- **(3) Exists now in code (main).** OrderManager::getTotalCouponAmount (web form, customer API, checkout) refuses when min_purchase is greater than the eligible subtotal, so equality passes; the same message also covers a zero subtotal and a fixed discount above the subtotal. The admin and vendor forms asked for a message key no file defines, which translate() wrote into the language files at run time. Main has no coupon test except one amount coupon inside the API checkout test.
+- **(4) Done in the draft PRs.** PR 4 (test-only): 12 tests pin below, equal and above the minimum and the subtotal after a product discount on the shared rule, the web form and the customer API, with a language-file digest guard. PR 2: the admin message uses the key the files define (4 tests). PR 5: the empty-cart and percentage refusal keys are defined in seven locales (3 tests). PR 52: vendor and seller coupon handlers act on the seller's own coupons. PR 2, 4 and 5 are in neither integration tree.
+- **(5) What remains.** (1) the customer message for a fixed discount above the eligible subtotal still says 'minimum not reached' (PR 4 proposes a dedicated key, not applied); (2) Arabic text for Please_add_item_to_cart and the percentage refusal (English in every locale); (3) tests for percentage cap, free delivery, first order, per-customer limit, vendor bearer; (4) tests/Feature/Coupon on MySQL and MariaDB; (5) PR 2, 4, 5 inside a combined tree.
+- **(6) PRs and commits.** [lavkoo#2](https://github.com/fullstackfull/lavkoo/pull/2) `1ca1c4d`; [lavkoo#4](https://github.com/fullstackfull/lavkoo/pull/4) `1d000df`; [lavkoo#5](https://github.com/fullstackfull/lavkoo/pull/5) `cf7d3e2`; [lavkoo#52](https://github.com/fullstackfull/lavkoo/pull/52) `ead8e2a`; [lavkoo#75](https://github.com/fullstackfull/lavkoo/pull/75) `47b78ab`
+- **(7) Tests.**
+  - `ci` CouponMinimumPurchaseBoundaryTest (12): below the minimum refused, equal and above accepted, subtotal after a flat product discount, web form and customer API, one analytics record per call, no language file written (tests/Feature/Coupon/CouponMinimumPurchaseBoundaryTest.php; PR 4 @1d000df: Tests SQLite 8.2/8.3 (no MySQL or MariaDB group covers tests/Feature/Coupon))
+  - `ci` AdminCouponMinimumMessageTest (4) and CouponMessageKeysTest (3): defined keys, Arabic and English text, no language-file write (PR 2 @1ca1c4d and PR 5 @cf7d3e2: Tests SQLite 8.2/8.3)
+  - `ci` ApiOrderPlacementTest::test_the_money_of_an_order_is_what_the_cart_says_whatever_the_address_and_the_mode: an amount coupon of 15 reduces an API order of 210 (origin/main tests/Feature/Address; PR 83 @8ff3410: Address tests MySQL 8 and MariaDB 11.4.2, Tests SQLite 8.2/8.3)
+  - `ci` SellerApiPromotionOwnershipTest and VendorCouponChatAndPosShopOwnershipTest: a seller changes and views only their own coupons (PR 52 @ead8e2a: SQLite, Fulfillment + security MySQL 8 and MariaDB 11.4.2; PR 75 @47b78ab)
+  - `none` No test of percentage cap, free delivery, first order, per-customer limit or vendor bearer
+- **(8) Dependencies and blockers.** OrderManager.php is changed by both the security set and the GCC chain and no combined tree has been tested, so no state above IMPLEMENTED IN DRAFT. Arabic wording needs a native reader. Seller-app decision on admin-assigned seller-bearer coupons (PR 52, seller-app audit row 15).
+- **(9) Acceptance criteria.**
+  - [MET] An eligible subtotal below min_purchase is refused with the minimum message, equal or above is accepted, after the product's own discount, on the shared rule, the web form and the customer API (CouponMinimumPurchaseBoundaryTest (12 tests); PR 4 @1d000df: Tests SQLite 8.2/8.3 (no MySQL or MariaDB group covers tests/Feature/Coupon))
+  - [MET] An amount coupon reduces the order total of an API cash-on-delivery order by its amount (ApiOrderPlacementTest (SAVE15, discount_amount 15 of 210); PR 83 @8ff3410: Address tests MySQL 8, MariaDB 11.4.2, SQLite 8.2/8.3)
+  - [MET] The minimum-purchase refusal of the coupon service and the admin controller use the defined Arabic or English text, and a refused empty cart or percentage coupon writes no language file (AdminCouponMinimumMessageTest (4) PR 2 @1ca1c4d; CouponMessageKeysTest (3) PR 5 @cf7d3e2; SQLite 8.2/8.3)
+  - [MET] A seller or vendor edits, switches and views only their own coupons; a platform coupon is not theirs (SellerApiPromotionOwnershipTest, VendorCouponChatAndPosShopOwnershipTest; PR 52 @ead8e2a (SQLite, Fulfillment + security MySQL 8, MariaDB 11.4.2); PR 75 @47b78ab)
+  - [CODED] Percentage cap (max_discount), free delivery, first order, per-customer limit and vendor-bearer coupons behave as today (OrderManager::getTotalCouponAmount; no test in main, PR 83 or PR 75 asserts these types)
+  - [MISSING] A fixed discount above the eligible subtotal is refused with its own accurate customer message, in Arabic and English (OrderManager returns the 'minimum not reached' text for three conditions; PR 4 proposes a dedicated key and does not apply it)
+- **(10) Next coding task.** On PR 4's branch (gcc/p0-coupon-minimum-boundary) add tests/Feature/Coupon/CouponTypesTest pinning percentage with max_discount, free_delivery, first_order and the per-customer limit through OrderManager::getTotalCouponAmount (same harness), then move the Coupon directory into a MySQL and MariaDB group of ci.yml. Copy fix: a new key for the discount-above-subtotal refusal in OrderManager and the seven locales, Arabic flagged for review.
+- **Open owner decisions.** Copy only: a dedicated customer message for a discount above the subtotal (PR 4); whether the admin wording 'must be greater than' should say 'at least' since equality is accepted (PR 2); Arabic text for the two defined refusal keys (PR 5); the seller-app decision on admin-assigned seller-bearer coupons (PR 52).
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### I1-12. Coupon amounts in each store's currency; legacy conversions verified
+
+- **State: IN PROGRESS** | plan lines 424, 428 | GCC-17; DECISIONS (local pricing, no automatic FX); Discovery E02, E08, Q-04, Q-07, Q-08, Q-38 | reviews: finance, owner-decision
+- **(2) Functional requirement.** A coupon's discount, minimum purchase and cap are entered, stored, shown and compared in the currency of its store (KWD, BHD and OMR with three decimals), never converted from Saudi amounts. Existing coupons keep their stored values and convert exactly as before while storefronts are off, proven by a round-trip test in both currency models.
+- **(3) Exists now in code (main).** coupons has no currency or store column and its code is unique across the table. CouponService passes discount, min_purchase and max_discount through currencyConverter (system default currency to USD when the multi-currency model is on, unchanged otherwise); OrderManager compares them with the cart's stored amounts; pages show them with webCurrencyConverter at the current rate, so a stored value follows later rate changes. No test touches currencyConverter, CouponService or a converted coupon.
+- **(4) Done in the draft PRs.** Nothing for coupons: Coupon.php and CouponService.php are identical to main in the PR 83 tree. The GCC-05 branch gcc/p1-storefront-currency (no PR, CI not read) stores a non-default storefront's amounts as they are (rate one), so coupon amounts for such a storefront must skip the USD conversion in CouponService; that branch does not touch coupons.
+- **(5) What remains.** (1) a store or currency column on coupons and a rule on whether one code may exist in two stores; (2) CouponService writes the store's unit and keeps the legacy conversion for the default storefront; (3) getTotalCouponAmount compares in the cart's unit; (4) admin, vendor and coupon pages show the currency and decimals; (5) a round-trip test matrix (single and multi-currency model, KWD, BHD, OMR); (6) legacy rows untouched.
+- **(6) PRs and commits.** none
+- **(7) Tests.**
+  - `none` No test of CouponService, currencyConverter or a converted coupon; the only coupon check in CI inserts the coupon row directly
+- **(8) Dependencies and blockers.** GCC-05 storefront currency (branch without a PR) and the order storefront record. Q-04, Q-07, Q-08 and Q-38 are open. Coupon and CouponService are shared with I1-11 and I1-13.
+- **(9) Acceptance criteria.**
+  - [CODED] Under the single-currency model a coupon is stored and redeemed at face value (currencyConverter returns the amount unchanged when the model is not multi-currency; no test)
+  - [CODED] Under the multi-currency model a coupon entered in the default currency is stored in USD base and shown and redeemed as the same amount at the same rate (currencyConverter and usdToDefaultCurrency are inverse apart from flooring to the decimal setting; no test)
+  - [MISSING] A round-trip test matrix proves both for min_purchase, a flat discount and max_discount, including three-decimal currencies (no coupon or currency-conversion test exists in main, PR 83 or PR 75)
+  - [MISSING] A coupon created for the KW store is stored, shown and redeemed in KWD with no Saudi conversion (coupons has no store or currency column)
+  - [MISSING] Existing coupon rows keep their values and redeem exactly as before after the store column is added (no migration and no test yet)
+- **(10) Next coding task.** Test-only branch off main, executable now: tests/Feature/Coupon/CouponCurrencyRoundTripTest creates coupons through CouponService::getAddData under currency_model single and multi (rates for USD, SAR, KWD, OMR), shows them with webCurrencyConverter, redeems them through OrderManager::getTotalCouponAmount, and asserts stored value, shown value and discount agree. Then coupons.storefront_country once the GCC-05 slice 2 PR exists.
+- **Open owner decisions.** Open Discovery questions Q-04 (limits and first order per store or per identity), Q-07 (rounding and decimals per currency), Q-08 (conversion policy for new stores), Q-38 (no automatic conversion against the existing multi-currency model); and whether one coupon code may exist in two stores (today unique across the table).
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### I1-13. Coupons name their eligible products and store
+
+- **State: IN PROGRESS** | plan lines 424 | GCC-17 (each store has its own eligible items and redemption); Discovery Q-04, R-054 | reviews: owner-decision
+- **(2) Functional requirement.** A coupon names what it applies to (products, categories, brands or sellers) per store, and only those lines count towards its eligible subtotal and discount. A coupon of one store is refused in another store's cart, and the coupon lists show a customer only coupons that can apply in their storefront.
+- **(3) Exists now in code (main).** Eligibility is by seller only: coupons.seller_id (NULL in-house, 0 every seller, n one seller), coupon_bearer and customer_id (0 or one customer). getTotalCouponAmount sums the cart lines of the matching seller; Coupon has no product, category, brand or store field. The coupon list, applicable_list and seller-wise endpoints list every active coupon.
+- **(4) Done in the draft PRs.** PR 48 (in PR 83): Cart carries StorefrontCartScope and getCartListQueryAPI, which coupon application reads, reads through Cart, so with storefronts on the eligible subtotal is made from the request storefront's rows. The GCC-14c note says a promotion has no country yet (GCC-17). Customer app PR 7 drops the applied coupon and the coupon lists on a storefront change. No coupon table, rule or list changed.
+- **(5) What remains.** (1) coupon rules for products, categories and brands (additive table or JSON) evaluated in getTotalCouponAmount, getGroupWiseCouponArray and the POS coupon path; (2) a store on the coupon and a refusal of another store's coupon; (3) coupon list, applicable_list and seller-wise lists narrowed by the storefront (B-16); (4) the eligible amount shown to the customer; (5) tests for every rule combination and flag-off identity.
+- **(6) PRs and commits.** [lavkoo#48](https://github.com/fullstackfull/lavkoo/pull/48) `4a821d3`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`; [lavkooapp#7](https://github.com/fullstackfull/lavkooapp/pull/7) `56deea7`
+- **(7) Tests.**
+  - `ci` StorefrontCartIsolationTest: a cart shows only the rows of the storefront it is used from; checkout, ticking and removal leave the other storefront's rows alone (tests/Feature/Storefront/StorefrontCartIsolationTest.php; PR 83 @8ff3410: Tests SQLite 8.2/8.3, Storefront tests MySQL 8 and MariaDB 11.4.2)
+  - `ci` storefront_cart_reload_test: the applied coupon and the coupon lists are dropped when the storefront changes (lavkooapp PR 7 @56deea7: job storefront-header (Test storefront step))
+  - `none` No test of a coupon limited to products, categories, brands or a store
+- **(8) Dependencies and blockers.** Owner answer on Q-04. The store on the coupon is I1-12's column; coupon list narrowing is B-16. Product.php and CartManager.php are changed by both the security set and the GCC chain, so no combined tree yet.
+- **(9) Acceptance criteria.**
+  - [MISSING] A coupon limited to chosen products, categories or brands discounts only those lines (Coupon has no product, category or brand rule)
+  - [MISSING] A coupon of store A is refused in store B's cart with a clear message (getTotalCouponAmount looks a coupon up by code, status and dates only)
+  - [MISSING] The coupon list and applicable_list return only coupons that can apply in the request's storefront (RestAPI v1 CouponController lists every active coupon)
+  - [CODED] The eligible subtotal of a coupon is made from the request storefront's cart rows only (Cart has StorefrontCartScope and getCartListQueryAPI reads through Cart; StorefrontCartIsolationTest pins the cart rows, no coupon-specific test)
+  - [MET] The customer app drops the applied coupon and the coupon lists when the storefront changes (storefront_cart_reload_test 'the applied coupon and the coupon lists are dropped'; lavkooapp #7 @56deea7: job storefront-header)
+- **(10) Next coding task.** Test-first on the PR 48 head: tests/Feature/Storefront/StorefrontCouponCartTest asserting that with storefronts on a coupon applied in SA computes its eligible subtotal from SA rows only and the same code applied in AE sees AE rows (pins what exists). After the owner answers Q-04: additive coupon_rules table and storefront_country column behind GCC_COUPON_RULES (off), with refusal and list narrowing tested in the Storefront group.
+- **Open owner decisions.** Whether eligible items are set per store (GCC-17 says each store has its own; Discovery Q-04 proposes everything per store), whether a store may copy another store's coupon definition (copy, no sync), and the Arabic and English refusal wording.
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### I1-14. Per-store coupon limits and budget
+
+- **State: IN PROGRESS** | plan lines 424 | GCC-17 (limits, redemption); Discovery R-054, Q-04 | reviews: finance, owner-decision
+- **(2) Functional requirement.** A coupon's usage rules are per store: the per-customer limit and the meaning of first order counted in the store (or per identity, by decision), a total redemption cap and a spending budget in the store's currency. Redemption is atomic, so two simultaneous checkouts cannot exceed the cap or the budget, and an exhausted coupon is refused with its own message.
+- **(3) Exists now in code (main).** Per-customer limit only: Coupon.limit is compared with the order groups this customer already placed with the code (OrderManager::getTotalCouponAmount; the applicable-coupon list counts the customer's orders for the code), over every order whatever the store. first_order coupons are refused once the customer has any order. Dates and status apply. No total cap, budget, spend field or per-store count exists, and redemption uses no lock or counter table.
+- **(4) Done in the draft PRs.** Nothing. The GCC-14c design note records that a coupon's use count must not be narrowed by an employee's country, or a limit would be bypassed by an order in another country.
+- **(5) What remains.** (1) the decision on limit and first order per store or per identity (Q-04); (2) a coupon_redemptions ledger (coupon, order group, storefront, amount, currency) unique per order group, used for limits, caps and budget; (3) coupon fields for cap and budget (amount, period) and a spend read-out for the admin; (4) refusal messages in Arabic and English; (5) a concurrency test on MySQL and MariaDB.
+- **(6) PRs and commits.** none
+- **(7) Tests.**
+  - `none` No test of the limit, the first-order rule or any cap in main, PR 83 or PR 75
+- **(8) Dependencies and blockers.** Q-04 and the GCC-17 details are open (per-store counting, what a budget caps). Currency units are I1-12's. The concurrency harness in tests/Feature/Concurrency exists for stock and wallet writes and can be reused.
+- **(9) Acceptance criteria.**
+  - [CODED] A customer cannot redeem a coupon more often than its limit (OrderManager::getTotalCouponAmount compares Coupon.limit with the customer's order groups; the applicable-coupon list filters on the customer's order count; no test)
+  - [CODED] A first_order coupon is refused once the customer has an order (OrderManager::getTotalCouponAmount; no test)
+  - [MISSING] Limits and first order are counted per store, as the owner decides in Q-04 (the count reads every order of the customer)
+  - [MISSING] A coupon with a total cap refuses the next redemption, also under two concurrent checkouts (no cap field and no atomic counter)
+  - [MISSING] A coupon with a budget stops when the discounts given reach it, and the admin sees the spend in the store's currency (no budget or spend field exists)
+- **(10) Next coding task.** Test-first on a branch off main: tests/Feature/Coupon/CouponLimitTest pinning the per-customer limit (two orders, the second refused) and the first-order rule through OrderManager::getTotalCouponAmount, plus a two-process redemption test in tests/Feature/Concurrency with the existing harness that today shows both pass; then the additive coupon_redemptions ledger with a unique key per order group behind GCC_COUPON_RULES (off).
+- **Open owner decisions.** Q-04 (limit and first order per store or per identity; the GCC-17 text says per store) and what a budget caps (discounts given per store and period, who may raise it). No owner document answers either.
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### I1-15. Campaigns: central ones choose stores, local ones belong to one store
+
+- **State: IN PROGRESS** | plan lines 422, 426 | GCC-17; Discovery E06 section 2.5 and E03 on experience_campaigns; B-16 | reviews: owner-decision
+- **(2) Functional requirement.** A central campaign (window, coupon rules, banners and page overlay, optional push) selects one, several or all markets, and each selected market runs its own local rules. A manager restricted to one country can create and run a local campaign for that country only. Campaign state, caches and statistics are kept per store.
+- **(3) Exists now in code (main).** Three kinds of 'campaign', none with a market. ExperienceCampaign is a scheduled page overlay (name, status, page, priority, window, overrides) cached as commerce_campaign_overrides_<page> with no storefront. Analytics campaigns are tracked short links with QR codes. Flash and featured deals, deal of the day and clearance sales are promotions with one active flash deal system-wide. No central campaign with per-store rules exists.
+- **(4) Done in the draft PRs.** PR 82 (in PR 83): the analytics campaign screens (storeCampaign, toggleCampaign, campaignQr) are unavailable to an employee restricted to a country, tested on all seven analytics routes. PR 50: caches built from a storefront's products, flash deals among them, are kept per storefront. No campaign, deal or coupon table or screen gained a market; GCC-14c slice 4 (promotions) is not started.
+- **(5) What remains.** (1) a campaign table with campaign_markets (storefront_country, status, window) linked to the per-store coupon rules (I1-12 to I1-14) and banners; (2) local campaigns: creation limited by the employee's country scope (GCC-14c slice 4); (3) a per-storefront cache key for the experience-campaign overlay; (4) per-store reporting; (5) the GCC-17 owner decisions.
+- **(6) PRs and commits.** [lavkoo#50](https://github.com/fullstackfull/lavkoo/pull/50) `98191ff`; [lavkoo#82](https://github.com/fullstackfull/lavkoo/pull/82) `d1fc5f4`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`
+- **(7) Tests.**
+  - `ci` StaffTaxAndAnalyticsTest: every analytics screen (7 routes, campaign tools included) answers 404 to an employee restricted to KW and is unchanged for one with no country (tests/Feature/StaffScope/StaffTaxAndAnalyticsTest.php; PR 82 @d1fc5f4: Tests SQLite 8.2/8.3; PR 83 @8ff3410: Staff scope tests MySQL 8 and MariaDB 11.4.2)
+  - `none` No test of a campaign, deal or coupon limited to a market
+- **(8) Dependencies and blockers.** GCC-17 details are not written in any owner document. Local campaigns need GCC-14c slice 4 (unit G). The overlay cache key is B-16's remaining item (2). Coupon rules of I1-12 to I1-14 come first.
+- **(9) Acceptance criteria.**
+  - [MISSING] A central campaign can select one, several or all markets and runs only in the selected ones (ExperienceCampaign has no market field)
+  - [MISSING] Each selected market has its own coupon amounts, currency, limits, eligible products and budget (see I1-12 to I1-14; no campaign-to-rules link exists)
+  - [MISSING] A manager restricted to KW creates and runs a local campaign for KW only and cannot see or change another market's (no staff-scope rule covers the campaign, coupon or notification screens)
+  - [MISSING] The experience-campaign overlay is cached per storefront (CampaignResolver keys 'commerce_campaign_overrides_' . page with no storefront)
+  - [MET] The analytics campaign screens are unavailable to a country-restricted employee (StaffTaxAndAnalyticsTest::test_every_analytics_screen_is_unavailable_to_a_restricted_employee; PR 82 @d1fc5f4 SQLite; PR 83 @8ff3410 Staff scope MySQL 8, MariaDB 11.4.2)
+- **(10) Next coding task.** Executable now on the PR 64 chain: key CampaignResolver's commerce_campaign_overrides_<page> with the storefront cache key and clear it for every storefront, with a test that a KW overlay is not served in SA. After the owner confirms GCC-17: additive campaign_markets (campaign_id, storefront_country) behind GCC_CAMPAIGN_MARKETS (off), CampaignResolver filtering by it, tests for central selection and flag-off identity.
+- **Open owner decisions.** GCC-17 details are not written in any owner document: whether a campaign belongs to one market or selects several (Discovery proposal: the central campaign only selects markets, rules stay local, Q-04), who may create a local campaign, and one active flash deal system-wide or per store (B-16).
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### I1-16. Languages per market
+
+- **State: IN PROGRESS** | plan lines 409; owner axis word 'languages' | DECISIONS (one customer identity; GCC-09 web and app customisation); owner axis word 'languages' | reviews: native-arabic, owner-decision
+- **(2) Functional requirement.** Each market declares the languages it offers (at least Arabic and English), its default and direction. The website, the API lang header, the apps and notifications choose the language from that list; a code the market does not list is refused or falls back to the market default; switching market keeps the customer's language when the new market lists it.
+- **(3) Exists now in code (main).** One language list for the whole install (business setting 'language': code, name, direction, status, default). The website keeps the choice in the session (SharedController); APILocalizationMiddleware reads the lang header (sa to ar, us to en, matches the store's own code such as 'sy'); customers, sellers and delivery men hold app_language (default 'en'). The customer app ships Arabic and English, picks language and country separately and maps Arabic to 'sy'. Nothing ties a language to a market.
+- **(4) Done in the draft PRs.** PR 63 (in PR 75): the website switch refuses a code the store does not list (422); the API answers in the store's default (or first) language for an unlisted header and resolves en-US and ar-SA. PR 51: language choice by request area, not a substring test. PR 38 (in PR 83): config/gcc.php lists required_locales ['ar','en'] with locales_by_country, used only by legal readiness (I2). No PR gives a storefront its own list.
+- **(5) What remains.** (1) languages, default and direction on each storefront entry (config or table) and in the storefront list API; (2) the language resolver reads them once the storefront is known: website switch, API header, app list; (3) the language rule on a market switch; (4) notifications use the recipient's language within the market's list; (5) tests for six markets and flag-off identity; (6) the Arabic code ('ar' against the live store's 'sy', production UNVERIFIED); (7) a combined tree.
+- **(6) PRs and commits.** [lavkoo#63](https://github.com/fullstackfull/lavkoo/pull/63) `de0a7d5`; [lavkoo#51](https://github.com/fullstackfull/lavkoo/pull/51) `a4356ee`; [lavkoo#38](https://github.com/fullstackfull/lavkoo/pull/38) `122960e`; [lavkoo#75](https://github.com/fullstackfull/lavkoo/pull/75) `47b78ab`
+- **(7) Tests.**
+  - `ci` LanguageSelectionTest: the switch refuses an unlisted code and keeps the session language; the API answers in the header's language also with a region tag, else in the store default or first language (tests/Feature/Security/LanguageSelectionTest.php; PR 63 @de0a7d5: Tests SQLite 8.2/8.3, Fulfillment + security MySQL 8 and MariaDB 11.4.2; PR 75 @47b78ab)
+  - `ci` LanguageChoiceByAddressTest: storefront pages use the shopper's language, API requests the app's, panels show raw text (PR 51 @a4356ee: same jobs)
+  - `none` No test of a market's own language list
+- **(8) Dependencies and blockers.** The plan names no language list: owner decision. Language files and the API middleware are changed by the security set, the storefront list by the GCC chain, so a combined tree is needed. The live language list is production data, UNVERIFIED.
+- **(9) Acceptance criteria.**
+  - [MET] The storefront language switch refuses a code the store does not list and keeps the session language (LanguageSelectionTest::test_the_switch_refuses_a_code_the_store_does_not_list_and_keeps_the_language_of_the_session; PR 63 @de0a7d5: SQLite, Fulfillment + security MySQL 8, MariaDB 11.4.2)
+  - [MET] The API answers in the lang header's language (also en-US, ar-SA) when the store lists it, else in the store default (LanguageSelectionTest::test_the_api_answers_in_the_language_a_header_names_whatever_its_region and related tests; PR 63 @de0a7d5, same jobs)
+  - [MISSING] Each storefront has its own language list, default language and direction (config('gcc.storefronts.countries') holds path, currency and active only)
+  - [MISSING] Switching market keeps the customer's language when the new market lists it and falls back to that market's default otherwise (language and country are independent choices in the customer app)
+  - [MISSING] A push or e-mail is rendered in the recipient's language when the recipient's market lists it, else in the market default (see I1-03: the language of a queued e-mail is the install default)
+  - [CODED] Arabic shows right-to-left and English left-to-right on the website and in the customer app (direction comes from the language list; LocalizationController sets isLtr false for 'ar'; no test)
+- **(10) Next coding task.** On gcc/p1-storefront-api-header (PR 28) add 'languages' and 'default_language' (ar, en for all six) to each entry of config('gcc.storefronts.countries') and to StorefrontListing, additive and off by default; APILocalizationMiddleware and SharedController choose against the storefront's list while the flag is on. Tests: six markets, unlisted code falls back, flag-off byte-identical.
+- **Open owner decisions.** The plan names no language list: which languages each market offers (Arabic and English assumed), whether Gulf Arabic variants are needed, one Arabic code ('ar' or the live 'sy'), and whether language follows the market or the customer. No owner document answers it.
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### I1-17. Customer-facing text is translated per market, and tests never rewrite language files
+
+- **State: IN PROGRESS** | plan lines 409; owner axis word 'languages' | Charter section 3 item 6 (copy; tests must not write into resources/lang); owner axis word languages | reviews: native-arabic
+- **(2) Functional requirement.** Every customer-facing string of the coupon, notification, checkout and storefront flows has an English and an Arabic text in each market's locale, read by a native speaker. A test fails when a key those flows use is missing from a locale, and no test lets translate() append a key to a tracked file under resources/lang.
+- **(3) Exists now in code (main).** translate() appends a humanised English placeholder to resources/lang/<locale>/new-messages.php for any unknown key at run time. Measured on main by a line-based count: en 17,818 keys; sa 11,970 (95% in Arabic); ks 11,985 (94%); ae 17,726 but only 15% in Arabic, the rest English placeholders. Push and e-mail texts are database rows, UNVERIFIED. Fulfillment and sales-channel keys have per-locale tests; the customer app has localization_keys_test (en, ar).
+- **(4) Done in the draft PRs.** PR 5 defines the empty-cart and percentage refusal keys in seven locales (English text everywhere, no Arabic added); PR 2 fixes the admin key; the tests of PR 2, 4, 5 and 45 digest resources/lang and fail on a write; PR 63 makes translate() write atomically, refuse markup keys and use var_export. Customer app PR 5 and 7 and seller app PR 6 add Arabic strings listed for a native reader. PR 2, 4 and 5 are in neither integration tree.
+- **(5) What remains.** (1) a key-coverage test for the coupon, notification, checkout and storefront messages in en, sa and ae (the pattern of TranslationsTest); (2) Arabic for the two PR 5 keys and for the ae locale; (3) native Arabic review of the GCC strings the PR bodies list; (4) a rule for keys written at run time on the server; (5) notification texts per language in the database for each market.
+- **(6) PRs and commits.** [lavkoo#2](https://github.com/fullstackfull/lavkoo/pull/2) `1ca1c4d`; [lavkoo#4](https://github.com/fullstackfull/lavkoo/pull/4) `1d000df`; [lavkoo#5](https://github.com/fullstackfull/lavkoo/pull/5) `cf7d3e2`; [lavkoo#45](https://github.com/fullstackfull/lavkoo/pull/45) `d78ef20`; [lavkoo#63](https://github.com/fullstackfull/lavkoo/pull/63) `de0a7d5`; [lavkoo#75](https://github.com/fullstackfull/lavkoo/pull/75) `47b78ab`; [lavkooapp#5](https://github.com/fullstackfull/lavkooapp/pull/5) `5526c4b`; [lavkooapp#7](https://github.com/fullstackfull/lavkooapp/pull/7) `56deea7`; [lavkooappseller#6](https://github.com/fullstackfull/lavkooappseller/pull/6) `e4d7d02`
+- **(7) Tests.**
+  - `ci` Digest guards: the coupon, admin-message and social-login tests fail if a file under resources/lang changes (PR 4 @1d000df, PR 2 @1ca1c4d, PR 5 @cf7d3e2, PR 45 @d78ef20: Tests SQLite 8.2/8.3)
+  - `ci` TranslationKeyTest and TranslationWriterTest: a key with markup is never stored, concurrent writers lose no key, a stored value is never run (tests/Feature/Security; PR 63 @de0a7d5: SQLite, Fulfillment + security MySQL 8 and MariaDB 11.4.2; PR 75 @47b78ab)
+  - `ci` localization_keys_test: every getTranslated key of the customer app exists in en.json and ar.json (lavkooapp PR 7 @56deea7: job storefront-header (Test storefront step))
+  - `ci` TranslationsTest (fulfillment): every phrase of that feature exists in en, sa and ae, and customer text is Arabic in the Arabic locales (the pattern to copy) (origin/main tests/Feature/Fulfillment; PR 83 @8ff3410: Fulfillment + security MySQL 8 and MariaDB 11.4.2)
+  - `none` No test covers the coupon, notification, checkout and storefront message keys in en, sa and ae
+- **(8) Dependencies and blockers.** A native Arabic reader (owner). resources/lang files are changed by both the security set and the GCC chain, so a combined tree is needed. The live language list and notification text rows are production data, UNVERIFIED.
+- **(9) Acceptance criteria.**
+  - [MET] A test that reaches an undefined message fails instead of writing a tracked language file (digest guards in CouponMinimumPurchaseBoundaryTest, AdminCouponMinimumMessageTest, CouponMessageKeysTest and SocialLoginConfirmationTest (AssertsNoLanguageFileWasWritten); PR 4, 2, 5, 45: Tests SQLite 8.2/8.3)
+  - [MET] translate() adds a key without losing concurrent keys, never stores a key with markup and never runs a stored value (TranslationKeyTest and TranslationWriterTest; PR 63 @de0a7d5: SQLite, Fulfillment + security MySQL 8, MariaDB 11.4.2)
+  - [MET] Every translation key the customer app uses exists in en.json and ar.json (localization_keys_test; lavkooapp #7 @56deea7: job storefront-header)
+  - [MISSING] Every key the coupon, notification, checkout and storefront flows use exists in en, sa and ae, with Arabic text in the Arabic locales (only fulfillment and sales channels have such a test; ae holds about 15% Arabic; Please_add_item_to_cart is English in every locale)
+  - [MISSING] The Arabic wording of the GCC strings is approved by a native reader (strings awaiting review are listed in the bodies of lavkooapp #5 and #7 and lavkooappseller #6 (43 keys); UNVERIFIED)
+- **(10) Next coding task.** On a branch off main add tests/Feature/Notifications/CustomerMessagesTranslatedTest: scan OrderManager, CouponService, the coupon controllers and views and the PushNotificationService keys for translate('...') literals; assert each exists in en, sa and ae with Arabic in sa and ae, against a baseline of today's English-only keys that only shrinks. Add Arabic for Please_add_item_to_cart and the percentage refusal, flagged for native review.
+- **Open owner decisions.** Arabic wording of the GCC strings (backend PR 5, customer app PR 5 and 7, seller app PR 6), and whether keys may keep being written at run time on the server. No owner document answers either.
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### I1-18. Communications audit (axis J): e-mail, SMS, WhatsApp, push, audiences, templates
+
+- **State: IMPLEMENTED IN DRAFT** | plan lines 523-525 | Discovery E06; DISCOVERY_PROMPT_01 | reviews: none
+- **(2) Functional requirement.** An evidence-based map of every send channel (e-mail, SMS, OTP, WhatsApp, push, in-app) exists, with its account, templates and languages, triggers, queue, audience, consent and logs, and the open questions are written for the owner. The legal-document half of axis J is I2's.
+- **(3) Exists now in code (main).** Discovery evidence E06 (453 lines, 2026-11-12, read at lavkoo 7f42777c; the notification and coupon files it cites are unchanged on main c5c04b7b) maps each channel, the seven push topics, the audiences and consents, with numbered findings E06-F01 to F23; the owner questions Q-04, Q-15, Q-32 and Q-44 are in the owner decisions list. It lives on the docs branch claude/exciting-shannon-4mh2ok, not in main, and no PR carries it.
+- **(4) Done in the draft PRs.** No code. PR 48, 55 and 63 changed communication code after E06 was written (reminder link, referral notification, Firebase worker); A1-17 records the first, this tracker the others. The channel map itself needs no PR.
+- **(5) What remains.** Nothing is missing from the audit itself. Optional hardening: refresh the E06 findings table with what PR 48, 55 and 63 changed, and a test-backed inventory that fails when a new send site is not registered; the owner decides when the docs branch merges into main.
+- **(6) PRs and commits.** none
+- **(7) Tests.**
+  - `none` No test: the audit is a document and nothing keeps it current
+- **(8) Dependencies and blockers.** None for code. The docs branch is not in main; the owner decides when it merges.
+- **(9) Acceptance criteria.**
+  - [CODED] Every channel (e-mail, SMS, OTP, WhatsApp, push, in-app) has its account, templates, languages, triggers, queue and audience described with file and line evidence (E06 sections 2.1 to 2.5 and findings E06-F01 to F23, docs/gcc/audits/2026-11-12-0115-discovery-01/evidence/)
+  - [CODED] The FCM topic inventory lists every send and subscribe site in the backend and both apps (E06 section 2.2 (seven topic names, with the sender and subscriber lines))
+  - [CODED] The open questions of the channels (consent model, Firebase project, seller topic, coupon limits) are written for the owner (11-open-decisions-for-owner.md: Q-04, Q-15, Q-32, Q-44)
+- **(10) Next coding task.** Optional, test-only branch off main: tests/Unit/Notifications/SendSiteInventoryTest scans app/ (as RequestAreaTest does) for calls to sendPushNotificationToDevice and ToTopic, sendingMail, Mail::to, SMSModule::send, SmsGateway::send, ZenderOtpService::send and the Chatwoot senders, and compares them with a committed registry of channel, store handling, consent class and log. Merging the docs branch stays with the owner.
+- **Verification.** Assessor result, not independently verified yet; its percentages are the assessor's own reading.
+
+#### I2-01. Per-country legal text store: versions, approval and effective dates, history
+
+- **State: IN PROGRESS** | plan lines 395, 399, 523-525 | GCC-11; audit axis J legal part = Discovery E06 section 2.6 and R-017; owner question Q-16 | reviews: legal
+- **(2) Functional requirement.** Each storefront country keeps its own legal texts per document type and locale as numbered versions with status, approver, approval, effective and revocation dates. Earlier versions stay as history, so the text in force on any date can be shown.
+- **(3) Exists now in code (main).** Only the Saudi baseline: one global business_pages table (title, slug, description, status; migration 2025_03_08_201607) with seven default pages edited in place. It has no country, language, version, approval or effective date (Discovery E06 section 2.6, R-017). origin/main has no storefront_legal_documents table or model.
+- **(4) Done in the draft PRs.** PR 38: table storefront_legal_documents (country, type, locale, version, status, body, body_hash, template_hash, created_by, approved_by and approved_at, published_at; unique per country, type, locale, version), then additive effective_from and revoked_at; model StorefrontLegalDocument. Present in integration PR 83. Dormant: no writer, and the only readers are the readiness rule and the platform API.
+- **(5) What remains.** 1) Write-once rule: a published row cannot be edited, a change is a new version. 2) The seven Saudi pages imported as SA version 1 with dates (SA is only grandfathered in code). 3) Retention and deletion rules. 4) body_hash computed and checked against body by one writer. 5) A test that the unique key rejects a duplicate version.
+- **(6) PRs and commits.** [lavkoo#38](https://github.com/fullstackfull/lavkoo/pull/38) `122960e`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`
+- **(7) Tests.**
+  - `none` StorefrontLegalReadinessTest (28 tests) runs both legal migrations and reads every column of the table (refuted by the verifier: The tests insert every column, but StorefrontLegalReadiness never reads published_at (it decides by status and effective_from), nor id, created_at or updated_at)
+- **(8) Dependencies and blockers.** Retention and deletion rules need a legal decision. The writer and admin screen belong to I2-03. The Saudi import must be rehearsed on fixture data only, never on production.
+- **(9) Acceptance criteria.**
+  - [MET] A row carries country, type, locale, version, status, approver, approval time, effective time and revocation time, and both migrations apply additively on SQLite, MySQL 8 and MariaDB 11.4.2 (StorefrontLegalReadinessTest setUp runs the real migration files; PR 83 8ff3410 jobs SQLite 8.2/8.3, Storefront tests MySQL 8 and MariaDB 11.4.2)
+  - [MET] Several versions of one text coexist; the newest effective one is current and older rows stay as history (test_a_superseded_text_does_not_count_even_when_it_was_valid and test_when_two_texts_share_an_effective_date_the_higher_version_is_current; PR 83)
+  - [CODED] A version number is unique per country, type and locale (database constraint) (unique key storefront_legal_docs_version_unique in the create migration; no test inserts a duplicate)
+  - [MISSING] A published text cannot be edited in place; a change creates a new version
+  - [MISSING] The Saudi baseline pages exist as SA version 1 with their dates
+  - [MISSING] Retention and deletion rules for texts and for acceptance rows are defined and tested
+- **(10) Next coding task.** On a branch stacked on lavkoo PR 43 (gcc/p1-legal-acceptance-receipts): add a write-once guard on StorefrontLegalDocument (a saving hook refusing edits to body, hash, version, locale of an approved or published row) with tests in tests/Feature/Storefront; add a dry-run command gcc:legal:import-baseline that maps the seven business_pages to SA version 1 drafts on fixture data.
+- **Open owner decisions.** Retention period and deletion rules for legal texts and acceptances (Q-16). Whether seller terms are a separate document from customer terms (Q-16). Whether Saudi gets imported history or stays grandfathered only.
+- **Verifier note (not applied automatically).** remaining item 2 and next_task: 'The seven Saudi pages' imported as SA version 1: the seven default business pages include about-us, which is not one of the six required document types (terms, privacy, refund, return, cancellation, shipping). business_pages also has no language column, while the new table needs a locale per row. Proposed: remaining 2) The six Saudi legal pages (terms-and-conditions, privacy-policy, refund-policy, return-policy, cancellation-policy, shipping-policy) imported as SA version 1 with dates and a locale the owner names; about-us is not a legal document type and stays out. next_task: the gcc:legal:import-baseline dry run maps those six business_pages, not seven.
+
+#### I2-02. Legal readiness: current effective approved text for every required type and locale
+
+- **State: IN PROGRESS** | plan lines 395 | GCC-11; handoff 2026-11-15-legal-security-next-execution (engineering defaults); PR 38 body | reviews: legal, owner-decision
+- **(2) Functional requirement.** A non-default storefront may sell only when, for every required document type and locale, the current effective text is published, approved by someone other than its author, not revoked, not blank and not an unedited template. It fails closed when the table is missing.
+- **(3) Exists now in code (main).** nothing. origin/main has no readiness rule; every legal page is global and Saudi.
+- **(4) Done in the draft PRs.** PR 38 (122960e): StorefrontLegalReadiness::isReady(country) over six document types (terms, privacy, refund, return, cancellation, shipping) in Arabic and English by default (gcc.storefronts.legal.required_documents, required_locales, locales_by_country); SA grandfathered; 28 tests. Consumers: the sale gate and the list (PR 39, 42, 49, only while GCC_STOREFRONTS_ENABLED is on) and the platform API (PR 71). In PR 83.
+- **(5) What remains.** 1) Fail closed when the document list or a locale list is empty: today the loops produce no pairs and isReady returns true (found by reading the code, no test, not run). 2) The document list and locales per country confirmed by a qualified reviewer. 3) Real rows need the I2-03 workflow.
+- **(6) PRs and commits.** [lavkoo#38](https://github.com/fullstackfull/lavkoo/pull/38) `122960e`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`
+- **(7) Tests.**
+  - `ci` StorefrontLegalReadinessTest, 28 tests: superseded, draft, scheduled, revoked, self-approved, blank, template, locale, missing table, grandfathered default (tests/Feature/Storefront/StorefrontLegalReadinessTest.php; PR 83 head 8ff3410: Tests SQLite PHP 8.2 and 8.3, Storefront tests MySQL 8, Storefront tests MariaDB 11.4.2 (all success))
+- **(8) Dependencies and blockers.** The document list and locales per country need a legal reviewer (the defaults are engineering defaults). Real rows need the I2-03 workflow. Code lies in files only the GCC chain touches, so no combined-tree cap applies.
+- **(9) Acceptance criteria.**
+  - [MET] Only the newest effective text of each type and locale counts; superseded, draft, scheduled, archived and not-yet-effective texts never count (test_a_newer_draft_does_not_replace_the_current_text, test_a_scheduled_text_does_not_replace_the_current_text, test_an_archived_version_does_not_count; PR 83)
+  - [MET] The approver must be known and differ from the author; a revoked current text keeps the storefront closed until a valid replacement is effective (test_a_document_approved_by_its_own_author_does_not_count, test_a_revoked_current_text_keeps_the_storefront_closed; PR 83)
+  - [MET] A blank text and an unedited template copy do not count; an edited template copy does (test_a_whitespace_only_body_does_not_count, test_an_unedited_template_does_not_count, test_a_template_copy_that_was_edited_counts_as_approved_text; PR 83)
+  - [CODED] Arabic and English are both required by default; an English-only text does not satisfy; a country may override its locales (test_english_only_does_not_satisfy_a_storefront_that_requires_arabic, test_arabic_only_satisfies_a_country_configured_not_to_present_english; PR 83)
+  - [MET] The default storefront is grandfathered, another country's texts do not open a storefront, and a missing table closes every other storefront without an error (test_the_default_storefront_is_grandfathered_and_needs_no_rows, test_documents_of_another_country_do_not_open_a_storefront, test_a_missing_table_keeps_every_non_default_storefront_closed_without_an_error; PR 83)
+  - [MISSING] A storefront with no required document types, or no required locales, configured is not ready (isReady returns true when requiredPairsOf yields no pair; no test covers an empty list)
+- **(10) Next coding task.** ... then merge the branch down the whole stack: 39, 42, 43, 47, 48, 49, 50, 53, then 64 and the PRs stacked on it (71, 72, 74 and theirs).
+- **Open owner decisions.** Which document types each country needs, in which locales, and whether English is required (PR 38 body: engineering defaults, a qualified reviewer confirms per country). The effective-date rules.
+- **Verifier note (not applied automatically).** next_task corrected by the verifier (applied above).
+
+#### I2-03. Legal publishing workflow: template copy is a draft, local text never auto-published
+
+- **State: IN PROGRESS** | plan lines 397 | GCC-11; GCC-20 document level 3 (publish legal policies); R-017 | reviews: security, legal, owner-decision
+- **(2) Functional requirement.** A general template can be copied to prepare a country text, but the copy starts as a draft and a local text is never published automatically: a different person approves it, publication and its effective date are explicit, and a published text can be revoked.
+- **(3) Exists now in code (main).** main edits a business page by overwriting the live row (PagesController::getUpdate) and publishes it with one status switch (updateStatus); no draft, approval or history (E06 section 2.6). PageController::getPageView serves an unpublished page when ?source=admin is added.
+- **(4) Done in the draft PRs.** Readiness side only (PR 38): a draft, an approved-but-unpublished, a scheduled, a self-approved or an unedited-template copy (template_hash equals body_hash) never makes a storefront sellable. PR 40 (security set, in PR 75): an unpublished business page is no longer public with ?source=admin. No code writes legal rows: no copy, edit, approve, publish or revoke.
+- **(5) What remains.** 1) Service and admin screen: copy a template as a draft, edit, a second person approves, publish with effective_from, revoke. 2) A permission key and an audit line for every step. 3) Step-up or dual approval for publish and revoke (GCC-20 level 3, not started). 4) The template source set.
+- **(6) PRs and commits.** [lavkoo#38](https://github.com/fullstackfull/lavkoo/pull/38) `122960e`; [lavkoo#40](https://github.com/fullstackfull/lavkoo/pull/40) `8c6236d`; [lavkoo#75](https://github.com/fullstackfull/lavkoo/pull/75) `47b78ab`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`
+- **(7) Tests.**
+  - `ci` StorefrontLegalReadinessTest: draft, approved-unpublished, scheduled, self-approved and template cases (tests/Feature/Storefront/StorefrontLegalReadinessTest.php; PR 83 head 8ff3410: Tests SQLite PHP 8.2 and 8.3, Storefront tests MySQL 8, Storefront tests MariaDB 11.4.2 (all success))
+  - `ci` BusinessPageVisibilityTest, 7 tests: unpublished page not shown, ?source=admin changes nothing (tests/Feature/Web/BusinessPageVisibilityTest.php; PR 75 head 47b78ab: Tests SQLite PHP 8.2 and 8.3 (success); SQLite only)
+- **(8) Dependencies and blockers.** Needs the I2-01 write-once rule, an admin permission key (owner decision), the audit pattern of PR 80, and for mobile the GCC-20 level 3 gate. PR 40 changes PageController, which I2-04 also changes: merge PR 40 first.
+- **(9) Acceptance criteria.**
+  - [MET] A draft, an approved-but-unpublished or a scheduled text never opens a storefront, and an unedited template copy does not count (test_a_draft_does_not_count, test_an_approved_but_unpublished_version_does_not_count, test_an_unedited_template_does_not_count; PR 83)
+  - [MET] A text approved by its own author does not count (test_a_document_approved_by_its_own_author_does_not_count; PR 83)
+  - [MET] An unpublished business page is not shown publicly, even with ?source=admin (BusinessPageVisibilityTest test_the_source_admin_parameter_does_not_reveal_an_unpublished_page; PR 75 47b78ab SQLite)
+  - [MISSING] Copying a template creates a draft row with the template hash and never publishes it
+  - [MISSING] An admin writes a draft, a different admin approves, sets the effective date and can revoke; each step is permission-gated and audited
+  - [MISSING] Publishing and revoking a legal text asks for step-up or dual approval (GCC-20 level 3)
+- **(10) Next coding task.** New branch stacked on PR 43: App\Services\Storefront\StorefrontLegalPublisher with copyTemplate(), saveDraft(), approve(), publish(effective_from), revoke(); each refuses a wrong state and a self-approval and writes an audit line; tests for the full state matrix and for template copy is a draft, never auto-published. The admin screen and permission key follow once the owner names the key.
+- **Open owner decisions.** Who may write and who may approve legal texts (permission key, master admin only or not). Whether publishing needs dual approval. Whether seller terms are a separate document (Q-16).
+
+#### I2-04. Storefront shows its own country legal text on web and in the apps
+
+- **State: NOT STARTED** | plan lines 395, 401 | GCC-11 (country-specific published documents); R-017; Q-16 | reviews: legal, native-arabic, owner-decision
+- **(2) Functional requirement.** The website and the apps show a storefront's current effective approved legal text in the visitor's locale, and the checkout agreement links point to it. A country with no text for a locale shows no other country's text.
+- **(3) Exists now in code (main).** origin/main serves the same seven global business pages to every visitor: GET business-page/{slug} (PageController), GET /api/v1/business-pages (ConfigController::getBusinessPagesList, cached three hours) and the checkout agreement links (route business-page.view in _order-summary.blade.php). No country, version or locale handling.
+- **(4) Done in the draft PRs.** nothing. No branch reads StorefrontLegalDocument to display it; the only readers are the sale gate, the storefront list and the platform admin API. PageController, the pages API and their cache are untouched by every GCC pull request, and the page-list cache key is not storefront-scoped in PR 83.
+- **(5) What remains.** 1) A resolver from page slug to document type (terms-and-conditions to terms and so on) used by the web page route and the API list. 2) Locale choice with no fallback to another country. 3) Page-list cache keyed by storefront. 4) Checkout links and app pages read the storefront text. 5) SA keeps its current pages. 6) Arabic text reviewed.
+- **(6) PRs and commits.** none
+- **(7) Tests.**
+  - `none` No test: nothing displays the per-country text yet
+- **(8) Dependencies and blockers.** Needs I2-03 (texts must exist). PageController is also changed by security PR 40: merge PR 40 first. Needs the storefront-keyed cache approach of PR 50. The page layout per country belongs to the theme unit (GCC-07).
+- **(9) Acceptance criteria.**
+  - [MISSING] The web legal page of storefront KW shows KW's current effective text in the visitor's locale
+  - [MISSING] GET /api/v1/business-pages returns the storefront's texts to the apps
+  - [MISSING] A storefront with no text in a locale shows no other country's text
+  - [MISSING] The business-page list cache is keyed by storefront
+  - [MISSING] The checkout agreement links point to the storefront's own texts
+  - [MISSING] The Saudi storefront keeps serving its existing business pages unchanged (no GCC pull request changes PageController, BusinessPage or the pages API; no test pins it with the flag on)
+- **(10) Next coding task.** New branch on PR 49's tip, after PR 40: StorefrontLegalPageResolver (slug to type, current text for the context country and locale, null for SA so the legacy page is used), called by PageController::getPageView; serve the apps' storefront-aware list from a new route or controller (page-list cache through StorefrontContext::scopedCacheKey), or change that ConfigController guard deliberately in the same branch and say so; tests in tests/Feature/Storefront for KW text, no fallback to SA text, SA unchanged.
+- **Open owner decisions.** Whether a non-Saudi page may fall back to the English text, or to nothing, when the Arabic text is missing. Whether seller terms are separate from customer terms (Q-16).
+- **Verifier note (not applied automatically).** next_task corrected by the verifier (applied above).
+
+#### I2-05. Acceptance receipts: proof of the legal text a customer accepted, tied to the order
+
+- **State: IN PROGRESS** | plan lines 399 | GCC-11; E06 section 2.6 (no accepted-version record); PR 43 body | reviews: legal, security
+- **(2) Functional requirement.** When a legal text needs explicit acceptance, the order keeps proof of the exact text the customer saw: storefront, legal entity, document type, locale, text id, version, hash, time and order, with identity kept only as far as the privacy policy allows.
+- **(3) Exists now in code (main).** Only a client-side agreement checkbox with links to the global pages (_order-summary.blade.php). Nothing is stored with the order or the account (E06 section 2.6).
+- **(4) Done in the draft PRs.** PR 43 (82b6dfa, test-only): table storefront_legal_acceptances, model StorefrontLegalAcceptance, StorefrontLegalAcceptanceRecorder::recordIfRequired(), StorefrontLegalReadiness::currentTextFor(); gcc.storefronts.legal.explicit_acceptance (empty by default), store_identity (off), legal_entity (GCC_LEGAL_ENTITY). 8 tests. Nothing calls the recorder: no checkout writes a receipt.
+- **(5) What remains.** 1) Call the recorder from the web and API checkout inside the order transaction, with the order id. 2) Privacy and legal review before it runs (PR 43 body). 3) A per-storefront legal entity (one env value today). 4) Retention and deletion rules. 5) Write-once enforced, not only by convention. 6) A defined outcome when no text exists at checkout (the recorder throws).
+- **(6) PRs and commits.** [lavkoo#43](https://github.com/fullstackfull/lavkoo/pull/43) `82b6dfa`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`
+- **(7) Tests.**
+  - `none` StorefrontLegalAcceptanceTest, 8 tests (recorded fields, not-required types, identity off, guest hash, later version, no text, legal entity) (refuted by the verifier: 'recorded fields' covers storefront, type, locale, version and hash (legal entity in its own test). legal_document_id, accepted_at and order_id are asserted by )
+- **(8) Dependencies and blockers.** Needs I2-04 (the customer must see the text that is recorded), the order legal-entity snapshot (entities and finance unit) and the privacy and legal review. The checkout files are also touched by the security set (CartManager, module-helper).
+- **(9) Acceptance criteria.**
+  - [CODED] An explicit acceptance records storefront, legal entity, type, locale, text id, version, hash and time, and the order id when given (test_an_explicit_acceptance_records_the_current_text_version_and_its_hash; PR 83)
+  - [MET] Nothing is recorded for a type that does not need explicit acceptance, and nothing without an effective text (test_nothing_is_recorded_for_a_type_that_does_not_need_explicit_acceptance, test_nothing_is_accepted_when_no_effective_text_exists; PR 83)
+  - [MET] Identity is not kept by default; a guest is kept only as a SHA-256 hash when identity is allowed (test_identity_is_not_kept_unless_the_privacy_policy_allows_it, test_when_identity_is_allowed_a_guest_is_kept_only_as_a_hash; PR 83)
+  - [MET] A recorded row keeps its version and hash when a newer text supersedes it (test_an_acceptance_keeps_its_text_when_a_later_version_supersedes_it; PR 83)
+  - [MISSING] Every web and API order that needed acceptance has a receipt row carrying its order id
+  - [MISSING] Receipts have retention and deletion rules, and the legal entity is per storefront
+- **(10) Next coding task.** On a branch stacked on PR 49: call StorefrontLegalAcceptanceRecorder from WebController::getCashOnDeliveryCheckoutComplete and RestAPI OrderController::place_order after generateOrder, behind a new default-off gcc.storefronts.legal.record_acceptance switch; test that an AE order with explicit_acceptance set to terms stores a row with the order id and an SA order stores none. Keep it off until the privacy review.
+- **Open owner decisions.** Which document types need explicit acceptance (none today), whether identity is stored, the retention period, and the per-storefront legal entity (PR 43 body).
+- **Verifier note (not applied automatically).** next_task (against remaining item 1): Remaining item 1 says the recorder must run 'inside the order transaction', but next_task says 'after generateOrder'. OrderManager::generateOrder runs all order writes in one DB::transaction (OrderManager.php line 1582, order row inserted at line 1656), so 'after generateOrder' is outside it. The recorder throws a RuntimeException when no effective text exists, which would fail a request whose order is already committed and leave an order without a receipt. Proposed: Call StorefrontLegalAcceptanceRecorder inside generateOrder's transaction right after the order row exists (so the receipt carries the order id and rolls back with the order), for the web and API checkouts, behind a new default-off gcc.storefronts.legal.record_acceptance switch; test that an AE order with explicit_acceptance set to terms stores a row with the order id and an SA order sto
+
+#### I2-06. Legal pages kept separate from the PolicyRegistry operating rules
+
+- **State: IN PROGRESS** | plan lines 401 | GCC-11; PolicyRegistry docblock; PlatformPolicyController | reviews: none
+- **(2) Functional requirement.** Legal policy pages (texts a customer accepts) and the operating rules in PolicyRegistry (numbers and switches the platform applies to itself) are different things, kept in different stores and named differently; neither can change the other.
+- **(3) Exists now in code (main).** origin/main PolicyRegistry holds 12 groups of operating rules (operations, inventory, finance titled payment_terms, analytics and privacy and others) in business_settings through Policy and one admin screen (PlatformPolicyController). It holds no legal text. Legal pages are business_pages. The rules are global, not per country.
+- **(4) Done in the draft PRs.** The legal chain keeps the separation by construction: texts and readiness live in storefront_legal_documents and gcc.storefronts.legal, and no GCC pull request touches app/Services/Platform (diff of PR 83 against main is empty). Nothing pins the separation.
+- **(5) What remains.** 1) A test that fails if a PolicyRegistry key or group is named for a legal document type, or if readiness reads business_settings. 2) Distinct admin labels once the legal-document screen exists (the policy screen already has a group titled payment_terms for payout rules). 3) A one-line pointer in the PolicyRegistry docblock.
+- **(6) PRs and commits.** [lavkoo#38](https://github.com/fullstackfull/lavkoo/pull/38) `122960e`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`
+- **(7) Tests.**
+  - `none` No test pins the separation of legal texts from PolicyRegistry
+- **(8) Dependencies and blockers.** None for the pin test. The label part waits for the I2-03 admin screen.
+- **(9) Acceptance criteria.**
+  - [CODED] Legal texts, versions and readiness are stored and read only through storefront_legal_documents and gcc.storefronts.legal (StorefrontLegalReadiness reads the model and config only; no test pins it)
+  - [CODED] PolicyRegistry and Policy are unchanged by the GCC branches (git diff of PR 83 against main over app/Services/Platform is empty; no test)
+  - [MISSING] A test fails when a PolicyRegistry key or group is named for a legal document type
+  - [MISSING] The admin menu names operating rules and legal documents differently
+- **(10) Next coding task.** On PR 38's branch add tests/Feature/Storefront/LegalVersusOperatingRulesTest.php: no key or group of PolicyRegistry::GROUPS matches gcc.storefronts.legal.required_documents, and StorefrontLegalReadiness has no reference to Policy, PolicyRegistry or business_settings (a source scan like the existing route-file guards). No production code change.
+- **Verifier note (not applied automatically).** ac[2].t (A test fails when a PolicyRegistry key or group is named for a legal document type) and next_task: The test as specified fails on main today. PolicyRegistry::GROUPS has a group keyed 'shipping' (line 188, title fulfilment_policy, courier-silence rules), equal to the legal document type 'shipping', and operating-rule keys such as ops_returns_response_hours, health_watch_refund_rate, health_watch_return_rate, health_watch_cancellation_rate and health_at_risk_* contain refund, return and cancellation; the finance group is titled payment_terms. A name match cannot tell a legal text from an operating rule. Proposed: ac[2].t: A test fails when a PolicyRegistry definition holds legal text (a type outside int, decimal, ratio, choice, multi_choice, time, toggle) or when StorefrontLegalReadiness references Policy, PolicyRegistry or business_settings. next_task: On PR 38's branch add tests
+
+#### I2-07. No claim of legal compliance without an independent official review
+
+- **State: IN PROGRESS** | plan lines 403 | GCC-11; owner charter section 5 (legal review before merge or release); Q-16 | reviews: legal, owner-decision
+- **(2) Functional requirement.** No screen, API field, document or message claims that a country is legally compliant. Readiness means texts are internally approved. A claim of compliance needs an independent official review that the system or the release record can show.
+- **(3) Exists now in code (main).** nothing. main has no claim and no legal review record.
+- **(4) Done in the draft PRs.** Wording stays safe: config/gcc.php says "Configuration, not a statement of what the law requires"; the bodies of PR 38, 39, 43 and 49 and the 2026-11-15 handoff call the defaults engineering defaults, not legal determinations; the platform alert says legal documents are not approved (PR 71). The rule approved_by differs from created_by is an internal four-eyes rule, not an independent review.
+- **(5) What remains.** 1) A record of the independent legal review per country (reviewer, reference, date), required by readiness before a non-default storefront can sell, if the owner wants it in the system. 2) A guard test scanning language files, views and API payloads for compliance claims. 3) The owner list of countries awaiting review.
+- **(6) PRs and commits.** [lavkoo#38](https://github.com/fullstackfull/lavkoo/pull/38) `122960e`; [lavkoo#39](https://github.com/fullstackfull/lavkoo/pull/39) `8149090`; [lavkoo#43](https://github.com/fullstackfull/lavkoo/pull/43) `82b6dfa`; [lavkoo#71](https://github.com/fullstackfull/lavkoo/pull/71) `b83a815`
+- **(7) Tests.**
+  - `none` No test scans for compliance claims or checks a review record
+- **(8) Dependencies and blockers.** Legal counsel per country is outside the code. Whether the review record lives in the system or in the release process is an owner decision.
+- **(9) Acceptance criteria.**
+  - [CODED] No customer-visible string or API field says a country is legally compliant; refusals and alerts say not open for checkout or not approved (storefront_not_open_for_checkout_yet in en and sa messages; legal_not_ready alert text in PR 71; no test scans for claims)
+  - [CODED] Configuration and PR bodies state that readiness is an engineering default, not legal advice (config/gcc.php comment; handoff 2026-11-15; PR 38 body)
+  - [MISSING] Each non-default country has a recorded independent legal review (reviewer, reference, date)
+  - [MISSING] A non-default storefront cannot become sellable without that review record
+  - [MISSING] A test scans language files, views and API payloads for compliance claims
+- **(10) Next coding task.** Add tests/Feature/Storefront/NoLegalComplianceClaimTest.php scanning resources/lang, resources/themes and the storefront API payload keys for claim words (compliant, certified, legally approved) outside an allow-list; and draft an additive migration for storefront_legal_reviews (country, reviewer, reference, reviewed_at) that readiness reads behind gcc.storefronts.legal.require_review, default off.
+- **Open owner decisions.** Whether a recorded legal review is required by the system before a country can sell, who may record it, and which reviewer counts as independent.
+- **Verifier note (not applied automatically).** done_in_drafts (and links): 'the bodies of PR 38, 39, 43 and 49 ... call the defaults engineering defaults': only the PR 38 body ('These are engineering defaults, not legal determinations') and the PR 43 body ('Design (engineering defaults, not legal determinations)') say so. The PR 39 and PR 49 bodies contain no such statement. Proposed: Wording stays safe: config/gcc.php says "Configuration, not a statement of what the law requires"; the bodies of PR 38 and PR 43 and the 2026-11-15 handoff call the defaults engineering defaults, not legal determinations; the platform alert says legal documents are not approved (PR 71). The rule approved_by differs from created_by is an internal four-eyes rule, not an independent review. Drop PR 39 from links (or keep it only as the list consumer).
+- **Verifier note (not applied automatically).** refs: 'owner charter section 5 (legal review before merge or release)': section 5 of AUTONOMOUS_DEVELOPMENT_CHARTER.md asks for a security/financial-owner review of cross-company legal obligations before merge. The legal sign-off wording is in the 2026-11-15 handoff ('Lack of owner legal sign-off blocks merge/release'; 'No production activation without legal/privacy review'). Proposed: GCC-11; handoff 2026-11-15-legal-security-next-execution (legal sign-off blocks merge and release; no production activation without legal/privacy review); charter section 5 (security/financial-owner review of cross-company legal obligations before merge); Q-16
+
+#### I2-08. Sale gate on the customer API and web checkout for a storefront that may not sell
+
+- **State: IMPLEMENTED IN DRAFT** | plan lines 395 | GCC-11; GCC-12; handoff 2026-11-15 (enforcement at the order and payment start) | reviews: security, native-arabic, owner-decision
+- **(2) Functional requirement.** Every order-creating or payment-initiating customer request in a storefront that may not sell is refused on the server: 422 storefront_not_sellable for JSON, a flash message for browsers. Off while storefronts are off; the Saudi storefront is never refused.
+- **(3) Exists now in code (main).** nothing. main has no storefront gate; the Saudi checkout is ungated.
+- **(4) Done in the draft PRs.** PR 42 (2534953): StorefrontSellingGate, EnsureStorefrontMaySell (alias storefront.sellable), StorefrontNotSellableException on 6 API v1 routes (place, place-by-offline-payment, place-by-wallet, digital-payment, add-to-fund start an order or payment; again re-adds an earlier order's items to the cart). PR 49 (b52d9b2): the same gate on 6 web routes (3 checkout posts, web-payment-request, customer-add-fund-request; order-again is the cart refill). PR 39: list marks sellable. All behind GCC_STOREFRONTS_ENABLED (default off).
+- **(5) What remains.** 1) Run on a tree that has the security PRs merged: routes/rest_api/v1/api.php, routes/web/routes.php and resources/lang/{en,sa}/messages.php are changed by both sets and no tree combines them. 2) A real request per gated route, not only the middleware list. 3) A native reader for the Arabic refusal. 4) Hide or list non-sellable storefronts.
+- **(6) PRs and commits.** [lavkoo#39](https://github.com/fullstackfull/lavkoo/pull/39) `8149090`; [lavkoo#42](https://github.com/fullstackfull/lavkoo/pull/42) `2534953`; [lavkoo#47](https://github.com/fullstackfull/lavkoo/pull/47) `e0dd5dc`; [lavkoo#48](https://github.com/fullstackfull/lavkoo/pull/48) `4a821d3`; [lavkoo#49](https://github.com/fullstackfull/lavkoo/pull/49) `b52d9b2`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`
+- **(7) Tests.**
+  - `ci` StorefrontSellingGateTest (6), StorefrontSalesRoutesTest (5), StorefrontListApiTest (7) (tests/Feature/Storefront/; PR 83 head 8ff3410: Tests SQLite PHP 8.2 and 8.3, Storefront tests MySQL 8, Storefront tests MariaDB 11.4.2 (all success); also PR 49 head b52d9b2 Storefront tests MySQL 8 and MariaDB 11.4.2)
+- **(8) Dependencies and blockers.** Capped at IMPLEMENTED IN DRAFT: the routes and language files are changed by both the security set (PR 75) and the GCC chain (PR 83) and the combined tree does not exist. Release also needs G0 and the security review of the payment-start routes.
+- **(9) Acceptance criteria.**
+  - [MET] With storefronts off nothing is refused, and the Saudi storefront is never refused (test_nothing_is_refused_while_storefronts_are_off, test_the_default_storefront_is_never_refused; PR 83)
+  - [MET] API new-sale routes answer 422 with code storefront_not_sellable for a storefront without approved texts (StorefrontSellingGateTest, StorefrontSalesRoutesTest test_a_new_digital_payment_is_refused_for_a_storefront_without_approved_legal_texts; PR 83)
+  - [MET] Web checkout posts answer 422 JSON to a JSON client and go back with a message in a browser (StorefrontSalesRoutesTest test_a_web_checkout_post_in_a_browser_goes_back_with_a_message; PR 49 and PR 83)
+  - [MET] A missing legal table refuses the sale with 422, never a 500 (test_a_missing_legal_table_refuses_the_sale_as_not_sellable_rather_than_failing; PR 83)
+  - [CODED] All 12 gated routes judge the storefront the request is bound to (the route-list test asserts the middleware on all 12; a real refused request exists for 2 of them)
+  - [CODED] The refusal message exists in English and Arabic and follows the request language (key storefront_not_open_for_checkout_yet in resources/lang/en and sa; Arabic not read by a native speaker)
+- **(10) Next coding task.** On the integration-only branch of task B (PR 75 and PR 83 heads merged, five conflicts resolved) run tests/Feature/Storefront and tests/Feature/Security on SQLite, MySQL 8 and MariaDB; and extend StorefrontSalesRoutesTest with a real request to each of the 12 gated routes for an unapproved AE storefront, expecting 422 or the flash message.
+- **Open owner decisions.** List non-sellable storefronts as browse-only or hide them (PR 39 body). How a web visitor chooses a storefront: path prefix or switcher (PR 49 body).
+- **Verifier note (not applied automatically).** done_in_drafts corrected by the verifier (applied above).
+- **Verifier note (not applied automatically).** deps_blockers (same wording in I2-16): 'the combined tree does not exist' is stale. origin/gcc/release/security-gcc-integration-ci (88d63c22 and f6fb03af, pushed 2026-11-18 05:46 and 06:06 UTC, after the 04:57 snapshot) merges the PR 75 and PR 83 heads with the five conflicts resolved, CI evidence only. Its CI result is not in the data pack, so nothing can be graded from it yet. Proposed: Not INTEGRATED AND TESTED: two criteria are CODED, and the combination of the security set (PR 75) and the GCC chain (PR 83) has no read CI result (branch gcc/release/security-gcc-integration-ci exists; read its Storefront and Security jobs first). Release also needs G0 and the security review of the payment-start routes.
+
+#### I2-09. Sale gate on POS, seller API and marketplace order writers
+
+- **State: NOT STARTED** | plan lines 395 | GCC-11; handoff 2026-11-15 (POS where relevant); PR 49 body; storefront flag runbook | reviews: owner-decision, security
+- **(2) Functional requirement.** Order creation that does not come through the customer routes (admin, vendor and seller POS, the marketplace order materializer, other order writers) either refuses a storefront that may not sell or is recorded as a deliberate exception, so no order-starting path is missed.
+- **(3) Exists now in code (main).** nothing. The gate exists only as middleware on 12 customer routes. The admin, vendor and seller v3 POS order paths and ChannelOrderMaterializer carry no gate and have no storefront context.
+- **(4) Done in the draft PRs.** nothing is built. The gap is named in the PR 42 and PR 49 bodies and in the flag runbook ("The seller and admin POS, the marketplace order materializer and the sales-channel webhooks are not behind the sale gate"). The only generateOrder callers are the gated customer routes and the payment-success hook.
+- **(5) What remains.** 1) Owner decision: is a POS or marketplace sale a storefront sale. 2) If yes: derive the storefront from the products' country and call StorefrontSellingGate in the POS order paths and the materializer. 3) A source-scan test listing every order writer so a new one cannot skip the gate. 4) The seller storefront context (seller app PRs 1 and 2).
+- **(6) PRs and commits.** [lavkoo#42](https://github.com/fullstackfull/lavkoo/pull/42) `2534953`; [lavkoo#49](https://github.com/fullstackfull/lavkoo/pull/49) `b52d9b2`
+- **(7) Tests.**
+  - `none` No test pins that POS and materializer orders are ungated today
+- **(8) Dependencies and blockers.** Owner decision on POS and marketplace orders. Needs the seller storefront context (lavkooappseller PR 1 and 2, drafts). Marketplace orders may be obligations that must keep flowing during a stop.
+- **(9) Acceptance criteria.**
+  - [MISSING] A POS sale (admin, vendor, seller v3) in a storefront that may not sell is refused
+  - [MISSING] The marketplace order materializer follows the owner's rule, refused or deliberately exempt, pinned by a test
+  - [MISSING] A test lists every writer of orders and fails when a new one carries neither the gate nor an exemption
+  - [MISSING] A POS order's storefront is taken from its products' country
+- **(10) Next coding task.** Characterization test first, on PR 49's branch: tests/Feature/Storefront/OrderWritersTest.php scans app for OrderManager::generateOrder callers, the three POS place-order methods and ChannelOrderMaterializer, and pins today's list (gated routes, the payment hook, ungated POS and materializer) so the gap is explicit; wire the gate after the owner decides.
+- **Open owner decisions.** Whether a point-of-sale or marketplace sale counts as a storefront sale (PR 49 body, runbook), and what happens to marketplace orders of a paused country.
+
+#### I2-10. Customer app follows the server answer: browse-only storefront cannot order or pay
+
+- **State: IMPLEMENTED IN DRAFT** | plan lines 395, 451-452 | GCC-11; GCC-12; lavkooapp PR 3 and PR 5 bodies | reviews: native-arabic, owner-decision
+- **(2) Functional requirement.** The customer app asks the server which storefronts may sell, shows a browse-only notice in the cart and checkout of one that may not, sends no order, payment or top-up request from it, and shows the server's own message if the server refuses anyway. Off unless built with GCC_STOREFRONTS_ENABLED.
+- **(3) Exists now in code (main).** nothing. lavkooapp main has no storefront code.
+- **(4) Done in the draft PRs.** lavkooapp PR 3 (eda7814): StorefrontCountry.sellable, StorefrontChoice.canSell. PR 5 (5526c4b): list refresh from GET /api/v1/storefronts with a stored answer, CheckoutSaleGate, the browse-only notice (English and Arabic), cart and checkout wiring, guards in CheckoutController and WalletController, ApiErrorHandler for 422 storefront_not_sellable. Both stacked on PR 1 and 2. CI job storefront-header green.
+- **(5) What remains.** Add: 5) Order again (ReOrderController.reorder) has no app guard: on a browse-only storefront the request leaves the app and ends in the server's 422 message.
+- **(6) PRs and commits.** [lavkooapp#1](https://github.com/fullstackfull/lavkooapp/pull/1) `2a8c84c`; [lavkooapp#2](https://github.com/fullstackfull/lavkooapp/pull/2) `6b74524`; [lavkooapp#3](https://github.com/fullstackfull/lavkooapp/pull/3) `eda7814`; [lavkooapp#5](https://github.com/fullstackfull/lavkooapp/pull/5) `5526c4b`; [lavkoo#39](https://github.com/fullstackfull/lavkoo/pull/39) `8149090`; [lavkoo#42](https://github.com/fullstackfull/lavkoo/pull/42) `2534953`
+- **(7) Tests.**
+  - `ci` storefront_choice_test (browse-only group), storefront_can_sell_test, checkout_sale_gate_test, storefront_browse_only_notice_test, api_error_handler_storefront_test, storefront_controller_test, storefront_list_parsing_test, storefront_repository_test, storefront_service_test, stored_storefronts_test (lavkooapp .github/workflows/ci.yml job storefront-header: success on PR 3 head eda7814 (runs storefront_choice_test) and on PR 5 head 5526c4b (runs every test named here))
+- **(8) Dependencies and blockers.** The backend chain (PR 39, 42, 49) must be merged first; the app flag stays off until then. No device or emulator run: the cart and checkout screens were never rendered. The apps have no integration tree; only the PR heads ran CI.
+- **(9) Acceptance criteria.**
+  - [MET] With the app flag off every storefront may sell whatever the stored answer says (storefront_can_sell_test "every storefront may sell, whatever the stored answer says"; storefront-header PR 5 5526c4b)
+  - [MET] A storefront the server marks sellable may sell; a non-Saudi storefront it marks not sellable, or does not list, is browse-only (storefront_can_sell_test, storefront_list_parsing_test; PR 5 5526c4b)
+  - [MET] The browse-only notice reads in English and Arabic, and the gate can switch a button off but never on (storefront_browse_only_notice_test, checkout_sale_gate_test; PR 5 5526c4b)
+  - [MET] The server's 422 storefront_not_sellable shows the server's own message, not a generic error (api_error_handler_storefront_test, checkout_sale_gate_test; PR 5 5526c4b)
+  - [CODED] The list is refreshed at start and on storefront change, and the last answer survives a cold start offline (storefront_controller_test, stored_storefronts_test; answers are hand-written, not from a live backend)
+  - [CODED] The cart and checkout screens show the notice and disable Proceed, and no order, payment or wallet top-up request leaves the app (guards in checkout_controller.dart and wallet_controller.dart; no controller or screen test, no device run)
+- **(10) Next coding task.** On PR 5's branch (gcc/p1-customer-storefront-cansell) add tests that drive CheckoutController.placeOrder, digitalPaymentPlaceOrder and WalletController.addFundToWallet with a fake service and assert no repository call when canSell is false, plus a widget test of the cart and checkout bottom bar; add the files to the storefront-header test list.
+- **Open owner decisions.** Approve the Arabic notice wording; confirm the backend PRs are merged before the app flag is turned on anywhere (PR 5 body).
+- **Verifier note (not applied automatically).** plan_lines: '451-452' is the heading 'approved stop modes' and a blank line. Browse Only is line 453 (Maintenance 454, Redirect to Default Storefront 455). Proposed: 395, 453
+- **Verifier note (not applied automatically).** remaining corrected by the verifier (applied above).
+
+#### I2-11. Store lifecycle states Draft, Ready, Active, Paused, managed by admin
+
+- **State: IN PROGRESS** | plan lines 447-449 | GCC-12; GCC-19; GCC-20 document level 3; Q-20; R-057 | reviews: security, owner-decision
+- **(2) Functional requirement.** Each country has an admin-managed state Draft, Ready, Active or Paused (with a stop mode), stored per country and changed only by authorised staff with an audit line. A configured country is not served until it is Active.
+- **(3) Exists now in code (main).** nothing per country. main has one platform-wide maintenance mode and per-shop temporary_close and vacation_status; the Saudi platform has no storefront state (R-057).
+- **(4) Done in the draft PRs.** Only on/off per country: gcc.storefronts.countries.<CC>.active in config/gcc.php (PR 19, 74372eb); StorefrontResolver never serves, lists or lets a visitor choose an inactive country. PR 71 (read-only platform API) shows each market's active and legal_ready and a critical legal_not_ready alert. No Draft, Ready or Paused, no database state, no admin screen, no audit.
+- **(5) What remains.** 1) A persisted state per country (new additive table) read by the resolver, with config as fallback while absent. 2) Transition rules: Draft to Ready needs a passing preflight, Ready to Active a deliberate approval, Active to Paused a mode and reason. 3) Permission key, audit line, console command and admin screen. 4) GCC-20 level 3 for mobile (not built; PR 71 is level 1).
+- **(6) PRs and commits.** [lavkoo#8](https://github.com/fullstackfull/lavkoo/pull/8) `a8c6a42`; [lavkoo#19](https://github.com/fullstackfull/lavkoo/pull/19) `74372eb`; [lavkoo#28](https://github.com/fullstackfull/lavkoo/pull/28) `8c8d32a`; [lavkoo#71](https://github.com/fullstackfull/lavkoo/pull/71) `b83a815`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`
+- **(7) Tests.**
+  - `ci` StorefrontResolverTest (30), StorefrontDefaultsTest (4), StorefrontKillSwitchTest (3), MarketsTest (9), AlertsTest (19) (tests/Unit/Storefront, tests/Feature/Storefront, tests/Feature/PlatformAdmin; PR 83 head 8ff3410: Tests SQLite PHP 8.2 and 8.3, Storefront tests MySQL 8, Storefront tests MariaDB 11.4.2 (all success))
+- **(8) Dependencies and blockers.** Needs I2-12 for Draft to Ready, the audit pattern of PR 80, a permission key (owner decision) and the GCC-20 level 3 approvals for a mobile switch. The stop-mode behaviours are I2-13 to I2-15.
+- **(9) Acceptance criteria.**
+  - [MET] A configured but inactive country is never served and cannot be chosen by path, header or query (StorefrontResolverTest test_an_inactive_country_is_ignored_by_path_and_choice; StorefrontKillSwitchTest; PR 83)
+  - [MET] The platform owner sees each market's active flag and legal_ready (read-only) and gets a critical alert for an active market with unapproved texts (MarketsTest, AlertsTest in PR 83 Storefront tests MySQL 8 and MariaDB 11.4.2)
+  - [MISSING] Draft, Ready, Active and Paused (with a mode) are stored per country in the database
+  - [MISSING] Transitions obey rules: Ready needs a passing preflight, Active a deliberate approval, Paused a mode
+  - [MISSING] Every change is permission-gated and audited (who, when, from, to, reason)
+- **(10) Next coding task.** New branch on the PR 80 tip (PR 53's tip has no audit class): StorefrontState enum and additive table storefront_states (country_code, state, stop_mode, changed_by, changed_at, reason) read by StorefrontResolver::isActive with config as fallback while the table is absent; console command gcc:storefront:state {country} {state} that writes its audit entry through PlatformAdminAudit::record(action:, adminId:, context: ConsoleOperator::auditContext(...)) as PlatformAdminGrantService does; transition-matrix tests in tests/Feature/Storefront.
+- **Open owner decisions.** The state model and who may change it; the default stop mode (Q-20); whether staff may preview a Draft country.
+- **Verifier note (not applied automatically).** next_task corrected by the verifier (applied above).
+
+#### I2-12. Readiness preflight before a country is activated
+
+- **State: IN PROGRESS** | plan lines 447 | GCC-12; GCC-20 document (readiness preflight); flag runbook "Before turning it on" | reviews: owner-decision, finance, legal
+- **(2) Functional requirement.** A read-only preflight reports, per country, every prerequisite of activation (legal texts, legal entity, currency, payment accounts, shipping, catalogue, theme) as unmet or advisory, from stored data and not ticked flags, and activation is refused while a blocking item is unmet.
+- **(3) Exists now in code (main).** Only for fulfillment: fulfillment:preflight and GoLiveReadiness (UNMET and ADVISORY items derived from real data). Nothing for a storefront country.
+- **(4) Done in the draft PRs.** Legal part only: StorefrontLegalReadiness::isReady appears as legal_ready per market and as the alert legal_not_ready in the platform API (PR 71). PR 72 adds gcc:catalog:code-readiness for the SKU switch. The flag runbook (PR 53) holds a manual six-step "Before turning it on" checklist. No combined country preflight, and nothing refuses activation.
+- **(5) What remains.** 1) StorefrontActivationReadiness modelled on GoLiveReadiness with items per country: legal ready, legal entity set for that storefront, currency decided (GCC-05), payment account per entity, shipping coverage, catalogue present, theme published. 2) A console command and API read, non-zero exit when unmet. 3) Activation refused while unmet. 4) Items of other units wired in as they land.
+- **(6) PRs and commits.** [lavkoo#38](https://github.com/fullstackfull/lavkoo/pull/38) `122960e`; [lavkoo#71](https://github.com/fullstackfull/lavkoo/pull/71) `b83a815`; [lavkoo#72](https://github.com/fullstackfull/lavkoo/pull/72) `1c779d2`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`
+- **(7) Tests.**
+  - `ci` MarketsTest (9) and AlertsTest (19): legal part of the readiness list only (tests/Feature/PlatformAdmin; PR 83 head 8ff3410: Tests SQLite PHP 8.2 and 8.3, Storefront tests MySQL 8, Storefront tests MariaDB 11.4.2 (all success))
+- **(8) Dependencies and blockers.** The other prerequisites come from other units (GCC-05 currency, per-country legal entity, payment accounts, shipping, theme); each item can be added as its unit lands. Needs I2-11 for the refusal.
+- **(9) Acceptance criteria.**
+  - [MET] Legal readiness in the market list and the alert is the answer of StorefrontLegalReadiness, not a second opinion (MarketsTest test_legal_readiness_is_what_the_storefront_gate_says_and_not_a_second_opinion; PR 83 Storefront tests MySQL 8 and MariaDB 11.4.2)
+  - [MISSING] A read-only command reports every activation prerequisite per country with unmet and advisory items and a non-zero exit when blocked
+  - [MISSING] Legal entity, currency, payment accounts, shipping, catalogue and theme are checked for the country
+  - [MISSING] Activation (Ready or Active) is refused while a blocking item is unmet
+  - [MISSING] The checklist is derived from stored data and cannot be satisfied by ticking a flag
+- **(10) Next coding task.** StorefrontActivationReadiness (UNMET and ADVISORY items modelled on Fulfillment GoLiveReadiness; first items: legal texts ready, GCC_LEGAL_ENTITY set, default storefront valid), command gcc:storefront:preflight {country} and fake-config tests on PR 49's tip; the PlatformMarketDirectory read as a second branch stacked on PR 71.
+- **Open owner decisions.** Which items block and which are advisory per country, and whether the owner may override a blocking item (GoLiveOverride exists for fulfillment).
+- **Verifier note (not applied automatically).** next_task corrected by the verifier (applied above).
+
+#### I2-13. Stop mode Browse Only
+
+- **State: IN PROGRESS** | plan lines 451-452 | GCC-12; Q-20; Q-40 | reviews: owner-decision, native-arabic
+- **(2) Functional requirement.** A stopped storefront stays browsable but cannot start an order, payment or top-up; its cart and existing orders keep working. An operator can choose this mode for a country that is otherwise ready.
+- **(3) Exists now in code (main).** Only per shop, not per country: temporary_close and vacation_status stop adding to the cart and ordering for one seller's shop (CartManager, OrderManager). Nothing for a country.
+- **(4) Done in the draft PRs.** Derived, not chosen: a listed storefront whose texts are not approved is browse-only. PR 39: GET /api/v1/storefronts adds sellable per storefront; PR 42 and 49 refuse new sales with 422; the customer app (lavkooapp 3 and 5) shows the notice. There is no way to put an approved, selling storefront into Browse Only, and no reason or customer message.
+- **(5) What remains.** 1) A paused state with mode browse_only that the sale gate and the list read (list says sellable false and the stop mode). 2) Reason and customer message in Arabic and English. 3) Audit of who paused. 4) A test that browsing, cart add and order viewing stay open. 5) The owner picks the default stop mode (Q-20).
+- **(6) PRs and commits.** [lavkoo#39](https://github.com/fullstackfull/lavkoo/pull/39) `8149090`; [lavkoo#42](https://github.com/fullstackfull/lavkoo/pull/42) `2534953`; [lavkoo#49](https://github.com/fullstackfull/lavkoo/pull/49) `b52d9b2`; [lavkooapp#3](https://github.com/fullstackfull/lavkooapp/pull/3) `eda7814`; [lavkooapp#5](https://github.com/fullstackfull/lavkooapp/pull/5) `5526c4b`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`
+- **(7) Tests.**
+  - `ci` StorefrontListApiTest (7), StorefrontSellingGateTest (6), StorefrontSalesRoutesTest (5) (tests/Feature/Storefront/; PR 83 head 8ff3410: Tests SQLite PHP 8.2 and 8.3, Storefront tests MySQL 8, Storefront tests MariaDB 11.4.2 (all success))
+- **(8) Dependencies and blockers.** Needs I2-11 (a paused state) and I2-10 for the app notice. Q-20 is still open: the audit proposes Browse Only as the default stop mode; the owner has not answered.
+- **(9) Acceptance criteria.**
+  - [MET] A listed storefront whose texts are not approved is listed with sellable false, can be browsed, and refuses new sales with 422 (StorefrontListApiTest test_flag_on_lists_an_active_storefront_as_not_sellable_until_its_legal_documents_are_approved; StorefrontSellingGateTest; PR 83)
+  - [CODED] The customer app shows the notice and blocks checkout on a not-sellable storefront (lavkooapp PR 5, see I2-10; no device run)
+  - [CODED] Cart add, wishlist and order viewing are not gated (only the 12 sale routes carry the gate; no test asserts cart add on a not-sellable storefront)
+  - [MISSING] An operator can put an approved, selling storefront into Browse Only with a reason and a customer message
+  - [MISSING] The pause is persisted, audited and visible in the list as a stop mode
+- **(10) Next coding task.** After the state table of I2-11: StorefrontSellingGate also refuses when the country state is paused with mode browse_only, StorefrontListing adds stop_mode and sets sellable false, same 422 code; tests: ready plus paused is refused, refunds and callbacks stay open, the list shows the mode, cart add still works.
+- **Open owner decisions.** The default stop mode (Q-20 recommends Browse Only). Hide or list a non-sellable storefront (PR 39 body).
+- **Verifier note (not applied automatically).** deps_blockers corrected by the verifier (applied above).
+- **Verifier note (not applied automatically).** plan_lines: '451-452' is the heading and a blank line; Browse Only is line 453. Proposed: 453
+- **Verifier note (not applied automatically).** ac[2].e (Cart add, wishlist and order viewing are not gated): 'only the 12 sale routes carry the gate' hides that two of the 12 (API POST again, web POST order-again) only re-add an earlier order's items to the cart (OrderManager::generateOrderAgain: no order or payment row). So 'cart add is not gated' is false for order-again. Proposed: Cart add, wishlist and order viewing are not gated, except order-again (API again, web order-again), which re-adds an earlier order's items to the cart and carries the sale gate since PR 42 and PR 49; whether order-again is a sale is an owner decision (Q-40). No test asserts cart add on a not-sellable storefront.
+
+#### I2-14. Stop mode Maintenance per storefront
+
+- **State: IN PROGRESS** | plan lines 453 | GCC-12; R-057; E06 sections 2.7 and findings F02, F03; Q-40 | reviews: owner-decision, native-arabic, security
+- **(2) Functional requirement.** A single storefront can show a maintenance page while the other storefronts keep selling. Order tracking, the customer's orders, refunds, payments in flight, callbacks, webhooks and admin stay reachable, and the state survives a cache clear.
+- **(3) Exists now in code (main).** main has one platform-wide maintenance mode (five systems, a window, a message): the maintenance_mode middleware on the web groups and the vendor and seller panels, with the state kept only in the cache key system_maintenance_mode; GET config returns maintenance_status. It blocks the web storefront including my orders and tracking (E06). No test pins it.
+- **(4) Done in the draft PRs.** nothing.
+- **(5) What remains.** 1) A per-storefront maintenance state in the database (I2-11) with the cache rebuilt from it. 2) A web middleware on the storefront group with exemptions for payment, callback, webhook, order-tracking, customer-order and refund routes and the admin guard. 3) A per-storefront message and window, also in the config answer for the apps. 4) Tests including a cache clear.
+- **(6) PRs and commits.** none
+- **(7) Tests.**
+  - `none` No test covers the existing maintenance mode or a per-store one
+- **(8) Dependencies and blockers.** Needs I2-11. Reuse the exclusion list of ApplySeoRedirects. The owner answers Q-40: whether order, refund and support pages stay reachable in a stop.
+- **(9) Acceptance criteria.**
+  - [CODED] A platform-wide maintenance mode exists for the web storefront, the vendor panel and the config answer, and an admin session is exempt (MaintenanceModeTrait, MaintenanceModeMiddleware in main; no test)
+  - [MISSING] One storefront can be put in maintenance while the others keep selling
+  - [MISSING] The maintenance state is stored in the database and survives cache:clear (today only the cache key system_maintenance_mode holds it (E06-F03))
+  - [MISSING] Order tracking, my orders, refund requests, payment callbacks, webhooks and admin stay reachable during a store's maintenance (the web maintenance of main blocks my orders and tracking (E06))
+  - [MISSING] The apps receive the storefront's own maintenance status, message and window
+- **(10) Next coding task.** After I2-11: EnsureStorefrontOpen middleware on the web storefront group reading the state table (cache rebuilt from the database), exempting payment, callback, webhook, track-order, customer-order and refund routes and the admin guard, rendering the existing maintenance view with the storefront message; tests for one store paused while another sells, the exemptions, and survival of cache:clear.
+- **Open owner decisions.** Q-40: whether order, refund and support pages stay open during a store stop (the audit recommends yes). Maintenance message wording and duration rules.
+- **Verifier note (not applied automatically).** plan_lines: '453' is Browse Only; Maintenance is line 454. Proposed: 454
+
+#### I2-15. Stop mode Redirect to the default storefront
+
+- **State: IN PROGRESS** | plan lines 455 | GCC-12; Q-20; flag runbook "Switching a country off" | reviews: owner-decision
+- **(2) Functional requirement.** A stopped storefront can send its visitors to the default storefront: web page requests redirect to the equivalent default-storefront page, the apps move to the default, and payments, callbacks, webhooks, admin and the API contract are never redirected.
+- **(3) Exists now in code (main).** main has an admin-managed redirects table and the ApplySeoRedirects middleware (301 or 302 rules; it excludes /api, /admin, /vendor, /install, /update, /payment). No storefront redirect.
+- **(4) Done in the draft PRs.** Implicit fallback only (PR 19): a request that asks for an inactive country is served the default storefront, with none of the other country's products, and the runbook calls deactivating a country the kill switch (pinned by StorefrontKillSwitchTest, PR 53). It is a silent serve, not an explicit redirect or a chosen mode, and the customer app keeps an unlisted stored choice as a browse-only storefront.
+- **(5) What remains.** 1) An explicit redirect mode in the state model (I2-11): a 302 to the same page on the default storefront for GET web requests only. 2) Exemptions for POST, payment, callback, webhook, admin and API. 3) App: reset a stored storefront the server no longer lists and tell the customer. 4) The owner picks 301 or 302 and the SEO effect.
+- **(6) PRs and commits.** [lavkoo#19](https://github.com/fullstackfull/lavkoo/pull/19) `74372eb`; [lavkoo#53](https://github.com/fullstackfull/lavkoo/pull/53) `7e32bba`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`; [lavkooapp#5](https://github.com/fullstackfull/lavkooapp/pull/5) `5526c4b`
+- **(7) Tests.**
+  - `ci` StorefrontKillSwitchTest (3) and StorefrontResolverTest (30) (tests/Feature/Storefront/StorefrontKillSwitchTest.php, tests/Unit/Storefront/StorefrontResolverTest.php; PR 83 head 8ff3410: Tests SQLite PHP 8.2 and 8.3, Storefront tests MySQL 8, Storefront tests MariaDB 11.4.2 (all success))
+- **(8) Dependencies and blockers.** Needs I2-11. Reuse the ApplySeoRedirects exclusions. The app part touches storefront_config.dart on the lavkooapp PR 5 branch.
+- **(9) Acceptance criteria.**
+  - [MET] A request asking for an inactive country is served the default storefront and none of that country's products (StorefrontKillSwitchTest test_a_visitor_who_asks_for_a_deactivated_country_is_served_the_default_storefront_and_none_of_its_products; PR 83)
+  - [MISSING] A stopped storefront in mode Redirect answers a web GET with a redirect to the same page on the default storefront
+  - [MISSING] The redirect never applies to POST, payment, callback, webhook, admin and API requests
+  - [MISSING] The customer app resets a stored storefront that the server no longer lists and tells the customer (StorefrontConfig.resolve falls back only for a code the app does not know)
+  - [MISSING] The mode is selectable per country and audited
+- **(10) Next coding task.** After I2-11: in the web storefront group add a redirect step for paused countries in mode redirect (GET only, 302, same path on the default storefront, exemptions copied from ApplySeoRedirects::EXCLUDED_PREFIXES plus the webhook paths) with a test matrix; in lavkooapp PR 5's branch make StorefrontConfig.resolve fall back to the default when the stored code is absent from the stored server list.
+- **Open owner decisions.** Whether the redirect is 301 or 302, whether apps are moved automatically, and the default stop mode (Q-20).
+
+#### I2-16. Stop never loses earlier orders or breaks webhooks, refunds, settlements, shipments, support
+
+- **State: IN PROGRESS** | plan lines 457 | GCC-12; Q-40; R-057; handoff 2026-11-15 (refunds, cancellation, support, callbacks and old obligations continue) | reviews: finance, security, owner-decision
+- **(2) Functional requirement.** Stopping a storefront never loses earlier orders and never breaks webhooks, refunds, settlements, shipments or support for them: payments in flight finish in their own storefront, refund, cancel and due-payment routes stay open, and background jobs are not narrowed by the stop.
+- **(3) Exists now in code (main).** main has no storefront stop. Payment callbacks, gateway pages, webhooks and the whole REST API sit outside the maintenance_mode groups (E06 section 2.7); the web maintenance does block my orders, tracking, invoice, refund and support pages (R-057).
+- **(4) Done in the draft PRs.** PR 42 and 49: refund request and store, cancel, the four due-payment routes and the MyFatoorah status check carry no sale gate (pinned by a route list). PR 53: a payment started in a storefront is finished in it even if the storefront was deactivated or removed since (PaymentStorefront, 16 tests). Orders carry no country and are not narrowed (runbook), so earlier orders stay readable; webhook routes sit outside the storefront middleware.
+- **(5) What remains.** 1) A continuity matrix test per stop state: refund, cancel, due payments, status check, webhooks, order tracking, customer order list, admin order screens, settlement and shipment jobs keep working. 2) Pin the webhook routes as exempt. 3) Settlement, shipment and support flows are untested against a stopped country (no stop mode exists yet). 4) Decide the order and refund pages during maintenance (Q-40).
+- **(6) PRs and commits.** [lavkoo#42](https://github.com/fullstackfull/lavkoo/pull/42) `2534953`; [lavkoo#49](https://github.com/fullstackfull/lavkoo/pull/49) `b52d9b2`; [lavkoo#53](https://github.com/fullstackfull/lavkoo/pull/53) `7e32bba`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`
+- **(7) Tests.**
+  - `ci` StorefrontSalesRoutesTest (open actions stay open), PaymentStorefrontTest (16), StorefrontKillSwitchTest (3) (tests/Feature/Storefront/; PR 83 head 8ff3410: Tests SQLite PHP 8.2 and 8.3, Storefront tests MySQL 8, Storefront tests MariaDB 11.4.2 (all success); also PR 53 head 7e32bba Storefront tests MySQL 8 and MariaDB 11.4.2)
+- **(8) Dependencies and blockers.** Cannot be finished before the stop modes exist (I2-11, I2-13 to I2-15). Settlement and shipment flows belong to the finance and fulfillment units. The gate files are the same shared files as I2-08, so no combined-tree proof exists.
+- **(9) Acceptance criteria.**
+  - [MET] Refund request and store, order cancel, the four due-payment routes and the MyFatoorah status check carry no sale gate (StorefrontSalesRoutesTest test_refunds_cancellations_callbacks_and_obligations_on_placed_orders_stay_open; PR 83)
+  - [MET] A payment started in a storefront is finished in that storefront even if it was switched off or removed since (PaymentStorefrontTest test_a_storefront_switched_off_since_the_payment_started_is_still_the_one_it_is_finished_in; PR 53 7e32bba and PR 83)
+  - [CODED] Earlier orders stay readable and manageable after their storefront is deactivated (runbook: Orders carry no country, so nothing narrows them; no test)
+  - [CODED] Gateway callbacks and courier or marketplace webhooks are outside the storefront and sale middleware (webhook routes are mapped outside the storefront middleware in RouteServiceProvider; no test)
+  - [MISSING] For each stop mode, refunds, webhooks, settlements, shipments and support for earlier orders keep working, with a test per mode
+- **(10) Next coding task.** On PR 53's branch add tests/Feature/Storefront/StorefrontStopContinuityTest.php: with a country deactivated, assert a placed order of that country is readable (customer list, detail, tracking), refund request and cancel work, due payments work and webhook routes pass; extend it per stop mode when I2-11 lands.
+- **Open owner decisions.** Q-40: whether order, refund and support pages stay reachable in every stop mode. What settlement and shipment sync do for a paused country.
+
+#### I2-17. Saudi Arabia is the default storefront; a default must stay valid and operational
+
+- **State: IN PROGRESS** | plan lines 459 | GCC-19; GCC-12 | reviews: owner-decision
+- **(2) Functional requirement.** Saudi Arabia is the default storefront at first launch, always active and never refused for lack of legal rows. A different default can be chosen later only if it is valid and operational (active, ready to sell, not paused), by an authorised and audited action.
+- **(3) Exists now in code (main).** nothing. The Saudi platform has no default-country concept; everything is Saudi.
+- **(4) Done in the draft PRs.** PR 8 and 19: gcc.storefronts.default_country (GCC_DEFAULT_COUNTRY, SA); the resolver refuses a default that is not configured or not active, also while storefronts are off; while off every request is the Saudi storefront. PR 38: SA is grandfathered in legal readiness. Changing the default is an environment edit with no readiness or pause check and no audit.
+- **(5) What remains.** 1) When enabled, require the default to be Active, grandfathered or legal-ready, and not paused. 2) An admin or console action to change the default, with audit. 3) Refuse a stop mode on the default storefront. 4) A test matrix for each.
+- **(6) PRs and commits.** [lavkoo#8](https://github.com/fullstackfull/lavkoo/pull/8) `a8c6a42`; [lavkoo#19](https://github.com/fullstackfull/lavkoo/pull/19) `74372eb`; [lavkoo#38](https://github.com/fullstackfull/lavkoo/pull/38) `122960e`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`
+- **(7) Tests.**
+  - `ci` StorefrontResolverTest (30), StorefrontDefaultsTest (4), readiness grandfather test, StorefrontSellingGateTest default case (tests/Unit/Storefront, tests/Feature/Storefront; PR 83 head 8ff3410: Tests SQLite PHP 8.2 and 8.3, Storefront tests MySQL 8, Storefront tests MariaDB 11.4.2 (all success))
+- **(8) Dependencies and blockers.** Needs I2-11 (states) and I2-12 (ready). The grandfathered list is configuration, so SA stays sellable even if its rows never exist.
+- **(9) Acceptance criteria.**
+  - [MET] Saudi is the default; while storefronts are off every request resolves to it (StorefrontDefaultsTest test_the_shipped_configuration_is_switched_off_and_serves_the_saudi_storefront; PR 83)
+  - [MET] A default that is not configured or not active is refused, also while storefronts are off (StorefrontResolverTest test_an_inactive_default_country_is_refused_even_while_switched_off; PR 83)
+  - [MET] The default storefront is never refused a sale for lack of legal rows (StorefrontLegalReadinessTest test_the_default_storefront_is_grandfathered_and_needs_no_rows; StorefrontSellingGateTest; PR 83)
+  - [MISSING] A new default must be Active, legal-ready and not paused
+  - [MISSING] Changing the default is an authorised, audited admin action, not an env edit
+  - [MISSING] The default storefront cannot be placed in a stop mode that strands its own visitors
+- **(10) Next coding task.** On PR 53's branch: StorefrontResolver::fromConfig, when enabled, also asks the readiness and the state of the default and refuses a default that is paused or not ready (SA exempt through grandfathering); console command gcc:storefront:default {country} with an audit line; tests in tests/Feature/Storefront.
+- **Open owner decisions.** When and by whom the default may change, and whether the default may ever be paused.
+
+#### I2-18. Safe first-launch migration plan that confirms current Saudi work continues
+
+- **State: IN PROGRESS** | plan lines 459 | GCC-19; owner charter section 4; Discovery 07-migration-rollback-plan; flag runbook | reviews: owner-decision, finance
+- **(2) Functional requirement.** The first multi-country launch keeps current Saudi work running: with the switch off every Saudi response is unchanged, new tables are additive, the kill-switch behaviour is documented and pinned, and a rehearsal on isolated fixture data shows Saudi orders, balances and invoices unchanged before any country is activated.
+- **(3) Exists now in code (main).** nothing. origin/main has no storefront switch; flag-off equals the baseline. The server runs an older baseline (698aa1e), so main is not production.
+- **(4) Done in the draft PRs.** Flag-off pins: StorefrontListApiTest exact JSON, StorefrontDefaultsTest, the additive legal migrations that make nothing sellable. PR 53: STOREFRONT_FLAG_RUNBOOK.md (before you turn it on, switching a country off, do not turn the flag off once another country has products, pinned by StorefrontKillSwitchTest). Discovery 07 holds a proposed staged plan. Nothing has been run on a pilot or production server.
+- **(5) What remains.** 1) A first-launch plan document in docs/gcc: order of migrations, flag and country steps, smoke checks, rollback. 2) A Saudi continuity pack: same checkout, order ids, invoice reference, wallet and loyalty results with the flag off and on. 3) A rollback rehearsal on scratch data. 4) Staging with fake data (parent task D). 5) Owner approval; the production schema is UNKNOWN.
+- **(6) PRs and commits.** [lavkoo#8](https://github.com/fullstackfull/lavkoo/pull/8) `a8c6a42`; [lavkoo#19](https://github.com/fullstackfull/lavkoo/pull/19) `74372eb`; [lavkoo#28](https://github.com/fullstackfull/lavkoo/pull/28) `8c8d32a`; [lavkoo#53](https://github.com/fullstackfull/lavkoo/pull/53) `7e32bba`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`
+- **(7) Tests.**
+  - `ci` StorefrontListApiTest flag-off exact JSON, StorefrontDefaultsTest, StorefrontKillSwitchTest, readiness test that a text without an effective date does not count (tests/Feature/Storefront/; PR 83 head 8ff3410: Tests SQLite PHP 8.2 and 8.3, Storefront tests MySQL 8, Storefront tests MariaDB 11.4.2 (all success))
+- **(8) Dependencies and blockers.** Needs G0, the production schema measurements (UNKNOWN), a staging environment with fake data, and the security set deployed on its own hotfix track first. No production access.
+- **(9) Acceptance criteria.**
+  - [MET] With the switch off the storefront list is exactly the old one-Saudi-storefront payload and every request resolves to Saudi (StorefrontListApiTest test_flag_off_lists_only_saudi (assertExactJson); StorefrontDefaultsTest; PR 83)
+  - [MET] The legal tables are additive and a migrated install makes no country sellable by itself (test_a_published_text_without_an_effective_date_does_not_count; migrations run on SQLite, MySQL 8, MariaDB 11.4.2; PR 83)
+  - [MET] The kill-switch behaviour is pinned: deactivating a country keeps its products out, and turning the flag off is not a kill switch (StorefrontKillSwitchTest (3 tests); PR 53 7e32bba and PR 83)
+  - [CODED] A runbook states the preconditions, the order of migrations, the kill switch and what to watch (docs/gcc/STOREFRONT_FLAG_RUNBOOK.md; it says nothing was run on a pilot or production server)
+  - [MISSING] A Saudi continuity pack runs the same checkout, order, invoice and wallet cases with the flag off and on and shows identical results
+  - [MISSING] A rollback rehearsal on scratch data confirms Saudi orders and balances are unchanged
+- **(10) Next coding task.** Add tests/Feature/Storefront/SaudiContinuityTest.php on PR 53's tip: run the Saudi checkout (cash on delivery, wallet, digital-payment callback) on fixtures with the flag off then on (SA default) and assert identical order rows, ids, totals and response JSON; include it in the Storefront group on MySQL and MariaDB; draft docs/gcc/STOREFRONT_FIRST_LAUNCH_PLAN.md with order and rollback.
+- **Open owner decisions.** When the first country is activated, what proves Saudi continues, and approval to rehearse on a pilot server.
+
+#### I2-V1. Audit axis J, legal half: the legal documents and their versions are reviewed with file evidence (da...
+
+- **State: IMPLEMENTED IN DRAFT** | plan lines 523-525 | added by the independent verifier: the assessor of this unit omitted it | reviews: none
+- **(2) Functional requirement.** Audit axis J, legal half: the legal documents and their versions are reviewed with file evidence (data model, workflow, distribution to web and apps, link to the order, gaps, owner questions). Only cited inside I2-01's plan_lines and refs; no requirement or criterion of its own.
+- **(3) Exists now in code (main).** Discovery E06 section 2.6 (and finding E06-F01, with an independent verification log in its section 9), risk R-017 in 05-gap-risk-register.md and owner question Q-16 are on origin/claude/exciting-shannon-4mh2ok (docs/gcc/audits/2026-11-12-0115-discovery-01 and 2026-11-12-1240-discovery-02-followup). None of it is in origin/main (docs/gcc/audits is absent there) and no PR carries it, so not MERGED; documents have no CI tests.
+- **(4) Done in the draft PRs.** See the evidence note above.
+- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(6) PRs and commits.** none
+- **(7) Tests.** none
+- **(8) Dependencies and blockers.** See the evidence note.
+- **(9) Acceptance criteria.**
+  - [CODED] Audit axis J, legal half: the legal documents and their versions are reviewed with file evidence (data model, workflow, distribution to web and apps, link to th (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
+- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
