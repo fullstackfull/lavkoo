@@ -21,12 +21,13 @@ use Tests\Support\BuildsStorefrontMoneyWorld;
 
 /**
  * I1-12.3 of the master plan: a coupon created for the Kuwaiti storefront is stored, shown and redeemed in dinars with no Saudi conversion. The first two halves are
- * StorefrontCouponAdminTest and StorefrontCouponAdminViewTest; this is the third. A customer with a cart of 30.000 dinars applies a coupon typed in dinars (a
- * discount of 1.505 and a minimum purchase of 10.505, stored as typed) through the real routes of the customer API, the apply route and the checkout, and the
- * answer is the amount as stored, never 1.505 divided by the riyal's rate. One case follows a coupon the whole way: typed in the real admin form, stored, redeemed. A coupon is refused when its minimum is greater than the eligible total, the rule of the
- * repository, proved with a minimum one step of the currency above the cart, equal to it and one step below. The Saudi coupon keeps its answer and the same rule in
- * riyals, and each storefront is a stranger to the code of the other. Every case runs on a platform that sells in one currency and on one that converts from a base
- * currency with the riyal at 3.75, which is where a Saudi conversion of a dinar amount would show.
+ * StorefrontCouponAdminTest and StorefrontCouponAdminViewTest; this is the third. A customer with a cart of 30.000 dinars applies a coupon that is in the table in
+ * dinars, a discount of 1.505 and a minimum purchase of 10.505 as the admin form stores a Kuwaiti coupon, through the real routes of the customer API, the apply
+ * route and the checkout, and the answer is the amount as stored, never 1.505 divided by the riyal's rate. One case follows a coupon the whole way: typed in the
+ * real admin form, read back from the table as typed, redeemed. A coupon is refused when its minimum is greater than the eligible total, the rule of the
+ * repository, proved with a minimum one step of the currency above the cart, equal to it and one step below. The Saudi coupon keeps its answer and the same rule
+ * in riyals, and each storefront is a stranger to the code of the other. Every case runs on a platform that sells in one currency and on one that converts from a
+ * base currency with the riyal at 3.75, which is where a Saudi conversion of a dinar amount would show.
  *
  * The apply route binds no storefront of its own: the request names it, and the test process serves it as a web request that no storefront middleware has reached.
  * The second finder of a coupon (the group-wise one of the checkout) is not proved here: it reads the code the first one has already found and a code is unique, so
@@ -185,12 +186,6 @@ class StorefrontCouponRedemptionTest extends ApiAddressTestCase
         return $customer;
     }
 
-    /** @return array<string, string> */
-    private function storefrontHeader(?string $storefront): array
-    {
-        return $storefront === null ? [] : ['X-Storefront' => $storefront];
-    }
-
     /**
      * A request no storefront middleware has reached binds nothing, so what an earlier request bound is forgotten and the storefront is the one the header names.
      * The header the cart was filled with stays on the test's requests until it is removed, and a request that names none must name none.
@@ -243,6 +238,10 @@ class StorefrontCouponRedemptionTest extends ApiAddressTestCase
     {
         $this->runThePlatformAs($model);
         $this->typeTheCouponInTheAdminForm(['code' => 'TYPED', 'storefront_country' => 'KW', 'discount' => 1.505, 'min_purchase' => 10.505]);
+        $stored = DB::table('coupons')->where('code', 'TYPED')->first();
+        $this->assertSame('KW', $stored->storefront_country);
+        $this->assertEqualsWithDelta(1.505, (float) $stored->discount, 0.0000001, 'the form stored the dinars it was given');
+        $this->assertEqualsWithDelta(10.505, (float) $stored->min_purchase, 0.0000001, 'and the minimum purchase it was given');
         $customer = $this->customerWithCartsIn('KW');
 
         $this->assertApplied(
