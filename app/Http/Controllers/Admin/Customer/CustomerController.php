@@ -9,6 +9,7 @@ use App\Services\Address\AddressSnapshot;
 use App\Services\Address\CheckoutAddressGuard;
 use Carbon\Carbon;
 use App\Enums\WebConfigKey;
+use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use Exception;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
@@ -71,6 +72,7 @@ class CustomerController extends BaseController
         private readonly CheckoutAddressGuard               $addressGuard,
     )
     {
+        $this->middleware(ScopeOrdersToStaffCountries::class);
     }
 
     /**

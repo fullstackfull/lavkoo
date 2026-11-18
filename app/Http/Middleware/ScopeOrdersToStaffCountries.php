@@ -9,8 +9,9 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Narrows the order, POS and refund screens of the admin panel to the countries of the signed-in employee (GCC-14c, slice 2). It is registered by the controllers themselves,
- * so it runs after the sign-in check and the module permission of the route: an employee who may not use a screen is told so before this ever looks at an order.
+ * Narrows the order, POS and refund screens of the admin panel (slice 2), and the screens that read orders without managing them, such as the people, the dashboard and the
+ * reports (slice 3), to the countries of the signed-in employee (GCC-14c). It is registered by the controllers themselves, so it runs after the sign-in check and the module
+ * permission of the route: an employee who may not use a screen is told so before this ever looks at an order.
  *
  * It binds the employee's countries to the request, which narrows every product query of the request as it does on the product screens, and for the rule of the action it
  * does two things: it answers a route that names an order, a line, a refund request or a product out of those countries, or nothing that can be checked, like something that does

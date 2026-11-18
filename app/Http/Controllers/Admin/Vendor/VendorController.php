@@ -7,6 +7,7 @@ use App\Contracts\Repositories\CustomerRepositoryInterface;
 use App\Contracts\Repositories\DeliveryCountryCodeRepositoryInterface;
 use App\Contracts\Repositories\OrderEditHistoryRepositoryInterface;
 use App\Enums\GlobalConstant;
+use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Http\Requests\Admin\VendorAddRequest;
 use App\Services\DeliveryCountryCodeService;
 use App\Services\OrderEditService;
@@ -90,6 +91,7 @@ class VendorController extends BaseController
 
     )
     {
+        $this->middleware(ScopeOrdersToStaffCountries::class);
     }
 
     /**

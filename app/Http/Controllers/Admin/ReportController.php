@@ -8,6 +8,7 @@ use App\Exports\VendorEarningReportExport;
 use App\Services\Admin\Reports\EarningReportsService;
 use App\Utils\Helpers;
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Models\BusinessSetting;
 use App\Models\Order;
 use App\Models\OrderTransaction;
@@ -31,6 +32,7 @@ class ReportController extends Controller
         private readonly EarningReportsService $earningReportsService,
     )
     {
+        $this->middleware(ScopeOrdersToStaffCountries::class);
     }
 
     public function admin_earning(Request $request): PageView

@@ -29,7 +29,7 @@ trait BuildsStaffOrderWorld
         $this->runStaffScopeMigration();
         $this->addStaffOrderRoles();
 
-        foreach (['digital_product_variations', 'colors', 'stock_clearance_products', 'stock_clearance_setups', 'currencies', 'refund_statuses', 'order_details_rewards', 'delivery_men', 'refund_requests', 'order_edit_histories', 'order_status_histories', 'order_expected_delivery_histories', 'orders', 'users'] as $table) {
+        foreach (['digital_product_variations', 'colors', 'stock_clearance_products', 'stock_clearance_setups', 'currencies', 'refund_statuses', 'order_details_rewards', 'delivery_men', 'refund_requests', 'order_edit_histories', 'order_status_histories', 'order_expected_delivery_histories', 'order_transactions', 'refund_transactions', 'orders', 'users'] as $table) {
             Schema::dropIfExists($table);
         }
         Schema::dropIfExists('order_details');
@@ -238,6 +238,42 @@ trait BuildsStaffOrderWorld
             $table->string('status')->nullable();
             $table->timestamps();
         });
+        Schema::create('order_transactions', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('seller_id')->nullable();
+            $table->unsignedBigInteger('shop_id')->nullable();
+            $table->unsignedBigInteger('order_id')->nullable();
+            $table->decimal('order_amount', 24, 2)->default(0);
+            $table->decimal('seller_amount', 24, 2)->default(0);
+            $table->decimal('admin_commission', 24, 2)->default(0);
+            $table->decimal('admin_expense', 24, 2)->default(0);
+            $table->string('received_by')->nullable();
+            $table->string('status')->nullable();
+            $table->decimal('delivery_charge', 24, 2)->default(0);
+            $table->decimal('tax', 24, 2)->default(0);
+            $table->unsignedBigInteger('customer_id')->nullable();
+            $table->string('seller_is')->nullable();
+            $table->string('delivered_by')->nullable();
+            $table->string('payment_method')->nullable();
+            $table->string('transaction_id')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('refund_transactions', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('order_id')->nullable();
+            $table->string('payment_for')->nullable();
+            $table->unsignedBigInteger('payer_id')->nullable();
+            $table->unsignedBigInteger('payment_receiver_id')->nullable();
+            $table->string('paid_by')->nullable();
+            $table->string('paid_to')->nullable();
+            $table->string('payment_method')->nullable();
+            $table->string('payment_status')->nullable();
+            $table->decimal('amount', 24, 2)->default(0);
+            $table->string('transaction_type')->nullable();
+            $table->unsignedBigInteger('order_details_id')->nullable();
+            $table->string('refund_id')->nullable();
+            $table->timestamps();
+        });
     }
 
     /** The list of customers a screen offers is written in MySQL (IF, CONCAT) and is not what these tests are about: it is answered empty. */
@@ -254,6 +290,23 @@ trait BuildsStaffOrderWorld
         if (DB::connection()->getDriverName() === 'sqlite') {
             DB::connection()->getPdo()->sqliteCreateFunction('LOCATE', static fn (?string $needle, ?string $haystack): int => ($position = strpos((string) $haystack, (string) $needle)) === false ? 0 : $position + 1, 2);
         }
+    }
+
+    /** The graphs and reports group by the date parts MySQL names (YEAR, MONTH, DAY, DAYNAME, DAYOFWEEK, DATE_FORMAT): SQLite has none of them. */
+    protected function teachSqliteTheDateFunctionsOfMysql(): void
+    {
+        if (DB::connection()->getDriverName() !== 'sqlite') {
+            return;
+        }
+
+        $pdo = DB::connection()->getPdo();
+        $part = static fn (string $format): \Closure => static fn (?string $date): int|string|null => $date === null ? null : (ctype_alpha($format) && strlen($format) === 1 && in_array($format, ['Y', 'n', 'j', 'w'], true) ? (int) date($format, strtotime($date)) : date($format, strtotime($date)));
+        $pdo->sqliteCreateFunction('YEAR', $part('Y'), 1);
+        $pdo->sqliteCreateFunction('MONTH', $part('n'), 1);
+        $pdo->sqliteCreateFunction('DAY', $part('j'), 1);
+        $pdo->sqliteCreateFunction('DAYNAME', $part('l'), 1);
+        $pdo->sqliteCreateFunction('DAYOFWEEK', static fn (?string $date): ?int => $date === null ? null : (int) date('w', strtotime($date)) + 1, 1);
+        $pdo->sqliteCreateFunction('DATE_FORMAT', static fn (?string $date, string $format): ?string => $date === null ? null : date(strtr($format, ['%Y' => 'Y', '%y' => 'y', '%m' => 'm', '%d' => 'd', '%M' => 'F', '%D' => 'jS', '%W' => 'l', '%b' => 'M', '%a' => 'D', '%e' => 'j', '%H' => 'H', '%i' => 'i', '%s' => 's']), strtotime($date)), 2);
     }
 
     /** The roles of the employees who work with orders and the POS: the master admin and the catalog employees of BuildsStaffScopeWorld have none of these modules. */
@@ -297,7 +350,7 @@ trait BuildsStaffOrderWorld
                 'order_id' => $id,
                 'product_id' => $productId,
                 'seller_id' => 1,
-                'product_details' => json_encode(['name' => "Product {$productId}", 'product_type' => 'physical']),
+                'product_details' => json_encode(['name' => "Product {$productId}", 'product_type' => 'physical', 'variation' => '[]', 'choice_options' => '[]', 'colors' => '[]', 'unit_price' => 10, 'tax' => 0, 'tax_model' => 'exclude', 'minimum_order_qty' => 1, 'current_stock' => 5]),
                 'delivery_status' => 'pending',
                 'created_at' => now(),
                 'updated_at' => now(),
@@ -318,6 +371,51 @@ trait BuildsStaffOrderWorld
             'amount' => 10,
             'product_id' => $aboutProduct,
             'order_id' => $orderId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ], $extra));
+    }
+
+    /** One money record of an order (`order_transactions`), as the order is delivered and its seller is paid. */
+    protected function insertStaffOrderTransaction(int $id, int $orderId, array $extra = []): void
+    {
+        DB::table('order_transactions')->insert(array_merge([
+            'id' => $id,
+            'order_id' => $orderId,
+            'seller_id' => 1,
+            'seller_is' => 'admin',
+            'customer_id' => 1,
+            'order_amount' => 100,
+            'seller_amount' => 90,
+            'admin_commission' => 10,
+            'delivery_charge' => 5,
+            'tax' => 2,
+            'status' => 'disburse',
+            'payment_method' => 'cash_on_delivery',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ], $extra));
+    }
+
+    /** One money record of a refund (`refund_transactions`), about the first line of an order that holds the product, or about no line when none is given. */
+    protected function insertStaffRefundTransaction(int $id, int $orderId, ?int $aboutProduct, array $extra = []): void
+    {
+        $line = $aboutProduct === null ? null : DB::table('order_details')->where('order_id', $orderId)->where('product_id', $aboutProduct)->value('id');
+
+        DB::table('refund_transactions')->insert(array_merge([
+            'id' => $id,
+            'order_id' => $orderId,
+            'order_details_id' => $line,
+            'payment_for' => 'Refund Request',
+            'payer_id' => 1,
+            'payment_receiver_id' => 1,
+            'paid_by' => 'admin',
+            'paid_to' => 'customer',
+            'payment_method' => 'cash',
+            'payment_status' => 'paid',
+            'amount' => 10,
+            'transaction_type' => 'Refund',
+            'refund_id' => (string) $id,
             'created_at' => now(),
             'updated_at' => now(),
         ], $extra));

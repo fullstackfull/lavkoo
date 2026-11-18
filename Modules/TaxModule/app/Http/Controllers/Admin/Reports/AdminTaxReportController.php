@@ -2,6 +2,7 @@
 
 namespace Modules\TaxModule\app\Http\Controllers\Admin\Reports;
 
+use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Models\OrderTransaction;
 use Carbon\Carbon;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
@@ -33,6 +34,7 @@ class AdminTaxReportController extends Controller
         private readonly TaxAdditionalSetup    $taxAdditionalSetup
     )
     {
+        $this->middleware(ScopeOrdersToStaffCountries::class);
     }
 
     public static function getReportList(object|array $request, $startDate, $endDate)

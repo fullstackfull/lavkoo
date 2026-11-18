@@ -7,6 +7,8 @@ namespace App\Packages\AdvanceSearch;
 use Illuminate\Http\JsonResponse;
 use stdClass;
 use App\Models\Translation;
+use App\Services\Staff\StaffCountryScope;
+use App\Services\Staff\StaffSearchHits;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\File;
@@ -22,6 +24,8 @@ class AdvanceSearch
 
     protected string $keyword = '';
     protected string $type = '';
+    private ?array $staffCountries = null;
+    private bool $staffCountriesAreKnown = false;
 
     public function __construct(string $type = '', ?string $keyword = null)
     {
@@ -214,6 +218,17 @@ class AdvanceSearch
         }
     }
 
+    /** The countries a restricted employee works with, when this is the search of the admin header; null for everyone else. */
+    private function staffCountries(): ?array
+    {
+        if (!$this->staffCountriesAreKnown) {
+            $this->staffCountries = $this->type === 'admin' ? app(StaffCountryScope::class)->countriesOf(admin: auth('admin')->user()) : null;
+            $this->staffCountriesAreKnown = true;
+        }
+
+        return $this->staffCountries;
+    }
+
     public function getCacheTimeoutByDays(int $days = 3): int
     {
         return 60 * 60 * 24 * $days;
@@ -320,7 +335,7 @@ class AdvanceSearch
                             return false;
                         })->values();
 
-
+                        $filteredItems = app(StaffSearchHits::class)->keep(hits: $filteredItems, model: $table['model'], countries: $this->staffCountries());
 
                         //  search result output
                         if ($filteredItems->count() > 0) {

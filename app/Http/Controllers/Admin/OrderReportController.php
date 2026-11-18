@@ -7,6 +7,7 @@ use App\Enums\ExportFileNames\Admin\Report;
 use App\Utils\Helpers;
 use App\Exports\OrderReportExport;
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Models\Order;
 use App\Models\Seller;
 use Carbon\Carbon;
@@ -25,6 +26,7 @@ class OrderReportController extends Controller
         private readonly VendorRepositoryInterface $vendorRepo,
     )
     {
+        $this->middleware(ScopeOrdersToStaffCountries::class);
     }
 
     public function order_list(Request $request): ViewResponse

@@ -103,7 +103,7 @@ class StaffOrderRoutesTest extends TestCase
         $routes = [];
         foreach (Route::getRoutes()->getRoutes() as $route) {
             $controller = ltrim((string) $route->getControllerClass(), '\\');
-            $rule = in_array($controller, StaffOrderRoutes::controllers(), true) ? StaffOrderRoutes::ruleOf(controller: $controller, method: $route->getActionMethod()) : null;
+            $rule = in_array($controller, StaffOrderRoutes::orderScreenControllers(), true) ? StaffOrderRoutes::ruleOf(controller: $controller, method: $route->getActionMethod()) : null;
             if ($rule !== null) {
                 $routes[] = ['route' => $route, 'method' => array_values(array_diff($route->methods(), ['HEAD']))[0], 'rule' => $rule];
             }
@@ -785,9 +785,10 @@ class StaffOrderRoutesTest extends TestCase
             foreach (StaffOrderRoutes::rulesOf(controller: $controller) as $action => $rule) {
                 $this->assertNotSame([], $rule, $controller . '@' . $action);
                 foreach ($rule as $part) {
-                    $this->assertMatchesRegularExpression('/^(none|cart|edit:[a-z_]+|list:(orders|refunds)|(order|line|refund|product)\.(route|input|inputs):[A-Za-z_]+)$/', $part, $controller . '@' . $action);
+                    $this->assertMatchesRegularExpression('/^(none|unavailable|cart|edit:[a-z_]+|list:(orders|refunds|order_lines|order_transactions|refund_transactions)|(order|line|refund|product)\.(route|input|inputs):[A-Za-z_]+)$/', $part, $controller . '@' . $action);
                 }
                 $this->assertSame($rule === ['none'], in_array('none', $rule, true), $controller . '@' . $action . ': none stands alone');
+                $this->assertSame($rule === ['unavailable'], in_array('unavailable', $rule, true), $controller . '@' . $action . ': unavailable stands alone');
             }
         }
     }
