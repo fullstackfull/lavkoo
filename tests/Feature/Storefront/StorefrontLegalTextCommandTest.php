@@ -2,7 +2,10 @@
 
 namespace Tests\Feature\Storefront;
 
+use App\Console\Commands\StorefrontLegalTextCommand;
 use App\Models\StorefrontLegalDocument;
+use App\Services\Storefront\StorefrontLegalReadiness;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -74,6 +77,15 @@ class StorefrontLegalTextCommandTest extends TestCase
         $this->text('draft', ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => $this->file('template.txt', 'TEMPLATE: the terms.')])->assertExitCode(0);
 
         return (int) StorefrontLegalDocument::query()->latest('id')->value('id');
+    }
+
+    private function writeText(string $type, string $locale, string $words): int
+    {
+        $this->text('draft', ['--country' => 'KW', '--type' => $type, '--locale' => $locale, '--admin' => 11, '--template-file' => $this->file('template.txt', "TEMPLATE: the {$type}.")])->assertExitCode(0);
+        $id = (int) StorefrontLegalDocument::query()->latest('id')->value('id');
+        $this->text('edit', ['--id' => $id, '--admin' => 11, '--body-file' => $this->file('body.txt', $words)])->assertExitCode(0);
+
+        return $id;
     }
 
     private function hashPrefixOf(string $words): string
@@ -175,6 +187,77 @@ class StorefrontLegalTextCommandTest extends TestCase
             ->assertExitCode(1);
     }
 
+    /** @return array<string, array{string, string}> */
+    public static function optionsOfADraft(): array
+    {
+        return ['the country' => ['country', 'the storefront'], 'the type' => ['type', 'the document type'], 'the locale' => ['locale', 'the locale']];
+    }
+
+    #[DataProvider('optionsOfADraft')]
+    public function test_a_draft_without_its_country_type_or_locale_is_refused_with_the_name_of_the_option(string $option, string $meaning): void
+    {
+        $complete = ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => $this->file('template.txt', 'TEMPLATE: the terms.')];
+
+        foreach (['', '   ', null] as $value) {
+            $options = $complete;
+            unset($options["--{$option}"]);
+            if ($value !== null) {
+                $options["--{$option}"] = $value;
+            }
+
+            $this->text('draft', $options)
+                ->expectsOutputToContain("--{$option} is missing: it is {$meaning}")
+                ->assertExitCode(1);
+        }
+
+        $this->assertSame(0, StorefrontLegalDocument::query()->count());
+        $this->assertSame(0, DB::table('audit_logs')->count());
+    }
+
+    public function test_a_file_of_exactly_the_limit_is_read_and_one_byte_more_is_refused(): void
+    {
+        $limit = StorefrontLegalTextCommand::MAXIMUM_FILE_BYTES;
+
+        $this->text('draft', ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => $this->file('exact.txt', str_repeat('a', $limit))])->assertExitCode(0);
+        $this->assertSame($limit, strlen(StorefrontLegalDocument::query()->firstOrFail()->body));
+
+        $this->text('draft', ['--country' => 'KW', '--type' => 'terms', '--locale' => 'ar', '--admin' => 11, '--template-file' => $this->file('over.txt', str_repeat('a', $limit + 1))])
+            ->expectsOutputToContain("is not a readable file of at most {$limit} bytes")
+            ->assertExitCode(1);
+
+        $this->assertSame(1, StorefrontLegalDocument::query()->count());
+    }
+
+    public function test_a_directory_is_not_a_file_that_can_be_read(): void
+    {
+        $this->text('draft', ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => $this->directory])
+            ->expectsOutputToContain('is not a readable file')
+            ->assertExitCode(1);
+
+        $id = $this->draftTerms();
+        $this->text('edit', ['--id' => $id, '--admin' => 11, '--body-file' => $this->directory])
+            ->expectsOutputToContain('is not a readable file')
+            ->assertExitCode(1);
+    }
+
+    public function test_an_empty_file_is_a_blank_template_and_a_blank_text(): void
+    {
+        $this->text('draft', ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => $this->file('empty.txt', '')])
+            ->expectsOutputToContain('The template is blank.')
+            ->assertExitCode(1);
+
+        $this->text('draft', ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => $this->file('mark-only.txt', "\xEF\xBB\xBF\n")])
+            ->expectsOutputToContain('The template is blank.')
+            ->assertExitCode(1);
+
+        $id = $this->draftTerms();
+        $this->text('edit', ['--id' => $id, '--admin' => 11, '--body-file' => $this->file('empty-body.txt', '')])
+            ->expectsOutputToContain('The text is blank.')
+            ->assertExitCode(1);
+
+        $this->assertSame('TEMPLATE: the terms.', StorefrontLegalDocument::query()->findOrFail($id)->body);
+    }
+
     /** @return array<string, array{string}> */
     public static function filesThatAreNotUtf8(): array
     {
@@ -261,6 +344,29 @@ class StorefrontLegalTextCommandTest extends TestCase
             ->assertExitCode(0);
     }
 
+    public function test_a_day_is_read_in_utc_whatever_the_time_zone_of_the_application_is(): void
+    {
+        $original = date_default_timezone_get();
+        date_default_timezone_set('Asia/Dhaka');
+        config(['app.timezone' => 'Asia/Dhaka']);
+
+        try {
+            $id = $this->editedTerms();
+            $this->text('approve', ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+            $moment = CarbonImmutable::now('UTC')->addHour()->startOfMinute();
+
+            $this->text('publish', ['--id' => $id, '--admin' => 12, '--effective-from' => $moment->format('Y-m-d H:i')])
+                ->expectsOutputToContain("takes effect on {$moment->format('Y-m-d H:i')} UTC")
+                ->assertExitCode(0);
+
+            $stored = StorefrontLegalDocument::query()->findOrFail($id)->effective_from;
+            $this->assertTrue($stored->equalTo($moment), "stored {$stored->toIso8601String()}, read from {$moment->toIso8601String()}");
+            $this->assertEqualsWithDelta(60, now()->diffInMinutes($stored, absolute: false), 1.5, 'an hour ahead of now, not five hours behind it as the digits would be if they were read as Dhaka time');
+        } finally {
+            date_default_timezone_set($original);
+        }
+    }
+
     public function test_a_text_without_a_day_takes_effect_now(): void
     {
         $id = $this->draftTerms();
@@ -289,6 +395,64 @@ class StorefrontLegalTextCommandTest extends TestCase
         $this->text('draft', ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => $this->file('template.txt', 'TEMPLATE: the terms.')])
             ->expectsOutputToContain('Draft 2: the terms (en) of KW, version 2, a copy of the template.')
             ->assertExitCode(0);
+    }
+
+    public function test_it_says_what_the_revocation_of_a_text_in_force_means(): void
+    {
+        $id = $this->editedTerms();
+        $this->text('approve', ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+        $this->text('publish', ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+
+        $this->text('revoke', ['--id' => $id, '--admin' => 12, '--reason' => 'Wrong clause'])
+            ->expectsOutputToContain("Text {$id} is revoked: while it is the text in force the storefront does not sell. Write its replacement from a template")
+            ->doesntExpectOutputToContain('never takes effect')
+            ->assertExitCode(0);
+
+        $this->assertSame(StorefrontLegalDocument::STATUS_PUBLISHED, StorefrontLegalDocument::query()->findOrFail($id)->status);
+    }
+
+    public function test_it_says_that_a_text_revoked_before_it_took_effect_is_archived_and_the_text_in_force_stays(): void
+    {
+        $id = $this->editedTerms();
+        $this->text('approve', ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+        $this->text('publish', ['--id' => $id, '--admin' => 12, '--effective-from' => now()->addDays(10)->utc()->format('Y-m-d H:i')])->assertExitCode(0);
+
+        $this->text('revoke', ['--id' => $id, '--admin' => 12, '--reason' => 'Wrong clause, found before it took effect'])
+            ->expectsOutputToContain("Text {$id} is revoked before it took effect: it is archived and never takes effect, and the text in force stays in force.")
+            ->doesntExpectOutputToContain('the storefront does not sell')
+            ->doesntExpectOutputToContain('Write its replacement')
+            ->assertExitCode(0);
+
+        $this->assertSame(StorefrontLegalDocument::STATUS_ARCHIVED, StorefrontLegalDocument::query()->findOrFail($id)->status);
+    }
+
+    public function test_every_required_text_of_the_storefront_published_through_the_command_makes_it_ready(): void
+    {
+        $required = [];
+        foreach (config('gcc.storefronts.legal.required_documents') as $type) {
+            foreach (config('gcc.storefronts.legal.required_locales') as $locale) {
+                $required[] = [$type, $locale];
+            }
+        }
+        $this->assertGreaterThan(1, count($required));
+
+        foreach ($required as $position => [$type, $locale]) {
+            $words = "The {$locale} {$type} of Kuwait.";
+            $id = $this->writeText(type: $type, locale: $locale, words: $words);
+            $isTheLast = $position === array_key_last($required);
+
+            $this->text('approve', ['--id' => $id, '--admin' => 12, '--hash' => $this->hashPrefixOf($words)])
+                ->expectsOutputToContain('KW: a required text is still missing')
+                ->assertExitCode(0);
+
+            $this->text('publish', ['--id' => $id, '--admin' => 12, '--hash' => $this->hashPrefixOf($words)])
+                ->expectsOutputToContain($isTheLast ? 'KW: every required text is published and approved.' : 'KW: a required text is still missing')
+                ->assertExitCode(0);
+        }
+
+        $this->assertSame(count($required), StorefrontLegalDocument::query()->where('status', StorefrontLegalDocument::STATUS_PUBLISHED)->count());
+        $this->assertTrue(app(StorefrontLegalReadiness::class)->isReady('KW'));
+        $this->assertFalse(app(StorefrontLegalReadiness::class)->isReady('AE'), 'another storefront has none of them');
     }
 
     public function test_it_starts_a_new_version_of_a_published_text_that_cannot_be_approved_until_it_is_edited(): void

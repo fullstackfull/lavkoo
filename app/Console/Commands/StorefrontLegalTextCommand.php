@@ -16,7 +16,7 @@ use RuntimeException;
 class StorefrontLegalTextCommand extends Command
 {
     /** A text or a template is read from a file of at most this many bytes. */
-    private const MAXIMUM_FILE_BYTES = 1048576;
+    public const MAXIMUM_FILE_BYTES = 1048576;
 
     private const UTF8_BYTE_ORDER_MARK = "\xEF\xBB\xBF";
 
@@ -93,9 +93,9 @@ class StorefrontLegalTextCommand extends Command
         }
 
         $text = $publisher->draftFromTemplate(
-            country: (string) $this->option('country'),
-            documentType: (string) $this->option('type'),
-            locale: (string) $this->option('locale'),
+            country: $this->requiredOption('country', meaning: 'the storefront, for example KW'),
+            documentType: $this->requiredOption('type', meaning: 'the document type, for example terms'),
+            locale: $this->requiredOption('locale', meaning: 'the locale, ar or en'),
             template: $this->fileOption('template-file'),
             author: $admin,
         );
@@ -144,7 +144,9 @@ class StorefrontLegalTextCommand extends Command
     {
         $text = $publisher->revoke(textId: $this->integerOption('id'), revoker: $this->admin(), reason: (string) $this->option('reason'));
 
-        $this->info("Text {$text->id} is revoked: while it is the text in force the storefront does not sell. Publish a new version to replace it.");
+        $this->info($text->status === StorefrontLegalDocument::STATUS_ARCHIVED
+            ? "Text {$text->id} is revoked before it took effect: it is archived and never takes effect, and the text in force stays in force."
+            : "Text {$text->id} is revoked: while it is the text in force the storefront does not sell. Write its replacement from a template (draft --template-file), edit it, approve it and publish it.");
         $this->reportReadiness(readiness: $readiness, country: $text->country_code);
 
         return self::SUCCESS;
@@ -208,6 +210,15 @@ class StorefrontLegalTextCommand extends Command
     private function filled(string $option): bool
     {
         return trim((string) $this->option($option)) !== '';
+    }
+
+    private function requiredOption(string $option, string $meaning): string
+    {
+        if (!$this->filled($option)) {
+            throw new InvalidArgumentException("--{$option} is missing: it is {$meaning}.");
+        }
+
+        return (string) $this->option($option);
     }
 
     private function integerOption(string $option, string $meaning = 'the number of a text'): int
