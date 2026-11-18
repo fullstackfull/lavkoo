@@ -19,6 +19,7 @@ final readonly class CompatibilityOptions
         public ?string $connection = null,
         public bool $allowProduction = false,
         public ?string $expectDatabase = null,
+        public ?string $scope = null,
     ) {
         $this->sample = max(self::MIN_SAMPLE, min(self::MAX_SAMPLE, $sample));
     }
