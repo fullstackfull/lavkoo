@@ -23,11 +23,11 @@ As of 2026-11-18. Generated from the independent assessment of every requirement
 | [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 96 | 57 | 7 | 32 | 67% | 59% | 13% | all |
 | [H. Shipping and integrations](tracker/axis-h-shipping-and-integrations.md) | 34 | 152 | 79 | 10 | 63 | 59% | 52% | 16% | all |
 | [I. Marketing, policies and operations](tracker/axis-i-marketing-policies-and-operations.md) | 37 | 183 | 48 | 36 | 99 | 46% | 26% | 2% | all |
-| [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 93 | 34 | 26 | 33 | 65% | 37% | 5% | all |
+| [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 93 | 34 | 27 | 32 | 66% | 37% | 5% | all |
 | [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 91 | 5 | 33 | 53 | 42% | 5% | 2% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 45 | 18 | 31 | 67% | 48% | 7% | all |
 | [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 285 | 87 | 102 | 96 | 66% | 31% | 3% | all |
-| **All axes (pooled)** | **359** | **1663** | **643** | **344** | **676** | **59%** | **39%** | **7%** | |
+| **All axes (pooled)** | **359** | **1663** | **643** | **345** | **675** | **59%** | **39%** | **7%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -51,7 +51,7 @@ Chosen from the table of requirements, not from the pull request list: each one 
 
 - **Blocks:** orders with the right currency; prices that are the same in the app and on the web; wallets, coupons, shipping and tax that agree with the order.
 - **Where it stands:** GCC-05 (draft PR 87, slices 1 to 4, off by default) makes a non-default storefront single-currency in its own currency with the right decimals, records the storefront and currency on the order, refuses a gateway that cannot take that currency and makes the admin product screens work in the product's country. Everything else that holds an amount still reads the platform's one currency: coupons and their budgets, shipping rates and the free-delivery and minimum-order thresholds, the tax snapshot, refunds in the original currency, channel prices, invoices, e-mails and exports, and both apps' formatters.
-- **Measured:** 20 requirements (3 not started), 94 criteria of which 56 MISSING (60%) as the assessors read it; slices 3 and 4 of PR 87 came after and are in the cards as updates. Requirements: B-02, B-03, D1-05, D1-06, D1-07, D1-10, D2-05, D2-10, E-16, H1-08, H1-09, H1-14, H2-08, I1-12, I1-14, J-05, K-10, L-08, M2-07, C-15.
+- **Measured:** 20 requirements (3 not started), 94 criteria of which 55 MISSING (59%) as the assessors read it; slices 3 and 4 of PR 87 came after and are in the cards as updates. Requirements: B-02, B-03, D1-05, D1-06, D1-07, D1-10, D2-05, D2-10, E-16, H1-08, H1-09, H1-14, H2-08, I1-12, I1-14, J-05, K-10, L-08, M2-07, C-15.
 - **First executable step:** The next slice of GCC-05: the amount-bearing settings (minimum order, free delivery, add-fund limits) and coupons per storefront, through the same seam, with a readiness check; then the tax and refund snapshot.
 
 ### Gap 2. Wallet and loyalty are one global balance
@@ -82,7 +82,7 @@ Next in line (not in the top three because they depend on these, or are optional
 - **Code completion** = (MET + CODED) / all criteria. **Proven by tests** = MET / all criteria. Both use the same denominator, so the gap between them is exactly the untested code.
 - **Release readiness** = sum of gate points / (5 x requirements). Gate points: NOT STARTED and IN PROGRESS 0, IMPLEMENTED IN DRAFT 1, INTEGRATED AND TESTED 2, READY FOR OWNER REVIEW 3, MERGED 4, DEPLOYED AND VERIFIED 5. It measures travel along the gates, not quality.
 - **States:** NOT STARTED (no code on any branch); IN PROGRESS (some code, at least one criterion MISSING); IMPLEMENTED IN DRAFT (all criteria coded in a draft pull request, not yet in a tested integration); INTEGRATED AND TESTED (inside an integration tree whose CI is green on the engines that matter); READY FOR OWNER REVIEW (nothing known open, evidence listed); MERGED; DEPLOYED AND VERIFIED.
-- **Evidence:** every card carries evidence triples (repository, ref, file, text) that a script checked mechanically against the git objects: 359 requirements, 0 failures.
+- **Evidence:** every card carries evidence triples (repository, ref, file, text) that a script checked mechanically against the git objects: 359 requirements, 2 failures.
 
 ## 5. Blockers and decisions that are the owner's
 
@@ -412,7 +412,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [J-02](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 4/1/1 | Country chooser and storefront switch |
 | [J-03](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 4/1/1 | X-Storefront header on every API request |
 | [J-04](tracker/axis-j-flutter-customer-app.md) | IMPLEMENTED IN DRAFT | 4/1/0 | Caches and local storage keyed by storefront |
-| [J-05](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 2/0/2 | Per-storefront currency and price formatting |
+| [J-05](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 2/1/1 | Per-storefront currency and price formatting |
 | [J-06](tracker/axis-j-flutter-customer-app.md) | IMPLEMENTED IN DRAFT | 4/2/0 | Theme rendering per storefront and platform |
 | [J-07](tracker/axis-j-flutter-customer-app.md) | IMPLEMENTED IN DRAFT | 4/1/0 | Cart and wishlist per storefront |
 | [J-08](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 3/2/1 | Sellable gate and paused-storefront modes |

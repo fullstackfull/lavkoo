@@ -337,6 +337,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] The register is reachable from the canonical docs on main (main has 7 files in docs/gcc and none links DEFERRED_RISKS.md)
 - **(10) Next coding task.** On the docs branch: fix the DR-4 pointer to the handoff, link DEFERRED_RISKS.md from docs/gcc/README.md and STATUS.md, and write the server preflight list that DR-2 refers to; no secret or key value in any of them.
 - **Open owner decisions.** DR-3 (public repositories) and DR-4 (protect main) are undecided; DR-1 and DR-2 deferred on 2026-11-18; DR-5 is information for DR-3.
+- **Evidence not confirmed by the script:** lavkoo origin/claude/exciting-shannon-4mh2ok:docs/gcc/DEFERRED_RISKS.md (pattern not found: | DR-4 | `main` has no branch protection in the three reposi)
 - **Verifier note (not applied automatically).** remaining corrected by the verifier (applied above).
 - **Update after the assessment.** DEFERRED_RISKS.md now points DR-4 at docs/gcc/BRANCH_PROTECTION.md (draft PR 91) and DR-2 at SERVER_PREFLIGHT.md section E (docs branch, 954cfbac): the read-only checklist DR-2 referred to exists. The register is still not linked from the canonical documents on main.
 - **Next coding task today (supersedes item 10 above).** Link DEFERRED_RISKS.md from docs/gcc/README.md in the pull request that brings the documents to main (the docs branch is not a pull request and main is untouched).
@@ -361,6 +362,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] A docs-only change skips the heavy MySQL and MariaDB groups (ci.yml has no paths filter)
 - **(10) Next coding task.** Keep PR 1 as the first change so main turns green. Then two drafts: (a) .github/CODEOWNERS and docs/gcc/BRANCH_PROTECTION.md with the exact ruleset and required checks for a person to apply; (b) ci.yml paths-ignore for docs-only changes and a three-way split of 'sales channels A-M', leaving the overlay job and the version-gate test untouched.
 - **Open owner decisions.** DR-4 (protect main); DR-3 and DR-5 (a private repository costs CI minutes); raise the 110-minute ceiling or split the group (the owner's call, handoff).
+- **Evidence not confirmed by the script:** lavkoo origin/claude/exciting-shannon-4mh2ok:docs/gcc/DEFERRED_RISKS.md (pattern not found: | DR-4 | `main` has no branch protection in the three reposi)
 - **Verifier note (not applied automatically).** done_in_drafts corrected by the verifier (applied above).
 - **Update after the assessment.** PR 91 (draft, documents and CODEOWNERS only, faa06167): docs/gcc/BRANCH_PROTECTION.md gives the exact ruleset for a person to apply (one approving review, code owners, approval of the last push, up-to-date branch, no force push, no deletion, ten required checks, never the overlay job) and the files that name the owners. Nothing is applied and the real state of the rules stays unverified; no path filter and no split of the longest group exist yet.
 
