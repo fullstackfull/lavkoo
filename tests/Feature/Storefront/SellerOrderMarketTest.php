@@ -11,8 +11,8 @@ use Tests\Support\BuildsSellerMarketWorld;
 use Tests\TestCase;
 
 /**
- * K-04, the first half: the order list and the order detail of the seller app (api/v3/seller) carry the storefront and the currency each order was
- * sold in, and the list can be narrowed to one market. Everything here is additive and off by default: while storefronts are switched off, both
+ * K-04 criterion 0, the backend half: the order list and the order detail of the seller app (api/v3/seller) carry the storefront and the currency each
+ * order was sold in, and the list can be narrowed to one market. Everything here is additive and off by default: while storefronts are switched off, both
  * endpoints answer exactly what they answered before this work, whatever the app sends.
  *
  * The off answers were recorded from the controller as it was before it was touched, and are compared as recorded. To record them again (only
@@ -333,6 +333,18 @@ class SellerOrderMarketTest extends TestCase
         $this->assertSame('order', $response->json('errors.0.code'));
         $this->assertStringNotContainsString('AED', (string) $response->getContent());
         $this->assertStringNotContainsString('storefront', (string) $response->getContent());
+    }
+
+    public function test_a_line_whose_order_is_gone_is_answered_as_it_was_with_no_market_made_up(): void
+    {
+        $this->insertSellerMarketOrderLine(orderId: 999, sellerId: self::SELLER);
+
+        $off = $this->sellerApi('GET', 'orders/999')->assertOk();
+        $this->switchStorefrontsOn();
+        $on = $this->sellerApi('GET', 'orders/999')->assertOk();
+
+        $this->assertNull($off->json('0.order'));
+        $this->assertSame($off->getContent(), $on->getContent());
     }
 
     public function test_without_a_token_the_list_and_the_detail_are_refused_as_ever(): void

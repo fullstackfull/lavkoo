@@ -121,10 +121,16 @@ trait BuildsSellerMarketWorld
             'created_at' => '2026-11-01 10:00:00', 'updated_at' => '2026-11-01 10:00:00',
         ] + $recorded);
 
+        $this->insertSellerMarketOrderLine(orderId: $id, sellerId: $sellerId);
+    }
+
+    /** The line of an order, with nothing else: a test may leave it without its order, as a deleted order leaves its lines. */
+    protected function insertSellerMarketOrderLine(int $orderId, int $sellerId): void
+    {
         DB::table('order_details')->insert([
-            'order_id' => $id, 'product_id' => 500 + $id, 'seller_id' => $sellerId, 'qty' => 1, 'price' => 100, 'discount' => 0, 'tax' => 15,
+            'order_id' => $orderId, 'product_id' => 500 + $orderId, 'seller_id' => $sellerId, 'qty' => 1, 'price' => 100, 'discount' => 0, 'tax' => 15,
             'tax_model' => 'exclude', 'delivery_status' => 'pending', 'payment_status' => 'unpaid', 'is_stock_decreased' => 0, 'variation' => '[]',
-            'product_details' => json_encode(['id' => 500 + $id, 'name' => 'Product ' . $id, 'unit_price' => 100, 'current_stock' => 5, 'variation' => '[]']),
+            'product_details' => json_encode(['id' => 500 + $orderId, 'name' => 'Product ' . $orderId, 'unit_price' => 100, 'current_stock' => 5, 'variation' => '[]']),
             'created_at' => '2026-11-01 10:00:00', 'updated_at' => '2026-11-01 10:00:00',
         ]);
     }
