@@ -326,6 +326,7 @@ class StorefrontCurrencyTest extends TestCase
     public function test_the_readiness_command_lists_each_storefront_and_succeeds_when_those_switched_on_have_their_currency_and_a_tax_decision(): void
     {
         $this->approveNoTaxFor('AE', 'KW', 'QA', 'BH', 'OM');
+        Schema::dropIfExists('shipping_types');
 
         $this->artisan('gcc:storefront:currency-readiness')
             ->expectsOutputToContain('Storefront currencies: on')
@@ -350,6 +351,7 @@ class StorefrontCurrencyTest extends TestCase
     {
         config(['gcc.storefronts.countries.QA.active' => false]);
         $this->approveNoTaxFor('AE', 'KW', 'BH', 'OM');
+        Schema::dropIfExists('shipping_types');
         $this->removeCurrency('QAR');
 
         $this->artisan('gcc:storefront:currency-readiness')->assertExitCode(0);

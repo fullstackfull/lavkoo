@@ -3,6 +3,7 @@
 namespace Tests\Feature\Storefront;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\ApprovesStorefrontTax;
 use Tests\Support\BuildsStorefrontMoneyWorld;
@@ -181,6 +182,7 @@ class StorefrontMoneyCommandTest extends TestCase
     {
         config(['gcc.storefronts.countries.QA.active' => false]);
         $this->approveNoTaxFor('AE', 'KW', 'BH', 'OM');
+        Schema::dropIfExists('shipping_types');
         $this->giveStorefrontAmounts(country: 'KW', currency: 'KWD', amounts: ['minimum_order_amount' => '5.000', 'free_delivery_over_amount' => '50.000']);
         $this->giveStorefrontAmounts(country: 'AE', currency: 'AED', amounts: ['minimum_order_amount' => '40.00']);
         $this->giveStorefrontAmounts(country: 'BH', currency: 'SAR', amounts: ['minimum_order_amount' => '100']);

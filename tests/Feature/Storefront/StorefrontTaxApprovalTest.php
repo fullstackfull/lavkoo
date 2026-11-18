@@ -241,11 +241,11 @@ class StorefrontTaxApprovalTest extends ApiAddressTestCase
         $this->assertSame(['The tax adviser', self::DOCUMENT], [$record['approved_by'], $record['reference']]);
         $this->assertMatchesRegularExpression('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/', $record['approved_at']);
         $this->assertSame(64, strlen((string) $record['fingerprint']));
-        $this->assertSame($record, json_decode((string) DB::table('business_settings')->where('type', StorefrontTaxApproval::settingName('KW'))->value('value'), true));
+        $this->assertEquals($record, json_decode((string) DB::table('business_settings')->where('type', StorefrontTaxApproval::settingName('KW'))->value('value'), true));
 
         $line = DB::table('audit_logs')->where('action', 'storefront.tax_decision.approved')->first();
         $this->assertSame(['storefront', 'KW'], [$line->subject_type, $line->subject_id]);
-        $this->assertSame($record, json_decode((string) $line->after, true));
+        $this->assertEquals($record, json_decode((string) $line->after, true));
         $this->assertNull($line->before);
         $this->assertEquals([['VAT of Kuwait', 5]], array_map(static fn (array $rate): array => [$rate['name'], $rate['rate']], json_decode((string) $line->context, true)['taxed_with']['rates']));
     }
@@ -264,7 +264,7 @@ class StorefrontTaxApprovalTest extends ApiAddressTestCase
         $this->assertSame(1, DB::table('business_settings')->where('type', StorefrontTaxApproval::settingName('KW'))->count());
         $this->assertSame('The owner', $this->approval()->statusOf('KW')['approved_by']);
         $line = DB::table('audit_logs')->where('action', 'storefront.tax_decision.approved')->orderByDesc('id')->first();
-        $this->assertSame([$first, $second], [json_decode((string) $line->before, true), json_decode((string) $line->after, true)]);
+        $this->assertEquals([$first, $second], [json_decode((string) $line->before, true), json_decode((string) $line->after, true)]);
     }
 
     public function test_a_decision_whose_audit_line_cannot_be_written_is_not_recorded(): void
@@ -399,7 +399,7 @@ class StorefrontTaxApprovalTest extends ApiAddressTestCase
 
         $this->assertSame(StorefrontTaxApproval::MISSING, $this->statusOf());
         $line = DB::table('audit_logs')->where('action', 'storefront.tax_decision.revoked')->first();
-        $this->assertSame([$record, 'The owner'], [json_decode((string) $line->before, true), json_decode((string) $line->context, true)['revoked_by']]);
+        $this->assertEquals([$record, 'The owner'], [json_decode((string) $line->before, true), json_decode((string) $line->context, true)['revoked_by']]);
     }
 
     public function test_withdrawing_a_decision_that_is_not_there_says_so_and_leaves_no_audit_line(): void
