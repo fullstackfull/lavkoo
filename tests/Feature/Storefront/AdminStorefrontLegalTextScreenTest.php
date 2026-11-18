@@ -3,6 +3,7 @@
 namespace Tests\Feature\Storefront;
 
 use App\Models\StorefrontLegalDocument;
+use App\Services\Storefront\StorefrontLegalPublisher;
 use App\Services\Storefront\StorefrontLegalReadiness;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -239,6 +240,34 @@ class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
         $this->assertSame(StorefrontLegalDocument::STATUS_PUBLISHED, $text->status);
         $this->assertSame($day->getTimestamp(), $text->effective_from->getTimestamp(), 'the day typed is the instant in UTC');
         $this->assertNull(app(StorefrontLegalReadiness::class)->currentTextFor('KW', 'terms', 'en'), 'a text scheduled for a later day is not in force yet');
+    }
+
+    /** @return array<string, array{string}> */
+    public static function daysAfterTheLastMomentTheDatabaseKeeps(): array
+    {
+        return ['the first minute after it' => ['2038-01-01 00:00'], 'a year after it' => ['2038-12-31 23:59'], 'far after it' => ['9999-12-31 23:59']];
+    }
+
+    #[DataProvider('daysAfterTheLastMomentTheDatabaseKeeps')]
+    public function test_a_day_after_the_end_of_2037_is_a_validation_error_not_a_database_failure_and_the_last_minute_is_accepted(string $day): void
+    {
+        $this->signInAs(self::LEGAL_WRITER);
+        $id = $this->draftThroughTheScreen();
+        $this->post(route('admin.storefronts.legal-texts.edit', $id), ['body' => self::WORDS]);
+        $this->signInAs(self::LEGAL_APPROVER);
+        $this->approveThroughTheScreen($id);
+        $linesBefore = DB::table('audit_logs')->count();
+
+        $this->publishThroughTheScreen($id, ['effective_from' => $day])->assertSessionHasErrors(['effective_from' => translate('the_day_is_too_late_the_latest_moment_a_text_can_take_effect_utc') . ': ' . StorefrontLegalPublisher::LATEST_EFFECTIVE_MOMENT_UTC]);
+
+        $this->assertSame(StorefrontLegalDocument::STATUS_APPROVED, $this->text($id)->status);
+        $this->assertSame($linesBefore, DB::table('audit_logs')->count());
+
+        $this->publishThroughTheScreen($id, ['effective_from' => '2037-12-31 23:59'])->assertSessionHasNoErrors();
+
+        $text = $this->text($id);
+        $this->assertSame(StorefrontLegalDocument::STATUS_PUBLISHED, $text->status);
+        $this->assertSame(CarbonImmutable::parse('2037-12-31 23:59', 'UTC')->getTimestamp(), $text->effective_from->getTimestamp(), 'the last minute of 2037 is kept as the instant that was typed');
     }
 
     public function test_the_days_of_the_page_are_in_utc_with_the_suffix_whatever_the_time_zone_of_the_application_is(): void

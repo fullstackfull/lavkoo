@@ -6776,6 +6776,7 @@ return [
 	"storefront_stop_mode_redirect" => "Redirect",
 	"storefronts" => "Storefronts",
 	"storefronts_are_switched_off_so_nothing_reads_these_decisions_yet" => "Storefronts are switched off (GCC_STOREFRONTS_ENABLED), so nothing reads these decisions yet.",
+	"the_day_is_too_late_the_latest_moment_a_text_can_take_effect_utc" => "The day is too late. The latest moment a text can take effect (UTC)",
 	"the_default_storefront_is_active_without_a_record_and_can_only_be_paused_browse_only" => "The default storefront is active without a record and can only be paused browse-only.",
 	"the_stop_is_expected_to_end" => "The stop is expected to end",
 	"the_table_of_legal_texts_does_not_exist_yet_run_the_migrations" => "The table of legal texts does not exist yet: run the migrations.",
