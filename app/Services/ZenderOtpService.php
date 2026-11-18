@@ -146,7 +146,6 @@ class ZenderOtpService
                 'device' => $settings->device,
                 'gateway' => $settings->gateway,
                 'sim' => $settings->sim,
-                'message' => $message,
             ]);
 
             /*
@@ -242,6 +241,7 @@ class ZenderOtpService
 
         $debugPayload = $payload;
         $debugPayload['secret'] = '***HIDDEN***';
+        $debugPayload['message'] = '***HIDDEN***';
 
         Log::info('Zender WhatsApp Request', [
             'url' => $url,
