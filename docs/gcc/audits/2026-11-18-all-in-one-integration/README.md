@@ -14,7 +14,7 @@
 - **Semantic conflicts, found only with the sets together:** a test or a document written for one pull request pins what the pull request's own base did, and a sibling pull request changes it on purpose. Each is listed below with the behaviour the combined tree has. None of them changes the code of a pull request, except where the table says so.
 - **One defect of the security set found on the way and fixed:** a digital file row read without its id (an aggregate or a partial select) raised a `TypeError` as soon as it was serialized, in both modes of the private-files switch (PR 69). The fix is `4096f1be` on the branch of PR 69, with a test that fails without it. **The hotfix line carries the same code** (the hotfix port of PR 69, commit `53ba4a25`, stage 4): the stage 4 package has to be rebuilt with the fix before it is deployed, see below.
 - **One accident, fixed:** a forced add put five generated framework cache files into the PR 87 merge; the repository's leak guard matched the word "password" in a service provider id. They are removed in `c30390d1`.
-- **Local runs on SQLite of the groups the merges touch:** Wallet and loyalty (223 tests), Storefront, Wallet, Address, Checkout and Payment together (1,770 tests), the staff scope group (462 tests, 10 skipped as MySQL-only), the security tests of the seller APIs (542 tests): all passing at `c30390d1`. **CI:** run 279 on `c30390d1` was read per job (next section); the findings are reconciled at `515d5bfa`, which runs as run 280; its result is added at the end of this document when it is read, and nothing here is a claim about it before then.
+- **Local runs on SQLite of the groups the merges touch:** Wallet and loyalty (223 tests), Storefront, Wallet, Address, Checkout and Payment together (1,770 tests), the staff scope group (462 tests, 10 skipped as MySQL-only), the security tests of the seller APIs (542 tests): all passing at `c30390d1`. **CI:** run 279 on `c30390d1` was read per job (next section); the findings are reconciled at `515d5bfa`, which runs as run 288 (id 44266516940); its result is added at the end of this document when it is read, and nothing here is a claim about it before then.
 
 ## Semantic conflicts and what the combined tree does
 
@@ -76,7 +76,7 @@
 | 34 | [#87](https://github.com/fullstackfull/lavkoo/pull/87) | `gcc/p1-storefront-currency` | `8f3d0f38` | `app/Http/Controllers/RestAPI/v3/seller/POSController.php`, `bootstrap/app.php` | the order record follows the seller POS transaction; four tests learn what the other sets closed. PR 87 (GCC-05, storefront currency, slices 1 to 4) meets the security set and the wallet and order PRs in two files. bootstrap/app.php keeps both middleware aliases. |
 | 35 | [#87](https://github.com/fullstackfull/lavkoo/pull/87) | `gcc/p1-storefront-currency` | `55487514` | none | merged without a conflict |
 
-## CI run 279, read per job (07:07 to 08:25 UTC, cancelled once its findings were read)
+## CI run 279, read per job (07:07 to 08:23 UTC, cancelled once its findings were read)
 
 Run 279 was dispatched on `c30390d1`. Nineteen jobs finished green (the leak guard, PHP syntax on 8.2 and 8.3, Fulfillment + security, Staff scope, Storefront, Catalog and Address on MySQL 8 and MariaDB 11.4.2, MyFatoorah on both, sales channels N-Z on both, A-M and costs on MariaDB). The jobs that were not green, with the cause of each:
 
