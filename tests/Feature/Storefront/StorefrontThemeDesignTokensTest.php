@@ -12,8 +12,12 @@ use Tests\TestCase;
 
 /**
  * GCC F-12: the design tokens of a storefront are the settings of the published version of its theme laid over the code defaults, key by key, and the website and the app are given the same ones. A
- * version that sets a key changes that key only, a version that sets nothing is the defaults, and the colours, the type size and the corners the page head writes as CSS variables are the values the
- * app payload carries as `tokens`, for a token the version overrides and for one it leaves at the code default.
+ * version that sets a key changes that key only (a key the defaults do not know comes through as well), a version that sets nothing is the defaults, and the colours, the type size and the corners the
+ * partial theme-global-tokens writes as CSS variables are the values the app payload carries as `tokens`, for a token the version overrides and for one it leaves at the code default.
+ *
+ * The web side is that partial rendered with the settings StorefrontThemeRenderer::publishedGlobalSettings resolves for the published theme: four tokens, written as nine variables and two RGB values. That
+ * the layout renders the partial with those settings is pinned structurally only (a string match on the layout's source), and the draft-preview branch of publishedGlobalSettings is not covered. The
+ * branding group is not compared, see TOKENS_OF_THE_APP.
  */
 class StorefrontThemeDesignTokensTest extends TestCase
 {
@@ -25,7 +29,13 @@ class StorefrontThemeDesignTokensTest extends TestCase
         'AE' => ['colors' => ['secondary' => '#00a651'], 'layout' => ['border_radius' => 20]],
     ];
 
-    /** The groups of tokens the app payload carries as the settings resolve them. The page head writes no variable from the branding group. */
+    /**
+     * The groups of tokens the app payload carries as the settings resolve them. The page head writes no variable from the branding group, so the web has nothing to compare it with. It is left out for a
+     * second reason, a defect of the application that this tests-only change does not touch: ThemeDelivery::tokens hands the app null for every branding value that is not a non-empty string, so the logo
+     * width and height a merchant sets (numbers, 140 and 40 by default) never arrive. GET /api/v1/theme/home with X-Storefront: SA, for a published version whose settings are branding {logo: '/storage/logo.png',
+     * logo_width: 200, logo_height: 60}, answers 200 with tokens.branding {logo: 'http://localhost/storage/logo.png', mobile_logo: null, favicon: null, logo_width: null, logo_height: null}, while
+     * ThemeManager::resolveSettings gives 200 and 60.
+     */
     private const TOKENS_OF_THE_APP = ['colors', 'typography', 'layout'];
 
     /** The CSS variables the page head writes from the settings: the token each comes from, and what is written after its value. */
@@ -57,7 +67,7 @@ class StorefrontThemeDesignTokensTest extends TestCase
         parent::tearDown();
     }
 
-    /** @return array<string, array{0: array<string, mixed>}> the keys a version sets, by their path, each a key the code defaults hold with another value */
+    /** @return array<string, array{0: array<string, mixed>}> the keys a version sets, by their path: keys the code defaults hold with another value, and keys they do not hold at all */
     public static function whatAVersionSets(): array
     {
         return [
@@ -65,6 +75,8 @@ class StorefrontThemeDesignTokensTest extends TestCase
             'one key of every group' => [['branding.logo_width' => 200, 'colors.text' => '#000000', 'typography.line_height' => 1.4, 'layout.container_width' => 1400]],
             'keys whose default is nothing' => [['branding.logo' => '/storage/logo.png', 'branding.favicon' => '/storage/favicon.ico']],
             'a number and a word' => [['typography.base_font_size' => 18, 'layout.button_style' => 'square']],
+            'a key the defaults do not know, in a group they do' => [['colors.brand_gradient' => '#123456']],
+            'a group the defaults do not know' => [['promotion.badge_color' => '#fa5252', 'promotion.badge_shape' => 'pill']],
         ];
     }
 
@@ -88,7 +100,7 @@ class StorefrontThemeDesignTokensTest extends TestCase
     /** @return array<string, string> the CSS variables the page head of a storefront writes from the settings of its published theme, by name */
     private function cssVariablesOfThePageHeadOf(string $country): array
     {
-        $this->serveRequestFromStorefront($country);
+        $this->serveRequestFromStorefront(country: $country);
         $settings = app(StorefrontThemeRenderer::class)->publishedGlobalSettings(manager: app(ThemeManager::class));
         $this->assertNotNull($settings, "{$country} has a published theme");
 
@@ -112,13 +124,13 @@ class StorefrontThemeDesignTokensTest extends TestCase
         $defaults = $manager->defaultSettings();
         $expected = $defaults;
         foreach ($set as $path => $value) {
-            Arr::set($expected, $path, $value);
+            Arr::set(array: $expected, key: $path, value: $value);
         }
 
-        $resolved = $manager->resolveSettings(version: new ThemeVersion(['settings' => Arr::undot($set)]));
+        $resolved = $manager->resolveSettings(version: new ThemeVersion(['settings' => Arr::undot(array: $set)]));
 
         $this->assertSame($expected, $resolved);
-        $this->assertEqualsCanonicalizing(array_keys($set), array_keys(array_diff_assoc(Arr::dot($resolved), Arr::dot($defaults))), 'a key the version did not set differs from its default, or one it set does not');
+        $this->assertEqualsCanonicalizing(array_keys($set), array_keys(array_diff_assoc(Arr::dot(array: $resolved), Arr::dot(array: $defaults))), 'a key the version did not set differs from its default, or one it set does not');
     }
 
     #[DataProvider('versionsThatSetNothing')]
@@ -170,13 +182,13 @@ class StorefrontThemeDesignTokensTest extends TestCase
             $this->assertSame($expected[$group][$token], $app[$group][$token], "{$group}.{$token} in the app");
         }
         foreach (['--web-primary-rgb', '--bs-base-rgb'] as $variable) {
-            $this->assertSame(getHexToRGBColorCode($app['colors']['primary']), $web[$variable], "{$variable} follows the primary colour of the app");
+            $this->assertSame(getHexToRGBColorCode(hex: $app['colors']['primary']), $web[$variable], "{$variable} follows the primary colour of the app");
         }
-        foreach (Arr::dot(self::OVERRIDES[$country]) as $path => $value) {
-            $this->assertNotSame(Arr::get($defaults, $path), $value, "{$path} is overridden with the value of the default, so the check below proves nothing");
+        foreach (Arr::dot(array: self::OVERRIDES[$country]) as $path => $value) {
+            $this->assertNotSame(Arr::get(array: $defaults, key: $path), $value, "{$path} is overridden with the value of the default, so the check below proves nothing");
         }
-        foreach (Arr::dot(Arr::only($expected, self::TOKENS_OF_THE_APP)) as $path => $value) {
-            $this->assertSame($value, Arr::get($app, $path), "{$path} in the app");
+        foreach (Arr::dot(array: Arr::only(array: $expected, keys: self::TOKENS_OF_THE_APP)) as $path => $value) {
+            $this->assertSame($value, Arr::get(array: $app, key: $path), "{$path} in the app");
         }
     }
 
@@ -189,6 +201,7 @@ class StorefrontThemeDesignTokensTest extends TestCase
         $this->assertNotSame($this->tokensTheAppIsGivenBy(country: 'SA'), $this->tokensTheAppIsGivenBy(country: 'AE'));
     }
 
+    /** A structural pin, not a rendering: the layout's source holds the call that gives the partial the published settings of the storefront and the include of the partial. A refactor that keeps the behaviour (a view composer, a split call) moves the pin. */
     public function test_the_page_head_hands_the_partial_the_published_settings_of_the_storefront(): void
     {
         $layout = (string) file_get_contents(resource_path('themes/default/layouts/front-end/app.blade.php'));

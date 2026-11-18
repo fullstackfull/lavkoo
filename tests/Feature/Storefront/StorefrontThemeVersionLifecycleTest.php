@@ -58,8 +58,9 @@ class StorefrontThemeVersionLifecycleTest extends TestCase
     }
 
     /**
-     * A theme with an archived version, the live one and a draft that waits for a moment, each with a hero of two slides and a product rail of its own, the rail hidden and
-     * carrying delivery rules, so that a copy that forgot any of it would show.
+     * A theme with an archived version, the live one and a draft that waits for a moment, each with a hero of two slides and a product rail of its own, the rail hidden and carrying delivery rules, so that
+     * a copy that forgot any of it would show. The archived and the live version still hold the moment they were once scheduled for, which nothing cleared (a publish by hand leaves it), so that a copy that
+     * took the schedule of its source would show too.
      *
      * @return array{theme: Theme, archived: ThemeVersion, live: ThemeVersion, draft: ThemeVersion}
      */
@@ -69,8 +70,8 @@ class StorefrontThemeVersionLifecycleTest extends TestCase
 
         return [
             'theme' => $theme,
-            'archived' => $this->giveVersion(theme: $theme, status: ThemeVersion::STATUS_ARCHIVED, revision: 1, marker: 11, settings: ['colors' => ['primary' => '#112233'], 'layout' => ['border_radius' => 14]]),
-            'live' => $this->giveVersion(theme: $theme, status: ThemeVersion::STATUS_PUBLISHED, revision: 2, marker: 22, settings: ['colors' => ['primary' => '#445566']]),
+            'archived' => $this->giveVersion(theme: $theme, status: ThemeVersion::STATUS_ARCHIVED, revision: 1, marker: 11, settings: ['colors' => ['primary' => '#112233'], 'layout' => ['border_radius' => 14]], publishAt: now()->subDays(11)),
+            'live' => $this->giveVersion(theme: $theme, status: ThemeVersion::STATUS_PUBLISHED, revision: 2, marker: 22, settings: ['colors' => ['primary' => '#445566']], publishAt: now()->subDays(2)),
             'draft' => $this->giveVersion(theme: $theme, status: ThemeVersion::STATUS_DRAFT, revision: null, marker: 33, settings: ['typography' => ['base_font_size' => 18]], publishAt: now()->addHours(3)),
         ];
     }
@@ -99,7 +100,7 @@ class StorefrontThemeVersionLifecycleTest extends TestCase
         }
         ThemeSection::query()->create([
             'theme_version_id' => $version->id, 'page' => 'home', 'type' => 'product_slider', 'sort_order' => 2, 'is_visible' => false, 'settings' => ['source' => 'new_arrival', 'limit' => $marker],
-            'starts_at' => now()->addDay(), 'ends_at' => now()->addDays(9), 'platforms' => ['app'], 'channels' => ['customer_app'],
+            'starts_at' => now()->addDay(), 'ends_at' => now()->addDays(9), 'platforms' => ['app'], 'audience' => ['customer'], 'channels' => ['customer_app'],
         ]);
 
         return $version;
@@ -174,6 +175,7 @@ class StorefrontThemeVersionLifecycleTest extends TestCase
             $this->assertEquals($before[$table], array_slice($after[$table], 0, count($before[$table])), "A row of {$table} that existed before the restore was changed.");
             $this->assertGreaterThan(count($before[$table]), count($after[$table]), "The restore added nothing to {$table}.");
         }
+        $this->assertSame([], ThemeVersion::query()->dueToPublish()->pluck('id')->all(), 'the restored draft is not one the scheduler would publish');
         $this->assertSame([$history['live']->id], ThemeVersion::query()->where('theme_id', $history['theme']->id)->published()->pluck('id')->all());
         $this->assertSame(2, (int) ThemeVersion::query()->where('theme_id', $history['theme']->id)->max('revision'));
         $this->assertNull($restored->fresh()->published_at);
@@ -210,7 +212,7 @@ class StorefrontThemeVersionLifecycleTest extends TestCase
             app(ThemeManager::class)->restoreVersion(source: $history['archived']);
         }
 
-        $this->assertSame(['SA' => 'Saudi', 'AE' => 'Emirati', 'KW' => 'Saudi'], $servedBefore, 'Kuwait is served the default storefront\'s theme as its own is not active');
+        $this->assertSame(['SA' => 'Saudi', 'AE' => 'Emirati', 'KW' => 'Saudi', 'QA' => 'Saudi', 'BH' => 'Saudi', 'OM' => 'Saudi'], $servedBefore, 'a storefront whose own theme is not active, or that has none, is served the default storefront\'s theme');
         $this->assertSame($servedBefore, $this->themeServedToEachStorefront());
         $this->assertEquals($themesBefore, $this->rowsOfTheThemeTables()['themes']);
         $this->assertSame([true, true, false], Theme::query()->orderBy('id')->pluck('is_active')->map(static fn ($active): bool => (bool) $active)->all());

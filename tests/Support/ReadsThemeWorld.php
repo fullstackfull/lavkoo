@@ -19,12 +19,12 @@ trait ReadsThemeWorld
         return $rows;
     }
 
-    /** @return array<string, ?string> the name of the theme each of three storefronts is served, by country: the default one, one with its own theme, one that has none of its own */
+    /** @return array<string, ?string> the name of the theme each of the six storefronts is served, by country: the one it has of its own that is active, or else the default storefront's */
     protected function themeServedToEachStorefront(): array
     {
         $served = [];
-        foreach (['SA', 'AE', 'KW'] as $country) {
-            $this->serveRequestFromStorefront($country);
+        foreach (['SA', 'AE', 'KW', 'QA', 'BH', 'OM'] as $country) {
+            $this->serveRequestFromStorefront(country: $country);
             $served[$country] = app(StorefrontThemeResolver::class)->activeTheme()?->name;
         }
 

@@ -99,7 +99,8 @@ class StorefrontThemeImportTest extends TestCase
         $this->assertSame(['Spring copy', false, false, 'admin'], [$theme->name, $theme->is_active, $theme->is_system, $theme->created_by_type]);
         $this->assertSame(self::ADMIN_ID, (int) $theme->created_by_id);
         $this->assertSame([$draft->id], $theme->versions()->pluck('id')->all(), 'one version, and it is the one the import returned');
-        $this->assertSame([ThemeVersion::STATUS_DRAFT, 'Imported', null, null], [$draft->status, $draft->label, $draft->published_at, $draft->revision]);
+        $stored = $draft->fresh();
+        $this->assertSame([ThemeVersion::STATUS_DRAFT, 'Imported', null, null, null, null], [$stored->status, $stored->label, $stored->published_at, $stored->publish_at, $stored->revision, $stored->checksum]);
         $this->assertEquals($source->settings, $draft->settings);
         $this->assertSame(0, ThemeVersion::query()->where('theme_id', $theme->id)->published()->count(), 'nothing is live');
 
@@ -144,7 +145,7 @@ class StorefrontThemeImportTest extends TestCase
 
         $imported = app(ThemePortabilityService::class)->import(payload: $file, adminId: self::ADMIN_ID);
 
-        $this->assertSame(['SA' => 'Glossy', 'AE' => 'Emirati', 'KW' => 'Glossy'], $servedBefore);
+        $this->assertSame(['SA' => 'Glossy', 'AE' => 'Emirati', 'KW' => 'Glossy', 'QA' => 'Glossy', 'BH' => 'Glossy', 'OM' => 'Glossy'], $servedBefore);
         $this->assertSame($servedBefore, $this->themeServedToEachStorefront());
         $this->assertSame(['Glossy', 'Emirati'], $this->activeThemeNames(), 'the imported theme is not among the active ones');
         $this->assertFalse($imported['theme']->fresh()->is_active);

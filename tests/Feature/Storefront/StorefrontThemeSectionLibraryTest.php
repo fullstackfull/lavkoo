@@ -11,15 +11,15 @@ use Tests\TestCase;
 
 /**
  * GCC F-10: one section library and one component capability registry serve every storefront. What a merchant can compose and what the app can draw are the same list whichever storefront asks,
- * and a section type is never copied for a country: no type, block type, capability or section file carries a storefront suffix, so a storefront differs from another in its catalogue and its theme,
- * never in the sections it can use.
+ * and a section type is never copied for a country: no type, block type, capability or section file is named for a country, by its code at either end or by its name, so a storefront differs from
+ * another in its catalogue and its theme, never in the sections it can use.
  */
 class StorefrontThemeSectionLibraryTest extends TestCase
 {
     use BuildsThemeWorld;
 
-    /** A name that ends in a country the platform sells in, joined by an underscore or a hyphen. */
-    private const NAMES_A_COUNTRY = '/(_|-)(sa|ae|kw|qa|bh|om)$/i';
+    /** A name made for a country the platform sells in: its code at the end or at the start, joined by an underscore or a hyphen, or its name as a word of its own. */
+    private const NAMES_A_COUNTRY = '/(_|-)(sa|ae|kw|qa|bh|om)$|^(sa|ae|kw|qa|bh|om)(_|-)|(^|_|-)(saudi|ksa|emirates|emirati|uae|kuwait|kuwaiti|qatar|qatari|bahrain|bahraini|oman|omani)($|_|-)/i';
 
     private const COUNTRIES = ['SA', 'AE', 'KW', 'QA', 'BH', 'OM'];
 
@@ -33,7 +33,7 @@ class StorefrontThemeSectionLibraryTest extends TestCase
     /** @return array<string, mixed> everything the two registries answer, asked of fresh instances while the request is served from one storefront */
     private function whatTheLibraryAnswersTo(string $country): array
     {
-        $this->serveRequestFromStorefront($country);
+        $this->serveRequestFromStorefront(country: $country);
         $sections = new SectionRegistry();
         $capabilities = new ComponentCapabilityRegistry();
         $types = array_keys($sections->types());
@@ -99,7 +99,7 @@ class StorefrontThemeSectionLibraryTest extends TestCase
     {
         foreach ($this->namesInTheLibrary() as $list => $names) {
             $this->assertNotSame([], $names, "{$list} holds nothing, so the check below would prove nothing.");
-            $this->assertSame([], array_values(array_filter($names, static fn (string $name): bool => preg_match(self::NAMES_A_COUNTRY, $name) === 1)), "{$list} holds a name that ends in a country.");
+            $this->assertSame([], array_values(array_filter($names, static fn (string $name): bool => preg_match(self::NAMES_A_COUNTRY, $name) === 1)), "{$list} holds a name made for a country.");
         }
     }
 
@@ -113,12 +113,17 @@ class StorefrontThemeSectionLibraryTest extends TestCase
         $this->assertSame([], array_values(array_filter($files, static fn (string $name): bool => preg_match(self::NAMES_A_COUNTRY, $name) === 1)));
     }
 
-    public function test_the_check_sees_a_name_that_ends_in_a_country(): void
+    public function test_the_check_sees_a_name_made_for_a_country_and_none_that_only_looks_like_one(): void
     {
-        foreach (['hero_banner_ae', 'product_slider-sa', 'spacer_KW', 'faq_qa', 'brand_slider_bh', 'bundle-om'] as $copy) {
+        $copies = [
+            'hero_banner_ae', 'product_slider-sa', 'spacer_KW', 'faq_qa', 'brand_slider_bh', 'bundle-om',
+            'ae_hero_banner', 'KW-spacer', 'sa_category_grid', 'om-bundle',
+            'hero_banner_kuwait', 'saudi_offers', 'banner-oman', 'UAE_banner', 'qatar', 'bahraini_hero', 'emirates_slider', 'ksa-footer',
+        ];
+        foreach ($copies as $copy) {
             $this->assertSame(1, preg_match(self::NAMES_A_COUNTRY, $copy), $copy);
         }
-        foreach (['hero_banner', 'custom_html', 'category_grid', 'banner_mosaic', 'usp_strip', 'sale', 'omega_set'] as $type) {
+        foreach (['hero_banner', 'custom_html', 'category_grid', 'banner_mosaic', 'usp_strip', 'sale', 'omega_set', 'romance_banner', 'kwik_links', 'sandwich_menu'] as $type) {
             $this->assertSame(0, preg_match(self::NAMES_A_COUNTRY, $type), $type);
         }
     }

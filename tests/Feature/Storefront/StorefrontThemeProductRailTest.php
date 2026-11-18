@@ -16,6 +16,9 @@ use Tests\TestCase;
  * GCC F-10: a product rail in a theme section shows only the products of the storefront that asks. A rail is the same section in every storefront, so what tells two storefronts' rails apart
  * is the catalogue each one reads: the web page draws the products of its own storefront, and the home payload tells the app to fetch them from an endpoint that answers for the storefront the app
  * names in its header. A storefront that is served the default storefront's theme still shows its own products in it, and one that sells nothing yet shows an empty rail, never another country's.
+ *
+ * Covered: the product_slider section type, with every source but a merchant's own collection (featured, newest, best selling, top rated, a category, a brand, picked by hand). Not covered: the
+ * collection source, which needs the merchandising tables, and the other section types that draw products.
  */
 class StorefrontThemeProductRailTest extends TestCase
 {
@@ -60,20 +63,25 @@ class StorefrontThemeProductRailTest extends TestCase
     {
         DB::table('currencies')->insert(['id' => 1, 'name' => 'USD', 'symbol' => '$', 'code' => 'USD', 'exchange_rate' => 1, 'status' => 1]);
         foreach (['system_default_currency' => '1', 'currency_model' => 'single_currency', 'currency_symbol_position' => 'left', 'decimal_point_settings' => '2', 'stock_limit' => '5'] as $type => $value) {
-            $this->setBusinessSetting($type, $value);
+            $this->setBusinessSetting(type: $type, value: $value);
         }
-        $this->setBusinessSetting('language', [['id' => 1, 'name' => 'english', 'code' => 'en', 'status' => 1, 'default' => true]]);
+        $this->setBusinessSetting(type: 'language', value: [['id' => 1, 'name' => 'english', 'code' => 'en', 'status' => 1, 'default' => true]]);
         DB::table('brands')->insert(['id' => self::BRAND, 'name' => 'Glow', 'slug' => 'glow', 'status' => 1]);
         Cache::flush();
     }
 
-    /** Two products for each storefront, with the ids 1 and 2 for the first, 3 and 4 for the second and so on, all of one brand and one category so that every source of a rail finds them. */
+    /**
+     * Two products for each storefront, with the ids 1 and 2 for the first, 3 and 4 for the second and so on, all of one brand and one category, each sold once and reviewed once, so that every
+     * source of a rail finds them: the best sellings are the products that were ordered and the top rated the ones that were reviewed.
+     */
     private function giveEachStorefrontItsProducts(): void
     {
         $id = 0;
         foreach (self::PRODUCTS_OF as $country => $names) {
             foreach ($names as $name) {
                 $this->insertProduct(id: ++$id, name: $name, extra: ['storefront_country' => $country, 'featured' => 1, 'brand_id' => self::BRAND]);
+                DB::table('order_details')->insert(['product_id' => $id, 'qty' => 2, 'delivery_status' => 'delivered']);
+                DB::table('reviews')->insert(['product_id' => $id, 'customer_id' => 1, 'rating' => 5, 'status' => 1]);
             }
         }
     }
@@ -93,12 +101,14 @@ class StorefrontThemeProductRailTest extends TestCase
         }
     }
 
-    /** @return array<string, array{0: array<string, mixed>}> every way a rail can be told what to show that both the web and the app can answer here */
+    /** @return array<string, array{0: array<string, mixed>}> every way a rail can be told what to show that both the web and the app can answer here: all but a merchant's own collection, which needs the merchandising tables */
     public static function whatARailCanShow(): array
     {
         return [
             'the featured products' => [['source' => 'featured']],
             'the newest products' => [['source' => 'new_arrival']],
+            'the best selling products' => [['source' => 'best_selling']],
+            'the top rated products' => [['source' => 'top_rated']],
             'the products of a category' => [['source' => 'category', 'source_id' => self::CATEGORY]],
             'the products of a brand' => [['source' => 'brand', 'source_id' => self::BRAND]],
             'products picked by hand, of every storefront' => [['source' => 'manual', 'product_ids' => '1,3,5,2,4,6']],
@@ -107,7 +117,7 @@ class StorefrontThemeProductRailTest extends TestCase
 
     private function webPageOf(string $country): string
     {
-        $this->serveRequestFromStorefront($country);
+        $this->serveRequestFromStorefront(country: $country);
 
         return view('theme-sections.home')->render();
     }
