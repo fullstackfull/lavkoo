@@ -163,7 +163,27 @@ class StaffReportScreensTest extends TestCase
         });
         $request();
 
-        return array_map(static fn (array $data): array => Arr::except((array) json_decode((string) json_encode($data), true), ['errors', '__env', 'app', 'obLevel', 'web_config', 'language']), $captured);
+        return array_map(fn (array $data): array => $this->inIdOrder(Arr::except((array) json_decode((string) json_encode($data), true), ['errors', '__env', 'app', 'obLevel', 'web_config', 'language'])), $captured);
+    }
+
+    /**
+     * Compares a list of records as a set. The rows of a test are written in the same second, so the rows of a screen that sorts by the time they were made tie, and each engine
+     * (and each query plan) returns the tied rows in the order it chooses: MariaDB 11.4 returned the lines of two orders the other way round than the pruned request did. The figures
+     * are what this test is about, not the order of a tie.
+     */
+    private function inIdOrder(mixed $value): mixed
+    {
+        if (!is_array($value)) {
+            return $value;
+        }
+
+        $value = array_map(fn (mixed $item): mixed => $this->inIdOrder($item), $value);
+
+        if (array_is_list($value) && $value !== [] && collect($value)->every(static fn (mixed $row): bool => is_array($row) && array_key_exists('id', $row))) {
+            usort($value, static fn (array $first, array $second): int => $first['id'] <=> $second['id']);
+        }
+
+        return $value;
     }
 
     /** Takes every order, line, money record, refund and product that is not the employee's out of the shop, as the set logic of the rule says: the figures that remain are the ones an unrestricted request over a shop of their own would give. */
