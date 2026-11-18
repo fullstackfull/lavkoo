@@ -12,7 +12,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__)) + '/'
 # The assessor and verifier results (journals), the pull request lists and context.json are in data/ (unpack data.tar.xz next to this file); GCC_TRACKER_DATA overrides the place.
-DATA = os.environ.get('GCC_TRACKER_DATA', HERE + 'data/')
+DATA = os.path.join(os.environ.get('GCC_TRACKER_DATA', HERE + 'data'), '')
 WF_ROOT = DATA + 'journals/'
 MASTER = DATA
 # The three clones that the evidence check reads with git show; GCC_REPOS_ROOT is the directory that holds them.
