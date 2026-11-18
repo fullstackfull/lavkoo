@@ -1,0 +1,14 @@
+{
+    "body": {
+        "message": "inefficient balance in your wallet to pay for this order"
+    },
+    "rows": {
+        "carts_left": 1,
+        "order_details": [],
+        "orders": [],
+        "stock_of_product_1": 10,
+        "wallet_balance": 30,
+        "wallet_ledger": []
+    },
+    "status": 403
+}
