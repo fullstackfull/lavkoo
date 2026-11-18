@@ -1,6 +1,6 @@
 # Axis K: Flutter seller app
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 23. Acceptance criteria: 91 (MET 5, CODED 36, MISSING 50). Code completion 45%, proven by a passing test 5%, release readiness 2%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 23. Acceptance criteria: 91 (MET 6, CODED 36, MISSING 49). Code completion 46%, proven by a passing test 7%, release readiness 2%.
 
 Independent verification: done for unit(s) K.
 
@@ -375,17 +375,19 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(3) Exists now in code (main).** The seller app has a bundled theme (ThemeController: a light or dark bool in SharedPreferences) and no theme endpoint in AppConstants (Discovery E19 s.4). It reads config active_theme to choose shop banner image rules (shop_update_screen.dart theme_aster and theme_fashion; registration and info field).
 - **(4) Done in the draft PRs.** Nothing in the seller app. The audit exists: Discovery E19, E20 and R-117 (owner decision on the seller's theme scope). Per-country themes in the backend belong to another unit.
 - **(5) What remains.** Owner decision on the seller's theme scope (R-117); replace the active_theme dependency of the shop image rules by explicit image rules or an additive server-provided rule; a source-rule test that no lib file calls a theme endpoint; company name and logo on the maintenance screen stay global until GCC-10 is applied to the app.
-- **(6) PRs and commits.** none
+- **(6) PRs and commits.** [lavkooappseller#7](https://github.com/fullstackfull/lavkooappseller/pull/7) `3eba869`
 - **(7) Tests.**
   - `none` none: no test asserts that the app calls no theme endpoint or that image rules ignore active_theme (-)
 - **(8) Dependencies and blockers.** Owner decision R-117; backend per-country themes (GCC-07) must keep config active_theme meaningful for old apps.
 - **(9) Acceptance criteria.**
   - [CODED] The seller app consumes no theme endpoint and keeps its own bundled light and dark theme (ThemeController stores a bool; AppConstants has no theme URI (Discovery E19 s.4); no test pins it)
   - [MISSING] Shop banner and logo rules in registration and shop update do not depend on the single global active_theme (shop_update_screen.dart: configModel?.activeTheme == "theme_aster")
-  - [MISSING] A source test fails if any lib file calls a theme endpoint (no such test in any seller tree)
+  - [MET] A source test fails if any lib file calls a theme endpoint (lavkooappseller #7 (draft, test and one CI step, no application code, 3eba869): test/no_theme_call_test.dart fails if a file under lib names /api/v1/theme/sections, /home, /version or products/theme-collection (an import of a Dart file is not a call), and tests its own scan on four calls it must see and six lines it must leave alone. CI run 15 on 3eba869, read per step on 2026-11-18: the step 'Test that the seller app makes no theme call (F-03, K-18)' passed 3 tests; the full 'Test' step ended 144 passed, 1 failed, the one failure being the known app_version_gate_test (shipped 1.0.0+3 against the published minimum 2.0.1), which this change does not touch)
 - **(10) Next coding task.** app, branch off main: add a source-rule test (pattern of test/pos_scan/pos_scan_source_rules_test.dart) that fails when any lib file calls a theme endpoint, and move the shop image size rule from active_theme to a constant table keyed by image slot; no UI change; record the owner's R-117 answer in the PR.
 - **Open owner decisions.** Q-43 (D-12; risk R-117): the seller app's theme scope (own static theme versus consuming the theme contract, or only image rules) and whether the app shows the market's brand (GCC-10).
 - **Verifier note (not applied automatically).** owner_decisions corrected by the verifier (applied above).
+- **Update after the assessment.** lavkooappseller #7 (draft, 3eba869): a source test pins that the seller app makes no theme call, and CI runs it by name before the full run (which is red on main for the known version gate test, so a named step is the only way a new test can be read there). Not done: K-18.1 (the shop banner and logo rules still read the global active theme).
+- **Next coding task today (supersedes item 10 above).** K-18.1: the shop banner and logo rules in registration and shop update must not depend on the single global active_theme.
 
 #### K-V1. Seller app compatibility with the open backend PRs that change seller v3 answers but were not read i...
 

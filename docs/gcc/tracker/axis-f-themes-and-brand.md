@@ -1,6 +1,6 @@
 # Axis F: Themes and brand
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 16. Acceptance criteria: 74 (MET 10, CODED 34, MISSING 30). Code completion 59%, proven by a passing test 14%, release readiness 1%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 16. Acceptance criteria: 74 (MET 10, CODED 36, MISSING 28). Code completion 62%, proven by a passing test 14%, release readiness 1%.
 
 Independent verification: done for unit(s) F.
 
@@ -58,19 +58,21 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(3) Exists now in code (main).** Section-level platforms and channels (web, customer_app, vendor_app) and a page-level channel restrict what each client draws. vendor_app is registered but not renderable; the seller app calls no theme API on any branch and reads only config active_theme (the folder name, always default). One version, one publish and one token set serve both channels.
 - **(4) Done in the draft PRs.** Nothing. No PR touches channel targeting, the publish unit or the seller app's theme use.
 - **(5) What remains.** Owner decision: separate web and app publish per storefront, or channel targeting inside one version. If required: per-channel version or publish pointer, revision and checksum per channel, preview per channel. Add channels to the stored checksum (E07-F18). Pin the channel rules with tests.
-- **(6) PRs and commits.** none
+- **(6) PRs and commits.** [lavkoo#113](https://github.com/fullstackfull/lavkoo/pull/113) `71c01d0d`
 - **(7) Tests.**
   - `none` No test of SectionVisibility, Channel, the page channel rules or the checksum exists in any tree.
 - **(8) Dependencies and blockers.** F-01 and F-02 for the per-store half; an owner decision on separate publish; theme tests and the theme schema are absent from the repository.
 - **(9) Acceptance criteria.**
   - [CODED] A section limited to customer_app is absent from the web page and one limited to web is absent from the app payload (SectionVisibility and Channel::permits; no test)
   - [CODED] A page whose channel is customer_app is not served at /p/{slug}, and a web page is a 404 for the app (ExperiencePageService::servableSlugs; no test)
-  - [MISSING] The seller app and a vendor_app client receive no theme sections (Channel::RENDERABLE excludes vendor_app; the seller app makes no theme call; no test)
+  - [CODED] The seller app and a vendor_app client receive no theme sections (PR 113 (draft, stacked on PR 112, 71c01d0d, needs no switch): ComponentCapabilityRegistry::servableToChannel() always said that the seller app draws nothing and the delivery never asked it, so a request naming the vendor_app channel (X-UI-Channel or ?channel=) was sent the page of the customer app, from the customer app's cache entry (the cache key held the platform and not the channel; probed: sections [spacer]). ThemeDelivery::build now sends a channel with no renderer no section, stored sections and campaign overlays alike, and names what it withheld (no_renderer_exists_for_this_channel); the channel joins the cache key. ThemeChannelDeliveryTest (12 tests, six mutations fail it; SQLite and MySQL 8.0.46). The seller app's side is pinned by lavkooappseller #7 (K-18). CI of PR 113 not read)
   - [MISSING] Web and app can be published separately for one storefront
-  - [MISSING] A change to a section's channels alone moves the stored checksum (checksumFor hashes platforms and audience, not channels (E07-F18))
+  - [CODED] A change to a section's channels alone moves the stored checksum (PR 113 (71c01d0d): the stored checksum of a version holds the channels of a restricted section, sorted: a change of the channels alone moves it, the same channels in another order do not, and a section that is not restricted keeps the checksum it always gave (the test writes the old formula out, so republishing identical content costs no installed app a download); ThemeChannelDeliveryTest; CI not read)
 - **(10) Next coding task.** Test-only first, on a branch from main: tests/Feature/Theme/ChannelTargetingTest.php pinning SectionVisibility, Channel and ExperiencePageService::servableSlugs on a hand-built schema, plus a failing test for the checksum ignoring channels; then add channels to ThemeDelivery::checksumFor.
 - **Open owner decisions.** Plan line 319 asks for independent publish per store and platform; GCC-09 only says sections and layout may differ. Decide whether a separate web and app publish is required. Q-43: the seller app shows no theme (proposed option a).
 - **Verifier note (not applied automatically).** exists_now (sentence: vendor_app is registered but not renderable ...): Omits two facts that contradict the criteria text. (1) The registry's rule that vendor_app draws nothing (ComponentCapabilityRegistry::servableToChannel returns [] for vendor_app) has no caller: git grep servableTo outside the registry file finds 0 hits in as-main, gcc-ci and as-sec. Channel::RENDERABLE is used only by AppBuilderController:85 (channel picker), ExperiencePageService:181 (page creation) and PublishValidator:220 (a publish warning). ThemeDelivery::build runs only SectionVisibility::passes and clientHolds, neither of which looks at vendor_app, so a client sending X-UI-Channel: vendor_app to /api/v1/theme/home is delivered every unrestricted app-safe section. (2) The legacy /api/v1/theme/sections (ApiDoc audience CUSTOMER_APP, STABLE; the app keeps themeSectionsUri 'for reference' and does not call it) go
+- **Update after the assessment.** PR 113 (draft, stacked on PR 112, 71c01d0d): a channel with no renderer behind it (the seller app) is sent no theme section, a channel never shares a cached page with another, and the channels of a section move the stored checksum. Found by writing the test the tracker said was missing: the delivery never asked the registry. Not done: F-03.3 (web and app published separately for one storefront).
+- **Next coding task today (supersedes item 10 above).** Read the CI of PR 113 per job (MySQL and MariaDB included); then F-03.3 (a version is still one publish for every channel); the owner's decision on whether the seller app should ever be sent sections.
 
 #### F-04. Theme caches isolated per storefront
 
