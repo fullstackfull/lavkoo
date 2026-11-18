@@ -32,6 +32,7 @@ final class Operations
             'loyalty.repository' => LoyaltyOperations::creditThroughRepository($args),
             'loyalty.customer_manager' => LoyaltyOperations::creditThroughCustomerManager($args),
             'loyalty.convert' => LoyaltyOperations::convertToWallet($args),
+            'wallet.pay_edit_due' => WalletOperations::payEditOrderDue($args),
             default => (self::$registered[$name] ?? throw new InvalidArgumentException("Unknown concurrent operation: {$name}"))($args, $index),
         };
     }

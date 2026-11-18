@@ -59,7 +59,12 @@ class OrderEditController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
         }
 
-        $order = Order::with(['latestEditHistory'])->where('id', $request['order_id'])->first();
+        $user = Helpers::getCustomerInformation($request);
+        if (!$user || $user === 'offline') {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        $order = Order::with(['latestEditHistory'])->where(['id' => $request['order_id'], 'customer_id' => $user['id'], 'is_guest' => 0])->first();
         if (!$order) {
             return response()->json(['message' => translate('Order_not_found')], 401);
         }
@@ -68,15 +73,10 @@ class OrderEditController extends Controller
             return response()->json(['message' => translate('wallet_is_deactivated')], 401);
         }
 
-        $user = Helpers::getCustomerInformation($request);
-        if ($user != 'offline') {
-            $response = $this->payEditOrderDueByCustomerWallet(order: $order, customer: $user);
-            return response()->json([
-                'message' => $response['message'],
-            ], ($response['status'] ? 200 : 403));
-        }
-
-        return response()->json(['message' => 'Unauthorized'], 401);
+        $response = $this->payEditOrderDueByCustomerWallet(order: $order, customer: $user);
+        return response()->json([
+            'message' => $response['message'],
+        ], ($response['status'] ? 200 : 403));
     }
 
     public function duePaymentByCod(Request $request): JsonResponse
