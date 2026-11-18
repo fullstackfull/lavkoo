@@ -845,6 +845,80 @@ for _idx in (1, 2, 5):
 UPDATES['E-05'] = UPDATES['E-05'] + " CI: run 337 is read per job (22 of 23 jobs success, the overlay red by design); criterion 2 (the actor of a manual top-up) is met, criteria 1 and 5 stay coded because their sentences say every row and two kinds of row do not carry everything."
 NEXT_CURRENT['E-05'] = "The finance review of the ledger columns (the R pack for the wallet); E-05.3 (a replay-safe key on source_type and source_id) and E-05.4 (the add-fund bonus in the ledger balance) as draft PRs awaiting finance review; point-of-sale debits and points conversions naming their order and the market columns of a default-storefront row, which would close criteria 1 and 5."
 
+# ---- the seller integration branch claude/seller-all-integration-ci, run 29 on f695f8c, read per step on 2026-11-18 at 21:05 UTC ----
+_SELLER_STEP_MARKET = "the named step 'Test the market scope, the market choice, the sign-in header and the version helper (K-01, K-02, K-10, K-12, K-14)' (32 tests)"
+_SELLER_STEP_SCAN = "the named step 'Test the point-of-sale scan of country-scoped codes (K-05, K-13)' (109 tests: the whole of test/pos_scan)"
+_SELLER_STEP_EDIT = "the named step 'Test the order edit refusal and the approved review average (K-07)' (17 tests)"
+_SELLER_RUN_29 = (" CI: run 29 on f695f8c, read per step on 2026-11-18: the integration branch claude/seller-all-integration-ci, which merges the heads of #1 (964557e), #2 (e5fd716), #5 (83893fa), #3 (7e9f674), #4 (716f84d), #6 (e4d7d02), #7 (3eba869), #8 (7c20717), #9 (673aa9c) and #10 (99927e8) and runs every feature's tests as a named step before the full run. "
+                  "Install, the formatting check, analyze and the translation check success; the named steps (market scope 32 tests, POS scan 109, order edit 17, platform admin shell with its flag on 724 and 1 skipped, no theme call 3, push route and rating 26) and, after the full run, 'Test the POS rules' (70 tests) success; the full 'Test' step ended 1110 passed, 1 failed, 1 skipped, "
+                  "the one failure being the known app_version_gate_test (the shipped version against the published minimum), which no change touches; the Android build was skipped because that job is red for it. The head is a merge of the pull requests' heads: the stacked ones have no run of their own, and nothing was run on a device.")
+_SELLER_STALE = ('; job analyze-and-test red, step UNVERIFIED', '; no CI run, PR-body run only', ', no run on record', '; no CI run proves them', '; CI step result UNVERIFIED, #5 has no CI', '(local run); ')
+
+def _seller_clean(text):
+    for stale in _SELLER_STALE:
+        text = text.replace(stale, '')
+    return text.replace('app#5 90b9d33', 'app#5 83893fa').rstrip(' .;')
+
+_SELLER_BASE = {
+    "K-01.0": "test/dio_storefront_header_test.dart on app#1 964557e; job analyze-and-test red, step UNVERIFIED",
+    "K-01.2": "test/market_scope_test.dart; no aggregate helper in lib/features/storefront",
+    "K-01.3": "bool.fromEnvironment(..., defaultValue: false) in storefront_config.dart; test 'the storefront flag is off by default'",
+    "K-02.0": "seller_market_choice_test 'nothing chosen yet works in Saudi Arabia'; app#2 e5fd716, no run on record",
+    "K-02.1": "test 'choosing a market saves it, and it survives a new instance'",
+    "K-02.2": "tests 'All Markets is refused and writes nothing', 'an unknown stored code falls back to Saudi Arabia'",
+    "K-02.3": "group 'while storefronts are off' in seller_market_choice_test",
+    "K-05.0": "test/pos_scan/cart_repository_scan_test.dart on app#5 90b9d33; no CI run, PR-body run only",
+    "K-05.1": "cart_repository_scan_test and pos_scan_source_rules_test (country query pinned)",
+    "K-05.2": "ambiguous_code_sheet_test, barcode_scan_controller_test, product_scan_refusal_test",
+    "K-07.0": "order_edit_submit_flow_test on app#3 7e9f674; job analyze-and-test red, step UNVERIFIED",
+    "K-07.1": "order_edit_submit_flow_test 'a saved edit reloads the order and shows no error'",
+    "K-07.2": "order_edit_submit_contract_test",
+    "K-07.3": "product_review_average_test",
+    "K-10.0": "test/market_scope_test.dart on app#1",
+    "K-10.4": "MarketScope.allMarkets has no currency and no aggregate helper exists",
+    "K-12.0": "test/dio_auth_header_test.dart on main",
+    "K-13.0": "test/pos_scan/pos_scan_translations_test.dart; tool/check_translations.dart; app#5 90b9d33",
+    "K-13.3": "app#5 body: OK 1228 used, 1849 defined (local run); CI step result UNVERIFIED, #5 has no CI",
+    "K-16.0": "dio_storefront_header_test (#1) and cart_repository_scan_test (#5); no CI run proves them",
+}
+
+def _seller_met(requirement, index, step, what_is_run):
+    base = _seller_clean(_SELLER_BASE.get('%s.%d' % (requirement, index), ''))
+    CRITERIA.setdefault(requirement, {})[index] = ('MET', (base + '. ' if base else '') + 'Run by ' + step + ': ' + what_is_run + '.' + _SELLER_RUN_29)
+
+_seller_met('K-01', 0, _SELLER_STEP_MARKET, "test/dio_storefront_header_test.dart, 'flag off sends no storefront header, even with a stored market' and 'flag off keeps the auth and language headers exactly as before'")
+_seller_met('K-01', 2, _SELLER_STEP_MARKET, "test/market_scope_test.dart, 'All Markets has no country code and no currency, so amounts are never summed into one'")
+_seller_met('K-01', 3, _SELLER_STEP_MARKET, "test/dio_storefront_header_test.dart, 'the storefront flag is off by default'")
+_seller_met('K-02', 0, _SELLER_STEP_MARKET, "test/seller_market_choice_test.dart, 'nothing chosen yet works in Saudi Arabia'")
+_seller_met('K-02', 1, _SELLER_STEP_MARKET, "test/seller_market_choice_test.dart, 'choosing a market saves it, and it survives a new instance'")
+_seller_met('K-02', 2, _SELLER_STEP_MARKET, "test/seller_market_choice_test.dart, 'All Markets is refused and writes nothing', 'an unknown stored code falls back to Saudi Arabia' and 'a stored value that is not text falls back to Saudi Arabia'")
+_seller_met('K-02', 3, _SELLER_STEP_MARKET, "test/seller_market_choice_test.dart, group 'while storefronts are off' ('the scope is All Markets whatever is stored', 'choosing a market writes nothing')")
+_seller_met('K-05', 0, _SELLER_STEP_SCAN, "test/pos_scan/cart_repository_scan_test.dart, the request while storefronts are off carries the code alone")
+_seller_met('K-05', 1, _SELLER_STEP_SCAN, "test/pos_scan/cart_repository_scan_test.dart (the country the market names, the country a seller chose in the sheet on that one rescan) and test/pos_scan/pos_scan_source_rules_test.dart")
+_seller_met('K-05', 2, _SELLER_STEP_SCAN, "test/pos_scan/barcode_scan_controller_test.dart (409: several products, 422: the server does not know the country, every other failure), ambiguous_code_sheet_test.dart and product_scan_refusal_test.dart")
+_seller_met('K-05', 4, _SELLER_STEP_SCAN, "lavkooappseller #5 (draft, 83893fa, client only): the server answers a code that no product of the market holds with 200 and an empty list, which the scan handed to the product reader, which refused it, and nobody caught that (nothing was shown and the scan was left loading). The scan now reads an answer that is not a product object as found nothing, shows the existing product_not_found text and ends; test/pos_scan/barcode_scan_controller_test.dart, group 'a scan that finds nothing' (4 tests: the message in English, in Arabic, under a market with the country asked for, and none when a product is found). Temporary mutations (the message skipped, another text) are killed by those tests")
+_seller_met('K-07', 0, _SELLER_STEP_EDIT, "test/order_edit_submit_flow_test.dart, a refused edit keeps the screen open, stops the spinner, does not reload the order and shows the server's message or the generic one")
+_seller_met('K-07', 1, _SELLER_STEP_EDIT, "test/order_edit_submit_flow_test.dart, a saved edit and an old server's 200 reload the order and close the screen")
+_seller_met('K-07', 2, _SELLER_STEP_EDIT, "test/order_edit_submit_contract_test.dart, an empty, HTML or non-object 200 body never throws")
+_seller_met('K-07', 3, _SELLER_STEP_EDIT, "test/product_review_average_test.dart, the sheet averages approved reviews only and survives a missing or empty reviews array")
+_seller_met('K-10', 0, _SELLER_STEP_MARKET, "test/market_scope_test.dart, 'lists the six GCC markets with their own currencies'")
+_seller_met('K-10', 4, _SELLER_STEP_MARKET, "test/market_scope_test.dart, 'All Markets has no country code and no currency, so amounts are never summed into one'; no aggregate helper exists in lib/features/storefront, and no screen shows All Markets figures yet")
+_seller_met('K-12', 0, _SELLER_STEP_MARKET, "test/dio_auth_header_test.dart, 'a blank token never overwrites a working session' and 'clearAuthToken drops the credential so a signed-out client cannot reuse it'")
+_seller_met('K-13', 0, _SELLER_STEP_SCAN, "test/pos_scan/pos_scan_translations_test.dart, and the step 'Check translation keys' (dart run tool/check_translations.dart) success")
+_seller_met('K-16', 0, _SELLER_STEP_MARKET + ' and ' + _SELLER_STEP_SCAN, "test/dio_storefront_header_test.dart (flag off: the header map is main's) and test/pos_scan/cart_repository_scan_test.dart (flag off: the scan request is ?code= and nothing else)")
+
+CRITERIA.setdefault('K-13', {})[3] = ('CODED', _seller_clean(_SELLER_BASE['K-13.3']) + ". The step 'Check translation keys' passed on f695f8c, the integration head that holds every pull request's keys (run 29), but no stacked pull request has a run of its own, so the check is not shown on the head of each one." )
+CRITERIA.setdefault('K-15', {})[4] = ('CODED', "claude/seller-all-integration-ci (f695f8c): the CI file of the integration branch runs the tests of each feature as a named step before the full run (market scope and market choice, the POS scan, the order edit, the platform admin shell, no theme call, the push route and the rating, and the POS rules after it), each with if: always() so that the known red test cannot hide it; run 29 read per step. The pull requests themselves carry the step only for the platform admin shell (#4), the theme call (#7), the POS rules (#8) and the push route (#9): until the owner adopts the CI file of the integration branch, or each pull request adds its own, a merged main would not name the market, POS scan and order edit tests." + _SELLER_RUN_29)
+_move_link('K-05', 'lavkooappseller', 8, '7c20717')
+EXTRA_LINKS['K-05'] = EXTRA_LINKS['K-05'] + [{'repo': 'lavkooappseller', 'pr': 5, 'sha': '83893fa'}]
+EXTRA_LINKS['K-12'] = EXTRA_LINKS.get('K-12', []) + [{'repo': 'lavkooappseller', 'pr': 11, 'sha': '6491b82'}]
+for _requirement in ('K-01', 'K-02', 'K-10', 'K-12', 'K-13', 'K-16'):
+    UPDATES[_requirement] = UPDATES.get(_requirement, '') + " CI: the tests of the market scope, the market choice, the sign-in header and the version helper, of the POS scan and of the order edit are run as named steps on the seller integration branch (run 29 on f695f8c, which merges the heads of #1 to #10): 32, 109 and 17 tests passed; the full run there is red only for the known version gate test."
+UPDATES['K-05'] = UPDATES['K-05'] + " lavkooappseller #5 (draft, 83893fa): a scan that finds no product tells the seller (K-05.4); the empty answer used to reach the product reader, which refused it, and left the scan loading with nothing shown."
+UPDATES['K-15'] = UPDATES['K-15'] + " claude/seller-all-integration-ci (f695f8c) merges the heads of #1 to #10 and runs each feature's tests as a named step before the full run (run 29: every named step success, the full run red for the known version gate test only): K-15.4 is coded on that branch, not on the pull requests."
+UPDATES['K-05'] = UPDATES['K-05'].replace('a scan that finds nothing in this market telling the seller (K-05.4), ', '')
+NEXT_CURRENT['K-15'] = NEXT_CURRENT['K-15'].replace("K-15.4 (a named step for each feature); merge #10's line into the older stacked pull requests so that they have a run.", "K-15.4 stays coded on the integration branch until each pull request carries its named step or the owner adopts the CI file of claude/seller-all-integration-ci; merge #10's line into the older stacked pull requests so that they have a run.")
+
 def apply_override(requirement, override):
     requirement['state'] = override['state']
     for field in ('done_in_drafts', 'remaining', 'next_task'):
