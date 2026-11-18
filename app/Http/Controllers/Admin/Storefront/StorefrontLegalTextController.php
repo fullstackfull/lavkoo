@@ -72,7 +72,7 @@ class StorefrontLegalTextController extends StorefrontAdminController
     public function approve(StorefrontLegalTextRequest $request, int $text): RedirectResponse
     {
         return $this->attempt(
-            step: fn () => $this->publisher->approve(textId: $text, approver: $request->admin()),
+            step: fn () => $this->publisher->approve(textId: $text, approver: $request->admin(), expectedBodyHash: $request->expectedBodyHash()),
             done: 'the_text_is_approved',
         );
     }
@@ -80,7 +80,7 @@ class StorefrontLegalTextController extends StorefrontAdminController
     public function publish(StorefrontLegalTextRequest $request, int $text): RedirectResponse
     {
         return $this->attempt(
-            step: fn () => $this->publisher->publish(textId: $text, publisher: $request->admin(), effectiveFrom: $request->effectiveFrom()),
+            step: fn () => $this->publisher->publish(textId: $text, publisher: $request->admin(), effectiveFrom: $request->effectiveFrom(), expectedBodyHash: $request->expectedBodyHash()),
             done: 'the_text_is_published',
         );
     }

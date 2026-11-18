@@ -6,6 +6,7 @@ use App\Models\StorefrontLegalDocument;
 use App\Services\Storefront\StorefrontLegalReadiness;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
@@ -40,10 +41,31 @@ class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
         $id = $this->draftThroughTheScreen($type, $locale);
         $this->post(route('admin.storefronts.legal-texts.edit', $id), ['body' => self::WORDS]);
         $this->signInAs(self::LEGAL_APPROVER);
-        $this->post(route('admin.storefronts.legal-texts.approve', $id));
-        $this->post(route('admin.storefronts.legal-texts.publish', $id));
+        $this->approveThroughTheScreen($id);
+        $this->publishThroughTheScreen($id);
 
         return $id;
+    }
+
+    /** The approval of a text as its form sends it: with the hash of the words the person read, which here are the words it holds now. */
+    private function approveThroughTheScreen(int $id): TestResponse
+    {
+        return $this->post(route('admin.storefronts.legal-texts.approve', $id), ['body_hash' => $this->text($id)->body_hash]);
+    }
+
+    /** The publication of a text as its form sends it: from the day given (none is now), with the hash of the words it holds now. */
+    private function publishThroughTheScreen(int $id, array $form = []): TestResponse
+    {
+        return $this->post(route('admin.storefronts.legal-texts.publish', $id), ['body_hash' => $this->text($id)->body_hash] + $form);
+    }
+
+    /** The hash a person's approve or publish form carries, read from the page the way a browser would post it. */
+    private function hashOnTheFormOf(string $page, string $route, int $id): string
+    {
+        $pattern = '#<form[^>]*action="' . preg_quote(route($route, $id), '#') . '"[^>]*>(?:(?!</form>).)*?<input type="hidden" name="body_hash" value="([^"]*)"#s';
+        $this->assertSame(1, preg_match($pattern, $page, $found), "the form of {$route} for text {$id} carries a body_hash");
+
+        return $found[1];
     }
 
     private function text(int $id): StorefrontLegalDocument
@@ -98,14 +120,14 @@ class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
         $id = $this->draftThroughTheScreen();
 
         $this->signInAs(self::LEGAL_APPROVER);
-        $this->post(route('admin.storefronts.legal-texts.approve', $id));
+        $this->approveThroughTheScreen($id);
         $this->assertToastContains('still the template');
         $this->assertSame(StorefrontLegalDocument::STATUS_DRAFT, $this->text($id)->status);
 
         $this->signInAs(self::LEGAL_WRITER);
         $this->post(route('admin.storefronts.legal-texts.edit', $id), ['body' => self::WORDS]);
         $this->signInAs(self::LEGAL_APPROVER);
-        $this->post(route('admin.storefronts.legal-texts.approve', $id));
+        $this->approveThroughTheScreen($id);
 
         $text = $this->text($id);
         $this->assertSame([StorefrontLegalDocument::STATUS_APPROVED, self::LEGAL_WRITER, self::LEGAL_APPROVER], [$text->status, $text->created_by, $text->approved_by]);
@@ -117,7 +139,7 @@ class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
         $id = $this->draftThroughTheScreen();
         $this->post(route('admin.storefronts.legal-texts.edit', $id), ['body' => self::WORDS]);
 
-        $this->post(route('admin.storefronts.legal-texts.approve', $id));
+        $this->approveThroughTheScreen($id);
 
         $this->assertToastContains('someone other than its author');
         $this->assertSame([StorefrontLegalDocument::STATUS_DRAFT, null], [$this->text($id)->status, $this->text($id)->approved_by]);
@@ -147,7 +169,7 @@ class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
         $approved = $this->draftThroughTheScreen(type: 'privacy');
         $this->post(route('admin.storefronts.legal-texts.edit', $approved), ['body' => self::WORDS]);
         $this->signInAs(self::LEGAL_APPROVER);
-        $this->post(route('admin.storefronts.legal-texts.approve', $approved));
+        $this->approveThroughTheScreen($approved);
         $published = $this->publishedThroughTheScreen(type: 'refund');
         $linesBefore = DB::table('audit_logs')->count();
         $statuses = fn (): array => StorefrontLegalDocument::query()->orderBy('id')->pluck('status', 'id')->all();
@@ -203,15 +225,15 @@ class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
         $id = $this->draftThroughTheScreen();
         $this->post(route('admin.storefronts.legal-texts.edit', $id), ['body' => self::WORDS]);
         $this->signInAs(self::LEGAL_APPROVER);
-        $this->post(route('admin.storefronts.legal-texts.approve', $id));
+        $this->approveThroughTheScreen($id);
 
-        $this->post(route('admin.storefronts.legal-texts.publish', $id), ['effective_from' => '2020-01-01 00:00']);
+        $this->publishThroughTheScreen($id, ['effective_from' => '2020-01-01 00:00']);
         $this->assertToastContains('does not take effect in the past');
-        $this->post(route('admin.storefronts.legal-texts.publish', $id), ['effective_from' => 'tomorrow'])->assertSessionHasErrors('effective_from');
+        $this->publishThroughTheScreen($id, ['effective_from' => 'tomorrow'])->assertSessionHasErrors('effective_from');
         $this->assertSame(StorefrontLegalDocument::STATUS_APPROVED, $this->text($id)->status);
 
         $day = CarbonImmutable::now('UTC')->addDays(3)->setTime(8, 0);
-        $this->post(route('admin.storefronts.legal-texts.publish', $id), ['effective_from' => $day->format('Y-m-d H:i')]);
+        $this->publishThroughTheScreen($id, ['effective_from' => $day->format('Y-m-d H:i')]);
 
         $text = $this->text($id);
         $this->assertSame(StorefrontLegalDocument::STATUS_PUBLISHED, $text->status);
@@ -247,6 +269,127 @@ class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
         $this->assertFalse(app(StorefrontLegalReadiness::class)->isReady('KW'), 'a revoked text in force closes the storefront');
         $line = $this->auditLines('storefront.legal_text.revoked')[0];
         $this->assertSame(self::LEGAL_APPROVER, (int) $line->actor_id);
+    }
+
+    // ---- an approval and a publication are bound to the words that were read ---------------------------------------------------------------
+
+    public function test_the_forms_carry_the_whole_hash_of_the_text_and_the_post_of_the_page_as_it_was_rendered_takes_the_step_in_either_letter_case(): void
+    {
+        $this->signInAs(self::LEGAL_WRITER);
+        $id = $this->draftThroughTheScreen();
+        $this->post(route('admin.storefronts.legal-texts.edit', $id), ['body' => self::WORDS]);
+        $this->signInAs(self::LEGAL_APPROVER);
+
+        $hashOnTheApproveForm = $this->hashOnTheFormOf($this->page(), 'admin.storefronts.legal-texts.approve', $id);
+        $this->assertSame($this->text($id)->body_hash, $hashOnTheApproveForm, 'the form carries the whole hash, not the twelve characters the page shows');
+        $this->assertSame(64, strlen($hashOnTheApproveForm));
+        $this->post(route('admin.storefronts.legal-texts.approve', $id), ['body_hash' => strtoupper($hashOnTheApproveForm)])->assertRedirect();
+        $this->assertSame(StorefrontLegalDocument::STATUS_APPROVED, $this->text($id)->status);
+
+        $hashOnThePublishForm = $this->hashOnTheFormOf($this->page(), 'admin.storefronts.legal-texts.publish', $id);
+        $this->assertSame($this->text($id)->body_hash, $hashOnThePublishForm);
+        $this->post(route('admin.storefronts.legal-texts.publish', $id), ['body_hash' => $hashOnThePublishForm])->assertRedirect();
+
+        $this->assertSame(StorefrontLegalDocument::STATUS_PUBLISHED, $this->text($id)->status);
+        $this->assertCount(1, $this->auditLines('storefront.legal_text.approved'));
+        $this->assertCount(1, $this->auditLines('storefront.legal_text.published'));
+    }
+
+    public function test_an_approval_posted_from_a_page_that_showed_other_words_is_refused_and_nothing_is_approved_or_audited(): void
+    {
+        $this->signInAs(self::LEGAL_WRITER);
+        $id = $this->draftThroughTheScreen();
+        $this->post(route('admin.storefronts.legal-texts.edit', $id), ['body' => self::WORDS]);
+        $this->signInAs(self::LEGAL_APPROVER);
+        $hashThatWasRead = $this->hashOnTheFormOf($this->page(), 'admin.storefronts.legal-texts.approve', $id);
+
+        $this->signInAs(self::LEGAL_WRITER);
+        $this->post(route('admin.storefronts.legal-texts.edit', $id), ['body' => '<p>The terms of Kuwait, changed after the approver read them.</p>']);
+        $linesBefore = DB::table('audit_logs')->count();
+        $this->signInAs(self::LEGAL_APPROVER);
+
+        $this->post(route('admin.storefronts.legal-texts.approve', $id), ['body_hash' => $hashThatWasRead])->assertRedirect();
+
+        $this->assertToastContains('changed after it was read');
+        $text = $this->text($id);
+        $this->assertSame([StorefrontLegalDocument::STATUS_DRAFT, null, null], [$text->status, $text->approved_by, $text->approved_at]);
+        $this->assertCount(0, $this->auditLines('storefront.legal_text.approved'));
+        $this->assertSame($linesBefore, DB::table('audit_logs')->count(), 'a refused approval leaves no audit line');
+
+        $this->post(route('admin.storefronts.legal-texts.approve', $id), ['body_hash' => $this->hashOnTheFormOf($this->page(), 'admin.storefronts.legal-texts.approve', $id)]);
+
+        $this->assertSame(StorefrontLegalDocument::STATUS_APPROVED, $this->text($id)->status, 'read again, the words are approved');
+        $this->assertCount(1, $this->auditLines('storefront.legal_text.approved'));
+    }
+
+    public function test_a_publication_posted_from_a_page_that_showed_other_words_is_refused_and_nothing_is_published_or_audited(): void
+    {
+        $this->signInAs(self::LEGAL_WRITER);
+        $id = $this->draftThroughTheScreen();
+        $this->post(route('admin.storefronts.legal-texts.edit', $id), ['body' => self::WORDS]);
+        $this->signInAs(self::LEGAL_APPROVER);
+        $this->approveThroughTheScreen($id);
+        $hashThatWasRead = $this->hashOnTheFormOf($this->page(), 'admin.storefronts.legal-texts.publish', $id);
+
+        $this->signInAs(self::LEGAL_WRITER);
+        $this->post(route('admin.storefronts.legal-texts.edit', $id), ['body' => '<p>The terms of Kuwait, changed after the approval was read.</p>']);
+        $linesBefore = DB::table('audit_logs')->count();
+        $this->signInAs(self::LEGAL_APPROVER);
+
+        $this->post(route('admin.storefronts.legal-texts.publish', $id), ['body_hash' => $hashThatWasRead])->assertRedirect();
+        $this->assertToastContains('changed after it was read');
+        $this->assertSame(StorefrontLegalDocument::STATUS_DRAFT, $this->text($id)->status, 'the edit sent the approved text back to draft and the stale post did not publish it');
+
+        $this->approveThroughTheScreen($id);
+        $this->post(route('admin.storefronts.legal-texts.publish', $id), ['body_hash' => $hashThatWasRead])->assertRedirect();
+
+        $text = $this->text($id);
+        $this->assertSame([StorefrontLegalDocument::STATUS_APPROVED, null, null], [$text->status, $text->published_at, $text->effective_from], 'approved again by someone else, the words are still not the ones the publisher read');
+        $this->assertCount(0, $this->auditLines('storefront.legal_text.published'));
+        $this->assertSame($linesBefore + 1, DB::table('audit_logs')->count(), 'only the second approval was audited');
+
+        $this->publishThroughTheScreen($id);
+
+        $this->assertSame(StorefrontLegalDocument::STATUS_PUBLISHED, $this->text($id)->status);
+        $this->assertCount(1, $this->auditLines('storefront.legal_text.published'));
+    }
+
+    /** @return array<string, array{mixed}> */
+    public static function hashesThatAreNotTheHashOfAText(): array
+    {
+        $hash = hash('sha256', 'The terms of Kuwait.');
+
+        return [
+            'none' => [null],
+            'an empty one' => [''],
+            'the twelve characters the page shows' => [substr($hash, 0, 12)],
+            'sixty-three characters' => [substr($hash, 0, 63)],
+            'sixty-five characters' => [$hash . '0'],
+            'sixty-four characters that are not hex' => [str_repeat('g', 64)],
+            'a list' => [[$hash]],
+        ];
+    }
+
+    #[DataProvider('hashesThatAreNotTheHashOfAText')]
+    public function test_approving_or_publishing_without_the_hash_of_a_text_is_a_validation_error_and_changes_nothing(mixed $hash): void
+    {
+        $this->signInAs(self::LEGAL_WRITER);
+        $draft = $this->draftThroughTheScreen(type: 'terms');
+        $this->post(route('admin.storefronts.legal-texts.edit', $draft), ['body' => self::WORDS]);
+        $approved = $this->draftThroughTheScreen(type: 'privacy');
+        $this->post(route('admin.storefronts.legal-texts.edit', $approved), ['body' => self::WORDS]);
+        $this->signInAs(self::LEGAL_APPROVER);
+        $this->approveThroughTheScreen($approved);
+        $linesBefore = DB::table('audit_logs')->count();
+        $statuses = fn (): array => StorefrontLegalDocument::query()->orderBy('id')->pluck('status', 'id')->all();
+        $before = $statuses();
+        $form = $hash === null ? [] : ['body_hash' => $hash];
+
+        $this->post(route('admin.storefronts.legal-texts.approve', $draft), $form)->assertSessionHasErrors('body_hash');
+        $this->post(route('admin.storefronts.legal-texts.publish', $approved), $form)->assertSessionHasErrors('body_hash');
+
+        $this->assertSame($before, $statuses());
+        $this->assertSame($linesBefore, DB::table('audit_logs')->count());
     }
 
     // ---- versions and putting a draft away --------------------------------------------------------------------------------------------------
@@ -364,7 +507,7 @@ class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
         $approvedId = $this->draftThroughTheScreen(type: 'privacy');
         $this->post(route('admin.storefronts.legal-texts.edit', $approvedId), ['body' => self::WORDS]);
         $this->signInAs(self::LEGAL_APPROVER);
-        $this->post(route('admin.storefronts.legal-texts.approve', $approvedId));
+        $this->approveThroughTheScreen($approvedId);
         $this->signInAs(self::MASTER);
         $this->post(route('admin.storefronts.legal-texts.revoke', $this->textIdOf('refund')), ['reason' => 'A clause is wrong']);
         $this->meetThePrerequisitesOf('AE');

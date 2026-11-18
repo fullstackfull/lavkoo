@@ -142,6 +142,7 @@
 
                             @if ($canApprove && in_array('approve', $steps, true))
                                 <form method="POST" action="{{ route('admin.storefronts.legal-texts.approve', $text->id) }}">@csrf
+                                    <input type="hidden" name="body_hash" value="{{ $text->body_hash }}">
                                     <button class="btn btn-primary btn-sm" type="submit" @disabled($isTheAuthor)>{{ translate('approve_the_text') }}</button>
                                     @if ($isTheAuthor)
                                         <span class="fs-12 text-muted">{{ translate('someone_other_than_its_author_approves_a_text') }}</span>
@@ -152,6 +153,7 @@
                             @if ($canApprove && in_array('publish', $steps, true))
                                 <form method="POST" action="{{ route('admin.storefronts.legal-texts.publish', $text->id) }}">@csrf
                                     <input type="hidden" name="_step" value="publish-{{ $text->id }}">
+                                    <input type="hidden" name="body_hash" value="{{ $text->body_hash }}">
                                     <label class="form-label fs-12" for="publish-{{ $text->id }}-from">{{ translate('in_force_from') }} (UTC)</label>
                                     <input class="form-control form-control-sm mb-1" id="publish-{{ $text->id }}-from" name="effective_from" maxlength="16" dir="ltr" placeholder="2026-12-01 08:00" value="{{ old('_step') === 'publish-' . $text->id ? old('effective_from') : '' }}">
                                     <div class="fs-12 text-muted mb-1">{{ translate('leave_the_day_empty_to_publish_now') }}</div>

@@ -8,8 +8,9 @@ use Illuminate\Foundation\Http\FormRequest;
 
 /**
  * What a person writes into one step of the legal text of a storefront. The text is HTML and is cleaned the way a supplier's product description is before it is kept (scripts,
- * styles, forms, frames and event handlers are removed), because the website shows it without escaping. Who takes the step is the admin who is signed in. What the publisher
- * refuses on the substance (the author approving, a text still being its template, a day in the past) is its business and is shown to the person in its own words.
+ * styles, forms, frames and event handlers are removed), because the website shows it without escaping. Who takes the step is the admin who is signed in. An approval and a publication
+ * carry the hash of the text as the page showed it, so that they bind the words that were read. What the publisher refuses on the substance (the author approving, a text still
+ * being its template, a day in the past, a text that changed since it was read) is its business and is shown to the person in its own words.
  */
 class StorefrontLegalTextRequest extends FormRequest
 {
@@ -17,6 +18,9 @@ class StorefrontLegalTextRequest extends FormRequest
     private const MAXIMUM_TEXT_LENGTH = 1000000;
 
     private const MAXIMUM_REASON_LENGTH = 500;
+
+    /** The sha256 of the words of a text, hex, as `body_hash` holds it. */
+    private const BODY_HASH_RULES = ['required', 'string', 'regex:/\A[0-9a-f]{64}\z/i'];
 
     public function authorize(): bool
     {
@@ -33,7 +37,11 @@ class StorefrontLegalTextRequest extends FormRequest
                 'template' => ['required', 'string', 'max:' . self::MAXIMUM_TEXT_LENGTH],
             ],
             'edit' => ['body' => ['required', 'string', 'max:' . self::MAXIMUM_TEXT_LENGTH]],
-            'publish' => ['effective_from' => ['nullable', 'date_format:Y-m-d H:i']],
+            'approve' => ['body_hash' => self::BODY_HASH_RULES],
+            'publish' => [
+                'body_hash' => self::BODY_HASH_RULES,
+                'effective_from' => ['nullable', 'date_format:Y-m-d H:i'],
+            ],
             'revoke', 'discard' => ['reason' => ['required', 'string', 'max:' . self::MAXIMUM_REASON_LENGTH]],
             default => [],
         };
@@ -68,6 +76,12 @@ class StorefrontLegalTextRequest extends FormRequest
     public function reason(): string
     {
         return (string) $this->input('reason');
+    }
+
+    /** The hash of the words the person read: the one the page showed, which the publisher compares with the text it locks. */
+    public function expectedBodyHash(): string
+    {
+        return (string) $this->input('body_hash');
     }
 
     /** The day the text takes effect, read as UTC; none means now. */
