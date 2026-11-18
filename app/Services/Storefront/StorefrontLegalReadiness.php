@@ -50,6 +50,47 @@ final class StorefrontLegalReadiness
         return $this->currentTextsOf(strtoupper(trim($countryCode)))[$documentType][strtolower($locale)] ?? null;
     }
 
+    /**
+     * What a visitor of the storefront can read in one locale: for each document type, the current text, and only while it counts as approved
+     * text. A current text that is revoked, not approved by someone other than its author, blank or an unedited template shows nothing, and
+     * the older text it superseded never takes its place.
+     *
+     * @return array<string, StorefrontLegalDocument> keyed by document type
+     */
+    public function visibleTextsFor(string $countryCode, string $locale): array
+    {
+        if (!$this->tableExists()) {
+            return [];
+        }
+
+        $visible = [];
+        foreach ($this->currentTextsOf(strtoupper(trim($countryCode))) as $documentType => $textsByLocale) {
+            $text = $textsByLocale[strtolower($locale)] ?? null;
+
+            if ($text !== null && $this->isSellable($text)) {
+                $visible[$documentType] = $text;
+            }
+        }
+
+        return $visible;
+    }
+
+    /** When the next scheduled text of the storefront takes effect, or null when none is scheduled: what was read before that moment is stale after it. */
+    public function nextTextTakesEffectAt(string $countryCode): ?CarbonImmutable
+    {
+        if (!$this->tableExists()) {
+            return null;
+        }
+
+        $effectiveFrom = StorefrontLegalDocument::query()
+            ->where('country_code', strtoupper(trim($countryCode)))
+            ->where('status', StorefrontLegalDocument::STATUS_PUBLISHED)
+            ->where('effective_from', '>', CarbonImmutable::now())
+            ->min('effective_from');
+
+        return $effectiveFrom === null ? null : CarbonImmutable::parse($effectiveFrom);
+    }
+
     private function tableExists(): bool
     {
         return $this->tableExists ??= Schema::hasTable('storefront_legal_documents');

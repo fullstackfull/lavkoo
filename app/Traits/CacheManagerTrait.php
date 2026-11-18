@@ -19,6 +19,7 @@ use App\Models\RobotsMetaContent;
 use App\Models\Seller;
 use App\Models\ShippingType;
 use App\Services\Storefront\StorefrontCurrency;
+use App\Services\Storefront\StorefrontLegalPages;
 use App\Models\Shop;
 use App\Models\StockClearanceProduct;
 use App\Models\StockClearanceSetup;
@@ -543,8 +544,10 @@ trait CacheManagerTrait
 
     public function cacheBusinessPagesTable()
     {
-        return Cache::remember(CACHE_FOR_BUSINESS_PAGES_LIST, CACHE_FOR_3_HOURS, function () {
-            return BusinessPage::where('status', 1)->with(['banner'])->get();
+        $storefrontPages = app(StorefrontLegalPages::class);
+
+        return Cache::remember($storefrontPages->listCacheKey(), $storefrontPages->listCacheLifetime(), function () use ($storefrontPages) {
+            return $storefrontPages->listShownInStorefront(BusinessPage::where('status', 1)->with(['banner'])->get());
         });
     }
 

@@ -7,6 +7,7 @@ use App\Models\Shop;
 use App\Models\User;
 use App\Services\Storefront\StorefrontCatalog;
 use App\Services\Storefront\StorefrontCurrency;
+use App\Services\Storefront\StorefrontLegalPages;
 use App\Utils\Helpers;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Storage;
@@ -451,6 +452,14 @@ if (!function_exists('storefrontCacheKey')) {
     }
 }
 
+if (!function_exists('businessPageUrl')) {
+    /** The link to a business page. A visitor of a storefront other than the default one is sent to that storefront's own page, which carries its own text. */
+    function businessPageUrl(string $slug): string
+    {
+        return app(StorefrontLegalPages::class)->pageUrl(slug: $slug);
+    }
+}
+
 if (!function_exists('cacheForgetInEveryStorefront')) {
     function cacheForgetInEveryStorefront(string $key): void
     {
@@ -470,6 +479,7 @@ if (!function_exists('cacheRemoveByType')) {
             cacheRemoveByType(type: 'products');
         } else if ($type == 'business_pages') {
             Cache::forget(CACHE_FOR_BUSINESS_PAGES_LIST);
+            app(StorefrontLegalPages::class)->forgetStorefrontLists();
         } else if ($type == 'banners') {
             cacheGroupRemoveByType(key: CACHE_BANNER_ALL_CACHE_KEYS);
 
