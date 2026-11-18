@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\RestAPI\v2\seller;
 
+use App\Services\DigitalProductFileService;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
 use App\Events\OrderStatusEvent;
 use App\Http\Controllers\Controller;
@@ -15,12 +16,12 @@ use App\Utils\BackEndHelper;
 use App\Utils\Convert;
 use App\Utils\CustomerManager;
 use App\Utils\Helpers;
-use App\Utils\ImageManager;
 use App\Utils\OrderManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Ramsey\Uuid\Uuid;
 
 
@@ -48,6 +49,18 @@ class OrderController extends Controller
         });
 
         return response()->json($orders, 200);
+    }
+
+    public function downloadDigitalFile(Request $request, $id): BinaryFileResponse|JsonResponse
+    {
+        $seller = Helpers::getSellerByToken($request);
+        if (!$seller) {
+            return response()->json(['auth-001' => translate('Your existing session token does not authorize you any more')], 401);
+        }
+        $digitalFiles = app(DigitalProductFileService::class);
+
+        return $digitalFiles->download(name: $digitalFiles->nameOfOrderLineOfSeller(sellerId: $seller['id'], id: $id))
+            ?? response()->json(['errors' => [['code' => 'file', 'message' => translate('file_not_found')]]], 404);
     }
 
     public function details(Request $request, $id):JsonResponse
@@ -174,7 +187,7 @@ class OrderController extends Controller
 
         $order_details = OrderDetail::where('seller_id', $seller['id'])->find($request->order_id);
         if ($order_details) {
-            $order_details->digital_file_after_sell = ImageManager::update('product/digital-product/', $order_details->digital_file_after_sell, $request->digital_file_after_sell->getClientOriginalExtension(), $request->file('digital_file_after_sell'), 'file');
+            $order_details->digital_file_after_sell = app(DigitalProductFileService::class)->replace(oldName: $order_details->digital_file_after_sell, file: $request->file('digital_file_after_sell'));
             $order_details->save();
             return response()->json(['success' => 1, 'message' => translate('File_upload_successfully')], 200);
         } else {

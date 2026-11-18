@@ -8,6 +8,8 @@ use App\Events\RefundEvent;
 use App\Http\Controllers\Controller;
 use App\Services\Address\OrderAddressService;
 use App\Services\Address\StorefrontAddressService;
+use App\Services\DigitalFileAddressService;
+use App\Services\DigitalProductFileService;
 use App\Services\Fulfillment\CheckoutCodGuard;
 use App\Services\Fulfillment\CustomerFulfillmentPresenter;
 use App\Http\Requests\API\v1\RefundStoreRequest;
@@ -42,6 +44,7 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class OrderController extends Controller
 {
@@ -55,6 +58,8 @@ class OrderController extends Controller
         private readonly OrderService $orderService,
         private readonly OrderAddressService $orderAddresses,
         private readonly StorefrontAddressService $storefrontAddresses,
+        private readonly DigitalProductFileService $digitalFiles,
+        private readonly DigitalFileAddressService $digitalFileAddresses,
     )
     {
     }
@@ -667,7 +672,7 @@ class OrderController extends Controller
         return response()->json($data, 200);
     }
 
-    public function digital_product_download($id, Request $request): JsonResponse
+    public function digital_product_download($id, Request $request): JsonResponse|BinaryFileResponse
     {
         $user = Helpers::getCustomerInformation($request);
         $order_details_data = OrderDetail::with('order.customer')->find($id);
@@ -696,6 +701,13 @@ class OrderController extends Controller
                     } else {
                         $file_path = asset('storage/app/public/product/digital-product/' . $order_details_data->digital_file_after_sell);
                         $file_name = $order_details_data->digital_file_after_sell;
+                    }
+
+                    if ($this->digitalFiles->isPrivate()) {
+                        return $this->digitalFiles->download(name: $file_name) ?? response()->json([
+                            'status' => 0,
+                            'message' => translate('file_not_found'),
+                        ]);
                     }
 
                     if (PlainFileName::isPlain($file_name) && File::exists(base_path('storage/app/public/product/digital-product/' . $file_name))) {
@@ -865,11 +877,11 @@ class OrderController extends Controller
             DigitalProductOtpVerification::where(['token' => $otp, 'order_details_id' => $orderDetailsId])->delete();
         }
 
-        $file_path = isset($file_name) && PlainFileName::isPlain($file_name) ? storage_path('app/public/product/digital-product/' . $file_name) : null;
-        if ($file_path !== null && File::exists($file_path)) {
+        $download = $this->digitalFiles->download(name: $file_name ?? null);
+        if ($download !== null) {
             RateLimiter::clear($attemptsKey);
 
-            return \response()->download($file_path);
+            return $download;
         }
 
         return response()->json([
@@ -1038,8 +1050,7 @@ class OrderController extends Controller
                 $query['variation'] = is_array($query['variation']) ? $query['variation'] : json_decode($query['variation'], true);
                 $product = is_array($query['product_details']) ? $query['product_details'] : json_decode($query['product_details'], true);
                 if ($product['product_type'] == 'digital' && $product['digital_product_type'] == 'ready_product' && $product['digital_file_ready']) {
-                    $checkFilePath = storageLink('product/digital-product', $product['digital_file_ready'], ($product['storage_path'] ?? 'public'));
-                    $product['digital_file_ready_full_url'] = $checkFilePath;
+                    $product['digital_file_ready_full_url'] = $this->digitalFileAddresses->readyFileAnswerOfLine(orderDetail: $query);
                 }
 
                 if (!isset($product['thumbnail_full_url']) && isset($query?->product?->thumbnail_full_url)) {

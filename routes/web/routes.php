@@ -198,6 +198,8 @@ Route::group(['namespace' => 'Web', 'middleware' => ['maintenance_mode', 'guestC
         Route::get('shop-cart', 'shop_cart')->name('shop-cart');
         Route::post('order_note', 'order_note')->name('order_note');
         Route::get('digital-product-download/{id}', 'getDigitalProductDownload')->name('digital-product-download');
+        // The address is signed (relative, so a proxy that changes the scheme or the host cannot break it) and the file's name is its last part, which is what the browser saves it under.
+        Route::get('digital-product-download-file/{id}/{fileName?}', 'getDigitalProductDownloadFile')->middleware('signed:relative')->name('digital-product-download-file');
         Route::post('digital-product-download-otp-verify', 'getDigitalProductDownloadOtpVerify')->name('digital-product-download-otp-verify');
         Route::post('digital-product-download-otp-reset', 'getDigitalProductDownloadOtpReset')->name('digital-product-download-otp-reset');
         Route::get('pay-offline-method-list', 'pay_offline_method_list')->name('pay-offline-method-list')->middleware('guestCheck');
