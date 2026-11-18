@@ -34,6 +34,9 @@ class CustomerAcrossStorefrontsTest extends ApiAddressTestCase
         $this->buildSixStorefrontCheckoutWorld();
         $this->setSetting('minimum_order_amount_status', '0');
 
+        if (!Schema::hasColumn('users', 'referred_by')) {
+            Schema::table('users', fn (Blueprint $table) => $table->unsignedBigInteger('referred_by')->nullable());
+        }
         if (!Schema::hasColumn('reviews', 'order_id')) {
             Schema::table('reviews', fn (Blueprint $table) => $table->unsignedBigInteger('order_id')->nullable());
         }
