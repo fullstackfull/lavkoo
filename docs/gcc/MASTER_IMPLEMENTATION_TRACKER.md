@@ -17,17 +17,17 @@ As of 2026-11-18. Generated from the independent assessment of every requirement
 | [A. Six-country base and customer identity](tracker/axis-a-six-country-base-and-customer-identity.md) | 37 | 161 | 81 | 21 | 59 | 63% | 50% | 9% | all |
 | [B. Catalogue and products](tracker/axis-b-catalogue-and-products.md) | 18 | 91 | 34 | 17 | 40 | 56% | 37% | 0% | all |
 | [C. Inventory and fulfillment](tracker/axis-c-inventory-and-fulfillment.md) | 18 | 94 | 65 | 9 | 20 | 79% | 69% | 30% | all |
-| [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 165 | 72 | 29 | 64 | 61% | 44% | 8% | all |
-| [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 84 | 26 | 8 | 50 | 40% | 31% | 3% | all |
+| [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 167 | 72 | 30 | 65 | 61% | 43% | 8% | all |
+| [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 84 | 31 | 3 | 50 | 40% | 37% | 3% | all |
 | [F. Themes and brand](tracker/axis-f-themes-and-brand.md) | 16 | 74 | 10 | 28 | 36 | 51% | 14% | 1% | all |
 | [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 96 | 57 | 7 | 32 | 67% | 59% | 13% | all |
 | [H. Shipping and integrations](tracker/axis-h-shipping-and-integrations.md) | 34 | 152 | 79 | 10 | 63 | 59% | 52% | 16% | all |
-| [I. Marketing, policies and operations](tracker/axis-i-marketing-policies-and-operations.md) | 37 | 183 | 48 | 36 | 99 | 46% | 26% | 2% | all |
+| [I. Marketing, policies and operations](tracker/axis-i-marketing-policies-and-operations.md) | 37 | 183 | 48 | 40 | 95 | 48% | 26% | 2% | all |
 | [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 93 | 34 | 27 | 32 | 66% | 37% | 5% | all |
 | [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 91 | 5 | 33 | 53 | 42% | 5% | 2% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 45 | 18 | 31 | 67% | 48% | 7% | all |
 | [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 285 | 87 | 102 | 96 | 66% | 31% | 3% | all |
-| **All axes (pooled)** | **359** | **1663** | **643** | **345** | **675** | **59%** | **39%** | **7%** | |
+| **All axes (pooled)** | **359** | **1665** | **648** | **345** | **672** | **60%** | **39%** | **7%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -50,9 +50,9 @@ Chosen from the table of requirements, not from the pull request list: each one 
 ### Gap 1. The money of a storefront is not yet end to end
 
 - **Blocks:** orders with the right currency; prices that are the same in the app and on the web; wallets, coupons, shipping and tax that agree with the order.
-- **Where it stands:** GCC-05 (draft PR 87, slices 1 to 4 and the first part of slice 5, off by default) makes a non-default storefront single-currency in its own currency with the right decimals, records the storefront and currency on the order, refuses a gateway that cannot take that currency, makes the admin product screens work in the product's country, gives the storefront its own minimum order and free-delivery threshold (never the platform's riyal figure), prices its shipping from the product alone and lets the panel edit of an order read all of these in the order's money. Still reading the platform's one currency: coupons and their budgets, the tax snapshot, refunds in the original currency, channel prices, invoices, e-mails and exports, and both apps' other formatters (the customer app has the price formatter and the currency it sends, lavkooapp #8 and #9).
-- **Measured:** 20 requirements (3 not started), 94 criteria of which 55 MISSING (59%) as the assessors read it; slices 3 and 4 of PR 87 came after and are in the cards as updates. Requirements: B-02, B-03, D1-05, D1-06, D1-07, D1-10, D2-05, D2-10, E-16, H1-08, H1-09, H1-14, H2-08, I1-12, I1-14, J-05, K-10, L-08, M2-07, C-15.
-- **First executable step:** Steps 6 to 9 of the GCC-05 slice 5 plan on PR 87: coupons owned by one storefront (a nullable coupons.storefront_country, the read side that narrows every finder, the admin form that types them in the storefront's currency); then the tax and refund snapshot.
+- **Where it stands:** GCC-05 (draft PR 87, slices 1 to 4 and most of slice 5, off by default) makes a non-default storefront single-currency in its own currency with the right decimals, records the storefront and currency on the order, refuses a gateway that cannot take that currency, makes the admin product screens work in the product's country, gives the storefront its own minimum order and free-delivery threshold (never the platform's riyal figure), prices its shipping from the product alone, lets the panel edit of an order read all of these in the order's money, and gives a coupon its storefront (stored, narrowed on every customer finder, and typed in the storefront's currency through the admin routes). Still reading the platform's one currency: the admin coupon form, list and export, coupon budgets, the tax snapshot, refunds in the original currency, channel prices, invoices, e-mails and exports, and both apps' other formatters (the customer app has the price formatter and the currency it sends, lavkooapp #8 and #9).
+- **Measured:** 20 requirements (3 not started), 94 criteria of which 53 MISSING (56%) as the assessors read it; slices 3 and 4 of PR 87 came after and are in the cards as updates. Requirements: B-02, B-03, D1-05, D1-06, D1-07, D1-10, D2-05, D2-10, E-16, H1-08, H1-09, H1-14, H2-08, I1-12, I1-14, J-05, K-10, L-08, M2-07, C-15.
+- **First executable step:** Step 9 of the GCC-05 slice 5 plan on PR 87: the country select and currency labels on the admin coupon form, and the coupon list, quick view and export in the coupon's own money; then the readiness lines (step 10) and the tax and refund snapshot.
 
 ### Gap 2. Wallet and loyalty are one global balance
 
@@ -64,9 +64,9 @@ Chosen from the table of requirements, not from the pull request list: each one 
 ### Gap 3. There is no selling company (legal entity) dimension
 
 - **Blocks:** orders with the right legal company; reports and money by company; per-company gateway accounts and accounting.
-- **Where it stands:** The platform keys data by storefront country, shop and seller. A registry of selling companies (one for each country, empty until the owner supplies them) and an order stamp now exist in a draft (PR 90, behind GCC_LEGAL_ENTITIES), so an order can name its company and keep a frozen copy of its identity. Still missing: the invoice reading it, a company on the payment row, gateway accounts, ledger and settlement by company, an Odoo company per entity, staff scope by company, and the Super Admin money view grouped by company. The owner has not decided the entities (open question Q-11).
-- **Measured:** 15 requirements (4 not started), 66 criteria of which 38 MISSING (58%). Requirements: D1-03, D1-04, D2-07, D2-08, D2-09, D2-16, E-17, F-14, G-12, H2-06, H2-10, H2-11, L-08, A2-09, A2-13.
-- **First executable step:** The invoice reading the frozen identity with per-company numbering, then the company on the payment request and the accounts that follow it (D2, E, H2); the entities themselves are an owner decision.
+- **Where it stands:** The platform keys data by storefront country, shop and seller. A registry of selling companies (one for each country, empty until the owner supplies them) and an order stamp now exist in a draft (PR 90, behind GCC_LEGAL_ENTITIES), so an order can name its company and keep a frozen copy of its identity, and the three invoices print that company instead of the shop's settings. Still missing: the invoice currency and a number for each company, a company on the payment row, gateway accounts, ledger and settlement by company, an Odoo company per entity, staff scope by company, and the Super Admin money view grouped by company. The owner has not decided the entities (open question Q-11).
+- **Measured:** 15 requirements (4 not started), 68 criteria of which 39 MISSING (57%). Requirements: D1-03, D1-04, D2-07, D2-08, D2-09, D2-16, E-17, F-14, G-12, H2-06, H2-10, H2-11, L-08, A2-09, A2-13.
+- **First executable step:** The owner's rule for the invoice number of each company and the series on top of the registered key, then the company on the payment request and the accounts that follow it (D2, E, H2); the entities themselves are an owner decision.
 
 Next in line (not in the top three because they depend on these, or are optional until the owner opens them):
 
@@ -218,7 +218,7 @@ Executable on an isolated branch without production access, ordered by the prior
 |---|---|---|---|
 | [D1-01](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 3/1/1 | One storefront per checkout and per order |
 | [D1-02](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 4/0/1 | No cart or checkout mixing countries or selling companies |
-| [D1-03](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 1/2/1 | One selling company (legal entity) per order, with frozen identity |
+| [D1-03](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 1/3/2 | One selling company (legal entity) per order, with frozen identity |
 | [D1-04](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 1/1/1 | Country, storefront, legal entity, seller and shop kept as separate keys |
 | [D1-05](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 2/2/1 | Local independent pricing at checkout, frozen on the order lines |
 | [D1-06](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 0/0/5 | Order currency snapshot on orders, lines and money rows |
@@ -263,7 +263,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [E-03](tracker/axis-e-wallets-loyalty-and-financial-records.md) | NOT STARTED | 0/0/4 | No automatic transfer or conversion of balances between markets |
 | [E-04](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 0/1/4 | Wallet and loyalty readers show one market's balance, API keys keep meaning |
 | [E-05](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/0/5 | Ledger rows reconcilable: attribution, reference, actor, idempotency |
-| [E-06](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IMPLEMENTED IN DRAFT | 0/5/0 | Historical balances reconciled against the ledgers (read-only proof) |
+| [E-06](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IMPLEMENTED IN DRAFT | 5/0/0 | Historical balances reconciled against the ledgers (read-only proof) |
 | [E-07](tracker/axis-e-wallets-loyalty-and-financial-records.md) | NOT STARTED | 0/0/5 | Saudi balances migrated into per-market accounts without loss |
 | [E-08](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/1/1 | Old movements preserved: append-only ledgers, account deletion keeps records |
 | [E-09](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IMPLEMENTED IN DRAFT | 4/0/0 | Balance writes serialised per customer (row lock), wallet and loyalty |
@@ -377,8 +377,8 @@ Executable on an isolated branch without production access, ordered by the prior
 | [I1-09](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 0/2/3 | Notification sends are idempotent and logged |
 | [I1-10](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 3/1/1 | Existing notification classes and senders are kept and pinned |
 | [I1-11](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 3/2/1 | Coupon and CouponService logic is kept, its boundary pinned and its messages defined |
-| [I1-12](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 0/2/3 | Coupon amounts in each store's currency; legacy conversions verified |
-| [I1-13](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 1/1/3 | Coupons name their eligible products and store |
+| [I1-12](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 0/4/1 | Coupon amounts in each store's currency; legacy conversions verified |
+| [I1-13](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 1/3/1 | Coupons name their eligible products and store |
 | [I1-14](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 0/2/3 | Per-store coupon limits and budget |
 | [I1-15](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 1/0/4 | Campaigns: central ones choose stores, local ones belong to one store |
 | [I1-16](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 2/1/3 | Languages per market |
