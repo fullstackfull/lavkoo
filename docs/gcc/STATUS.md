@@ -1,6 +1,6 @@
 # Lavkoo GCC — Current Project Status & Handoff Index
 
-**Last update:** 2026-11-18. **Current phase:** autonomous implementation under the owner's charters: continuous development and release preparation on draft pull requests, with nothing merged, deployed or run on production data. The "Discovery preparation" text of 2026-11-12 further down is kept as history and is **superseded**: GCC application code now exists on 96 draft pull requests of `lavkoo` (and 9 of `lavkooapp`, 6 of `lavkooappseller`), all dormant behind switches that ship off.
+**Last update:** 2026-11-18. **Current phase:** autonomous implementation under the owner's charters: continuous development and release preparation on draft pull requests, with nothing merged, deployed or run on production data. The "Discovery preparation" text of 2026-11-12 further down is kept as history and is **superseded**: GCC application code now exists on 99 draft pull requests of `lavkoo` (and 9 of `lavkooapp`, 6 of `lavkooappseller`), all dormant behind switches that ship off.
 
 ## Read these first
 
@@ -12,12 +12,14 @@
 | The deferred risks DR-1 to DR-5 (keys and credentials are **not** rotated and the register says so) | [DEFERRED_RISKS.md](DEFERRED_RISKS.md) |
 | The security release in stages for the live server | [SECURITY_RELEASE_PLAN.md](SECURITY_RELEASE_PLAN.md), [SERVER_PREFLIGHT.md](SERVER_PREFLIGHT.md), [OWNER_PR_GUIDE.md](OWNER_PR_GUIDE.md) |
 | The staging plan with invented data for six countries and the journeys to run | [STAGING_PLAN.md](STAGING_PLAN.md) |
+| The reviews a change needs before it merges (finance, security, native Arabic, legal), who reads what, and where the outcome is written; the Arabic lines the pull requests add | [REVIEW_GATES.md](REVIEW_GATES.md), [ARABIC_TEXT_FOR_REVIEW.md](ARABIC_TEXT_FOR_REVIEW.md) |
 | The audit of the all-in-one integration branch (CI per job, what was reconciled) | [audits/2026-11-18-all-in-one-integration/README.md](audits/2026-11-18-all-in-one-integration/README.md) |
 | The latest handoff of each session | [handoffs/](handoffs/) |
 
 ## What is true today
 
 - **Nothing is merged, deployed or verified in production.** `main` is `c5c04b7b` (2026-11-12) and has none of the GCC work; the live server runs an older baseline described by the release documents. A merge, a deployment, a key change, a migration on production or a change of a live financial or legal rule needs the owner's separate approval (charter section 4).
+- **The all-in-one integration (a CI-only branch, never merged) is green.** Run 293 on `8598331b` finished success: 28 of 29 jobs on SQLite, MySQL 8.0 and MariaDB 11.4.2 and the strict-mode job, one skipped by design, read job by job ([audit](audits/2026-11-18-all-in-one-integration/README.md)). The integration has since moved to include the later GCC slices and the tax pull requests, and one more run is dispatched on its head.
 - Every pull request is a draft. A percentage is shown only where acceptance criteria that a test could assert were counted; "implemented in a draft" is not "done" and "code complete" is not "released" (see section 4 of the tracker).
 - The CI of a head is read per job, never inferred: see the tracker and the audit reports, and the checks page of each pull request. Runs are queued and are sometimes cancelled by a newer push to the same pull request.
 - The earlier statement that **no application code is approved** is superseded for the draft pull requests above; the coupon-boundary branch has its own narrower approval (`PHASE0-COUPON-GTE-SELLER-VERSION-OWNER-APPROVAL.md`).

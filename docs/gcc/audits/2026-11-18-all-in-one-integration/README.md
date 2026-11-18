@@ -7,7 +7,7 @@
 - **Base:** `gcc/release/security-gcc-integration-ci` (`f6fb03af`): the security set (PR 75, `47b78ab8`) and the GCC stack (PR 83, `8ff34109`) merged together, five files resolved by hand.
 - **On top, in dependency order:** PR 1 to 7, 9 to 18, 20 to 27, 29 to 36 and PR 87 (GCC-05, the currency of a storefront). That is 82 of the 86 open main-based pull requests that existed when it was cut; the four that are not in it are the baseline hotfix line (PR 78, 81, 85, 86), which is cut from the server baseline `698aa1e` and deployed in stages, so it is never combined with the main-based set.
 - **Added after the first cut:** PR 88 (E-06, `wallet:reconcile`), PR 89 (the three statements a strict SQL server refuses), PR 90 (the selling-company registry) and the drafts of the day PR 91 (branch protection documents), PR 92 (every test starts from an empty database on a real server), PR 93 (the per-order debug file) and PR 94 (the guard that every test directory runs on a real engine).
-- **Head when this was written:** `8598331b`. Rebuild it by taking the base and running the merges of the table below in order, then the reconciliation commits `6f6a5e52`, `c30390d1`, `397424cf`, `15c2b805`, `80a4fbad` and `8598331b`. The first dispatched run (279) was on `c30390d1`, the second (288) on `515d5bfa`; both are read below, and the third (run 293) is dispatched on `8598331b`.
+- **Head when this was written:** `8598331b`. Rebuild it by taking the base and running the merges of the table below in order, then the reconciliation commits `6f6a5e52`, `c30390d1`, `397424cf`, `15c2b805`, `80a4fbad` and `8598331b`. The first dispatched run (279) was on `c30390d1`, the second (288) on `515d5bfa` and the third (run 293) on `8598331b`; all three are read below.
 
 ## Result
 
@@ -15,7 +15,7 @@
 - **Semantic conflicts, found only with the sets together:** a test or a document written for one pull request pins what the pull request's own base did, and a sibling pull request changes it on purpose. Each is listed below with the behaviour the combined tree has. None of them changes the code of a pull request, except where the table says so.
 - **One defect of the security set found on the way and fixed:** a digital file row read without its id (an aggregate or a partial select) raised a `TypeError` as soon as it was serialized, in both modes of the private-files switch (PR 69). The fix is `4096f1be` on the branch of PR 69, with a test that fails without it. **The hotfix line carries the same code** (the hotfix port of PR 69, commit `53ba4a25`, stage 4): the stage 4 package has to be rebuilt with the fix before it is deployed, see below.
 - **One accident, fixed:** a forced add put five generated framework cache files into the PR 87 merge; the repository's leak guard matched the word "password" in a service provider id. They are removed in `c30390d1`.
-- **Local runs on SQLite of the groups the merges touch:** Wallet and loyalty (223 tests), Storefront, Wallet, Address, Checkout and Payment together (1,770 tests), the staff scope group (462 tests, 10 skipped as MySQL-only), the security tests of the seller APIs (542 tests): all passing at `c30390d1`. **CI:** run 279 on `c30390d1` was read per job (next section); the findings are reconciled at `515d5bfa`, which runs as run 288 (id 44266516940); its result is added at the end of this document when it is read, and nothing here is a claim about it before then.
+- **Local runs on SQLite of the groups the merges touch:** Wallet and loyalty (223 tests), Storefront, Wallet, Address, Checkout and Payment together (1,770 tests), the staff scope group (462 tests, 10 skipped as MySQL-only), the security tests of the seller APIs (542 tests): all passing at `c30390d1`. **CI:** run 279 on `c30390d1` was read per job (next section) and its findings reconciled; run 288 on `515d5bfa` was cancelled once its findings were read; **run 293 on `8598331b` is green** (28 of 29 jobs, one skipped by design), read per job in "The third run".
 
 ## Semantic conflicts and what the combined tree does
 
@@ -137,9 +137,28 @@ The repairs are in the integration only; for the owner's merge each belongs to t
 | distinct timestamps for the transactions of the staff order world | `tests/Support/BuildsStaffOrderWorld.php` | PR 82 |
 | any 500 is a legitimate loser of the wallet race | `tests/Feature/Concurrency/WalletBalanceCurrencyConcurrencyTest.php` | PR 36 |
 
-## The third run
+## The third run, read per job
 
-Run 293 (id 44277028272) is dispatched on `8598331b`: the reconciled head with PR 89's third statement, PR 91 to 94, the fixture repairs, the new real-engine group and the strict-mode paths. Its result is added here when it is read, and nothing above is a claim about it.
+Run 293 (id 44277028272, a `workflow_dispatch` of `gcc/release/all-integration-ci`, head `8598331b`, 09:33 to 11:27 UTC) finished **`success`: 28 of its 29 jobs green, one skipped, none red.** The skipped job is `Deployment overlay (artifact, deploys nothing)`, which does not run on a dispatch of this branch. Each job was read from the jobs list of the run (conclusion and the time it ran), not inferred from the run's colour:
+
+| Group | MySQL 8.0 | MariaDB 11.4.2 |
+|---|---|---|
+| Address tests | green (09:54 to 10:11) | green (10:21 to 10:30) |
+| Catalog tests | green | green |
+| Checkout, payment and permission tests (the 23 directories only SQLite ran, PR 94's new group) | green | green |
+| Fulfillment + security tests | green (10:25 to 10:53) | green (09:34 to 09:59) |
+| Staff scope tests | green | green |
+| Storefront tests | green | green |
+| Sales-channel and cost tests: concurrency, costs, MyFatoorah, sales channels A-M and N-Z | all five green (the slowest, A-M, 09:56 to 11:18) | all five green |
+| Strict-mode tests (the connection in strict mode, `ONLY_FULL_GROUP_BY` among its modes) | not a MySQL job | green (09:34 to 10:37) |
+
+And, outside the matrix: Tests on SQLite with PHP 8.2 (10:46 to 11:27) and with PHP 8.3 (09:41 to 10:18), PHP syntax on 8.2 and 8.3, and the scan for secrets and personal data: all green.
+
+**What it shows.** The 82 main-based pull requests, the security set, the GCC stack through PR 87 (as it was at `8598331b`), PR 88 to 94 and the reconciliation commits pass the whole suite together on SQLite, MySQL 8.0 and MariaDB 11.4.2, and the strict-mode job passes on MariaDB 11.4.2 for the directories the checkout pull requests add. In particular the statements PR 89 repaired (the three bare `GROUP BY`) no longer fail there, and the twenty-three directories that only SQLite had ever run now run on both real engines and pass.
+
+**The next run.** The integration has been rebuilt on top of this one (`dd73ae1e`: PR 87 to 99, the invoice step, the golden answers, the tax pull requests) and dispatched as run 316 (id 44298628661); its result is added here when it is read per job, and nothing above is a claim about it.
+
+**What it does not show.** The integration has moved since: PR 87's later slices (steps 8 to 10, the gate proof, the closed wallet), PR 90's invoice step, PR 95, 96 and 97 are in `f70234e8` and not in this run. MySQL 8 in strict mode is not a CI job (it was run locally for the new classes, see the pull requests); the fixture repairs and the real-engine group are the integration's, not `main`'s. Nothing here is a statement about production, about the hotfix line (which is not in this tree), or about a pull request merged on its own.
 
 ## What this means for `main`
 

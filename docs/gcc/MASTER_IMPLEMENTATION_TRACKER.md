@@ -14,20 +14,20 @@ As of 2026-11-18. Generated from the independent assessment of every requirement
 
 | Axis | Requirements | Criteria | MET | CODED | MISSING | Code completion | Proven by tests | Release readiness | Verified |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| [A. Six-country base and customer identity](tracker/axis-a-six-country-base-and-customer-identity.md) | 37 | 161 | 81 | 21 | 59 | 63% | 50% | 9% | all |
+| [A. Six-country base and customer identity](tracker/axis-a-six-country-base-and-customer-identity.md) | 37 | 161 | 82 | 20 | 59 | 63% | 51% | 9% | all |
 | [B. Catalogue and products](tracker/axis-b-catalogue-and-products.md) | 18 | 91 | 34 | 17 | 40 | 56% | 37% | 0% | all |
 | [C. Inventory and fulfillment](tracker/axis-c-inventory-and-fulfillment.md) | 18 | 94 | 65 | 9 | 20 | 79% | 69% | 30% | all |
-| [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 167 | 72 | 31 | 64 | 62% | 43% | 8% | all |
-| [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 84 | 31 | 4 | 49 | 42% | 37% | 3% | all |
+| [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 167 | 72 | 33 | 62 | 63% | 43% | 8% | all |
+| [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 84 | 31 | 4 | 49 | 42% | 37% | 7% | all |
 | [F. Themes and brand](tracker/axis-f-themes-and-brand.md) | 16 | 74 | 10 | 28 | 36 | 51% | 14% | 1% | all |
-| [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 96 | 57 | 7 | 32 | 67% | 59% | 13% | all |
+| [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 96 | 57 | 7 | 32 | 67% | 59% | 15% | all |
 | [H. Shipping and integrations](tracker/axis-h-shipping-and-integrations.md) | 34 | 152 | 79 | 10 | 63 | 59% | 52% | 16% | all |
 | [I. Marketing, policies and operations](tracker/axis-i-marketing-policies-and-operations.md) | 37 | 183 | 48 | 40 | 95 | 48% | 26% | 2% | all |
 | [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 93 | 34 | 27 | 32 | 66% | 37% | 5% | all |
 | [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 91 | 5 | 33 | 53 | 42% | 5% | 2% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 45 | 18 | 31 | 67% | 48% | 7% | all |
-| [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 286 | 87 | 106 | 93 | 67% | 30% | 3% | all |
-| **All axes (pooled)** | **359** | **1666** | **648** | **351** | **667** | **60%** | **39%** | **7%** | |
+| [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 288 | 91 | 108 | 89 | 69% | 32% | 3% | all |
+| **All axes (pooled)** | **359** | **1668** | **653** | **354** | **661** | **60%** | **39%** | **7%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -37,8 +37,8 @@ The pooled row counts every criterion once; it is not weighted by importance or 
 |---|---:|
 | NOT STARTED | 44 |
 | IN PROGRESS | 248 |
-| IMPLEMENTED IN DRAFT | 42 |
-| INTEGRATED AND TESTED | 7 |
+| IMPLEMENTED IN DRAFT | 36 |
+| INTEGRATED AND TESTED | 13 |
 | READY FOR OWNER REVIEW | 0 |
 | MERGED | 18 |
 | DEPLOYED AND VERIFIED | 0 |
@@ -51,7 +51,7 @@ Chosen from the table of requirements, not from the pull request list: each one 
 
 - **Blocks:** orders with the right currency; prices that are the same in the app and on the web; wallets, coupons, shipping and tax that agree with the order.
 - **Where it stands:** GCC-05 (draft PR 87, slices 1 to 4 and most of slice 5, off by default) makes a non-default storefront single-currency in its own currency with the right decimals, records the storefront and currency on the order, refuses a gateway that cannot take that currency, makes the admin product screens work in the product's country, gives the storefront its own minimum order and free-delivery threshold (never the platform's riyal figure), prices its shipping from the product alone, lets the panel edit of an order read all of these in the order's money, and gives a coupon its storefront (stored, narrowed on every customer finder, and typed in the storefront's currency through the admin routes). Still reading the platform's one currency: the admin coupon form, list and export, coupon budgets, the tax snapshot, refunds in the original currency, channel prices, invoices, e-mails and exports, and both apps' other formatters (the customer app has the price formatter and the currency it sends, lavkooapp #8 and #9).
-- **Measured:** 20 requirements (3 not started), 94 criteria of which 52 MISSING (55%) as the assessors read it; slices 3 and 4 of PR 87 came after and are in the cards as updates. Requirements: B-02, B-03, D1-05, D1-06, D1-07, D1-10, D2-05, D2-10, E-16, H1-08, H1-09, H1-14, H2-08, I1-12, I1-14, J-05, K-10, L-08, M2-07, C-15.
+- **Measured:** 20 requirements (3 not started), 94 criteria of which 50 MISSING (53%) as the assessors read it; slices 3 and 4 of PR 87 came after and are in the cards as updates. Requirements: B-02, B-03, D1-05, D1-06, D1-07, D1-10, D2-05, D2-10, E-16, H1-08, H1-09, H1-14, H2-08, I1-12, I1-14, J-05, K-10, L-08, M2-07, C-15.
 - **First executable step:** Step 9 of the GCC-05 slice 5 plan on PR 87: the country select and currency labels on the admin coupon form, and the coupon list, quick view and export in the coupon's own money; then the readiness lines (step 10) and the tax and refund snapshot.
 
 ### Gap 2. Wallet and loyalty are one global balance
@@ -95,10 +95,10 @@ Executable on an isolated branch without production access, ordered by the prior
 | Priority | Id | State | Missing | Requirement | Next coding task |
 |---|---|---|---:|---|---|
 | P0 | [M1-16](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 4 | Protection of main and CI cost and reliability | Keep PR 1 as the first change so main turns green. Then two drafts: (a) .github/CODEOWNERS and docs/gcc/BRANCH_PROTECTION.md with the exact ruleset and required checks for a person to apply; (b) ci.yml paths-ignore for docs-only c |
-| P0 | [M1-03](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 3 | Combined integration of the security set and the GCC chain, tested on three engines | Read the CI of run 288 (all-integration-ci, 515d5bfa) per job; fix any red job on the integration branch only, or on the pull request that owns the defect; add the result to docs/gcc/audits/2026-11-18-all-in-one-integration/README |
 | P0 | [M1-13](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 3 | Review and approval gates: finance, security of GCC-20, native Arabic reader | On the docs branch add docs/gcc/REVIEW_GATES.md: per review (finance #52; security of stages 1 and 4 and of GCC-20 #71, #79, #80, #84 and seller #4, #6; native Arabic keys of seller #6, customer #7, #72, #74 and the added lines of |
 | P0 | [M1-14](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 3 | Staging environment with fake data for six countries | Branch gcc/staging-fake-data: add database/seeders/GccStagingSeeder (six storefronts, invented sellers, customers, products per country, orders, wallets, reusing the test world builders), a guard that refuses to seed unless APP_EN |
 | P0 | [M1-01](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 2 | Branch and PR ledger, CI read-only, truthful production claims | On claude/exciting-shannon-4mh2ok: commit docs/gcc/PR_LEDGER.md generated by a read-only script from the PR index and CI table (99 PRs), replace the stale STATUS.md section, and add a script that compares the ledger heads with git |
+| P0 | [M1-03](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1 | Combined integration of the security set and the GCC chain, tested on three engines | Read the CI of run 288 (all-integration-ci, 515d5bfa) per job; fix any red job on the integration branch only, or on the pull request that owns the defect; add the result to docs/gcc/audits/2026-11-18-all-in-one-integration/README |
 | P0 | [M1-04](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1 | Stage 0: open maintenance routes removed and one-time codes kept out of the log | Cut a branch from main: apply PR 85's ForgotPasswordController and ZenderOtpService hunks (the routes are already gone), add OtpLoggingTest, run Fulfillment + security on MySQL 8 and MariaDB 11.4.2 and open it as a draft. |
 | P0 | [M1-07](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1 | Ownership, payment-identity and withdraw fixes that have no release path (PRs 7, 16, 20-23 | Read the CI of the all-in-one run 288; then decide with the owner which of these fixes join the staged hotfix as net changes (the method of the hotfix plan) and which wait for the merge of the main-based set. |
 | P0 | [M1-09](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1 | Stage 4: uploads and files cannot store or serve code or other people's files | Add flag-guarded calls to the authenticated digital-file routes in both Flutter apps (unit tests with hand-written server answers) so DIGITAL_FILES_PRIVATE can be turned on; on PR 63 add a read-only command that counts stored scri |
@@ -134,7 +134,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [A1-04](tracker/axis-a-six-country-base-and-customer-identity.md) | INTEGRATED AND TESTED | 4/0/0 | One resolver chooses the storefront; flag off resolves every request to the default country, and the catalogue is not na |
 | [A1-05](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 1/0/3 | Website paths /sa /ae /kw /qa /bh /om serve their market |
 | [A1-06](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 3/0/3 | Manual store choice outranks IP and is kept |
-| [A1-07](tracker/axis-a-six-country-base-and-customer-identity.md) | IMPLEMENTED IN DRAFT | 3/0/0 | A visitor for an inactive market sees the default store |
+| [A1-07](tracker/axis-a-six-country-base-and-customer-identity.md) | INTEGRATED AND TESTED | 3/0/0 | A visitor for an inactive market sees the default store |
 | [A1-08](tracker/axis-a-six-country-base-and-customer-identity.md) | IMPLEMENTED IN DRAFT | 4/1/0 | Old Saudi URLs and API contracts keep working unchanged |
 | [A1-09](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 0/2/3 | Nine concepts kept apart; shop_id and seller_id are never a storefront key |
 | [A1-10](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 2/1/3 | Data-ownership model: an owner scope for every table, no blanket country_id |
@@ -162,7 +162,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [A2-12](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 1/0/2 | Address eligibility checked per storefront |
 | [A2-13](tracker/axis-a-six-country-base-and-customer-identity.md) | NOT STARTED | 0/0/4 | Marketing consents scoped by storefront, company and channel |
 | [A2-14](tracker/axis-a-six-country-base-and-customer-identity.md) | IMPLEMENTED IN DRAFT | 3/1/0 | Existing accounts, ids and history are preserved |
-| [A2-15](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 1/1/3 | Privacy of customer data: logs, payloads, retention and deletion |
+| [A2-15](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 2/0/3 | Privacy of customer data: logs, payloads, retention and deletion |
 | [A2-V1](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 0/0/1 | A local admin or employee of one market cannot see the customer's transactions of other markets with... |
 | [A2-V2](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 0/0/1 | Policy consents are stored in the right scope: the explicit acceptance of a legal text is recorded a... |
 
@@ -222,7 +222,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [D1-04](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 1/1/1 | Country, storefront, legal entity, seller and shop kept as separate keys |
 | [D1-05](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 2/3/0 | Local independent pricing at checkout, frozen on the order lines |
 | [D1-06](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 0/0/5 | Order currency snapshot on orders, lines and money rows |
-| [D1-07](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 0/2/3 | Order tax snapshot by country and selling company |
+| [D1-07](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 0/4/1 | Order tax snapshot by country and selling company |
 | [D1-08](tracker/axis-d-orders-checkout-and-payments.md) | MERGED | 3/1/0 | Address snapshot on every order |
 | [D1-09](tracker/axis-d-orders-checkout-and-payments.md) | MERGED | 3/1/0 | Fulfillment source frozen on each order line |
 | [D1-10](tracker/axis-d-orders-checkout-and-payments.md) | NOT STARTED | 0/0/4 | Historical refunds in the original currency and merchant account |
@@ -263,11 +263,11 @@ Executable on an isolated branch without production access, ordered by the prior
 | [E-03](tracker/axis-e-wallets-loyalty-and-financial-records.md) | NOT STARTED | 0/1/3 | No automatic transfer or conversion of balances between markets |
 | [E-04](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 0/1/4 | Wallet and loyalty readers show one market's balance, API keys keep meaning |
 | [E-05](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/0/5 | Ledger rows reconcilable: attribution, reference, actor, idempotency |
-| [E-06](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IMPLEMENTED IN DRAFT | 5/0/0 | Historical balances reconciled against the ledgers (read-only proof) |
+| [E-06](tracker/axis-e-wallets-loyalty-and-financial-records.md) | INTEGRATED AND TESTED | 5/0/0 | Historical balances reconciled against the ledgers (read-only proof) |
 | [E-07](tracker/axis-e-wallets-loyalty-and-financial-records.md) | NOT STARTED | 0/0/5 | Saudi balances migrated into per-market accounts without loss |
 | [E-08](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/1/1 | Old movements preserved: append-only ledgers, account deletion keeps records |
-| [E-09](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IMPLEMENTED IN DRAFT | 4/0/0 | Balance writes serialised per customer (row lock), wallet and loyalty |
-| [E-10](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IMPLEMENTED IN DRAFT | 5/0/0 | Overdraft floor inside the lock; callers honour a refused debit or credit |
+| [E-09](tracker/axis-e-wallets-loyalty-and-financial-records.md) | INTEGRATED AND TESTED | 4/0/0 | Balance writes serialised per customer (row lock), wallet and loyalty |
+| [E-10](tracker/axis-e-wallets-loyalty-and-financial-records.md) | INTEGRATED AND TESTED | 5/0/0 | Overdraft floor inside the lock; callers honour a refused debit or credit |
 | [E-11](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 4/0/2 | POS wallet sales: atomic, server total, guarded amount, idempotent |
 | [E-12](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 5/0/1 | Seller wallet and withdrawals: scoped, locked, POST with CSRF, one conversion |
 | [E-13](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/0/5 | Refunds, return amounts and cancellations paid to the wallet |
@@ -304,8 +304,8 @@ Executable on an isolated branch without production access, ordered by the prior
 |---|---|---|---|
 | [G-01](tracker/axis-g-admin-panel-and-staff-permissions.md) | MERGED | 4/0/0 | Admin, AdminRole, module_access and the module gate stay the authorization base |
 | [G-02](tracker/axis-g-admin-panel-and-staff-permissions.md) | INTEGRATED AND TESTED | 5/0/0 | Staff country scope: table, resolution rules, console assignment, default-off switch, the server decides |
-| [G-03](tracker/axis-g-admin-panel-and-staff-permissions.md) | IMPLEMENTED IN DRAFT | 6/0/0 | Product screens, pickers, import and moderation follow the employee's countries (GCC-14a, 14c slice 1) |
-| [G-04](tracker/axis-g-admin-panel-and-staff-permissions.md) | IMPLEMENTED IN DRAFT | 6/0/0 | Order, POS and refund screens follow the employee's countries (GCC-14c slice 2) |
+| [G-03](tracker/axis-g-admin-panel-and-staff-permissions.md) | INTEGRATED AND TESTED | 6/0/0 | Product screens, pickers, import and moderation follow the employee's countries (GCC-14a, 14c slice 1) |
+| [G-04](tracker/axis-g-admin-panel-and-staff-permissions.md) | INTEGRATED AND TESTED | 6/0/0 | Order, POS and refund screens follow the employee's countries (GCC-14c slice 2) |
 | [G-05](tracker/axis-g-admin-panel-and-staff-permissions.md) | IMPLEMENTED IN DRAFT | 3/3/0 | Dashboard, reports, shared layout counters, tax reports and analytics follow the employee's countries (GCC-14c slice 3) |
 | [G-06](tracker/axis-g-admin-panel-and-staff-permissions.md) | IN PROGRESS | 3/0/2 | The admin header search shows only what the role and the country scope allow |
 | [G-07](tracker/axis-g-admin-panel-and-staff-permissions.md) | IN PROGRESS | 3/0/2 | A local manager cannot see a customer's transactions of other countries without permission |
@@ -486,7 +486,7 @@ Executable on an isolated branch without production access, ordered by the prior
 |---|---|---|---|
 | [M1-01](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1/4/2 | Branch and PR ledger, CI read-only, truthful production claims |
 | [M1-02](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1/5/0 | Dependency and conflict map of all open PRs, and one safe merge order for main |
-| [M1-03](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 2/1/3 | Combined integration of the security set and the GCC chain, tested on three engines |
+| [M1-03](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 5/0/1 | Combined integration of the security set and the GCC chain, tested on three engines |
 | [M1-04](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 2/1/1 | Stage 0: open maintenance routes removed and one-time codes kept out of the log |
 | [M1-05](tracker/axis-m-security-tests-and-deployment.md) | IMPLEMENTED IN DRAFT | 4/2/0 | Stage 1: account takeover closed for customer, delivery man, seller, website and app |
 | [M1-06](tracker/axis-m-security-tests-and-deployment.md) | IMPLEMENTED IN DRAFT | 5/1/0 | Stage 2: sellers and customers act only on their own rows; hidden products stay hidden |
@@ -496,7 +496,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [M1-10](tracker/axis-m-security-tests-and-deployment.md) | IMPLEMENTED IN DRAFT | 4/0/0 | Stage 5: unpublished business pages and blog posts are not public |
 | [M1-11](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 5/0/1 | Deployment tooling: overlay build, drift check, apply, backup and rollback, and its CI job |
 | [M1-12](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/6/0 | Security release plan and rollback plan: two routes, stages 0 to 5, runbook, smoke tests, what cannot be undone |
-| [M1-13](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/2/3 | Review and approval gates: finance, security of GCC-20, native Arabic reader |
+| [M1-13](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/4/3 | Review and approval gates: finance, security of GCC-20, native Arabic reader |
 | [M1-14](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/1/3 | Staging environment with fake data for six countries |
 | [M1-15](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/3/1 | Register of deferred risks DR-1 to DR-5: open, not remediated |
 | [M1-16](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1/1/4 | Protection of main and CI cost and reliability |
@@ -504,7 +504,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [M1-18](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1/4/1 | Engineering safety rules: classify, preserve, extend, isolate, verify; no direct SQL; no weakened protection |
 | [M1-V1](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/0/1 | Every P0 finding of the Discovery-02 security triage (23 explicit P0 plus 4 conditional P0 of 222 SE... |
 | [M1-V2](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/0/1 | A secret and personal-data scan gates every repository's pull requests: the triage's urgent item SEC... |
-| [M2-01](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 2/0/3 | Saudi continuity: the Saudi baseline stays as it was (test plan 1) |
+| [M2-01](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 2/1/2 | Saudi continuity: the Saudi baseline stays as it was (test plan 1) |
 | [M2-02](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 3/1/1 | Isolation of the six countries (test plan 2) |
 | [M2-03](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 4/1/1 | Staff permissions and country scopes (test plan 3) |
 | [M2-04](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 2/2/2 | Unified customer account across countries (test plan 4) |
@@ -518,7 +518,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [M2-12](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 2/0/3 | Sales channels and stock sync (test plan 12) |
 | [M2-13](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1/1/3 | Notifications and legal policies (test plan 13) |
 | [M2-14](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 3/0/2 | Stopping a store and handling its earlier orders (test plan 14) |
-| [M2-15](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 2/1/3 | Six-country integration test matrix and CI gates |
+| [M2-15](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 3/1/2 | Six-country integration test matrix and CI gates |
 | [M2-16](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/4/2 | Migration files and change discipline: Preserve, Extend, Isolate, Verify |
 | [M2-17](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1/3/2 | Historical Saudi data: ids preserved, backfill, reconciliation, staged upgrade, rollback |
 | [M2-18](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 3/0/3 | Operational services: logs, queues, scheduler, caches, search, storage, metrics, sync, rollback |

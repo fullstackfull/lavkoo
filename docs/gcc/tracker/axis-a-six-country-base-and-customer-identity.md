@@ -1,6 +1,6 @@
 # Axis A: Six-country base and customer identity
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 37. Acceptance criteria: 161 (MET 81, CODED 21, MISSING 59). Code completion 63%, proven by a passing test 50%, release readiness 9%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 37. Acceptance criteria: 161 (MET 82, CODED 20, MISSING 59). Code completion 63%, proven by a passing test 51%, release readiness 9%.
 
 Independent verification: done for unit(s) A1, A2.
 
@@ -145,7 +145,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 
 #### A1-07. A visitor for an inactive market sees the default store
 
-- **State: IMPLEMENTED IN DRAFT** | plan lines 191 | DECISIONS (visitors may switch stores); GCC-19 | reviews: owner-decision
+- **State: INTEGRATED AND TESTED** | plan lines 191 | DECISIONS (visitors may switch stores); GCC-19 | reviews: owner-decision
 - **(2) Functional requirement.** A visitor who arrives for a market that is not active is shown the default storefront, and nothing of the inactive market's catalogue leaks into it.
 - **(3) Exists now in code (main).** Nothing on main.
 - **(4) Done in the draft PRs.** PR 19: an inactive or unknown country in query, header or path falls through to the default. PR 47: a storefront shows only its own country's products, so the default shows none of an inactive market's; PR 53 pins it in StorefrontKillSwitchTest. PR 39 lists a market that may not sell with sellable false (browse only).
@@ -160,6 +160,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MET] The default storefront shows none of an inactive market's products (StorefrontKillSwitchTest::test_a_visitor_who_asks_for_a_deactivated_country_is_served_the_default_storefront_and_none_of_its_products; PR 83 @8ff3410, same jobs)
 - **(10) Next coding task.** Add tests/Feature/Storefront/StorefrontVisitorTest on #64: for each carrier (query, header, path, none) crossed with (inactive, unknown, malformed) assert the default storefront on a web page and on the API v1 product list, and that GET /api/v1/storefronts never lists an inactive market. Run it in the Storefront group on MySQL 8 and MariaDB.
 - **Open owner decisions.** Open in the PR 39 body: keep a market that may not sell in the list as browse-only, or hide it.
+- **Update after the assessment.** Inside the all-in-one integration tree: every pull request this requirement names has its current head in the tree of CI run 293 (head 8598331b), which finished success (28 of 29 jobs green on SQLite, MySQL 8.0, MariaDB 11.4.2 and the strict-mode job, one skipped by design, read job by job), and every criterion is MET. See docs/gcc/audits/2026-11-18-all-in-one-integration/README.md, The third run.
 
 #### A1-08. Old Saudi URLs and API contracts keep working unchanged
 
@@ -736,14 +737,14 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(8) Dependencies and blockers.** Retention and anonymisation rules need legal review per country; apps read wallet_balance and loyalty_point literally, so keys must stay.
 - **(9) Acceptance criteria.**
   - [MET] Provider API logs and staging copies hold no names, phones, addresses or coordinates (ApiLogPrivacyTest and TorodPiiTest; PR 83 8ff3410 and PR 75 47b78ab, same jobs)
-  - [CODED] No file or log records customer, guest, address or order ids per paid order (PR 93 (draft, main based, 04d53061) removes the write of customer, guest, address and order ids to storage/logs/order_generate_test.txt and adds a test that fails with the write and passes without it; passes on SQLite and MySQL 8.0.46 locally, CI of the head not read)
+  - [MET] No file or log records customer, guest, address or order ids per paid order (PR 93 (draft, main based, 5e128f06) removes the write of customer, guest, address and order ids to storage/logs/order_generate_test.txt and adds a test that fails with the write and passes without it; the CI of the head (run 295) is green: 20 of 21 jobs including Address tests on MySQL 8 and MariaDB 11.4.2, Fulfillment and security on both, strict-mode on MariaDB and SQLite 8.2 and 8.3 (the overlay job is red by design))
   - [MISSING] Seller and courier payloads omit the customer's wallet balance, loyalty points and referral code (Discovery E04-F15; app/Models/User.php hidden list holds tokens and card data only)
   - [MISSING] Deleting an account retires it without orphaning orders or ledger rows, and refuses while balances are unsettled (account_delete is a hard delete after an ongoing-order check)
   - [MISSING] A seller's customer search returns only customers they may serve (getCustomerNameList searches all users (owner decision recorded in PR 52))
 - **(10) Next coding task.** Branch off main: remove the order debug file write in app/Utils/module-helper.php and add a test that a paid-order settlement leaves no file under storage/logs. tests/Support/KeepsOrderDebugLogClean.php is not such a test: it is a helper (added by PR 56 and by PR 53, absent from main) that restores the file around OrderPaymentCallbackTest, and on main OrderPaymentCallbackTest and ApiUnmigratedStoreTest do the same inline; those save-and-restore blocks go with the write. Add CustomerRetirementService (anonymise name, phone, e-mail, tokens, addresses; keep id, orders, ledgers; refuse while balances are unsettled) for the three delete paths, tested on SQLite, MySQL 8, MariaDB. Keep the apps' payload keys and null hidden values.
 - **Open owner decisions.** Retention period and anonymisation versus hard delete (legal); the POS and seller customer listing (owner decision, PR 52); who may export a customer's data.
 - **Verifier note (not applied automatically).** next_task corrected by the verifier (applied above).
-- **Update after the assessment.** PR 93 (draft, main based, 04d53061): the per-order debug file that recorded customer, guest, address and order ids is no longer written; whoever operates a server that ran the old code should delete storage/logs/order_generate_test.txt. Payload fields, account retirement, the seller customer search and the data export are untouched.
+- **Update after the assessment.** PR 93 (draft, main based, 5e128f06): the per-order debug file that recorded customer, guest, address and order ids is no longer written, and the CI of its head (run 295, read job by job) is green: 20 of 21 jobs, the overlay job red by design. Whoever operates a server that ran the old code should delete storage/logs/order_generate_test.txt. Payload fields, account retirement, the seller customer search and the data export are untouched.
 
 #### A2-V1. A local admin or employee of one market cannot see the customer's transactions of other markets with...
 

@@ -1,6 +1,6 @@
 # Axis E: Wallets, loyalty and financial records
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 18. Acceptance criteria: 84 (MET 31, CODED 4, MISSING 49). Code completion 42%, proven by a passing test 37%, release readiness 3%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 18. Acceptance criteria: 84 (MET 31, CODED 4, MISSING 49). Code completion 42%, proven by a passing test 37%, release readiness 7%.
 
 Independent verification: done for unit(s) E.
 
@@ -116,7 +116,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 
 #### E-06. Historical balances reconciled against the ledgers (read-only proof)
 
-- **State: IMPLEMENTED IN DRAFT** | plan lines 23, 366, 370, 513 | GCC-15; DECISIONS: careful reconciliation of historical Saudi balances; 07 migration plan sections 3.1 and 3.2 | reviews: finance, security, owner-decision
+- **State: INTEGRATED AND TESTED** | plan lines 23, 366, 370, 513 | GCC-15; DECISIONS: careful reconciliation of historical Saudi balances; 07 migration plan sections 3.1 and 3.2 | reviews: finance, security, owner-decision
 - **(2) Functional requirement.** A read-only report proves that, per customer, the ledger sum equals users.wallet_balance and users.loyalty_point, classifies every difference and blocks any migration while one is unexplained. It runs on a test or authorised copy and prints no personal data.
 - **(3) Exists now in code (main).** Only the Discovery method: balance = sum(credit + admin_bonus - debit), points = sum(credit - debit), judged computable but UNKNOWN on production (E04 5.1; 07 plan 3.1/3.2). No command, query or test does it. A legacy customer_wallets system with a GET route (RewardPointController::convert) holds a second balance outside the ledger.
 - **(4) Done in the draft PRs.** PR 88 (draft, main based, b5a3b5d1): php artisan wallet:reconcile compares users.wallet_balance with the wallet ledger and users.loyalty_point with the loyalty ledger in database decimals up to the highest ledger row at the start, classes A to F (only F fails the run, exit 1), an evidence file of user ids for class E, a tolerance that defaults to a millionth of a unit and is written into the report when widened, POS cancellations refunded more than once, wallet debits matched to the order group they paid (customer, amount, time), the legacy customer_wallets tables reported. The session is locked read-only and the report proves it; counts and sums only; refused in production without --allow-production-read-only and on a database other than --expect-database. Guide: docs/gcc/WALLET-RECONCILE.md.
@@ -133,6 +133,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MET] The legacy customer_wallets and customer_wallet_histories tables are included or declared frozen (the legacy tables are reported with their row counts and sums; they are not part of the comparison and not declared frozen; tests for absent, empty and populated legacy tables pass in the same CI jobs)
 - **(10) Next coding task.** E-07 step 1: the expand-only per-market account tables behind GCC_MARKET_WALLETS, which may not backfill before a clean wallet:reconcile run exists on a restored copy.
 - **Open owner decisions.** Who runs the read-only check, on which copy and when; the storage unit (E04-F02); whether any unexplained difference blocks go-live.
+- **Update after the assessment.** Inside the all-in-one integration tree: every pull request this requirement names has its current head in the tree of CI run 293 (head 8598331b), which finished success (28 of 29 jobs green on SQLite, MySQL 8.0, MariaDB 11.4.2 and the strict-mode job, one skipped by design, read job by job), and every criterion is MET. See docs/gcc/audits/2026-11-18-all-in-one-integration/README.md, The third run.
 
 #### E-07. Saudi balances migrated into per-market accounts without loss
 
@@ -177,7 +178,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 
 #### E-09. Balance writes serialised per customer (row lock), wallet and loyalty
 
-- **State: IMPLEMENTED IN DRAFT** | plan lines 368 | GCC-15; charter section 5 (finance review); finding LO-01 | reviews: finance, security
+- **State: INTEGRATED AND TESTED** | plan lines 368 | GCC-15; charter section 5 (finance review); finding LO-01 | reviews: finance, security
 - **(2) Functional requirement.** Wallet and loyalty balance writes are serialised per customer: no lost update between overlapping debits, credits or point conversions, and a deadlock or lock timeout is never read as an ordinary refusal.
 - **(3) Exists now in code (main).** Four wallet writers (WalletTransactionRepository, CustomerManager, CustomerTrait, OrderManager) and two points writers (LoyaltyPointTransactionRepository, CustomerManager) read the balance before their transaction and write absolute values without a lock. On MySQL 8.0.46, ten simultaneous 1.0 debits left 99.0, not 90.0 (PR 9 body).
 - **(4) Done in the draft PRs.** PR 9: CustomerBalanceLock::apply (transaction, SELECT ... FOR UPDATE on the user row) wraps all four wallet writers; deadlock and lock-wait are rethrown, not returned as false. PR 10: the same lock for both points writers and an atomic points-to-wallet conversion. PR 14: wallet and loyalty tests join the MySQL 8 and MariaDB 11.4.2 groups; a job without a real engine fails instead of skipping.
@@ -196,10 +197,11 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MET] A job without a real engine fails the wallet and loyalty tests instead of skipping them (PR 14 2ae7459 (tests/Unit/Ci); jobs green)
 - **(10) Next coding task.** Build one stack head with PR 9, 10 and 14, run it on MySQL 8 and MariaDB 11.4.2; then decide D5 and, if wanted, add a bounded retry or a clean 'try again' answer for lock timeouts in the four callers (audit the closures' side effects first), with a test per caller.
 - **Open owner decisions.** D5: whether a lock timeout needs retries or a clean answer (today HTTP 500, no money lost); financial-owner review of PR 9 and PR 10.
+- **Update after the assessment.** Inside the all-in-one integration tree: every pull request this requirement names has its current head in the tree of CI run 293 (head 8598331b), which finished success (28 of 29 jobs green on SQLite, MySQL 8.0, MariaDB 11.4.2 and the strict-mode job, one skipped by design, read job by job), and every criterion is MET. See docs/gcc/audits/2026-11-18-all-in-one-integration/README.md, The third run.
 
 #### E-10. Overdraft floor inside the lock; callers honour a refused debit or credit
 
-- **State: IMPLEMENTED IN DRAFT** | plan lines 368 | GCC-15; finding LO-01; charter section 5 | reviews: finance, security
+- **State: INTEGRATED AND TESTED** | plan lines 368 | GCC-15; finding LO-01; charter section 5 | reviews: finance, security
 - **(2) Functional requirement.** A wallet debit that would take the balance below zero is refused inside the customer lock, and every caller (checkout, return credit, edited-order due payment) treats the refusal as a refusal: no order paid without a debit, no amount cleared without a credit.
 - **(3) Exists now in code (main).** REST v1 and web wallet checkout, edited-order due payment and POS read the balance outside any lock, then debit; the writers accept a debit above the balance, and callers ignore a false result, so a paid order can exist without a debit (PR 6, PR 12 and PR 34 bodies, main code).
 - **(4) Done in the draft PRs.** PR 11: WalletOverdraft::refuses inside the lock in all four writers. PR 12: the debit runs last inside the order transaction, WalletPaymentRefused rolls back order, stock and tax rows; return credit throws WalletCreditRefused. PR 13: POS and edited-order due payments atomic, a due of zero refused. PR 11 states it is unsafe without PR 12 and 13.
@@ -219,6 +221,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MET] An edited-order due payment by wallet is one transaction, a refused debit changes nothing, a zero due is refused (OrderEditDueWalletPaymentTest, OrderEditDueConcurrencyTest, PR 13 516881c)
 - **(10) Next coding task.** Build one combined head of PR 11, 12 and 13 on PR 9 (and PR 14's CI change); settle conflicts in OrderManager, WebController and RestAPI/v1 OrderController; run Wallet, Concurrency and Address groups on SQLite, MySQL 8 and MariaDB 11.4.2; then rebase PR 35 and PR 36 on it.
 - **Open owner decisions.** D6: whether every writer refuses overdraft for every caller (PR 11 does it for order and due debits); a dedicated message when the wallet is off.
+- **Update after the assessment.** Inside the all-in-one integration tree: every pull request this requirement names has its current head in the tree of CI run 293 (head 8598331b), which finished success (28 of 29 jobs green on SQLite, MySQL 8.0, MariaDB 11.4.2 and the strict-mode job, one skipped by design, read job by job), and every criterion is MET. See docs/gcc/audits/2026-11-18-all-in-one-integration/README.md, The third run.
 
 #### E-11. POS wallet sales: atomic, server total, guarded amount, idempotent
 

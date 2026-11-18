@@ -1,6 +1,6 @@
 # Axis G: Admin panel and staff permissions
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 20. Acceptance criteria: 96 (MET 57, CODED 7, MISSING 32). Code completion 67%, proven by a passing test 59%, release readiness 13%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 20. Acceptance criteria: 96 (MET 57, CODED 7, MISSING 32). Code completion 67%, proven by a passing test 59%, release readiness 15%.
 
 Independent verification: done for unit(s) G.
 
@@ -47,7 +47,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 
 #### G-03. Product screens, pickers, import and moderation follow the employee's countries (GCC-14a, 14c slice 1)
 
-- **State: IMPLEMENTED IN DRAFT** | plan lines 374, 380, 382, 389 | DECISIONS GCC-14; docs/gcc/GCC-14C-STAFF-COUNTRY-SCOPES.md slice 1 | reviews: security, native-arabic, owner-decision
+- **State: INTEGRATED AND TESTED** | plan lines 374, 380, 382, 389 | DECISIONS GCC-14; docs/gcc/GCC-14C-STAFF-COUNTRY-SCOPES.md slice 1 | reviews: security, native-arabic, owner-decision
 - **(2) Functional requirement.** A restricted employee lists, searches, exports, adds, edits, restocks and moderates only the products of their countries. A product of another country, an unknown id and a junk id answer the same 404, never 403. A route added later is refused to them until it has a rule.
 - **(3) Exists now in code (main).** Main: the admin product screens (38 routes) and the seller-product moderation (4 routes) show every product; products carry no country; module permission only.
 - **(4) Done in the draft PRs.** #64 (base): country chosen on add, read-only on edit, list column and filter. #74: a Product global scope (every query, safe for the search OR), ScopeProductsToStaffCountries on the two controllers, a rule on each of their 42 actions (23 of them name a product id and get a uniform 404 with whole-list refusal; 13 are lists, 4 name nothing, 2 make new products), NewProductCountryInStaffScope on the add form, import in the employee's one country (several refused), route-table guard and doc test. Off by default.
@@ -66,10 +66,11 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(10) Next coding task.** On #74 (or on the combined branch of task B once #69 is in) add route:id rules for GET admin/products/digital-file and digital-variation-file in StaffProductRoutes, update the doc table and StaffProductIdRoutesTest; then render the real product list, add and update pages once for a restricted employee instead of tests/Support/staff-views stubs.
 - **Open owner decisions.** #74 decisions 1 (import for several countries: refuse now or add a country field), 4 (moderating seller products, all SA), 5 (copy between countries from the gallery) and 7 (read the three Arabic strings in new-messages.php).
 - **Verifier note (not applied automatically).** done_in_drafts corrected by the verifier (applied above).
+- **Update after the assessment.** Inside the all-in-one integration tree: every pull request this requirement names has its current head in the tree of CI run 293 (head 8598331b), which finished success (28 of 29 jobs green on SQLite, MySQL 8.0, MariaDB 11.4.2 and the strict-mode job, one skipped by design, read job by job), and every criterion is MET. See docs/gcc/audits/2026-11-18-all-in-one-integration/README.md, The third run.
 
 #### G-04. Order, POS and refund screens follow the employee's countries (GCC-14c slice 2)
 
-- **State: IMPLEMENTED IN DRAFT** | plan lines 374, 380, 382, 386 | DECISIONS GCC-14; docs/gcc/GCC-14C-STAFF-COUNTRY-SCOPES.md slice 2 | reviews: security, finance, owner-decision
+- **State: INTEGRATED AND TESTED** | plan lines 374, 380, 382, 386 | DECISIONS GCC-14; docs/gcc/GCC-14C-STAFF-COUNTRY-SCOPES.md slice 2 | reviews: security, finance, owner-decision
 - **(2) Functional requirement.** A restricted employee lists, opens, changes, exports, refunds and sells (POS) only orders whose every line is a product of their countries; a refund follows the line it is about; anything outside, unknown or junk answers the same 404; actions that change an order run on the real data so order numbers, referral bonus and coupon counts stay right.
 - **(3) Exists now in code (main).** Main: the admin order, order-edit, POS, refund and Delivery Syria screens (48 routes) show every order; an order carries no country and no currency.
 - **(4) Done in the draft PRs.** #77 (on #74): Order and RefundRequest global scopes (correlated EXISTS, one statement per list), ScopeOrdersToStaffCountries on seven controllers with a rule per route (order, line, refund, product, cart, edit ids), POS order placed only when every cart product is theirs, an order with no line or a product gone is hidden from every restricted employee (fail closed), six-country matrix test. Off by default.
@@ -88,6 +89,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(10) Next coding task.** On #77 add tests/Feature/StaffScope/StaffRealOrderViewsTest.php rendering the real admin order list, order details, POS and refund views for a restricted employee (today tests/Support/staff-views stubs stand in); then run it on the combined branch of task B.
 - **Open owner decisions.** #77 decisions 1 (unattributed orders need a permission, not a country), 2 (mixed-country orders: refuse them in the POS for everybody?), 3 (refund about one line of a mixed order), 5 (POS refusal wording), 6 (layout counter cost: cache, or stamp the country on the order).
 - **Verifier note (not applied automatically).** deps_blockers corrected by the verifier (applied above).
+- **Update after the assessment.** Inside the all-in-one integration tree: every pull request this requirement names has its current head in the tree of CI run 293 (head 8598331b), which finished success (28 of 29 jobs green on SQLite, MySQL 8.0, MariaDB 11.4.2 and the strict-mode job, one skipped by design, read job by job), and every criterion is MET. See docs/gcc/audits/2026-11-18-all-in-one-integration/README.md, The third run.
 
 #### G-05. Dashboard, reports, shared layout counters, tax reports and analytics follow the employee's countries (GCC-14c slice 3)
 
