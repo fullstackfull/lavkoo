@@ -148,7 +148,7 @@
                         @endif
 
                         <td class="k-table__num k-num">
-                            {{ setCurrencySymbol(amount: usdToDefaultCurrency(amount: $product['unit_price']), currencyCode: getCurrencyCode()) }}
+                            {{ app(\App\Services\Storefront\StorefrontCurrency::class)->within(country: $tracksCountry ? $product['storefront_country'] : null, callback: fn () => setCurrencySymbol(amount: usdToDefaultCurrency(amount: $product['unit_price']), currencyCode: getCurrencyCode())) }}
                         </td>
 
                         <td class="k-table__num">

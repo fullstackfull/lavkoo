@@ -3,6 +3,7 @@
 namespace App\Services\Storefront;
 
 use App\Models\Currency;
+use Closure;
 use Illuminate\Container\Attributes\Singleton;
 use Illuminate\Support\Facades\Schema;
 
@@ -28,6 +29,8 @@ final class StorefrontCurrency
     private const DEFAULT_DECIMALS = 2;
 
     private ?bool $currenciesTableExists = null;
+
+    private ?string $market = null;
 
     public function isEnabled(): bool
     {
@@ -56,6 +59,23 @@ final class StorefrontCurrency
             'currency_model' => self::SINGLE_CURRENCY_MODEL,
             'decimal_point_settings' => $this->decimalsOf($currency->code),
         };
+    }
+
+    /**
+     * Runs the callback with the money of one market in force, whatever the request is narrowed to: an admin screen that works on the rows of one
+     * country, whose amounts are in that country's currency, reads and writes them as they are stored. An unknown country, a market that is the
+     * default one, and a time while the switch is off change nothing. The market in force before is put back, even when the callback throws.
+     */
+    public function within(?string $country, Closure $callback): mixed
+    {
+        $previous = $this->market;
+        $this->market = $country === null || trim($country) === '' ? null : strtoupper(trim($country));
+
+        try {
+            return $callback();
+        } finally {
+            $this->market = $previous;
+        }
     }
 
     /** The code of the currency the request's storefront trades in, or null while the platform's own settings stand. */
@@ -148,10 +168,10 @@ final class StorefrontCurrency
             return null;
         }
 
-        $country = StorefrontCatalog::country();
         $resolver = StorefrontResolver::fromConfig();
+        $country = $this->market ?? StorefrontCatalog::country();
 
-        if ($country === null || $country === $resolver->defaultCountry()) {
+        if ($country === null || $country === $resolver->defaultCountry() || !$resolver->isEnabled() || !in_array($country, $resolver->configuredCountries(), true)) {
             return null;
         }
 
