@@ -24,11 +24,20 @@ class LoyaltyPointCharacterizationTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        LoyaltyTables::drop();
+        WalletTables::drop();
         WalletTables::create();
         LoyaltyTables::create();
         WalletTables::setSetting('wallet_status', '1');
         LoyaltyTables::enableLoyaltyPoints();
         WalletTables::seedCustomer(self::CUSTOMER_ID, 0.0);
+    }
+
+    protected function tearDown(): void
+    {
+        LoyaltyTables::drop();
+        WalletTables::drop();
+        parent::tearDown();
     }
 
     public function test_an_order_credit_rounds_the_points_down_to_whole_points(): void

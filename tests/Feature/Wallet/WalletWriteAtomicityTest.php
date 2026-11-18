@@ -31,10 +31,17 @@ class WalletWriteAtomicityTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        WalletTables::drop();
         WalletTables::create();
         WalletTables::setSetting('wallet_status', '1');
         WalletTables::setSetting('loyalty_point_exchange_rate', '100');
         WalletTables::seedCustomer(self::CUSTOMER_ID, self::OPENING_BALANCE);
+    }
+
+    protected function tearDown(): void
+    {
+        WalletTables::drop();
+        parent::tearDown();
     }
 
     /** @return array<string, array{0: string}> */
