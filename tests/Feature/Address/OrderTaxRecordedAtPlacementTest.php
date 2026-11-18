@@ -4,11 +4,10 @@ namespace Tests\Feature\Address;
 
 use App\Models\Product;
 use App\Utils\OrderManager;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Modules\TaxModule\app\Models\SystemTaxSetup;
+use Tests\Support\BuildsTaxModuleWorld;
 
 /**
  * D1-07 of the master plan, as it is on `main`: the tax an order is placed under is read from the one default tax setup of the store, and what the order records of it
@@ -19,11 +18,9 @@ use Modules\TaxModule\app\Models\SystemTaxSetup;
  */
 class OrderTaxRecordedAtPlacementTest extends ApiAddressTestCase
 {
+    use BuildsTaxModuleWorld;
+
     private const COD = '/api/v1/customer/order/place';
-
-    private const VAT = 1;
-
-    private const MUNICIPALITY_FEE = 2;
 
     protected function setUp(): void
     {
@@ -35,81 +32,7 @@ class OrderTaxRecordedAtPlacementTest extends ApiAddressTestCase
 
         $this->createOrderPipelineTables();
         $this->createTaxModuleTables();
-        DB::table('taxes')->insert([
-            ['id' => self::VAT, 'name' => 'VAT', 'tax_rate' => 15, 'is_active' => 1, 'is_default' => 1],
-            ['id' => self::MUNICIPALITY_FEE, 'name' => 'Municipality fee', 'tax_rate' => 5, 'is_active' => 1, 'is_default' => 1],
-            ['id' => 3, 'name' => 'Retired levy', 'tax_rate' => 10, 'is_active' => 0, 'is_default' => 1],
-        ]);
-    }
-
-    private function createTaxModuleTables(): void
-    {
-        if (!Schema::hasTable('system_tax_setups')) {
-            Schema::create('system_tax_setups', function (Blueprint $table): void {
-                $table->id();
-                $table->string('tax_type', 100)->default('order_wise');
-                $table->string('country_code', 20)->nullable()->index();
-                $table->string('tax_payer', 20)->nullable()->default('vendor');
-                $table->text('tax_ids')->nullable();
-                $table->boolean('is_default')->default(false);
-                $table->boolean('is_active')->default(true);
-                $table->boolean('is_included')->default(false);
-                $table->timestamps();
-            });
-        }
-
-        if (!Schema::hasTable('tax_additional_setups')) {
-            Schema::create('tax_additional_setups', function (Blueprint $table): void {
-                $table->id();
-                $table->string('name')->index();
-                $table->unsignedBigInteger('system_tax_setup_id')->nullable();
-                $table->text('tax_ids')->nullable();
-                $table->boolean('is_active')->default(true);
-                $table->timestamps();
-            });
-        }
-
-        if (!Schema::hasTable('order_taxes')) {
-            Schema::create('order_taxes', function (Blueprint $table): void {
-                $table->id();
-                $table->string('tax_name');
-                $table->string('tax_type');
-                $table->string('tax_on');
-                $table->double('tax_rate', 23, 8)->default(0);
-                $table->double('tax_amount', 23, 8)->default(0);
-                $table->double('before_tax_amount', 23, 8)->default(0);
-                $table->double('after_tax_amount', 23, 8)->default(0);
-                $table->string('tax_payer')->nullable();
-                $table->integer('order_id')->nullable();
-                $table->string('order_type')->nullable();
-                $table->integer('quantity')->default(1)->nullable();
-                $table->integer('tax_id');
-                $table->integer('taxable_id')->nullable();
-                $table->string('taxable_type')->nullable();
-                $table->integer('seller_id')->nullable();
-                $table->string('seller_type')->nullable();
-                $table->integer('system_tax_setup_id');
-                $table->string('tax_for', 30)->default('tax_for_orders')->nullable();
-                $table->timestamps();
-            });
-        }
-    }
-
-    /** @param array<int> $taxIds */
-    private function openTheTaxSetup(string $type = 'order_wise', array $taxIds = [self::VAT, self::MUNICIPALITY_FEE], bool $included = false): SystemTaxSetup
-    {
-        $setup = SystemTaxSetup::create([
-            'tax_type' => $type,
-            'country_code' => 'SA',
-            'tax_payer' => 'vendor',
-            'tax_ids' => $taxIds,
-            'is_default' => 1,
-            'is_active' => 1,
-            'is_included' => $included ? 1 : 0,
-        ]);
-        Cache::flush();
-
-        return $setup;
+        $this->seedTheTaxRates();
     }
 
     private function placeTheOrder(int $quantityOfTheFirstProduct = 1): int
@@ -200,7 +123,7 @@ class OrderTaxRecordedAtPlacementTest extends ApiAddressTestCase
 
     public function test_a_tax_that_is_switched_off_is_left_out_whatever_the_setup_lists(): void
     {
-        $this->openTheTaxSetup(taxIds: [self::VAT, 3]);
+        $this->openTheTaxSetup(taxIds: [self::VAT, self::RETIRED_LEVY]);
 
         $orderId = $this->placeTheOrder();
 
