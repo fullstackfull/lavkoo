@@ -1,13 +1,13 @@
 # Merge order and conflict map of the open pull requests
 
-Generated 2026-11-18 from the heads of the open pull requests of `fullstackfull/lavkoo` by dry-run merges (`git merge-tree`, nothing checked out, nothing written to a branch) of **every pair**: 81 pull requests, 3240 pairs, 99 of which conflict textually. It is the answer to "in which order, and what meets what"; it does not replace the tests: a pair that merges cleanly can still break a guard written for the other (the semantic conflicts are in [`audits/2026-11-18-all-in-one-integration/README.md`](audits/2026-11-18-all-in-one-integration/README.md)).
+Generated 2026-11-18 from the heads of the open pull requests of `fullstackfull/lavkoo` by dry-run merges (`git merge-tree`, nothing checked out, nothing written to a branch) of **every pair**: 87 pull requests, 3741 pairs, 126 of which conflict textually. It is the answer to "in which order, and what meets what"; it does not replace the tests: a pair that merges cleanly can still break a guard written for the other (the semantic conflicts are in [`audits/2026-11-18-all-in-one-integration/README.md`](audits/2026-11-18-all-in-one-integration/README.md)).
 
 Left out on purpose: #75 (CI evidence of the security set), #83 (CI evidence of the GCC stack); and the baseline hotfix line (#78, #81, #85, #86), which is cut from the server baseline `698aa1e` and deployed in stages, never merged with the main-based set (see `SECURITY_RELEASE_PLAN.md`). **Merge none of the CI evidence or deployment branches.**
 
 ## 1. Reading the conflicts
 
-- 99 pairs conflict; **75 of them are inherited**: a pull request stacked on another one conflicts with whatever its base conflicts with, in the same files. They need no second look: settling the lower pair settles them.
-- **24 root pairs** conflict in their own right (section 4). The pull request merged second settles the pair. Every one of them was settled once in the all-in-one integration branch (`gcc/release/all-integration-ci` and its base) or in the integration of the security set, and the commit that did it is named, so the owner can see the resolution and the tests that followed.
+- 126 pairs conflict; **99 of them are inherited**: a pull request stacked on another one conflicts with whatever its base conflicts with, in the same files. They need no second look: settling the lower pair settles them.
+- **27 root pairs** conflict in their own right (section 4). The pull request merged second settles the pair. Every one of them was settled once in the all-in-one integration branch (`gcc/release/all-integration-ci` and its base) or in the integration of the security set, and the commit that did it is named, so the owner can see the resolution and the tests that followed.
 - Everything not in section 4 merges cleanly with everything else, in any order that respects the stacks of section 2.
 
 ## 2. Stacks (what to merge first)
@@ -61,6 +61,11 @@ A stacked pull request has its base branch set to another pull request's branch,
 | 0 | [#63](https://github.com/fullstackfull/lavkoo/pull/63) | `main` | security | uploads are stored under a data extension, an SVG is never an image, stored names are plain, and |
 | 0 | [#65](https://github.com/fullstackfull/lavkoo/pull/65) | `main` | security | the AI settings, the VAT and tax settings and the tax reports ask for the permission of their me |
 | 0 | [#66](https://github.com/fullstackfull/lavkoo/pull/66) | `main` | security | three admin handlers use the list their own screen is built from |
+| 0 | [#88](https://github.com/fullstackfull/lavkoo/pull/88) | `main` | P0 wallet, orders, identity and tests | E-06: wallet:reconcile, a read-only proof that wallet balances and loyalty points equal their le |
+| 0 | [#89](https://github.com/fullstackfull/lavkoo/pull/89) | `main` | P0 wallet, orders, identity and tests | two checkout statements a strict SQL server refuses now name the column they group by |
+| 0 | [#91](https://github.com/fullstackfull/lavkoo/pull/91) | `main` | docs and CI | the exact rule that protects main and the code owners, for a person to apply (documents only) |
+| 0 | [#92](https://github.com/fullstackfull/lavkoo/pull/92) | `main` | docs and CI | every test starts from an empty database on a real server |
+| 0 | [#93](https://github.com/fullstackfull/lavkoo/pull/93) | `main` | fixes | the per-order debug file that recorded customer, guest, address and order ids is no longer writt |
 | 1 | [#10](https://github.com/fullstackfull/lavkoo/pull/10) | #9 | P0 wallet, orders, identity and tests | serialise point balance writes and make point-to-wallet conversion atomic |
 | 1 | [#11](https://github.com/fullstackfull/lavkoo/pull/11) | #9 | P0 wallet, orders, identity and tests | refuse a debit that would take the balance below zero, inside the customer lock |
 | 1 | [#19](https://github.com/fullstackfull/lavkoo/pull/19) | #8 | GCC storefronts and staff | add opt-in storefront middleware alias and per-country activation |
@@ -94,6 +99,7 @@ A stacked pull request has its base branch set to another pull request's branch,
 | 15 | [#76](https://github.com/fullstackfull/lavkoo/pull/76) | #72 | GCC storefronts and staff | GCC-14b slice 2: close the sites slice 1 left open, and prove the isolation between the six coun |
 | 15 | [#77](https://github.com/fullstackfull/lavkoo/pull/77) | #74 | GCC storefronts and staff | GCC-14c slice 2: staff country scopes for the order, POS and refund screens of the admin panel ( |
 | 15 | [#79](https://github.com/fullstackfull/lavkoo/pull/79) | #71 | GCC storefronts and staff | GCC-20 phase 2, delivery 1: second factor and session rules for the platform admin API (default  |
+| 15 | [#90](https://github.com/fullstackfull/lavkoo/pull/90) | #87 | GCC storefronts and staff | GCC-13: the company that sells in each country is registered and stamped on the order (off by de |
 | 16 | [#80](https://github.com/fullstackfull/lavkoo/pull/80) | #79 | GCC storefronts and staff | GCC-20 phase 2, delivery 2: grants that can end and be narrowed, a tamper-evident audit trail, i |
 | 16 | [#82](https://github.com/fullstackfull/lavkoo/pull/82) | #77 | GCC storefronts and staff | GCC-14c slice 3: staff country scopes for the shared layout, the people, the dashboard, the repo |
 | 17 | [#84](https://github.com/fullstackfull/lavkoo/pull/84) | #80 | GCC storefronts and staff | GCC-20 x GCC-14c: the platform admin API reaches the markets of the grant that the staff country |
@@ -103,9 +109,10 @@ A stacked pull request has its base branch set to another pull request's branch,
 Each wave is dependency-valid in itself (merge its pull requests by depth, then number). The order between waves follows the owner guide: what closes a hole first, then money, then the storefronts.
 
 - **Wave 1: the security set (merge and deploy together, see the owner guide):** #40, #41, #44, #45, #46, #51, #52, #54, #57, #58, #59, #60, #61, #62, #63, #65, #66, #67, #68, #69, #70, #73.
-- **Wave 2: other fixes:** #55, #56.
-- **Wave 3: P0 wallet, orders, identity and the characterization tests:** #1, #2, #3, #4, #5, #6, #7, #9, #16, #17, #18, #20, #21, #22, #23, #24, #25, #26, #27, #29, #30, #31, #32, #33, #34, #10, #11, #36, #12, #13, #14, #15, #35.
-- **Wave 4: the GCC storefronts, staff scopes, platform admin and GCC-05 (all off by default):** #8, #19, #28, #37, #38, #39, #42, #43, #47, #48, #49, #50, #53, #64, #71, #72, #74, #87, #76, #77, #79, #80, #82, #84.
+- **Wave 2: other fixes:** #55, #56, #93.
+- **Wave 3: P0 wallet, orders, identity and the characterization tests:** #1, #2, #3, #4, #5, #6, #7, #9, #16, #17, #18, #20, #21, #22, #23, #24, #25, #26, #27, #29, #30, #31, #32, #33, #34, #88, #89, #10, #11, #36, #12, #13, #14, #15, #35.
+- **Wave 4: the GCC storefronts, staff scopes, platform admin, GCC-05 and the selling-company registry (all off by default):** #8, #19, #28, #37, #38, #39, #42, #43, #47, #48, #49, #50, #53, #64, #71, #72, #74, #87, #76, #77, #79, #90, #80, #82, #84.
+- **Anytime, first if possible: documents and test base class (#92 must come before the wallet and loyalty classes that rely on an empty database, and conflicts with the storefront stack only on `tests/TestCase.php`, see section 4):** #91, #92.
 
 ## 4. The root conflicting pairs, and where each was settled
 
@@ -131,10 +138,13 @@ Each wave is dependency-valid in itself (merge its pull requests by depth, then 
 | #32 with #52 | `app/Http/Controllers/RestAPI/v2/seller/SellerController.php`, `app/Http/Controllers/RestAPI/v3/seller/SellerController.php`, `app/Http/Controllers/Vendor/DashboardController.php` | `244c5361` (the merge of #32) |
 | #36 with #69 | `app/Http/Controllers/RestAPI/v1/OrderController.php` | `4fe8e4ea` (the merge of #36) |
 | #44 with #52 | `app/Http/Controllers/RestAPI/v2/seller/SellerController.php` | the integration of the security set (#75), `47b78ab8`: both versions of the return of `shop_info()` are kept |
+| #47 with #92 | `tests/TestCase.php` | `1cb9e10b` (the merge of #92) |
 | #48 with #54 | `app/Http/Controllers/RestAPI/v1/CartController.php`, `app/Utils/CartManager.php` | the base of the integration, `88d63c22` (security set with the GCC stack) |
 | #53 with #56 | `app/Utils/module-helper.php` | the base of the integration, `88d63c22` (security set with the GCC stack) |
+| #56 with #93 | `app/Utils/module-helper.php` | `657b26e7` (the merge of #93) |
 | #63 with #72 | `app/Http/Controllers/RestAPI/v2/seller/ProductController.php`, `app/Http/Controllers/RestAPI/v3/seller/ProductController.php` | the base of the integration, `88d63c22` (security set with the GCC stack) |
 | #71 with #87 | `bootstrap/app.php` | `8f3d0f38` (the merge of #87) |
+| #71 with #90 | `.env.example` | `515d5bfa` (the merge of #90) |
 
 ## 5. Files that need a hand deployment
 
@@ -157,3 +167,25 @@ An overlay carries only `app`, `bootstrap`, `config`, `database`, `resources` an
 1. Read [`SERVER_PREFLIGHT.md`](SERVER_PREFLIGHT.md) with the administrator: the live values this plan cannot read (the currency model, the delivery-country restriction, the tax module, the enabled providers, the database engine) decide a few of the choices above.
 2. After merging pull requests from two waves into `main`, apply the reconciliation commits named in the all-in-one report (tests and one guarded document, and three small code changes) so that the CI of `main` stays green.
 3. The database migrations of the pull requests add nullable columns or tables and refuse a rollback that would lose data; rehearse them on a copy of the live database first. Nothing here runs a migration on production.
+
+## 7. The two Flutter apps
+
+Each app repository has its own stacks, read from the bases of its open pull requests (a pull request that is not stacked is based on `main`). Merging them releases nothing: a store build is a separate decision of the owner, and the storefront code is off by default in a build (`--dart-define=GCC_STOREFRONTS_ENABLED=true` turns it on). **Ship the customer app pull request #4 before the backend pull request #60** (the owner guide, section 1): an older app build only loses the one sheet that #60 changes.
+
+| Repository | Depth | Pull request | Based on | Change |
+|---|---:|---|---|---|
+| `lavkooapp` | 0 | [#1](https://github.com/fullstackfull/lavkooapp/pull/1) | `main` | default-off X-Storefront header and six-storefront config |
+| `lavkooapp` | 0 | [#4](https://github.com/fullstackfull/lavkooapp/pull/4) | `main` | the answer to "is this your account?" carries the token the server gave (security) |
+| `lavkooapp` | 1 | [#2](https://github.com/fullstackfull/lavkooapp/pull/2) | #1 | read and save the chosen storefront only while storefronts are on |
+| `lavkooapp` | 2 | [#3](https://github.com/fullstackfull/lavkooapp/pull/3) | #2 | browse-only storefronts, the sellable flag |
+| `lavkooapp` | 3 | [#5](https://github.com/fullstackfull/lavkooapp/pull/5) | #3 | the app follows the server's "may this store sell yet" answer and refuses checkout |
+| `lavkooapp` | 4 | [#6](https://github.com/fullstackfull/lavkooapp/pull/6) | #5 | cached answers keyed by storefront while storefronts are on |
+| `lavkooapp` | 5 | [#7](https://github.com/fullstackfull/lavkooapp/pull/7) | #6 | storefront-aware caches, one change notifier and a country chooser |
+| `lavkooapp` | 6 | [#8](https://github.com/fullstackfull/lavkooapp/pull/8) | #7 | J-05: prices of a storefront with its own currency written in that currency |
+| `lavkooappseller` | 0 | [#1](https://github.com/fullstackfull/lavkooappseller/pull/1) | `main` | default-off market scope and X-Storefront header |
+| `lavkooappseller` | 0 | [#3](https://github.com/fullstackfull/lavkooappseller/pull/3) | `main` | a refused order edit stays open and shows the server's message |
+| `lavkooappseller` | 0 | [#4](https://github.com/fullstackfull/lavkooappseller/pull/4) | `main` | GCC-20: a read-only platform Super Admin shell (needs the security review before any release) |
+| `lavkooappseller` | 1 | [#2](https://github.com/fullstackfull/lavkooappseller/pull/2) | #1 | a seller works in one GCC market at a time, only while storefronts are on |
+| `lavkooappseller` | 1 | [#6](https://github.com/fullstackfull/lavkooappseller/pull/6) | #4 | GCC-20 step 2: second factor, capabilities and sessions (needs the security review) |
+| `lavkooappseller` | 2 | [#5](https://github.com/fullstackfull/lavkooappseller/pull/5) | #2 | the point-of-sale scan reads the answers of the country-scoped codes |
+
