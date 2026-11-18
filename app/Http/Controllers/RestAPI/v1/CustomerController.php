@@ -17,6 +17,7 @@ use App\Models\ShippingAddress;
 use App\Models\SupportTicket;
 use App\Models\SupportTicketConv;
 use App\Models\Wishlist;
+use App\Services\DigitalFileAddressService;
 use App\Services\Fulfillment\CustomerFulfillmentPresenter;
 use App\Traits\CommonTrait;
 use App\Traits\PdfGenerator;
@@ -39,6 +40,10 @@ use Modules\Auction\app\Services\AuctionAccountDeletionGuardService;
 class CustomerController extends Controller
 {
     use CommonTrait, PdfGenerator, FileManagerTrait;
+
+    public function __construct(private readonly DigitalFileAddressService $digitalFileAddresses)
+    {
+    }
 
     public function info(Request $request):JsonResponse
     {
@@ -468,8 +473,7 @@ class CustomerController extends Controller
             $product = json_decode($query['product_details'], true);
             $product['thumbnail_full_url'] = $currentProduct?->thumbnail_full_url;
             if (isset($product['product_type']) && $product['product_type'] == 'digital' && $product['digital_product_type'] == 'ready_product' && $product['digital_file_ready']) {
-                $checkFilePath = storageLink('product/digital-product', $product['digital_file_ready'], ($product['storage_path'] ?? 'public'));
-                $product['digital_file_ready_full_url'] = $checkFilePath;
+                $product['digital_file_ready_full_url'] = $this->digitalFileAddresses->readyFileAnswerOfLine(orderDetail: $query);
             }
             $query['product_details'] = Helpers::product_data_formatting_for_json_data($product);
 

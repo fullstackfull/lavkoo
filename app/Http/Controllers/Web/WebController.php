@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Web;
 
 use App\Services\Analytics\Analytics;
+use App\Services\DigitalFileAddressService;
+use App\Services\DigitalProductFileService;
 use App\Services\Fulfillment\CheckoutCodGuard;
 use App\Contracts\Repositories\RobotsMetaContentRepositoryInterface;
 use App\Models\Admin;
@@ -59,6 +61,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Session;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use App\Services\Marketplace\PaymentRoutingService;
 use function App\Utils\payment_gateways;
 
@@ -82,6 +85,8 @@ class WebController extends Controller
         private readonly RobotsMetaContentRepositoryInterface $robotsMetaContentRepo,
         private readonly ProductService                       $productService,
         private readonly ShopService                              $shopService,
+        private readonly DigitalProductFileService                $digitalFiles,
+        private readonly DigitalFileAddressService                $digitalFileAddresses,
     )
     {
 
@@ -933,7 +938,7 @@ class WebController extends Controller
         $wishlist_status = Wishlist::where(['product_id' => $product->id, 'customer_id' => auth('customer')->id()])->count();
         $countOrder = count($order_details);
         $countWishlist = count($wishlists);
-        $relatedProducts = Product::with(['reviews'])->withCount('reviews')->where('category_ids', $product->category_ids)->where('id', '!=', $product->id)->limit(12)->get();
+        $relatedProducts = Product::active()->with(['reviews'])->withCount('reviews')->where('category_ids', $product->category_ids)->where('id', '!=', $product->id)->limit(12)->get();
         $currentDate = date('Y-m-d');
         $productAuthorsInfo = $this->productService->getProductAuthorsInfo(product: $product);
         $productPublishingHouseInfo = $this->productService->getProductPublishingHouseInfo(product: $product);
@@ -1275,20 +1280,10 @@ class WebController extends Controller
                 return self::getDigitalProductDownloadProcess(orderDetailsData: $orderDetailsData, customer: $customerData);
             } else {
                 if (auth('customer')->check() && auth('customer')->user()->id == $orderDetailsData->order->customer->id) {
-                    $fileName = '';
-                    $fileExist = false;
-                    $productDetails = json_decode($orderDetailsData['product_details'], true);
-                    if ($productDetails['digital_product_type'] == 'ready_product' && $productDetails['digital_file_ready']) {
-                        $checkFilePath = storageLink('product/digital-product', $productDetails['digital_file_ready'], ($productDetails['storage_path'] ?? 'public'));
-                        $filePath = $checkFilePath['path'];
-                        $fileExist = $checkFilePath['status'] == 200;
-                        $fileName = $productDetails['digital_file_ready'];
-                    } else {
-                        $checkFilePath = $orderDetailsData->digital_file_after_sell_full_url;
-                        $filePath = $checkFilePath['path'];
-                        $fileName = $orderDetailsData['digital_file_after_sell'];
-                        $fileExist = $checkFilePath['status'] == 200;
-                    }
+                    $checkFilePath = $this->digitalFileAddresses->answerForTheBuyer(orderDetail: $orderDetailsData);
+                    $filePath = $checkFilePath['path'];
+                    $fileName = $checkFilePath['key'];
+                    $fileExist = $checkFilePath['status'] == 200;
 
                     if (!is_null($fileName) && $fileExist) {
                         return response()->json([
@@ -1315,6 +1310,18 @@ class WebController extends Controller
         }
     }
 
+    /** The file of an order line, streamed to the signed address that the website handed out after its checks; the order must still be paid. */
+    public function getDigitalProductDownloadFile($id): BinaryFileResponse|JsonResponse
+    {
+        $orderDetailsData = OrderDetail::with('order')->findOrFail($id);
+        if ($orderDetailsData->order->payment_status !== 'paid') {
+            return response()->json(['status' => 0, 'message' => translate('Payment_must_be_confirmed_first') . ' !!'], 403);
+        }
+
+        return $this->digitalFiles->download(name: $orderDetailsData->deliveredDigitalFile())
+            ?? response()->json(['status' => 0, 'message' => translate('file_not_found')], 404);
+    }
+
     public function getDigitalProductDownloadOtpVerify(Request $request): JsonResponse
     {
         $verification = DigitalProductOtpVerification::where(['token' => $request->otp, 'order_details_id' => $request->order_details_id])->first();
@@ -1324,18 +1331,10 @@ class WebController extends Controller
             $fileName = '';
             $fileExist = false;
             if ($orderDetailsData) {
-                $productDetails = json_decode($orderDetailsData['product_details'], true);
-                if ($productDetails['digital_product_type'] == 'ready_product' && $productDetails['digital_file_ready']) {
-                    $checkFilePath = storageLink('product/digital-product', $productDetails['digital_file_ready'], ($productDetails['storage_path'] ?? 'public'));
-                    $filePath = $checkFilePath['path'];
-                    $fileExist = $checkFilePath['status'] == 200;
-                    $fileName = $productDetails['digital_file_ready'];
-                } else {
-                    $checkFilePath = $orderDetailsData->digital_file_after_sell_full_url;
-                    $filePath = $checkFilePath['path'];
-                    $fileName = $orderDetailsData['digital_file_after_sell'];
-                    $fileExist = $checkFilePath['status'] == 200;
-                }
+                $checkFilePath = $this->digitalFileAddresses->answerForTheBuyer(orderDetail: $orderDetailsData);
+                $filePath = $checkFilePath['path'];
+                $fileName = $checkFilePath['key'];
+                $fileExist = $checkFilePath['status'] == 200;
             }
 
             DigitalProductOtpVerification::where(['token' => $request->otp, 'order_details_id' => $request->order_details_id])->delete();
@@ -1569,8 +1568,10 @@ class WebController extends Controller
 
     public function review_list_product(Request $request): JsonResponse
     {
-        $productReviews = Review::where('product_id', $request['product_id'])->latest()->paginate(2, ['*'], 'page', $request['offset'] + 1);
-        $checkReviews = Review::where('product_id', $request['product_id'])->latest()->paginate(2, ['*'], 'page', ($request['offset'] + 1));
+        $productId = $request['product_id'];
+        abort_unless(is_scalar($productId) && Product::active()->whereKey($productId)->exists(), 404);
+        $productReviews = Review::where('product_id', $productId)->latest()->paginate(2, ['*'], 'page', $request['offset'] + 1);
+        $checkReviews = Review::where('product_id', $productId)->latest()->paginate(2, ['*'], 'page', ($request['offset'] + 1));
         return response()->json([
             'productReview' => view(VIEW_FILE_NAMES['product_reviews_partials'], compact('productReviews'))->render(),
             'not_empty' => $productReviews->count(),

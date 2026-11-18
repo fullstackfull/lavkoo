@@ -15,6 +15,7 @@ use App\Models\OfflinePaymentMethod;
 use App\Models\OrderEditHistory;
 use App\Models\OrderStatusHistory;
 use App\Models\SupportTicketConv;
+use App\Services\Fulfillment\Support\SaudiPhone;
 use App\Services\OrderStatusHistoryService;
 use App\Traits\PdfGenerator;
 use App\Http\Controllers\Controller;
@@ -775,7 +776,14 @@ class UserProfileController extends Controller
             ->first();
 
         if (!isset($user)) {
-            $userInfo = User::where('phone', $request['phone_number'])->orWhere('phone', 'like', "%{$request['phone_number']}%")->first();
+            if (!is_string($request['phone_number'])) {
+                Toastr::error(translate('invalid_Order_Id_or_phone_Number'));
+
+                return redirect()->route('track-order.index', ['order_id' => $request['order_id']]);
+            }
+
+            $orderOwner = $order?->customer;
+            $userInfo = $orderOwner && SaudiPhone::isSameNumber(first: $request['phone_number'], second: (string)$orderOwner['phone']) ? $orderOwner : null;
 
             if ($order && $order->is_guest) {
 

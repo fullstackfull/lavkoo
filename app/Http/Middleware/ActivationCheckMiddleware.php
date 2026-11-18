@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Traits\ActivationClass;
+use App\Utils\RequestArea;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Redirect;
@@ -37,7 +38,7 @@ class ActivationCheckMiddleware
 
         $response = $this->checkActivationCache(app: $area);
         if (!$response) {
-            if (!strpos(url()->current(), '/api')) {
+            if (!RequestArea::isApi()) {
                 return Redirect::away(route(base64_decode('c3lzdGVtLmFjdGl2YXRpb24tY2hlY2s=')))->send();
             }
 

@@ -20,6 +20,8 @@ class AdvanceSearch
     use ModelsWithRoutesTrait;
     use AdminMenuWithRoutesTrait;
 
+    public const PAGE_TYPE = 'page';
+
     protected string $keyword = '';
     protected string $type = '';
 
@@ -29,6 +31,16 @@ class AdvanceSearch
         $this->keyword = $keyword ?? '';
     }
 
+
+    /** The names of the groups a search comes back in: the menu, the pages of the route index and one for each searched table. */
+    public function getResultTypes(): array
+    {
+        return array_values(array_unique([
+            ...array_column($this->adminMenuWithRoutes(), 'type'),
+            self::PAGE_TYPE,
+            ...array_keys($this->getModels()),
+        ]));
+    }
 
     public function searchAllList(): array
     {
@@ -192,7 +204,7 @@ class AdvanceSearch
                     "productNames" => [],
                     "items_count" => 1,
                     "priority" => 2,
-                    "type" => 'page',
+                    "type" => self::PAGE_TYPE,
                 ];
             }
         }

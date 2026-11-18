@@ -9,6 +9,15 @@ class VendorService
 {
     use FileManagerTrait;
 
+    /** Whether a visitor may register as a seller: the admin has not switched seller registration off, and the business is not a single store. */
+    public function isRegistrationOpen(): bool
+    {
+        $businessMode = getWebConfig(name: 'business_mode');
+        $vendorRegistration = getWebConfig(name: 'seller_registration');
+
+        return !((isset($businessMode) && $businessMode == 'single') || (isset($vendorRegistration) && $vendorRegistration == 0));
+    }
+
     /**
      * @param string $email
      * @param string $password
@@ -17,7 +26,7 @@ class VendorService
      */
     public function isLoginSuccessful(string $email, string $password, string|null|bool $rememberToken): bool
     {
-        if (auth('seller')->attempt(['email' => $email, 'password' => $password], $rememberToken)) {
+        if (auth('seller')->attempt(['email' => $email, 'password' => $password, 'status' => 'approved'], $rememberToken)) {
             return true;
         }
         return false;
@@ -44,7 +53,9 @@ class VendorService
 
     public function logout(): void
     {
-        auth()->guard('seller')->user()?->update(['cm_firebase_token_web' => null]);
+        if (!session('seller_staff_id')) {
+            auth()->guard('seller')->user()?->update(['cm_firebase_token_web' => null]);
+        }
         auth()->guard('seller')->logout();
         session()->invalidate();
     }
@@ -128,7 +139,7 @@ class VendorService
         ];
     }
 
-    public function getAddData(object $request): array
+    public function getAddData(object $request, bool $createdByAdmin = false): array
     {
         return [
             'f_name' => $request['f_name'],
@@ -137,7 +148,7 @@ class VendorService
             'email' => $request['email'],
             'image' => $request->file('image') ? $this->upload(dir: 'seller/', format: 'webp', image: $request->file('image')) : 'def.png',
             'password' => bcrypt($request['password']),
-            'status' => $request['status'] === 'approved' ? 'approved' : 'pending',
+            'status' => $createdByAdmin && $request['status'] === 'approved' ? 'approved' : 'pending',
         ];
     }
 }

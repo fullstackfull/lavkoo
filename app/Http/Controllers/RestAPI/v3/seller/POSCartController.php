@@ -11,6 +11,7 @@ use App\Http\Controllers\Controller;
 use App\Services\PasswordResetService;
 use App\Traits\API\v3\VendorPOSManagement;
 use App\Traits\CustomerTrait;
+use App\Traits\SellerOwnedRecords;
 use App\Utils\CartManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -20,6 +21,7 @@ class POSCartController extends Controller
 {
 
     use CustomerTrait;
+    use SellerOwnedRecords;
     use VatTaxManagement;
     use VendorPOSManagement;
 
@@ -47,7 +49,7 @@ class POSCartController extends Controller
     {
         if ($request['cart']) {
             $productIds = collect($request['cart'])->pluck('id')->toArray();
-            $products = \App\Models\Product::whereIn('id', $productIds)
+            $products = \App\Models\Product::ofSeller(sellerId: $request->seller->id)->whereIn('id', $productIds)
                 ->with(['digitalVariation', 'category' => function ($query) {
                     return $query->with(['taxVats' => function ($query) {
                         return $query->with(['tax'])->wherehas('tax', function ($query) {
@@ -62,6 +64,9 @@ class POSCartController extends Controller
                     });
                 }])
                 ->get();
+            if ($products->count() < count(array_unique($productIds))) {
+                return $this->recordNotFound(code: 'product', message: 'product_not_found');
+            }
 
             $modifiedCart = [];
 

@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Http\Requests\Admin\LanguageRequest;
 use App\Utils\Helpers;
 use Closure;
 use Illuminate\Http\Request;
@@ -21,6 +22,9 @@ class APILocalizationMiddleware
     public function handle(Request $request, Closure $next): mixed
     {
         $requested = strtolower((string) $request->header('lang'));
+        if (preg_match('/^' . LanguageRequest::CODE_PATTERN . '$/D', $requested) !== 1) {
+            $requested = '';
+        }
         // Customer-app builds in the field sent the COUNTRY code here ('sa'/'us'); everything
         // localized keys on the language code, so those aliases are folded in rather than
         // letting an installed app fall out of its own language.
@@ -60,8 +64,12 @@ class APILocalizationMiddleware
             $languages
         )));
 
-        if (in_array($requested, $codes, true)) {
-            return $requested;
+        // The tag the store lists (`pt-br`), then the language the tag names whatever its region (`pt`).
+        $requestedLanguage = $this->primaryLanguage(tag: $requested);
+        foreach (array_unique([$requested, $requestedLanguage]) as $tag) {
+            if (in_array($tag, $codes, true)) {
+                return $tag;
+            }
         }
 
         // Same language, different code: match on the language's own name, then
@@ -70,13 +78,16 @@ class APILocalizationMiddleware
             'ar' => ['arabic', 'العربية'],
             'en' => ['english'],
         ];
-        $names = $families[$requested] ?? [];
+        $names = $families[$requestedLanguage] ?? [];
 
         foreach ($languages as $language) {
             $name = strtolower((string)($language['name'] ?? ''));
             $code = strtolower((string)($language['code'] ?? ''));
             if ($code === '' || $name === '') {
                 continue;
+            }
+            if ($name === $requestedLanguage) {
+                return $code;
             }
             foreach ($names as $candidate) {
                 if (str_contains($name, $candidate)) {
@@ -85,6 +96,27 @@ class APILocalizationMiddleware
             }
         }
 
-        return $requested;
+        return $this->storeDefaultLanguage(languages: $languages) ?? $requested;
+    }
+
+    /** The language of a language tag, whatever its region: `en-us` and `en_us` are `en`. */
+    private function primaryLanguage(string $tag): string
+    {
+        return preg_split('/[-_]/', $tag)[0];
+    }
+
+    /**
+     * A code the store does not list is no locale: translate() includes the files of resources/lang/<code> and writes the keys it did not
+     * know, so a visitor's header must never name a directory of its own choosing. The store's default language answers instead.
+     */
+    private function storeDefaultLanguage(array $languages): ?string
+    {
+        foreach ($languages as $language) {
+            if (!empty($language['default']) && isset($language['code'])) {
+                return strtolower((string)$language['code']);
+            }
+        }
+
+        return isset($languages[0]['code']) ? strtolower((string)$languages[0]['code']) : null;
     }
 }

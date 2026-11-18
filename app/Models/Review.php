@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Traits\StorageTrait;
+use App\Utils\RequestArea;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -113,11 +114,7 @@ class Review extends Model
     {
         parent::boot();
         static::addGlobalScope('active', function (Builder $builder) {
-            if (str_contains(url()->current(), url('/') . '/admin') || str_contains(url()->current(), url('/') . '/seller') || str_contains(url()->current(), url('/') . '/vendor') || str_contains(url()->current(), url('/') . '/api/v2') || str_contains(url()->current(), url('/') . '/api/v3')) {
-                return $builder;
-            } else {
-                return $builder->where('status', 1);
-            }
+            return RequestArea::isPanel() ? $builder : $builder->where('status', 1);
         });
 
         static::saved(function ($model) {

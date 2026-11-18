@@ -66,91 +66,6 @@ use Illuminate\Support\Facades\Route;
  * image content-types only, a response-size cap, no wildcard CORS, and rate limited.
  */
 
-Route::get('/diag-write-xk29', function () {
-    abort_unless(hash_equals('PUT', (string) request('key')), 404);
-
-    $base = storage_path('app/public');
-    $owner = fn($p) => function_exists('posix_getpwuid') ? (posix_getpwuid(fileowner($p))['name'] ?? fileowner($p)) : fileowner($p);
-    $out = [
-        'php_user' => function_exists('posix_geteuid') ? (posix_getpwuid(posix_geteuid())['name'] ?? posix_geteuid()) : get_current_user(),
-        'umask'    => decoct(umask()),
-    ];
-
-    foreach (['', 'product', 'brand', 'category', 'shop', 'company'] as $d) {
-        $p = rtrim($base . '/' . $d, '/');
-        $row = ['exists' => file_exists($p)];
-        if ($row['exists']) {
-            $row['is_link']  = is_link($p);
-            $row['perms']    = substr(sprintf('%o', fileperms($p)), -4);
-            $row['owner']    = $owner($p);
-            $row['writable'] = is_writable($p);
-            $f = $p . '/_t.txt';
-            $w = @file_put_contents($f, 'ok');
-            $row['raw_write'] = $w === false ? 'FAILED: ' . (error_get_last()['message'] ?? '') : 'OK';
-            @unlink($f);
-        }
-        $out[$d ?: '(root)'] = $row;
-    }
-
-    // أضف ?fix=1 للرابط لإصلاح الصلاحيات تلقائياً
-    if (request('fix') == 1) {
-        $fixed = 0; $failed = 0;
-        $it = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator($base, FilesystemIterator::SKIP_DOTS),
-            RecursiveIteratorIterator::SELF_FIRST
-        );
-        foreach ($it as $f) {
-            if ($f->isLink()) continue;
-            @chmod($f->getPathname(), $f->isDir() ? 0775 : 0664) ? $fixed++ : $failed++;
-        }
-        @chmod($base, 0775);
-        $out['fix'] = compact('fixed', 'failed');
-    }
-
-    return response()->json($out, 200, [], JSON_UNESCAPED_SLASHES);
-});
-Route::get('/find-img-xk29', function () {
-    abort_unless(hash_equals('Hisham.65581778', (string) request('key')), 404);
-
-    $root = base_path();
-    $names = ['2026-09-07-6a9e537a89be2.webp', '2026-08-26-6a8e209aba045.webp'];
-    $hits = [];
-
-    $it = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
-        RecursiveIteratorIterator::SELF_FIRST
-    );
-    foreach ($it as $f) {
-        if (str_contains($f->getPathname(), '/vendor/') || str_contains($f->getPathname(), '/node_modules/')) continue;
-        if ($f->isFile() && in_array($f->getFilename(), $names, true)) {
-            $hits[] = $f->getPathname();
-        }
-    }
-
-    return response()->json(['hits' => $hits]);
-});
-Route::get('/run-fix-xk29', function () {
-    // مفتاح سري: غيّره لكلمة طويلة عشوائية من عندك
-    abort_unless(hash_equals('Hisham.65581778', (string) request('key')), 404);
-
-    $out = [];
-
-    try {
-        \Illuminate\Support\Facades\Artisan::call('storage:link');
-        $out['storage_link'] = trim(\Illuminate\Support\Facades\Artisan::output());
-    } catch (\Throwable $e) {
-        $out['storage_link'] = 'ERROR: ' . $e->getMessage();
-    }
-
-    try {
-        \Illuminate\Support\Facades\Artisan::call('optimize:clear');
-        $out['optimize_clear'] = trim(\Illuminate\Support\Facades\Artisan::output());
-    } catch (\Throwable $e) {
-        $out['optimize_clear'] = 'ERROR: ' . $e->getMessage();
-    }
-
-    return response()->json($out);
-});
 Route::get('/image-proxy', function (\App\Services\Security\OutboundUrlGuard $guard) {
     $url = request('url');
     if (!$url) {
@@ -175,8 +90,11 @@ Route::get('/image-proxy', function (\App\Services\Security\OutboundUrlGuard $gu
         abort(502, 'Upstream fetch failed');
     }
 
-    $contentType = (string) $response->header('Content-Type');
-    if (!str_starts_with(strtolower($contentType), 'image/')) {
+    // The upstream chooses its own Content-Type, and what is answered here is on the shop's own origin: an SVG is a page that runs script, so only
+    // raster images are proxied, and the answer says it is not to be sniffed into anything else or to run anything.
+    $contentType = strtolower(trim(explode(';', (string) $response->header('Content-Type'))[0]));
+    $rasterImageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif', 'image/bmp', 'image/x-icon', 'image/vnd.microsoft.icon'];
+    if (!in_array($contentType, $rasterImageTypes, true)) {
         abort(415, 'Only image responses are proxied');
     }
 
@@ -185,7 +103,12 @@ Route::get('/image-proxy', function (\App\Services\Security\OutboundUrlGuard $gu
         abort(413, 'Image too large');
     }
 
-    return response($body, 200)->header('Content-Type', $contentType);
+    return response($body, 200)->withHeaders([
+        'Content-Type' => $contentType,
+        'X-Content-Type-Options' => 'nosniff',
+        'Content-Security-Policy' => "default-src 'none'; sandbox",
+        'Content-Disposition' => 'inline',
+    ]);
 })->middleware('throttle:30,1');
 
 /*
@@ -268,6 +191,8 @@ Route::group(['namespace' => 'Web', 'middleware' => ['maintenance_mode', 'guestC
         Route::get('shop-cart', 'shop_cart')->name('shop-cart');
         Route::post('order_note', 'order_note')->name('order_note');
         Route::get('digital-product-download/{id}', 'getDigitalProductDownload')->name('digital-product-download');
+        // The address is signed (relative, so a proxy that changes the scheme or the host cannot break it) and the file's name is its last part, which is what the browser saves it under.
+        Route::get('digital-product-download-file/{id}/{fileName?}', 'getDigitalProductDownloadFile')->middleware('signed:relative')->name('digital-product-download-file');
         Route::post('digital-product-download-otp-verify', 'getDigitalProductDownloadOtpVerify')->name('digital-product-download-otp-verify');
         Route::post('digital-product-download-otp-reset', 'getDigitalProductDownloadOtpReset')->name('digital-product-download-otp-reset');
         Route::get('pay-offline-method-list', 'pay_offline_method_list')->name('pay-offline-method-list')->middleware('guestCheck');

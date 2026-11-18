@@ -8,6 +8,7 @@ use App\Contracts\Repositories\PhoneOrEmailVerificationRepositoryInterface;
 use App\Http\Controllers\Controller;
 use App\Models\BusinessSetting;
 use App\Models\User;
+use App\Services\SocialLoginConfirmationService;
 use App\Utils\CartManager;
 use App\Utils\Helpers;
 use Exception;
@@ -24,7 +25,8 @@ class SocialAuthController extends Controller
     public function __construct(
         private readonly CustomerRepositoryInterface                 $customerRepo,
         private readonly PhoneOrEmailVerificationRepositoryInterface $phoneOrEmailVerificationRepo,
-        private readonly LoginSetupRepositoryInterface               $loginSetupRepo
+        private readonly LoginSetupRepositoryInterface               $loginSetupRepo,
+        private readonly SocialLoginConfirmationService              $socialLoginConfirmationService,
     )
     {
     }
@@ -225,7 +227,7 @@ class SocialAuthController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
         }
 
-        $client = new Client();
+        $client = app(Client::class);
         $token = $request['token'];
         $email = $request['email'];
         $uniqueId = $request['unique_id'];
@@ -298,7 +300,11 @@ class SocialAuthController extends Controller
         }
 
         if (!$existingUser['is_active'] || (getLoginConfig(key: 'phone_verification') && !$existingUser['is_phone_verified'])) {
-            return response()->json(['user' => $existingUser, 'status' => false]);
+            return response()->json([
+                'user' => $existingUser,
+                'status' => false,
+                'temporary_token' => $this->socialLoginConfirmationService->issue(customer: $existingUser, medium: $request['medium']),
+            ]);
         }
 
         $this->customerRepo->updateWhere(params: ['email' => $data['email']], data: [
@@ -315,17 +321,29 @@ class SocialAuthController extends Controller
             'email' => 'required|email',
             'user_response' => 'required|in:0,1',
             'medium' => 'required|in:google,facebook,apple',
+            'temporary_token' => 'required|string',
         ]);
 
         if ($validator->fails()) {
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
         }
 
-        $user = $this->customerRepo->getFirstWhere(params: ['email' => $request['email']]);
+        $user = $this->socialLoginConfirmationService->redeem(
+            temporaryToken: $request['temporary_token'],
+            email: $request['email'],
+            medium: $request['medium'],
+        );
 
-        $temporaryToken = Str::random(40);
         if (!$user) {
-            return response()->json(['temp_token' => $temporaryToken, 'status' => false]);
+            return response()->json(['errors' => [
+                ['code' => 'temporary_token', 'message' => translate('invalid_request')]
+            ]], 403);
+        }
+
+        if (!$user['is_active']) {
+            return response()->json(['errors' => [
+                ['code' => 'active', 'message' => translate('account_suspended')]
+            ]], 403);
         }
 
         if ($request['user_response'] == 1) {
@@ -343,7 +361,7 @@ class SocialAuthController extends Controller
             'email_verified_at' => null,
         ]);
 
-        return response()->json(['temp_token' => $temporaryToken, 'status' => false]);
+        return response()->json(['temp_token' => Str::random(40), 'status' => false]);
     }
 
     public function registrationWithSocialMedia(Request $request): JsonResponse
