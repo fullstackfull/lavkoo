@@ -175,6 +175,24 @@ class StorefrontMoneyCommandTest extends TestCase
         $this->assertSame($platformBefore, $this->platformRows());
     }
 
+    public function test_the_readiness_command_says_what_each_storefront_was_given_and_what_it_was_not_and_still_succeeds(): void
+    {
+        config(['gcc.storefronts.countries.QA.active' => false]);
+        $this->giveStorefrontAmounts(country: 'KW', currency: 'KWD', amounts: ['minimum_order_amount' => '5.000', 'free_delivery_over_amount' => '50.000']);
+        $this->giveStorefrontAmounts(country: 'AE', currency: 'AED', amounts: ['minimum_order_amount' => '40.00']);
+        $this->giveStorefrontAmounts(country: 'BH', currency: 'SAR', amounts: ['minimum_order_amount' => '100']);
+
+        $this->artisan('gcc:storefront:currency-readiness')
+            ->expectsOutputToContain('KW   amounts: minimum order 5.000 KWD, free delivery over 50.000 KWD, wallet top-up closed until the wallets are per market (GCC-15).')
+            ->expectsOutputToContain('AE   amounts: minimum order 40.00 AED, no free delivery, wallet top-up closed until the wallets are per market (GCC-15); set what is missing with gcc:storefront:money.')
+            ->expectsOutputToContain('BH   amounts: a row for SAR is ignored, this storefront trades in BHD: give them again with gcc:storefront:money. No minimum order, no free delivery, top-up closed.')
+            ->expectsOutputToContain('OM   amounts: no minimum order, no free delivery, wallet top-up closed until the wallets are per market (GCC-15); set what is missing with gcc:storefront:money.')
+            ->doesntExpectOutputToContain('QA   amounts')
+            ->doesntExpectOutputToContain('SA   amounts')
+            ->expectsOutputToContain('Ready: every storefront that is switched on has the currency it trades in.')
+            ->assertExitCode(0);
+    }
+
     public function test_it_never_writes_a_platform_row(): void
     {
         $platformBefore = $this->platformRows();

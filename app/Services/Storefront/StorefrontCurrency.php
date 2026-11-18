@@ -159,6 +159,35 @@ final class StorefrontCurrency
         return (int) (config('gcc.storefronts.currency.decimals')[strtoupper($currencyCode)] ?? self::DEFAULT_DECIMALS);
     }
 
+    /**
+     * What an operator gave a storefront, as the readers see it, for the readiness report: the two amounts (null when none is given, so the neutral
+     * value stands) and the currency a row is tagged with when that is not the currency the storefront trades in, which makes the whole row ignored.
+     *
+     * @return array{minimum_order_amount: ?string, free_delivery_over_amount: ?string, ignored_tag: ?string}
+     */
+    public function amountsGiven(string $country): array
+    {
+        $row = getWebConfig(self::amountRowName($country));
+        $resolver = StorefrontResolver::fromConfig();
+        $currencyCode = in_array(strtoupper($country), $resolver->configuredCountries(), true) ? $resolver->currencyOf(strtoupper($country)) : '';
+
+        if (!is_array($row)) {
+            return ['minimum_order_amount' => null, 'free_delivery_over_amount' => null, 'ignored_tag' => null];
+        }
+
+        $tag = (string) ($row['currency'] ?? '');
+
+        if (strcasecmp($tag, $currencyCode) !== 0) {
+            return ['minimum_order_amount' => null, 'free_delivery_over_amount' => null, 'ignored_tag' => $tag === '' ? '(none)' : $tag];
+        }
+
+        return [
+            'minimum_order_amount' => $this->plainAmount($row['minimum_order_amount'] ?? null),
+            'free_delivery_over_amount' => $this->plainAmount($row['free_delivery_over_amount'] ?? null),
+            'ignored_tag' => null,
+        ];
+    }
+
     /** The name of the business setting that holds the amounts an operator gave one storefront (a JSON object tagged with its currency). */
     public static function amountRowName(string $country): string
     {
@@ -220,14 +249,17 @@ final class StorefrontCurrency
     {
         $row = getWebConfig(self::amountRowName($country));
 
-        if (!is_array($row) || strcasecmp((string) ($row['currency'] ?? ''), $currencyCode) !== 0) {
-            return self::NEUTRAL_AMOUNT;
-        }
+        return is_array($row) && strcasecmp((string) ($row['currency'] ?? ''), $currencyCode) === 0
+            ? $this->plainAmount($row[$setting] ?? null) ?? self::NEUTRAL_AMOUNT
+            : self::NEUTRAL_AMOUNT;
+    }
 
-        $amount = $row[$setting] ?? null;
+    /** The amount as text when it is a plain number that is not negative, else null. */
+    private function plainAmount(mixed $amount): ?string
+    {
         $text = is_int($amount) || is_float($amount) ? (string) $amount : (is_string($amount) ? $amount : '');
 
-        return preg_match('/^\d+(\.\d+)?$/', $text) === 1 ? $text : self::NEUTRAL_AMOUNT;
+        return preg_match('/^\d+(\.\d+)?$/', $text) === 1 ? $text : null;
     }
 
     private function tradesInOwnCurrency(string $country): bool
