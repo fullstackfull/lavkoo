@@ -78,22 +78,37 @@ jobs:
         run: sudo -E env "PATH=$PATH" vendor/bin/phpunit --display-skipped tests/Unit/Deploy
 
   tests-mysql:
-    name: Fulfillment + security tests, MySQL 8
+    name: Fulfillment + security tests, ${{ matrix.engine }}
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - engine: MySQL 8
+            image: mysql:8.0
+            version: '^8\.'
+            health: mysqladmin ping -h 127.0.0.1 -pci-root-password
+          - engine: MariaDB 11.4.2
+            image: mariadb:11.4.2
+            version: '^11\.4\.2-MariaDB'
+            health: mariadb-admin ping -h 127.0.0.1 -uroot -pci-root-password
     services:
       mysql:
-        image: mysql:8.0
+        image: ${{ matrix.image }}
         env:
           MYSQL_ROOT_PASSWORD: ci-root-password
           MYSQL_DATABASE: pharmacy_testing
+          MARIADB_ROOT_PASSWORD: ci-root-password
+          MARIADB_DATABASE: pharmacy_testing
         ports:
           - 3306:3306
         options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -pci-root-password"
+          --health-cmd="${{ matrix.health }}"
           --health-interval=10s --health-timeout=5s --health-retries=12
     env:
       EXPECT_DB_DRIVER: mysql
+      EXPECT_DB_VERSION: ${{ matrix.version }}
       DB_CONNECTION: mysql
       DB_HOST: 127.0.0.1
       DB_PORT: 3306

@@ -22,7 +22,9 @@ class CiDatabaseTest extends TestCase
         $this->assertSame($expected, DB::connection()->getDriverName());
 
         if ($expected === 'mysql') {
-            $this->assertMatchesRegularExpression('/^8\./', (string) DB::selectOne('select version() as version')->version);
+            // The job names the engine it runs on (EXPECT_DB_VERSION, a pattern without delimiters: MySQL 8 or the MariaDB the pilot server runs); without it MySQL 8 is expected, as before.
+            $declared = (string) getenv('EXPECT_DB_VERSION');
+            $this->assertMatchesRegularExpression('/' . ($declared !== '' ? $declared : '^8\.') . '/', (string) DB::selectOne('select version() as version')->version);
             $this->assertStringContainsString('test', (string) DB::connection()->getDatabaseName());
         }
     }

@@ -5,6 +5,8 @@ namespace App\Http\Controllers\RestAPI\v1;
 use App\Events\DigitalProductOtpVerificationEvent;
 use App\Events\RefundEvent;
 use App\Http\Controllers\Controller;
+use App\Services\DigitalFileAddressService;
+use App\Services\DigitalProductFileService;
 use App\Services\Fulfillment\CheckoutCodGuard;
 use App\Services\Fulfillment\CustomerFulfillmentPresenter;
 use App\Http\Requests\API\v1\RefundStoreRequest;
@@ -29,20 +31,29 @@ use App\Utils\CustomerManager;
 use App\Utils\Helpers;
 use App\Utils\ImageManager;
 use App\Utils\OrderManager;
+use App\Utils\PlainFileName;
 use App\Utils\SMSModule;
 use Carbon\Carbon;
 use Carbon\CarbonInterval;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Validator;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class OrderController extends Controller
 {
     use CommonTrait, FileManagerTrait;
 
+    /** Wrong codes for one order line before the download is locked, and for how long: the code is four digits. */
+    private const DIGITAL_DOWNLOAD_OTP_ATTEMPTS = 5;
+    private const DIGITAL_DOWNLOAD_OTP_LOCK_SECONDS = 900;
+
     public function __construct(
         private readonly OrderService $orderService,
+        private readonly DigitalProductFileService $digitalFiles,
+        private readonly DigitalFileAddressService $digitalFileAddresses,
     )
     {
     }
@@ -616,7 +627,7 @@ class OrderController extends Controller
         return response()->json($data, 200);
     }
 
-    public function digital_product_download($id, Request $request): JsonResponse
+    public function digital_product_download($id, Request $request): JsonResponse|BinaryFileResponse
     {
         $user = Helpers::getCustomerInformation($request);
         $order_details_data = OrderDetail::with('order.customer')->find($id);
@@ -647,7 +658,14 @@ class OrderController extends Controller
                         $file_name = $order_details_data->digital_file_after_sell;
                     }
 
-                    if (File::exists(base_path('storage/app/public/product/digital-product/' . $file_name))) {
+                    if ($this->digitalFiles->isPrivate()) {
+                        return $this->digitalFiles->download(name: $file_name) ?? response()->json([
+                            'status' => 0,
+                            'message' => translate('file_not_found'),
+                        ]);
+                    }
+
+                    if (PlainFileName::isPlain($file_name) && File::exists(base_path('storage/app/public/product/digital-product/' . $file_name))) {
                         return \response()->download($file_path);
                     } else {
                         return response()->json([
@@ -773,38 +791,58 @@ class OrderController extends Controller
 
     public function digital_product_download_otp_verify(Request $request)
     {
-        $verification = DigitalProductOtpVerification::where(['token' => $request->otp, 'order_details_id' => $request->order_details_id])->first();
-        $order_details_data = OrderDetail::with('order.customer')->find($request->order_details_id);
+        $orderDetailsId = $request->input('order_details_id');
+        $otp = $request->input('otp');
+        $attemptsKey = 'digital-product-download-otp:' . (is_scalar($orderDetailsId) ? $orderDetailsId : '');
 
-        if ($verification) {
-            if ($order_details_data) {
-                if ($order_details_data->product->digital_product_type == 'ready_product' && $order_details_data->product->digital_file_ready) {
-                    $file_path = storage_path('app/public/product/digital-product/' . $order_details_data->product->digital_file_ready);
-                    $file_name = $order_details_data->product->digital_file_ready;
-                } else if ($order_details_data->digital_file_after_sell) {
-                    $file_path = storage_path('app/public/product/digital-product/' . $order_details_data->digital_file_after_sell);
-                    $file_name = $order_details_data->digital_file_after_sell;
-                }
-            }
+        if (RateLimiter::tooManyAttempts($attemptsKey, self::DIGITAL_DOWNLOAD_OTP_ATTEMPTS)) {
+            return response()->json([
+                'message' => translate('Too_Many_Requests'),
+            ], 429);
+        }
 
-            if ($request->has('action') && $request->action == "download") {
-                DigitalProductOtpVerification::where(['token' => $request->otp, 'order_details_id' => $request->order_details_id])->delete();
-            }
+        $verification = is_scalar($orderDetailsId) && is_scalar($otp)
+            ? DigitalProductOtpVerification::where(['token' => $otp, 'order_details_id' => $orderDetailsId])->first()
+            : null;
+        if (!$verification) {
+            RateLimiter::hit($attemptsKey, self::DIGITAL_DOWNLOAD_OTP_LOCK_SECONDS);
 
-            if (isset($file_name) && File::exists(base_path('storage/app/public/product/digital-product/' . $file_name))) {
-                return \response()->download($file_path);
-            } else {
-                return response()->json([
-                    'status' => 0,
-                    'message' => translate('file_not_found'),
-                ]);
-            }
-
-        } else {
             return response()->json([
                 'message' => translate('The_OTP_is_incorrect'),
             ], 403);
         }
+
+        $order_details_data = OrderDetail::with('order.customer')->find($orderDetailsId);
+        if ($order_details_data && $order_details_data->order->payment_status !== 'paid') {
+            return response()->json([
+                'status' => 0,
+                'message' => translate('Payment_must_be_confirmed_first') . ' !!',
+            ]);
+        }
+
+        if ($order_details_data) {
+            if ($order_details_data->product->digital_product_type == 'ready_product' && $order_details_data->product->digital_file_ready) {
+                $file_name = $order_details_data->product->digital_file_ready;
+            } else if ($order_details_data->digital_file_after_sell) {
+                $file_name = $order_details_data->digital_file_after_sell;
+            }
+        }
+
+        if ($request->has('action') && $request->action == "download") {
+            DigitalProductOtpVerification::where(['token' => $otp, 'order_details_id' => $orderDetailsId])->delete();
+        }
+
+        $download = $this->digitalFiles->download(name: $file_name ?? null);
+        if ($download !== null) {
+            RateLimiter::clear($attemptsKey);
+
+            return $download;
+        }
+
+        return response()->json([
+            'status' => 0,
+            'message' => translate('file_not_found'),
+        ]);
     }
 
     public function digital_product_download_otp_resend(Request $request)
@@ -825,6 +863,12 @@ class OrderController extends Controller
             $token = rand(1000, 9999);
 
             $order_details_data = OrderDetail::with('order.customer')->find($request->order_details_id);
+            if (!$order_details_data || $order_details_data->order->payment_status !== 'paid') {
+                return response()->json([
+                    'status' => 0,
+                    'message' => translate('Payment_must_be_confirmed_first') . ' !!',
+                ]);
+            }
 
             try {
                 if ($order_details_data->order->shipping_address_data) {
@@ -977,8 +1021,7 @@ class OrderController extends Controller
                 $query['variation'] = is_array($query['variation']) ? $query['variation'] : json_decode($query['variation'], true);
                 $product = is_array($query['product_details']) ? $query['product_details'] : json_decode($query['product_details'], true);
                 if ($product['product_type'] == 'digital' && $product['digital_product_type'] == 'ready_product' && $product['digital_file_ready']) {
-                    $checkFilePath = storageLink('product/digital-product', $product['digital_file_ready'], ($product['storage_path'] ?? 'public'));
-                    $product['digital_file_ready_full_url'] = $checkFilePath;
+                    $product['digital_file_ready_full_url'] = $this->digitalFileAddresses->readyFileAnswerOfLine(orderDetail: $query);
                 }
 
                 if (!isset($product['thumbnail_full_url']) && isset($query?->product?->thumbnail_full_url)) {

@@ -403,7 +403,8 @@ trait CacheManagerTrait
                 ->whereHas('reviews', function ($query) {
                     return $query->select('product_id', DB::raw('AVG(rating) as average_rating'))->groupBy('product_id');
                 })
-                ->orderByDesc(DB::raw('(SELECT AVG(rating) FROM reviews WHERE reviews.product_id = products.id)'))
+                ->withAvg('reviews', 'rating')
+                ->orderByDesc('reviews_avg_rating')
                 ->paginate(10);
         });
     }

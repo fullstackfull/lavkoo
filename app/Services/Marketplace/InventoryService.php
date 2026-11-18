@@ -63,7 +63,7 @@ class InventoryService
                 balanceAfter: $new,
                 reason: $reason,
                 note: $note,
-                sellerId: $product->user_id ?? null,
+                sellerId: ($product->added_by ?? null) === 'seller' ? ($product->user_id ?? null) : null,
                 createdBy: $by,
                 createdByType: $byType,
             );
@@ -150,7 +150,7 @@ class InventoryService
             $query->where('type', $type);
         }
         if ($sellerId !== null) {
-            $query->where('seller_id', $sellerId);
+            $query->ofSeller($sellerId);
         }
 
         return $query->paginate($perPage)->withQueryString();

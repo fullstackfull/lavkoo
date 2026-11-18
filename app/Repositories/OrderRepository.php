@@ -596,11 +596,13 @@ class OrderRepository implements OrderRepositoryInterface
         }
 
         // Scope the target order to the actor. A seller may only touch orders that belong to them;
-        // without this seller_id filter the raw order_id let one seller edit any order in the system.
+        // without this seller_id filter the raw order_id let one seller edit any order in the system, and the
+        // in-house shop's orders carry seller_id 1 too, so a seller's order is also one with seller_is 'seller'.
         // Admin (userType 'admin') is unscoped by design.
         $orderWhere = ['id' => $request['order_id']];
         if ($userType === 'seller') {
             $orderWhere['seller_id'] = $userId;
+            $orderWhere['seller_is'] = 'seller';
         }
 
         try {

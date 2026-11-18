@@ -89,7 +89,7 @@ class POSController extends BaseController
             ToastMagic::warning(translate('access_denied!!'));
         }
         $productType = $request->input('product_type', 'physical');
-        $shop = $this->shopRepo->getFirstWhere(params: ['id' => $vendorId]);
+        $shop = $this->shopRepo->getFirstWhere(params: ['seller_id' => $vendorId]);
         $filter = ProductManager::getPosSearchFilterArray(request: $request);
         $filter['added_by'] = 'seller';
         $filter['seller_id'] = $vendorId;
@@ -358,12 +358,13 @@ class POSController extends BaseController
     public function getQuickView(Request $request): JsonResponse
     {
         $product = $this->productRepo->getFirstWhereWithCount(
-            params: ['id' => $request['product_id']],
+            params: ['id' => $request['product_id'], 'added_by' => 'seller', 'user_id' => auth('seller')->id()],
             withCount: ['reviews'],
             relations: ['brand', 'category', 'rating', 'tags', 'digitalVariation', 'digitalProductAuthors.author', 'clearanceSale' => function ($query) {
                 return $query->active();
             }],
         );
+        abort_if(boolean: !$product, code: 404);
         $cartId = $this->cartService->ensureCartSession();
         $cartItems = $this->getCartData(cartName: $cartId);
         $productSubtotal = $cartItems['productSubtotal'] ?? 0;
@@ -437,7 +438,7 @@ class POSController extends BaseController
         $cartListSession = $this->cartService->filterSessionCartList(cart: session($cartName));
 
         if (count($cartListSession) > 0) {
-            $products = $this->productRepo->getListWithScope(whereIn: ['id' => $cartListSession->pluck('id')->toArray()], relations: ['clearanceSale' => function ($query) {
+            $products = $this->productRepo->getListWithScope(filters: ['added_by' => 'seller', 'seller_id' => auth('seller')->id()], whereIn: ['id' => $cartListSession->pluck('id')->toArray()], relations: ['clearanceSale' => function ($query) {
                 return $query->active();
             }], dataLimit: 'all');
             $totalDiscountedPrice = $this->cartService->getCartTotalDiscountPrice(session($cartName), $products, $customerCartData[$cartName]['customerId']);

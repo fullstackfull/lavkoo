@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\DigitalFileAddressService;
 use App\Traits\StorageTrait;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -82,6 +83,12 @@ class OrderDetail extends Model
         'variation' => 'array',
     ];
 
+    /** The in-house shop's lines carry seller_id 1 too, so the line's own seller_id is not enough: its order must be a seller's order. */
+    public function scopeOfSeller($query, int|string $sellerId): void
+    {
+        $query->where('seller_id', $sellerId)->whereHas('order', fn ($orderQuery) => $orderQuery->where('seller_is', 'seller'));
+    }
+
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class)->where('status', 1);
@@ -149,11 +156,37 @@ class OrderDetail extends Model
 
     public function getDigitalFileAfterSellFullUrlAttribute(): string|null|array
     {
-        $value = $this->digital_file_after_sell;
-        if (count($this->storage) > 0) {
-            $storage = $this->storage->where('key', 'digital_file_after_sell')->first();
-        }
-        return $this->storageLink('product/digital-product', $value, $storage['value'] ?? 'public');
+        $storageType = $this->digitalFileAfterSellStorageType();
+
+        return app(DigitalFileAddressService::class)->privateAnswer(name: $this->digital_file_after_sell, kind: 'order-line', id: $this->id, storageType: $storageType)
+            ?? $this->storageLink('product/digital-product', $this->digital_file_after_sell, $storageType);
+    }
+
+    /** The product of the line the way it was when the order was placed. */
+    public function productSnapshot(): array
+    {
+        $snapshot = $this->product_details;
+
+        return is_array($snapshot) ? $snapshot : (array) json_decode((string) $snapshot, true);
+    }
+
+    /** Whether the line delivers the ready file its snapshot names (otherwise it delivers the file that was uploaded after the sale). */
+    public function deliversTheReadyFile(): bool
+    {
+        $product = $this->productSnapshot();
+
+        return ($product['digital_product_type'] ?? null) == 'ready_product' && !empty($product['digital_file_ready']);
+    }
+
+    /** The name of the file the line delivers: the ready file its snapshot names, or the file uploaded after the sale. */
+    public function deliveredDigitalFile(): ?string
+    {
+        return $this->deliversTheReadyFile() ? $this->productSnapshot()['digital_file_ready'] : $this->digital_file_after_sell;
+    }
+
+    public function digitalFileAfterSellStorageType(): string
+    {
+        return $this->storage->where('key', 'digital_file_after_sell')->first()['value'] ?? 'public';
     }
 
     protected $with = ['storage'];

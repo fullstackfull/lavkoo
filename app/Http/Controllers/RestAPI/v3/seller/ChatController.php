@@ -11,6 +11,7 @@ use App\Models\DeliveryMan;
 use App\Models\Seller;
 use App\Models\Shop;
 use App\Models\User;
+use App\Traits\SellerOwnedRecords;
 use App\Utils\FileManagerLogic;
 use App\Utils\Helpers;
 use App\Utils\ImageManager;
@@ -20,6 +21,7 @@ use Illuminate\Support\Facades\Validator;
 
 class ChatController extends Controller
 {
+    use SellerOwnedRecords;
 
     public function list(Request $request, $type):JsonResponse
     {
@@ -190,6 +192,10 @@ class ChatController extends Controller
     public function send_message(SellerSendMessageRequest $request, $type):JsonResponse
     {
         $seller = $request->seller;
+        if ($type == 'delivery-man' && !DeliveryMan::where(['id' => $request->id, 'seller_id' => $seller['id']])->exists()) {
+            return $this->recordNotFound(code: 'delivery_man', message: 'delivery_man_not_found');
+        }
+
         $attachment = [];
         if ($request->file('media')) {
             foreach ($request['media'] as $image) {

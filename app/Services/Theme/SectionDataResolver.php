@@ -676,7 +676,7 @@ class SectionDataResolver
                     ->whereDate('start_date', '<=', date('Y-m-d'))
                     ->whereNotIn('id', array_filter(array_map('intval', $exclude))))
                 ->whereDate('end_date', '>=', date('Y-m-d'))
-                ->withCount('products')
+                ->withCount('activeProducts as products_count')
                 ->orderByDesc('id')
                 ->first();
 
