@@ -7,6 +7,7 @@ use App\Services\Storefront\StorefrontLegalPublisher;
 use App\Services\Storefront\StorefrontLegalReadiness;
 use App\Services\Storefront\StorefrontLegalTextBoard;
 use Carbon\CarbonImmutable;
+use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -14,8 +15,8 @@ use PHPUnit\Framework\Attributes\DataProvider;
 /**
  * I2-03: the screen where the legal text of a storefront is written, approved, published and revoked. The routes, the role check, the requests, the publisher and the templates are the real
  * ones. What is pinned: who may open the page and who may take which step (writing and approving are two permissions, and a person who holds both is still refused as the approver of their own
- * text), that the person of every step is the admin who is signed in, that a text is cleaned of anything that could run before it is kept, that the day is read as UTC, and that every step leaves
- * its audit line. The texts are placeholders and no text is legal advice.
+ * text), that the person of every step is the admin who is signed in, that a text is cleaned of anything that could run before it is kept, that the day is read as UTC, that the page offers a new
+ * version and a revocation only where the publisher accepts them, and that every step leaves its audit line. The texts are placeholders and no text is legal advice.
  */
 class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
 {
@@ -33,7 +34,23 @@ class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
     {
         $this->post(route('admin.storefronts.legal-texts.draft', 'KW'), ['document_type' => $type, 'locale' => $locale, 'template' => $template])->assertRedirect();
 
+        return $this->newestTextIdOf(type: $type, locale: $locale);
+    }
+
+    /** The number of the text of Kuwait that was written last for a type and a language. */
+    private function newestTextIdOf(string $type, string $locale): int
+    {
         return (int) StorefrontLegalDocument::query()->where('country_code', 'KW')->where('document_type', $type)->where('locale', $locale)->orderByDesc('id')->value('id');
+    }
+
+    /** A new version of a published text, started through the screen by the legal writer; the number of the draft. */
+    private function newVersionThroughTheScreen(int $text): int
+    {
+        $published = $this->text($text);
+        $this->signInAs(self::LEGAL_WRITER);
+        $this->post(route('admin.storefronts.legal-texts.new-version', $text))->assertRedirect();
+
+        return $this->newestTextIdOf(type: $published->document_type, locale: $published->locale);
     }
 
     /** A text that is edited, approved by someone else and published, all through the screen. */
@@ -68,6 +85,54 @@ class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
         $this->assertSame(1, preg_match($pattern, $page, $found), "the form of {$route} for text {$id} carries a body_hash");
 
         return $found[1];
+    }
+
+    /** @return array<string, list<string>> the steps the board offers on each text of Kuwait, by the name of the text, in the order of the names */
+    private function stepsOnTheBoard(): array
+    {
+        $steps = [];
+        foreach (app(StorefrontLegalTextBoard::class)->of('KW')['texts'] as ['text' => $text, 'steps' => $offered]) {
+            $steps[$this->nameOf($text)] = $offered;
+        }
+        ksort($steps);
+
+        return $steps;
+    }
+
+    /** The type, the language and the version: `terms.en.v2`. */
+    private function nameOf(StorefrontLegalDocument $text): string
+    {
+        return "{$text->document_type}.{$text->locale}.v{$text->version}";
+    }
+
+    /** The master admin, who holds every permission, reads the page: it carries the form of a new version and of a revocation on exactly the texts the board offers them on. */
+    private function assertThePageOffersWhatTheBoardOffers(): void
+    {
+        $this->signInAs(self::MASTER);
+        $page = $this->page();
+
+        foreach (app(StorefrontLegalTextBoard::class)->of('KW')['texts'] as ['text' => $text, 'steps' => $offered]) {
+            foreach ([StorefrontLegalTextBoard::NEW_VERSION => 'admin.storefronts.legal-texts.new-version', StorefrontLegalTextBoard::REVOKE => 'admin.storefronts.legal-texts.revoke'] as $step => $route) {
+                in_array($step, $offered, true)
+                    ? $this->assertStringContainsString(route($route, $text->id), $page, "{$this->nameOf($text)} is offered {$step}")
+                    : $this->assertStringNotContainsString(route($route, $text->id), $page, "{$this->nameOf($text)} is not offered {$step}");
+            }
+        }
+    }
+
+    /** The legal writer asks for a new version of a text while another text of its type and language is not published: the publisher refuses, and nothing is written or audited. */
+    private function assertTheNewVersionIsRefusedAsNotPublishedYet(int $text): void
+    {
+        $this->signInAs(self::LEGAL_WRITER);
+        $textsBefore = StorefrontLegalDocument::query()->count();
+        $linesBefore = DB::table('audit_logs')->count();
+        ToastMagic::clear();
+
+        $this->post(route('admin.storefronts.legal-texts.new-version', $text))->assertRedirect();
+
+        $this->assertToastContains('is not published yet');
+        $this->assertSame($textsBefore, StorefrontLegalDocument::query()->count(), 'a refused new version writes no text');
+        $this->assertSame($linesBefore, DB::table('audit_logs')->count(), 'a refused new version leaves no audit line');
     }
 
     private function text(int $id): StorefrontLegalDocument
@@ -480,13 +545,6 @@ class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
         $this->publishLegalDocument(country: 'KW', type: 'shipping', locale: 'en', overrides: ['version' => 2]);
         $this->publishLegalDocument(country: 'KW', type: 'shipping', locale: 'ar', overrides: ['version' => 1]);
 
-        $steps = [];
-        foreach (app(StorefrontLegalTextBoard::class)->of('KW')['texts'] as $entry) {
-            $steps[$entry['text']->id] = [$entry['text']->document_type . '.' . $entry['text']->locale . '.v' . $entry['text']->version, $entry['steps']];
-        }
-        $byText = array_column($steps, 1, 0);
-        ksort($byText);
-
         $this->assertSame([
             'privacy.ar.v1' => [StorefrontLegalTextBoard::EDIT, StorefrontLegalTextBoard::PUBLISH, StorefrontLegalTextBoard::DISCARD],
             'privacy.en.v1' => [StorefrontLegalTextBoard::REVOKE],
@@ -501,16 +559,54 @@ class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
             'terms.ar.v1' => [StorefrontLegalTextBoard::EDIT, StorefrontLegalTextBoard::APPROVE, StorefrontLegalTextBoard::DISCARD],
             'terms.en.v1' => [StorefrontLegalTextBoard::REVOKE],
             'terms.en.v2' => [StorefrontLegalTextBoard::REVOKE, StorefrontLegalTextBoard::NEW_VERSION],
-        ], $byText, 'revoking is offered on a published text that is not revoked; a new version on the newest published text of its type and language when it is not revoked (an older one, a revoked one and one archived before it took effect have none); the newest is read for each language on its own: refund is ahead in Arabic and shipping in English, and neither takes the new version of the other language away');
+        ], $this->stepsOnTheBoard(), 'revoking is offered on a published text that is not revoked; a new version on the newest published text of its type and language when it is not revoked (an older one, a revoked one and one archived before it took effect have none); the newest is read for each language on its own: refund is ahead in Arabic and shipping in English, and neither takes the new version of the other language away');
 
-        $page = $this->page();
-        foreach ($steps as $id => [$name, $offered]) {
-            foreach ([StorefrontLegalTextBoard::NEW_VERSION => 'admin.storefronts.legal-texts.new-version', StorefrontLegalTextBoard::REVOKE => 'admin.storefronts.legal-texts.revoke'] as $step => $route) {
-                in_array($step, $offered, true)
-                    ? $this->assertStringContainsString(route($route, $id), $page, "{$name} is offered {$step}")
-                    : $this->assertStringNotContainsString(route($route, $id), $page, "{$name} is not offered {$step}");
-            }
-        }
+        $this->assertThePageOffersWhatTheBoardOffers();
+    }
+
+    public function test_a_new_version_is_withdrawn_while_a_draft_or_an_approved_text_of_the_same_type_and_language_is_open_and_offered_again_when_it_is_discarded_or_published(): void
+    {
+        $draftSteps = [StorefrontLegalTextBoard::EDIT, StorefrontLegalTextBoard::APPROVE, StorefrontLegalTextBoard::DISCARD];
+        $approvedSteps = [StorefrontLegalTextBoard::EDIT, StorefrontLegalTextBoard::PUBLISH, StorefrontLegalTextBoard::DISCARD];
+        $standingSteps = [StorefrontLegalTextBoard::REVOKE, StorefrontLegalTextBoard::NEW_VERSION];
+        $revokeOnly = [StorefrontLegalTextBoard::REVOKE];
+        $standing = $this->publishedThroughTheScreen();
+        $this->signInAs(self::LEGAL_WRITER);
+        $this->draftThroughTheScreen(type: 'terms', locale: 'ar');
+        $this->draftThroughTheScreen(type: 'privacy', locale: 'en');
+
+        $this->assertSame(['privacy.en.v1' => $draftSteps, 'terms.ar.v1' => $draftSteps, 'terms.en.v1' => $standingSteps], $this->stepsOnTheBoard(), 'no text of terms in English is open: a draft of another language and a draft of another type do not take its new version away');
+        $this->assertThePageOffersWhatTheBoardOffers();
+
+        $draft = $this->newVersionThroughTheScreen($standing);
+
+        $this->assertSame(['privacy.en.v1' => $draftSteps, 'terms.ar.v1' => $draftSteps, 'terms.en.v1' => $revokeOnly, 'terms.en.v2' => $draftSteps], $this->stepsOnTheBoard(), 'a draft of the type and language is open: the standing text can only be revoked');
+        $this->assertThePageOffersWhatTheBoardOffers();
+        $this->assertTheNewVersionIsRefusedAsNotPublishedYet($standing);
+
+        $this->signInAs(self::LEGAL_WRITER);
+        $this->post(route('admin.storefronts.legal-texts.edit', $draft), ['body' => '<p>The terms of Kuwait, second version.</p>']);
+        $this->signInAs(self::LEGAL_APPROVER);
+        $this->approveThroughTheScreen($draft);
+
+        $this->assertSame(['privacy.en.v1' => $draftSteps, 'terms.ar.v1' => $draftSteps, 'terms.en.v1' => $revokeOnly, 'terms.en.v2' => $approvedSteps], $this->stepsOnTheBoard(), 'an approved text of the type and language is open: the standing text can still only be revoked');
+        $this->assertThePageOffersWhatTheBoardOffers();
+        $this->assertTheNewVersionIsRefusedAsNotPublishedYet($standing);
+
+        $this->signInAs(self::LEGAL_WRITER);
+        $this->post(route('admin.storefronts.legal-texts.discard', $draft), ['reason' => 'Not needed']);
+
+        $this->assertSame(['privacy.en.v1' => $draftSteps, 'terms.ar.v1' => $draftSteps, 'terms.en.v1' => $standingSteps, 'terms.en.v2' => []], $this->stepsOnTheBoard(), 'the open text was discarded: a text that is put away is not open, and the standing text has its new version again');
+        $this->assertThePageOffersWhatTheBoardOffers();
+
+        $next = $this->newVersionThroughTheScreen($standing);
+        $this->post(route('admin.storefronts.legal-texts.edit', $next), ['body' => '<p>The terms of Kuwait, third version.</p>']);
+        $this->signInAs(self::LEGAL_APPROVER);
+        $this->approveThroughTheScreen($next);
+        $this->publishThroughTheScreen($next);
+
+        $this->assertSame(['privacy.en.v1' => $draftSteps, 'terms.ar.v1' => $draftSteps, 'terms.en.v1' => $revokeOnly, 'terms.en.v2' => [], 'terms.en.v3' => $standingSteps], $this->stepsOnTheBoard(), 'the open text was published: the older text is superseded and can only be revoked, and the new one has its new version');
+        $this->assertThePageOffersWhatTheBoardOffers();
     }
 
     public function test_a_draft_is_put_away_with_a_reason_and_kept_as_history(): void
