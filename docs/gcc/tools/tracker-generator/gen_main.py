@@ -812,8 +812,8 @@ _move_link('E-04', 'lavkooapp', 18, '8de2259')
 UPDATES['E-04'] = UPDATES['E-04'].replace('(draft, 7cc5e176)', '(draft, 8de2259)') + ' A customer who never opened the wallet or the points makes no request for them when the storefront changes.'
 
 # ---- PR 115 run 350 on 2120fa3b (documentation-only commit after f5913ab7; it replaced run 349, which the push cancelled), read job by job on 2026-11-18 at 19:37 UTC ----
-_RUN_350 = (" Run 350 on 2120fa3b (the same pull request after a documentation-only commit that counts the lifecycle screen's tests; it replaced run 349) was read job by job at 19:37 UTC: Tests, SQLite on PHP 8.2 and 8.3, the Storefront tests on MySQL 8 and on MariaDB 11.4.2, the Address tests, the Fulfillment and security tests and the strict-mode MariaDB job "
-            "(which does not run tests/Feature/Storefront and is not proof for these tests) success, 21 of 23 jobs success, the deployment overlay red by design and one sales-channel MySQL job (sales channels A-M, which holds none of these tests) still running and not claimed.")
+_RUN_350 = (" Run 350 on 2120fa3b (the same pull request after a documentation-only commit that counts the lifecycle screen's tests; it replaced run 349) finished at 19:51 UTC and was read job by job: 22 of 23 jobs success, the deployment overlay red by design: Tests, SQLite on PHP 8.2 and 8.3, the Storefront tests on MySQL 8 and on MariaDB 11.4.2, the Address tests, the Fulfillment and security tests, "
+            "the sales-channel groups and the strict-mode MariaDB job (which does not run tests/Feature/Storefront and is not proof for these tests).")
 for _rid in ('I2-11', 'I2-03'):
     _state, _text = CRITERIA[_rid][4]
     assert _state == 'MET' and _text.count('success, 975 tests') == 0
@@ -836,13 +836,13 @@ _move_link('E-04', 'lavkooapp', 18, '4e3a895')
 UPDATES['E-04'] = UPDATES['E-04'].replace('(draft, 8de2259)', '(draft, 4e3a895)')
 
 # ---- PR 109 run 337 on bb55ab83 (the re-run of the cancelled first attempt), read per job on 2026-11-18 at 19:48 UTC ----
-_RUN_337 = (" CI: run 337 on bb55ab83 (PR 109's own run, the re-run of its cancelled first attempt), read per job on 2026-11-18 at 19:48 UTC: 'Tests, SQLite' on PHP 8.2 and 8.3 (the whole suite, which includes tests/Feature/Storefront, where the six ledger classes are) and 'Storefront tests, MySQL 8' and 'Storefront tests, MariaDB 11.4.2' success, with the Address, Fulfillment and security and sales-channel groups that had finished (20 of 23 jobs success); "
-            "the deployment overlay is red by design; the strict-mode MariaDB job and one sales-channel MySQL job (A-M) were still running and are not claimed (the strict-mode job runs StrictModeTest, SalesChannels, OperationalCosts and Fulfillment, not tests/Feature/Storefront, so these tests have run under strict mode only locally). The finance review of the ledger columns still gates the merge.")
+_RUN_337 = (" CI: run 337 on bb55ab83 (PR 109's own run, the re-run of its cancelled first attempt), finished at 20:06 UTC and read job by job on 2026-11-18: 22 of 23 jobs success, the deployment overlay red by design: 'Tests, SQLite' on PHP 8.2 and 8.3 (the whole suite, which includes tests/Feature/Storefront, where the six ledger classes are), 'Storefront tests, MySQL 8' and 'Storefront tests, MariaDB 11.4.2', the Address, Fulfillment and security and sales-channel groups and the strict-mode MariaDB job "
+            "(which runs StrictModeTest, SalesChannels, OperationalCosts and Fulfillment, not tests/Feature/Storefront, so these tests have run under strict mode only locally). The finance review of the ledger columns still gates the merge.")
 for _idx in (1, 2, 5):
     _state, _text = CRITERIA['E-05'][_idx]
     assert _state == 'CODED' and _text.endswith('CI not read')
     CRITERIA['E-05'][_idx] = ('MET' if _idx == 2 else 'CODED', _NOT_READ.sub('', _text).rstrip(' .;') + '.' + _RUN_337 + ('' if _idx == 2 else ' Kept CODED: ' + ("point-of-sale debits and points conversions still name nothing, so not every ledger row names what stands behind it." if _idx == 1 else "a loyalty row carries no currency by design and a row of the default storefront keeps the market columns empty while the switches are off, so not every row carries all three.")))
-UPDATES['E-05'] = UPDATES['E-05'] + " CI: run 337 is read per job (20 of 23 jobs success, two still running that hold none of these tests); criterion 2 (the actor of a manual top-up) is met, criteria 1 and 5 stay coded because their sentences say every row and two kinds of row do not carry everything."
+UPDATES['E-05'] = UPDATES['E-05'] + " CI: run 337 is read per job (22 of 23 jobs success, the overlay red by design); criterion 2 (the actor of a manual top-up) is met, criteria 1 and 5 stay coded because their sentences say every row and two kinds of row do not carry everything."
 NEXT_CURRENT['E-05'] = "The finance review of the ledger columns (the R pack for the wallet); E-05.3 (a replay-safe key on source_type and source_id) and E-05.4 (the add-fund bonus in the ledger balance) as draft PRs awaiting finance review; point-of-sale debits and points conversions naming their order and the market columns of a default-storefront row, which would close criteria 1 and 5."
 
 def apply_override(requirement, override):
