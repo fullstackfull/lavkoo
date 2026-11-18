@@ -50,7 +50,7 @@ The pushes of #20, #21, #22, #23, #24 and #35 started full CI runs that were que
 
 Five read-only verifiers were started on 2026-11-17 at about 23:27Z: the documents against GitHub, the owner report, the code pushed to older pull requests, the CI state, and the compliance of GitHub writes. A container restart lost the run before the last two (the CI re-read and the completeness critic) reported. The four finished verdicts were recovered from the workflow journal, and every finding was re-checked against GitHub or git before it was used.
 
-Corrected in the commit that adds this section: the claim that every verification code is constant (11 places in 8 files are; the seller app v2 reset and e-mail verification are random); the file counts of the equivalence check (199 identical, 8 language files that hold the same texts in another file, 23 changed by `main`); the duration of the long MySQL job; the CI paragraph of the guide; stale text; bare numbers of app pull requests; the count of the seller app's backend questions. The code verifier refuted nothing about the commits pushed to older pull requests (two low notes: the guard's name test is the same as in the three sibling schema builders, and one shared trait would remove the fourth copy).
+Corrected in the commit that adds this section: the claim about which verification codes are fixed (the detail is in the owner's private note); the file counts of the equivalence check (199 identical, 8 language files that hold the same texts in another file, 23 changed by `main`); the duration of the long MySQL job; the CI paragraph of the guide; stale text; bare numbers of app pull requests; the count of the seller app's backend questions. The code verifier refuted nothing about the commits pushed to older pull requests (two low notes: the guard's name test is the same as in the three sibling schema builders, and one shared trait would remove the fourth copy).
 
 Compliance findings, kept here so the next session does not repeat them:
 
@@ -64,7 +64,16 @@ Compliance findings, kept here so the next session does not repeat them:
 
 ## Public repositories
 
-All three repositories are public (checked 2026-11-18: not private; the plan opens without signing in). The plan, the guide, the audits and the pull request bodies describe flaws that are not fixed on the server yet. The owner was told, and the plan has the decision (15). Do not add exploit-level detail to any document or pull request body until it is taken: describe the fix and the check, not how to use the flaw.
+All three repositories are public (checked 2026-11-18: not private, created on 2026-11-11, no forks, stars or watchers; the plan opens without signing in). The plan, the guide, the audits and the pull request bodies describe flaws that are not fixed on the server yet, and credentials are tracked in the tree (`docs/integrations/security-findings.md`, SEC-15): treat them as exposed, because making a repository private recalls nothing. The owner was told the order: rotate or revoke, remove the web-served key files from the server, block the maintenance routes, then decide the visibility. Visibility has a cost: a full CI run is about 460 runner-minutes, and the runbook's first step clones without credentials. The plan has the decision (15). Do not add exploit-level detail to any document or pull request body: describe the fix and the check, not how to use the flaw. The main branches have no protection rule; asking the owner to protect them is open.
+
+## Further findings of the independent check, verified 2026-11-18
+
+- Stage 0 exists: draft PR 85 (`gcc/release/security-hotfix-stage0`, cut from the baseline) removes the maintenance routes and the log calls that wrote one-time codes, with two guard tests. The five stages of the plan do not. Read its CI before trusting it.
+- 16 of the 84 heads make the overlay job refuse more than the three known files; the list is in the guide's section 6 and is the by-hand list for those pull requests.
+- The hotfix tree (PR 78 and PR 81) ran on SQLite and MySQL 8 only; the baseline's workflow has no MariaDB job. The only MariaDB result for the security set is the main-based integration (PR 75). A CI-only MariaDB job for the hotfix tree is open.
+- PR 75 and PR 83 are disjoint: a merge of their heads conflicts in five files, and no tree combines the security set with the GCC chain. A combined CI-only integration with the five resolutions recorded is open.
+- Staff country isolation (PR 77, PR 82) and the SKU and barcode work (PR 72, PR 76) are partial; the switches stay off until the owner accepts what is left.
+- Could not be verified from here: repository secrets, variables, hooks and protection rules (the proxy refuses them); what production runs; the published seller app version; the local MySQL, unprivileged-user and clean-export runs quoted from pull request bodies (no CI log exists for them); the owner's GitHub plan and its Actions minutes.
 
 ## Owner decisions that are still open
 
@@ -72,8 +81,10 @@ The plan's section 6 (15 decisions: the verification codes and `APP_MODE`, route
 
 ## What the next session should do
 
-1. Read CI for #20 to #24 and #35 on their current heads; fix a real red, never skip a test, never touch the overlay job or the version gate.
+1. Read CI for #20, #23 and #24 (one long job each was still running at 00:46Z) and for PR 85; fix a real red, never skip a test, never touch the overlay job or the version gate.
 2. Do not report any pending job as green.
-3. Keep the stack in sync by merge commits (a change to #71 goes to #79, #80, #84; to #74 to #77, #82, #84).
-4. When a base of a seller or customer app pull request merges, retarget it so its CI runs.
-5. No merge, deploy, migration or production access without the owner's separate authorization.
+3. Build a CI-only MariaDB job for the hotfix tree (a copy of the PR 81 branch with the matrix entry) and a combined CI-only integration of the security set and the GCC chain with its five resolutions; both are drafts that are never merged.
+4. Keep the stack in sync by merge commits (a change to #71 goes to #79, #80, #84; to #74 to #77, #82, #84).
+5. When a base of a seller or customer app pull request merges, retarget it so its CI runs.
+6. Write "PR 13", never a number sign and a number, in commit messages; no status comments on pull requests.
+7. No merge, deploy, migration, rotation or production access without the owner's separate authorization; do not change a repository's visibility.
