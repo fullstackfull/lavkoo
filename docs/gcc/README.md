@@ -1,7 +1,7 @@
 # Lavkoo GCC — Canonical Project Hub
 
 > Formerly discussed as **PharmacyKSA GCC**. Current canonical product name: **Lavkoo**.
-> Updated: 2026-11-12. Status: **Discovery / planning only; no implementation approved.**
+> Updated: 2026-11-18. Status: **autonomous development on draft pull requests under the owner's charter; nothing is merged, deployed or verified in production** (see [STATUS.md](./STATUS.md)). The discovery-only wording of 2026-11-12 further down is historical.
 
 ## Repositories (current)
 
@@ -16,7 +16,7 @@
 ## Read in this order
 
 1. [DECISIONS.md](./DECISIONS.md) — approved GCC scope and non-negotiable architecture.
-2. [STATUS.md](./STATUS.md) — current stage, risks, pending work, and ownership.
+2. [STATUS.md](./STATUS.md) — current stage, risks, pending work, and ownership; then [PR_LEDGER.md](./PR_LEDGER.md) for every pull request and its base and head.
 3. [DISCOVERY_PROMPT_01.md](./DISCOVERY_PROMPT_01.md) — Claude Code audit prompt; **code read-only**.
 4. [COLLABORATION.md](./COLLABORATION.md) — mandatory collaboration, handoff and immediate GitHub publishing protocol.
 5. [MASTER_IMPLEMENTATION_TRACKER.md](./MASTER_IMPLEMENTATION_TRACKER.md) — every requirement of the original plan by axis A to M, with its state, evidence, what remains and the next coding task; progress is read from here, not from the pull request list.
@@ -26,7 +26,7 @@
 - **Preserve → Extend → Isolate → Verify.** Do not rebuild working inventory, themes, payments, or channel integrations.
 - **GitHub is the durable memory** for multiple Claude accounts: conversations are not the source of truth.
 - Record audit and workstream reports in unique versioned `docs/gcc/audits/` or `docs/gcc/handoffs/` files, then commit and **push the relevant remote branch immediately after a meaningful checkpoint**.
-- The **first task is discovery only**, with one exception: saving reports, status, and handoffs as documentation. No application-code or production changes without explicit permission.
+- (Historical, 2026-11-12; superseded by the owner's charter, see STATUS.md.) The **first task is discovery only**, with one exception: saving reports, status, and handoffs as documentation. No application-code or production changes without explicit permission.
 - A Git push is not deployment. Never merge to `main`, deploy, run production migrations, or enable integrations without the owner's explicit approval.
 - Every session must refresh from GitHub, inspect open PRs, read the canonical docs, and leave a remote-pushed handoff with links and exact commit SHAs.
 

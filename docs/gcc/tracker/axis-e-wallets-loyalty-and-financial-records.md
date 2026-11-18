@@ -1,6 +1,6 @@
 # Axis E: Wallets, loyalty and financial records
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 18. Acceptance criteria: 84 (MET 31, CODED 3, MISSING 50). Code completion 40%, proven by a passing test 37%, release readiness 3%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 18. Acceptance criteria: 84 (MET 31, CODED 4, MISSING 49). Code completion 42%, proven by a passing test 37%, release readiness 3%.
 
 Independent verification: done for unit(s) E.
 
@@ -13,7 +13,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(3) Exists now in code (main).** One global balance per customer: users.wallet_balance, DECIMAL(40,20) on main since migration 2026_05_07_000001_update_all_decimal_columns_to_40_20 (it was 18,12 after 2025_07_13_021823; the production column type is UNVERIFIED), with platform-wide wallet_status and top-up settings. wallet_transactions has no storefront, entity or currency column (nor have seller_wallets, admin_wallets, order_transactions, withdraw_requests). main has no config/gcc.php, so no per-country currency map and no GCC_LEGAL_ENTITY value, and nothing for wallets. Gateway top-ups credit the same global balance.
 - **(4) Done in the draft PRs.** Nothing separates balances: no gcc/* branch adds a wallet, loyalty or ledger table beyond referral_reward_grants (PR 29) and pos_sale_idempotency_keys (PR 35). Related only: config/gcc.php (new in PR 8, in the PR 83 tree) names a currency per country and PR 43 adds one GCC_LEGAL_ENTITY value, neither reaches a wallet; wallet checkout and top-up routes carry the storefront sale gate (PR 42/49, in the PR 83 tree), lavkooapp#5 refuses a top-up on a browse-only storefront, wallet due payment stays open.
 - **(5) What remains.** 1 Market and legal-entity registry as the key (GCC-05, entity unit). 2 Account table unique per (customer, market, currency) with row lock. 3 One writer that takes the market; the four writers, POS, referral, refund and top-up callbacks pass it. 4 Saudi balance stays the default-market projection. 5 Per-market wallet switch, limits and bonus tiers. 6 Six-market isolation tests.
-- **(6) PRs and commits.** [lavkoo#6](https://github.com/fullstackfull/lavkoo/pull/6) `5c4b3e6`; [lavkoo#34](https://github.com/fullstackfull/lavkoo/pull/34) `832377a`; [lavkoo#42](https://github.com/fullstackfull/lavkoo/pull/42) `2534953`; [lavkoo#49](https://github.com/fullstackfull/lavkoo/pull/49) `b52d9b2`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`; [lavkooapp#5](https://github.com/fullstackfull/lavkooapp/pull/5) `5526c4b`
+- **(6) PRs and commits.** [lavkoo#6](https://github.com/fullstackfull/lavkoo/pull/6) `5c4b3e6`; [lavkoo#34](https://github.com/fullstackfull/lavkoo/pull/34) `832377a`; [lavkoo#42](https://github.com/fullstackfull/lavkoo/pull/42) `2534953`; [lavkoo#49](https://github.com/fullstackfull/lavkoo/pull/49) `b52d9b2`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`; [lavkooapp#5](https://github.com/fullstackfull/lavkooapp/pull/5) `5526c4b`; [lavkoo#87](https://github.com/fullstackfull/lavkoo/pull/87) `44b53616`
 - **(7) Tests.**
   - `ci` Saudi wallet ledger characterization: admin top-up, order payment, points credit, wallet off, unknown customer (tests/Feature/Wallet/WalletLedgerCharacterizationTest.php, PR 6 5c4b3e6; Tests, SQLite (PHP 8.2/8.3) green)
   - `ci` Checkout and POS wallet debit boundaries pinned (exact balance, one cent over, zero) (tests/Feature/Wallet/WalletDebitBoundaryCharacterizationTest.php, PR 34 832377a; Tests, SQLite (PHP 8.2/8.3) green)
@@ -29,6 +29,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **Open owner decisions.** Wallet key: per storefront, or per legal entity when two storefronts share one; stored-value rules per country (legal); storage unit of historical balances; per-market wallet switch, top-up limits and bonus tiers.
 - **Verifier note (not applied automatically).** exists_now corrected by the verifier (applied above).
 - **Verifier note (not applied automatically).** done_in_drafts corrected by the verifier (applied above).
+- **Update after the assessment.** PR 87 (GCC-05 slice 5b, head 44b53616, off by default): while a storefront trades in its own currency the wallet is closed there (wallet_status and add_funds_to_wallet answer 0 through the seam, and the two checkout handlers that pay an order from the wallet sit behind storefront.wallet, 403 before anything is read or written), so a dinar order can never take riyals from the one balance. This is not a per-market wallet: the Saudi balance, the ledgers and the writers are unchanged. StorefrontWalletClosedTest (17).
 
 #### E-02. Loyalty points independent per market, sharing structure off
 
@@ -57,7 +58,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(3) Exists now in code (main).** Impossible today only because one global balance exists. Amounts are held in a USD base and shown in the platform default currency by rate (Convert::usd, usdToDefaultCurrency), so a balance is implicitly spendable at any rate. Six places write the balances (four wallet writers, two points writers), none takes a market.
 - **(4) Done in the draft PRs.** Nothing. PR 10's PointsToWalletConversion keeps a conversion inside one customer account but is not market-aware.
 - **(5) What remains.** A market argument on every writer; a refusal when a debit's market differs from the account's; cross-market guard tests; a source-scan test that fails when code writes wallet_balance or loyalty_point outside the single writer; no admin-side transfer screen.
-- **(6) PRs and commits.** [lavkoo#10](https://github.com/fullstackfull/lavkoo/pull/10) `9b39874`
+- **(6) PRs and commits.** [lavkoo#10](https://github.com/fullstackfull/lavkoo/pull/10) `9b39874`; [lavkoo#95](https://github.com/fullstackfull/lavkoo/pull/95) `ce4d2950`
 - **(7) Tests.**
   - `none` No test asserts that markets cannot transfer
 - **(8) Dependencies and blockers.** E-01 (market accounts); one write path (E-09, E-10, E-16).
@@ -65,9 +66,10 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] A debit tagged storefront AE cannot reduce a KW account (no market in any writer)
   - [MISSING] Points of market A cannot be converted into the wallet of market B (PointsToWalletConversion has no market)
   - [MISSING] No route, command or schedule changes two market accounts of one customer in one operation (no market accounts exist)
-  - [MISSING] A source-scan test fails when code assigns wallet_balance or loyalty_point outside the single writer (six writer sites today (WalletTransactionRepository, CustomerTrait, CustomerManager x2, OrderManager, LoyaltyPointTransactionRepository))
+  - [CODED] A source-scan test fails when code assigns wallet_balance or loyalty_point outside the single writer (PR 95 (draft, main based, ce4d2950): WalletBalanceWritersTest fails when code other than the four writers of users.wallet_balance and the two of users.loyalty_point writes either column; passes locally on main and on the integration tree, a temporary writer is caught; CI of the head not read)
 - **(10) Next coding task.** Write the red tests first on a branch from main: MarketBalanceIsolationTest (six markets, two currencies) against the E-01 service interface, and a source-scan test listing the only allowed writers of wallet_balance and loyalty_point.
 - **Open owner decisions.** none open (decided: no automatic transfer between legal companies); manual goodwill transfers stay out of scope until separately approved.
+- **Update after the assessment.** PR 95 (draft, main based, ce4d2950): WalletBalanceWritersTest reads the source of app, Modules, routes and config and fails when code other than the four writers of users.wallet_balance and the two of users.loyalty_point assigns, updates, increments or rewrites either column (18 tests; a temporary writer is caught and named; passes on main and on the all-in-one integration tree); CI of the head not read. No market argument and no refusal of a cross-market debit exist yet.
 
 #### E-04. Wallet and loyalty readers show one market's balance, API keys keep meaning
 

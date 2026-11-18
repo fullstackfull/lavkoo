@@ -1,6 +1,6 @@
 # Axis D: Orders, checkout and payments
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 37. Acceptance criteria: 167 (MET 72, CODED 30, MISSING 65). Code completion 61%, proven by a passing test 43%, release readiness 8%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 37. Acceptance criteria: 167 (MET 72, CODED 31, MISSING 64). Code completion 62%, proven by a passing test 43%, release readiness 8%.
 
 Independent verification: done for unit(s) D1, D2.
 
@@ -105,7 +105,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(3) Exists now in code (main).** main: prices are stored in a base currency (USD) and converted for display with the session or default currency (usdToDefaultCurrency); order_details keeps price, discount, tax and the whole product JSON; carts.price is re-synced from the product before checkout. The customer app sends current_currency_code from the global config.
 - **(4) Done in the draft PRs.** #47 makes the product row the unit of price and stock per country; #48 stops a cart from reading another country's price or stock. In PR 83 no code reads the storefront's currency (StorefrontContext::currency is metadata only). On branch origin/gcc/p1-storefront-currency (GCC-05 slices 1 to 3, behind GCC_STOREFRONT_CURRENCY, off by default, no pull request, never run in CI) StorefrontCurrency makes getWebConfig answer system_default_currency, currency_model (single_currency, no rate) and decimal_point_settings (3 for KWD, BHD, OMR) for a request served from a non-default storefront, so cart and checkout amounts follow that currency; StorefrontCheckoutSnapshotTest runs a real API cash-on-delivery checkout from each of the six storefronts. The default storefront on a multi-currency platform still follows the visitor's currency, and the admin, importer and bulk price tools still convert entered prices with the platform settings (slice 4, not built).
 - **(5) What remains.** 1) checkout totals in the storefront currency (GCC-05 seam into the converters); 2) three-decimal rounding for KWD, BHD, OMR (see D1-06); 3) a test that an order line keeps its price when the product price changes; 4) admin-only copy-to-country tool and its no-sync rule are catalogue work (B).
-- **(6) PRs and commits.** [lavkoo#47](https://github.com/fullstackfull/lavkoo/pull/47) `e0dd5dc`; [lavkoo#48](https://github.com/fullstackfull/lavkoo/pull/48) `4a821d3`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`
+- **(6) PRs and commits.** [lavkoo#47](https://github.com/fullstackfull/lavkoo/pull/47) `e0dd5dc`; [lavkoo#48](https://github.com/fullstackfull/lavkoo/pull/48) `4a821d3`; [lavkoo#83](https://github.com/fullstackfull/lavkoo/pull/83) `8ff3410`; [lavkoo#87](https://github.com/fullstackfull/lavkoo/pull/87) `44b53616`
 - **(7) Tests.**
   - `ci` StorefrontCatalogTest::test_each_country_keeps_its_own_price_and_stock_for_the_same_product (PR 83 8ff3410: Tests SQLite; Storefront tests MySQL 8 and MariaDB 11.4.2)
   - `ci` StorefrontCartIsolationTest::test_the_price_and_stock_of_another_storefronts_product_are_not_answered_by_the_cart (PR 83 8ff3410: same jobs)
@@ -117,11 +117,12 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MET] A storefront cannot price, add or read another country's product by id (StorefrontCartGuardTest and StorefrontCartIsolationTest, PR 83 8ff3410)
   - [CODED] No code path writes one country's catalog price from another country's (no auto-FX between country copies) (no copy or sync tool exists; no test)
   - [CODED] An order line freezes unit price, discount, tax and the product JSON at placement (OrderManager::addOrderDetailsData; no immutability test)
-  - [MISSING] Cart and order totals are in the storefront's own currency, not the session default or USD base (runbook step 5: no price code reads the storefront's currency)
+  - [CODED] Cart and order totals are in the storefront's own currency, not the session default or USD base (PR 87 (44b53616): the cart gate, the checkout and the saved order of a storefront with its own currency read and keep that currency at rate one (StorefrontMinimumOrderGateTest 21, StorefrontCheckoutSnapshotTest 10); passes locally on SQLite and MySQL 8.0.46, CI not read)
 - **(10) Next coding task.** Open the pull request for origin/gcc/p1-storefront-currency (the StorefrontCurrency resolver exists there) and prove it in CI on SQLite, MySQL 8 and MariaDB 11.4.2, with an assertion that the order total, not only the line price, is in the storefront currency and that a Saudi order is byte-identical to today; then slice 4 (price entry in the product's own country context, catalogue unit B) and the order-line immutability characterization test on main.
 - **Open owner decisions.** GCC-05: how a storefront's currency reaches the converters and whether the stored base stays USD.
 - **Verifier note (not applied automatically).** done_in_drafts corrected by the verifier (applied above).
 - **Verifier note (not applied automatically).** next_task corrected by the verifier (applied above).
+- **Update after the assessment.** PR 87 (GCC-05 slices 1 to 5, head 44b53616): a cart of a storefront with its own currency is priced, gated and saved in that currency at rate one: StorefrontMinimumOrderGateTest (21) drives a real API checkout for each of the five storefronts (a cart below the minimum its storefront was given is refused with 403 and saves no order, equal and above pass) and StorefrontCheckoutSnapshotTest saves each order with the price of its own catalog and its currency.
 
 #### D1-06. Order currency snapshot on orders, lines and money rows
 

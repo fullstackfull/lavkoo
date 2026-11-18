@@ -1,7 +1,32 @@
 # Lavkoo GCC — Current Project Status & Handoff Index
 
-**Last planning update:** 2026-11-12  
-**Current phase:** Discovery preparation. **No GCC application code has been implemented or approved for deployment as part of this plan.**
+**Last update:** 2026-11-18. **Current phase:** autonomous implementation under the owner's charters: continuous development and release preparation on draft pull requests, with nothing merged, deployed or run on production data. The "Discovery preparation" text of 2026-11-12 further down is kept as history and is **superseded**: GCC application code now exists on 96 draft pull requests of `lavkoo` (and 9 of `lavkooapp`, 6 of `lavkooappseller`), all dormant behind switches that ship off.
+
+## Read these first
+
+| What | Where |
+|---|---|
+| Every requirement of the plan (axes A to M), its state, the tests that passed, what is missing, and the percentages with their formulas | [MASTER_IMPLEMENTATION_TRACKER.md](MASTER_IMPLEMENTATION_TRACKER.md) and `tracker/` |
+| Every pull request with its branch, base, head and the requirements that name it; `tools/check_pr_ledger.py` says when it is out of date | [PR_LEDGER.md](PR_LEDGER.md) |
+| The order in which the pull requests can merge, their conflicts and the files that need a hand deployment | [MERGE_ORDER.md](MERGE_ORDER.md) |
+| The deferred risks DR-1 to DR-5 (keys and credentials are **not** rotated and the register says so) | [DEFERRED_RISKS.md](DEFERRED_RISKS.md) |
+| The security release in stages for the live server | [SECURITY_RELEASE_PLAN.md](SECURITY_RELEASE_PLAN.md), [SERVER_PREFLIGHT.md](SERVER_PREFLIGHT.md), [OWNER_PR_GUIDE.md](OWNER_PR_GUIDE.md) |
+| The staging plan with invented data for six countries and the journeys to run | [STAGING_PLAN.md](STAGING_PLAN.md) |
+| The audit of the all-in-one integration branch (CI per job, what was reconciled) | [audits/2026-11-18-all-in-one-integration/README.md](audits/2026-11-18-all-in-one-integration/README.md) |
+| The latest handoff of each session | [handoffs/](handoffs/) |
+
+## What is true today
+
+- **Nothing is merged, deployed or verified in production.** `main` is `c5c04b7b` (2026-11-12) and has none of the GCC work; the live server runs an older baseline described by the release documents. A merge, a deployment, a key change, a migration on production or a change of a live financial or legal rule needs the owner's separate approval (charter section 4).
+- Every pull request is a draft. A percentage is shown only where acceptance criteria that a test could assert were counted; "implemented in a draft" is not "done" and "code complete" is not "released" (see section 4 of the tracker).
+- The CI of a head is read per job, never inferred: see the tracker and the audit reports, and the checks page of each pull request. Runs are queued and are sometimes cancelled by a newer push to the same pull request.
+- The earlier statement that **no application code is approved** is superseded for the draft pull requests above; the coupon-boundary branch has its own narrower approval (`PHASE0-COUPON-GTE-SELLER-VERSION-OWNER-APPROVAL.md`).
+
+---
+
+# History: planning status of 2026-11-12 (superseded)
+
+**Planning update of 2026-11-12.** At that date the phase was discovery preparation and no GCC application code existed; that is no longer true (see above).
 
 ## Current canonical repositories
 
