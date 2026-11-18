@@ -17,7 +17,7 @@ use Tests\TestCase;
  *
  * The web side is that partial rendered with the settings StorefrontThemeRenderer::publishedGlobalSettings resolves for the published theme: four tokens, written as nine variables and two RGB values. That
  * the layout renders the partial with those settings is pinned structurally only (a string match on the layout's source), and the draft-preview branch of publishedGlobalSettings is not covered. The
- * branding group is not compared, see TOKENS_OF_THE_APP.
+ * branding group is compared on its own: the logo sizes a merchant sets are numbers and reach the app as numbers.
  */
 class StorefrontThemeDesignTokensTest extends TestCase
 {
@@ -29,13 +29,7 @@ class StorefrontThemeDesignTokensTest extends TestCase
         'AE' => ['colors' => ['secondary' => '#00a651'], 'layout' => ['border_radius' => 20]],
     ];
 
-    /**
-     * The groups of tokens the app payload carries as the settings resolve them. The page head writes no variable from the branding group, so the web has nothing to compare it with. It is left out for a
-     * second reason, a defect of the application that this tests-only change does not touch: ThemeDelivery::tokens hands the app null for every branding value that is not a non-empty string, so the logo
-     * width and height a merchant sets (numbers, 140 and 40 by default) never arrive. GET /api/v1/theme/home with X-Storefront: SA, for a published version whose settings are branding {logo: '/storage/logo.png',
-     * logo_width: 200, logo_height: 60}, answers 200 with tokens.branding {logo: 'http://localhost/storage/logo.png', mobile_logo: null, favicon: null, logo_width: null, logo_height: null}, while
-     * ThemeManager::resolveSettings gives 200 and 60.
-     */
+    /** The groups of tokens the app payload carries as the settings resolve them and that the page head can be compared with: the page head writes no variable from the branding group (see the test of the logo sizes). */
     private const TOKENS_OF_THE_APP = ['colors', 'typography', 'layout'];
 
     /** The CSS variables the page head writes from the settings: the token each comes from, and what is written after its value. */
@@ -190,6 +184,19 @@ class StorefrontThemeDesignTokensTest extends TestCase
         foreach (Arr::dot(array: Arr::only(array: $expected, keys: self::TOKENS_OF_THE_APP)) as $path => $value) {
             $this->assertSame($value, Arr::get(array: $app, key: $path), "{$path} in the app");
         }
+    }
+
+    public function test_the_logo_sizes_a_merchant_sets_reach_the_app_as_numbers_and_the_code_defaults_arrive_when_none_is_set(): void
+    {
+        $defaults = app(ThemeManager::class)->defaultSettings()['branding'];
+        $this->givePublishedThemeTo(country: 'SA');
+        $this->givePublishedThemeTo(country: 'AE');
+        $aeVersion = ThemeVersion::query()->whereHas('theme', fn ($themes) => $themes->where('storefront_country', 'AE'))->firstOrFail();
+        $aeVersion->update(['settings' => array_replace_recursive(self::OVERRIDES['AE'], ['branding' => ['logo_width' => 200, 'logo_height' => 60]])]);
+
+        $this->assertSame([200, 60], [$this->tokensTheAppIsGivenBy(country: 'AE')['branding']['logo_width'], $this->tokensTheAppIsGivenBy(country: 'AE')['branding']['logo_height']]);
+        $this->assertSame([$defaults['logo_width'], $defaults['logo_height']], [$this->tokensTheAppIsGivenBy(country: 'SA')['branding']['logo_width'], $this->tokensTheAppIsGivenBy(country: 'SA')['branding']['logo_height']], 'a theme that sets no size gives the code default one');
+        $this->assertIsInt($defaults['logo_width']);
     }
 
     public function test_the_two_storefronts_themes_give_two_sets_of_tokens_to_both_the_page_head_and_the_app(): void

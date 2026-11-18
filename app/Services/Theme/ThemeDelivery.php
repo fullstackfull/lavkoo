@@ -581,8 +581,9 @@ $blocks = $row->blocks
             'colors'     => $settings['colors'] ?? [],
             'typography' => $settings['typography'] ?? [],
             'layout'     => $settings['layout'] ?? [],
+            // A logo is a path and its size is a number: the size a merchant sets must reach the app, which draws the logo at that size.
             'branding'   => $this->absolutize(array_map(
-                fn ($value) => is_string($value) && $value !== '' ? $value : null,
+                fn ($value) => (is_string($value) && $value !== '') || is_int($value) || is_float($value) ? $value : null,
                 $settings['branding'] ?? [],
             )),
         ];
