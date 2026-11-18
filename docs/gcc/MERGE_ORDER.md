@@ -1,6 +1,6 @@
 # Merge order and conflict map of the open pull requests
 
-Generated 2026-11-18 from the heads of the open pull requests of `fullstackfull/lavkoo` by dry-run merges (`git merge-tree`, nothing checked out, nothing written to a branch) of **every pair**: 87 pull requests, 3741 pairs, 126 of which conflict textually. It is the answer to "in which order, and what meets what"; it does not replace the tests: a pair that merges cleanly can still break a guard written for the other (the semantic conflicts are in [`audits/2026-11-18-all-in-one-integration/README.md`](audits/2026-11-18-all-in-one-integration/README.md)).
+Generated 2026-11-18 from the heads of the open pull requests of `fullstackfull/lavkoo` by dry-run merges (`git merge-tree`, nothing checked out, nothing written to a branch) of **every pair**: 88 pull requests, 3828 pairs, 126 of which conflict textually. It is the answer to "in which order, and what meets what"; it does not replace the tests: a pair that merges cleanly can still break a guard written for the other (the semantic conflicts are in [`audits/2026-11-18-all-in-one-integration/README.md`](audits/2026-11-18-all-in-one-integration/README.md)).
 
 Left out on purpose: #75 (CI evidence of the security set), #83 (CI evidence of the GCC stack); and the baseline hotfix line (#78, #81, #85, #86), which is cut from the server baseline `698aa1e` and deployed in stages, never merged with the main-based set (see `SECURITY_RELEASE_PLAN.md`). **Merge none of the CI evidence or deployment branches.**
 
@@ -66,6 +66,7 @@ A stacked pull request has its base branch set to another pull request's branch,
 | 0 | [#91](https://github.com/fullstackfull/lavkoo/pull/91) | `main` | docs and CI | the exact rule that protects main and the code owners, for a person to apply (documents only) |
 | 0 | [#92](https://github.com/fullstackfull/lavkoo/pull/92) | `main` | docs and CI | every test starts from an empty database on a real server |
 | 0 | [#93](https://github.com/fullstackfull/lavkoo/pull/93) | `main` | fixes | the per-order debug file that recorded customer, guest, address and order ids is no longer writt |
+| 0 | [#94](https://github.com/fullstackfull/lavkoo/pull/94) | `main` | docs and CI | every test directory runs on a real MySQL or MariaDB, or says why it does not |
 | 1 | [#10](https://github.com/fullstackfull/lavkoo/pull/10) | #9 | P0 wallet, orders, identity and tests | serialise point balance writes and make point-to-wallet conversion atomic |
 | 1 | [#11](https://github.com/fullstackfull/lavkoo/pull/11) | #9 | P0 wallet, orders, identity and tests | refuse a debit that would take the balance below zero, inside the customer lock |
 | 1 | [#19](https://github.com/fullstackfull/lavkoo/pull/19) | #8 | GCC storefronts and staff | add opt-in storefront middleware alias and per-country activation |
@@ -112,7 +113,7 @@ Each wave is dependency-valid in itself (merge its pull requests by depth, then 
 - **Wave 2: other fixes:** #55, #56, #93.
 - **Wave 3: P0 wallet, orders, identity and the characterization tests:** #1, #2, #3, #4, #5, #6, #7, #9, #16, #17, #18, #20, #21, #22, #23, #24, #25, #26, #27, #29, #30, #31, #32, #33, #34, #88, #89, #10, #11, #36, #12, #13, #14, #15, #35.
 - **Wave 4: the GCC storefronts, staff scopes, platform admin, GCC-05 and the selling-company registry (all off by default):** #8, #19, #28, #37, #38, #39, #42, #43, #47, #48, #49, #50, #53, #64, #71, #72, #74, #87, #76, #77, #79, #90, #80, #82, #84.
-- **Anytime, first if possible: documents and test base class (#92 must come before the wallet and loyalty classes that rely on an empty database, and conflicts with the storefront stack only on `tests/TestCase.php`, see section 4):** #91, #92.
+- **Anytime, first if possible: documents, the test base class and the CI coverage guard (#92 must come before the wallet and loyalty classes that rely on an empty database and conflicts with the storefront stack only on `tests/TestCase.php`, see section 4; #94 needs every pull request that adds a test directory to add its real-engine path, see its description):** #91, #92, #94.
 
 ## 4. The root conflicting pairs, and where each was settled
 

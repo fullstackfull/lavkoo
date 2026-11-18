@@ -6,7 +6,8 @@
 
 - **Base:** `gcc/release/security-gcc-integration-ci` (`f6fb03af`): the security set (PR 75, `47b78ab8`) and the GCC stack (PR 83, `8ff34109`) merged together, five files resolved by hand.
 - **On top, in dependency order:** PR 1 to 7, 9 to 18, 20 to 27, 29 to 36 and PR 87 (GCC-05, the currency of a storefront). That is 82 of the 86 open main-based pull requests that existed when it was cut; the four that are not in it are the baseline hotfix line (PR 78, 81, 85, 86), which is cut from the server baseline `698aa1e` and deployed in stages, so it is never combined with the main-based set.
-- **Head when this was written:** `c30390d1`. Rebuild it by taking the base and running the merges of the table below in order, then the reconciliation commits `6f6a5e52` and `c30390d1`.
+- **Added after the first cut:** PR 88 (E-06, `wallet:reconcile`), PR 89 (the three statements a strict SQL server refuses), PR 90 (the selling-company registry) and the drafts of the day PR 91 (branch protection documents), PR 92 (every test starts from an empty database on a real server), PR 93 (the per-order debug file) and PR 94 (the guard that every test directory runs on a real engine).
+- **Head when this was written:** `8598331b`. Rebuild it by taking the base and running the merges of the table below in order, then the reconciliation commits `6f6a5e52`, `c30390d1`, `397424cf`, `15c2b805`, `80a4fbad` and `8598331b`. The first dispatched run (279) was on `c30390d1`, the second (288) on `515d5bfa`; both are read below, and the third (run 293) is dispatched on `8598331b`.
 
 ## Result
 
@@ -75,6 +76,14 @@
 | 33 | [#29](https://github.com/fullstackfull/lavkoo/pull/29) | `gcc/p0-referral-reward-idempotency` | `f5a565f4` | `app/Http/Controllers/RestAPI/v3/seller/OrderController.php`, `app/Http/Controllers/Vendor/Order/OrderController.php`, `tests/Feature/Referral/ReferralRewardCharacterizationTest.php` | its flipped referral test replaces the characterization of PR 25. The constructors of the v3 seller and the vendor order controllers take both new services (the digital file services of the security set and the referral reward service of PR 29). PR 25 characterizes the double credit of the referral reward and PR 29 removes it; |
 | 34 | [#87](https://github.com/fullstackfull/lavkoo/pull/87) | `gcc/p1-storefront-currency` | `8f3d0f38` | `app/Http/Controllers/RestAPI/v3/seller/POSController.php`, `bootstrap/app.php` | the order record follows the seller POS transaction; four tests learn what the other sets closed. PR 87 (GCC-05, storefront currency, slices 1 to 4) meets the security set and the wallet and order PRs in two files. bootstrap/app.php keeps both middleware aliases. |
 | 35 | [#87](https://github.com/fullstackfull/lavkoo/pull/87) | `gcc/p1-storefront-currency` | `55487514` | none | merged without a conflict |
+| 36 | [#89](https://github.com/fullstackfull/lavkoo/pull/89) | `gcc/p0-coupon-use-count-strict-sql` | `2c71d64d` | none | merged without a conflict (after the reconciliation `397424cf`) |
+| 37 | [#88](https://github.com/fullstackfull/lavkoo/pull/88) | `gcc/p1-wallet-reconcile-command` | `b372f893` | none | merged without a conflict |
+| 38 | [#90](https://github.com/fullstackfull/lavkoo/pull/90) | `gcc/p1-legal-entity-registry` | `515d5bfa` | `.env.example` | both blocks kept: PR 7 appends the Paymera key at the end of the file and PR 90 its two company switches |
+| 39 | [#93](https://github.com/fullstackfull/lavkoo/pull/93) | `gcc/p1-remove-order-debug-file` | `657b26e7` | `app/Utils/module-helper.php` | the integration (PR 56) logs a critical line when a paid payment built no order, right above the debug write that PR 93 removes: the critical line stays, the write goes |
+| 40 | [#92](https://github.com/fullstackfull/lavkoo/pull/92) | `gcc/p0-test-empty-real-database` | `1cb9e10b` | `tests/TestCase.php` | the integration already carried the same reset (`397424cf`); the line the storefront stack adds to the same method (`StorefrontCatalog::flush()`) is kept |
+| 41 | [#91](https://github.com/fullstackfull/lavkoo/pull/91) | `gcc/p0-branch-protection-draft` | `3a921d78` | none | documents and CODEOWNERS only |
+| 42 | [#89](https://github.com/fullstackfull/lavkoo/pull/89) | `gcc/p0-coupon-use-count-strict-sql` | `1a19dc53` | none | its third statement (found by this integration on MySQL 8 in strict mode) |
+| 43 | [#94](https://github.com/fullstackfull/lavkoo/pull/94) | `gcc/p0-ci-every-test-directory-on-a-real-engine` | `a1d051d3` | none | the coverage guard |
 
 ## CI run 279, read per job (07:07 to 08:23 UTC, cancelled once its findings were read)
 
@@ -95,6 +104,42 @@ Run 279 was dispatched on `c30390d1`. Nineteen jobs finished green (the leak gua
 1. **The path lists of the CI file are merged too.** The pull requests that add `tests/Feature/Wallet` and `tests/Feature/Loyalty` to the concurrency and strict-mode jobs bring classes of other pull requests into jobs they never ran in. Merging them in any order turns those jobs red at the merge of the second pull request that adds a wallet class, unless the base-class change (`tests/TestCase.php` in `397424cf`) and PR 89 are on `main` first. They are small and independent of the sets: land them first.
 2. **Characterization tests are the first thing a merge breaks.** Each pull request that pinned today's behaviour is right about the code it was cut from. The three tests changed here, and the ones listed in the table above, are the places where two pull requests disagree on purpose; the combined tree's answer is written beside each.
 3. **A latent strict-mode defect exists in `main` itself** (the two statements above); PR 89 is its fix and does not depend on anything else.
+
+## CI run 288, read per job (08:23 to 09:27 UTC, cancelled once its findings were read)
+
+Run 288 was dispatched on `515d5bfa`, the head that reconciles the findings of run 279 and adds PR 88, 89 and 90. The runners were saturated, so its jobs started between 08:29 and 09:21; when it was cancelled, ten jobs had finished green (the leak guard, PHP syntax on 8.2 and 8.3, Catalog, Address, sales channels N-Z, concurrency and myfatoorah on MariaDB, Storefront and costs on MySQL 8), two had failed and the rest were running or queued. Both failures were fragile tests, not code:
+
+| Job | Result | Cause | What was done |
+|---|---|---|---|
+| Sales-channel and cost tests, MySQL 8.0 (concurrency) | 295 tests, 1 failure | `WalletBalanceCurrencyConcurrencyTest` (two simultaneous orders for the whole wallet balance) accepted three outcomes for the order that loses, and the CI run showed a fourth: a 500 whose message is the exception text when debug is on, `Undefined array key 0`. The loser read the cart after the winner had emptied it and `Helpers::sales_commission_before_order` indexes the first line of an empty collection (`OrderController::place_order`, `OrderManager::generateOrder`, `getOrderAddData`). No money moved twice (one order, one debit, the balance at zero). Reproduced locally on MySQL 8.0.46 with debug on: the loser is a 403 for stock, a 403 for balance or this 500, in no fixed proportion | The test accepts any 500 as the loser's outcome and says what it is (`80a4fbad`). **The checkout's own gap remains: a double submit can answer 500 to the second request instead of a refusal**; it belongs to the checkout owner (order idempotency) |
+| Staff scope tests, MariaDB 11.4.2 | 458 tests, 1 failure | `StaffReportScreensTest` compared the order transaction list of a restricted employee with the unrestricted one; every transaction of the fixture carried the same timestamp, so the newest-first list came back in another order for ties once the employee's filter changed the plan (orders 102 and 103 swapped). It had passed on run 279 | the fixture's transactions are one second apart, the later id the later (`80a4fbad`) |
+
+## What running the SQLite-only directories on a real engine found
+
+While reading run 288 it turned out that **twenty-three test directories of the open pull requests are in no job that runs on MySQL or MariaDB**: `Api`, `Auth`, `Blog`, `Cart`, `Checkout`, `Coupon`, `Inventory`, `Marketplace`, `Payment`, `Payments`, `Permissions`, `Pos`, `Referral`, `Refund`, `Web` and eight `Unit` directories (`Architecture`, `Customer`, `Http`, `Marketplace`, `PlatformAdmin`, `Security`, `Utils`, `Wallet`). They are the characterization and fix tests of the checkout, referral, refund, POS, coupon and permission paths. They ran only on SQLite, so the green ticks of the pull requests that add them say less than they seem to. On MySQL 8.0.46 (the local server, the integration at `3a921d78`):
+
+- **679 tests, 29 errors and 5 failures, every one in a fixture or a test, none in the code.** SQLite reads an unknown double-quoted name as a string, and a string is greater than zero: the fixtures of the referral world, the refund world and the order permission test create `order_edit_histories` without the amount columns that the `latestEditHistory` relation filters on, so on SQLite the filter matched every row and the tests passed by accident; MySQL answers 1054. With the column in place the refund test failed on SQLite as well, until its history row carried the amount it stands for. The POS stock test recognised the stock updates by SQLite's quoting (`update "products"`) and recorded nothing on MySQL, so it could not have shown the ascending-id order it exists to protect. One refund case pins a driver that returns numbers; MySQL and MariaDB return decimals as strings, so it is skipped there with that reason. The repairs are in `15c2b805`; after them all 679 pass on MySQL 8.0.46 without strict mode (one skipped) and on SQLite.
+- **In strict mode, one more `ONLY_FULL_GROUP_BY` statement in the checkout.** `SettlementsInOneProcessTest` failed with 1055: `OrderManager::getGroupWiseCouponArray`, the method that prices the coupon of one checkout group (the payment settlement and the API checkout come through it), repeated the statement that PR 89 had fixed in `getTotalCouponAmount`. A paid web payment settled without a browser session, and the checkout of an app customer with a coupon, answered 500 on a strict server (the application's own connection is not strict, so production never noticed). PR 89 now fixes all three statements (`ea6827da`), with a test that fails on MySQL in strict mode with the old statement and passes with the new.
+- **The guard and the group.** PR 94 adds `CiEveryTestDirectoryRunsOnARealEngineTest`, which reads the workflow and names any test directory that no real-engine job runs; on this integration it names exactly those twenty-three. The integration's workflow now has a group "Checkout, payment and permission tests" on MySQL 8 and MariaDB 11.4.2 for them, and the strict-mode job runs them too (`8598331b`).
+- **Not done:** the full suite in strict mode was not run locally: its DDL-heavy tests (the sales-channel and accounting tables are created for each test) ran at about three seconds a test, so 8,000 tests would take hours. The directories that no strict job runs (Accounting, Address, Catalog, Concurrency, MyFatoorah, Security, StaffScope, Storefront and PlatformAdmin) are for the CI to run on a runner of their own; if a strict job for them is wanted it is one more group of the matrix.
+
+### Which pull request each repair belongs to
+
+The repairs are in the integration only; for the owner's merge each belongs to the pull request that owns the test, and a pull request that adds such a directory must add the real-engine path in the same change (PR 94 enforces it):
+
+| Repair | Test files | Owner |
+|---|---|---|
+| `order_edit_histories` gets `order_return_amount` | `tests/Support/BuildsReferralRewardWorld.php` | PR 25 and PR 29 (the referral characterization and idempotency tests) |
+| `order_edit_histories` gets `order_due_amount`, and the history row carries the amount | `tests/Support/Refund/RefundTables.php`, `tests/Support/Refund/RefundFlows.php` | PR 15 (refund and loyalty characterization) |
+| the same two columns | `tests/Feature/Permissions/OrderActionPermissionCharacterizationTest.php` | PR 26 (the permission characterization) |
+| stock updates recognised through either quoting | `tests/Feature/Pos/PosStockDecrementOrderTest.php` | PR 24 |
+| the case for a driver that returns numbers is skipped on MySQL and MariaDB | `tests/Feature/Refund/RefundSequentialGuardCharacterizationTest.php` | PR 15 |
+| distinct timestamps for the transactions of the staff order world | `tests/Support/BuildsStaffOrderWorld.php` | PR 82 |
+| any 500 is a legitimate loser of the wallet race | `tests/Feature/Concurrency/WalletBalanceCurrencyConcurrencyTest.php` | PR 36 |
+
+## The third run
+
+Run 293 (id 44277028272) is dispatched on `8598331b`: the reconciled head with PR 89's third statement, PR 91 to 94, the fixture repairs, the new real-engine group and the strict-mode paths. Its result is added here when it is read, and nothing above is a claim about it.
 
 ## What this means for `main`
 
