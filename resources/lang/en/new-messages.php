@@ -11267,4 +11267,6 @@ return [
 	'This_is_a_draft_copy.' => 'This is a draft copy.',
 	'It_has_not_been_published_yet.' => 'It has not been published yet.',
 	'Blog_not_found' => 'Blog not found',
+	'Please_add_item_to_cart' => 'Please add item to cart',
+	'when_discount_type_percentage,discount_amount_will_be_less_than_100' => 'When discount type percentage,discount amount will be less than 100',
 ];

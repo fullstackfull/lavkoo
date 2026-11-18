@@ -7804,4 +7804,6 @@ return [
 	'The_last_name_field_is_required.' => 'The last name field is required.',
 	'review_not_found' => 'Review not found',
 	'order_not_found' => 'Order not found',
+	'Please_add_item_to_cart' => 'Please add item to cart',
+	'when_discount_type_percentage,discount_amount_will_be_less_than_100' => 'When discount type percentage,discount amount will be less than 100',
 ];

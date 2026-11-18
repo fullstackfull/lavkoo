@@ -4883,4 +4883,6 @@ ____________________________________________________on_search_engines_and_see_th
 	'page_description_is_required' => 'Page description is required',
 	'review_not_found' => 'لم يتم العثور على المراجعة',
 	'order_not_found' => 'لم يتم العثور على الطلب',
+	'Please_add_item_to_cart' => 'Please add item to cart',
+	'when_discount_type_percentage,discount_amount_will_be_less_than_100' => 'When discount type percentage,discount amount will be less than 100',
 ];
