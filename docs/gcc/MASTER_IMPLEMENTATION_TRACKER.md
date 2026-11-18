@@ -18,16 +18,16 @@ As of 2026-11-18. Generated from the independent assessment of every requirement
 | [B. Catalogue and products](tracker/axis-b-catalogue-and-products.md) | 18 | 91 | 34 | 17 | 40 | 56% | 37% | 0% | all |
 | [C. Inventory and fulfillment](tracker/axis-c-inventory-and-fulfillment.md) | 18 | 94 | 65 | 9 | 20 | 79% | 69% | 30% | all |
 | [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 173 | 83 | 30 | 60 | 65% | 48% | 8% | all |
-| [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 84 | 34 | 6 | 44 | 48% | 40% | 7% | all |
+| [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 84 | 35 | 5 | 44 | 48% | 42% | 7% | all |
 | [F. Themes and brand](tracker/axis-f-themes-and-brand.md) | 16 | 74 | 19 | 29 | 26 | 65% | 26% | 4% | all |
 | [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 96 | 57 | 7 | 32 | 67% | 59% | 15% | all |
 | [H. Shipping and integrations](tracker/axis-h-shipping-and-integrations.md) | 34 | 152 | 79 | 10 | 63 | 59% | 52% | 16% | all |
 | [I. Marketing, policies and operations](tracker/axis-i-marketing-policies-and-operations.md) | 37 | 183 | 76 | 39 | 68 | 63% | 42% | 3% | all |
-| [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 93 | 41 | 28 | 24 | 74% | 44% | 5% | all |
+| [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 93 | 42 | 27 | 24 | 74% | 45% | 5% | all |
 | [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 91 | 15 | 35 | 41 | 55% | 16% | 3% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 45 | 18 | 31 | 67% | 48% | 7% | all |
 | [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 289 | 99 | 105 | 85 | 71% | 34% | 3% | all |
-| **All axes (pooled)** | **359** | **1675** | **734** | **352** | **589** | **65%** | **44%** | **8%** | |
+| **All axes (pooled)** | **359** | **1675** | **736** | **350** | **589** | **65%** | **44%** | **8%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -262,7 +262,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [E-02](tracker/axis-e-wallets-loyalty-and-financial-records.md) | NOT STARTED | 0/0/4 | Loyalty points independent per market, sharing structure off |
 | [E-03](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/0/3 | No automatic transfer or conversion of balances between markets |
 | [E-04](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/1/3 | Wallet and loyalty readers show one market's balance, API keys keep meaning |
-| [E-05](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/3/2 | Ledger rows reconcilable: attribution, reference, actor, idempotency |
+| [E-05](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 2/2/2 | Ledger rows reconcilable: attribution, reference, actor, idempotency |
 | [E-06](tracker/axis-e-wallets-loyalty-and-financial-records.md) | INTEGRATED AND TESTED | 5/0/0 | Historical balances reconciled against the ledgers (read-only proof) |
 | [E-07](tracker/axis-e-wallets-loyalty-and-financial-records.md) | NOT STARTED | 0/0/5 | Saudi balances migrated into per-market accounts without loss |
 | [E-08](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/1/1 | Old movements preserved: append-only ledgers, account deletion keeps records |
@@ -415,7 +415,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [J-05](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 2/1/1 | Per-storefront currency and price formatting |
 | [J-06](tracker/axis-j-flutter-customer-app.md) | IMPLEMENTED IN DRAFT | 4/2/0 | Theme rendering per storefront and platform |
 | [J-07](tracker/axis-j-flutter-customer-app.md) | IMPLEMENTED IN DRAFT | 4/1/0 | Cart and wishlist per storefront |
-| [J-08](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 3/3/0 | Sellable gate and paused-storefront modes |
+| [J-08](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 4/2/0 | Sellable gate and paused-storefront modes |
 | [J-09](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 0/4/2 | Payment and wallet flows per storefront |
 | [J-10](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 0/1/4 | Deep links, App Links and old links |
 | [J-11](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 0/1/4 | Push topics and notifications per storefront |

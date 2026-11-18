@@ -820,6 +820,31 @@ for _rid in ('I2-11', 'I2-03'):
     CRITERIA[_rid][4] = (_state, _text.replace('(it ended at 18:18 UTC).', '(it ended at 18:18 UTC; it does not run tests/Feature/Storefront and is not proof for these tests).').rstrip(' .') + '.' + _RUN_350)
     _move_link(_rid, 'lavkoo', 115, '2120fa3b')
 
+# ---- lavkooapp #17 (7713cd8) and #18 (4e3a895): the dashboard branch that shows the maintenance screen is pinned; runs 31 and 32 read per step on 2026-11-18 ----
+_state, _text = CRITERIA['J-08'][5]
+_cut = _text.index('. Proven in CI:')
+assert _state == 'CODED' and _text.count('#17 (draft, stacked on #15, b7f48bf, off by default)') == 1
+CRITERIA['J-08'][5] = ('MET', _text[:_cut].replace('#17 (draft, stacked on #15, b7f48bf, off by default)', '#17 (draft, stacked on #15, 7713cd8, off by default)') +
+                       ". The dashboard itself is not built by any test (it needs the providers of the whole app): the branch that shows the screen in its build method is pinned by test/storefront_maintenance_dashboard_test.dart (3 tests, a source guard: the build answers with the maintenance screen before any of its content, only while storefronts are on and the customer's storefront is in maintenance, the controller is watched and not read once, and the branch is the whole of the answer; "
+                       "four temporary mutations, the branch deleted, the controller read once, the flag dropped and a second return, are each killed in the author's local run), so deleting the branch now fails a test, which the audit of 2026-11-18 found it did not. CI: run 31 on 7713cd8 (#17's own run, on push to a gcc branch), read per step on 2026-11-18: both jobs success, the analysis of the changed files and the errors-only analyses of the cart and dashboard screens, the step 'Test storefront' with storefronts off (516 tests passed, 23 skipped), "
+                       "'Test storefront with storefronts on' (294 passed, 11 skipped), the guard among them in both, and the analysis of the whole project; run 32 on 4e3a895 (#18, which contains it) the same (534 and 312 passed). The website is not covered, the screen is shown by the dashboard only, and no device was run.")
+_move_link('J-08', 'lavkooapp', 17, '7713cd8')
+UPDATES['J-08'] = UPDATES['J-08'].replace('no test builds the dashboard, so that the dashboard shows the screen is read as source (criterion 5 is CODED).', 'no test builds the dashboard, so the branch that shows the screen is pinned by a source test (3 tests, 4 mutations killed locally; criterion 5 is MET again).')
+NEXT_CURRENT['J-08'] = "The Arabic, Bengali, Spanish and Hindi maintenance strings need a native reader (R5); the screen is the dashboard's only, so a page opened some other way is not covered; the website."
+CRITERIA['E-04'][3] = ('MET', CRITERIA['E-04'][3][1].replace('Run 29 on the first commit, 7cc5e176, was green as well.', 'Run 29 on the first commit, 7cc5e176, was green as well, and so was run 32 on 4e3a895 (the same pull request after the merge of #17, which adds the pin of the dashboard branch: 534 and 312 tests passed).'))
+_move_link('E-04', 'lavkooapp', 18, '4e3a895')
+UPDATES['E-04'] = UPDATES['E-04'].replace('(draft, 8de2259)', '(draft, 4e3a895)')
+
+# ---- PR 109 run 337 on bb55ab83 (the re-run of the cancelled first attempt), read per job on 2026-11-18 at 19:48 UTC ----
+_RUN_337 = (" CI: run 337 on bb55ab83 (PR 109's own run, the re-run of its cancelled first attempt), read per job on 2026-11-18 at 19:48 UTC: 'Tests, SQLite' on PHP 8.2 and 8.3 (the whole suite, which includes tests/Feature/Storefront, where the six ledger classes are) and 'Storefront tests, MySQL 8' and 'Storefront tests, MariaDB 11.4.2' success, with the Address, Fulfillment and security and sales-channel groups that had finished (20 of 23 jobs success); "
+            "the deployment overlay is red by design; the strict-mode MariaDB job and one sales-channel MySQL job (A-M) were still running and are not claimed (the strict-mode job runs StrictModeTest, SalesChannels, OperationalCosts and Fulfillment, not tests/Feature/Storefront, so these tests have run under strict mode only locally). The finance review of the ledger columns still gates the merge.")
+for _idx in (1, 2, 5):
+    _state, _text = CRITERIA['E-05'][_idx]
+    assert _state == 'CODED' and _text.endswith('CI not read')
+    CRITERIA['E-05'][_idx] = ('MET' if _idx == 2 else 'CODED', _NOT_READ.sub('', _text).rstrip(' .;') + '.' + _RUN_337 + ('' if _idx == 2 else ' Kept CODED: ' + ("point-of-sale debits and points conversions still name nothing, so not every ledger row names what stands behind it." if _idx == 1 else "a loyalty row carries no currency by design and a row of the default storefront keeps the market columns empty while the switches are off, so not every row carries all three.")))
+UPDATES['E-05'] = UPDATES['E-05'] + " CI: run 337 is read per job (20 of 23 jobs success, two still running that hold none of these tests); criterion 2 (the actor of a manual top-up) is met, criteria 1 and 5 stay coded because their sentences say every row and two kinds of row do not carry everything."
+NEXT_CURRENT['E-05'] = "The finance review of the ledger columns (the R pack for the wallet); E-05.3 (a replay-safe key on source_type and source_id) and E-05.4 (the add-fund bonus in the ledger balance) as draft PRs awaiting finance review; point-of-sale debits and points conversions naming their order and the market columns of a default-storefront row, which would close criteria 1 and 5."
+
 def apply_override(requirement, override):
     requirement['state'] = override['state']
     for field in ('done_in_drafts', 'remaining', 'next_task'):

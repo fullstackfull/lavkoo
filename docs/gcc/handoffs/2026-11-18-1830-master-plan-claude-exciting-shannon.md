@@ -1,6 +1,6 @@
 # Handoff: the admin screens, the seller POS and push fixes, the wallet reload, eight CI runs read, 70 criteria moved (2026-11-18, evening)
 
-> **Superseded in part by [the handoff of 19:40](2026-11-18-1940-flips-audit-and-fixes-claude-exciting-shannon.md):** an independent audit of the criteria below sent six of them back to CODED (I2-16.4, I2-07.2, I1-12.3, M2-04.0, F-02.3, J-08.5), set K-07.4 back until the card of the seller's product list was fixed, and rewrote the evidence of 24 more; the totals are now 734 MET, 352 CODED and 589 MISSING.
+> **Superseded in part by [the handoff of 19:40](2026-11-18-1940-flips-audit-and-fixes-claude-exciting-shannon.md):** an independent audit of the criteria below sent five of them back to CODED (I2-16.4, I2-07.2, I1-12.3, M2-04.0, F-02.3), set K-07.4 and J-08.5 back until they were fixed (both are met again), and rewrote the evidence of 24 more; the totals are now 736 MET, 350 CODED and 589 MISSING.
 
 Sanitized. Nothing here is a secret or personal data. Every pull request is a **Draft**. None is merged, none is deployed, no production data or key was touched, G0 stays open, and the deferred risks DR-1 to DR-5 are still open (no key was rotated). This continues [the handoff of 15:30](2026-11-18-1530-master-plan-claude-exciting-shannon.md).
 
