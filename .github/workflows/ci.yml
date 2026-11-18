@@ -90,7 +90,7 @@ jobs:
       fail-fast: false
       matrix:
         engine: ['MySQL 8', 'MariaDB 11.4.2']
-        group: ['Fulfillment + security tests', 'Address tests']
+        group: ['Fulfillment + security tests', 'Address tests', 'Saudi baseline pack']
         include:
           - engine: MySQL 8
             image: mysql:8.0
@@ -104,6 +104,10 @@ jobs:
             paths: tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Security tests/Feature/CiDatabaseTest.php
           - group: Address tests
             paths: tests/Feature/Address
+          # The named gate of the Saudi store (master tracker M2-01): the golden answers of the checkout, recorded from main, on both real engines. The pack is also in the
+          # Address group; this job is the one a branch protection rule can require by name.
+          - group: Saudi baseline pack
+            paths: tests/Feature/Address/SaudiGoldenResponsesTest.php
     services:
       mysql:
         image: ${{ matrix.image }}
@@ -146,6 +150,25 @@ jobs:
       - name: Tests against real MySQL (locks, unique keys, collation, JSON, decimals, timestamps)
         # -c phpunit.mysql.xml: phpunit.xml pins SQLite with <server> entries, which override this job's DB_* variables.
         run: vendor/bin/phpunit -c phpunit.mysql.xml ${{ matrix.paths }} --display-skipped
+
+  # Refuses a pull request that changes or deletes an existing golden answer of the Saudi baseline pack (tests/Fixtures/SaudiGolden). It may add new ones. A change the owner
+  # approved says so in the title of its pull request ([saudi-baseline-change]). The rule is the script's, which a test runs against real git histories.
+  saudi-baseline-expectations:
+    name: Saudi baseline expectations unchanged
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: No existing golden answer is changed or deleted
+        env:
+          # The title goes through the environment, never through the shell text of the step.
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash .github/scripts/saudi-baseline-guard.sh
 
   # Refuses a change that adds a credential, a private key, an environment file, a database dump or the phone number or e-mail
   # address of what looks like a real person. It reads only the lines the change adds and never prints what it matched.
