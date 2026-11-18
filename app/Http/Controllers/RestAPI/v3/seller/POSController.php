@@ -309,13 +309,23 @@ class POSController extends Controller
         $extraDiscountType = $request['extra_discount_type'];
         $couponDiscountAmount = $request['coupon_discount_amount'];
         $couponCode = $request['coupon_code'];
-        $paymentMethod = $request['payment_method'];
+        $paymentMethodValidator = Validator::make($request->all(), ['payment_method' => 'nullable|string']);
+        if ($paymentMethodValidator->fails()) {
+            return response()->json(['errors' => Helpers::validationErrorProcessor($paymentMethodValidator)], 422);
+        }
+        $paymentMethod = is_string($request['payment_method']) ? strtolower(trim($request['payment_method'])) : null;
         $tenderedAmount = floatval($request['paid_amount'] ?? 0);
         // Same lifecycle contract as the panel POS: a delivery-fulfillment sale
         // starts pending and, when paid in cash, is stored as a COD/unpaid
         // order settled through the standard status machinery.
         $fulfillment = $request['fulfillment'] == 'delivery' ? 'delivery' : 'instant';
-        $isCashOnDelivery = $fulfillment == 'delivery' && $paymentMethod == 'cash';
+        $isCashOnDelivery = $fulfillment == 'delivery' && $paymentMethod === 'cash';
+
+        if ($paymentMethod === 'wallet' && $customerId == 0) {
+            return response()->json(['errors' => [
+                ['code' => 'customer_id', 'message' => translate('select_customer_is_required')],
+            ]], 403);
+        }
 
         $taxConfig = self::getTaxSystemType();
 
@@ -356,7 +366,12 @@ class POSController extends Controller
         }
 
         $orderTotal = self::cartsTotalAmount(modifiedCart: $request['modified_cart'] ?: []);
-        $payByWallet = $paymentMethod == 'wallet' && $customerId != 0;
+        if ($paymentMethod === 'wallet' && $orderTotal <= 0) {
+            return response()->json(['errors' => [
+                ['code' => 'paid_amount', 'message' => translate('You cannot place an order with an amount of zero. Please enter a valid amount.')],
+            ]], 403);
+        }
+        $payByWallet = $paymentMethod === 'wallet' && $customerId != 0;
         if ($payByWallet) {
             $customerBalance = $this->customerRepo->getFirstWhere(params: ['id' => $customerId]) ?? 0;
             if ($customerBalance['wallet_balance'] < currencyConverter(amount: $orderTotal)) {
