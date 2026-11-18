@@ -563,7 +563,7 @@
     @endif
 
     {{-- ================= SALES CHANNELS & OPERATIONAL COSTS ================= --}}
-    @if (Helpers::module_permission_check('sales_channels') || Helpers::module_permission_check('operational_costs'))
+    @if (Helpers::module_permission_check('sales_channels') || Helpers::module_permission_check('operational_costs') || \App\Services\Storefront\StorefrontPermissionService::canOpenTheScreens())
         @php
             $v2ChannelGroups = [];
             if (Helpers::module_permission_check('sales_channels')) {
@@ -585,6 +585,11 @@
                     ['costs-invoices', 'Invoices_&_Reconciliation', 'admin.operational-costs.invoices.index', 'admin/operational-costs/invoices*'],
                     ['costs-profit', 'Profitability', 'admin.operational-costs.profit.index', 'admin/operational-costs/profit*'],
                     ['costs-reports', 'Cost_Reports', 'admin.operational-costs.reports.index', 'admin/operational-costs/reports*'],
+                ]];
+            }
+            if (\App\Services\Storefront\StorefrontPermissionService::canOpenTheScreens()) {
+                $v2ChannelGroups[] = ['name' => 'storefronts', 'items' => [
+                    ['storefronts', 'storefronts', 'admin.storefronts.index', 'admin/storefronts*'],
                 ]];
             }
         @endphp

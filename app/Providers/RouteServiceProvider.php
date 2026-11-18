@@ -60,6 +60,7 @@ class RouteServiceProvider extends ServiceProvider
         $this->mapBetaAdminRoutes();
         $this->mapFulfillmentAdminRoutes();
         $this->mapAddressAdminRoutes();
+        $this->mapStorefrontAdminRoutes();
         $this->mapBetaVendorRoutes();
         $this->mapSellerCenterRoutes();
         $this->mapBetaWebRoutes();
@@ -204,6 +205,14 @@ class RouteServiceProvider extends ServiceProvider
         Route::middleware('web')
             ->namespace($this->namespace)
             ->group(base_path('routes/admin/addresses.php'));
+    }
+
+    /** The storefronts of the platform: their lifecycle and their legal texts. */
+    protected function mapStorefrontAdminRoutes(): void
+    {
+        Route::middleware('web')
+            ->namespace($this->namespace)
+            ->group(base_path('routes/admin/storefronts.php'));
     }
 
     protected function mapBetaVendorRoutes(): void
