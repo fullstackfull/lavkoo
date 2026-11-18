@@ -46,6 +46,36 @@ class OrderTaxRecordedAtPlacementTest extends ApiAddressTestCase
         return (int) DB::table('orders')->where('customer_id', $customer->id)->value('id');
     }
 
+    /**
+     * Places an order of two lines of the one seller: product 1 (100) and product 2 (50).
+     *
+     * @param array<int, int> $shippingOfTheLines the shipping cost typed on each product, when the order has shipping
+     */
+    private function placeTwoLines(array $shippingOfTheLines = []): int
+    {
+        $customer = $this->makeCustomer();
+        $this->putOneProductInTheCart($customer->id);
+        DB::table('products')->insert(['id' => 2, 'name' => 'Ibuprofen', 'added_by' => 'admin', 'user_id' => 1, 'unit_price' => 50, 'current_stock' => 10]);
+        DB::table('carts')->insert([
+            'customer_id' => $customer->id, 'is_guest' => false, 'cart_group_id' => 'group-' . $customer->id . 'c', 'product_id' => 2, 'quantity' => 1,
+            'price' => 50, 'seller_id' => 1, 'seller_is' => 'admin', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('carts')->update(['product_type' => 'physical', 'is_checked' => 1]);
+        foreach ($shippingOfTheLines as $productId => $cost) {
+            DB::table('products')->where('id', $productId)->update(['shipping_cost' => $cost]);
+        }
+
+        $this->asCustomer($customer)->getJson(self::COD)->assertOk();
+
+        return (int) DB::table('orders')->where('customer_id', $customer->id)->value('id');
+    }
+
+    /** @return array<int, float> the tax each line of the order carries, by product */
+    private function taxOfTheLines(int $orderId): array
+    {
+        return DB::table('order_details')->where('order_id', $orderId)->orderBy('product_id')->pluck('tax', 'product_id')->map(fn ($tax): float => round((float) $tax, 2))->all();
+    }
+
     /** @return array<int, array<string, mixed>> */
     private function orderTaxRows(): array
     {
@@ -132,30 +162,53 @@ class OrderTaxRecordedAtPlacementTest extends ApiAddressTestCase
     }
 
     /**
-     * Finding for the owner, pinned and not changed here: the rows of a rate divide the tax of a line by the sum of the rates of every line of the seller's cart, so in a cart of
-     * two lines each row keeps half of its line's tax. The order (30) and its lines (20 and 10) are right, the four rows add up to 15. A report that adds the rows up
-     * under-reports the tax of every order of two lines or more. When it is corrected, change the four amounts below on purpose.
+     * The rows of a rate divide the tax of a line by the sum of the rates of that line alone. They used to divide it by the sum of the rates of every line of the seller's cart,
+     * so in a cart of two lines each row kept half of its line's tax: the order (30) and its lines (20 and 10) were right and the four rows added up to 15, which a report that
+     * adds the rows up showed as the tax of the order. The order, its lines and the amount to pay are what they always were; only the rows changed, and an order placed before
+     * keeps the rows it was placed with (orders:tax-rows-reconcile lists them, and rewrites nothing).
      */
-    public function test_the_rows_of_a_cart_of_two_lines_keep_a_share_of_the_tax_of_their_line_and_the_order_and_its_lines_are_right(): void
+    public function test_the_rows_of_a_cart_of_two_lines_add_up_to_the_tax_of_the_order_and_the_order_and_its_lines_are_what_they_were(): void
     {
         $this->openTheTaxSetup();
-        $customer = $this->makeCustomer();
-        $this->putOneProductInTheCart($customer->id);
-        DB::table('products')->insert(['id' => 2, 'name' => 'Ibuprofen', 'added_by' => 'admin', 'user_id' => 1, 'unit_price' => 50, 'current_stock' => 10]);
-        DB::table('carts')->insert([
-            'customer_id' => $customer->id, 'is_guest' => false, 'cart_group_id' => 'group-' . $customer->id . 'c', 'product_id' => 2, 'quantity' => 1,
-            'price' => 50, 'seller_id' => 1, 'seller_is' => 'admin', 'created_at' => now(), 'updated_at' => now(),
-        ]);
+        $orderId = $this->placeTwoLines();
 
-        $this->asCustomer($customer)->getJson(self::COD)->assertOk();
-
-        $orderId = (int) DB::table('orders')->where('customer_id', $customer->id)->value('id');
         $this->assertSame(['type' => 'order_wise', 'model' => 'exclude', 'tax' => 30.0, 'amount' => 180.0], $this->taxOfOrder($orderId));
-        $taxByProduct = DB::table('order_details')->where('order_id', $orderId)->orderBy('product_id')->pluck('tax', 'product_id')->map(fn ($tax): float => round((float) $tax, 2))->all();
-        $this->assertSame([1 => 20.0, 2 => 10.0], $taxByProduct);
+        $this->assertSame([1 => 20.0, 2 => 10.0], $this->taxOfTheLines($orderId));
         $rows = $this->orderTaxRows();
-        $this->assertSame([[7.5, 100.0], [2.5, 100.0], [3.75, 50.0], [1.25, 50.0]], array_map(fn (array $row): array => [$row['amount'], $row['before']], $rows));
-        $this->assertSame(15.0, round(array_sum(array_column($rows, 'amount')), 2));
+        $this->assertSame([[15.0, 100.0], [5.0, 100.0], [7.5, 50.0], [2.5, 50.0]], array_map(fn (array $row): array => [$row['amount'], $row['before']], $rows));
+        $this->assertSame(30.0, round(array_sum(array_column($rows, 'amount')), 2), 'the rows add up to the tax of the order');
+    }
+
+    public function test_each_line_keeps_the_tax_of_its_own_rates_when_the_lines_do_not_share_them(): void
+    {
+        $setup = $this->openTheTaxSetup(type: 'product_wise', taxIds: []);
+        foreach ([[1, self::VAT], [1, self::MUNICIPALITY_FEE], [2, self::MUNICIPALITY_FEE]] as [$productId, $taxId]) {
+            DB::table('taxables')->insert([
+                'taxable_type' => Product::class, 'taxable_id' => $productId, 'system_tax_setup_id' => $setup->id, 'tax_id' => $taxId, 'tax_for' => 'tax_for_orders',
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+        Cache::flush();
+
+        $orderId = $this->placeTwoLines();
+
+        $this->assertSame(['type' => 'product_wise', 'model' => 'exclude', 'tax' => 22.5, 'amount' => 172.5], $this->taxOfOrder($orderId));
+        $this->assertSame([1 => 20.0, 2 => 2.5], $this->taxOfTheLines($orderId));
+        $this->assertSame([['VAT', 15.0, 100.0], ['Municipality fee', 5.0, 100.0], ['Municipality fee', 2.5, 50.0]], array_map(fn (array $row): array => [$row['name'], $row['amount'], $row['before']], $this->orderTaxRows()));
+    }
+
+    public function test_the_shipping_tax_of_each_line_is_recorded_on_the_rows_of_that_line_and_every_row_adds_up_to_the_tax_of_the_order(): void
+    {
+        $setup = $this->openTheTaxSetup();
+        DB::table('tax_additional_setups')->insert(['name' => 'shipping', 'system_tax_setup_id' => $setup->id, 'tax_ids' => json_encode([self::VAT]), 'is_active' => 1]);
+        DB::table('shipping_types')->insert(['seller_id' => 0, 'shipping_type' => 'product_wise']);
+
+        $orderId = $this->placeTwoLines(shippingOfTheLines: [1 => 10, 2 => 20]);
+
+        $this->assertSame(['type' => 'order_wise', 'model' => 'exclude', 'tax' => 34.5, 'amount' => 214.5], $this->taxOfOrder($orderId));
+        $rows = $this->orderTaxRows();
+        $this->assertSame([3.0, 1.5], array_column(array_filter($rows, fn (array $row): bool => $row['on'] === 'shipping'), 'amount'), 'the shipping tax of each line: 15% of 20 and of 10');
+        $this->assertSame(34.5, round(array_sum(array_column($rows, 'amount')), 2), 'the lines and the shipping add up to the tax of the order');
     }
 
     public function test_a_product_wise_setup_taxes_the_products_that_carry_a_tax_and_no_other(): void
