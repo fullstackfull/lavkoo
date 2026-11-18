@@ -2,9 +2,12 @@
 
 namespace Tests\Feature\Storefront;
 
+use App\Contracts\Repositories\OrderRepositoryInterface;
 use App\Enums\Fulfillment\EventOutcome;
 use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\ProviderCode;
+use App\Http\Middleware\EnsureStorefrontIsAvailable;
+use App\Http\Middleware\EnsureStorefrontMaySell;
 use App\Models\Order;
 use App\Models\OrderEditHistory;
 use App\Models\User;
@@ -15,6 +18,7 @@ use App\Services\MyFatoorah\GatewayConfigRepository;
 use App\Services\MyFatoorah\WebhookSignatureVerifier;
 use App\Services\Storefront\StorefrontLifecycle;
 use App\Utils\OrderManager;
+use Closure;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Routing\Route as RoutingRoute;
 use Illuminate\Support\Facades\DB;
@@ -32,16 +36,23 @@ use Tests\Support\BuildsStorefrontCatalog;
 use Tests\Support\KeepsOrderDebugLogClean;
 
 /**
- * I2-16: what a stop does to an order that was placed before it. A customer who bought from a storefront that a person has since paused (browse only, maintenance or redirect) is
- * still served: the refund, the cancellation, the pages and the tracking of the order, the payment the gateway reports after the stop, the due payment, the status the courier reports,
- * the support of the customer and the earnings of the order all answer as they do while the storefront sells, and a new sale of the same storefront is refused in the same case.
+ * I2-16: what a stop does to what a storefront sold before it. A storefront that a person has paused (browse only, maintenance or redirect) still serves the customer of an earlier order, and
+ * still refuses a new sale. Each driven case runs in the three modes on a storefront that is not the default one and browse only on the default one (I2-17 allows nothing else), and without a
+ * stop on each of those two storefronts (the controls): the answers asserted are the answers of a storefront that sells, the controls take the new sale, and every stopped case refuses it.
  *
- * Every case places its order through the real checkout of the API before the stop, stops the storefront through StorefrontLifecycle and drives the real routes. Each case is run for a
- * storefront that is not stopped as well (the control), so the answers asserted are the answers of a storefront that sells, and the new sale is taken there. The default storefront can
- * only be stopped browse only (I2-17), so it is the one case of it. Driven: the refund, the cancellation, the list, the details and the tracking of an order, the support tickets and the
- * chat, the due payment by cash and by transfer, the MyFatoorah payment (start, hosted page, signed webhook, return of the customer) and the Torod shipment webhook. Driven below the
- * route: the booking of the earnings of an order on delivery. Pinned structurally in the last section and not driven: the website's own pages of an order, the due payment by wallet and by
- * digital payment, the other gateways and couriers (a whole address family each), and the withdrawal, payout and settlement routes of sellers, vendors, couriers and the staff.
+ * Driven over HTTP on an order the real checkout of the API placed before the stop: a refund request is accepted and stored (the request of the customer, not a decision on it), the
+ * cancellation, the list, the details and the tracking of the order, the reply to a support ticket and a chat message, the due payment by cash and by transfer, and the Torod webhook that
+ * stores a status of the shipment (the shipment row it names is inserted by the test, and the stored notice is applied by the worker step, called directly: it is not a route). Driven over HTTP
+ * on a payment started before the stop, so the order does not exist yet: the MyFatoorah hosted page, the signed webhook that settles the payment and makes the order after the stop, its repeat
+ * and the return of the customer. Driven below the route, with the stop in place: the booking of the earnings of a delivered order by the writer the seller API and the delivery-man API call
+ * (OrderManager) and by the one the admin and the vendor panels call (OrderRepository). Neither writer is reached through its route here.
+ *
+ * Structural only (the routes are found in the route table and asserted to carry neither stop gate, whatever the spelling of the gate; the sale gate to sit on the ten sale actions and
+ * nowhere else, and the maintenance gate on the cart, the catalogue and the theme and nowhere else): the staff side of a refund (the decision of the admin, the vendor and the seller, the
+ * MyFatoorah refund), the routes that mark an order delivered and so book its earnings (the delivery-man API, the seller API, the admin and the vendor panels), the website's own pages and actions
+ * on an order, the due payment by wallet and by digital payment, the other gateways and couriers (a whole address family each), and the withdrawal, payout and settlement routes of sellers, vendors,
+ * couriers and the staff. Not covered: a refund decision, a refund payout, the submission of a shipment to a courier and a settlement run while a storefront is stopped; a stop gate declared in
+ * the constructor of a controller (the controllers of this table cannot all be built here, so only the middleware a route is declared with is read).
  */
 class StorefrontStopContinuityTest extends ApiAddressTestCase
 {
@@ -56,9 +67,9 @@ class StorefrontStopContinuityTest extends ApiAddressTestCase
 
     private const REASON = 'Decision of the operations meeting';
 
-    private const SALE_GATE = 'storefront.sellable';
+    private const SALE_GATE = EnsureStorefrontMaySell::class;
 
-    private const MAINTENANCE_GATE = 'storefront.available';
+    private const MAINTENANCE_GATE = EnsureStorefrontIsAvailable::class;
 
     private const GATEWAY_KEY = 'test-api-key';
 
@@ -106,7 +117,24 @@ class StorefrontStopContinuityTest extends ApiAddressTestCase
         'SA' => ['id' => 1, 'price' => 100, 'currency' => 'SAR'],
     ];
 
-    /** The routes that serve an order a customer already has: the apps' API and the website's own pages. None of them starts a sale. */
+    /** The only routes that browse a storefront, and so the only ones a maintenance of it refuses (I2-14): as in StorefrontSalesRoutesTest, so a new one is added in both on purpose. */
+    private const BROWSE_PREFIXES = ['api/v1/cart', 'api/v1/products', 'api/v1/theme'];
+
+    /** The actions that start a sale, the only ones that carry the sale gate: the same ten as StorefrontSalesRoutesTest, so a new one is added in both on purpose. */
+    private const NEW_SALE_ACTIONS = [
+        '\\OrderController@place_order',
+        '\\OrderController@placeOrderByOfflinePayment',
+        '\\OrderController@placeOrderByWallet',
+        '\\OrderController@order_again',
+        '\\Customer\\PaymentController@payment',
+        '\\Customer\\PaymentController@customer_add_to_fund_request',
+        '\\WebController@getCashOnDeliveryCheckoutComplete',
+        '\\WebController@getOfflinePaymentCheckoutComplete',
+        '\\WebController@checkout_complete_wallet',
+        '\\Web\\CartController@orderAgain',
+    ];
+
+    /** The routes that serve an order a customer already has: the apps' API, the website's own pages and the staff's side of its refund, delivery and earnings. None of them starts a sale. */
     private const SERVING_ACTIONS = [
         '\\v1\\OrderController@track_by_order_id',
         '\\v1\\OrderController@track_order_details_history',
@@ -143,6 +171,21 @@ class StorefrontStopContinuityTest extends ApiAddressTestCase
         '\\Customer\\PaymentController@web_payment_success',
         '\\Customer\\PaymentController@success',
         '\\Customer\\PaymentController@fail',
+        '\\Admin\\Order\\RefundController@updateRefundStatus',
+        '\\Vendor\\RefundController@updateStatus',
+        '\\RestAPI\\v2\\seller\\RefundController@refund_status_update',
+        '\\RestAPI\\v3\\seller\\RefundController@refund_status_update',
+        '\\Admin\\MyFatoorah\\SettingsController@refund',
+        '\\Admin\\MyFatoorah\\SettingsController@markRefundExecuted',
+        '\\RestAPI\\v2\\delivery_man\\DeliveryManController@update_order_status',
+        '\\RestAPI\\v2\\seller\\OrderController@order_detail_status',
+        '\\RestAPI\\v3\\seller\\OrderController@order_detail_status',
+        '\\RestAPI\\v3\\seller\\OrderController@updateOrderDetails',
+        '\\Admin\\Order\\OrderController@updateStatus',
+        '\\Admin\\Order\\OrderController@bulkUpdateStatus',
+        '\\Admin\\Order\\OrderController@updatePaymentStatus',
+        '\\Admin\\Order\\OrderController@addDeliveryMan',
+        '\\Vendor\\Order\\OrderController@updateStatus',
     ];
 
     /** The addresses the gateways and the couriers call, and the one the app reads a payment from: a whole family each, so a new one is covered the day it exists. */
@@ -451,9 +494,16 @@ class StorefrontStopContinuityTest extends ApiAddressTestCase
         $this->assertSame([$orderId], collect($list->json('orders'))->pluck('id')->all());
         $this->assertSame($country, $list->json('orders.0.storefront_country'), 'the order still says the storefront it was sold in');
 
-        $this->asTheApp(customer: $customer, country: $country)->getJson(self::ORDER_DETAILS . '?order_id=' . $orderId)->assertOk()->assertJsonPath('0.order_id', $orderId);
+        $this->asTheApp(customer: $customer, country: $country)->getJson(self::ORDER_DETAILS . '?order_id=' . $orderId)->assertOk()
+            ->assertJsonCount(1)
+            ->assertJsonPath('0.order_id', $orderId)
+            ->assertJsonPath('0.product_id', self::PRODUCTS[$country]['id'])
+            ->assertJsonPath('0.qty', 1);
         $this->asTheApp(customer: $customer, country: $country)->getJson(self::TRACK . '?order_id=' . $orderId)->assertOk()->assertJsonPath('id', $orderId)->assertJsonPath('order_status', 'pending');
-        $this->asTheApp(customer: $customer, country: $country)->getJson(self::TRACK_HISTORY . '?order_id=' . $orderId)->assertOk()->assertJsonPath('history.order_placed.status', true);
+        $this->asTheApp(customer: $customer, country: $country)->getJson(self::TRACK_HISTORY . '?order_id=' . $orderId)->assertOk()
+            ->assertJsonPath('history.order_placed.status', true)
+            ->assertJsonPath('history.order_confirmed.status', false)
+            ->assertJsonPath('is_digital_order', false);
         $this->assertANewSaleFollowsTheStop(shopper: $shopper, country: $country, mode: $mode);
     }
 
@@ -567,7 +617,29 @@ class StorefrontStopContinuityTest extends ApiAddressTestCase
     // ---- settlements ------------------------------------------------------------------------------------------------------------------------
 
     #[DataProvider('everyStopAndItsControl')]
-    public function test_the_earnings_of_an_earlier_order_are_booked_when_it_is_delivered_after_the_stop_in_every_stop_mode(string $country, ?string $mode): void
+    public function test_the_earnings_of_an_earlier_order_are_booked_by_the_api_writer_when_it_is_delivered_after_the_stop_in_every_stop_mode(string $country, ?string $mode): void
+    {
+        $this->assertTheEarningsAreBookedWhenTheOrderIsDeliveredAfterTheStop(
+            country: $country,
+            mode: $mode,
+            receivedBy: 'delivery man',
+            writer: fn (Order $order) => OrderManager::getWalletManageOnOrderStatusChange(order: $order, received_by: 'delivery man'),
+        );
+    }
+
+    #[DataProvider('everyStopAndItsControl')]
+    public function test_the_earnings_of_an_earlier_order_are_booked_by_the_panel_writer_when_it_is_delivered_after_the_stop_in_every_stop_mode(string $country, ?string $mode): void
+    {
+        $this->assertTheEarningsAreBookedWhenTheOrderIsDeliveredAfterTheStop(
+            country: $country,
+            mode: $mode,
+            receivedBy: 'admin',
+            writer: fn (Order $order) => app(OrderRepositoryInterface::class)->manageWalletOnOrderStatusChange(order: $order, receivedBy: 'admin'),
+        );
+    }
+
+    /** @param Closure(Order): mixed $writer the earnings writer a delivery route calls once the order is delivered: below the route, as the routes themselves are not driven here */
+    private function assertTheEarningsAreBookedWhenTheOrderIsDeliveredAfterTheStop(string $country, ?string $mode, string $receivedBy, Closure $writer): void
     {
         $this->skipInStrictModeUntilTheCouponCountIsFixed();
         [, $orderId] = $this->placeAnOrder(country: $country);
@@ -575,11 +647,11 @@ class StorefrontStopContinuityTest extends ApiAddressTestCase
         $this->markDelivered(orderId: $orderId);
         $price = self::PRODUCTS[$country]['price'];
 
-        OrderManager::getWalletManageOnOrderStatusChange(order: Order::findOrFail($orderId), received_by: 'delivery man');
+        $writer(Order::findOrFail($orderId));
 
         $transaction = DB::table('order_transactions')->where('order_id', $orderId)->first();
         $this->assertNotNull($transaction, 'the earnings of the order are booked');
-        $this->assertSame(['disburse', 'delivery man'], [$transaction->status, $transaction->received_by]);
+        $this->assertSame(['disburse', $receivedBy], [$transaction->status, $transaction->received_by]);
         $this->assertEquals($price, $transaction->seller_amount);
         $this->assertEquals($price, DB::table('admin_wallets')->where('admin_id', 1)->value('inhouse_earning'));
         $this->assertANewSaleFollowsTheStop(shopper: $shopper, country: $country, mode: $mode);
@@ -593,6 +665,34 @@ class StorefrontStopContinuityTest extends ApiAddressTestCase
             foreach ($this->routesRunning(action: $action) as $route) {
                 $this->assertStopGatesAbsent(route: $route, found: $action);
             }
+        }
+    }
+
+    public function test_only_the_actions_that_start_a_sale_carry_the_sale_gate(): void
+    {
+        $carriers = $this->routesDeclaredWith(gate: self::SALE_GATE);
+
+        $this->assertNotEmpty($carriers);
+
+        foreach ($carriers as $route) {
+            $this->assertTrue(
+                collect(self::NEW_SALE_ACTIONS)->contains(fn (string $action) => $this->runs(route: $route, action: $action)),
+                "{$route->methods()[0]} {$route->uri()} ({$route->getActionName()}) carries the sale gate but does not start a sale, so a stop would refuse what a customer already has. If it does start one, add it to NEW_SALE_ACTIONS here and in StorefrontSalesRoutesTest.",
+            );
+        }
+    }
+
+    public function test_nothing_but_the_cart_the_catalogue_and_the_theme_carries_the_maintenance_gate_by_any_name(): void
+    {
+        $carriers = $this->routesDeclaredWith(gate: self::MAINTENANCE_GATE);
+
+        $this->assertNotEmpty($carriers);
+
+        foreach ($carriers as $route) {
+            $this->assertTrue(
+                collect(self::BROWSE_PREFIXES)->contains(fn (string $prefix) => $route->uri() === $prefix || str_starts_with($route->uri(), $prefix . '/')),
+                "{$route->methods()[0]} {$route->uri()} carries the maintenance gate, so a maintenance would refuse what a customer already has. If it browses a storefront, add its prefix to BROWSE_PREFIXES here and in StorefrontSalesRoutesTest.",
+            );
         }
     }
 
@@ -627,7 +727,7 @@ class StorefrontStopContinuityTest extends ApiAddressTestCase
     private function routesRunning(string $action): array
     {
         $routes = collect(Route::getRoutes()->getRoutes())
-            ->filter(fn (RoutingRoute $candidate) => str_ends_with((string) $candidate->getActionName(), $action))
+            ->filter(fn (RoutingRoute $candidate) => $this->runs(route: $candidate, action: $action))
             ->values()
             ->all();
 
@@ -636,19 +736,49 @@ class StorefrontStopContinuityTest extends ApiAddressTestCase
         return $routes;
     }
 
-    /** The middleware a route is declared with, not gatherMiddleware(): that builds the controller of every route, and some controllers need a service this test has no credentials for. */
+    private function runs(RoutingRoute $route, string $action): bool
+    {
+        return str_ends_with((string) $route->getActionName(), $action);
+    }
+
     private function assertStopGatesAbsent(RoutingRoute $route, string $found): void
     {
-        $this->assertNotContains(self::SALE_GATE, $route->middleware(), "{$route->methods()[0]} {$route->uri()} ({$found}) serves what a customer already has and must stay open when the storefront is stopped.");
-        $this->assertNotContains(self::MAINTENANCE_GATE, $route->middleware(), "{$route->methods()[0]} {$route->uri()} ({$found}) must stay open in a maintenance.");
+        $declared = $this->middlewareClassesOf(route: $route);
+
+        $this->assertNotContains(self::SALE_GATE, $declared, "{$route->methods()[0]} {$route->uri()} ({$found}) serves what a customer already has and must stay open when the storefront is stopped.");
+        $this->assertNotContains(self::MAINTENANCE_GATE, $declared, "{$route->methods()[0]} {$route->uri()} ({$found}) must stay open in a maintenance.");
+    }
+
+    /** @return list<RoutingRoute> every route that carries the gate, whether it names the gate by its alias, by its class or through a group. */
+    private function routesDeclaredWith(string $gate): array
+    {
+        return collect(Route::getRoutes()->getRoutes())
+            ->filter(fn (RoutingRoute $route) => in_array($gate, $this->middlewareClassesOf(route: $route), true))
+            ->values()
+            ->all();
+    }
+
+    /**
+     * The middleware a route is declared with, resolved by the router to classes without their parameters. Not gatherMiddleware(): that builds the controller of every route, and some
+     * controllers need a service this test has no credentials for.
+     *
+     * @return list<string>
+     */
+    private function middlewareClassesOf(RoutingRoute $route): array
+    {
+        return collect(Route::resolveMiddleware(middleware: $route->middleware(), excluded: $route->excludedMiddleware()))
+            ->filter(fn (mixed $middleware) => is_string($middleware))
+            ->map(fn (string $middleware) => strtok($middleware, ':'))
+            ->values()
+            ->all();
     }
 
     // ---- the gateway ------------------------------------------------------------------------------------------------------------------------
 
     private function skipInStrictModeUntilThePaymentStartIsFixed(): void
     {
-        if (getenv('DB_STRICT_TESTS') === '1') {
-            $this->markTestSkipped('The start of a digital payment reads the cart with a bare GROUP BY that a strict server refuses, as the checkout does with the use count of a coupon.');
+        if (getenv('DB_STRICT_TESTS') === '1' && !method_exists(OrderManager::class, 'firstCheckedCartLineOfGroup')) {
+            $this->markTestSkipped('The start of a digital payment reads the cart with a bare GROUP BY that a strict server refuses (PR 89 fixes it with OrderManager::firstCheckedCartLineOfGroup).');
         }
     }
 
