@@ -12,26 +12,12 @@ use Illuminate\Support\Facades\DB;
  */
 class OrderPaymentCallbackTest extends ApiAddressTestCase
 {
-    private ?string $debugLog = null;
-
     protected function setUp(): void
     {
         parent::setUp();
 
         $this->createOrderPipelineTables();
         $this->useTaxIncludedPrices();
-
-        // The callback appends a line to a debug file under storage/logs; the run must not leave one behind.
-        $path = storage_path('logs/order_generate_test.txt');
-        $this->debugLog = is_file($path) ? (string) file_get_contents($path) : null;
-    }
-
-    protected function tearDown(): void
-    {
-        $path = storage_path('logs/order_generate_test.txt');
-        $this->debugLog === null ? @unlink($path) : file_put_contents($path, $this->debugLog);
-
-        parent::tearDown();
     }
 
     /**
@@ -50,6 +36,35 @@ class OrderPaymentCallbackTest extends ApiAddressTestCase
         ]);
 
         return DB::table('orders')->orderBy('id')->pluck('id')->all();
+    }
+
+    public function test_a_paid_order_writes_no_file_that_names_its_customer_address_or_order(): void
+    {
+        $payer = $this->makeCustomer();
+        $address = $this->makeLegacyAddress($payer->id);
+        $this->putOneProductInTheCart($payer->id);
+        $before = $this->logFiles();
+
+        $orders = $this->gatewayReportsBack($payer, ['address_id' => $address->id, 'billing_address_id' => $address->id]);
+
+        $this->assertCount(1, $orders);
+        $this->assertFileDoesNotExist(storage_path('logs/order_generate_test.txt'), 'the callback used to append customer, guest, address and order ids to this file');
+        foreach (array_diff_key($this->logFiles(), $before) + array_filter($this->logFiles(), fn (int $size, string $file): bool => ($before[$file] ?? $size) !== $size, ARRAY_FILTER_USE_BOTH) as $file => $size) {
+            $this->assertStringNotContainsString('orderIds', (string) file_get_contents($file), "{$file} names the orders of a paid order");
+        }
+    }
+
+    /** @return array<string, int> every file under storage/logs and its size */
+    private function logFiles(): array
+    {
+        $files = [];
+        foreach (glob(storage_path('logs/*')) ?: [] as $file) {
+            if (is_file($file)) {
+                $files[$file] = (int) filesize($file);
+            }
+        }
+
+        return $files;
     }
 
     public function test_a_paid_order_is_created_with_the_payers_structured_address_and_keeps_a_frozen_copy(): void
