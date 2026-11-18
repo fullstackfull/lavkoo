@@ -20,6 +20,7 @@ use App\Models\Product;
 use App\Services\Address\CheckoutAddressGuard;
 use App\Services\Address\OrderAddressService;
 use App\Services\PasswordResetService;
+use App\Services\Storefront\OrderStorefrontSnapshot;
 use App\Models\User;
 use App\Traits\API\v3\VendorPOSManagement;
 use App\Traits\CustomerTrait;
@@ -460,6 +461,7 @@ class POSController extends Controller
                     'updated_at' => now(),
                 ];
                 DB::table('orders')->insertGetId($orderData);
+                app(OrderStorefrontSnapshot::class)->record(orderId: $generateOrderID);
                 if ($idempotencyKey !== null) {
                     $this->recordIdempotencyKeyOrder(sellerId: $seller->id, key: $idempotencyKey, orderId: $generateOrderID);
                 }

@@ -362,7 +362,7 @@ class SellerWithdrawScopingTest extends TestCase
     {
         $this->actingAs(Seller::query()->findOrFail($sellerId), 'seller');
 
-        return $this->from('/vendor/dashboard')->get(route('vendor.business-settings.withdraw.close', ['id' => $requestId]));
+        return $this->from('/vendor/dashboard')->post(route('vendor.business-settings.withdraw.close', ['id' => $requestId]));
     }
 
     /** @return list<string> */

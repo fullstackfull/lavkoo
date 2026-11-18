@@ -416,7 +416,7 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
         });
     });
 
-    Route::group(['prefix' => 'products', 'as' => 'products.', 'middleware' => ['module:catalog']], function () {
+    Route::group(['prefix' => 'products', 'as' => 'products.', 'middleware' => ['module:catalog', 'money.market']], function () {
         Route::controller(ProductController::class)->group(function () {
             Route::get('list/{type}', 'index')->name('list');
             Route::get('add', 'getAddView')->name('add');

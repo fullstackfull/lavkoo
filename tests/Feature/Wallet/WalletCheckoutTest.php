@@ -64,6 +64,7 @@ class WalletCheckoutTest extends ApiAddressTestCase
     private function generateWalletOrderFor(User $customer, float $amount): array
     {
         request()->merge(['user' => $customer]);
+        request()->setUserResolver(static fn () => $customer);
 
         return OrderManager::generateOrder(data: [
             'is_guest' => 0, 'customer_id' => $customer->id, 'address_channel' => AddressChannel::Api, 'order_status' => 'confirmed',
@@ -153,6 +154,7 @@ class WalletCheckoutTest extends ApiAddressTestCase
         $customer = $this->makeCustomer(['wallet_balance' => 150]);
         $this->putOneProductInTheCart($customer->id);
         request()->merge(['user' => $customer]);
+        request()->setUserResolver(static fn () => $customer);
 
         $orderIds = OrderManager::generateOrder(data: [
             'is_guest' => 0, 'customer_id' => $customer->id, 'address_channel' => AddressChannel::Api, 'order_status' => 'pending',

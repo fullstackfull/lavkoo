@@ -18,6 +18,7 @@ final class CheckoutOperations
         self::useTaxIncludedPrices();
         $customer = User::findOrFail($args['customer']);
         request()->merge(['user' => $customer]);
+        request()->setUserResolver(static fn () => $customer);
 
         return OrderManager::generateOrder(data: [
             'is_guest' => 0, 'customer_id' => $customer->id, 'order_status' => 'pending', 'payment_method' => 'cash_on_delivery',

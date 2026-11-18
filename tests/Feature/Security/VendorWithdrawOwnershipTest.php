@@ -120,7 +120,7 @@ class VendorWithdrawOwnershipTest extends VendorPanelTestCase
     {
         $before = $this->requestsAndWallets();
 
-        $this->signInAs(self::SELLER)->get('/vendor/business-settings/withdraw/close/' . $requestId)->assertRedirect();
+        $this->signInAs(self::SELLER)->post('/vendor/business-settings/withdraw/close/' . $requestId)->assertRedirect();
 
         $this->assertSame(['error'], $this->toastTypes());
         $this->assertSame($before, $this->requestsAndWallets());
@@ -128,7 +128,7 @@ class VendorWithdrawOwnershipTest extends VendorPanelTestCase
 
     public function test_the_sellers_own_pending_request_is_still_closed_and_its_amount_goes_back_to_the_earning(): void
     {
-        $this->signInAs(self::SELLER)->get('/vendor/business-settings/withdraw/close/' . self::OWN_PENDING_REQUEST)->assertRedirect();
+        $this->signInAs(self::SELLER)->post('/vendor/business-settings/withdraw/close/' . self::OWN_PENDING_REQUEST)->assertRedirect();
 
         $this->assertSame(['success'], $this->toastTypes());
         $this->assertNull(DB::table('withdraw_requests')->where('id', self::OWN_PENDING_REQUEST)->first());

@@ -57,6 +57,7 @@ class GenerateOrderStockTest extends ApiAddressTestCase
     private function placeOrder(array $data = []): array
     {
         request()->merge(['user' => $this->customer]);
+        request()->setUserResolver(fn () => $this->customer);
         $address = $this->makeLegacyAddress($this->customer->id);
 
         return OrderManager::generateOrder(data: $data + [

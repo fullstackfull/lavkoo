@@ -4,8 +4,8 @@ namespace App\Http\Controllers\RestAPI\v1;
 
 use App\Http\Controllers\Controller;
 use App\Services\DeveloperPortal\ApiDoc;
-use App\Services\Storefront\StorefrontLegalReadiness;
 use App\Services\Storefront\StorefrontListing;
+use App\Services\Storefront\StorefrontSellingGate;
 use Illuminate\Http\JsonResponse;
 
 /**
@@ -21,8 +21,8 @@ class StorefrontController extends Controller
         stability: ApiDoc::BETA,
         since: 'v1',
     )]
-    public function index(StorefrontLegalReadiness $legalReadiness): JsonResponse
+    public function index(StorefrontSellingGate $sellingGate): JsonResponse
     {
-        return response()->json(StorefrontListing::fromConfig(legalReadiness: $legalReadiness)->payload());
+        return response()->json(StorefrontListing::fromConfig(sellingGate: $sellingGate)->payload());
     }
 }
