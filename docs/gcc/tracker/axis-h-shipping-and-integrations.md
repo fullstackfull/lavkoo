@@ -167,6 +167,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(10) Next coding task.** Test-only branch from main: tests/Feature/Shipping/ShippingZoneRateTest pinning ShippingRateService today (a specific zone beats the catch-all, region list, free-over, per-kg at weight 0, no zone returns the fallback) and SystemController::zoneShippingCost with the setting on and off. Then design the REST parity on the same branch.
 - **Open owner decisions.** Q-07 decimals and rounding per currency; Q-08 conversion policy for new stores (no automatic FX is decided); who sets cross-border shipping rates.
 - **Verifier note (not applied automatically).** deps_blockers corrected by the verifier (applied above).
+- **Update after the assessment.** PR 87 (GCC-05 slice 5): the minimum order and the free-delivery threshold of a storefront with its own currency are its own (a business setting storefront_money_<country>, written only by gcc:storefront:money, neutral 0 when nothing is given, never the platform's riyal figure); StorefrontAmountSettingsTest (35) and StorefrontMoneyCommandTest (31); the shipping cost itself is product-wise only there (see H1-14). Local runs on SQLite and MySQL 8.0.46 strict, CI of the head not read.
 
 #### H1-09. Tax and duties on a cross-border order
 
@@ -293,6 +294,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **Open owner decisions.** Q-24: which carriers and shipping methods each market uses, and whether the Delivery Syria method stays off in Gulf storefronts.
 - **Verifier note (not applied automatically).** exists_now corrected by the verifier (applied above).
 - **Verifier note (not applied automatically).** deps_blockers corrected by the verifier (applied above).
+- **Update after the assessment.** PR 87 (GCC-05 slice 5, head 5f685059): while a storefront's own currency is in force every read of ShippingType answers product_wise, so no platform shipping table (method, category or zone, all in the platform's money) reaches a total or a method prompt, and the in-house type is cached raw; the panel edit of an order prices its shipping in the order's own money. StorefrontShippingTypeTest (14, nine fail on the unchanged source) and StorefrontOrderEditMoneyTest (13, eleven fail unchanged); local runs, CI of that head not read. A storefront still has no shipping methods or tables of its own: its shipping is the cost typed on each product.
 
 #### H2-01. Amazon integration kept and working for the Saudi marketplace
 
