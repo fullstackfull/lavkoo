@@ -18,6 +18,8 @@ class StorefrontLegalTextCommand extends Command
     /** A text or a template is read from a file of at most this many bytes. */
     private const MAXIMUM_FILE_BYTES = 1048576;
 
+    private const UTF8_BYTE_ORDER_MARK = "\xEF\xBB\xBF";
+
     /** The hash of a text is shown, and named back to the command, by its first characters: enough to tell one text from another, short enough to read aloud. */
     private const MINIMUM_HASH_PREFIX_LENGTH = 12;
 
@@ -243,7 +245,19 @@ class StorefrontLegalTextCommand extends Command
             throw new InvalidArgumentException("{$path} is not a readable file of at most " . self::MAXIMUM_FILE_BYTES . ' bytes.');
         }
 
-        return (string) file_get_contents($path);
+        $content = (string) file_get_contents($path);
+
+        if (str_starts_with($content, self::UTF8_BYTE_ORDER_MARK)) {
+            $content = substr($content, offset: strlen(self::UTF8_BYTE_ORDER_MARK));
+        }
+
+        // A file in Windows-1256 or in UTF-16 would be stored as text that reads as nonsense, on a page a customer is asked to accept: its bytes are not UTF-8 (UTF-16 without a mark is
+        // all but NUL bytes, which no text holds).
+        if (!mb_check_encoding($content, 'UTF-8') || str_contains($content, "\0")) {
+            throw new InvalidArgumentException("{$path} is not UTF-8 text: save the file as UTF-8 (a file in Windows-1256 or UTF-16 is refused).");
+        }
+
+        return $content;
     }
 
     private function effectiveFrom(): ?CarbonImmutable

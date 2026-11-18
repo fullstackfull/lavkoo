@@ -7,6 +7,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\PendingCommand;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsAuditLogTable;
 use Tests\Support\BuildsStorefrontLegalDocuments;
 use Tests\TestCase;
@@ -146,6 +147,59 @@ class StorefrontLegalTextCommandTest extends TestCase
         $this->text('draft', ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11])
             ->expectsOutputToContain('--template-file names the file')
             ->assertExitCode(1);
+    }
+
+    /** @return array<string, array{string}> */
+    public static function filesThatAreNotUtf8(): array
+    {
+        return [
+            'Windows-1256, the Arabic of a Windows machine' => ["\xE3\xD1\xCD\xC8\xC7 terms of Kuwait"],
+            'UTF-16 with a byte order mark' => ["\xFF\xFE" . mb_convert_encoding('The terms of Kuwait, in Arabic: شروط', 'UTF-16LE', 'UTF-8')],
+            'UTF-16 big endian with a byte order mark' => ["\xFE\xFF" . mb_convert_encoding('The terms of Kuwait', 'UTF-16BE', 'UTF-8')],
+            'UTF-16 without a byte order mark' => [mb_convert_encoding('The terms of Kuwait', 'UTF-16LE', 'UTF-8')],
+            'a stray byte in the middle of UTF-8' => ["The terms of \xC3 Kuwait"],
+        ];
+    }
+
+    #[DataProvider('filesThatAreNotUtf8')]
+    public function test_a_file_that_is_not_utf8_is_refused_whether_it_is_a_template_or_a_text(string $bytes): void
+    {
+        $this->text('draft', ['--country' => 'KW', '--type' => 'terms', '--locale' => 'ar', '--admin' => 11, '--template-file' => $this->file('template.txt', $bytes)])
+            ->expectsOutputToContain('is not UTF-8 text')
+            ->assertExitCode(1);
+
+        $this->assertSame(0, StorefrontLegalDocument::query()->count());
+
+        $id = $this->draftTerms();
+        $this->text('edit', ['--id' => $id, '--admin' => 11, '--body-file' => $this->file('body.txt', $bytes)])
+            ->expectsOutputToContain('save the file as UTF-8')
+            ->assertExitCode(1);
+
+        $this->assertSame('TEMPLATE: the terms.', StorefrontLegalDocument::query()->findOrFail($id)->body);
+    }
+
+    public function test_a_utf8_file_with_a_byte_order_mark_is_read_without_it(): void
+    {
+        $this->text('draft', ['--country' => 'KW', '--type' => 'terms', '--locale' => 'en', '--admin' => 11, '--template-file' => $this->file('template.txt', "\xEF\xBB\xBFTEMPLATE: the terms.")])->assertExitCode(0);
+
+        $draft = StorefrontLegalDocument::query()->firstOrFail();
+        $this->assertSame('TEMPLATE: the terms.', $draft->body);
+        $this->assertSame(hash('sha256', 'TEMPLATE: the terms.'), $draft->body_hash);
+        $this->assertSame($draft->body_hash, $draft->template_hash);
+
+        $this->text('edit', ['--id' => $draft->id, '--admin' => 11, '--body-file' => $this->file('body.txt', "\xEF\xBB\xBFThe terms of Kuwait.")])->assertExitCode(0);
+        $this->assertSame('The terms of Kuwait.', $draft->fresh()->body);
+    }
+
+    public function test_a_valid_arabic_utf8_file_is_stored_as_it_is(): void
+    {
+        $arabic = "شروط الاستخدام في دولة الكويت\nالمادة الأولى: التعريفات";
+        $this->text('draft', ['--country' => 'KW', '--type' => 'terms', '--locale' => 'ar', '--admin' => 11, '--template-file' => $this->file('template.txt', 'TEMPLATE: ' . $arabic)])->assertExitCode(0);
+        $id = (int) StorefrontLegalDocument::query()->value('id');
+
+        $this->text('edit', ['--id' => $id, '--admin' => 11, '--body-file' => $this->file('body.txt', $arabic)])->assertExitCode(0);
+
+        $this->assertSame($arabic, StorefrontLegalDocument::query()->findOrFail($id)->body);
     }
 
     public function test_a_day_that_is_not_a_day_is_refused_and_the_text_stays_approved(): void
