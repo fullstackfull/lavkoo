@@ -13,6 +13,7 @@ use App\Events\OrderStatusEvent;
 use App\Http\Controllers\Controller;
 use App\Services\DeveloperPortal\ApiDoc;
 use App\Services\SellerInvoiceService;
+use App\Services\Storefront\OrderStorefront;
 use App\Http\Requests\API\v3\DigitalProductFileUploadAfterSell;
 use App\Models\BusinessSetting;
 use App\Models\DeliveryMan;
@@ -56,6 +57,7 @@ class OrderController extends Controller
         private readonly DigitalProductFileService $digitalFiles,
         private readonly DigitalFileAddressService $digitalFileAddresses,
         private readonly ReferralRewardService $referralRewards,
+        private readonly OrderStorefront $orderStorefront,
     )
     {
     }
@@ -84,6 +86,11 @@ class OrderController extends Controller
 
         if (!empty($orderAmountSettlement)) {
             $filters['has_order_edit_settlement'] = $orderAmountSettlement;
+        }
+
+        $storefront = $this->orderStorefront->requestedBy(request: $request);
+        if ($storefront !== null) {
+            $filters['storefront_country'] = $storefront;
         }
 
         $filterWhereIn = [];
@@ -124,6 +131,8 @@ class OrderController extends Controller
             $data['total_product_discount'] = $totalProductDiscount;
             return $data;
         });
+
+        $this->orderStorefront->label(orders: $orders->items());
 
         return response()->json([
             'total_size' => $orders->total(),
@@ -287,6 +296,8 @@ class OrderController extends Controller
             $detail['current_price'] = $unitPrice;
             $detail['edit_order_payment_histories'] = $paymentInfo;
         }
+
+        $this->orderStorefront->label(orders: $detailsList->pluck('order'));
 
         return response()->json($detailsList, 200);
     }
