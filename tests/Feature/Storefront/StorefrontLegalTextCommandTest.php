@@ -8,11 +8,14 @@ use App\Services\Storefront\StorefrontLegalPublisher;
 use App\Services\Storefront\StorefrontLegalReadiness;
 use Carbon\CarbonImmutable;
 use Closure;
+use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\PendingCommand;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Symfony\Component\Console\Input\ArgvInput;
+use Symfony\Component\Console\Output\BufferedOutput;
 use Tests\Support\BuildsAuditLogTable;
 use Tests\Support\BuildsStorefrontLegalDocuments;
 use Tests\TestCase;
@@ -73,6 +76,32 @@ class StorefrontLegalTextCommandTest extends TestCase
     private function text(string $action, array $options = []): PendingCommand
     {
         return $this->artisan('gcc:storefront:legal-text', ['action' => $action] + $options);
+    }
+
+    /**
+     * Runs the command as `php artisan` does, from the words of a command line that Symfony's own ArgvInput parses: `artisan()` feeds the command an array of options, which is not what a
+     * shell gives it (an empty script variable gives `--hash=`, `--hash ""` or a `--hash` with nothing after it).
+     *
+     * @param list<string> $words the words after `gcc:storefront:legal-text`
+     * @return array{int, string} the exit code and what the command printed
+     */
+    private function commandLine(array $words): array
+    {
+        $output = new BufferedOutput();
+        $status = $this->app->make(Kernel::class)->handle(input: new ArgvInput(argv: ['artisan', 'gcc:storefront:legal-text', ...$words]), output: $output);
+
+        return [$status, $output->fetch()];
+    }
+
+    /** @param list<string> $hashWords the `--hash` of a command line, put before the other options and after them */
+    private function assertTheCommandLineIsRefusedForItsHash(string $action, int $textId, array $hashWords): void
+    {
+        foreach ([['--admin=12', ...$hashWords], [...$hashWords, '--admin=12']] as $options) {
+            [$status, $output] = $this->commandLine(words: [$action, "--id={$textId}", ...$options]);
+
+            $this->assertSame(1, $status, $output);
+            $this->assertStringContainsString('--hash is the first 12 characters, or all 64', $output);
+        }
     }
 
     private function draftTerms(): int
@@ -627,14 +656,18 @@ class StorefrontLegalTextCommandTest extends TestCase
         $this->assertSame(StorefrontLegalDocument::STATUS_DRAFT, StorefrontLegalDocument::query()->findOrFail($id)->status);
     }
 
-    /** @return array<string, array{string}> */
+    /** @return array<string, array{?string}> the value of `--hash` as the command reads it: null is an option that was given with no value at all */
     public static function hashesThatNameNoWords(): array
     {
-        return ['empty, as a script gives it when its variable is empty' => [''], 'spaces only' => ['   ']];
+        return [
+            'empty, as a script gives it when its variable is empty and quoted' => [''],
+            'spaces only' => ['   '],
+            'no value at all, as a script gives it when its variable is empty and not quoted' => [null],
+        ];
     }
 
     #[DataProvider('hashesThatNameNoWords')]
-    public function test_an_empty_hash_is_refused_on_an_approval_and_is_not_read_as_no_hash(string $hash): void
+    public function test_a_hash_that_names_no_words_is_refused_on_an_approval_and_is_not_read_as_no_hash(?string $hash): void
     {
         $id = $this->editedTerms();
         $linesBefore = DB::table('audit_logs')->count();
@@ -651,7 +684,7 @@ class StorefrontLegalTextCommandTest extends TestCase
     }
 
     #[DataProvider('hashesThatNameNoWords')]
-    public function test_an_empty_hash_is_refused_on_a_publication_and_is_not_read_as_no_hash(string $hash): void
+    public function test_a_hash_that_names_no_words_is_refused_on_a_publication_and_is_not_read_as_no_hash(?string $hash): void
     {
         $id = $this->editedTerms();
         $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 12])->assertExitCode(0);
@@ -666,6 +699,41 @@ class StorefrontLegalTextCommandTest extends TestCase
         $this->assertSame($linesBefore, DB::table('audit_logs')->count());
 
         $this->text(action: 'publish', options: ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+    }
+
+    /** @return array<string, array{list<string>}> the words a script's command line hands over for an empty variable, quoted or not */
+    public static function emptyHashesAsACommandLineGivesThem(): array
+    {
+        return [
+            '--hash=' => [['--hash=']],
+            '--hash and an empty word' => [['--hash', '']],
+            '--hash and a blank word' => [['--hash', '   ']],
+            '--hash with no value' => [['--hash']],
+        ];
+    }
+
+    #[DataProvider('emptyHashesAsACommandLineGivesThem')]
+    public function test_a_hash_that_names_no_words_is_refused_as_a_command_line_gives_it_wherever_it_stands_among_the_options(array $hashWords): void
+    {
+        $id = $this->editedTerms();
+        $linesBefore = DB::table('audit_logs')->count();
+
+        $this->assertTheCommandLineIsRefusedForItsHash(action: 'approve', textId: $id, hashWords: $hashWords);
+
+        $this->assertSame(StorefrontLegalDocument::STATUS_DRAFT, StorefrontLegalDocument::query()->findOrFail($id)->status);
+        $this->assertSame($linesBefore, DB::table('audit_logs')->count());
+
+        $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+        $linesBefore = DB::table('audit_logs')->count();
+
+        $this->assertTheCommandLineIsRefusedForItsHash(action: 'publish', textId: $id, hashWords: $hashWords);
+
+        $text = StorefrontLegalDocument::query()->findOrFail($id);
+        $this->assertSame([StorefrontLegalDocument::STATUS_APPROVED, null, null], [$text->status, $text->published_at, $text->effective_from]);
+        $this->assertSame($linesBefore, DB::table('audit_logs')->count());
+
+        [$status, $output] = $this->commandLine(words: ['publish', "--id={$id}", '--admin=12']);
+        $this->assertSame(0, $status, 'without --hash at all the step is taken: ' . $output);
     }
 
     public function test_a_hash_named_for_a_text_that_does_not_exist_is_refused(): void
