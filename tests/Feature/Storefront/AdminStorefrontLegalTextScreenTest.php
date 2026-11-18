@@ -305,7 +305,7 @@ class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
         $text = $this->text($id);
         $this->assertSame(StorefrontLegalDocument::STATUS_PUBLISHED, $text->status);
         $this->assertSame($day->getTimestamp(), $text->effective_from->getTimestamp(), 'the day typed is the instant in UTC');
-        $this->assertNull(app(StorefrontLegalReadiness::class)->currentTextFor('KW', 'terms', 'en'), 'a text scheduled for a later day is not in force yet');
+        $this->assertNull(app(StorefrontLegalReadiness::class)->currentTextFor(countryCode: 'KW', documentType: 'terms', locale: 'en'), 'a text scheduled for a later day is not in force yet');
     }
 
     /** @return array<string, array{string}> */
@@ -526,7 +526,7 @@ class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
 
         $new = StorefrontLegalDocument::query()->orderByDesc('id')->firstOrFail();
         $this->assertSame([StorefrontLegalDocument::STATUS_DRAFT, 2, self::LEGAL_WRITER], [$new->status, $new->version, $new->created_by]);
-        $this->assertSame(1, (int) app(StorefrontLegalReadiness::class)->currentTextFor('KW', 'terms', 'en')->version);
+        $this->assertSame(1, (int) app(StorefrontLegalReadiness::class)->currentTextFor(countryCode: 'KW', documentType: 'terms', locale: 'en')->version);
     }
 
     public function test_a_new_version_is_offered_only_on_the_newest_published_text_of_its_type_and_language_and_revoking_only_on_a_text_that_is_not_revoked(): void
@@ -544,6 +544,10 @@ class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
         $this->publishLegalDocument(country: 'KW', type: 'shipping', locale: 'en', overrides: ['version' => 1, 'effective_from' => now()->subDays(3)]);
         $this->publishLegalDocument(country: 'KW', type: 'shipping', locale: 'en', overrides: ['version' => 2]);
         $this->publishLegalDocument(country: 'KW', type: 'shipping', locale: 'ar', overrides: ['version' => 1]);
+        // The texts of another storefront with the same types and languages: a newer published terms text and an open draft of it, which must neither take a new version away from Kuwait nor appear on its board.
+        $this->publishLegalDocument(country: 'AE', type: 'terms', locale: 'en', overrides: ['version' => 3]);
+        $this->publishLegalDocument(country: 'AE', type: 'terms', locale: 'ar', overrides: ['status' => StorefrontLegalDocument::STATUS_DRAFT, 'approved_by' => null, 'approved_at' => null, 'published_at' => null, 'effective_from' => null]);
+        $this->publishLegalDocument(country: 'AE', type: 'refund', locale: 'ar', overrides: ['status' => StorefrontLegalDocument::STATUS_DRAFT, 'approved_by' => null, 'approved_at' => null, 'published_at' => null, 'effective_from' => null]);
 
         $this->assertSame([
             'privacy.ar.v1' => [StorefrontLegalTextBoard::EDIT, StorefrontLegalTextBoard::PUBLISH, StorefrontLegalTextBoard::DISCARD],
