@@ -170,6 +170,9 @@ class ThemeSectionController extends Controller
             . 'Send `X-UI-Components` (comma-separated section types this build can render) and '
             . '`X-UI-Engine` (renderer generation) to negotiate; a client that sends neither is '
             . 'served every app-safe section, so builds predating capability reporting keep working. '
+            . 'Send `X-Storefront` (a country code listed by /api/v1/storefronts) to be served that storefront\'s theme; '
+            . 'a storefront without a theme of its own, a request that names none and every request while '
+            . 'storefronts are switched off are served the default storefront\'s. '
             . 'Send `If-None-Match` with the last checksum to get 304 and no body. '
             . 'Sections carry `source` (where to fetch their data), `cards` (banner-backed blocks '
             . 'resolved live from Banner Setup) and typed `action` objects beside every link, so a '
@@ -229,6 +232,8 @@ class ThemeSectionController extends Controller
         summary: 'Whether the published theme has changed, without downloading it',
         description: 'The cheap half of the sync: /api/v1/theme/version returns `revision`, '
             . '`checksum`, `schema_version`, `engine_version` and `published_at` and nothing else. '
+            . 'Send the same `X-Storefront` header as for /theme/home: `revision` and `checksum` are those of '
+            . 'the theme that storefront is served. '
             . 'A client holding revision N calls this on cold start and resume; only a higher '
             . 'revision (or a different checksum) is worth a call to /theme/home. '
             . '`revision: 0` means nothing has ever been published.',
