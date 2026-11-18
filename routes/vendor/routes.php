@@ -383,7 +383,7 @@ Route::group(['middleware' => ['maintenance_mode', 'actch:admin_panel']], functi
                     Route::controller(WithdrawController::class)->group(function () {
                         Route::get('index', 'index')->name('index');
                         Route::post('index', 'getListByStatus');
-                        Route::get('close/{id}', 'closeWithdrawRequest')->name('close');
+                        Route::post('close/{id}', 'closeWithdrawRequest')->name('close');
                         Route::get('export', 'exportList')->name('export-withdraw-list');
                         Route::post('render-withdraw-method-infos', 'renderInfosView')->name('render-withdraw-method-infos');
                     });
