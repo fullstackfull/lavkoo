@@ -24,7 +24,7 @@ python3 ../check_pr_ledger.py                 # must exit 0 before a push
 python3 batch_measure.py ../../../.. origin/claude/exciting-shannon-4mh2ok   # what moved
 ```
 
-`GCC_TRACKER_DATA` overrides the place of `data/`. The evidence check reads blobs of the three clones at the refs the criteria name, so those refs must be fetched; a ref that is not there is reported as an evidence failure, not hidden.
+`GCC_TRACKER_DATA` overrides the place of `data/`. The repository ignores `*.tar.xz`, so `data.tar.xz` was added with `git add -f`; repack and add it the same way when `context.json` or the pull request index changes. The evidence check reads blobs of the three clones at the refs the criteria name, so those refs must be fetched; a ref that is not there is reported as an evidence failure, not hidden.
 
 ## Rules for editing `gen_main.py`
 
