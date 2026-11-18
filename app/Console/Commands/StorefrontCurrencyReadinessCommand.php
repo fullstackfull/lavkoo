@@ -4,6 +4,8 @@ namespace App\Console\Commands;
 
 use App\Services\Storefront\StorefrontCurrency;
 use App\Services\Storefront\StorefrontLaunchChecks;
+use App\Services\Storefront\StorefrontLegalReadiness;
+use App\Services\Storefront\StorefrontLegalReview;
 use App\Services\Storefront\StorefrontTax;
 use App\Services\Storefront\StorefrontTaxApproval;
 use Illuminate\Console\Command;
@@ -13,10 +15,16 @@ class StorefrontCurrencyReadinessCommand extends Command
 {
     protected $signature = 'gcc:storefront:currency-readiness';
 
-    protected $description = 'Read-only report before storefront currencies are turned on: for each configured storefront, the currency it trades in, its decimals and whether the currency exists and is active. Exits 1 when a storefront that is switched on lacks its currency or has no approved tax decision';
+    protected $description = 'Read-only report before storefront currencies are turned on: for each configured storefront, the currency it trades in, its decimals and whether the currency exists and is active. Exits 1 when a storefront that is switched on lacks its currency, has no approved tax decision, or cannot sell for want of its legal texts or the independent review of them';
 
-    public function handle(StorefrontCurrency $currency, StorefrontLaunchChecks $checks, StorefrontTax $tax, StorefrontTaxApproval $approval): int
-    {
+    public function handle(
+        StorefrontCurrency $currency,
+        StorefrontLaunchChecks $checks,
+        StorefrontTax $tax,
+        StorefrontTaxApproval $approval,
+        StorefrontLegalReadiness $legalReadiness,
+        StorefrontLegalReview $legalReview,
+    ): int {
         $this->line('Storefront currencies: ' . ($currency->isEnabled() ? 'on' : 'off') . ' (GCC_STOREFRONT_CURRENCY, and GCC_STOREFRONTS_ENABLED must be on too).');
 
         $blocked = false;
@@ -34,6 +42,7 @@ class StorefrontCurrencyReadinessCommand extends Command
                 $unsafe = $this->launchLine(checks: $checks, country: $row['country']) || $unsafe;
                 $this->taxLine(tax: $tax, country: $row['country']);
                 $unsafe = $this->taxApprovalLine(approval: $approval, country: $row['country']) || $unsafe;
+                $unsafe = $this->legalLine(readiness: $legalReadiness, review: $legalReview, country: $row['country']) || $unsafe;
             }
         }
 
@@ -137,6 +146,42 @@ class StorefrontCurrencyReadinessCommand extends Command
         });
 
         return !in_array($status['status'], [StorefrontTaxApproval::APPROVED, StorefrontTaxApproval::NOT_REQUIRED], true);
+    }
+
+    /**
+     * Whether a storefront that is switched on has its required legal texts published and approved, and an independent review of them on record: without both it cannot sell.
+     * Prints what is missing and answers whether the storefront is unsafe to open.
+     */
+    private function legalLine(StorefrontLegalReadiness $readiness, StorefrontLegalReview $review, string $country): bool
+    {
+        if ($readiness->isGrandfathered($country)) {
+            $this->line(sprintf('  %-4s legal: keeps the documents it has always had, so neither their texts nor a review of them are required.', $country));
+
+            return false;
+        }
+
+        $textsReady = $readiness->isReady($country);
+        $status = $review->statusOf(country: $country);
+        $reviewed = $status['status'] === StorefrontLegalReview::RECORDED;
+
+        if ($textsReady && $reviewed) {
+            $this->line(sprintf('  %-4s legal: texts approved, independent review recorded (%s, %s, on %s).', $country, $status['reviewed_by'], $status['reference'], $status['reviewed_on']));
+
+            return false;
+        }
+
+        if (!$textsReady) {
+            $this->line(sprintf('  %-4s UNSAFE: its required legal texts are not all published and approved (or none is required), so it cannot sell: finish them on the legal texts screen.', $country));
+        }
+
+        if (!$reviewed) {
+            $this->line(match ($status['status']) {
+                StorefrontLegalReview::INCOMPLETE => sprintf('  %-4s UNSAFE: the legal review on record does not say who reviewed, where the opinion is written or on which day, so it counts for nothing and the storefront cannot sell: record it again with gcc:storefront:legal-review.', $country),
+                default => sprintf('  %-4s UNSAFE: no independent legal review on record, so it cannot sell: record who reviewed the texts, where the opinion is written and the day, with gcc:storefront:legal-review.', $country),
+            });
+        }
+
+        return true;
     }
 
     /** The checks that do not belong to one storefront: the coupons and the shipping row. Answers whether anything on them is unsafe. */

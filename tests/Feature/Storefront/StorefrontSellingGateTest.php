@@ -4,6 +4,7 @@ namespace Tests\Feature\Storefront;
 
 use App\Exceptions\StorefrontNotSellableException;
 use App\Services\Storefront\StorefrontContext;
+use App\Services\Storefront\StorefrontLegalReview;
 use App\Services\Storefront\StorefrontSellingGate;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
@@ -78,6 +79,69 @@ class StorefrontSellingGateTest extends TestCase
         $this->expectNotToPerformAssertions();
 
         $this->gate()->assertMaySell($this->contextOf('AE'));
+    }
+
+    public function test_approved_texts_and_a_tax_decision_are_not_enough_without_an_independent_legal_review(): void
+    {
+        config(['gcc.storefronts.enabled' => true, 'gcc.storefronts.countries.AE.active' => true]);
+        $this->publishRequiredLegalDocuments(country: 'AE', reviewed: false);
+        $this->approveNoTaxFor('AE');
+
+        $this->assertFalse($this->gate()->maySell(country: 'AE', currencyCode: 'AED'));
+
+        $this->recordLegalReviewFor('AE');
+
+        $this->assertTrue($this->gate()->maySell(country: 'AE', currencyCode: 'AED'));
+    }
+
+    public function test_a_legal_review_alone_does_not_open_a_storefront_whose_texts_are_not_approved(): void
+    {
+        config(['gcc.storefronts.enabled' => true, 'gcc.storefronts.countries.AE.active' => true]);
+        $this->recordLegalReviewFor('AE');
+        $this->approveNoTaxFor('AE');
+
+        $this->assertFalse($this->gate()->maySell(country: 'AE', currencyCode: 'AED'));
+    }
+
+    public function test_withdrawing_the_legal_review_closes_the_storefront_again(): void
+    {
+        config(['gcc.storefronts.enabled' => true, 'gcc.storefronts.countries.AE.active' => true]);
+        $this->publishRequiredLegalDocuments(country: 'AE');
+        $this->approveNoTaxFor('AE');
+        $this->assertTrue($this->gate()->maySell(country: 'AE', currencyCode: 'AED'));
+
+        app(StorefrontLegalReview::class)->revoke('AE');
+
+        $this->assertFalse($this->gate()->maySell(country: 'AE', currencyCode: 'AED'));
+    }
+
+    public function test_a_storefront_that_keeps_its_old_documents_needs_neither_their_texts_nor_a_review(): void
+    {
+        config(['gcc.storefronts.enabled' => true, 'gcc.storefronts.countries.AE.active' => true]);
+        $this->leaveTheLegalTextsOutOfThisTest();
+        $this->approveNoTaxFor('AE');
+
+        $this->assertTrue($this->gate()->maySell(country: 'AE', currencyCode: 'AED'));
+    }
+
+    public function test_a_review_of_one_storefront_does_not_open_another(): void
+    {
+        config(['gcc.storefronts.enabled' => true, 'gcc.storefronts.countries.AE.active' => true, 'gcc.storefronts.countries.KW.active' => true]);
+        $this->publishRequiredLegalDocuments(country: 'AE');
+        $this->publishRequiredLegalDocuments(country: 'KW', reviewed: false);
+        $this->approveNoTaxFor('AE', 'KW');
+
+        $this->assertTrue($this->gate()->maySell(country: 'AE', currencyCode: 'AED'));
+        $this->assertFalse($this->gate()->maySell(country: 'KW', currencyCode: 'KWD'));
+    }
+
+    public function test_a_configuration_that_requires_no_document_keeps_a_reviewed_storefront_closed(): void
+    {
+        config(['gcc.storefronts.enabled' => true, 'gcc.storefronts.countries.AE.active' => true, 'gcc.storefronts.legal.required_documents' => []]);
+        $this->recordLegalReviewFor('AE');
+        $this->approveNoTaxFor('AE');
+
+        $this->assertFalse($this->gate()->maySell(country: 'AE', currencyCode: 'AED'));
     }
 
     public function test_a_missing_legal_table_refuses_the_sale_as_not_sellable_rather_than_failing(): void

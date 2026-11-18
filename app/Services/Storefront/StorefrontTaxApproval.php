@@ -2,11 +2,8 @@
 
 namespace App\Services\Storefront;
 
-use App\Models\BusinessSetting;
-use App\Services\AuditLogger;
 use Carbon\CarbonImmutable;
 use Illuminate\Container\Attributes\Singleton;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
 
@@ -48,13 +45,10 @@ final class StorefrontTaxApproval
 
     private const SETTING_PREFIX = 'storefront_tax_approval_';
 
-    private const MAXIMUM_TEXT_LENGTH = 191;
-
-    /** A tool, a pipeline or an assistant is not a person with the authority to approve a tax. Best effort on free text: the owner is who runs the command. */
-    private const AUTOMATED_IDENTITY = '/\b(claude|anthropic|chatgpt|openai|bot|ci|automation|automated|github[\s_-]*actions?)\b/i';
-
-    public function __construct(private readonly StorefrontTax $tax)
-    {
+    public function __construct(
+        private readonly StorefrontTax $tax,
+        private readonly StorefrontDecisionRecord $decisions,
+    ) {
     }
 
     /** The name of the business setting that holds the decision of one storefront. */
@@ -80,7 +74,7 @@ final class StorefrontTaxApproval
             return $this->status(status: self::NOT_REQUIRED);
         }
 
-        $record = getWebConfig(name: self::settingName($code));
+        $record = $this->decisions->of(setting: self::settingName($code));
 
         if ($record === null) {
             return $this->status(status: self::MISSING);
@@ -129,22 +123,7 @@ final class StorefrontTaxApproval
             'fingerprint' => $decision === self::DECISION_SETUP ? $this->fingerprintOf(country: $code) : null,
         ];
 
-        DB::transaction(function () use ($code, $record, $effective): void {
-            $name = self::settingName($code);
-            $before = json_decode((string) BusinessSetting::query()->where('type', $name)->lockForUpdate()->value('value'), true);
-
-            BusinessSetting::query()->updateOrInsert(['type' => $name], ['value' => json_encode($record), 'updated_at' => now()]);
-
-            app(AuditLogger::class)->recordOrFail(
-                action: 'storefront.tax_decision.approved',
-                subject: ['type' => 'storefront', 'id' => $code],
-                before: is_array($before) ? $before : null,
-                after: $record,
-                context: ['taxed_with' => $effective],
-            );
-        });
-
-        clearWebConfigCacheKeys();
+        $this->decisions->write(setting: self::settingName($code), record: $record, action: 'storefront.tax_decision.approved', country: $code, context: ['taxed_with' => $effective]);
 
         return $record;
     }
@@ -163,27 +142,12 @@ final class StorefrontTaxApproval
             throw new InvalidArgumentException($refusal);
         }
 
-        $revoked = DB::transaction(function () use ($code, $revokedBy): bool {
-            $name = self::settingName($code);
-            $before = json_decode((string) BusinessSetting::query()->where('type', $name)->lockForUpdate()->value('value'), true);
-
-            if (BusinessSetting::query()->where('type', $name)->delete() === 0) {
-                return false;
-            }
-
-            app(AuditLogger::class)->recordOrFail(
-                action: 'storefront.tax_decision.revoked',
-                subject: ['type' => 'storefront', 'id' => $code],
-                before: is_array($before) ? $before : null,
-                context: ['revoked_by' => $revokedBy === null || trim($revokedBy) === '' ? null : trim($revokedBy)],
-            );
-
-            return true;
-        });
-
-        clearWebConfigCacheKeys();
-
-        return $revoked;
+        return $this->decisions->withdraw(
+            setting: self::settingName($code),
+            action: 'storefront.tax_decision.revoked',
+            country: $code,
+            context: ['revoked_by' => $revokedBy === null || trim($revokedBy) === '' ? null : trim($revokedBy)],
+        );
     }
 
     /** What the storefront is taxed with now, as a value that changes when anything an approval covers changes. */
@@ -238,9 +202,9 @@ final class StorefrontTaxApproval
             $country === $resolver->defaultCountry() => "{$country} is the default storefront: its tax is the platform's, set in the admin panel, and needs no approval here.",
             !in_array($country, $resolver->configuredCountries(), true) => "{$country} is not a configured storefront.",
             !in_array($decision, self::DECISIONS, true) => 'The decision must be ' . self::DECISION_SETUP . ' (the rates it has now are approved) or ' . self::DECISION_NO_TAX . ' (it is decided, in a document, that it charges no tax).',
-            $approvedBy === '' || mb_strlen($approvedBy) > self::MAXIMUM_TEXT_LENGTH => 'Say who approved it: the name or the role of the person with the authority, in at most ' . self::MAXIMUM_TEXT_LENGTH . ' characters.',
-            preg_match(self::AUTOMATED_IDENTITY, $approvedBy) === 1 => 'An approval names a person or a role with the authority to give it, not a tool or an assistant.',
-            $reference === '' || mb_strlen($reference) > self::MAXIMUM_TEXT_LENGTH => 'Say where the decision is written down: the opinion, the ticket or the minutes, in at most ' . self::MAXIMUM_TEXT_LENGTH . ' characters.',
+            $approvedBy === '' || mb_strlen($approvedBy) > StorefrontDecisionRecord::MAXIMUM_TEXT_LENGTH => 'Say who approved it: the name or the role of the person with the authority, in at most ' . StorefrontDecisionRecord::MAXIMUM_TEXT_LENGTH . ' characters.',
+            StorefrontDecisionRecord::namesATool($approvedBy) => 'An approval names a person or a role with the authority to give it, not a tool or an assistant.',
+            $reference === '' || mb_strlen($reference) > StorefrontDecisionRecord::MAXIMUM_TEXT_LENGTH => 'Say where the decision is written down: the opinion, the ticket or the minutes, in at most ' . StorefrontDecisionRecord::MAXIMUM_TEXT_LENGTH . ' characters.',
             !Schema::hasTable('business_settings') => 'There is no business_settings table.',
             $decision === self::DECISION_SETUP && $this->chargesNothing($effective) => "{$country} has no tax setup of its own with a rate, so there are no rates to approve: give it its setup with gcc:storefront:tax, or approve the decision that it charges no tax.",
             $decision === self::DECISION_NO_TAX && !$this->chargesNothing($effective) => "{$country} has a tax setup that charges a tax, or leaves its rates to each product: approve it as a setup, or switch its own setup off with gcc:storefront:tax --unset if no tax is what was decided.",

@@ -13,7 +13,8 @@ use Illuminate\Support\Facades\Schema;
  * author, not revoked, not blank, and not an unedited template.
  *
  * The default storefront is grandfathered (GCC-19). When the table is missing the answer is no, so a storefront whose legal text cannot
- * be read stays closed instead of failing with a server error.
+ * be read stays closed instead of failing with a server error. A configuration that requires no document type or no locale is a missing
+ * configuration, not a reason to open a market, so it answers no too (I2-02).
  */
 final class StorefrontLegalReadiness
 {
@@ -23,17 +24,19 @@ final class StorefrontLegalReadiness
     {
         $country = strtoupper(trim($countryCode));
 
-        if (in_array($country, (array) config('gcc.storefronts.legal.grandfathered', []), true)) {
+        if ($this->isGrandfathered($country)) {
             return true;
         }
 
-        if (!$this->tableExists()) {
+        $requiredPairs = $this->requiredPairsOf($country);
+
+        if ($requiredPairs === [] || !$this->tableExists()) {
             return false;
         }
 
         $currentTexts = $this->currentTextsOf($country);
 
-        foreach ($this->requiredPairsOf($country) as [$type, $locale]) {
+        foreach ($requiredPairs as [$type, $locale]) {
             $text = $currentTexts[$type][$locale] ?? null;
 
             if ($text === null || !$this->isSellable($text)) {
@@ -42,6 +45,12 @@ final class StorefrontLegalReadiness
         }
 
         return true;
+    }
+
+    /** Whether the storefront keeps the documents it has always had and so needs neither their texts nor a review of them. */
+    public function isGrandfathered(string $countryCode): bool
+    {
+        return in_array(strtoupper(trim($countryCode)), (array) config('gcc.storefronts.legal.grandfathered', []), true);
     }
 
     /** The text a new acceptance is recorded against: the newest effective row for that type and locale, or null when there is none. */
