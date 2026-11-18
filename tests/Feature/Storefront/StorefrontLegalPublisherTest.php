@@ -640,7 +640,7 @@ class StorefrontLegalPublisherTest extends TestCase
 
         $this->assertSame(StorefrontLegalDocument::STATUS_PUBLISHED, $revoked->status, 'it was in force, so it stays a published row');
         $this->assertNotNull($revoked->revoked_at);
-        $this->assertSame(2, (int) app(StorefrontLegalReadiness::class)->currentTextFor('KW', 'terms', 'en')->version, 'the revoked text is the text in force');
+        $this->assertSame(2, (int) app(StorefrontLegalReadiness::class)->currentTextFor(countryCode: 'KW', documentType: 'terms', locale: 'en')->version, 'the revoked text is the text in force');
         $linesBefore = count($this->auditLines());
 
         $olderRefusal = $this->refusalOf(fn () => $this->publisher()->draftNewVersionOf(textId: $first->id, author: self::AUTHOR));

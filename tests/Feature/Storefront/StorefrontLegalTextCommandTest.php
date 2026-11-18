@@ -121,7 +121,7 @@ class StorefrontLegalTextCommandTest extends TestCase
     private function stepsAuditedAfter(int $lineId): array
     {
         return DB::table('audit_logs')->where('id', '>', $lineId)->orderBy('id')->pluck('action')
-            ->map(fn (string $action): string => substr($action, strlen('storefront.legal_text.')))->all();
+            ->map(fn (string $action): string => substr($action, offset: strlen('storefront.legal_text.')))->all();
     }
 
     public function test_a_text_goes_from_a_template_to_a_published_text_through_the_command(): void
