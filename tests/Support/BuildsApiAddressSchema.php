@@ -443,10 +443,17 @@ trait BuildsApiAddressSchema
     /** A store whose prices already include tax: the tax set-up the order code asks for is answered from the cache instead of the tax module's tables. */
     protected function useTaxIncludedPrices(): void
     {
-        Cache::put('tax_system_type_vendor_with_vat', [
+        $configuration = [
             'SystemTaxVat' => ['tax_ids' => [], 'additionalData' => [], 'tax_type' => 'order_wise'],
             'SystemTaxVatType' => 'order_wise', 'is_included' => 1, 'productWiseTax' => false, 'categoryWiseTax' => false, 'taxVats' => collect([]),
-        ], 3600);
+        ];
+
+        Cache::put('tax_system_type_vendor_with_vat', $configuration, 3600);
+
+        // A storefront other than the default one reads its configuration under a key of its own (StorefrontTax::cacheKey), so the stub has to be there too.
+        foreach (array_keys((array) config('gcc.storefronts.countries')) as $country) {
+            Cache::put("tax_system_type_vendor_with_vat_{$country}", $configuration, 3600);
+        }
     }
 
     private function createTableOnce(string $name, callable $definition): void

@@ -13,6 +13,8 @@ use Illuminate\Support\Facades\Schema;
  */
 trait BuildsStorefrontCart
 {
+    use ApprovesStorefrontTax;
+
     protected function buildStorefrontCartWorld(): void
     {
         $this->createOrderPipelineTables();
@@ -44,7 +46,7 @@ trait BuildsStorefrontCart
         StorefrontCatalog::flush();
     }
 
-    /** Storefronts on, with Saudi Arabia and the UAE allowed to sell (the UAE is grandfathered here so that the sale gate is not what is under test). */
+    /** Storefronts on, with Saudi Arabia and the UAE allowed to sell (the UAE's legal texts are grandfathered and its tax is decided to be none here, so that the sale gate is not what is under test). */
     protected function switchStorefrontsOn(): void
     {
         config([
@@ -52,6 +54,7 @@ trait BuildsStorefrontCart
             'gcc.storefronts.countries.AE.active' => true,
             'gcc.storefronts.legal.grandfathered' => ['SA', 'AE'],
         ]);
+        $this->approveNoTaxFor('AE');
         StorefrontCatalog::flush();
     }
 

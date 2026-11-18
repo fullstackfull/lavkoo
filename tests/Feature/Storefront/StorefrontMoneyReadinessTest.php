@@ -5,6 +5,7 @@ namespace Tests\Feature\Storefront;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Tests\Support\ApprovesStorefrontTax;
 use Tests\Support\BuildsStorefrontCouponWorld;
 use Tests\Support\BuildsStorefrontMoneyWorld;
 use Tests\TestCase;
@@ -15,6 +16,7 @@ use Tests\TestCase;
  */
 class StorefrontMoneyReadinessTest extends TestCase
 {
+    use ApprovesStorefrontTax;
     use BuildsStorefrontCouponWorld;
     use BuildsStorefrontMoneyWorld;
 
@@ -24,6 +26,7 @@ class StorefrontMoneyReadinessTest extends TestCase
 
         $this->buildStorefrontMoneyWorld();
         $this->buildStorefrontCouponWorld();
+        $this->approveNoTaxFor('AE', 'KW', 'QA', 'BH', 'OM');
         Schema::dropIfExists('products');
         Schema::dropIfExists('shipping_types');
         Schema::create('products', function (Blueprint $table): void {
@@ -167,7 +170,7 @@ class StorefrontMoneyReadinessTest extends TestCase
         $this->artisan('gcc:storefront:currency-readiness')
             ->expectsOutputToContain('KW   launch: shipping is product-only.')
             ->expectsOutputToContain('Ready: every storefront that is switched on has the currency it trades in.')
-            ->expectsOutputToContain('Not covered by this report: the wallet payment, loyalty, referral rewards, tax, documents, reports and POS.')
+            ->expectsOutputToContain('Not covered by this report: the wallet payment, loyalty, referral rewards, whether the tax rates are right (only that somebody approved them), documents, reports and POS.')
             ->assertExitCode(0);
     }
 

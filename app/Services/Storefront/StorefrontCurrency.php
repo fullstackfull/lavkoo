@@ -137,6 +137,23 @@ final class StorefrontCurrency
         return $this->currencyInForce()?->code;
     }
 
+    /**
+     * The storefront other than the default one that the request, or the market a panel runs a callback in, is served from, whatever the state of its money: the
+     * tax follows it even while the currency switch is off or the storefront has no active currency, because the platform's tax is the Saudi one and is never a
+     * substitute for another country's. Null for the default storefront, for a request that serves none and while storefronts are off.
+     */
+    public function storefrontInForce(): ?string
+    {
+        $resolver = StorefrontResolver::fromConfig();
+        $country = $this->market ?? StorefrontCatalog::country();
+
+        if ($country === null || $country === $resolver->defaultCountry() || !$resolver->isEnabled() || !in_array($country, $resolver->configuredCountries(), true)) {
+            return null;
+        }
+
+        return $country;
+    }
+
     /** Whether a storefront has the currency it trades in. Every storefront is ready while the switch is off, and so is the default one. */
     public function isReady(string $country, string $currencyCode): bool
     {
@@ -262,14 +279,13 @@ final class StorefrontCurrency
             return null;
         }
 
-        $resolver = StorefrontResolver::fromConfig();
-        $country = $this->market ?? StorefrontCatalog::country();
+        $country = $this->storefrontInForce();
 
-        if ($country === null || $country === $resolver->defaultCountry() || !$resolver->isEnabled() || !in_array($country, $resolver->configuredCountries(), true)) {
+        if ($country === null) {
             return null;
         }
 
-        $currency = $this->activeCurrency($resolver->currencyOf($country));
+        $currency = $this->activeCurrency(StorefrontResolver::fromConfig()->currencyOf($country));
 
         return $currency === null ? null : ['country' => $country, 'currency' => $currency];
     }

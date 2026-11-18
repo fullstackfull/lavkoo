@@ -33,7 +33,7 @@ class SystemTaxVatSetupController extends Controller
     public function index(Request $request): Renderable
     {
         $tax_payer = 'vendor';
-        $systemTaxVat = SystemTaxSetup::with('additionalData')
+        $systemTaxVat = SystemTaxSetup::ofThePlatform()->with('additionalData')
             ->where('tax_payer', $tax_payer)
             ->first();
 
@@ -89,7 +89,7 @@ class SystemTaxVatSetupController extends Controller
         $taxPayer = $request['tax_payer'] ?? 'vendor';
         if ($request['id'] == null) {
             $systemTaxVat = SystemTaxSetup::when($this->getCountryType() == 'single', function ($query) {
-                $query->where('is_default', true);
+                $query->ofThePlatform()->where('is_default', true);
             }, function ($query) use ($request) {
                 $query->where('country_code', $request['country_code']);
             })
