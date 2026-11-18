@@ -109,6 +109,22 @@ final class StorefrontCurrency
         return $this->currencyInForce() === null ? $stored : self::PRODUCT_WISE_SHIPPING;
     }
 
+    /**
+     * Runs the callback in the money of an order: the storefront its record names, or the default storefront for an order that has none (one placed
+     * before the records, or with the switches off), so that an edit in a panel, which sees every country, never takes the money of whichever
+     * storefront the editor's own request happens to be served from. The panel edit compares an order's amounts with the minimum order and the
+     * free-delivery threshold and prices its shipping, and those are read in the order's own currency.
+     */
+    public function withinOrder(object|array $order, Closure $callback): mixed
+    {
+        $country = data_get($order, 'storefront_country');
+
+        return $this->within(
+            country: is_string($country) && trim($country) !== '' ? $country : StorefrontResolver::fromConfig()->defaultCountry(),
+            callback: $callback,
+        );
+    }
+
     /** The code of the currency the request's storefront trades in, or null while the platform's own settings stand. */
     public function currencyCodeInForce(): ?string
     {
