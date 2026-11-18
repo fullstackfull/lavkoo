@@ -1,6 +1,6 @@
 # Axis A: Six-country base and customer identity
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 37. Acceptance criteria: 161 (MET 81, CODED 20, MISSING 60). Code completion 63%, proven by a passing test 50%, release readiness 9%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 37. Acceptance criteria: 161 (MET 81, CODED 21, MISSING 59). Code completion 63%, proven by a passing test 50%, release readiness 9%.
 
 Independent verification: done for unit(s) A1, A2.
 
@@ -736,13 +736,14 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(8) Dependencies and blockers.** Retention and anonymisation rules need legal review per country; apps read wallet_balance and loyalty_point literally, so keys must stay.
 - **(9) Acceptance criteria.**
   - [MET] Provider API logs and staging copies hold no names, phones, addresses or coordinates (ApiLogPrivacyTest and TorodPiiTest; PR 83 8ff3410 and PR 75 47b78ab, same jobs)
-  - [MISSING] No file or log records customer, guest, address or order ids per paid order (module-helper.php writes order_generate_test.txt on main and in both trees)
+  - [CODED] No file or log records customer, guest, address or order ids per paid order (PR 93 (draft, main based, 04d53061) removes the write of customer, guest, address and order ids to storage/logs/order_generate_test.txt and adds a test that fails with the write and passes without it; passes on SQLite and MySQL 8.0.46 locally, CI of the head not read)
   - [MISSING] Seller and courier payloads omit the customer's wallet balance, loyalty points and referral code (Discovery E04-F15; app/Models/User.php hidden list holds tokens and card data only)
   - [MISSING] Deleting an account retires it without orphaning orders or ledger rows, and refuses while balances are unsettled (account_delete is a hard delete after an ongoing-order check)
   - [MISSING] A seller's customer search returns only customers they may serve (getCustomerNameList searches all users (owner decision recorded in PR 52))
 - **(10) Next coding task.** Branch off main: remove the order debug file write in app/Utils/module-helper.php and add a test that a paid-order settlement leaves no file under storage/logs. tests/Support/KeepsOrderDebugLogClean.php is not such a test: it is a helper (added by PR 56 and by PR 53, absent from main) that restores the file around OrderPaymentCallbackTest, and on main OrderPaymentCallbackTest and ApiUnmigratedStoreTest do the same inline; those save-and-restore blocks go with the write. Add CustomerRetirementService (anonymise name, phone, e-mail, tokens, addresses; keep id, orders, ledgers; refuse while balances are unsettled) for the three delete paths, tested on SQLite, MySQL 8, MariaDB. Keep the apps' payload keys and null hidden values.
 - **Open owner decisions.** Retention period and anonymisation versus hard delete (legal); the POS and seller customer listing (owner decision, PR 52); who may export a customer's data.
 - **Verifier note (not applied automatically).** next_task corrected by the verifier (applied above).
+- **Update after the assessment.** PR 93 (draft, main based, 04d53061): the per-order debug file that recorded customer, guest, address and order ids is no longer written; whoever operates a server that ran the old code should delete storage/logs/order_generate_test.txt. Payload fields, account retirement, the seller customer search and the data export are untouched.
 
 #### A2-V1. A local admin or employee of one market cannot see the customer's transactions of other markets with...
 

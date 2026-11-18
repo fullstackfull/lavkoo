@@ -1,6 +1,6 @@
 # Axis J: Flutter customer app
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 20. Acceptance criteria: 93 (MET 32, CODED 26, MISSING 35). Code completion 62%, proven by a passing test 34%, release readiness 5%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-18. Requirements: 20. Acceptance criteria: 93 (MET 34, CODED 26, MISSING 33). Code completion 65%, proven by a passing test 37%, release readiness 5%.
 
 Independent verification: done for unit(s) J.
 
@@ -89,21 +89,21 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 
 #### J-05. Per-storefront currency and price formatting
 
-- **State: NOT STARTED** | plan lines 175-180 | DECISIONS.md (local pricing, no auto-FX) | reviews: finance, native-arabic
+- **State: IN PROGRESS** | plan lines 175-180 | DECISIONS.md (local pricing, no auto-FX) | reviews: finance, native-arabic
 - **(2) Functional requirement.** Every price prints in the active storefront's currency (SAR, AED, KWD, QAR, BHD, OMR) with that currency's decimals (three for KWD, BHD, OMR; two for SAR, AED, QAR) in cart, checkout, orders and wallet, with no automatic conversion between storefronts.
 - **(3) Exists now in code (main).** main formats prices in PriceConverter.convertPrice as whole numbers (toStringAsFixed(0)) after an exchange-rate conversion from the global /config currency_list, with a currency selector in Settings; other helpers use one global decimal_point setting. No test.
-- **(4) Done in the draft PRs.** Nothing formats by storefront. lavkooapp #1 keeps the currency code in StorefrontCountry.currency (SAR, AED, KWD, QAR, BHD, OMR) but no code reads it; the Settings currency selector stays beside the new country row (#7).
-- **(5) What remains.** (1) Formatter keyed by the storefront currency with ISO minor units. (2) Hide the FX currency selector while storefronts are on. (3) Route all PriceConverter methods and the 51 toStringAsFixed uses through one formatter. (4) Symbols and position in ar and en. (5) Backend: /config and /storefronts carry no symbol or decimals, and /config is not storefront-aware.
-- **(6) PRs and commits.** [lavkooapp#1](https://github.com/fullstackfull/lavkooapp/pull/1) `2a8c84c`
+- **(4) Done in the draft PRs.** lavkooapp #1 keeps the currency code in StorefrontCountry.currency (no code read it). lavkooapp #8 (draft, stacked on #7, 97399d4f) adds StorefrontMoney, a pure Dart writer: the decimals of the currency (ISO 4217: three for KWD, BHD, OMR, two for the rest), grouping, the mark of the server currency list on the side the config says, a space for a mark of letters. PriceConverter.convertPrice, convertPriceWithoutSymbol and getUnitCurrency use it only when the build has storefronts on and the customer is on a storefront other than the default one (a compile-time flag, so with it off nothing changes), and the exchange-rate currency choice is not offered there.
+- **(5) What remains.** The other 48 toStringAsFixed uses (cart, checkout, order, wallet, coupon screens); the default storefront keeps whole numbers (two decimals there is a finance decision); symbol per language and position in Arabic (finance and a native reader); the CI of the app repository only runs the storefront test list and flutter analyze on the files it names, not the whole suite; a golden pack of screens; the backend /config answering symbol and decimals for the storefront asked.
+- **(6) PRs and commits.** [lavkooapp#1](https://github.com/fullstackfull/lavkooapp/pull/1) `2a8c84c`; [lavkooapp#8](https://github.com/fullstackfull/lavkooapp/pull/8) `97399d4f`
 - **(7) Tests.**
-  - `none` none: no price formatting test exists on any head (lavkooapp main and #7 56deea7 have no price_converter test)
+  - `unit` storefront_money_test (16: decimals of the six currencies, grouping, rounding, signs, a missing amount, the mark on either side, which storefronts it writes) and price_converter_storefront_test (6: the pins of the old output with storefronts off; the Kuwaiti, Emirati, Bahraini and Omani prices, an absent config and the default storefront with them on) (lavkooapp test/; CI job storefront-header of lavkooapp #8 on 97399d4f (run 44268303722): flutter test of the default build 428 passed, 20 skipped (the old-output pins run, the five flag-on cases skip) and flutter test --dart-define=GCC_STOREFRONTS_ENABLED=true 258 passed, 9 skipped (the five flag-on cases run); flutter 3.47.0 locally on the first commit as well; the two render-matrix tests that fail on the base are not in the CI list)
 - **(8) Dependencies and blockers.** Backend storefront currency contract (unit D1/E, GCC-05 slice): storefront-aware config with symbol and minor units; today ConfigController returns one system_default_currency and a global currency_list (lavkoo PR 83 8ff3410).
 - **(9) Acceptance criteria.**
-  - [MISSING] A KW, BH or OM price prints with three decimals and its own currency symbol (PriceConverter.convertPrice uses toStringAsFixed(0) and the global symbol)
-  - [MISSING] SA, AE and QA prices print with two decimals and their own symbol (Same formatter, whole numbers only)
-  - [MISSING] No FX: no currency selector and no exchange-rate multiplication while storefronts are on (SelectCurrencyBottomSheetWidget stays in settings_screen.dart; convertPrice multiplies by exchangeRate)
-  - [MISSING] Cart, checkout, order, wallet and coupon amounts all use one formatter (51 lines with toStringAsFixed( in lib (PR 7 head))
-- **(10) Next coding task.** New branch from the #7 head: pure CurrencyFormat (code to minor units, symbol, position), PriceConverter methods use it when StorefrontConfig.enabled (flag-off output stays byte-identical), selector hidden with the flag on; tests with golden strings for six currencies, rounding and the flag-off pin.
+  - [MET] A KW, BH or OM price prints with three decimals and its own currency symbol (StorefrontMoney writes KWD, BHD and OMR with three decimals and the mark of the server list; storefront_money_test and price_converter_storefront_test pass in CI on 97399d4f (job storefront-header, both builds))
+  - [MISSING] SA, AE and QA prices print with two decimals and their own symbol (AE and QA print two decimals with their own mark (tested and green in CI); the default storefront SA keeps whole numbers by design until finance decides, so the criterion as written (SA, AE and QA two decimals) is not met)
+  - [MET] No FX: no currency selector and no exchange-rate multiplication while storefronts are on (no exchange-rate multiplication and no currency choice on a storefront with its own currency while storefronts are on; the glue tests pass in the build with the flag on (CI, 97399d4f))
+  - [MISSING] Cart, checkout, order, wallet and coupon amounts all use one formatter (48 toStringAsFixed uses in cart, checkout, order, wallet and coupon screens still use the platform decimals)
+- **(10) Next coding task.** Route the remaining toStringAsFixed uses through StorefrontMoney screen by screen (cart, checkout, order details, wallet, coupons) with tests per screen; add a flutter test job to the app repository; then J-07 and the storefront-aware config contract with the backend.
 - **Open owner decisions.** Currency symbol or code per language (for example KWD or the Arabic symbol), trailing zeros and rounding mode: finance to confirm.
 - **Verifier note (not applied automatically).** plan_lines: Lines 175-180 are only the list of countries and currencies. The functional text's 'no automatic conversion between storefronts' and local pricing are plan lines 284-285 (section 5.5 Checkout and pricing). Proposed: 175-180, 284-285
 

@@ -4,17 +4,17 @@ As of 2026-11-18. Generated from the independent assessment of every requirement
 
 ## 1. Read this first
 
-- **Nothing here is merged, deployed or verified in production.** All 87 draft pull requests of `lavkoo`, 7 of `lavkooapp` and 6 of `lavkooappseller` are open; `main` has none of the GCC work. The live server runs an older baseline (`698aa1e`). No state in this document claims production.
+- **Nothing here is merged, deployed or verified in production.** All 93 draft pull requests of `lavkoo`, 8 of `lavkooapp` and 6 of `lavkooappseller` are open; `main` has none of the GCC work. The live server is described by the release documents as running an older baseline (`698aa1e`), which no document proves from outside. No state in this document claims production.
 - **A percentage is shown only where it is computed from acceptance criteria that a test could assert** (formulas in section 4). Code completion and release readiness are two different numbers and are never mixed: code can be 90% complete and still 0% released.
 - **MET means a named test or CI job on a named head passed.** A limited unit test, a pull request body or a green job that does not cover the behaviour is not proof; the verifiers refuted such claims and the corrections are applied.
 - The exposed keys and credentials stay in the register of unremediated risks (`DEFERRED_RISKS.md`, DR-1 to DR-5). Deferring their rotation does not close them.
-- Units whose independent verification is still running are marked below; their numbers are the assessor's and can only go down when the verifier finishes.
+- Every one of the 19 units was read by an independent verifier that tried to refute its states, tests and evidence; the corrections are applied or shown on the card. Work done after the assessors read the trees (new pull requests, CI results) is added as "Update after the assessment" on the cards it touches.
 
 ## 2. Dashboard by axis
 
 | Axis | Requirements | Criteria | MET | CODED | MISSING | Code completion | Proven by tests | Release readiness | Verified |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| [A. Six-country base and customer identity](tracker/axis-a-six-country-base-and-customer-identity.md) | 37 | 161 | 81 | 20 | 60 | 63% | 50% | 9% | all |
+| [A. Six-country base and customer identity](tracker/axis-a-six-country-base-and-customer-identity.md) | 37 | 161 | 81 | 21 | 59 | 63% | 50% | 9% | all |
 | [B. Catalogue and products](tracker/axis-b-catalogue-and-products.md) | 18 | 91 | 34 | 17 | 40 | 56% | 37% | 0% | all |
 | [C. Inventory and fulfillment](tracker/axis-c-inventory-and-fulfillment.md) | 18 | 94 | 65 | 9 | 20 | 79% | 69% | 30% | all |
 | [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 165 | 72 | 29 | 64 | 61% | 44% | 8% | all |
@@ -23,11 +23,11 @@ As of 2026-11-18. Generated from the independent assessment of every requirement
 | [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 96 | 57 | 7 | 32 | 67% | 59% | 13% | all |
 | [H. Shipping and integrations](tracker/axis-h-shipping-and-integrations.md) | 34 | 152 | 79 | 10 | 63 | 59% | 52% | 16% | all |
 | [I. Marketing, policies and operations](tracker/axis-i-marketing-policies-and-operations.md) | 37 | 183 | 48 | 36 | 99 | 46% | 26% | 2% | all |
-| [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 93 | 32 | 26 | 35 | 62% | 34% | 5% | all |
+| [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 93 | 34 | 26 | 33 | 65% | 37% | 5% | all |
 | [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 91 | 5 | 33 | 53 | 42% | 5% | 2% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 45 | 18 | 31 | 67% | 48% | 7% | all |
-| [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 285 | 87 | 101 | 97 | 66% | 31% | 3% | all |
-| **All axes (pooled)** | **359** | **1663** | **641** | **342** | **680** | **59%** | **39%** | **7%** | |
+| [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 285 | 87 | 100 | 98 | 66% | 31% | 3% | all |
+| **All axes (pooled)** | **359** | **1663** | **643** | **342** | **678** | **59%** | **39%** | **7%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -35,9 +35,9 @@ The pooled row counts every criterion once; it is not weighted by importance or 
 
 | Gate | Requirements |
 |---|---:|
-| NOT STARTED | 45 |
-| IN PROGRESS | 246 |
-| IMPLEMENTED IN DRAFT | 43 |
+| NOT STARTED | 44 |
+| IN PROGRESS | 248 |
+| IMPLEMENTED IN DRAFT | 42 |
 | INTEGRATED AND TESTED | 7 |
 | READY FOR OWNER REVIEW | 0 |
 | MERGED | 18 |
@@ -51,7 +51,7 @@ Chosen from the table of requirements, not from the pull request list: each one 
 
 - **Blocks:** orders with the right currency; prices that are the same in the app and on the web; wallets, coupons, shipping and tax that agree with the order.
 - **Where it stands:** GCC-05 (draft PR 87, slices 1 to 4, off by default) makes a non-default storefront single-currency in its own currency with the right decimals, records the storefront and currency on the order, refuses a gateway that cannot take that currency and makes the admin product screens work in the product's country. Everything else that holds an amount still reads the platform's one currency: coupons and their budgets, shipping rates and the free-delivery and minimum-order thresholds, the tax snapshot, refunds in the original currency, channel prices, invoices, e-mails and exports, and both apps' formatters.
-- **Measured:** 20 requirements (4 not started), 94 criteria of which 58 MISSING (62%) as the assessors read it; slices 3 and 4 of PR 87 came after and are in the cards as updates. Requirements: B-02, B-03, D1-05, D1-06, D1-07, D1-10, D2-05, D2-10, E-16, H1-08, H1-09, H1-14, H2-08, I1-12, I1-14, J-05, K-10, L-08, M2-07, C-15.
+- **Measured:** 20 requirements (3 not started), 94 criteria of which 56 MISSING (60%) as the assessors read it; slices 3 and 4 of PR 87 came after and are in the cards as updates. Requirements: B-02, B-03, D1-05, D1-06, D1-07, D1-10, D2-05, D2-10, E-16, H1-08, H1-09, H1-14, H2-08, I1-12, I1-14, J-05, K-10, L-08, M2-07, C-15.
 - **First executable step:** The next slice of GCC-05: the amount-bearing settings (minimum order, free delivery, add-fund limits) and coupons per storefront, through the same seam, with a readiness check; then the tax and refund snapshot.
 
 ### Gap 2. Wallet and loyalty are one global balance
@@ -96,13 +96,13 @@ Executable on an isolated branch without production access, ordered by the prior
 |---|---|---|---:|---|---|
 | P0 | [M1-16](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 4 | Protection of main and CI cost and reliability | Keep PR 1 as the first change so main turns green. Then two drafts: (a) .github/CODEOWNERS and docs/gcc/BRANCH_PROTECTION.md with the exact ruleset and required checks for a person to apply; (b) ci.yml paths-ignore for docs-only c |
 | P0 | [M1-01](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 3 | Branch and PR ledger, CI read-only, truthful production claims | On claude/exciting-shannon-4mh2ok: commit docs/gcc/PR_LEDGER.md generated by a read-only script from the PR index and CI table (99 PRs), replace the stale STATUS.md section, and add a script that compares the ledger heads with git |
-| P0 | [M1-03](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 3 | Combined integration of the security set and the GCC chain, tested on three engines | Read the CI of runs 275 (security-gcc-integration-ci) and 279 (all-integration-ci) per job; fix any red job on the integration branch only; write docs/gcc/audits/2026-11-18-all-in-one-integration/README.md with every conflict and  |
+| P0 | [M1-03](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 3 | Combined integration of the security set and the GCC chain, tested on three engines | Read the CI of run 288 (all-integration-ci, 515d5bfa) per job; fix any red job on the integration branch only, or on the pull request that owns the defect; add the result to docs/gcc/audits/2026-11-18-all-in-one-integration/README |
 | P0 | [M1-13](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 3 | Review and approval gates: finance, security of GCC-20, native Arabic reader | On the docs branch add docs/gcc/REVIEW_GATES.md: per review (finance #52; security of stages 1 and 4 and of GCC-20 #71, #79, #80, #84 and seller #4, #6; native Arabic keys of seller #6, customer #7, #72, #74 and the added lines of |
 | P0 | [M1-14](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 3 | Staging environment with fake data for six countries | Branch gcc/staging-fake-data: add database/seeders/GccStagingSeeder (six storefronts, invented sellers, customers, products per country, orders, wallets, reusing the test world builders), a guard that refuses to seed unless APP_EN |
 | P0 | [M1-15](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 2 | Register of deferred risks DR-1 to DR-5: open, not remediated | Write the read-only server preflight checklist that DR-2 refers to (DEFERRED_RISKS.md exists since ccd00f3d and is linked from the guide and the handoff). |
 | P0 | [M1-02](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1 | Dependency and conflict map of all open PRs, and one safe merge order for main | On the docs branch write docs/gcc/MERGE_ORDER.md: a topological order of all 99 PRs from their bases, every conflicting pair (the guide's four plus #20, #22, #23, #32) with the resolution, and the by-hand overlay files per PR; add |
 | P0 | [M1-04](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1 | Stage 0: open maintenance routes removed and one-time codes kept out of the log | Cut a branch from main: apply PR 85's ForgotPasswordController and ZenderOtpService hunks (the routes are already gone), add OtpLoggingTest, run Fulfillment + security on MySQL 8 and MariaDB 11.4.2 and open it as a draft. |
-| P0 | [M1-07](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1 | Ownership, payment-identity and withdraw fixes that have no release path (PRs 7, 16, 20-23 | Read the CI of the all-in-one run 279; then decide with the owner which of these fixes join the staged hotfix as net changes (the method of the hotfix plan) and which wait for the merge of the main-based set. |
+| P0 | [M1-07](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1 | Ownership, payment-identity and withdraw fixes that have no release path (PRs 7, 16, 20-23 | Read the CI of the all-in-one run 288; then decide with the owner which of these fixes join the staged hotfix as net changes (the method of the hotfix plan) and which wait for the merge of the main-based set. |
 | P0 | [M1-09](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1 | Stage 4: uploads and files cannot store or serve code or other people's files | Add flag-guarded calls to the authenticated digital-file routes in both Flutter apps (unit tests with hand-written server answers) so DIGITAL_FILES_PRIVATE can be turned on; on PR 63 add a read-only command that counts stored scri |
 | P0 | [M1-11](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1 | Deployment tooling: overlay build, drift check, apply, backup and rollback, and its CI job | Add a by-hand set to scripts/deploy: a manifest of files outside the six directories with baseline and new checksums, verify (CLEAN or DRIFTED), apply with backups and rollback, tested in tests/Unit/Deploy/OverlayDeploymentTest; k |
 | P0 | [M1-17](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1 | Saudi behaviour is unchanged while the GCC switches are off | Once the combined tree exists: run it with every switch off and add a Saudi golden-master pack (home, product list, cart, checkout, payment callback, order status, wallet) pinned byte for byte on SQLite, MySQL 8 and MariaDB; leave |
@@ -116,9 +116,9 @@ Executable on an isolated branch without production access, ordered by the prior
 | P1 | [E-07](tracker/axis-e-wallets-loyalty-and-financial-records.md) | NOT STARTED | 5 | Saudi balances migrated into per-market accounts without loss | Write the migration pack as code only: expand-only migration, wallet:backfill-saudi-accounts --dry-run that exits unless wallet:reconcile reports zero unexplained, shadow dual-write behind GCC_MARKET_WALLETS, per-market read switc |
 | P1 | [E-13](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 5 | Refunds, return amounts and cancellations paid to the wallet | Branch on PR 15 once the owner approves: conditional UPDATE claims inside the customer lock for RF-01, RF-03 and RF-04, refund id as reference, one transaction in updateRefundStatus, and un-skip the four RefundConcurrencyTest case |
 | P1 | [A2-13](tracker/axis-a-six-country-base-and-customer-identity.md) | NOT STARTED | 4 | Marketing consents scoped by storefront, company and channel | New branch off PR 43 (gcc/p1-legal-acceptance-receipts): additive migration customer_marketing_consents and app/Services/Consent/MarketingConsentRecorder.php mirroring StorefrontLegalAcceptanceRecorder (write-once, withdrawal rows |
-| P1 | [A2-15](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 4 | Privacy of customer data: logs, payloads, retention and deletion | Branch off main: remove the order debug file write in app/Utils/module-helper.php and add a test that a paid-order settlement leaves no file under storage/logs. tests/Support/KeepsOrderDebugLogClean.php is not such a test: it is a |
 | P1 | [C-15](tracker/axis-c-inventory-and-fulfillment.md) | NOT STARTED | 4 | Country defaults of the fulfillment config and adapters (SAR and Saudi assumptions) | Test-only characterization on a branch from main: tests/Feature/Fulfillment/FulfillmentMoneyThreeDecimalsTest pins what a KWD 12.345 cash-on-delivery order does today (held, or rounded to two decimals) so the later fix flips it; a |
 | P1 | [D1-10](tracker/axis-d-orders-checkout-and-payments.md) | NOT STARTED | 4 | Historical refunds in the original currency and merchant account | After D1-06: additive nullable currency_code, rate_basis and legal_entity_id on refund_requests and refund_transactions, filled from the order; make RefundStatusService compute in order currency; tests that place an order at rate  |
+| P1 | [D2-03](tracker/axis-d-orders-checkout-and-payments.md) | NOT STARTED | 4 | Tabby and Tamara reviewed; BNPL gateways only after owner approval and provider confirmati | After D2-05: list Tabby and Tamara in the gateway capability registry with confirmed=false for all six markets, and test that an unconfirmed gateway is never listed or accepted; build no adapter until Q-09 is answered. |
 
 ## 7. Index of all requirements
 
@@ -162,7 +162,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [A2-12](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 1/0/2 | Address eligibility checked per storefront |
 | [A2-13](tracker/axis-a-six-country-base-and-customer-identity.md) | NOT STARTED | 0/0/4 | Marketing consents scoped by storefront, company and channel |
 | [A2-14](tracker/axis-a-six-country-base-and-customer-identity.md) | IMPLEMENTED IN DRAFT | 3/1/0 | Existing accounts, ids and history are preserved |
-| [A2-15](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 1/0/4 | Privacy of customer data: logs, payloads, retention and deletion |
+| [A2-15](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 1/1/3 | Privacy of customer data: logs, payloads, retention and deletion |
 | [A2-V1](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 0/0/1 | A local admin or employee of one market cannot see the customer's transactions of other markets with... |
 | [A2-V2](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 0/0/1 | Policy consents are stored in the right scope: the explicit acceptance of a legal text is recorded a... |
 
@@ -412,7 +412,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [J-02](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 4/1/1 | Country chooser and storefront switch |
 | [J-03](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 4/1/1 | X-Storefront header on every API request |
 | [J-04](tracker/axis-j-flutter-customer-app.md) | IMPLEMENTED IN DRAFT | 4/1/0 | Caches and local storage keyed by storefront |
-| [J-05](tracker/axis-j-flutter-customer-app.md) | NOT STARTED | 0/0/4 | Per-storefront currency and price formatting |
+| [J-05](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 2/0/2 | Per-storefront currency and price formatting |
 | [J-06](tracker/axis-j-flutter-customer-app.md) | IMPLEMENTED IN DRAFT | 4/2/0 | Theme rendering per storefront and platform |
 | [J-07](tracker/axis-j-flutter-customer-app.md) | IMPLEMENTED IN DRAFT | 4/1/0 | Cart and wishlist per storefront |
 | [J-08](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 3/2/1 | Sellable gate and paused-storefront modes |
@@ -531,7 +531,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [M2-V6](tracker/axis-m-security-tests-and-deployment.md) | NOT STARTED | 0/0/1 | Stock balances (current_stock, holds, outbox, provider stock) and prices of existing products reconc... |
 | [M3-01](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/3/1 | Report 01 Executive Assessment: state of the project and readiness for GCC, tagged Verified / Inferred / Unknown |
 | [M3-02](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/3/1 | Report 02 Current Architecture Map: browser and Flutter to Laravel APIs, services, storage, integrations |
-| [M3-03](tracker/axis-m-security-tests-and-deployment.md) | IMPLEMENTED IN DRAFT | 0/3/0 | Report 03 Reuse Matrix: what exists, what to keep, what to extend, with file and SHA evidence |
+| [M3-03](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/2/1 | Report 03 Reuse Matrix: what exists, what to keep, what to extend, with file and SHA evidence |
 | [M3-04](tracker/axis-m-security-tests-and-deployment.md) | IMPLEMENTED IN DRAFT | 0/4/0 | Report 04 GCC Data Ownership Matrix: owner, isolation level, impact, and the meanings of shop_id, seller_id, customer_id |
 | [M3-05](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/2/2 | Report 05 Proposed Target Architecture: shared systems, independent data, alternatives and reasons |
 | [M3-06](tracker/axis-m-security-tests-and-deployment.md) | IMPLEMENTED IN DRAFT | 0/3/0 | Report 06 Database Migration Strategy: document present (content measured in M2) |
@@ -572,20 +572,22 @@ Nineteen assessors (one per unit of the plan) read the original plan lines, `ori
 | L | L | 18 | yes | 2 | 0 |
 | M1 | M | 20 | yes | 7 | 2 |
 | M2 | M | 25 | yes | 6 | 6 |
-| M3 | M | 18 | yes | 4 | 0 |
+| M3 | M | 18 | yes | 7 | 0 |
 
 Coverage gaps (what no unit could inspect) are listed in [`tracker/coverage-gaps.md`](tracker/coverage-gaps.md). The common ones: production was not inspected, so no live setting is claimed; provider contracts, regulatory facts and customs rules are facts outside the repositories; CI logs are read per head, not re-run.
 
 ## 9. State of GitHub this was measured against
 
-- `fullstackfull/lavkoo`: 87 open draft pull requests, none merged; `main` is `c5c04b7b` (2026-11-12). `fullstackfull/lavkooapp`: 7 open drafts. `fullstackfull/lavkooappseller`: 6 open drafts.
-- CI-only integration trees (never merged): the security set `gcc/release/security-integration` (PR 75, `47b78ab8`); the GCC stack `gcc/release/gcc-integration-ci` (PR 83, `8ff34109`); both together `gcc/release/security-gcc-integration-ci` (`f6fb03af`); and every main-based open pull request together, `gcc/release/all-integration-ci` (`55487514`, 82 of the 86 main-based pull requests that existed when it was cut; the four not in it are the baseline hotfix line below).
+- `fullstackfull/lavkoo`: 93 open draft pull requests, none merged; `main` is `c5c04b7b` (2026-11-12). `fullstackfull/lavkooapp`: 8 open drafts. `fullstackfull/lavkooappseller`: 6 open drafts.
+- CI-only integration trees (never merged): the security set `gcc/release/security-integration` (PR 75, `47b78ab8`); the GCC stack `gcc/release/gcc-integration-ci` (PR 83, `8ff34109`); both together `gcc/release/security-gcc-integration-ci` (`f6fb03af`); and every main-based open pull request together, `gcc/release/all-integration-ci` (`515d5bfa`: 82 of the 86 main-based pull requests that existed when it was first cut, PR 87 and the drafts 88, 89 and 90 of 2026-11-18; the four not in it are the baseline hotfix line below). Its run 288 is the current proof of the tree.
 - The baseline hotfix line (cut from the server baseline `698aa1e`, deployed in stages): PR 78 `gcc/release/security-hotfix` (`fafa1a2e`), PR 81 `gcc/release/security-hotfix-ci` (`0f512114`), PR 85 `gcc/release/security-hotfix-stage0` (`b83fd189`), PR 86 `gcc/release/security-hotfix-ci-mariadb` (`49e170fe`).
 - GCC-05, the currency of a storefront: PR 87 `gcc/p1-storefront-currency` (`4af1c305`), slices 1 to 4, stacked on PR 64.
-- Documents: branch `claude/exciting-shannon-4mh2ok` (`docs/gcc/`), including this tracker.
+- New drafts of 2026-11-18, all dormant or documents: lavkoo PR 88 `wallet:reconcile` (`b5a3b5d1`), PR 89 two statements a strict SQL server refuses (`f4e68780`), PR 90 the selling-company registry (`3eb54456`, stacked on 87), PR 91 the branch protection rule and CODEOWNERS (`faa06167`, documents only), PR 92 every test starts from an empty database on a real server (`8749f0ca`), PR 93 the per-order debug file removed (`04d53061`); lavkooapp #8 the price formatter of a storefront with its own currency (`97399d4f`, stacked on #7).
+- Documents: branch `claude/exciting-shannon-4mh2ok` (`docs/gcc/`), including this tracker, `STAGING_PLAN.md` and the audit of the all-in-one integration.
 
 ## 10. Changes since the assessors read the trees
 
-- GCC-05 is now **PR 87** (head `4af1c305`). The assessors read the branch `gcc/p1-storefront-currency` at slice 3 (`25f83fe5`) when it had no pull request, so cards that say "no pull request" for it are out of date, and slice 4 (the admin product screens work in the money of the product's country, `163d408e`) is not in their reading. It touches B-03, D1-05, D1-06, D2-05 and the wording of I1-12 and J-05; its criteria are not re-scored here until a verifier reads the new head.
+- GCC-05 is now **PR 87** (head `4af1c305`). The assessors read the branch `gcc/p1-storefront-currency` at slice 3 (`25f83fe5`) when it had no pull request, so cards that say "no pull request" for it are out of date, and slice 4 (the admin product screens work in the money of the product's country, `163d408e`) is not in their reading. It touches B-03, D1-05, D1-06, D2-05 and the wording of I1-12 and J-05; the verifiers of D1, D2 and H1 corrected the cards they read, and the others carry an "Update after the assessment" where it matters.
 - The CI runs of the hotfix line were read per head: PR 78 (`fafa1a2e`): both SQLite suites, syntax checks and the secret scan green, the MySQL job cancelled by the baseline workflow's time limit, the overlay job red by design; PR 81 (`0f512114`, 45-minute limit): all test jobs green including MySQL 8; PR 86 (`49e170fe`): all test jobs green including MySQL 8 and MariaDB 11.4.2. In all three the overlay job refuses the release because 17 files lie outside the directories an overlay carries (`.htaccess`, three `Modules/*` areas and two public scripts); they are deployed by hand deliberately and listed in the release plan.
-- The all-in-one integration branch `gcc/release/all-integration-ci` (head `c30390d1`) was built after the assessment. Of its 35 merges, 15 conflicted (32 file instances, 28 files), all resolved in the branch only; a set of tests and one guarded document pinned behaviour that a sibling pull request changes on purpose, and each is reconciled and listed in [`audits/2026-11-18-all-in-one-integration/README.md`](audits/2026-11-18-all-in-one-integration/README.md). It found one real defect of the security set (a private digital file row read without its id raised a TypeError when serialized; fixed on PR 69 in `4096f1be`, still to be taken into stage 4 of the hotfix line). Its CI run (279) was dispatched and is not read yet, so the criteria that rest on "a tree contains both sets and is green" (M1-03, M2-15) stay MISSING.
+- The all-in-one integration branch `gcc/release/all-integration-ci` was built after the assessment. Of its 35 first merges, 15 conflicted (32 file instances, 28 files), all resolved in the branch only; a set of tests and one guarded document pinned behaviour that a sibling pull request changes on purpose, and each is reconciled and listed in [`audits/2026-11-18-all-in-one-integration/README.md`](audits/2026-11-18-all-in-one-integration/README.md). It found one real defect of the security set (a private digital file row read without its id raised a TypeError when serialized; fixed on PR 69 in `4096f1be`, still to be taken into stage 4 of the hotfix line). Run 279 (`c30390d1`) was read per job and showed three more things, all now in drafts of their own: test classes that only ever ran on SQLite collide on a real server (PR 92), two statements an ONLY_FULL_GROUP_BY server refuses in the coupon use count and the checkout cart group (PR 89, a defect of `main` itself), and two characterization tests of unfixed behaviour. The reconciled head `515d5bfa` runs as run 288, which is not read yet, so the criteria that rest on "a tree contains both sets and is green" (M1-03, M2-15) stay MISSING.
+- Cards changed after the assessment (they show an "Update after the assessment"): E-06 (PR 88, `wallet:reconcile`), D1-03 and D1-04 (PR 90, the selling-company registry and the order stamp), D1-06 (PR 87 order snapshot), J-05 (lavkooapp #8, green in the app repository's own CI on `97399d4f`), A2-15 (PR 93), M1-03, M1-07, M1-14 (the staging plan), M1-16 (PR 91) and M2-15.
