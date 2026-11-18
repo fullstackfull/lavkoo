@@ -6,6 +6,7 @@ use Closure;
 use Illuminate\Database\Connection;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\Schema;
+use InvalidArgumentException;
 use RuntimeException;
 
 /**
@@ -104,6 +105,22 @@ final class ReadOnlyProbe
             $this->statements,
             static fn (string $sql): bool => preg_match(self::READ_STATEMENT, $sql) !== 1 && preg_match(self::SESSION_STATEMENT, $sql) !== 1,
         ));
+    }
+
+    /**
+     * Runs one SELECT written by the caller and returns its rows. The statement is refused unless it is a read (the session is locked read-only as well).
+     * It is for the aggregates no helper expresses; the caller reports counts and sums and never prints a row.
+     *
+     * @param list<mixed> $bindings
+     * @return list<array<string, mixed>>
+     */
+    public function select(string $sql, array $bindings = []): array
+    {
+        if (preg_match(self::READ_STATEMENT, $sql) !== 1) {
+            throw new InvalidArgumentException('The read-only probe runs reads only.');
+        }
+
+        return array_map(static fn (object $row): array => (array) $row, $this->connection->select($sql, $bindings));
     }
 
     public function hasTable(string $table): bool
