@@ -3,6 +3,7 @@
 namespace Modules\TaxModule\app\Traits;
 
 
+use App\Services\Storefront\StorefrontTax;
 use Modules\TaxModule\app\Models\SystemTaxSetup;
 use Modules\TaxModule\app\Models\Tax;
 use Modules\TaxModule\app\Models\Taxable;
@@ -14,7 +15,8 @@ trait VatTaxManagement
 
     public static function getTaxSystemType($getTaxVatList = true, $tax_payer = 'vendor'): array
     {
-        $cacheKey = "tax_system_type_{$tax_payer}_" . ($getTaxVatList ? 'with_vat' : 'no_vat');
+        $storefrontTax = app(StorefrontTax::class);
+        $cacheKey = $storefrontTax->cacheKey(payer: $tax_payer, withVat: $getTaxVatList);
 
         $cacheKeys = Cache::get('cache_tax_system_types_and_config', []);
         if (!in_array($cacheKey, $cacheKeys)) {
@@ -22,15 +24,9 @@ trait VatTaxManagement
             Cache::put('cache_tax_system_types_and_config', $cacheKeys, 60 * 60 * 24 * 7);
         }
 
-        return Cache::remember($cacheKey, now()->addMinutes(30), function () use ($getTaxVatList, $tax_payer) {
+        return Cache::remember($cacheKey, now()->addMinutes(30), function () use ($getTaxVatList, $tax_payer, $storefrontTax) {
             if (getCheckAddonPublishedStatus('TaxModule')) {
-                $systemTaxVat = SystemTaxSetup::where('is_active', 1)
-                    ->with(['additionalData' => function ($query) {
-                        return $query->where('is_active', 1);
-                    }])
-                    ->where('tax_payer', $tax_payer)
-                    ->where('is_default', 1)
-                    ->first();
+                $systemTaxVat = $storefrontTax->setupInForce(payer: $tax_payer);
 
                 if (!$systemTaxVat) {
                     $systemTaxVat = self::getAddInitSystemVatTax();
@@ -64,6 +60,13 @@ trait VatTaxManagement
                 'taxVats' => $taxVats ?? collect([])
             ];
         });
+    }
+
+
+    /** The tax configuration of the market an order belongs to: an edit made in a panel, which serves no storefront, taxes an order under the setup it was placed under. */
+    public static function getTaxSystemTypeOfOrder(object|array $order, $getTaxVatList = true, $tax_payer = 'vendor'): array
+    {
+        return app(StorefrontTax::class)->withinOrder(order: $order, callback: fn (): array => self::getTaxSystemType($getTaxVatList, $tax_payer));
     }
 
 

@@ -167,7 +167,7 @@ class StorefrontMoneyReadinessTest extends TestCase
         $this->artisan('gcc:storefront:currency-readiness')
             ->expectsOutputToContain('KW   launch: shipping is product-only.')
             ->expectsOutputToContain('Ready: every storefront that is switched on has the currency it trades in.')
-            ->expectsOutputToContain('Not covered by this report: the wallet payment, loyalty, referral rewards, tax, documents, reports and POS.')
+            ->expectsOutputToContain('Not covered by this report: the wallet payment, loyalty, referral rewards, whether the tax rates are right, documents, reports and POS.')
             ->assertExitCode(0);
     }
 
