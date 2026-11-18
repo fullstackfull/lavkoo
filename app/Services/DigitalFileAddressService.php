@@ -47,11 +47,12 @@ class DigitalFileAddressService
      * address. Nothing while the mode is off or the row keeps its file on the bucket, so the caller gives the answer it always gave.
      *
      * @param string $kind `order-line`, `product` or `variation`
+     * @param int|string|null $id the row of the file; a row read without its id (an aggregate or a partial select) has no route of its own, so it is answered as it always was
      * @return array{key: ?string, path: ?string, status: int}|null
      */
-    public function privateAnswer(?string $name, string $kind, int|string $id, ?string $storageType = null): ?array
+    public function privateAnswer(?string $name, string $kind, int|string|null $id, ?string $storageType = null): ?array
     {
-        if (!$this->files->isPrivate() || $this->files->isOnTheBucket(storageType: $storageType)) {
+        if ($id === null || !$this->files->isPrivate() || $this->files->isOnTheBucket(storageType: $storageType)) {
             return null;
         }
 
