@@ -6,6 +6,7 @@ use App\Enums\SessionKey;
 use Carbon\Carbon;
 use App\Models\User;
 use App\Utils\Helpers;
+use App\Utils\RequestText;
 use App\Utils\SMSModule;
 use Carbon\CarbonInterval;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
@@ -16,9 +17,9 @@ use App\Utils\CustomerManager;
 use App\Services\FirebaseService;
 use Illuminate\Http\JsonResponse;
 use App\Events\PasswordResetEvent;
+use App\Services\CustomerPasswordResetService;
 use App\Services\RecaptchaService;
 use Illuminate\Routing\Redirector;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Contracts\View\View;
 use App\Http\Controllers\Controller;
 use Brian2694\Toastr\Facades\Toastr;
@@ -40,6 +41,7 @@ class ForgotPasswordController extends Controller
         private readonly CustomerRepositoryInterface                 $customerRepo,
         private readonly FirebaseService                             $firebaseService,
         private readonly PhoneOrEmailVerificationRepositoryInterface $phoneOrEmailVerificationRepo,
+        private readonly CustomerPasswordResetService                $customerPasswordResetService,
     ) {
         $this->middleware('guest:customer', ['except' => ['logout']]);
     }
@@ -67,7 +69,7 @@ class ForgotPasswordController extends Controller
             return back();
         }
 
-        $customer = $this->customerRepo->getByIdentity(filters: ['phone' => $request['identity']]);
+        $customer = $this->customerPasswordResetService->findCustomer(identity: RequestText::of($request['identity']), kind: CustomerPasswordResetService::PHONE);
         if (!$customer) {
             Toastr::error(translate('No_such_user_found'));
             return back();
@@ -93,7 +95,8 @@ class ForgotPasswordController extends Controller
             $token = $this->customerAuthService->getCustomerVerificationToken();
 
             $firebaseOTPVerification = getWebConfig(name: 'firebase_otp_verification') ?? [];
-            if ($verificationBy == 'phone' && $firebaseOTPVerification && $firebaseOTPVerification['status']) {
+            $sentByFirebase = $verificationBy == 'phone' && $firebaseOTPVerification && $firebaseOTPVerification['status'];
+            if ($sentByFirebase) {
                 $firebaseResponse = $this->firebaseService->sendOtp($customer['phone']);
                 if ($firebaseResponse['status'] == 'success') {
                     $token = $firebaseResponse['sessionInfo'];
@@ -143,6 +146,7 @@ class ForgotPasswordController extends Controller
                         'phone_or_email' => $customer['email'],
                         'token' => $token,
                     ]);
+                    $this->customerPasswordResetService->issueCode(customer: $customer, kind: CustomerPasswordResetService::EMAIL, code: $token);
                     event(new PasswordResetEvent(email: $customer['email'], data: $data));
                     Toastr::success(translate('Check_your_email') . ' ' . translate('Password_reset_url_sent'));
                 } catch (\Exception $exception) {
@@ -158,6 +162,9 @@ class ForgotPasswordController extends Controller
                     'phone_or_email' => $identity,
                     'token' => $token,
                 ]);
+                if (!$sentByFirebase) {
+                    $this->customerPasswordResetService->issueCode(customer: $customer, kind: CustomerPasswordResetService::PHONE, code: $token);
+                }
                 Toastr::success(translate('Check_your_phone') . ' ' . translate('Password_reset_OTP_sent'));
                 return redirect()->route('customer.auth.login.verify-account', ['identity' => base64_encode($identity), 'type' => base64_encode($type), 'action' => base64_encode('password-reset')]);
             } else {
@@ -181,7 +188,7 @@ class ForgotPasswordController extends Controller
             return back();
         }
 
-        $customer = $this->customerRepo->getByIdentity(filters: ['identity' => base64_decode($request['identity'])]);
+        $customer = $this->customerPasswordResetService->findCustomer(identity: base64_decode(RequestText::of($request['identity'])));
         if ($customer) {
             $tokenInfo = $this->phoneOrEmailVerificationRepo->getFirstWhere(params: ['phone_or_email' => $customer['phone']]);
             $otpIntervalTime = getWebConfig(name: 'otp_resend_time') ?? 1;
@@ -192,9 +199,10 @@ class ForgotPasswordController extends Controller
                 return redirect()->back();
             } else {
                 $firebaseOTPVerification = getWebConfig(name: 'firebase_otp_verification') ?? [];
+                $sentByFirebase = $firebaseOTPVerification && $firebaseOTPVerification['status'];
                 $token = $this->customerAuthService->getCustomerVerificationToken();
                 $response = 'not_found';
-                if ($firebaseOTPVerification && $firebaseOTPVerification['status']) {
+                if ($sentByFirebase) {
                     $firebaseResponse = $this->firebaseService->sendOtp($customer['phone']);
                     if ($firebaseResponse['status'] == 'success') {
                         $token = $firebaseResponse['sessionInfo'];
@@ -236,6 +244,9 @@ class ForgotPasswordController extends Controller
                     'temp_block_time' => 0,
                     'created_at' => now(),
                 ]);
+                if (!$sentByFirebase) {
+                    $this->customerPasswordResetService->issueCode(customer: $customer, kind: CustomerPasswordResetService::PHONE, code: $token);
+                }
 
                 if ($response == "not_found") {
                     Toastr::error(translate('something_went_wrong.') . ' ' . translate('please_try_again_after_sometime'));
@@ -271,8 +282,7 @@ class ForgotPasswordController extends Controller
         $temp_block_time = getWebConfig(name: 'temporary_block_time') ?? 5; // minute
         $id = session('forgot_password_identity');
 
-        $password_reset_token = PasswordReset::where(['token' => $request['otp'], 'user_type' => 'customer'])
-            ->where('identity', 'like', "%{$id}%")
+        $password_reset_token = PasswordReset::where(['token' => RequestText::of($request['otp']), 'user_type' => 'customer', 'identity' => (string)$id])
             ->latest()
             ->first();
 
@@ -287,8 +297,7 @@ class ForgotPasswordController extends Controller
             $token = $request['otp'];
             return redirect()->route('customer.auth.reset-password', ['token' => $token]);
         } else {
-            $password_reset = PasswordReset::where(['user_type' => 'customer'])
-                ->where('identity', 'like', "%{$id}%")
+            $password_reset = PasswordReset::where(['user_type' => 'customer', 'identity' => (string)$id])
                 ->latest()
                 ->first();
 
@@ -330,8 +339,8 @@ class ForgotPasswordController extends Controller
 
     public function resetPasswordView(Request $request): View|RedirectResponse
     {
-        $data = $this->phoneOrEmailVerificationRepo->getFirstWhere(params: ['phone_or_email' => base64_decode($request['identity']), 'token' => $request['token']]);
-        if (isset($data)) {
+        $customer = $this->customerPasswordResetService->findCustomerHoldingCode(identity: base64_decode(RequestText::of($request['identity'])), code: RequestText::of($request['token']));
+        if (isset($customer)) {
             $token = $request['token'];
             return view(VIEW_FILE_NAMES['reset_password'], compact('token'));
         }
@@ -351,16 +360,10 @@ class ForgotPasswordController extends Controller
             return view(VIEW_FILE_NAMES['reset_password'], compact('token'));
         }
 
-        $data = $this->phoneOrEmailVerificationRepo->getFirstWhere(params: ['phone_or_email' => base64_decode($request['identity']), 'token' => $token]);
-        $customer = $this->customerRepo->getByIdentity(filters: ['identity' => base64_decode($request['identity'])]);
+        $customer = $this->customerPasswordResetService->findCustomerHoldingCode(identity: base64_decode(RequestText::of($request['identity'])), code: (string)$token);
 
-        if (isset($data) && $customer) {
-            $this->customerRepo->updateWhere(params: ['id' => $customer['id']], data: [
-                'is_email_verified' => 1,
-                'password' => bcrypt(str_replace(' ', '', $request['password']))
-            ]);
-            DB::table('password_resets')->where('user_type', 'customer')->where(['token' => $request['reset_token']])->delete();
-            $this->phoneOrEmailVerificationRepo->delete(params: ['phone_or_email' => base64_decode($request['identity'])]);
+        if (isset($customer)) {
+            $this->customerPasswordResetService->resetPassword(customer: $customer, password: $request['password'], alsoSet: ['is_email_verified' => 1]);
             Toastr::success(translate('Password_reset_successfully'));
             return redirect('/');
         }
@@ -395,14 +398,13 @@ class ForgotPasswordController extends Controller
 
         $firebaseOTPVerification = getWebConfig(name: 'firebase_otp_verification') ?? [];
         $phoneVerification = base64_decode($request['type']) == 'phone_verification';
-        $identity = base64_decode($request['identity']);
+        $identity = base64_decode(RequestText::of($request['identity']));
 
         $maxOTPHit = getWebConfig(name: 'maximum_otp_hit') ?? 5;
         $maxOTPHitTime = getWebConfig(name: 'otp_resend_time') ?? 60; // seconds
         $tempBlockTime = getWebConfig(name: 'temporary_block_time') ?? 600; // seconds
         $verificationData = $this->phoneOrEmailVerificationRepo->getFirstWhere(params: ['phone_or_email' => $identity]);
-        $OTPVerificationData = $this->phoneOrEmailVerificationRepo->getFirstWhere(params: ['phone_or_email' => $identity, 'token' => $request['token']]);
-        $customer = $this->customerRepo->getByIdentity(filters: ['identity' => $identity]);
+        $customer = $this->customerPasswordResetService->findCustomer(identity: $identity);
 
         if ($verificationData) {
             $validateBlock = 0;
@@ -447,6 +449,7 @@ class ForgotPasswordController extends Controller
         }
 
         $tokenVerifyStatus = false;
+        $proof = RequestText::of($request['token']);
         if ($verificationData && $phoneVerification && $firebaseOTPVerification && $firebaseOTPVerification['status']) {
             $firebaseVerify = $this->firebaseService->verifyOtp($verificationData['token'], $verificationData['phone_or_email'], $request['token']);
             $tokenVerifyStatus = (bool)($firebaseVerify['status'] == 'success');
@@ -459,8 +462,14 @@ class ForgotPasswordController extends Controller
                 Toastr::error(translate(strtolower($firebaseVerify['errors'])));
                 return back();
             }
+            $proof = (string)$verificationData['token'];
+            $tokenVerifyStatus = isset($customer) && $this->customerPasswordResetService->acceptVerifiedProof(
+                    customer: $customer,
+                    proof: $proof,
+                    verifiedPhone: (string)($firebaseVerify['result']['phoneNumber'] ?? ''),
+                );
         } else {
-            $tokenVerifyStatus = (bool)$OTPVerificationData;
+            $tokenVerifyStatus = (bool)$this->customerPasswordResetService->findCustomerHoldingCode(identity: $identity, code: $proof);
         }
 
         if ($tokenVerifyStatus) {
@@ -480,7 +489,7 @@ class ForgotPasswordController extends Controller
             $this->customerRepo->updateWhere(params: ['id' => $customer['id']], data: [
                 'is_phone_verified' => 1,
             ]);
-            return redirect()->route('customer.auth.reset-password', ['identity' => base64_encode($identity), 'token' => $verificationData['token']]);
+            return redirect()->route('customer.auth.reset-password', ['identity' => base64_encode($identity), 'token' => $proof]);
         }
 
         $errorMsg = translate('OTP_is_not_matched');

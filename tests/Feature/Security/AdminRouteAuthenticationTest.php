@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\View;
 use Tests\Support\BuildsFulfillmentSchema;
+use Tests\Support\ReadsRouteMiddleware;
 use Tests\TestCase;
 
 /**
@@ -32,6 +33,7 @@ use Tests\TestCase;
 class AdminRouteAuthenticationTest extends TestCase
 {
     use BuildsFulfillmentSchema;
+    use ReadsRouteMiddleware;
 
     /** Public by design: the admin sign-in screens (guest-only, throttled). */
     private const PUBLIC_BY_DESIGN = [
@@ -83,10 +85,14 @@ class AdminRouteAuthenticationTest extends TestCase
         Http::preventStrayRequests();
     }
 
-    /** @return list<string> the middleware declared on the route and its groups */
-    private function declaredMiddleware(\Illuminate\Routing\Route $route): array
+    public function test_a_route_that_opts_out_of_the_guard_is_not_counted_as_guarded(): void
     {
-        return array_map(static fn ($middleware): string => is_string($middleware) ? $middleware : 'closure', (array) $route->middleware());
+        $optedOut = Route::get('admin/zz-scan-probe', static fn () => 'x')->middleware(['admin', 'actch:admin_panel'])->withoutMiddleware('admin');
+        $guarded = Route::get('admin/zz-scan-probe-guarded', static fn () => 'x')->middleware(['admin', 'actch:admin_panel']);
+
+        $this->assertNotContains('admin', $this->declaredMiddleware($optedOut), 'the scan must see the opt-out');
+        $this->assertContains('actch:admin_panel', $this->declaredMiddleware($optedOut));
+        $this->assertContains('admin', $this->declaredMiddleware($guarded));
     }
 
     public function test_no_admin_route_is_reachable_without_the_admin_guard(): void

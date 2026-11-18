@@ -91,23 +91,34 @@ class BlogDownloadAppController extends Controller
 
     public function deleteImage(Request $request): RedirectResponse
     {
-        if ($request['icon']) {
+        $icon = $this->businessSettingRepo->getFirstWhere(params: ['type' => 'blog_feature_download_app_icon']);
+        if ($request['icon'] && $request['icon'] === $this->storedImageName(setting: $icon)) {
             $this->deleteFile(filePath: '/company/' . $request['icon']);
-            $icon = $this->businessSettingRepo->getFirstWhere(params: ['type' => 'blog_feature_download_app_icon']);
             $this->businessSettingRepo->delete(params: ['value' => $icon['value']]);
             Toastr::success(translate('app_download_icon_removed_successfully'));
         } else {
             Toastr::warning(translate('no_image_found_to_delete'));
         }
-        if ($request['image']) {
+
+        $image = $this->businessSettingRepo->getFirstWhere(params: ['type' => 'blog_feature_download_app_background']);
+        if ($request['image'] && $request['image'] === $this->storedImageName(setting: $image)) {
             $this->deleteFile(filePath: '/company/' . $request['image']);
-            $image = $this->businessSettingRepo->getFirstWhere(params: ['type' => 'blog_feature_download_app_background']);
             $this->businessSettingRepo->delete(params: ['value' => $image['value']]);
             Toastr::success(translate('app_background_removed_successfully'));
         } else {
             Toastr::warning(translate('no_image_found_to_delete'));
         }
         return back();
+    }
+
+    /** The file name a setting holds (the JSON of {image_name, storage}, or the bare name): only that file is the setting's to delete. */
+    private function storedImageName(mixed $setting): ?string
+    {
+        $value = $setting['value'] ?? null;
+        $decoded = is_string($value) ? json_decode($value, true) : $value;
+        $name = is_array($decoded) ? ($decoded['image_name'] ?? null) : $value;
+
+        return is_string($name) ? $name : null;
     }
 
 }

@@ -3,10 +3,12 @@
 namespace App\Http\Controllers\Vendor\Marketplace;
 
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\SellerCenterContext;
 use App\Services\Platform\PasswordPolicy;
 use App\Models\SellerRole;
 use App\Models\SellerStaff;
 use App\Services\Marketplace\SellerPermissionService;
+use App\Services\Marketplace\SellerPrincipal;
 use App\Services\Marketplace\SellerTeamService;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Contracts\View\View;
@@ -20,12 +22,16 @@ use Illuminate\Validation\ValidationException;
  * Identity is always `auth('seller')` and every row is scoped to that shop, so one shop can never
  * see or touch another's team. The rules themselves live in `SellerTeamService`, which the seller
  * app's API calls too — the same authority granted through two doors has to mean the same thing.
+ *
+ * A staff member with `staff.manage` signs in as the owner, so the writer handed to the service is
+ * the staff principal, not the owner: they hand out what their own role grants and nothing more.
  */
 class SellerStaffController extends BaseController
 {
     public function __construct(
         private readonly SellerPermissionService $permissions,
         private readonly SellerTeamService $team,
+        private readonly SellerCenterContext $actor,
     ) {
     }
 
@@ -42,11 +48,10 @@ class SellerStaffController extends BaseController
 
     public function storeRole(Request $request): RedirectResponse
     {
-        // The panel is the owner's own door, so nothing is withheld here.
         $this->team->createRole(auth('seller')->id(), $request->validate([
             'name' => 'required|string|max:120',
             'permissions' => 'nullable|array',
-        ]));
+        ]), $this->principal());
 
         ToastMagic::success(translate('role_created'));
 
@@ -59,7 +64,7 @@ class SellerStaffController extends BaseController
             'name' => 'required|string|max:120',
             'permissions' => 'nullable|array',
             'status' => 'nullable|in:active,inactive',
-        ]));
+        ]), $this->principal());
 
         ToastMagic::success(translate('role_updated'));
 
@@ -84,7 +89,7 @@ class SellerStaffController extends BaseController
         ]);
 
         try {
-            $this->team->createStaff(auth('seller')->id(), $validated);
+            $this->team->createStaff(auth('seller')->id(), $validated, $this->principal());
         } catch (ValidationException $exception) {
             ToastMagic::error($exception->validator->errors()->first());
 
@@ -106,7 +111,7 @@ class SellerStaffController extends BaseController
         ]);
 
         try {
-            $this->team->updateStaff($this->ownedStaff($id), $validated);
+            $this->team->updateStaff($this->ownedStaff($id), $validated, $this->principal());
         } catch (ValidationException $exception) {
             ToastMagic::error($exception->validator->errors()->first());
 
@@ -124,6 +129,12 @@ class SellerStaffController extends BaseController
         ToastMagic::success(translate('staff_member_removed'));
 
         return back();
+    }
+
+    /** Who is writing: the owner, or the staff member who signed in as the owner. */
+    private function principal(): SellerPrincipal
+    {
+        return $this->actor->principal() ?? abort(403);
     }
 
     private function ownedRole(int $id): SellerRole

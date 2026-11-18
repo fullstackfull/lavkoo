@@ -14,6 +14,7 @@ use App\Services\CouponService;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -89,7 +90,7 @@ class CouponController extends BaseController
     public function getUpdateView(string|int $id): View
     {
         // Scope to the owning seller — an unscoped lookup let a seller open/edit another vendor's coupon.
-        $coupon = $this->couponRepo->getFirstWhere(['id' => $id, 'added_by' => 'seller', 'seller_id' => auth('seller')->id()]);
+        $coupon = $this->getOwnCoupon(id: $id);
         abort_if(!$coupon, 404);
         $customers = $this->customerRepo->getListWhereNotIn([0]);
         return view(Coupon::UPDATE[VIEW], compact('coupon', 'customers'));
@@ -108,7 +109,7 @@ class CouponController extends BaseController
             return redirect()->back();
         }
         // Confirm ownership before updating — an unscoped update let a seller rewrite another vendor's coupon.
-        $coupon = $this->couponRepo->getFirstWhere(['id' => $id, 'added_by' => 'seller', 'seller_id' => auth('seller')->id()]);
+        $coupon = $this->getOwnCoupon(id: $id);
         if (!$coupon) {
             ToastMagic::error(translate('coupon_not_found'));
             return redirect()->route(Coupon::INDEX[ROUTE]);
@@ -164,7 +165,8 @@ class CouponController extends BaseController
      */
     public function getQuickView(Request $request): JsonResponse
     {
-        $coupon = $this->couponRepo->getFirstWhere(['id' => $request['id']]);
+        $coupon = $this->getOwnCoupon(id: $request['id']);
+        abort_if(boolean: !$coupon, code: 404);
         return response()->json([
             'view' => view(Coupon::QUICK_VIEW[VIEW], compact('coupon'))->render(),
         ]);
@@ -182,5 +184,10 @@ class CouponController extends BaseController
             'search' => $request['searchValue'],
         ]), 'Coupon-list.xlsx'
         );
+    }
+
+    private function getOwnCoupon(string|int|null $id): ?Model
+    {
+        return $this->couponRepo->getFirstWhere(['id' => $id, 'added_by' => 'seller', 'seller_id' => auth('seller')->id()]);
     }
 }

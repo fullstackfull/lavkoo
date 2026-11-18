@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\RestAPI\v2\seller\auth;
 use App\Http\Controllers\Controller;
 use App\Services\Platform\PasswordPolicy;
+use App\Models\Admin;
 use App\Models\Seller;
 use App\Models\Shop;
+use App\Services\VendorService;
 use App\Utils\Helpers;
 use App\Utils\ImageManager;
 use Illuminate\Http\JsonResponse;
@@ -34,6 +36,14 @@ class RegisterController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
         }
 
+        if (!app(VendorService::class)->isRegistrationOpen()) {
+            return response()->json(['errors' => [['code' => 'registration', 'message' => translate('access_denied') . '!!']]], 403);
+        }
+
+        if (Admin::masterAdminUsesEmail($request['email'])) {
+            return response()->json(['errors' => [['code' => 'email', 'message' => translate('Email_already_exist_please_try_another_email')]]], 403);
+        }
+
         DB::beginTransaction();
         try {
             $seller = new Seller();
@@ -43,7 +53,7 @@ class RegisterController extends Controller
             $seller->email = $request->email;
             $seller->image = ImageManager::upload('seller/', 'webp', $request->file('image'));
             $seller->password = bcrypt($request->password);
-            $seller->status =  $request->status == 'approved'?'approved': "pending";
+            $seller->status = 'pending';
             $seller->save();
 
             $shop = new Shop();

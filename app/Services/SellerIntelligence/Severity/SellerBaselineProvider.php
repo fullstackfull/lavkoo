@@ -2,6 +2,7 @@
 
 namespace App\Services\SellerIntelligence\Severity;
 
+use App\Models\OrderDetail;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -54,8 +55,8 @@ class SellerBaselineProvider
             return 0.0;
         }
 
-        $total = DB::table('order_details')
-            ->where('seller_id', $sellerId)
+        $total = OrderDetail::ofSeller(sellerId: $sellerId)
+            ->toBase()
             ->where('delivery_status', 'delivered')
             ->where('created_at', '>=', now()->subDays(self::LOOKBACK_DAYS))
             ->selectRaw('SUM(price * qty) as revenue')

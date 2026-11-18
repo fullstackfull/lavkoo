@@ -96,15 +96,15 @@ class BusinessPageRepository implements BusinessPageRepositoryInterface
 
     public function updateWhere(array $params, array $data): bool
     {
-        cacheRemoveByType(type: 'business_pages');
         $this->businessPage->where($params)->update($data);
+        cacheRemoveByType(type: 'business_pages');
         return true;
     }
 
     public function delete(array $params): bool
     {
-        cacheRemoveByType(type: 'business_pages');
         $this->businessPage->where($params)->delete();
+        cacheRemoveByType(type: 'business_pages');
         return true;
     }
 

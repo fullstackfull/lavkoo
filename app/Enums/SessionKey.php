@@ -12,4 +12,6 @@ enum SessionKey
     const LAST_ORDER = 'last_order';
     const PRODUCT_COMPARE_LIST = 'compare_list';
     const FORGOT_PASSWORD_IDENTIFY = 'forgot_password_identity';
+    const CUSTOMER_OTP_VERIFIED_PHONE = 'customer_otp_verified_phone';
+    const CUSTOMER_PENDING_VERIFICATION_USER_IDS = 'customer_pending_verification_user_ids';
 }

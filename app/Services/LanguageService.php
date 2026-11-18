@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Utils\AtomicFile;
 use Exception;
 use stdClass;
 use RecursiveIteratorIterator;
@@ -174,6 +175,14 @@ class LanguageService
         return $languageArray;
     }
 
+    /** Only a language the store lists can be deleted, and never the base language `en`: the request names a directory of resources/lang. */
+    public function canBeDeleted(object $language, string $code): bool
+    {
+        $listedCodes = array_column((array)json_decode((string)$language['value'], true), 'code');
+
+        return $code !== 'en' && in_array($code, $listedCodes, true);
+    }
+
     public function getLangDelete(object $language, string $code): array
     {
         $del_default = false;
@@ -266,12 +275,7 @@ class LanguageService
         }
         ksort($newMessagesArray);
 
-        $remainingMessagesFileContents = "<?php\n\nreturn [\n";
-        foreach ($newMessagesArray as $newMsgKey => $newMsgValue) {
-            $remainingMessagesFileContents .= "\t\"" . $newMsgKey . "\" => \"" . $newMsgValue . "\",\n";
-        }
-        $remainingMessagesFileContents .= "];\n";
-        file_put_contents(base_path('resources/lang/' . $language . '/new-messages.php'), $remainingMessagesFileContents);
+        $this->writeMessagesFile(path: base_path('resources/lang/' . $language . '/new-messages.php'), messages: $newMessagesArray);
 
         $getNewMessagesArray = include(base_path('resources/lang/' . $language . '/new-messages.php'));
 
@@ -323,12 +327,7 @@ class LanguageService
                 $cleanKeys
             );
 
-            $messagesFileContents = "<?php\n\nreturn [\n";
-            foreach ($translatedMessagesArray as $k => $tmaValue) {
-                $messagesFileContents .= "\t\"" . $k . "\" => \"" . $tmaValue . "\",\n";
-            }
-            $messagesFileContents .= "];\n";
-            file_put_contents(base_path('resources/lang/' . $language . '/messages.php'), $messagesFileContents);
+            $this->writeMessagesFile(path: base_path('resources/lang/' . $language . '/messages.php'), messages: $translatedMessagesArray);
 
             $response = [
                 'status' => 1,
@@ -352,14 +351,26 @@ class LanguageService
     {
         $getNewMessagesArray = include($sourcePath);
         ksort($getNewMessagesArray);
-        $remainingMessagesFileContents = "<?php\n\nreturn [\n";
-        foreach ($getNewMessagesArray as $newMsgKey => $newMsgValue) {
-            if (!in_array(base64_encode($newMsgKey), $cleanKeys)) {
-                $remainingMessagesFileContents .= "\t\"" . $newMsgKey . "\" => \"" . $newMsgValue . "\",\n";
-            }
+        $remainingMessages = array_filter($getNewMessagesArray, static fn ($newMsgKey): bool => !in_array(base64_encode($newMsgKey), $cleanKeys), ARRAY_FILTER_USE_KEY);
+        $this->writeMessagesFile(path: $targetPath, messages: $remainingMessages);
+    }
+
+    /**
+     * A language file is PHP that every request in that language includes, and a translation is text an admin (or a translation service)
+     * wrote: it is written with var_export so that a `${...}`, a quote or a backslash in a value stays a string and is never code, and in one
+     * step (see AtomicFile) so that a request which includes the file meanwhile never reads it empty.
+     */
+    public function writeMessagesFile(string $path, array $messages): void
+    {
+        AtomicFile::rewrite(
+            path: $path,
+            change: static fn (): string => getLanguageFileContents(messages: $messages),
+            createWhenMissing: true,
+            lockIsRequired: false,
+        );
+        if (function_exists('opcache_invalidate')) {
+            @opcache_invalidate($path, true);
         }
-        $remainingMessagesFileContents .= "];\n";
-        file_put_contents($targetPath, $remainingMessagesFileContents);
     }
 
     public function updateAdvancedSearchKeyWords($lang, $key, $result): void

@@ -56,6 +56,12 @@ class WithdrawRequest extends Model
         'request_method_type' => 'string',
     ];
 
+    /** A delivery man's request carries the seller's id too, but it is paid out of the delivery man's wallet, not the seller's. */
+    public function scopeOfSeller($query, int|string $sellerId): void
+    {
+        $query->where('seller_id', $sellerId)->whereNull('delivery_man_id');
+    }
+
     public function seller(): BelongsTo
     {
         return $this->belongsTo(Seller::class, 'seller_id');

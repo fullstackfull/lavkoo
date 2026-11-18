@@ -10,6 +10,7 @@ use App\Models\OrderDetail;
 use App\Models\RefundRequest;
 use App\Models\RefundStatus;
 use App\Models\User;
+use App\Traits\SellerOwnedRecords;
 use App\Utils\CustomerManager;
 use App\Utils\Helpers;
 use Illuminate\Http\JsonResponse;
@@ -18,6 +19,8 @@ use Illuminate\Support\Facades\Validator;
 
 class RefundController extends Controller
 {
+    use SellerOwnedRecords;
+
     public function list(Request $request):JsonResponse
     {
         $data = Helpers::get_seller_by_token($request);
@@ -65,7 +68,10 @@ class RefundController extends Controller
                 'auth-001' => translate('Your existing session token does not authorize you any more')
             ], 401);
         }
-        $order_details = OrderDetail::find($request->order_details_id);
+        $order_details = OrderDetail::ofSeller(sellerId: $seller['id'])->find($request->order_details_id);
+        if (!$order_details) {
+            return $this->recordNotFound(code: 'order-details', message: 'not_found');
+        }
         $refund_request = RefundRequest::with('refund_status')->where('order_details_id',$request->order_details_id)->get();
 
             $order = Order::find($order_details->order_id);

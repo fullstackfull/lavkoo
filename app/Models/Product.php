@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Traits\CacheManagerTrait;
 use App\Traits\StorageTrait;
+use App\Utils\RequestArea;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -15,6 +16,7 @@ use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Modules\TaxModule\app\Models\Taxable;
+use App\Services\DigitalFileAddressService;
 
 /**
  * @property int $user_id
@@ -248,6 +250,11 @@ class Product extends Model
             ->whereIn('product_type', $productType);
     }
 
+    public function scopeOfSeller($query, int|string $sellerId): void
+    {
+        $query->where(['added_by' => 'seller', 'user_id' => $sellerId]);
+    }
+
     public function scopeSellerApproved($query): void
     {
         $query->whereHas('seller', function ($query) {
@@ -383,7 +390,7 @@ class Product extends Model
 
     public function tags(): BelongsToMany
     {
-        if (strpos(url()->current(), '/api')) {
+        if (RequestArea::isApi()) {
             return $this->belongsToMany(Tag::class)->limit(5);
         }
         return $this->belongsToMany(Tag::class);
@@ -416,11 +423,7 @@ class Product extends Model
 
     public function getNameAttribute($name): string|null
     {
-        $segment = request()->segment(1);
-        if ($segment === 'api') {
-            return $this->translations[0]->value ?? $name;
-        }
-        if (in_array($segment, ['admin', 'vendor', 'seller'], true)) {
+        if (RequestArea::isWebPanel()) {
             return $name;
         }
         return $this->translations[0]->value ?? $name;
@@ -428,11 +431,7 @@ class Product extends Model
 
     public function getDetailsAttribute($detail): string|null
     {
-        $segment = request()->segment(1);
-        if ($segment === 'api') {
-            return $this->translations[1]->value ?? $detail;
-        }
-        if (in_array($segment, ['admin', 'vendor', 'seller'], true)) {
+        if (RequestArea::isWebPanel()) {
             return $detail;
         }
         return $this->translations[1]->value ?? $detail;
@@ -459,7 +458,8 @@ class Product extends Model
     public function getDigitalFileReadyFullUrlAttribute(): array
     {
         $value = $this->digital_file_ready;
-        return $this->storageLink('product/digital-product', $value, $this->digital_file_ready_storage_type ?? 'public');
+        return app(DigitalFileAddressService::class)->privateAnswer(name: $value, kind: 'product', id: $this->id, storageType: $this->digital_file_ready_storage_type)
+            ?? $this->storageLink('product/digital-product', $value, $this->digital_file_ready_storage_type ?? 'public');
     }
 
     public function getColorImagesFullUrlAttribute(): array
@@ -505,14 +505,13 @@ class Product extends Model
 
         static::addGlobalScope('translate', function (Builder $builder) {
             $builder->with(['translations' => function ($query) {
-                if (strpos(url()->current(), '/api')) {
+                if (RequestArea::isApi()) {
                     return $query->where('locale', App::getLocale());
                 } else {
                     return $query->where('locale', getDefaultLanguage());
                 }
             }, 'reviews' => function ($query) {
-                $segment = request()->segment(1);
-                $query->whereNull('delivery_man_id')->when(!in_array($segment, ['admin', 'vendor', 'seller'], true), function ($query) use ($segment) {
+                $query->whereNull('delivery_man_id')->when(!RequestArea::isPanel(), function ($query) {
                     return $query->active();
                 });
             }]);

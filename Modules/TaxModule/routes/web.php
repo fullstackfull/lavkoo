@@ -14,7 +14,7 @@ use Modules\TaxModule\app\Http\Controllers\Admin\Reports\VendorTaxReportControll
 */
 
 Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin']], function () {
-    Route::group(['prefix' => 'vat-tax', 'as' => 'vat-tax.'], function () {
+    Route::group(['prefix' => 'vat-tax', 'as' => 'vat-tax.', 'middleware' => ['module:business_settings']], function () {
         Route::controller(TaxVatController::class)->group(function () {
             Route::get('list', 'index')->name('index');
             Route::post('add-vat-tax-data', 'store')->name('store');
@@ -30,7 +30,7 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin']],
         });
     });
 
-    Route::group(['prefix' => 'report', 'as' => 'report.'], function () {
+    Route::group(['prefix' => 'report', 'as' => 'report.', 'middleware' => ['module:reports']], function () {
         Route::controller(AdminTaxReportController::class)->group(function () {
             Route::get('get-tax-report', 'getTaxReport')->name('get-tax-report');
             Route::get('get-tax-details', 'getTaxDetails')->name('getTaxDetails');

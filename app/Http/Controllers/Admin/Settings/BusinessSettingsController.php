@@ -351,7 +351,7 @@ class BusinessSettingsController extends BaseController
         }
         try {
             $this->businessSettingRepo->updateOrInsert(
-                type: $request['type'],
+                type: 'app_deep_link',
                 value: json_encode([
                     'android_package_name' => $request['android_package_name'],
                     'ios_bundle_id' => $request['ios_bundle_id'],
