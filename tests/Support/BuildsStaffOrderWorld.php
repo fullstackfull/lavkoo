@@ -392,7 +392,8 @@ trait BuildsStaffOrderWorld
             'tax' => 2,
             'status' => 'disburse',
             'payment_method' => 'cash_on_delivery',
-            'created_at' => now(),
+            // One second apart, the later id the later: the screens list the newest first, and rows with the same timestamp come back in whatever order the plan finds them (MariaDB changed it when the employee's filter was added).
+            'created_at' => now()->subSeconds(max(0, 200 - $id)),
             'updated_at' => now(),
         ], $extra));
     }
