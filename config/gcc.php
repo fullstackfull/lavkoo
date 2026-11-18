@@ -41,6 +41,15 @@ return [
             'verified_three_decimal_gateways' => [],
         ],
 
+        'themes' => [
+            // Off by default: one theme is active for the whole platform, as before, and activating a theme deactivates every other. When it is on, a theme belongs to one
+            // storefront (`themes.storefront_country`, NULL for the default storefront's, which is every theme that exists today), activating it deactivates only the active
+            // theme of that same storefront, and a request is served the active theme of its storefront, or the default storefront's when its own has none. It does nothing
+            // until the themes migration has run, and it needs no other switch: while storefronts are off the only storefront a request can reach is the default one.
+            // Read docs/gcc/F-01-STOREFRONT-THEME.md before turning it on.
+            'enabled' => filter_var(env('GCC_STOREFRONT_THEMES', false), FILTER_VALIDATE_BOOLEAN),
+        ],
+
         'legal' => [
             // Configuration, not a statement of what the law requires. A qualified reviewer confirms the list per country before release.
             'required_documents' => ['terms', 'privacy', 'refund', 'return', 'cancellation', 'shipping'],

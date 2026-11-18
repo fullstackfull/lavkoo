@@ -4,9 +4,9 @@ namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
 use App\Models\ExperiencePage;
-use App\Models\Theme;
 use App\Services\Theme\Channel;
 use App\Services\Theme\ExperiencePageService;
+use App\Services\Theme\StorefrontThemeResolver;
 use Illuminate\Contracts\View\View;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -23,13 +23,15 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  */
 class ExperiencePageController extends Controller
 {
-    public function __construct(private readonly ExperiencePageService $pages)
-    {
+    public function __construct(
+        private readonly ExperiencePageService $pages,
+        private readonly StorefrontThemeResolver $themes,
+    ) {
     }
 
     public function show(string $slug): View
     {
-        $theme = Theme::query()->where('is_active', true)->first();
+        $theme = $this->themes->activeTheme();
 
         if ($theme === null) {
             throw new NotFoundHttpException();

@@ -9,6 +9,7 @@ use App\Services\Theme\ExperiencePageService;
 use App\Services\Theme\SectionDataResolver;
 use App\Services\Theme\SectionRegistry;
 use App\Services\Theme\StorefrontThemeRenderer;
+use App\Services\Theme\StorefrontThemeResolver;
 use App\Services\Theme\ThemeDelivery;
 use App\Services\Theme\ThemePreviewToken;
 use App\Services\Theme\ThemeSourceMap;
@@ -54,6 +55,7 @@ class ThemeSectionController extends Controller
         private readonly ThemePreviewToken $previews,
         private readonly ExperiencePageService $pages,
         private readonly VendorSummaryService $vendorSummary,
+        private readonly StorefrontThemeResolver $themes,
     ) {
     }
 
@@ -80,7 +82,7 @@ class ThemeSectionController extends Controller
             return 'home';
         }
 
-        $theme = \App\Models\Theme::query()->where('is_active', true)->value('id');
+        $theme = $this->themes->activeTheme()?->id;
 
         $allowed = $theme === null
             ? self::GUARANTEED_PAGES
