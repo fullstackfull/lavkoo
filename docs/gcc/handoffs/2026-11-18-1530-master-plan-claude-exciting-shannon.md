@@ -29,7 +29,7 @@ No whole requirement became READY FOR OWNER REVIEW: every one still has criteria
 
 - **Run 314 (#98, `718edb99`) finished: 20 of 21 jobs green**, the overlay job red by design. That is the proof of D1-07's first two criteria.
 - **lavkooapp run 20 (`49b63de`): both jobs green** (analyze of the changed files, the two errors-only analyses, both test steps, the whole-project analysis).
-- **Run 334 (the integration, `42c071bb`): 21 of 32 green at 15:15, one red** (`Staff scope tests, MariaDB`, repaired on #82), 8 still running. Its final read is in the audit when it finishes.
+- **Run 334 (the integration, `42c071bb`), read at 15:44 and then cancelled by hand: 25 jobs green, one red** (`Staff scope tests, MariaDB`, a tie in the sort order, repaired on #82), **one cancelled by its own ceiling** (`Tests, SQLite (PHP 8.3)` at 45 minutes 16 seconds: the ceiling is raised to 110 in the integration workflow; the same raise is needed in the workflow that is merged), 3 running when cancelled. **Run 342 (id 44338693813, `a5f7de59`) replaces it** and holds #82's repair, #107, #108, #110 and #111.
 - The 14 runs cancelled by hand at 14:13 (to unblock the queue) are still cancelled; re-run them once the integration run is read.
 
 ## Findings for the owner
@@ -51,7 +51,7 @@ Behind them: the two Flutter apps (K and J: 77 criteria MISSING), the per-market
 ## Things the next session must know
 
 1. A test world that makes a storefront sell must also activate it: `activateStorefrontFor()` in `tests/Support/ActivatesStorefront.php`, already called by `publishRequiredLegalDocuments`, `leaveTheLegalTextsOutOfThisTest`, `BuildsStorefrontCart` and `BuildsSixStorefrontCheckoutWorld`. Two tests of #90 and #101 need the same call when #111 is merged after them (done in the integration).
-2. The integration head after this handoff holds #82's repair, #107, #108, #110 and #111, and **not #109**. `StorefrontPreflight` there has five checks (the company is the fifth).
+2. The integration head after this handoff (`a5f7de59`, run 342) holds #82's repair, #107, #108, #110 and #111, and **not #109**. `StorefrontPreflight` there has five checks (the company is the fifth). The SQLite job of the workflow that gets merged needs a higher ceiling than 45 minutes too (run 334 hit it).
 3. A test that compares two lists from a real engine must not depend on the order of rows with equal sort keys (the repair on #82 shows how).
 4. `translate()` needs `business_settings`; a test that renders a page or an answer with a translated text must build it. A web error page needs variables the test world does not share, so a middleware that refuses a request answers JSON.
 5. The tracker generator and the ledger check are in `docs/gcc/tools/`; the check must exit 0 before a push of this branch.
