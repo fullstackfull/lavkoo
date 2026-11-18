@@ -190,3 +190,18 @@ Each app repository has its own stacks, read from the bases of its open pull req
 | `lavkooappseller` | 1 | [#6](https://github.com/fullstackfull/lavkooappseller/pull/6) | #4 | GCC-20 step 2: second factor, capabilities and sessions (needs the security review) |
 | `lavkooappseller` | 2 | [#5](https://github.com/fullstackfull/lavkooappseller/pull/5) | #2 | the point-of-sale scan reads the answers of the country-scoped codes |
 
+## 8. Added after this list was generated (2026-11-18, afternoon)
+
+The lists above were made from the pull requests that existed then (up to #90). What was found since, by merging the heads into the all-in-one integration (`gcc/release/all-integration-ci`, never merged), and what the later pull requests (#91 to #103) are stacked on. [`PR_LEDGER.md`](PR_LEDGER.md) has the base and head of each.
+
+| Pull request | Based on | Order |
+|---|---|---|
+| #98 (tax characterization) | `main` | before #102 |
+| #102 (the rows of `order_taxes` add up) | #98 | after #98; **awaits the finance review before any merge** ([R6](reviews/R6-legal-finance-gcc-money.md)) |
+| #99 (a storefront's own tax, approved before it sells) | #87 | after #87; see the conflict below |
+| #100 (a customer embedded in a payload carries no balances) | `main` | independent |
+| #101 (a refund names the money and company of its order) | #90 | after #90 |
+| #103 (a refund from the original payment, not adopted) | #101 | after #101 |
+
+**Conflict by content, not by file: #99 with #90 and #101.** #99 and #90 both add a condition to `StorefrontSellingGate::maySell` (the tax decision; the registered company). They merge with one conflict in `app/Services/Storefront/StorefrontSellingGate.php`: keep both conditions and both constructor arguments (the integration does). With both in the tree, three tests of #90 (`LegalEntitySellingGateTest`) and three of #101 (`StorefrontRefundRecordTest`) must record a tax decision for the storefronts they open (`tests/Support/ApprovesStorefrontTax::approveNoTaxFor`, from #99): the integration carries that change in `2667bc39`, and **whichever of #90, #99 and #101 merges last carries it**.
+
