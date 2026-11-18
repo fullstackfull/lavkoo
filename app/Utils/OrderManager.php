@@ -881,7 +881,8 @@ class OrderManager
                     user_id: $referredByUser['id'],
                     amount: usdToDefaultCurrency(amount: $refEarningExchangeRate),
                     transaction_type: 'add_fund_by_admin',
-                    reference: 'earned_by_referral'
+                    reference: 'earned_by_referral',
+                    origin: LedgerOrigin::order(id: $orderId)
                 );
             }
         }

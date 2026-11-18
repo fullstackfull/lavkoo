@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\RestAPI\v2\delivery_man;
 
 use App\Services\Fulfillment\FulfillmentOrderGuard;
+use App\Services\Storefront\LedgerOrigin;
 use App\Events\OrderStatusEvent;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\API\v2\DeliveryMan\DeliveryManOrderDeliveryVerificationRequest;
@@ -246,7 +247,7 @@ class DeliveryManController extends Controller
             $referredByUser = User::find($customer->referred_by);
 
             if ($isFirstOrder == 1 && isset($customer->referred_by) && isset($referredByUser)) {
-                CustomerManager::create_wallet_transaction($referredByUser->id, floatval($refEarningExchangeRate), 'add_fund_by_admin', 'earned_by_referral');
+                CustomerManager::create_wallet_transaction($referredByUser->id, floatval($refEarningExchangeRate), 'add_fund_by_admin', 'earned_by_referral', origin: LedgerOrigin::order(id: $order->id));
             }
         }
         self::add_order_status_history($order->id, $deliveryMan['id'], $request['status'], 'delivery_man', $request['cause']);

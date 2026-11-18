@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\RestAPI\v2\seller;
 
 use App\Services\Fulfillment\FulfillmentOrderGuard;
+use App\Services\Storefront\LedgerOrigin;
 use App\Events\OrderStatusEvent;
 use App\Http\Controllers\Controller;
 use App\Models\DeliveryManTransaction;
@@ -266,7 +267,7 @@ class OrderController extends Controller
 
         if ($wallet_status == 1 && $loyalty_point_status == 1) {
             if ($request->order_status == 'delivered' && $order->payment_status == 'paid') {
-                CustomerManager::create_loyalty_point_transaction($order->customer_id, $order->id, Convert::default($order->order_amount - $order->shipping_cost), 'order_place');
+                CustomerManager::create_loyalty_point_transaction($order->customer_id, $order->id, Convert::default($order->order_amount - $order->shipping_cost), 'order_place', origin: LedgerOrigin::order(id: $order->id));
             }
         }
 

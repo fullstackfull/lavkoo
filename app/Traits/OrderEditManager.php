@@ -23,6 +23,7 @@ use App\Models\ShippingMethod;
 use App\Models\ShippingType;
 use App\Models\User;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
+use App\Services\Storefront\LedgerOrigin;
 use App\Utils\CartManager;
 use App\Utils\CustomerManager;
 use App\Utils\Helpers;
@@ -716,7 +717,7 @@ trait OrderEditManager
                 'message' => translate('Insufficient_Wallet_Balance')
             ];
         }
-        CustomerManager::create_wallet_transaction($customer['id'], $order['edit_due_amount'], 'due_payment_for_order', 'reduce_wallet_amount', ['payment_method' => 'wallet']);
+        CustomerManager::create_wallet_transaction($customer['id'], $order['edit_due_amount'], 'due_payment_for_order', 'reduce_wallet_amount', ['payment_method' => 'wallet'], origin: LedgerOrigin::order(id: $order['id']));
         AdminWallet::where(['admin_id' => 1])->increment('pending_amount', $order['edit_due_amount']);
         OrderEditHistory::where('id', $order?->latestEditHistory?->id)->update([
             'order_due_payment_status' => 'paid',

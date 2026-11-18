@@ -23,6 +23,7 @@ use App\Services\OrderEditService;
 use App\Services\ProductService;
 use App\Services\RefundStatusService;
 use App\Services\RefundTransactionService;
+use App\Services\Storefront\LedgerOrigin;
 use App\Traits\OrderEditManager;
 use App\Utils\CustomerManager;
 use App\Utils\Helpers;
@@ -34,6 +35,7 @@ use App\Traits\PdfGenerator;
 use Exception;
 use Illuminate\Http\Request;
 use App\Enums\GlobalConstant;
+use App\Enums\LedgerActor;
 use App\Traits\CustomerTrait;
 use App\Services\OrderService;
 use App\Events\OrderStatusEvent;
@@ -264,7 +266,7 @@ class OrderController extends BaseController
                     ToastMagic::error(translate('Amount_returned_currently_not_possible_to_wallet'));
                     return redirect()->back();
                 }
-                CustomerManager::create_wallet_transaction($order['customer_id'], $order['edit_return_amount'], 'return_order_amount_by_admin', 'add_wallet_amount', ['payment_method' => 'wallet']);
+                CustomerManager::create_wallet_transaction($order['customer_id'], $order['edit_return_amount'], 'return_order_amount_by_admin', 'add_wallet_amount', ['payment_method' => 'wallet'], origin: LedgerOrigin::order(id: $order['id'], by: LedgerActor::Admin));
             }
 
             $adminWallet = $this->adminWalletRepo->getFirstWhere(params: ['admin_id' => 1]);
@@ -703,7 +705,8 @@ class OrderController extends BaseController
                 user_id: $order['customer_id'],
                 amount: usdToDefaultCurrency(amount: $order['order_amount']),
                 transaction_type: 'order_refund',
-                reference: 'pos_order_cancel_' . $order['id']
+                reference: 'pos_order_cancel_' . $order['id'],
+                origin: LedgerOrigin::order(id: $order['id'], by: LedgerActor::Admin)
             );
         }
         if ($request['order_status'] == 'delivered') {
@@ -729,7 +732,7 @@ class OrderController extends BaseController
         $orderDetailsRewards = $this->orderDetailsRewardsRepo->getFirstWhere(params: ['order_id' => $order['id'], 'reward_type' => 'loyalty_point']);
 
         if ($orderDetailsRewards && $orderDetailsRewards['reward_delivered'] != 1 && $orderDetailsRewards['reward_amount'] > 0 && $loyaltyPointStatus == 1 && $loyaltyPointEachOrder == 1 && !$order['is_guest'] && $request['order_status'] == 'delivered') {
-            $this->loyaltyPointTransactionRepo->addLoyaltyPointTransaction(userId: $order['customer_id'], reference: $order['id'], amount: usdToDefaultCurrency(amount: $order['order_amount'] - $order['shipping_cost']), transactionType: 'order_place');
+            $this->loyaltyPointTransactionRepo->addLoyaltyPointTransaction(userId: $order['customer_id'], reference: $order['id'], amount: usdToDefaultCurrency(amount: $order['order_amount'] - $order['shipping_cost']), transactionType: 'order_place', origin: LedgerOrigin::order(id: $order['id']));
             $this->orderDetailsRewardsRepo->update(id: $orderDetailsRewards['id'], data: ['reward_delivered' => 1]);
         }
 
