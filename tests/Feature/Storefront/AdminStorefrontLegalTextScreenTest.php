@@ -466,14 +466,19 @@ class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
 
     public function test_a_new_version_is_offered_only_on_the_newest_published_text_of_its_type_and_language_and_revoking_only_on_a_text_that_is_not_revoked(): void
     {
-        $this->publishLegalDocument('KW', 'terms', 'en', ['version' => 1, 'effective_from' => now()->subDays(3)]);
-        $this->publishLegalDocument('KW', 'terms', 'en', ['version' => 2]);
-        $this->publishLegalDocument('KW', 'privacy', 'en', ['version' => 1, 'effective_from' => now()->subDays(3)]);
-        $this->publishLegalDocument('KW', 'privacy', 'en', ['version' => 2, 'revoked_at' => now()]);
-        $this->publishLegalDocument('KW', 'refund', 'en', ['version' => 1]);
-        $this->publishLegalDocument('KW', 'refund', 'en', ['version' => 2, 'status' => StorefrontLegalDocument::STATUS_ARCHIVED, 'effective_from' => now()->addDay(), 'revoked_at' => now()]);
-        $this->publishLegalDocument('KW', 'terms', 'ar', ['status' => StorefrontLegalDocument::STATUS_DRAFT, 'approved_by' => null, 'approved_at' => null, 'published_at' => null, 'effective_from' => null]);
-        $this->publishLegalDocument('KW', 'privacy', 'ar', ['status' => StorefrontLegalDocument::STATUS_APPROVED, 'published_at' => null, 'effective_from' => null]);
+        $this->publishLegalDocument(country: 'KW', type: 'terms', locale: 'en', overrides: ['version' => 1, 'effective_from' => now()->subDays(3)]);
+        $this->publishLegalDocument(country: 'KW', type: 'terms', locale: 'en', overrides: ['version' => 2]);
+        $this->publishLegalDocument(country: 'KW', type: 'privacy', locale: 'en', overrides: ['version' => 1, 'effective_from' => now()->subDays(3)]);
+        $this->publishLegalDocument(country: 'KW', type: 'privacy', locale: 'en', overrides: ['version' => 2, 'revoked_at' => now()]);
+        $this->publishLegalDocument(country: 'KW', type: 'refund', locale: 'en', overrides: ['version' => 1]);
+        $this->publishLegalDocument(country: 'KW', type: 'refund', locale: 'en', overrides: ['version' => 2, 'status' => StorefrontLegalDocument::STATUS_ARCHIVED, 'effective_from' => now()->addDay(), 'revoked_at' => now()]);
+        $this->publishLegalDocument(country: 'KW', type: 'terms', locale: 'ar', overrides: ['status' => StorefrontLegalDocument::STATUS_DRAFT, 'approved_by' => null, 'approved_at' => null, 'published_at' => null, 'effective_from' => null]);
+        $this->publishLegalDocument(country: 'KW', type: 'privacy', locale: 'ar', overrides: ['status' => StorefrontLegalDocument::STATUS_APPROVED, 'published_at' => null, 'effective_from' => null]);
+        $this->publishLegalDocument(country: 'KW', type: 'refund', locale: 'ar', overrides: ['version' => 1, 'effective_from' => now()->subDays(3)]);
+        $this->publishLegalDocument(country: 'KW', type: 'refund', locale: 'ar', overrides: ['version' => 2]);
+        $this->publishLegalDocument(country: 'KW', type: 'shipping', locale: 'en', overrides: ['version' => 1, 'effective_from' => now()->subDays(3)]);
+        $this->publishLegalDocument(country: 'KW', type: 'shipping', locale: 'en', overrides: ['version' => 2]);
+        $this->publishLegalDocument(country: 'KW', type: 'shipping', locale: 'ar', overrides: ['version' => 1]);
 
         $steps = [];
         foreach (app(StorefrontLegalTextBoard::class)->of('KW')['texts'] as $entry) {
@@ -486,12 +491,17 @@ class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
             'privacy.ar.v1' => [StorefrontLegalTextBoard::EDIT, StorefrontLegalTextBoard::PUBLISH, StorefrontLegalTextBoard::DISCARD],
             'privacy.en.v1' => [StorefrontLegalTextBoard::REVOKE],
             'privacy.en.v2' => [],
+            'refund.ar.v1' => [StorefrontLegalTextBoard::REVOKE],
+            'refund.ar.v2' => [StorefrontLegalTextBoard::REVOKE, StorefrontLegalTextBoard::NEW_VERSION],
             'refund.en.v1' => [StorefrontLegalTextBoard::REVOKE, StorefrontLegalTextBoard::NEW_VERSION],
             'refund.en.v2' => [],
+            'shipping.ar.v1' => [StorefrontLegalTextBoard::REVOKE, StorefrontLegalTextBoard::NEW_VERSION],
+            'shipping.en.v1' => [StorefrontLegalTextBoard::REVOKE],
+            'shipping.en.v2' => [StorefrontLegalTextBoard::REVOKE, StorefrontLegalTextBoard::NEW_VERSION],
             'terms.ar.v1' => [StorefrontLegalTextBoard::EDIT, StorefrontLegalTextBoard::APPROVE, StorefrontLegalTextBoard::DISCARD],
             'terms.en.v1' => [StorefrontLegalTextBoard::REVOKE],
             'terms.en.v2' => [StorefrontLegalTextBoard::REVOKE, StorefrontLegalTextBoard::NEW_VERSION],
-        ], $byText, 'revoking is offered on a published text that is not revoked; a new version on the newest published text of its type and language when it is not revoked (an older one, a revoked one and one archived before it took effect have none)');
+        ], $byText, 'revoking is offered on a published text that is not revoked; a new version on the newest published text of its type and language when it is not revoked (an older one, a revoked one and one archived before it took effect have none); the newest is read for each language on its own: refund is ahead in Arabic and shipping in English, and neither takes the new version of the other language away');
 
         $page = $this->page();
         foreach ($steps as $id => [$name, $offered]) {
