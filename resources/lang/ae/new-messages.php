@@ -8128,7 +8128,7 @@ return [
 	'commerce' => 'Commerce',
 	'commerce_experience' => 'Commerce experience',
 	'commercial_registration' => 'Commercial registration',
-	'commercial_registration_number' => 'Commercial registration number',
+	'commercial_registration_number' => 'رقم السجل التجاري',
 	'commissionable_amount' => 'Commissionable amount',
 	'Commission_Collected' => 'Commission Collected',
 	'commission_does_not_reconcile' => 'Commission does not reconcile',
@@ -17740,4 +17740,5 @@ return [
 	'attention_outcome_not_done_at_channel' => 'القناة تُظهر أنه لم يحدث',
 	'attention_outcome_still_unknown' => 'نظرتُ والقناة لا تقول',
 	'attention_outcome_no_longer_relevant' => 'لم يبقَ ذا صلة',
+	'tax_registration_number' => 'رقم التسجيل الضريبي',
 ];

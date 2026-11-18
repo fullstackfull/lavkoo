@@ -1,6 +1,6 @@
 # GCC-13: the company that sells in each country (legal entities)
 
-Requirement D1-03 of the master tracker. The approved rule is that each country has its own legal company, with its own data, gateway accounts, bank accounts, invoices and tax duties (plan section 5.1). Until now nothing in the code named that company: a single label, `gcc.storefronts.legal.legal_entity`, was copied onto legal-acceptance rows, and an invoice reads the shop settings of the day it is printed. This slice adds the registry and the order stamp. It **ships empty** and does nothing until it is switched on, and it **invents no company**: the names, tax numbers and e-invoicing duties of each country are facts the owner and counsel supply.
+Requirement D1-03 of the master tracker. The approved rule is that each country has its own legal company, with its own data, gateway accounts, bank accounts, invoices and tax duties (plan section 5.1). Until now nothing in the code named that company: a single label, `gcc.storefronts.legal.legal_entity`, was copied onto legal-acceptance rows, and an invoice reads the shop settings of the day it is printed. This work adds the registry, the order stamp and the invoice header that reads the stamp. It **ships empty** and does nothing until it is switched on, and it **invents no company**: the names, tax numbers and e-invoicing duties of each country are facts the owner and counsel supply.
 
 ## What it adds
 
@@ -13,6 +13,7 @@ Requirement D1-03 of the master tracker. The approved rule is that each country 
 | `gcc:legal-entity:upsert` | Registers or changes the company of one country. It takes only the facts it is given and writes the registry only |
 | `gcc:legal-entity:list` | Read-only report of every configured country, with an exit code that is 1 while a storefront that is switched on (other than the default one) has no active company. `--json` prints the rows |
 | `StorefrontSellingGate` | With `GCC_LEGAL_ENTITIES_REQUIRED` on, a storefront without an active company may not sell. The default storefront is never refused for lack of one |
+| `OrderInvoiceIssuer`, `partials/invoice/_issuer.blade.php` | The three invoices (admin, vendor and the customer's, on the web and in the app) print the issuer block of their header from the company frozen on the order: its name, address, tax registration number and commercial registration number, each only when it has one, instead of the shop's address and the business identity of the invoice settings. An order with no usable record prints what it always printed. See "The invoice" below |
 
 ## The two switches
 
@@ -20,6 +21,16 @@ Requirement D1-03 of the master tracker. The approved rule is that each country 
 - `GCC_LEGAL_ENTITIES_REQUIRED` (`gcc.storefronts.legal_entities.required_to_sell`, default `false`). Off, a missing company stops nothing. This is the owner's choice and nothing here makes it.
 
 The company is stamped independently of `GCC_STOREFRONT_CURRENCY`: with the currency switch off, an order still records who sold it.
+
+## The invoice
+
+The header of an invoice has a right-hand block: the address of the shop and, when the invoice settings ask for it, one business identity line ("VAT : 3000…"). It was the same for every order, so an invoice of a Kuwaiti order carried the Saudi shop's address and the Saudi tax number. The block is now one partial, `resources/views/partials/invoice/_issuer.blade.php`, included by the admin, the vendor and the customer's invoice (the customer's is the one the web and the app download), and it asks `OrderInvoiceIssuer::lines($order)`:
+
+- **An order with a usable frozen company** prints that company: its legal name, its address, its tax registration number and its commercial registration number, each line only when the company has the fact. Nothing of the shop's own address or business identity is printed beside another company, and a company with no tax number prints none (Kuwait has none to print). The labels are the language keys `tax_registration_number` and `commercial_registration_number`, with an Arabic text in `sa` and `ae`. Values are escaped like every other value of the page.
+- **Every other order** prints the block it always printed, markup unchanged: an order with no record (every order placed before the registry), a record that is not JSON, not an object, or that carries nothing printable, and every order while `GCC_LEGAL_ENTITIES` or `GCC_STOREFRONTS_ENABLED` is off. The last is the way back: switching legal entities off restores the old invoice even for an order that was stamped, and the record stays on the order.
+- The invoice reads only the order's own copy. A later rename or a new tax number of the company changes the invoices of later orders, never of an order already placed, and it does not depend on which storefront the person printing it is served from.
+
+Not changed on purpose: the logo, the terms and conditions, the seller's GST line of a vendor order, and the POS receipts (a narrow receipt that prints the shop name and does not print a tax number today). No invoice number is generated: the invoice still carries the order id. A number for each company (the series key is already registered and frozen on the order) needs the owner's rule for the format, the reset and the gaps, and, in some countries, a tax authority's own sequence (see the open decisions).
 
 ## Before it is switched on (staging only)
 
@@ -32,7 +43,8 @@ Going back: switch it off and clear the config cache. Orders already stamped kee
 
 ## What is not in this slice
 
-- **The invoice does not read the snapshot.** It still reads the shop settings at print time. Making it print the order's frozen identity, the tax number and the currency, numbered per company, is the next slice (a change to the invoice views, in the two themes' own structure).
+- **Invoice numbers per company and the invoice's currency.** The invoice prints the frozen company (see above) but is still numbered by the order id, and the currency it prints is the one it always printed. A series for each company and an e-invoicing hand-off (ZATCA for the Saudi company, the other countries' systems) are separate slices that need the owner's rules.
+- **POS receipts** still print the shop's name and address.
 - **No per-company accounts**: gateway accounts, bank accounts, the wallet and loyalty ledgers, settlements and the Odoo company are still global (GCC-15, GCC-17 and the accounting integration).
 - **No staff or report scope by company**, and the Super Admin money view has nothing to group by yet.
 - **No screen.** The registry is filled by the command; an admin page, or an endpoint of the platform admin API, can follow.
@@ -44,7 +56,9 @@ Going back: switch it off and clear the config cache. Orders already stamped kee
 1. The companies themselves: legal name, tax and commercial registration, the invoice series, the e-invoicing duties of each country, and whether the first launch has exactly one company for each country (the plan says so; the table allows one).
 2. Whether a storefront without a company may sell (`GCC_LEGAL_ENTITIES_REQUIRED`).
 3. Whether the Saudi default storefront gets a company row now (it is stamped only if one is registered) or when the first other country opens.
+4. The invoice number of each company: the format, whether it restarts each year, whether gaps are allowed, and whether a tax authority issues or approves it. Until this is decided every invoice is numbered by its order id, as before.
+5. Whether the tax registration label should differ by country ("VAT", "TRN", "Tax ID"). The invoice prints one neutral label, `Tax registration number`, for every company.
 
 ## Tests
 
-`tests/Feature/Storefront`: `LegalEntityRegistryTest` (20: each country finds its own company, inactive and missing ones, the switches, the unique country, the frozen identity, flush, the requirement, the report, both migrations and their refused rollbacks), `OrderLegalEntitySnapshotTest` (stamping for each of the six storefronts, non-ASCII names, written once, a later change never rewrites it, the switches, a country without a company, a mixed order, before either migration, with and without the currency switch), `LegalEntityCommandsTest` (registering, partial updates, clearing, deactivating, every refusal, the list and its exit codes) and `LegalEntitySellingGateTest`. They run on SQLite and, because they sit in the Storefront directory, on MySQL 8 and MariaDB 11.4 in CI.
+`tests/Feature/Storefront`: `LegalEntityRegistryTest` (20: each country finds its own company, inactive and missing ones, the switches, the unique country, the frozen identity, flush, the requirement, the report, both migrations and their refused rollbacks), `OrderLegalEntitySnapshotTest` (stamping for each of the six storefronts, non-ASCII names, written once, a later change never rewrites it, the switches, a country without a company, a mixed order, before either migration, with and without the currency switch), `LegalEntityCommandsTest` (registering, partial updates, clearing, deactivating, every refusal, the list and its exit codes) and `LegalEntitySellingGateTest`; `OrderInvoiceIssuerTest` (26: an order with no usable record, ten shapes of it; each of the six companies printed from the order's own copy; only the facts a company has; trimming; an order as an array, an object, a model-like object and an already decoded record; a later change of the registry never reaching a stamped order; both switches; the partial's markup with and without a record, escaping) and, in the Address directory that already renders the real templates, three end-to-end cases each for the admin and vendor invoice (`PanelInvoiceTest`) and the customer's invoice (`StorefrontOrderPagesTest`): no record keeps the old line, a frozen company replaces it, legal entities off restores it. They run on SQLite and, because they sit in the Storefront directory, on MySQL 8 and MariaDB 11.4 in CI.

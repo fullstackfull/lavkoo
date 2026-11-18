@@ -93,8 +93,9 @@ trait BuildsStorefrontOrderPages
         ])->render();
     }
 
-    protected function renderInvoice(Order $order): string
+    /** @param array<string, mixed> $invoiceSettings */
+    protected function renderInvoice(Order $order, array $invoiceSettings = []): string
     {
-        return view('web-views.order.invoice', ['order' => $order, 'invoiceSettings' => []])->render();
+        return view('web-views.order.invoice', ['order' => $order, 'invoiceSettings' => $invoiceSettings])->render();
     }
 }

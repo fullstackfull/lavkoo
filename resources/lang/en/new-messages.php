@@ -11241,4 +11241,5 @@ return [
 	'sections_the_app_cannot_show' => 'Sections the app cannot show',
 	'section_types_will_not_appear_in_the_mobile_app' => 'Section types will not appear in the mobile app',
 	'theme_activated_successfully' => 'Theme activated successfully',
+	'tax_registration_number' => 'Tax registration number',
 ];
