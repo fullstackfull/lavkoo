@@ -4,8 +4,10 @@ namespace Tests\Feature\Storefront;
 
 use App\Console\Commands\StorefrontLegalTextCommand;
 use App\Models\StorefrontLegalDocument;
+use App\Services\Storefront\StorefrontLegalPublisher;
 use App\Services\Storefront\StorefrontLegalReadiness;
 use Carbon\CarbonImmutable;
+use Closure;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -53,6 +55,7 @@ class StorefrontLegalTextCommandTest extends TestCase
             unlink($file);
         }
         rmdir($this->directory);
+        StorefrontLegalDocument::flushEventListeners();
         Schema::dropIfExists('audit_logs');
         Schema::dropIfExists('admins');
 
@@ -99,6 +102,26 @@ class StorefrontLegalTextCommandTest extends TestCase
         $this->text('edit', ['--id' => $id, '--admin' => 11, '--body-file' => $this->file('body.txt', $words)])->assertExitCode(0);
 
         return $id;
+    }
+
+    /** Runs $change once, at the moment the text is next read: the command's own read of it, before the service has locked it. That is where a second admin's step lands in a race. */
+    private function whenTheCommandHasReadTheText(int $textId, Closure $change): void
+    {
+        $changed = false;
+
+        StorefrontLegalDocument::retrieved(function (StorefrontLegalDocument $text) use ($textId, $change, &$changed): void {
+            if (!$changed && (int) $text->id === $textId) {
+                $changed = true;
+                $change();
+            }
+        });
+    }
+
+    /** @return list<string> the steps of the publisher that were audited after the audit line with this id */
+    private function stepsAuditedAfter(int $lineId): array
+    {
+        return DB::table('audit_logs')->where('id', '>', $lineId)->orderBy('id')->pluck('action')
+            ->map(fn (string $action): string => substr($action, strlen('storefront.legal_text.')))->all();
     }
 
     public function test_a_text_goes_from_a_template_to_a_published_text_through_the_command(): void
@@ -174,6 +197,27 @@ class StorefrontLegalTextCommandTest extends TestCase
 
         DB::table('admins')->where('id', 13)->update(['status' => 1]);
         $this->text('approve', ['--id' => $id, '--admin' => 13])->assertExitCode(0);
+    }
+
+    public function test_the_admin_with_the_id_one_is_not_exempt_from_the_status_check(): void
+    {
+        DB::table('admins')->insert(['id' => 1, 'name' => 'First admin, switched off', 'status' => 0]);
+
+        $this->text(action: 'draft', options: ['--country' => 'AE', '--type' => 'terms', '--locale' => 'en', '--admin' => 1, '--template-file' => $this->file(name: 'template2.txt', content: 'TEMPLATE')])
+            ->expectsOutputToContain('Admin 1 is switched off and takes no step.')
+            ->assertExitCode(1);
+        $this->assertSame(0, StorefrontLegalDocument::query()->count());
+
+        $id = $this->editedTerms();
+        $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 1])
+            ->expectsOutputToContain('Admin 1 is switched off')
+            ->assertExitCode(1);
+
+        $this->assertSame(StorefrontLegalDocument::STATUS_DRAFT, StorefrontLegalDocument::query()->findOrFail($id)->status);
+        $this->assertSame(2, DB::table('audit_logs')->count(), 'only the draft and the edit of the admin who is on were audited');
+
+        DB::table('admins')->where('id', 1)->update(['status' => 1]);
+        $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 1])->assertExitCode(0);
     }
 
     public function test_a_file_that_is_not_there_is_refused(): void
@@ -629,6 +673,47 @@ class StorefrontLegalTextCommandTest extends TestCase
         $this->text('approve', ['--id' => 99, '--admin' => 12, '--hash' => $this->hashPrefixOf('The terms of Kuwait.')])
             ->expectsOutputToContain('There is no legal text 99.')
             ->assertExitCode(1);
+    }
+
+    public function test_an_approval_is_refused_by_the_service_when_a_second_admin_changes_the_text_after_the_command_read_it(): void
+    {
+        $id = $this->editedTerms();
+        $read = $this->hashPrefixOf(words: 'The terms of Kuwait.');
+        $this->whenTheCommandHasReadTheText(textId: $id, change: fn () => app(StorefrontLegalPublisher::class)->edit(textId: $id, body: 'The terms of Kuwait, changed by a second admin.', editor: 11));
+        $lastLineBefore = (int) DB::table('audit_logs')->max('id');
+
+        $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 12, '--hash' => $read])
+            ->expectsOutputToContain('the words it holds now are not the ones whose hash was given')
+            ->assertExitCode(1);
+
+        $text = StorefrontLegalDocument::query()->findOrFail($id);
+        $this->assertSame([StorefrontLegalDocument::STATUS_DRAFT, null, 'The terms of Kuwait, changed by a second admin.'], [$text->status, $text->approved_by, $text->body]);
+        $this->assertSame(['edited'], $this->stepsAuditedAfter(lineId: $lastLineBefore), 'only the change of the second admin was audited, not an approval');
+
+        $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 12, '--hash' => $this->hashPrefixOf(words: 'The terms of Kuwait, changed by a second admin.')])->assertExitCode(0);
+    }
+
+    public function test_a_publication_is_refused_by_the_service_when_a_second_admin_changes_and_approves_the_text_after_the_command_read_it(): void
+    {
+        $id = $this->editedTerms();
+        $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+        $read = $this->hashPrefixOf(words: 'The terms of Kuwait.');
+        $this->whenTheCommandHasReadTheText(textId: $id, change: function () use ($id): void {
+            $publisher = app(StorefrontLegalPublisher::class);
+            $publisher->edit(textId: $id, body: 'The terms of Kuwait, changed by a second admin.', editor: 11);
+            $publisher->approve(textId: $id, approver: 12);
+        });
+        $lastLineBefore = (int) DB::table('audit_logs')->max('id');
+
+        $this->text(action: 'publish', options: ['--id' => $id, '--admin' => 12, '--hash' => $read])
+            ->expectsOutputToContain('the words it holds now are not the ones whose hash was given')
+            ->assertExitCode(1);
+
+        $text = StorefrontLegalDocument::query()->findOrFail($id);
+        $this->assertSame([StorefrontLegalDocument::STATUS_APPROVED, 'The terms of Kuwait, changed by a second admin.', null, null], [$text->status, $text->body, $text->published_at, $text->effective_from]);
+        $this->assertSame(['edited', 'approved'], $this->stepsAuditedAfter(lineId: $lastLineBefore), 'only the changes of the second admin were audited, not a publication');
+
+        $this->text(action: 'publish', options: ['--id' => $id, '--admin' => 12, '--hash' => $this->hashPrefixOf(words: 'The terms of Kuwait, changed by a second admin.')])->assertExitCode(0);
     }
 
     public function test_an_action_it_does_not_know_is_refused(): void
