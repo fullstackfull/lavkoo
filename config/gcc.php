@@ -73,6 +73,16 @@ return [
             'verified_three_decimal_gateways' => [],
         ],
 
+        'legal_entities' => [
+            // Off by default: no order records who sold it, as before. When it is on, each order of a storefront is stamped with the id of that country's
+            // company in the legal_entities table and a frozen copy of its identity. The table ships empty: the companies are facts the owner and counsel
+            // supply (docs/gcc/GCC-13-LEGAL-ENTITIES.md). It does nothing while GCC_STOREFRONTS_ENABLED is off.
+            'enabled' => filter_var(env('GCC_LEGAL_ENTITIES', false), FILTER_VALIDATE_BOOLEAN),
+            // When on (and the registry is on), a storefront without an active company may not sell. Off by default, so a missing company never stops a sale
+            // until the owner decides that it should.
+            'required_to_sell' => filter_var(env('GCC_LEGAL_ENTITIES_REQUIRED', false), FILTER_VALIDATE_BOOLEAN),
+        ],
+
         'legal' => [
             // Configuration, not a statement of what the law requires. A qualified reviewer confirms the list per country before release.
             'required_documents' => ['terms', 'privacy', 'refund', 'return', 'cancellation', 'shipping'],
