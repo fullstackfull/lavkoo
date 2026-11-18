@@ -18,6 +18,7 @@ use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Models\OrderEditHistory;
 use App\Services\CustomerWalletService;
 use App\Services\DigitalProductFileService;
+use App\Services\Wallet\WalletCreditRefused;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
 use App\Services\OrderAddressUpdateService;
 use App\Services\OrderEditReturnAmountService;
@@ -263,7 +264,10 @@ class OrderController extends BaseController
                     ToastMagic::error(translate('Amount_returned_currently_not_possible_to_wallet'));
                     return redirect()->back();
                 }
-                CustomerManager::create_wallet_transaction($order['customer_id'], $order['edit_return_amount'], 'return_order_amount_by_admin', 'add_wallet_amount', ['payment_method' => 'wallet']);
+                $walletCredit = CustomerManager::create_wallet_transaction($order['customer_id'], $order['edit_return_amount'], 'return_order_amount_by_admin', 'add_wallet_amount', ['payment_method' => 'wallet']);
+                if ($walletCredit === false) {
+                    throw new WalletCreditRefused(customerId: $order['customer_id'], amount: (float) $order['edit_return_amount']);
+                }
             }
 
             $adminWallet = $this->adminWalletRepo->getFirstWhere(params: ['admin_id' => 1]);
