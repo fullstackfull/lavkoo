@@ -14,6 +14,7 @@ Whether each stage of the hotfix, cut from the server baseline `698aa1e`, may be
 | [lavkoo 78](https://github.com/fullstackfull/lavkoo/pull/78) | `fafa1a2e` | the whole hotfix from the baseline: 24 pull requests as one net change each | head moved after the last read (`665057a`: 5 green, 1 cancelled, overlay red by design); not read for `fafa1a2e` |
 | [lavkoo 81](https://github.com/fullstackfull/lavkoo/pull/81) | `0f512114` | CI evidence for the hotfix with a 45-minute MySQL job (do not merge) | head moved after the last read (`e1f083c`: 6 green, overlay red by design) |
 | [lavkoo 86](https://github.com/fullstackfull/lavkoo/pull/86) | `49e170fe` | CI evidence only: the baseline hotfix tree on MariaDB 11.4.2 and MySQL 8 (do not merge) | head moved after the last read (`57900cc`: 7 green, overlay red by design) |
+| [lavkoo 106](https://github.com/fullstackfull/lavkoo/pull/106) | `a8069b1a` | **main-based**, for `main`: the same removal of the one-time-code log calls as stage 0, applied to `main`, which kept them (the vendor password reset and the Zender gateway), with the same scan test | not read for this head (queued) |
 
 ## Read in this order
 

@@ -202,6 +202,13 @@ The lists above were made from the pull requests that existed then (up to #90). 
 | #100 (a customer embedded in a payload carries no balances) | `main` | independent |
 | #101 (a refund names the money and company of its order) | #90 | after #90 |
 | #103 (a refund from the original payment, not adopted) | #101 | after #101 |
+| #104 (the Saudi baseline as a named CI job) | #97 | after #97 |
+| #105 (a market needs an independent legal review before it sells) | #99 | after #99; see the gate conflict below |
+| #106 (one-time codes out of the log of `main`) | `main` | independent; the same lines are removed by stage 0 of the hotfix, which is not for `main` |
 
 **Conflict by content, not by file: #99 with #90 and #101.** #99 and #90 both add a condition to `StorefrontSellingGate::maySell` (the tax decision; the registered company). They merge with one conflict in `app/Services/Storefront/StorefrontSellingGate.php`: keep both conditions and both constructor arguments (the integration does). With both in the tree, three tests of #90 (`LegalEntitySellingGateTest`) and three of #101 (`StorefrontRefundRecordTest`) must record a tax decision for the storefronts they open (`tests/Support/ApprovesStorefrontTax::approveNoTaxFor`, from #99): the integration carries that change in `2667bc39`, and **whichever of #90, #99 and #101 merges last carries it**.
+
+**The gate has a third condition from #105.** #105 (stacked on #99) adds the independent legal review to the same `maySell` expression and constructor. Merged after #99 and #90 it conflicts in `StorefrontSellingGate.php` only in the docblock and in the list of conditions: keep all of them, in the order legal texts, legal review, currency, registered company, tax decision (the integration does, in `42c071bb`). The tests that open a storefront by publishing its legal texts (`BuildsStorefrontLegalDocuments::publishRequiredLegalDocuments`) now also record the review, so no other test file changes; the readiness tests that are about money or tax leave the legal texts out with `leaveTheLegalTextsOutOfThisTest()`.
+
+**The repair of three readiness tests (#87, `fd40399c`) touches lines #99 already carries.** #99 holds its own copy of the same `Schema::dropIfExists('shipping_types')` line in `StorefrontCurrencyTest` and `StorefrontMoneyCommandTest`; merging #87's new head into #99 (and into #96 and the integration) conflicts only on the line that approves the tax there. Keep the tax line and the drop line once each (#99's head `9a57012e` and the integration do).
 
