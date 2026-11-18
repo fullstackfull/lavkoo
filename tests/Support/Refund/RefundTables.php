@@ -133,6 +133,7 @@ final class RefundTables
             $table->string('edit_by')->nullable();
             $table->unsignedBigInteger('edited_user_id')->nullable();
             $table->string('edited_user_name')->nullable();
+            $table->decimal('order_due_amount', 24, 2)->default(0);
             $table->decimal('order_return_amount', 24, 2)->default(0);
             $table->string('order_return_payment_status')->nullable();
             $table->string('order_return_payment_method')->nullable();

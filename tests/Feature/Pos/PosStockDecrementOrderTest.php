@@ -62,7 +62,7 @@ class PosStockDecrementOrderTest extends ApiAddressTestCase
 
     private function recordStockDecrement(QueryExecuted $query): void
     {
-        $sql = $query->sql;
+        $sql = str_replace('`', '"', $query->sql);
         if (!str_starts_with($sql, 'update "products"') || !str_contains($sql, '"current_stock" = "current_stock" -')) {
             return;
         }

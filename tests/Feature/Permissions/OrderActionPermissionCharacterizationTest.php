@@ -383,6 +383,8 @@ class OrderActionPermissionCharacterizationTest extends TestCase
         Schema::create('order_edit_histories', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('order_id');
+            $table->decimal('order_due_amount', 24, 2)->default(0);
+            $table->decimal('order_return_amount', 24, 2)->default(0);
             $table->string('order_due_payment_status')->nullable();
             $table->string('order_due_payment_method')->nullable();
             $table->string('order_return_payment_status')->nullable();

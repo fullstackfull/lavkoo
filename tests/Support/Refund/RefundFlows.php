@@ -96,7 +96,7 @@ final class RefundFlows
             'reward_delivered' => $orderStatus === 'delivered' ? 1 : 0,
         ]);
         if ($editReturnAmount > 0) {
-            DB::table('order_edit_histories')->insert(['order_id' => self::ORDER_ID, 'order_return_payment_status' => 'pending']);
+            DB::table('order_edit_histories')->insert(['order_id' => self::ORDER_ID, 'order_return_amount' => $editReturnAmount, 'order_return_payment_status' => 'pending']);
         }
     }
 

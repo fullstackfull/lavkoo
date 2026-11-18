@@ -291,6 +291,7 @@ trait BuildsReferralRewardWorld
             $table->string('order_return_payment_status')->nullable();
             $table->string('order_due_payment_note')->nullable();
             $table->decimal('order_due_amount', 24, 6)->default(0);
+            $table->decimal('order_return_amount', 24, 6)->default(0);
             $table->timestamps();
         });
         Schema::create('order_details_rewards', function (Blueprint $table) {

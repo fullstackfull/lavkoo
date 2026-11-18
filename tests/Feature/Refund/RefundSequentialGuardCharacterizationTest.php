@@ -96,6 +96,10 @@ class RefundSequentialGuardCharacterizationTest extends TestCase
     /** RF-07 as it stands: with natively typed fetches the strict comparison refuses even the exact amount. See docs/wallet/refund-loyalty-idempotency-proposals.md#rf-07. */
     public function test_current_behaviour_the_exact_return_amount_is_refused_when_the_driver_returns_a_number(): void
     {
+        if (DB::connection()->getDriverName() !== 'sqlite') {
+            $this->markTestSkipped('A decimal column comes back as a string from MySQL and MariaDB, so the case needs a driver that returns a number (SQLite does).');
+        }
+
         RefundFlows::seedOrderLine(orderStatus: 'confirmed', editReturnAmount: RefundFlows::RETURN_AMOUNT);
 
         RefundFlows::returnAmountToWallet(amount: RefundFlows::storedReturnAmount());
