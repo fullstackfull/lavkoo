@@ -6,6 +6,8 @@ use App\Contracts\Repositories\LoyaltyPointTransactionRepositoryInterface;
 use App\Models\BusinessSetting;
 use App\Models\LoyaltyPointTransaction;
 use App\Models\User;
+use App\Services\Storefront\LedgerAttribution;
+use App\Services\Storefront\LedgerOrigin;
 use Exception;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
@@ -111,7 +113,7 @@ class LoyaltyPointTransactionRepository implements LoyaltyPointTransactionReposi
         return true;
     }
 
-    public function addLoyaltyPointTransaction(string|int $userId, string $reference, string|int|float $amount, string $transactionType): bool
+    public function addLoyaltyPointTransaction(string|int $userId, string $reference, string|int|float $amount, string $transactionType, ?LedgerOrigin $origin = null): bool
     {
         $settings = array_column($this->businessSetting->whereIn('type', ['loyalty_point_status', 'loyalty_point_exchange_rate', 'loyalty_point_item_purchase_point'])->get()->toArray(), 'value', 'type');
         if ($settings['loyalty_point_status'] != 1) {
@@ -143,6 +145,7 @@ class LoyaltyPointTransactionRepository implements LoyaltyPointTransactionReposi
             'debit' => $debit,
             'created_at' => now(),
             'updated_at' => now(),
+            ...app(LedgerAttribution::class)->of(table: $this->loyaltyPointTransaction->getTable(), origin: $origin),
         ];
 
         try {

@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Enums\LedgerActor;
+use App\Services\Storefront\LedgerOrigin;
 use App\Traits\CustomerTrait;
 
 class RefundStatusService
@@ -84,7 +86,8 @@ class RefundStatusService
                 user_id: $refund['customer_id'],
                 amount: usdToDefaultCurrency(amount: $refund['amount']),
                 transaction_type: 'order_refund',
-                reference: 'order_refund'
+                reference: 'order_refund',
+                origin: LedgerOrigin::refund(id: $refund['id'], by: LedgerActor::Admin)
             );
         }
     }

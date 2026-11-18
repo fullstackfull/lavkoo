@@ -9,6 +9,8 @@ use App\Contracts\Repositories\PhoneOrEmailVerificationRepositoryInterface;
 use App\Models\BusinessSetting;
 use App\Models\User;
 use App\Models\WalletTransaction;
+use App\Services\Storefront\LedgerAttribution;
+use App\Services\Storefront\LedgerOrigin;
 use Carbon\CarbonInterval;
 use Exception;
 use Illuminate\Support\Carbon;
@@ -39,7 +41,7 @@ trait CustomerTrait
         return $loyaltyPoint;
     }
 
-    protected function createWalletTransaction($user_id, float $amount, $transaction_type, $reference, $payment_data = []): bool|WalletTransaction
+    protected function createWalletTransaction($user_id, float $amount, $transaction_type, $reference, $payment_data = [], ?LedgerOrigin $origin = null): bool|WalletTransaction
     {
         if (BusinessSetting::where('type', 'wallet_status')->first()->value != 1) return false;
         $user = User::find($user_id);
@@ -75,6 +77,7 @@ trait CustomerTrait
         $walletTransaction->balance = $currentBalance + $creditAmount - $debitAmount;
         $walletTransaction->created_at = now();
         $walletTransaction->updated_at = now();
+        $walletTransaction->fill(app(LedgerAttribution::class)->of(table: $walletTransaction->getTable(), origin: $origin));
         $user->wallet_balance = $currentBalance + $addFundToWalletBonus + $creditAmount - $debitAmount;
 
         try {

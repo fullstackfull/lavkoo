@@ -7,6 +7,8 @@ use App\Models\AddFundBonusCategories;
 use App\Models\WalletTransaction;
 use App\Models\BusinessSetting;
 use App\Models\User;
+use App\Services\Storefront\LedgerAttribution;
+use App\Services\Storefront\LedgerOrigin;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -104,7 +106,7 @@ class WalletTransactionRepository implements WalletTransactionRepositoryInterfac
         return true;
     }
 
-    public function addWalletTransaction(string $user_id, float $amount, string $transactionType, ?string $reference = null, array $payment_data = []): bool|WalletTransaction
+    public function addWalletTransaction(string $user_id, float $amount, string $transactionType, ?string $reference = null, array $payment_data = [], ?LedgerOrigin $origin = null): bool|WalletTransaction
     {
         if ($this->businessSetting->where('type', 'wallet_status')->first()->value != 1) return false;
         $user = $this->user->where('id', $user_id)->first();
@@ -141,6 +143,7 @@ class WalletTransactionRepository implements WalletTransactionRepositoryInterfac
         $wallet_transaction['balance'] = $currentBalance + $credit_amount - $debit_amount;
         $wallet_transaction['created_at'] = now();
         $wallet_transaction['updated_at'] = now();
+        $wallet_transaction->fill(app(LedgerAttribution::class)->of(table: $wallet_transaction->getTable(), origin: $origin));
 
         try {
             DB::beginTransaction();

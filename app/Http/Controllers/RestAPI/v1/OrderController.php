@@ -25,6 +25,7 @@ use App\Services\OrderService;
 use App\Traits\CommonTrait;
 use App\Traits\FileManagerTrait;
 use App\Traits\SmsGateway;
+use App\Services\Storefront\LedgerOrigin;
 use App\Models\User;
 use App\Utils\CartManager;
 use App\Utils\Convert;
@@ -492,7 +493,7 @@ class OrderController extends Controller
                 return response()->json(['message' => translate('The_following_items_in_your_cart_are_currently_out_of_stock')], 403);
             }
 
-            CustomerManager::create_wallet_transaction($user->id, Convert::default($paymentAmount), 'order_place', 'order payment');
+            CustomerManager::create_wallet_transaction($user->id, Convert::default($paymentAmount), 'order_place', 'order payment', origin: LedgerOrigin::checkout(orderIds: $orderIds));
             return response()->json([
                 'messages' => translate('order_placed_successfully'),
                 'order_ids' => $orderIds,

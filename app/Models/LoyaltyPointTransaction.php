@@ -18,6 +18,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property float $balance
  * @property string|null $reference
  * @property string|null $transaction_type
+ * @property string|null $source_type
+ * @property string|null $source_id
+ * @property string|null $actor_type
+ * @property int|null $actor_id
+ * @property string|null $storefront_country
+ * @property int|null $legal_entity_id
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  *
@@ -36,6 +42,22 @@ class LoyaltyPointTransaction extends Model
         'balance',
         'reference',
         'transaction_type',
+        'source_type',
+        'source_id',
+        'actor_type',
+        'actor_id',
+        'storefront_country',
+        'legal_entity_id',
+    ];
+
+    /** What stands behind a row (App\Services\Storefront\LedgerAttribution) is internal: a customer's statement keeps the keys it had. */
+    protected $hidden = [
+        'source_type',
+        'source_id',
+        'actor_type',
+        'actor_id',
+        'storefront_country',
+        'legal_entity_id',
     ];
 
     protected $casts = [

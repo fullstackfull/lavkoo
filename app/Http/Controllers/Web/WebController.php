@@ -45,6 +45,7 @@ use App\Models\Setting;
 use App\Models\Wishlist;
 use App\Traits\CommonTrait;
 use App\Traits\SmsGateway;
+use App\Services\Storefront\LedgerOrigin;
 use App\Utils\CartManager;
 use App\Utils\Convert;
 use App\Utils\CustomerManager;
@@ -878,7 +879,7 @@ class WebController extends Controller
                 OrderManager::generateReferBonusForFirstOrder(orderId: $order_id);
             }
 
-            CustomerManager::create_wallet_transaction($user->id, Convert::default($paymentAmount), 'order_place', 'order payment');
+            CustomerManager::create_wallet_transaction($user->id, Convert::default($paymentAmount), 'order_place', 'order payment', origin: LedgerOrigin::checkout(orderIds: $order_ids));
         }
 
         if (session()->has('payment_mode') && session('payment_mode') == 'app') {
