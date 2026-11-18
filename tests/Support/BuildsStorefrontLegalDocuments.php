@@ -8,8 +8,8 @@ use Illuminate\Support\Facades\Schema;
 
 /**
  * Builds the legal-documents table at its current schema and publishes texts the way readiness reads them: effective, approved by
- * someone other than the author, and in every locale the storefront requires, and records the independent legal review of them (unless a test says it is
- * the missing review that it tests).
+ * someone other than the author, and in every locale the storefront requires, records the independent legal review of them (unless a test says it is
+ * the missing review that it tests) and makes the storefront active (unless a test says it is the lifecycle that it tests).
  */
 trait BuildsStorefrontLegalDocuments
 {
@@ -58,10 +58,14 @@ trait BuildsStorefrontLegalDocuments
         ], $overrides));
     }
 
-    protected function publishRequiredLegalDocuments(string $country, ?string $withheldType = null, bool $reviewed = true): void
+    protected function publishRequiredLegalDocuments(string $country, ?string $withheldType = null, bool $reviewed = true, bool $activated = true): void
     {
         if ($reviewed) {
             $this->recordLegalReviewFor($country);
+        }
+
+        if ($activated) {
+            $this->activateStorefrontFor($country);
         }
 
         $locales = config("gcc.storefronts.legal.locales_by_country.{$country}") ?? config('gcc.storefronts.legal.required_locales');

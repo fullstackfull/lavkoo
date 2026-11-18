@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\DB;
 /**
  * The checkout world of ApiAddressTestCase with the five storefronts other than the Saudi one open: a currency row and one in-house product for each, priced in its
  * own currency (Saudi 100, Emirati 250, Kuwaiti 30, Qatari 45, Bahraini 12.5, Omani 14), the storefront currency switch on, and a way to fill a customer's cart from a
- * storefront. Every storefront may sell: its legal texts are grandfathered and its tax is decided to be none. For a test case that extends ApiAddressTestCase and uses
+ * storefront. Every storefront may sell: its legal texts are grandfathered, its tax is decided to be none and it is active. For a test case that extends ApiAddressTestCase and uses
  * BuildsStorefrontCart, BuildsStorefrontCatalog and BuildsStorefrontMoneyWorld.
  */
 trait BuildsSixStorefrontCheckoutWorld
@@ -33,6 +33,7 @@ trait BuildsSixStorefrontCheckoutWorld
             config(["gcc.storefronts.countries.{$storefront}.active" => true]);
         }
         $this->approveNoTaxFor('KW', 'QA', 'BH', 'OM');
+        $this->activateStorefrontFor('AE', 'KW', 'QA', 'BH', 'OM');
         StorefrontCatalog::flush();
     }
 
