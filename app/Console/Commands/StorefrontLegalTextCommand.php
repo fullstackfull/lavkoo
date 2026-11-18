@@ -34,7 +34,7 @@ class StorefrontLegalTextCommand extends Command
         {--template-file= : with draft: the file that holds the template to copy}
         {--body-file= : with edit: the file that holds the new text}
         {--effective-from= : with publish: when the text takes effect, as YYYY-MM-DD HH:MM in UTC; now when it is left out}
-        {--hash= : with approve and publish: the first 12 characters (or all 64) of the hash of the text you read, as list shows it; refused when the text is not that any more}
+        {--hash= : with approve and publish: the first 12 characters (or all 64) of the hash of the text you read, as list shows it; refused when the text is not that any more, and when it is empty (leave it out to name none)}
         {--reason= : with revoke and discard: why}';
 
     protected $description = 'Writes the legal text of a storefront: copies a template into a draft, edits it, approves it (someone other than its author), publishes it from a day, revokes it or discards it. Every step is audited and the readiness of the storefront reads what is written. Works while the switches are off';
@@ -173,15 +173,18 @@ class StorefrontLegalTextCommand extends Command
 
     /**
      * The hash of the words the person read, when they name one: the whole hash of the text as it stands now, so that the service compares it again under its own lock (a text that
-     * changes between this check and the step is refused there). Null when they name none.
+     * changes between this check and the step is refused there). Null only when --hash is left out: an empty or blank value is not "no hash", it is refused like any value that is not
+     * a hash, so that a script whose variable turned out empty does not take the step on words nobody named.
      */
     private function expectedBodyHash(int $textId): ?string
     {
-        if (!$this->filled('hash')) {
+        $named = $this->option('hash');
+
+        if ($named === null) {
             return null;
         }
 
-        $prefix = strtolower(trim((string) $this->option('hash')));
+        $prefix = strtolower(trim((string) $named));
 
         if (preg_match('/^[0-9a-f]{' . self::MINIMUM_HASH_PREFIX_LENGTH . ',64}$/', $prefix) !== 1) {
             throw new InvalidArgumentException('--hash is the first ' . self::MINIMUM_HASH_PREFIX_LENGTH . ' characters, or all 64, of the hash of the text you read, as list shows it.');

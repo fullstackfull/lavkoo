@@ -583,6 +583,47 @@ class StorefrontLegalTextCommandTest extends TestCase
         $this->assertSame(StorefrontLegalDocument::STATUS_DRAFT, StorefrontLegalDocument::query()->findOrFail($id)->status);
     }
 
+    /** @return array<string, array{string}> */
+    public static function hashesThatNameNoWords(): array
+    {
+        return ['empty, as a script gives it when its variable is empty' => [''], 'spaces only' => ['   ']];
+    }
+
+    #[DataProvider('hashesThatNameNoWords')]
+    public function test_an_empty_hash_is_refused_on_an_approval_and_is_not_read_as_no_hash(string $hash): void
+    {
+        $id = $this->editedTerms();
+        $linesBefore = DB::table('audit_logs')->count();
+
+        $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 12, '--hash' => $hash])
+            ->expectsOutputToContain('--hash is the first 12 characters, or all 64')
+            ->assertExitCode(1);
+
+        $text = StorefrontLegalDocument::query()->findOrFail($id);
+        $this->assertSame([StorefrontLegalDocument::STATUS_DRAFT, null, null], [$text->status, $text->approved_by, $text->approved_at]);
+        $this->assertSame($linesBefore, DB::table('audit_logs')->count());
+
+        $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+    }
+
+    #[DataProvider('hashesThatNameNoWords')]
+    public function test_an_empty_hash_is_refused_on_a_publication_and_is_not_read_as_no_hash(string $hash): void
+    {
+        $id = $this->editedTerms();
+        $this->text(action: 'approve', options: ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+        $linesBefore = DB::table('audit_logs')->count();
+
+        $this->text(action: 'publish', options: ['--id' => $id, '--admin' => 12, '--hash' => $hash])
+            ->expectsOutputToContain('--hash is the first 12 characters, or all 64')
+            ->assertExitCode(1);
+
+        $text = StorefrontLegalDocument::query()->findOrFail($id);
+        $this->assertSame([StorefrontLegalDocument::STATUS_APPROVED, null, null], [$text->status, $text->published_at, $text->effective_from]);
+        $this->assertSame($linesBefore, DB::table('audit_logs')->count());
+
+        $this->text(action: 'publish', options: ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+    }
+
     public function test_a_hash_named_for_a_text_that_does_not_exist_is_refused(): void
     {
         $this->text('approve', ['--id' => 99, '--admin' => 12, '--hash' => $this->hashPrefixOf('The terms of Kuwait.')])
