@@ -2,6 +2,7 @@
 
 namespace App\Contracts\Repositories;
 
+use App\Services\Storefront\LedgerOrigin;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Pagination\LengthAwarePaginator;
 
@@ -19,5 +20,5 @@ interface LoyaltyPointTransactionRepositoryInterface extends RepositoryInterface
      */
     public function getListWhereSelect(array $orderBy = [], ?string $searchValue = null, array $filters = [], array $relations = [], int|string $dataLimit = DEFAULT_DATA_LIMIT, ?int $offset = null): Collection|LengthAwarePaginator;
 
-    public function addLoyaltyPointTransaction(string|int $userId, string $reference, string|int|float $amount, string $transactionType): bool;
+    public function addLoyaltyPointTransaction(string|int $userId, string $reference, string|int|float $amount, string $transactionType, ?LedgerOrigin $origin = null): bool;
 }

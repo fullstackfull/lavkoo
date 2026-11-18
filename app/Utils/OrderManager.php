@@ -48,6 +48,8 @@ use App\Models\DeliverySyriaGovernorateRate;
 use App\Models\DeliverySyriaParcel;
 use App\Services\Fulfillment\FulfillmentHooks;
 use App\Services\Fulfillment\OrderItemOwnershipSnapshotter;
+use App\Services\Storefront\LedgerAttribution;
+use App\Services\Storefront\LedgerOrigin;
 use App\Services\Storefront\OrderStorefrontSnapshot;
 use App\Services\SalesChannels\Dispatch\ChannelOrderMarker;
 use App\Enums\Address\AddressChannel;
@@ -2299,7 +2301,7 @@ Log::warning('Delivery Syria: parcel saved successfully', [
     }
 
 
-    public static function createWalletTransaction($user_id, float $amount, $transaction_type, $reference, $payment_data = []): bool|WalletTransaction
+    public static function createWalletTransaction($user_id, float $amount, $transaction_type, $reference, $payment_data = [], ?LedgerOrigin $origin = null): bool|WalletTransaction
     {
         if (BusinessSetting::where('type', 'wallet_status')->first()->value != 1) return false;
         $user = User::find($user_id);
@@ -2335,6 +2337,7 @@ Log::warning('Delivery Syria: parcel saved successfully', [
         $walletTransaction->balance = $currentBalance + $creditAmount - $debitAmount;
         $walletTransaction->created_at = now();
         $walletTransaction->updated_at = now();
+        $walletTransaction->fill(app(LedgerAttribution::class)->of(table: $walletTransaction->getTable(), origin: $origin));
         $user->wallet_balance = $currentBalance + $addFundToWalletBonus + $creditAmount - $debitAmount;
 
         try {

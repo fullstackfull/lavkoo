@@ -12,6 +12,8 @@ use App\Models\RestockProduct;
 use App\Models\BusinessSetting;
 use App\Models\ReferralCustomer;
 use App\Models\WalletTransaction;
+use App\Services\Storefront\LedgerAttribution;
+use App\Services\Storefront\LedgerOrigin;
 use Illuminate\Support\Facades\DB;
 use App\Models\LoyaltyPointTransaction;
 
@@ -33,7 +35,7 @@ class CustomerManager
     }
 
     /**create_wallet_transaction -> function on Customer trait -> createWalletTransaction*/
-    public static function create_wallet_transaction($user_id, float $amount, $transaction_type, $reference, $payment_data = [])
+    public static function create_wallet_transaction($user_id, float $amount, $transaction_type, $reference, $payment_data = [], ?LedgerOrigin $origin = null)
     {
         if (BusinessSetting::where('type', 'wallet_status')->first()->value != 1) return false;
         $user = User::find($user_id);
@@ -74,6 +76,7 @@ class CustomerManager
         $wallet_transaction->balance = $current_balance + $credit_amount - $debit_amount;
         $wallet_transaction->created_at = now();
         $wallet_transaction->updated_at = now();
+        $wallet_transaction->fill(app(LedgerAttribution::class)->of(table: $wallet_transaction->getTable(), origin: $origin));
         $user->wallet_balance = $current_balance + $add_fund_to_wallet_bonus + $credit_amount - $debit_amount;
 
         try {
@@ -90,7 +93,7 @@ class CustomerManager
         }
     }
 
-    public static function create_loyalty_point_transaction($user_id, $reference, $amount, $transaction_type): bool
+    public static function create_loyalty_point_transaction($user_id, $reference, $amount, $transaction_type, ?LedgerOrigin $origin = null): bool
     {
         $settings = array_column(BusinessSetting::whereIn('type', ['loyalty_point_status', 'loyalty_point_exchange_rate', 'loyalty_point_item_purchase_point'])->get()->toArray(), 'value', 'type');
         if ($settings['loyalty_point_status'] != 1) {
@@ -121,6 +124,7 @@ class CustomerManager
         $loyalty_point_transaction->debit = $debit;
         $loyalty_point_transaction->created_at = now();
         $loyalty_point_transaction->updated_at = now();
+        $loyalty_point_transaction->fill(app(LedgerAttribution::class)->of(table: $loyalty_point_transaction->getTable(), origin: $origin));
         $user->loyalty_point = $current_balance;
 
         try {
