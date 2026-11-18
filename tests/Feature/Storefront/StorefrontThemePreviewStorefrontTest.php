@@ -7,10 +7,9 @@ use App\Services\Storefront\StorefrontContext;
 use App\Services\Storefront\StorefrontResolver;
 use App\Services\Theme\StorefrontThemeRenderer;
 use App\Services\Theme\StorefrontThemeResolver;
-use App\Services\Theme\ThemeManager;
 use App\Services\Theme\ThemePreviewToken;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsThemePreviewWorld;
 use Tests\Support\BuildsThemeWorld;
@@ -203,31 +202,60 @@ class StorefrontThemePreviewStorefrontTest extends TestCase
 
     public function test_a_draft_of_a_theme_that_no_longer_exists_is_ignored_and_the_published_page_of_the_storefront_is_given_instead(): void
     {
-        $token = $this->previewTokenOf(version: $this->saudiDraft);
-        $this->saudiTheme->delete();
+        $orphan = $this->giveDraft(theme: $this->giveTheme(name: 'Orphan', country: null), height: self::SAUDI_SECOND_DRAFT);
+        $token = $this->previewTokenOf(version: $orphan);
+        $this->assertAppServes(height: self::SAUDI_SECOND_DRAFT, response: $this->appHome(token: $token));
+        $orphan->theme->delete();
 
         $response = $this->appHome(token: $token);
 
-        $response->assertOk()->assertJsonMissingPath('preview')->assertJson(['sections' => []]);
+        $this->assertAppServes(height: self::SAUDI_PUBLISHED, response: $response);
+        $response->assertJsonMissingPath('preview');
+    }
+
+    public function test_a_draft_of_a_theme_that_no_longer_exists_is_ignored_when_the_storefront_has_nothing_published(): void
+    {
+        $token = $this->previewTokenOf(version: $this->saudiDraft);
+        $this->saudiTheme->delete();
+
+        $this->appHome(token: $token)->assertOk()->assertJsonMissingPath('preview')->assertJsonPath('revision', 0)->assertJsonCount(0, 'sections');
     }
 
     public function test_the_colours_of_the_page_head_follow_the_same_rule(): void
     {
-        $this->saudiDraft->update(['settings' => ['colors' => ['primary' => '#005a5a']]]);
-        $this->emiratiDraft->update(['settings' => ['colors' => ['primary' => '#ae0000']]]);
-        $renderer = app(StorefrontThemeRenderer::class);
-        $manager = app(ThemeManager::class);
-        $primaryColourOn = function (string $storefront, ThemeVersion $draft) use ($renderer, $manager): string {
+        $primaryColourOn = function (string $storefront, ThemeVersion $draft): string {
             $this->serveRequestFromStorefront(country: $storefront);
-            $this->app->instance('request', Request::create('/', 'GET', ['theme_preview' => $this->previewTokenOf(version: $draft)]));
 
-            return $renderer->publishedGlobalSettings(manager: $manager)['colors']['primary'];
+            return $this->pageHeadPrimaryColour(token: $this->previewTokenOf(version: $draft));
         };
 
-        $this->assertSame('#ae0000', $primaryColourOn(storefront: 'AE', draft: $this->emiratiDraft));
-        $this->assertSame($manager->defaultSettings()['colors']['primary'], $primaryColourOn(storefront: 'SA', draft: $this->emiratiDraft));
-        $this->assertSame('#005a5a', $primaryColourOn(storefront: 'SA', draft: $this->saudiDraft));
-        $this->assertSame($manager->defaultSettings()['colors']['primary'], $primaryColourOn(storefront: 'AE', draft: $this->saudiDraft));
+        $this->assertSame(self::EMIRATI_DRAFT_PRIMARY, $primaryColourOn(storefront: 'AE', draft: $this->emiratiDraft));
+        $this->assertSame(self::SAUDI_PUBLISHED_PRIMARY, $primaryColourOn(storefront: 'SA', draft: $this->emiratiDraft));
+        $this->assertSame(self::SAUDI_DRAFT_PRIMARY, $primaryColourOn(storefront: 'SA', draft: $this->saudiDraft));
+        $this->assertSame(self::EMIRATI_PUBLISHED_PRIMARY, $primaryColourOn(storefront: 'AE', draft: $this->saudiDraft));
+    }
+
+    // ---- a storefront that is not open yet -----------------------------------------------------------------------------------------------------
+
+    public function test_a_storefront_that_is_not_open_yet_is_the_default_storefronts_for_every_request_so_a_draft_of_its_theme_is_not_previewed(): void
+    {
+        config(['gcc.storefronts.countries.AE.active' => false]);
+        $emirati = $this->previewTokenOf(version: $this->emiratiDraft);
+        $saudi = $this->previewTokenOf(version: $this->saudiDraft);
+
+        $this->assertAppServes(height: self::SAUDI_PUBLISHED, response: $this->appHome(token: $emirati, storefront: 'AE'));
+        $this->assertAppServes(height: self::SAUDI_PUBLISHED, response: $this->appSections(token: $emirati, storefront: 'AE'));
+        $this->assertWebsiteServes(height: self::SAUDI_PUBLISHED, response: $this->offersPage(token: $emirati, storefront: 'AE'));
+        $this->assertAppServes(height: self::SAUDI_DRAFT, response: $this->appHome(token: $saudi, storefront: 'AE'));
+    }
+
+    public function test_a_storefront_that_is_open_previews_its_own_draft_while_another_is_not_open_yet(): void
+    {
+        config(['gcc.storefronts.countries.AE.active' => false]);
+        $kuwaiti = $this->previewTokenOf(version: $this->giveDraft(theme: $this->giveTheme(name: 'Kuwaiti', country: 'KW'), height: self::KUWAITI_DRAFT));
+
+        $this->assertAppServes(height: self::KUWAITI_DRAFT, response: $this->appHome(token: $kuwaiti, storefront: 'KW'));
+        $this->assertWebsiteServes(height: self::KUWAITI_DRAFT, response: $this->offersPage(token: $kuwaiti, storefront: 'KW'));
     }
 
     // ---- nothing changes while themes are not kept by storefront -------------------------------------------------------------------------------
@@ -298,6 +326,19 @@ class StorefrontThemePreviewStorefrontTest extends TestCase
 
         $statements = $this->statementsOf(callback: fn () => app(StorefrontThemeResolver::class)->mayPreview(version: $this->emiratiDraft));
         $this->assertSame([], $statements);
+    }
+
+    public function test_before_the_themes_migration_has_run_deciding_which_draft_to_preview_runs_the_column_probe_every_theme_reader_makes_and_nothing_else(): void
+    {
+        $this->buildThemeWorld(withCountryColumn: false);
+        $this->givePreviewWorld();
+        config(['gcc.storefronts.default_country' => 'XX']);
+        $probe = $this->statementsOf(callback: fn () => Schema::hasColumn('themes', StorefrontThemeResolver::COLUMN));
+
+        $statements = $this->statementsOf(callback: fn () => $this->assertTrue(app(StorefrontThemeResolver::class)->mayPreview(version: $this->emiratiDraft)));
+
+        $this->assertNotSame([], $probe, 'the probe is a statement');
+        $this->assertSame($probe, $statements, 'the storefront is not read either: a configuration that cannot be resolved would throw');
     }
 
     public function test_while_themes_are_not_kept_by_storefront_a_token_that_is_not_live_still_names_no_version(): void

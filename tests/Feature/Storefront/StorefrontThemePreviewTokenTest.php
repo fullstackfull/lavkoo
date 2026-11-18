@@ -3,6 +3,7 @@
 namespace Tests\Feature\Storefront;
 
 use App\Services\Theme\ThemePreviewToken;
+use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsThemePreviewWorld;
 use Tests\Support\BuildsThemeWorld;
@@ -14,6 +15,8 @@ use Tests\TestCase;
  *
  * Checked on the token itself and through the two routes of the app that read it: /api/v1/theme/home (as `preview`) and /api/v1/theme/sections (as `theme_preview`). The website is in
  * StorefrontThemePreviewWebTest and the storefront a token belongs to is in StorefrontThemePreviewStorefrontTest.
+ *
+ * The last four tests are defects of the app's routes that these tests found, each skipped with what it answers today: F-07.2 is not met for either route of the app, nor F-07.1 for /theme/sections, until they are decided and fixed.
  */
 class StorefrontThemePreviewTokenTest extends TestCase
 {
@@ -24,6 +27,7 @@ class StorefrontThemePreviewTokenTest extends TestCase
     {
         parent::setUp();
 
+        Http::preventStrayRequests();
         $this->buildThemeWorld();
         $this->switchStorefrontThemesOn();
         $this->openEveryStorefront();
@@ -176,5 +180,47 @@ class StorefrontThemePreviewTokenTest extends TestCase
             $this->assertAppServes(height: self::SAUDI_DRAFT, response: $this->{$endpoint}(token: $token));
             $this->assertAppServes(height: self::SAUDI_PUBLISHED, response: $this->{$endpoint}());
         }
+    }
+
+    // ---- defects of the app's routes, found by these tests and not fixed here -----------------------------------------------------------------------
+
+    public function test_a_list_sent_as_the_preview_of_the_home_page_is_ignored_and_the_published_page_is_given(): void
+    {
+        $this->markTestSkipped('Defect, a decision of the owner: /api/v1/theme/home?preview[]=x answers 500, because ThemePreviewToken::version takes a ?string and a list is a TypeError. Widening it to mixed changes behaviour outside F-07.4.');
+
+        $response = $this->getJson('/api/v1/theme/home?preview[]=' . $this->previewTokenOf(version: $this->saudiDraft));
+
+        $this->assertAppServes(height: self::SAUDI_PUBLISHED, response: $response);
+        $response->assertJsonMissingPath('preview');
+    }
+
+    public function test_the_home_page_of_the_app_that_a_token_summoned_is_marked_noindex(): void
+    {
+        $this->markTestSkipped('Defect, a decision of the owner: /api/v1/theme/home?preview=<live token> answers the draft with no X-Robots-Tag, because NoIndexThemePreview is in the web group only and reads theme_preview, which this route does not take.');
+
+        $response = $this->appHome(token: $this->previewTokenOf(version: $this->saudiDraft));
+
+        $this->assertAppServes(height: self::SAUDI_DRAFT, response: $response);
+        $this->assertStringContainsString('noindex', (string) $response->headers->get('X-Robots-Tag'));
+    }
+
+    public function test_the_sections_of_the_app_that_a_token_summoned_are_marked_noindex(): void
+    {
+        $this->markTestSkipped('Defect, a decision of the owner: /api/v1/theme/sections?theme_preview=<live token> answers the draft with no X-Robots-Tag, because NoIndexThemePreview is in the web group only.');
+
+        $response = $this->appSections(token: $this->previewTokenOf(version: $this->saudiDraft));
+
+        $this->assertAppServes(height: self::SAUDI_DRAFT, response: $response);
+        $this->assertStringContainsString('noindex', (string) $response->headers->get('X-Robots-Tag'));
+    }
+
+    public function test_the_sections_of_the_app_that_a_token_summoned_are_sent_with_no_store(): void
+    {
+        $this->markTestSkipped('Defect, a decision of the owner: /api/v1/theme/sections?theme_preview=<live token> answers the draft with Cache-Control "no-cache, private", not "no-store, private", because only the home route sets the header.');
+
+        $response = $this->appSections(token: $this->previewTokenOf(version: $this->saudiDraft));
+
+        $this->assertAppServes(height: self::SAUDI_DRAFT, response: $response);
+        $this->assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
     }
 }

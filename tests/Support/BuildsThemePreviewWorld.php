@@ -15,17 +15,21 @@ use App\Models\AdminRole;
 use App\Models\Theme;
 use App\Models\ThemeSection;
 use App\Models\ThemeVersion;
+use App\Services\Theme\StorefrontThemeRenderer;
+use App\Services\Theme\ThemeManager;
 use App\Services\Theme\ThemePreviewToken;
 use ArrayObject;
 use Illuminate\Cache\Events\KeyWritten;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\View;
 use Illuminate\Testing\TestResponse;
 
 /**
  * What the preview tests (GCC F-07) tell apart, on top of BuildsThemeWorld: a Saudi theme and an Emirati one, both active and published, and a draft of each that only that theme has (and a second
  * Saudi draft, for a token whose id is tampered with; a test that needs a Kuwaiti theme makes it, and a draft of it, itself). Every page is told by the height of its one spacer, so the page a response carries names whose it is and whether it is a draft; a draft also
- * carries a text that appears nowhere else.
+ * carries a text that appears nowhere else. Every published version and every draft also has a primary colour of its own, which is what tells the colours of one page head from another's.
  *
  * The two pages that carry the spacer are the home page, which the app asks for, and the custom page `offers`, which both themes have and the website serves at /p/offers.
  */
@@ -42,6 +46,14 @@ trait BuildsThemePreviewWorld
     private const EMIRATI_DRAFT = 4242;
 
     private const KUWAITI_DRAFT = 4444;
+
+    private const SAUDI_PUBLISHED_PRIMARY = '#112233';
+
+    private const EMIRATI_PUBLISHED_PRIMARY = '#445566';
+
+    private const SAUDI_DRAFT_PRIMARY = '#005a5a';
+
+    private const EMIRATI_DRAFT_PRIMARY = '#ae0000';
 
     /** What each spacer height is, in the words a failed assertion reads best in. */
     private const PAGES = [
@@ -81,6 +93,22 @@ trait BuildsThemePreviewWorld
         $this->saudiDraft = $this->giveDraft(theme: $this->saudiTheme, height: self::SAUDI_DRAFT);
         $this->saudiSecondDraft = $this->giveDraft(theme: $this->saudiTheme, height: self::SAUDI_SECOND_DRAFT);
         $this->emiratiDraft = $this->giveDraft(theme: $this->emiratiTheme, height: self::EMIRATI_DRAFT);
+
+        $this->givePrimaryColours();
+    }
+
+    private function givePrimaryColours(): void
+    {
+        $primaries = [
+            [$this->saudiTheme->publishedVersion, self::SAUDI_PUBLISHED_PRIMARY],
+            [$this->emiratiTheme->publishedVersion, self::EMIRATI_PUBLISHED_PRIMARY],
+            [$this->saudiDraft, self::SAUDI_DRAFT_PRIMARY],
+            [$this->emiratiDraft, self::EMIRATI_DRAFT_PRIMARY],
+        ];
+
+        foreach ($primaries as [$version, $primary]) {
+            $version->update(['settings' => ['colors' => ['primary' => $primary]]]);
+        }
     }
 
     protected function giveSpacer(ThemeVersion $version, string $page, int $height, int $sortOrder = 1): void
@@ -107,6 +135,7 @@ trait BuildsThemePreviewWorld
      */
     protected function prepareTheWebsite(): void
     {
+        Http::preventStrayRequests();
         session(['local' => 'en']);
         View::getFinder()->prependLocation(base_path('tests/Support/views/storefront'));
         $this->withoutMiddleware([
@@ -219,6 +248,14 @@ trait BuildsThemePreviewWorld
     protected function offersPage(?string $token = null, ?string $storefront = null): TestResponse
     {
         return $this->get('/p/offers' . $this->queryOf(parameters: ['theme_preview' => $token]), $this->storefrontHeader(storefront: $storefront));
+    }
+
+    /** The primary colour the page head of the website draws for a request that carries this token, or no token at all. */
+    protected function pageHeadPrimaryColour(?string $token = null): string
+    {
+        $this->app->instance('request', Request::create('/', 'GET', $token === null ? [] : [StorefrontThemeRenderer::PREVIEW_TOKEN_KEY => $token]));
+
+        return app(StorefrontThemeRenderer::class)->publishedGlobalSettings(manager: app(ThemeManager::class))['colors']['primary'];
     }
 
     /** The page the app was given has the spacer of this height, and carries the text of that draft and of no other. */

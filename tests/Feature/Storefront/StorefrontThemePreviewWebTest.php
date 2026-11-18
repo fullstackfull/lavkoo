@@ -12,8 +12,9 @@ use Tests\TestCase;
 
 /**
  * GCC F-07.0 to F-07.3, for the website, through the real route of a custom page (/p/offers) with the storefront middleware and NoIndexThemePreview in place: a preview token that is tampered with,
- * expired or signed by another application is ignored and the published page is drawn; a live token draws the draft it names; every response that carries a token is marked noindex and no-store;
- * a draft is never cached; and the preview an admin starts in the builder (a version in the session) is drawn for an admin who may view themes and for nobody else.
+ * expired or signed by another application is ignored and the published page is drawn; a live token draws the draft it names; every response of a route the web group serves that carries a token is
+ * marked noindex and no-store; a draft is never cached, neither the structure of its page nor the colours of the page head; and the preview an admin starts in the builder (a version in the session)
+ * is drawn for an admin who may view themes and for nobody else.
  */
 class StorefrontThemePreviewWebTest extends TestCase
 {
@@ -80,7 +81,7 @@ class StorefrontThemePreviewWebTest extends TestCase
         $this->assertWebsiteServes(height: self::SAUDI_PUBLISHED, response: $response);
     }
 
-    public function test_a_token_needs_no_session_and_no_admin(): void
+    public function test_a_token_needs_no_signed_in_admin(): void
     {
         $this->assertNull(auth('admin')->user());
 
@@ -103,6 +104,35 @@ class StorefrontThemePreviewWebTest extends TestCase
         foreach ($written as [$key, $value]) {
             $this->assertStringNotContainsString(self::DRAFT_TEXTS[self::SAUDI_DRAFT], (string) json_encode($value), "what was cached under {$key}");
         }
+    }
+
+    public function test_the_colours_of_a_draft_the_page_head_draws_are_never_written_to_the_cache(): void
+    {
+        $token = $this->previewTokenOf(version: $this->saudiDraft);
+        $writes = $this->recordCacheWrites();
+
+        $this->assertSame(self::SAUDI_DRAFT_PRIMARY, $this->pageHeadPrimaryColour(token: $token));
+        $this->assertSame([], $this->themeKeysAmong(writes: $writes->getArrayCopy()));
+
+        $this->assertSame(self::SAUDI_PUBLISHED_PRIMARY, $this->pageHeadPrimaryColour());
+        $this->assertNotSame([], $this->themeKeysAmong(writes: $writes->getArrayCopy()), 'the published colours are cached, and the recorder sees it');
+        $before = count($writes);
+
+        $this->assertSame(self::SAUDI_DRAFT_PRIMARY, $this->pageHeadPrimaryColour(token: $token));
+        $this->assertSame([], $this->themeKeysAmong(writes: array_slice($writes->getArrayCopy(), $before)));
+        $this->assertSame(self::SAUDI_PUBLISHED_PRIMARY, $this->pageHeadPrimaryColour());
+    }
+
+    public function test_a_draft_the_session_of_an_admin_previews_is_never_written_to_the_cache(): void
+    {
+        $this->actingAsAdminWith(modules: ['theme_view']);
+        $this->withSession([StorefrontThemeRenderer::PREVIEW_SESSION_KEY => $this->saudiDraft->id]);
+        $writes = $this->recordCacheWrites();
+
+        $this->assertWebsiteServes(height: self::SAUDI_DRAFT, response: $this->offersPage());
+        $this->assertSame(self::SAUDI_DRAFT_PRIMARY, $this->pageHeadPrimaryColour());
+
+        $this->assertSame([], $this->themeKeysAmong(writes: $writes->getArrayCopy()));
     }
 
     public function test_a_draft_cannot_reach_a_visitor_by_way_of_the_cache_whether_it_is_asked_for_before_the_page_is_cached_or_after(): void
@@ -143,7 +173,7 @@ class StorefrontThemePreviewWebTest extends TestCase
         $this->assertMarkedNoIndexAndNoStore(response: $response);
     }
 
-    public function test_a_response_that_carries_a_token_is_marked_whatever_it_is_the_response_to(): void
+    public function test_a_response_that_carries_a_token_is_marked_even_when_the_page_is_not_found(): void
     {
         $response = $this->get('/p/no-such-page?theme_preview=' . $this->previewTokenOf(version: $this->saudiDraft));
 
@@ -153,9 +183,9 @@ class StorefrontThemePreviewWebTest extends TestCase
 
     public function test_a_response_that_carries_no_token_is_not_marked(): void
     {
-        $this->assertNotMarked(response: $this->offersPage());
-        $this->assertNotMarked(response: $this->get('/p/offers?theme_preview='));
-        $this->assertNotMarked(response: $this->get('/p/no-such-page'));
+        $this->assertNotMarked(response: $this->offersPage()->assertOk());
+        $this->assertNotMarked(response: $this->get('/p/offers?theme_preview=')->assertOk());
+        $this->assertNotMarked(response: $this->get('/p/no-such-page')->assertNotFound());
     }
 
     // ---- F-07.3: the preview an admin starts is drawn for an admin who may view themes and for nobody else -------------------------------------
