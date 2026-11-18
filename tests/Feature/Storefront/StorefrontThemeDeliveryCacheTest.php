@@ -21,7 +21,7 @@ use Tests\TestCase;
  * theme apart, and a greeting with an Arabic text beside its base one, which tells the language apart. The keys the tests expect are written out from the documented scheme
  * (docs/gcc/F-01-STOREFRONT-THEME.md and StorefrontCacheKeysTest) and not computed by the code under test: the default storefront keeps the key it always had, every other storefront writes it under
  * `storefront:{country}:`, and a delivered page is `theme_delivery_{page}_{fingerprint}`, the fingerprint being the first 24 hex digits of the SHA-256 of the stamp of the published version
- * (its checksum, `#`, its revision), the platform, the device, the audience, the segments, the language, the engine, the schema and the sorted components of the client.
+ * (its checksum, `#`, its revision), the platform, the device, the audience, the channel, the segments, the language, the engine, the schema and the sorted components of the client.
  */
 class StorefrontThemeDeliveryCacheTest extends TestCase
 {
@@ -132,7 +132,7 @@ class StorefrontThemeDeliveryCacheTest extends TestCase
         $components = array_map('trim', explode(',', $client['X-UI-Components']));
         sort($components);
         $fingerprint = substr(hash('sha256', implode('|', [
-            $stamp, 'app', 'mobile', 'guest', '', $client['lang'], $client['X-UI-Engine'], $client['X-UI-Schema'], implode(',', $components),
+            $stamp, 'app', 'mobile', 'guest', 'customer_app', '', $client['lang'], $client['X-UI-Engine'], $client['X-UI-Schema'], implode(',', $components),
         ])), 0, 24);
 
         return "theme_delivery_home_{$fingerprint}";

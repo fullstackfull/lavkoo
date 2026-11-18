@@ -671,6 +671,9 @@ $blocks = $row->blocks
             $viewer->platform,
             $viewer->device,
             $viewer->audience(),
+            // The channel decides which sections a client is sent (SectionVisibility), and the response already says it varies by X-UI-Channel: without it in the key the client that asks
+            // first decides what the others get, and a section kept for the seller app is sent to the customer app.
+            $viewer->channel(),
             // The matched segment SET joins the key (§64–65): what varies the response must vary
             // the cache. Bounded by the segments actually defined, not by customers — two repeat
             // buyers share one entry, and no customer data is ever IN a shared value.
