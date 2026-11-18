@@ -41,6 +41,10 @@ class RefundTransaction extends Model
         'created_at',
         'updated_at',
         'refund_id',
+        'storefront_country',
+        'currency_code',
+        'currency_rate',
+        'legal_entity_id',
     ];
 
     protected $casts = [
