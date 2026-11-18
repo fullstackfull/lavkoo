@@ -8,11 +8,13 @@ use App\Http\Middleware\ResolveStorefront;
 use Illuminate\Routing\Route as RoutingRoute;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
+use Tests\Support\ApprovesStorefrontTax;
 use Tests\Support\BuildsStorefrontLegalDocuments;
 use Tests\TestCase;
 
 class StorefrontListApiTest extends TestCase
 {
+    use ApprovesStorefrontTax;
     use BuildsStorefrontLegalDocuments;
 
     protected function setUp(): void
@@ -73,13 +75,14 @@ class StorefrontListApiTest extends TestCase
             ->assertJsonPath('storefronts.1.sellable', false);
     }
 
-    public function test_flag_on_lists_an_active_storefront_as_sellable_once_its_legal_documents_are_approved(): void
+    public function test_flag_on_lists_an_active_storefront_as_sellable_once_its_legal_documents_and_its_tax_are_approved(): void
     {
         config([
             'gcc.storefronts.enabled' => true,
             'gcc.storefronts.countries.AE.active' => true,
         ]);
         $this->publishRequiredLegalDocuments(country: 'AE');
+        $this->approveNoTaxFor('AE');
 
         $this->getJson('/api/v1/storefronts')
             ->assertOk()
