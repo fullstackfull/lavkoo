@@ -5,6 +5,7 @@ namespace Tests\Feature\Storefront;
 use App\Models\StorefrontLegalDocument;
 use App\Services\Storefront\StorefrontLegalPublisher;
 use App\Services\Storefront\StorefrontLegalReadiness;
+use App\Services\Storefront\StorefrontLegalTextBoard;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
@@ -461,6 +462,45 @@ class AdminStorefrontLegalTextScreenTest extends AdminStorefrontScreenTestCase
         $new = StorefrontLegalDocument::query()->orderByDesc('id')->firstOrFail();
         $this->assertSame([StorefrontLegalDocument::STATUS_DRAFT, 2, self::LEGAL_WRITER], [$new->status, $new->version, $new->created_by]);
         $this->assertSame(1, (int) app(StorefrontLegalReadiness::class)->currentTextFor('KW', 'terms', 'en')->version);
+    }
+
+    public function test_a_new_version_is_offered_only_on_the_newest_published_text_of_its_type_and_language_and_revoking_only_on_a_text_that_is_not_revoked(): void
+    {
+        $this->publishLegalDocument('KW', 'terms', 'en', ['version' => 1, 'effective_from' => now()->subDays(3)]);
+        $this->publishLegalDocument('KW', 'terms', 'en', ['version' => 2]);
+        $this->publishLegalDocument('KW', 'privacy', 'en', ['version' => 1, 'effective_from' => now()->subDays(3)]);
+        $this->publishLegalDocument('KW', 'privacy', 'en', ['version' => 2, 'revoked_at' => now()]);
+        $this->publishLegalDocument('KW', 'refund', 'en', ['version' => 1]);
+        $this->publishLegalDocument('KW', 'refund', 'en', ['version' => 2, 'status' => StorefrontLegalDocument::STATUS_ARCHIVED, 'effective_from' => now()->addDay(), 'revoked_at' => now()]);
+        $this->publishLegalDocument('KW', 'terms', 'ar', ['status' => StorefrontLegalDocument::STATUS_DRAFT, 'approved_by' => null, 'approved_at' => null, 'published_at' => null, 'effective_from' => null]);
+        $this->publishLegalDocument('KW', 'privacy', 'ar', ['status' => StorefrontLegalDocument::STATUS_APPROVED, 'published_at' => null, 'effective_from' => null]);
+
+        $steps = [];
+        foreach (app(StorefrontLegalTextBoard::class)->of('KW')['texts'] as $entry) {
+            $steps[$entry['text']->id] = [$entry['text']->document_type . '.' . $entry['text']->locale . '.v' . $entry['text']->version, $entry['steps']];
+        }
+        $byText = array_column($steps, 1, 0);
+        ksort($byText);
+
+        $this->assertSame([
+            'privacy.ar.v1' => [StorefrontLegalTextBoard::EDIT, StorefrontLegalTextBoard::PUBLISH, StorefrontLegalTextBoard::DISCARD],
+            'privacy.en.v1' => [StorefrontLegalTextBoard::REVOKE],
+            'privacy.en.v2' => [],
+            'refund.en.v1' => [StorefrontLegalTextBoard::REVOKE, StorefrontLegalTextBoard::NEW_VERSION],
+            'refund.en.v2' => [],
+            'terms.ar.v1' => [StorefrontLegalTextBoard::EDIT, StorefrontLegalTextBoard::APPROVE, StorefrontLegalTextBoard::DISCARD],
+            'terms.en.v1' => [StorefrontLegalTextBoard::REVOKE],
+            'terms.en.v2' => [StorefrontLegalTextBoard::REVOKE, StorefrontLegalTextBoard::NEW_VERSION],
+        ], $byText, 'revoking is offered on a published text that is not revoked; a new version on the newest published text of its type and language when it is not revoked (an older one, a revoked one and one archived before it took effect have none)');
+
+        $page = $this->page();
+        foreach ($steps as $id => [$name, $offered]) {
+            foreach ([StorefrontLegalTextBoard::NEW_VERSION => 'admin.storefronts.legal-texts.new-version', StorefrontLegalTextBoard::REVOKE => 'admin.storefronts.legal-texts.revoke'] as $step => $route) {
+                in_array($step, $offered, true)
+                    ? $this->assertStringContainsString(route($route, $id), $page, "{$name} is offered {$step}")
+                    : $this->assertStringNotContainsString(route($route, $id), $page, "{$name} is not offered {$step}");
+            }
+        }
     }
 
     public function test_a_draft_is_put_away_with_a_reason_and_kept_as_history(): void

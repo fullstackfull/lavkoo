@@ -4,6 +4,7 @@ namespace App\Services\Storefront;
 
 use App\Models\Admin;
 use App\Models\StorefrontLegalDocument;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -56,24 +57,37 @@ final class StorefrontLegalTextBoard
                 fn (array $pair): array => ['type' => $pair[0], 'locale' => $pair[1], 'in_force' => $this->tableExists() ? $this->readiness->currentTextFor($country, $pair[0], $pair[1]) : null],
                 $this->readiness->requiredPairsOf($country),
             ),
-            'texts' => $texts->map(fn (StorefrontLegalDocument $text): array => ['text' => $text, 'steps' => $this->stepsOf($text)])->all(),
+            'texts' => $texts->map(fn (StorefrontLegalDocument $text): array => ['text' => $text, 'steps' => $this->stepsOf($text, $this->newestPublishedVersionOf($text, $texts))])->all(),
             'people' => Admin::query()->whereIn('id', $texts->pluck('created_by')->merge($texts->pluck('approved_by'))->filter()->unique())->pluck('name', 'id')->all(),
         ];
     }
 
     /**
-     * The steps a version can take in the state it is in. Who may take them is the role's business, and whether this particular person may is the service's.
+     * The steps a version can take in the state it is in. A published text that is standing can be revoked, and has a new version only while it is the newest published text of its type
+     * and locale (a revoked one counts: the publisher copies the newest published text, and refuses a revoked one and one that a newer text has superseded). Who may take the steps is the
+     * role's business, and whether this particular person may is the service's.
      *
      * @return list<string>
      */
-    public function stepsOf(StorefrontLegalDocument $text): array
+    public function stepsOf(StorefrontLegalDocument $text, int $newestPublishedVersion): array
     {
         return match (true) {
             $text->status === StorefrontLegalDocument::STATUS_DRAFT => [self::EDIT, self::APPROVE, self::DISCARD],
             $text->status === StorefrontLegalDocument::STATUS_APPROVED => [self::EDIT, self::PUBLISH, self::DISCARD],
-            $text->status === StorefrontLegalDocument::STATUS_PUBLISHED && $text->revoked_at === null => [self::REVOKE, self::NEW_VERSION],
-            $text->status === StorefrontLegalDocument::STATUS_PUBLISHED => [self::NEW_VERSION],
+            $text->status === StorefrontLegalDocument::STATUS_PUBLISHED && $text->revoked_at !== null => [],
+            $text->status === StorefrontLegalDocument::STATUS_PUBLISHED && (int) $text->version === $newestPublishedVersion => [self::REVOKE, self::NEW_VERSION],
+            $text->status === StorefrontLegalDocument::STATUS_PUBLISHED => [self::REVOKE],
             default => [],
         };
+    }
+
+    /** @param Collection<int, StorefrontLegalDocument> $texts every text of the storefront */
+    private function newestPublishedVersionOf(StorefrontLegalDocument $text, Collection $texts): int
+    {
+        return (int) $texts
+            ->where('document_type', $text->document_type)
+            ->where('locale', $text->locale)
+            ->where('status', StorefrontLegalDocument::STATUS_PUBLISHED)
+            ->max('version');
     }
 }
