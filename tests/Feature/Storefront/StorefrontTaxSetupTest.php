@@ -20,9 +20,10 @@ use Tests\Support\BuildsStorefrontMoneyWorld;
 use Tests\Support\BuildsTaxModuleWorld;
 
 /**
- * GCC-05 and D1-07: a storefront with its own money is taxed by the setup of its own country, and by the platform's setup when it has none. The platform's setup is
- * the one no storefront owns, so a storefront's row can never become what the Saudi storefront, a panel or a queue reads. While the currency switch is off, and for the
- * default storefront, the tax is what it always was (the characterization is OrderTaxRecordedAtPlacementTest on main). The rates in the tests are examples, not rules.
+ * GCC-05 and D1-07: a storefront other than the default one is taxed by the setup of its own country, and by nothing when it has none: the platform's setup is the Saudi
+ * one and is never a legal substitute for another country's. The platform's setup is the one no storefront owns, so a storefront's row can never become what the Saudi
+ * storefront, a panel or a queue reads. While storefronts are off, and for the default storefront, the tax is what it always was (the characterization is
+ * OrderTaxRecordedAtPlacementTest on main). Whether a storefront may sell on its tax is StorefrontTaxApprovalTest's. The rates in the tests are examples, not rules.
  */
 class StorefrontTaxSetupTest extends ApiAddressTestCase
 {
@@ -108,6 +109,7 @@ class StorefrontTaxSetupTest extends ApiAddressTestCase
     {
         $platform = $this->openTheTaxSetup();
         $kuwait = $this->openTheTaxSetup(taxIds: [self::KUWAITI_VAT], country: 'KW');
+        $this->approveTheTaxSetupOf('KW');
 
         $orderId = $this->placeFrom('KW', 3);
 
@@ -128,15 +130,28 @@ class StorefrontTaxSetupTest extends ApiAddressTestCase
         $this->assertSame([['VAT', 15.0, 15.0, 100.0, $platform->id], ['Municipality fee', 5.0, 5.0, 100.0, $platform->id]], $this->rowsOfOrder($orderId));
     }
 
-    public function test_a_storefront_with_no_setup_of_its_own_is_taxed_by_the_platform_setup(): void
+    public function test_a_storefront_with_no_setup_of_its_own_is_taxed_with_nothing_and_never_by_the_platform_setup(): void
     {
-        $platform = $this->openTheTaxSetup(taxIds: [self::VAT]);
+        $this->openTheTaxSetup(taxIds: [self::VAT]);
         $this->openTheTaxSetup(taxIds: [self::KUWAITI_VAT], country: 'KW');
+        $setupsBefore = SystemTaxSetup::query()->count();
 
         $orderId = $this->placeFrom('QA', 4);
 
-        $this->assertSame(['type' => 'order_wise', 'model' => 'exclude', 'tax' => 6.75, 'amount' => 51.75], $this->taxOfOrder($orderId));
-        $this->assertSame([['VAT', 15.0, 6.75, 45.0, $platform->id]], $this->rowsOfOrder($orderId));
+        $this->assertSame(['type' => 'order_wise', 'model' => 'exclude', 'tax' => 0.0, 'amount' => 45.0], $this->taxOfOrder($orderId));
+        $this->assertSame([], $this->rowsOfOrder($orderId));
+        $this->assertSame($setupsBefore, SystemTaxSetup::query()->count(), 'no row is written for the storefront during the checkout');
+    }
+
+    public function test_the_setup_a_storefront_without_one_is_taxed_with_is_never_saved_and_charges_nothing(): void
+    {
+        $this->openTheTaxSetup(taxIds: [self::VAT]);
+
+        $setup = $this->inStorefront('QA', fn () => OrderManager::getTaxSystemType()['SystemTaxVat']);
+
+        $this->assertFalse($setup->exists);
+        $this->assertSame(['order_wise', 'QA', []], [$setup->tax_type, $setup->country_code, $setup->tax_ids]);
+        $this->assertSame(1, SystemTaxSetup::query()->count());
     }
 
     public function test_a_setup_with_no_rate_is_how_a_storefront_says_it_charges_no_tax(): void
@@ -155,6 +170,7 @@ class StorefrontTaxSetupTest extends ApiAddressTestCase
     {
         $this->openTheTaxSetup();
         $this->openTheTaxSetup(taxIds: [self::KUWAITI_VAT], included: true, country: 'KW');
+        $this->approveTheTaxSetupOf('KW');
 
         $kuwaiti = $this->placeFrom('KW', 3);
         $saudi = $this->placeFrom('SA', 1);
@@ -173,6 +189,7 @@ class StorefrontTaxSetupTest extends ApiAddressTestCase
             'created_at' => now(), 'updated_at' => now(),
         ]);
         Cache::flush();
+        $this->approveTheTaxSetupOf('KW');
 
         $orderId = $this->placeFrom('KW', 3);
 
@@ -180,16 +197,16 @@ class StorefrontTaxSetupTest extends ApiAddressTestCase
         $this->assertSame([['VAT of Kuwait', 5.0, 1.5, 30.0, $kuwait->id]], $this->rowsOfOrder($orderId));
     }
 
-    public function test_a_setup_that_is_switched_off_or_is_not_the_default_is_ignored(): void
+    public function test_a_setup_that_is_switched_off_or_is_not_the_default_is_ignored_and_the_platform_row_never_takes_its_place(): void
     {
-        $platform = $this->openTheTaxSetup(taxIds: [self::VAT]);
+        $this->openTheTaxSetup(taxIds: [self::VAT]);
         $kuwait = $this->openTheTaxSetup(taxIds: [self::KUWAITI_VAT], country: 'KW');
 
         $kuwait->update(['is_active' => 0]);
-        $this->assertSame($platform->id, $this->setupSeenFrom('KW'));
+        $this->assertNull($this->setupSeenFrom('KW'), 'taxed with nothing: the unsaved setup has no id');
 
         $kuwait->update(['is_active' => 1, 'is_default' => 0]);
-        $this->assertSame($platform->id, $this->setupSeenFrom('KW'));
+        $this->assertNull($this->setupSeenFrom('KW'));
 
         $kuwait->update(['is_default' => 1]);
         $this->assertSame($kuwait->id, $this->setupSeenFrom('KW'));
@@ -213,14 +230,29 @@ class StorefrontTaxSetupTest extends ApiAddressTestCase
         $platform = $this->openTheTaxSetup(taxIds: [self::VAT], country: 'EG');
 
         $this->assertSame($platform->id, $this->setupSeenFrom(null));
-        $this->assertSame($platform->id, $this->setupSeenFrom('KW'), 'with no row of its own a storefront reads the platform row, whatever country that carries');
+        $this->assertSame($platform->id, $this->setupSeenFrom('SA'));
+        $this->assertNull($this->setupSeenFrom('KW'), 'with no row of its own a storefront is taxed with nothing, whatever country the platform row carries');
     }
 
     // ---- the switch ----------------------------------------------------------------------------------------------------------------------
 
-    public function test_nothing_changes_while_the_currency_switch_is_off(): void
+    public function test_the_tax_follows_the_storefront_whether_or_not_its_currency_switch_is_on(): void
     {
         config(['gcc.storefronts.currency.enabled' => false]);
+        $this->openTheTaxSetup(taxIds: [self::VAT]);
+        $kuwait = $this->openTheTaxSetup(taxIds: [self::KUWAITI_VAT], country: 'KW');
+        $this->approveTheTaxSetupOf('KW');
+
+        $orderId = $this->placeFrom('KW', 3);
+
+        $this->assertSame($kuwait->id, $this->setupSeenFrom('KW'));
+        $this->assertSame(['type' => 'order_wise', 'model' => 'exclude', 'tax' => 1.5, 'amount' => 31.5], $this->taxOfOrder($orderId));
+        $this->assertSame([['VAT of Kuwait', 5.0, 1.5, 30.0, $kuwait->id]], $this->rowsOfOrder($orderId));
+    }
+
+    public function test_while_storefronts_are_off_every_request_is_taxed_by_the_platform_setup_as_it_always_was(): void
+    {
+        config(['gcc.storefronts.enabled' => false]);
         $platform = $this->openTheTaxSetup(taxIds: [self::VAT]);
         $this->openTheTaxSetup(taxIds: [self::KUWAITI_VAT], country: 'KW');
 
@@ -294,9 +326,10 @@ class StorefrontTaxSetupTest extends ApiAddressTestCase
 
         $this->assertSame(1.5, round((float) $kuwaiti['total_tax_amount'], 3));
         $this->assertSame(['VAT of Kuwait'], array_column($kuwaiti['applied_tax_cart_list'][0]['applied_tax_ids'], 'name'));
-        foreach ([['SA', 'the default storefront'], ['QA', 'a storefront with no setup of its own'], [null, 'an order that records no storefront']] as [$country, $why]) {
+        foreach ([['SA', 'the default storefront'], [null, 'an order that records no storefront']] as [$country, $why]) {
             $this->assertSame(4.5, round((float) $this->editTaxOfOrderOf($country)['total_tax_amount'], 3), $why);
         }
+        $this->assertSame(0.0, round((float) $this->editTaxOfOrderOf('QA')['total_tax_amount'], 3), 'a storefront with no setup of its own is taxed with nothing, not with the platform\'s');
     }
 
     public function test_the_panel_edit_puts_the_market_it_found_back(): void
@@ -346,6 +379,7 @@ class StorefrontTaxSetupTest extends ApiAddressTestCase
     {
         $this->openTheTaxSetup();
         $kuwait = $this->openTheTaxSetup(taxIds: [self::KUWAITI_VAT], country: 'KW');
+        $this->approveTheTaxSetupOf('KW');
         $orderId = $this->placeFrom('KW', 3);
         $before = [$this->taxOfOrder($orderId), $this->rowsOfOrder($orderId)];
 

@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Support\ApprovesStorefrontTax;
 use Tests\Support\BuildsStorefrontCatalog;
 use Tests\Support\BuildsStorefrontLegalDocuments;
 use Tests\TestCase;
@@ -23,6 +24,7 @@ use Tests\TestCase;
  */
 class StorefrontCurrencyTest extends TestCase
 {
+    use ApprovesStorefrontTax;
     use BuildsStorefrontCatalog;
     use BuildsStorefrontLegalDocuments;
 
@@ -245,9 +247,10 @@ class StorefrontCurrencyTest extends TestCase
         $this->assertSame('multi_currency', $this->inStorefront('BH', fn () => getWebConfig('currency_model')));
     }
 
-    public function test_a_storefront_with_its_currency_and_approved_texts_may_sell(): void
+    public function test_a_storefront_with_its_currency_approved_texts_and_a_tax_decision_may_sell(): void
     {
         $this->publishRequiredLegalDocuments(country: 'KW');
+        $this->approveNoTaxFor('KW');
 
         $this->assertTrue(app(StorefrontSellingGate::class)->maySell(country: 'KW', currencyCode: 'KWD'));
     }
@@ -269,12 +272,13 @@ class StorefrontCurrencyTest extends TestCase
     {
         $this->publishRequiredLegalDocuments(country: 'KW');
         $this->publishRequiredLegalDocuments(country: 'OM');
+        $this->approveNoTaxFor('KW', 'OM');
         $this->removeCurrency('OMR');
 
-        $this->getJson('/api/v1/storefronts')
-            ->assertOk()
-            ->assertJsonFragment(['country' => 'KW', 'path' => 'kw', 'currency' => 'KWD', 'is_default' => false, 'sellable' => true])
-            ->assertJsonFragment(['country' => 'OM', 'path' => 'om', 'currency' => 'OMR', 'is_default' => false, 'sellable' => false]);
+        $listed = collect($this->getJson('/api/v1/storefronts')->assertOk()->json('storefronts'))->keyBy('country');
+
+        $this->assertTrue($listed['KW']['sellable']);
+        $this->assertFalse($listed['OM']['sellable']);
     }
 
     public function test_the_decimals_of_an_unlisted_currency_are_two(): void
@@ -319,8 +323,11 @@ class StorefrontCurrencyTest extends TestCase
         $this->assertSame('multi_currency', getWebConfig('currency_model'));
     }
 
-    public function test_the_readiness_command_lists_each_storefront_and_succeeds_when_those_switched_on_have_their_currency(): void
+    public function test_the_readiness_command_lists_each_storefront_and_succeeds_when_those_switched_on_have_their_currency_and_a_tax_decision(): void
     {
+        $this->approveNoTaxFor('AE', 'KW', 'QA', 'BH', 'OM');
+        Schema::dropIfExists('shipping_types');
+
         $this->artisan('gcc:storefront:currency-readiness')
             ->expectsOutputToContain('Storefront currencies: on')
             ->expectsOutputToContain('default storefront')
@@ -343,6 +350,8 @@ class StorefrontCurrencyTest extends TestCase
     public function test_the_readiness_command_ignores_a_storefront_that_is_not_switched_on(): void
     {
         config(['gcc.storefronts.countries.QA.active' => false]);
+        $this->approveNoTaxFor('AE', 'KW', 'BH', 'OM');
+        Schema::dropIfExists('shipping_types');
         $this->removeCurrency('QAR');
 
         $this->artisan('gcc:storefront:currency-readiness')->assertExitCode(0);

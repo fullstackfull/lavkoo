@@ -2,9 +2,9 @@
 
 namespace App\Console\Commands;
 
-use App\Services\Storefront\StorefrontCurrency;
 use App\Services\Storefront\StorefrontResolver;
 use App\Services\Storefront\StorefrontTax;
+use App\Services\Storefront\StorefrontTaxApproval;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Modules\TaxModule\app\Models\SystemTaxSetup;
@@ -22,11 +22,11 @@ class StorefrontTaxCommand extends Command
         {--no-tax : the storefront charges no tax: an order-wise setup with no rate}
         {--type=order_wise : order_wise (the rates given here apply to the whole order) or product_wise (the rates are set on each product)}
         {--included : the prices of the storefront already include the tax}
-        {--unset : switch the storefront\'s own setup off, so that its orders are taxed with the platform\'s setup again}';
+        {--unset : switch the storefront\'s own setup off, so that its orders carry no tax}';
 
-    protected $description = 'Gives a storefront the tax setup its orders are taxed with, in place of the platform\'s Saudi setup. The rates are the owner\'s to give for each country; this only records them. Works while the switches are off, and then nothing reads the setup yet';
+    protected $description = 'Gives a storefront the tax setup its orders are taxed with. A storefront with none is taxed with nothing and never with the platform\'s Saudi setup, and it cannot sell until its tax is approved (gcc:storefront:tax-approve). The rates are the owner\'s to give for each country; this only records them. Works while the switches are off, and then nothing reads the setup yet';
 
-    public function handle(StorefrontCurrency $currency, StorefrontTax $tax): int
+    public function handle(StorefrontTax $tax, StorefrontTaxApproval $approval): int
     {
         $country = strtoupper(trim((string) $this->argument('country')));
         $rates = $this->parsedRates();
@@ -42,7 +42,8 @@ class StorefrontTaxCommand extends Command
 
         if ($this->option('unset')) {
             $removed = $this->switchOff(country: $country);
-            $this->info($removed ? "{$country}: its own tax setup is switched off; its orders are taxed with the platform's setup again. The orders already placed keep the rows they were placed with." : "{$country} has no tax setup of its own: nothing to switch off.");
+            $this->info($removed ? "{$country}: its own tax setup is switched off: its orders carry no tax now, and it sells only on a recorded decision that it charges none (gcc:storefront:tax-approve). The orders already placed keep the rows they were placed with." : "{$country} has no tax setup of its own: nothing to switch off.");
+            $this->approvalLine(approval: $approval, country: $country);
 
             return self::SUCCESS;
         }
@@ -50,11 +51,24 @@ class StorefrontTaxCommand extends Command
         $setup = $this->write(country: $country, type: $type, rates: $rates ?? []);
 
         $this->info(sprintf('%s: its own tax setup is %s, %s%s.', $country, str_replace('_', ' ', $type), $this->option('included') ? 'tax included in the prices' : 'tax added to the prices', $this->describedRates(type: $type, rates: $rates ?? [])));
-        $this->line($currency->isEnabled()
+        $this->line(StorefrontResolver::fromConfig()->isEnabled()
             ? "The storefront reads this setup now: its orders are taxed with it (setup {$setup->id})."
-            : 'The storefront currency switches are off, so nothing reads this setup yet.');
+            : 'The storefronts are switched off, so nothing reads this setup yet.');
+        $this->approvalLine(approval: $approval, country: $country);
 
         return self::SUCCESS;
+    }
+
+    /** What the storefront's tax approval says once its tax has changed: a storefront whose tax is not approved cannot sell. */
+    private function approvalLine(StorefrontTaxApproval $approval, string $country): void
+    {
+        $status = $approval->statusOf(country: $country)['status'];
+
+        $this->line(match ($status) {
+            StorefrontTaxApproval::APPROVED => "{$country}: the tax approval on record still describes it.",
+            StorefrontTaxApproval::STALE => "{$country}: the tax approval on record no longer describes what it is taxed with, so it cannot sell until the tax is approved again (gcc:storefront:tax-approve {$country}).",
+            default => "{$country}: it cannot sell until its tax is approved (gcc:storefront:tax-approve {$country} --decision=setup, or --decision=no_tax for a documented decision that it charges none).",
+        });
     }
 
     /** @return list<array{name: string, rate: string}>|null null when the option was not used at all */

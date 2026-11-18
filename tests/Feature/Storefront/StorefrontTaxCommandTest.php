@@ -9,16 +9,19 @@ use Illuminate\Support\Facades\Schema;
 use Modules\TaxModule\app\Models\SystemTaxSetup;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Support\ApprovesStorefrontTax;
 use Tests\Support\BuildsStorefrontMoneyWorld;
 use Tests\Support\BuildsTaxModuleWorld;
 use Tests\TestCase;
 
 /**
- * GCC-05 and D1-07: gcc:storefront:tax records the tax setup a storefront is taxed with, in place of the platform's. It writes the taxes it names (reusing a tax of the
- * same name and rate) and one setup row for the storefront, changes that row in place, switches it off instead of deleting it, and never touches the platform's setup.
+ * GCC-05 and D1-07: gcc:storefront:tax records the tax setup a storefront is taxed with, in place of nothing: a storefront with none is never taxed with the platform's.
+ * It writes the taxes it names (reusing a tax of the same name and rate) and one setup row for the storefront, changes that row in place, switches it off instead of
+ * deleting it, never touches the platform's setup, and says whether the tax approval on record still describes the storefront.
  */
 class StorefrontTaxCommandTest extends TestCase
 {
+    use ApprovesStorefrontTax;
     use BuildsStorefrontMoneyWorld;
     use BuildsTaxModuleWorld;
 
@@ -80,12 +83,42 @@ class StorefrontTaxCommandTest extends TestCase
         $this->assertSame([['VAT', 5.0], ['Tourism fee', 2.5]], $this->ratesOfSetup($setup));
     }
 
-    public function test_it_says_when_the_switches_are_off_that_nothing_reads_the_setup_yet(): void
+    public function test_it_says_when_storefronts_are_off_that_nothing_reads_the_setup_yet(): void
+    {
+        config(['gcc.storefronts.enabled' => false]);
+
+        $this->artisan('gcc:storefront:tax', ['country' => 'KW', '--no-tax' => true])
+            ->expectsOutputToContain('The storefronts are switched off, so nothing reads this setup yet.')
+            ->assertExitCode(0);
+    }
+
+    public function test_the_storefront_reads_its_setup_whether_or_not_its_currency_switch_is_on(): void
     {
         config(['gcc.storefronts.currency.enabled' => false]);
 
         $this->artisan('gcc:storefront:tax', ['country' => 'KW', '--no-tax' => true])
-            ->expectsOutputToContain('The storefront currency switches are off, so nothing reads this setup yet.')
+            ->expectsOutputToContain('The storefront reads this setup now')
+            ->assertExitCode(0);
+    }
+
+    public function test_it_says_the_storefront_cannot_sell_until_its_tax_is_approved(): void
+    {
+        $this->artisan('gcc:storefront:tax', ['country' => 'KW', '--rate' => ['VAT:5']])
+            ->expectsOutputToContain('KW: it cannot sell until its tax is approved (gcc:storefront:tax-approve KW --decision=setup, or --decision=no_tax for a documented decision that it charges none).')
+            ->assertExitCode(0);
+    }
+
+    public function test_it_says_when_the_approval_on_record_no_longer_describes_the_storefront_and_when_it_still_does(): void
+    {
+        $this->artisan('gcc:storefront:tax', ['country' => 'KW', '--rate' => ['VAT:5']])->assertExitCode(0);
+        $this->approveTheTaxSetupOf('KW');
+
+        $this->artisan('gcc:storefront:tax', ['country' => 'KW', '--rate' => ['VAT:5']])
+            ->expectsOutputToContain('KW: the tax approval on record still describes it.')
+            ->assertExitCode(0);
+
+        $this->artisan('gcc:storefront:tax', ['country' => 'KW', '--rate' => ['VAT:6']])
+            ->expectsOutputToContain('KW: the tax approval on record no longer describes what it is taxed with, so it cannot sell until the tax is approved again (gcc:storefront:tax-approve KW).')
             ->assertExitCode(0);
     }
 
@@ -142,7 +175,7 @@ class StorefrontTaxCommandTest extends TestCase
         $id = $this->setupOf('KW')->id;
 
         $this->artisan('gcc:storefront:tax', ['country' => 'KW', '--unset' => true])
-            ->expectsOutputToContain("KW: its own tax setup is switched off; its orders are taxed with the platform's setup again.")
+            ->expectsOutputToContain("KW: its own tax setup is switched off: its orders carry no tax now, and it sells only on a recorded decision that it charges none (gcc:storefront:tax-approve).")
             ->assertExitCode(0);
 
         $this->assertSame([$id, 0], [$this->setupOf('KW')->id, $this->setupOf('KW')->is_active]);
@@ -179,7 +212,7 @@ class StorefrontTaxCommandTest extends TestCase
     {
         $platform = $this->openTheTaxSetup();
         $read = fn (string $country): array => app(StorefrontCurrency::class)->within(country: $country, callback: fn () => $this->taxConfig());
-        $this->assertSame($platform->id, $read('AE')['SystemTaxVat']->id, 'the platform setup is read until the storefront has one');
+        $this->assertNull($read('AE')['SystemTaxVat']->id, 'a storefront with no setup of its own is taxed with nothing, never with the platform\'s');
 
         $this->artisan('gcc:storefront:tax', ['country' => 'AE', '--rate' => ['VAT:5'], '--included' => true])->assertExitCode(0);
 

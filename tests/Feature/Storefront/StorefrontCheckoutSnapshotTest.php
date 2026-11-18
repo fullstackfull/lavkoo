@@ -74,6 +74,7 @@ class StorefrontCheckoutSnapshotTest extends ApiAddressTestCase
             config(["gcc.storefronts.countries.{$storefront}.active" => true]);
         }
         config(['gcc.storefronts.legal.grandfathered' => ['SA', 'AE', 'KW', 'QA', 'BH', 'OM']]);
+        $this->approveNoTaxFor('KW', 'QA', 'BH', 'OM');
         StorefrontCatalog::flush();
 
         $this->asCustomer($customer)->withHeader('X-Storefront', $country)->postJson('/api/v1/cart/add', ['id' => $productId, 'quantity' => 1])->assertOk()->assertJsonPath('status', 1);

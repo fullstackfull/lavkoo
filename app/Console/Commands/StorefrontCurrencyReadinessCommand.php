@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Services\Storefront\StorefrontCurrency;
 use App\Services\Storefront\StorefrontLaunchChecks;
 use App\Services\Storefront\StorefrontTax;
+use App\Services\Storefront\StorefrontTaxApproval;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Schema;
 
@@ -12,9 +13,9 @@ class StorefrontCurrencyReadinessCommand extends Command
 {
     protected $signature = 'gcc:storefront:currency-readiness';
 
-    protected $description = 'Read-only report before storefront currencies are turned on: for each configured storefront, the currency it trades in, its decimals and whether the currency exists and is active. Exits 1 when a storefront that is switched on lacks its currency';
+    protected $description = 'Read-only report before storefront currencies are turned on: for each configured storefront, the currency it trades in, its decimals and whether the currency exists and is active. Exits 1 when a storefront that is switched on lacks its currency or has no approved tax decision';
 
-    public function handle(StorefrontCurrency $currency, StorefrontLaunchChecks $checks, StorefrontTax $tax): int
+    public function handle(StorefrontCurrency $currency, StorefrontLaunchChecks $checks, StorefrontTax $tax, StorefrontTaxApproval $approval): int
     {
         $this->line('Storefront currencies: ' . ($currency->isEnabled() ? 'on' : 'off') . ' (GCC_STOREFRONT_CURRENCY, and GCC_STOREFRONTS_ENABLED must be on too).');
 
@@ -32,13 +33,14 @@ class StorefrontCurrencyReadinessCommand extends Command
                 $this->line($this->amountsLine(currency: $currency, country: $row['country'], currencyCode: $row['currency']));
                 $unsafe = $this->launchLine(checks: $checks, country: $row['country']) || $unsafe;
                 $this->taxLine(tax: $tax, country: $row['country']);
+                $unsafe = $this->taxApprovalLine(approval: $approval, country: $row['country']) || $unsafe;
             }
         }
 
         $unsafe = $this->sharedLines(checks: $checks, currency: $currency) || $unsafe;
 
         $this->line($this->closingLine(blocked: $blocked, unsafe: $unsafe));
-        $this->line('Not covered by this report: the wallet payment, loyalty, referral rewards, whether the tax rates are right, documents, reports and POS.');
+        $this->line('Not covered by this report: the wallet payment, loyalty, referral rewards, whether the tax rates are right (only that somebody approved them), documents, reports and POS.');
 
         return $blocked || $unsafe ? self::FAILURE : self::SUCCESS;
     }
@@ -86,8 +88,8 @@ class StorefrontCurrencyReadinessCommand extends Command
     }
 
     /**
-     * Which tax setup the orders of a storefront that is switched on are taxed with. A warning and never a failure: what the rates must be is the owner's decision, and a
-     * setup with no rate says that a storefront charges none. Prints nothing while the tax module has no table.
+     * Which tax setup the orders of a storefront that is switched on are taxed with: its own, or nothing. The platform's Saudi setup is never used for it. What the rates
+     * must be is the owner's decision, and a setup with no rate says that a storefront charges none. Prints nothing while the tax module has no table.
      */
     private function taxLine(StorefrontTax $tax, string $country): void
     {
@@ -97,20 +99,44 @@ class StorefrontCurrencyReadinessCommand extends Command
 
         $setup = $tax->of(country: $country);
 
-        if ($setup === null) {
-            $this->line(sprintf('  %-4s tax: no setup of its own and none on the platform, so no tax is charged.', $country));
+        if (!$setup['own']) {
+            $this->line(sprintf('  %-4s tax: no setup of its own, so its orders carry no tax (the platform\'s Saudi setup is never used for it). Give it one with gcc:storefront:tax.', $country));
 
             return;
         }
 
         $rates = $setup['type'] === 'order_wise'
-            ? ($setup['rates'] === [] ? 'no rate, so no tax is charged' : implode(', ', array_map(static fn (array $rate): string => sprintf('%s %s%%', $rate['name'], rtrim(rtrim(number_format($rate['rate'], 3, '.', ''), '0'), '.')), $setup['rates'])))
+            ? ($setup['rates'] === [] ? 'no rate, so no tax is charged' : $this->ratesText($setup['rates']))
             : 'the rates are set on each ' . str_replace('_wise', '', $setup['type']);
+        $shipping = $setup['shipping'] === [] ? '' : '; on shipping ' . $this->ratesText($setup['shipping']);
         $kind = sprintf('%s, %s', str_replace('_', ' ', $setup['type']), $setup['included'] ? 'tax included in the prices' : 'tax added to the prices');
 
-        $this->line($setup['own']
-            ? sprintf('  %-4s tax: its own setup (%s): %s.', $country, $kind, $rates)
-            : sprintf('  %-4s tax: no setup of its own, so its orders are taxed with the platform\'s (%s): %s. Give it one with gcc:storefront:tax.', $country, $kind, $rates));
+        $this->line(sprintf('  %-4s tax: its own setup (%s): %s%s.', $country, $kind, $rates, $shipping));
+    }
+
+    /** @param list<array{name: string, rate: float}> $rates */
+    private function ratesText(array $rates): string
+    {
+        return implode(', ', array_map(static fn (array $rate): string => sprintf('%s %s%%', $rate['name'], rtrim(rtrim(number_format($rate['rate'], 3, '.', ''), '0'), '.')), $rates));
+    }
+
+    /**
+     * Whether the tax of a storefront that is switched on has been approved, or a decision that it charges none recorded: without one it cannot sell. Prints one line and
+     * answers whether the storefront is unsafe to open.
+     */
+    private function taxApprovalLine(StorefrontTaxApproval $approval, string $country): bool
+    {
+        $status = $approval->statusOf(country: $country);
+        $decided = $status['decision'] === null ? '' : sprintf(' (%s, approved by %s, %s, %s)', $status['decision'], $status['approved_by'] ?? '?', $status['reference'] ?? '?', $status['approved_at'] ?? '?');
+
+        $this->line(match ($status['status']) {
+            StorefrontTaxApproval::APPROVED => sprintf('  %-4s tax decision: approved%s.', $country, $decided),
+            StorefrontTaxApproval::STALE => sprintf('  %-4s UNSAFE: the tax decision on record no longer describes what it is taxed with%s, so it cannot sell: approve it again with gcc:storefront:tax-approve.', $country, $decided),
+            StorefrontTaxApproval::INCOMPLETE => sprintf('  %-4s UNSAFE: the tax decision on record does not say what was decided, by whom, where or when, so it counts for nothing and the storefront cannot sell: record it again with gcc:storefront:tax-approve.', $country),
+            default => sprintf('  %-4s UNSAFE: no approved tax decision, so it cannot sell: approve its setup, or a documented decision that it charges no tax, with gcc:storefront:tax-approve.', $country),
+        });
+
+        return !in_array($status['status'], [StorefrontTaxApproval::APPROVED, StorefrontTaxApproval::NOT_REQUIRED], true);
     }
 
     /** The checks that do not belong to one storefront: the coupons and the shipping row. Answers whether anything on them is unsafe. */

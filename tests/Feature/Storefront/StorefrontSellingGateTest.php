@@ -8,6 +8,7 @@ use App\Services\Storefront\StorefrontSellingGate;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
+use Tests\Support\ApprovesStorefrontTax;
 use Tests\Support\BuildsStorefrontLegalDocuments;
 use Tests\TestCase;
 
@@ -17,6 +18,7 @@ use Tests\TestCase;
  */
 class StorefrontSellingGateTest extends TestCase
 {
+    use ApprovesStorefrontTax;
     use BuildsStorefrontLegalDocuments;
 
     protected function setUp(): void
@@ -68,10 +70,11 @@ class StorefrontSellingGateTest extends TestCase
         $this->gate()->assertMaySell($this->contextOf('AE'));
     }
 
-    public function test_a_storefront_with_approved_legal_texts_may_sell(): void
+    public function test_a_storefront_with_approved_legal_texts_and_a_tax_decision_may_sell(): void
     {
         config(['gcc.storefronts.enabled' => true, 'gcc.storefronts.countries.AE.active' => true]);
         $this->publishRequiredLegalDocuments(country: 'AE');
+        $this->approveNoTaxFor('AE');
         $this->expectNotToPerformAssertions();
 
         $this->gate()->assertMaySell($this->contextOf('AE'));
