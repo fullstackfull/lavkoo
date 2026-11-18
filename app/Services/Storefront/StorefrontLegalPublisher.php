@@ -45,6 +45,9 @@ final class StorefrontLegalPublisher
     /** A text may be published for a moment that has just passed (the clock of the person and of the server never agree to the second), not for a day in the past. */
     private const TOLERATED_LATENESS_IN_MINUTES = 5;
 
+    /** `effective_from` is a TIMESTAMP column, which MySQL keeps until 2038-01-19 03:14:07 UTC: a day after the end of 2037 is refused here, in words, instead of failing in the database. */
+    private const LATEST_EFFECTIVE_MOMENT_UTC = '2037-12-31 23:59:59';
+
     public function __construct(private readonly StorefrontLegalReadiness $readiness)
     {
     }
@@ -190,6 +193,10 @@ final class StorefrontLegalPublisher
 
         if ($effective->lessThan(CarbonImmutable::now()->subMinutes(self::TOLERATED_LATENESS_IN_MINUTES))) {
             throw new InvalidArgumentException('A text does not take effect in the past: name a day that is now or later.');
+        }
+
+        if ($effective->greaterThan(CarbonImmutable::parse(self::LATEST_EFFECTIVE_MOMENT_UTC, 'UTC'))) {
+            throw new InvalidArgumentException('A text does not take effect after ' . self::LATEST_EFFECTIVE_MOMENT_UTC . ' UTC, the last moment the database keeps: name an earlier day.');
         }
 
         return DB::transaction(function () use ($textId, $publisher, $effective, $expectedBodyHash): StorefrontLegalDocument {

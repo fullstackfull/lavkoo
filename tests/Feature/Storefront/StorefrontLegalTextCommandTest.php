@@ -243,6 +243,24 @@ class StorefrontLegalTextCommandTest extends TestCase
         $this->assertSame(StorefrontLegalDocument::STATUS_APPROVED, StorefrontLegalDocument::query()->findOrFail($id)->status);
     }
 
+    public function test_a_day_after_the_last_moment_the_database_keeps_is_refused_and_the_last_moment_is_accepted(): void
+    {
+        $id = $this->editedTerms();
+        $this->text('approve', ['--id' => $id, '--admin' => 12])->assertExitCode(0);
+
+        foreach (['2038-01-01 00:00', '2099-12-31 23:59'] as $day) {
+            $this->text('publish', ['--id' => $id, '--admin' => 12, '--effective-from' => $day])
+                ->expectsOutputToContain('does not take effect after 2037-12-31 23:59:59 UTC')
+                ->assertExitCode(1);
+        }
+
+        $this->assertSame(StorefrontLegalDocument::STATUS_APPROVED, StorefrontLegalDocument::query()->findOrFail($id)->status);
+
+        $this->text('publish', ['--id' => $id, '--admin' => 12, '--effective-from' => '2037-12-31 23:59'])
+            ->expectsOutputToContain('takes effect on 2037-12-31 23:59 UTC')
+            ->assertExitCode(0);
+    }
+
     public function test_a_text_without_a_day_takes_effect_now(): void
     {
         $id = $this->draftTerms();

@@ -376,6 +376,46 @@ class StorefrontLegalPublisherTest extends TestCase
         $this->publisher()->publish(textId: $approved->id, publisher: self::APPROVER, effectiveFrom: now()->subDay());
     }
 
+    public function test_a_text_does_not_take_effect_after_the_last_moment_the_database_keeps(): void
+    {
+        $approved = $this->approvedText();
+        $linesBefore = count($this->auditLines());
+
+        foreach ([CarbonImmutable::parse('2038-01-01 00:00:00', 'UTC'), CarbonImmutable::parse('2037-12-31 23:59:59', 'UTC')->addSecond(), CarbonImmutable::parse('2040-06-01 12:00:00', 'UTC'), CarbonImmutable::parse('2099-01-01', 'UTC')] as $day) {
+            try {
+                $this->publisher()->publish(textId: $approved->id, publisher: self::APPROVER, effectiveFrom: $day);
+                $this->fail("A text was published to take effect on {$day->toIso8601String()}.");
+            } catch (InvalidArgumentException $refusal) {
+                $this->assertStringContainsString('does not take effect after 2037-12-31 23:59:59 UTC', $refusal->getMessage());
+            }
+        }
+
+        $this->assertSame(StorefrontLegalDocument::STATUS_APPROVED, $approved->fresh()->status);
+        $this->assertCount($linesBefore, $this->auditLines());
+    }
+
+    public function test_a_text_takes_effect_on_the_last_moment_the_database_keeps_whatever_the_time_zone_of_the_application_is(): void
+    {
+        $original = date_default_timezone_get();
+
+        try {
+            foreach (['UTC', 'Asia/Dhaka', 'America/New_York'] as $zone) {
+                date_default_timezone_set($zone);
+                config(['app.timezone' => $zone]);
+
+                $approved = $this->approvedText(type: 'terms', locale: 'en');
+                $last = CarbonImmutable::parse('2037-12-31 23:59:59', 'UTC');
+                $published = $this->publisher()->publish(textId: $approved->id, publisher: self::APPROVER, effectiveFrom: $last);
+
+                $this->assertTrue($published->fresh()->effective_from->equalTo($last), "the last moment is stored and read back as the same instant ({$zone})");
+
+                StorefrontLegalDocument::query()->delete();
+            }
+        } finally {
+            date_default_timezone_set($original);
+        }
+    }
+
     public function test_a_text_does_not_take_effect_before_one_that_is_already_scheduled(): void
     {
         $first = $this->approvedText();
