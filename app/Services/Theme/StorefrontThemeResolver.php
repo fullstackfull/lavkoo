@@ -48,10 +48,8 @@ final class StorefrontThemeResolver
             return Theme::query()->where('is_active', true)->first();
         }
 
-        $storefronts = StorefrontResolver::fromConfig();
-        $default = $storefronts->defaultCountry();
-        // While storefronts are off the only storefront is the default one, whatever a payment callback bound the request to: the page caches key on it the same way.
-        $country = $storefronts->isEnabled() ? StorefrontContext::current()->country : $default;
+        $country = $this->requestStorefront();
+        $default = $this->defaultStorefront();
 
         return $this->activeThemeOf(storefront: $country) ?? ($country === $default ? null : $this->activeThemeOf(storefront: $default));
     }
@@ -62,6 +60,21 @@ final class StorefrontThemeResolver
         $theme = $this->activeTheme();
 
         return $theme === null ? null : ThemeVersion::query()->where('theme_id', $theme->id)->published()->first();
+    }
+
+    /**
+     * Whether a version may be previewed on this request (F-07): while themes are kept by storefront, only a version of a theme of the storefront the request is served from, so a preview token or a
+     * session preview of one storefront's draft is ignored on every other storefront, as a foreign token is. A theme that names no country is the default storefront's. Any version while they are not.
+     */
+    public function mayPreview(ThemeVersion $version): bool
+    {
+        if (!$this->keepsThemesByStorefront()) {
+            return true;
+        }
+
+        $theme = $version->theme;
+
+        return $theme !== null && $this->storefrontOf(theme: $theme) === $this->requestStorefront();
     }
 
     /** The themes activating this one competes with: every theme while themes are not kept by storefront, else those of its storefront. */
@@ -179,6 +192,12 @@ final class StorefrontThemeResolver
     private function defaultStorefront(): string
     {
         return StorefrontResolver::fromConfig()->defaultCountry();
+    }
+
+    /** The storefront the request is served from. While storefronts are off the only storefront is the default one, whatever a payment callback bound the request to: the page caches key on it the same way. */
+    private function requestStorefront(): string
+    {
+        return StorefrontResolver::fromConfig()->isEnabled() ? StorefrontContext::current()->country : $this->defaultStorefront();
     }
 
     private function columnReady(): bool

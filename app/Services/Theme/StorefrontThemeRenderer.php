@@ -452,12 +452,15 @@ class StorefrontThemeRenderer
                 // The id is taken on faith nowhere else: a merchant who discards the draft in
                 // another tab leaves this key pointing at nothing, and an unchecked id turns the
                 // builder frame into an empty page rather than the shop. Forgetting it here is what
-                // ends the preview the moment there is nothing left to preview.
-                if (ThemeVersion::query()->whereKey($sessionVersionId)->exists()) {
+                // ends the preview the moment there is nothing left to preview. A draft of another
+                // storefront is ignored on this one, as a foreign token is, and kept for its own.
+                $sessionVersion = ThemeVersion::query()->find($sessionVersionId);
+
+                if ($sessionVersion === null) {
+                    session()->forget(self::PREVIEW_SESSION_KEY);
+                } elseif (app(StorefrontThemeResolver::class)->mayPreview(version: $sessionVersion)) {
                     return $sessionVersionId;
                 }
-
-                session()->forget(self::PREVIEW_SESSION_KEY);
             }
 
             $token = request()?->query(self::PREVIEW_TOKEN_KEY);
