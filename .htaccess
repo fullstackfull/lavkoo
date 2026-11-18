@@ -3,8 +3,6 @@
         Options -MultiViews -Indexes
     </IfModule>
     RewriteEngine On
-    # The private disk (digital product files) is read by the application only: a shop served from this folder must not hand it out
-    RewriteRule ^storage/app/private(/|$) - [F,L]
     # Handle Authorization Header
     RewriteCond %{HTTP:Authorization} .
     RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
@@ -25,8 +23,8 @@
 #    Header set Access-Control-Allow-Origin "*"
 #</IfModule>
 
-# Hide the environment file and the files written beside it while they are replaced (.env.tmp, system-addons.php.tmp, info.php.tmp)
-<FilesMatch "^\.env|\.php\.tmp$">
+# Hide a specific file
+<Files .env>
     Order allow,deny
     Deny from all
-</FilesMatch>
+</Files>

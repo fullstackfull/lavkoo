@@ -365,17 +365,6 @@ class BlogController extends Controller
         return view('blog::admin-views.blog.draft-edit', compact('blog', 'categories', 'languages', 'defaultLanguage'));
     }
 
-    public function draftPreview($blogId): View
-    {
-        $blog = $this->blog->withoutGlobalScopes()->with(['category' => function ($query) {
-            return $query->active();
-        }, 'translations', 'seoInfo'])->where('id', $blogId)->first();
-
-        abort_unless($blog, 404);
-
-        return $this->frontendBlogService->detailsView(blogData: $this->frontendBlogService->withDraftApplied(blogData: $blog));
-    }
-
     public function delete(Request $request): RedirectResponse
     {
         $blog = $this->blog->find($request->id);

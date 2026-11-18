@@ -2,7 +2,6 @@
 
 namespace Modules\Blog\app\Models;
 
-use App\Utils\RequestArea;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -37,14 +36,14 @@ class BlogCategory extends Model
 
     public function getNameAttribute($name): string|null
     {
-        if (RequestArea::isPanel()) {
+        if (strpos(url()->current(), '/admin') || strpos(url()->current(), '/vendor') || strpos(url()->current(), '/seller')) {
             return $name;
         }
         $translation = $this->translations()->where(['key' => 'name'])
-            ->when(RequestArea::isApi(), function ($query) {
+            ->when(strpos(url()->current(), '/api'), function ($query) {
                 return $query->where('locale', App::getLocale());
             })
-            ->when(!RequestArea::isApi(), function ($query) {
+            ->when(!strpos(url()->current(), '/api'), function ($query) {
                 return $query->where('locale', getDefaultLanguage());
             })
             ->first();
@@ -58,7 +57,7 @@ class BlogCategory extends Model
 
         static::addGlobalScope('translate', function (Builder $builder) {
             $builder->with(['translations' => function ($query) {
-                if (RequestArea::isApi()) {
+                if (strpos(url()->current(), '/api')) {
                     return $query->where('locale', App::getLocale());
                 } else {
                     return $query->where('locale', getDefaultLanguage());

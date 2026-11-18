@@ -2622,7 +2622,7 @@ function downloadFileUsingFileUrl(url) {
     fetch(url)
         .then((response) => response.blob())
         .then((blob) => {
-            const filename = url.split("?")[0].split("/").pop();
+            const filename = url.substring(url.lastIndexOf("/") + 1);
             const blobUrl = window.URL.createObjectURL(new Blob([blob]));
             const link = document.createElement("a");
             link.href = blobUrl;
