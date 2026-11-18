@@ -68,6 +68,8 @@ Compliance findings, kept here so the next session does not repeat them:
 
 All three repositories are public (checked 2026-11-18: not private, created on 2026-11-11, no forks, stars or watchers; the plan opens without signing in). The plan, the guide, the audits and the pull request bodies describe flaws that are not fixed on the server yet, and credentials are tracked in the tree (`docs/integrations/security-findings.md`, SEC-15): treat them as exposed, because making a repository private recalls nothing. The owner was told the order: rotate or revoke, remove the web-served key files from the server, block the maintenance routes, then decide the visibility. Visibility has a cost: a full CI run is about 460 runner-minutes, and the runbook's first step clones without credentials. The plan has the decision (15). Do not add exploit-level detail to any document or pull request body: describe the fix and the check, not how to use the flaw. The main branches have no protection rule; asking the owner to protect them is open.
 
+Owner decision of 2026-11-18: no rotation, revocation or replacement of any key or credential now (Apple key, application key, payment keys, Firebase). It is recorded in `docs/gcc/DEFERRED_RISKS.md` as open and not remediated; it does not stop independent development and is not to be asked again.
+
 ## Further findings of the independent check, verified 2026-11-18
 
 - Stage 0 exists: draft PR 85 (`gcc/release/security-hotfix-stage0`, cut from the baseline) removes the maintenance routes and the log calls that wrote one-time codes, with two guard tests. The five stages of the plan do not. Read its CI before trusting it.
