@@ -499,6 +499,16 @@ class OrderManager
         );
     }
 
+    /** How many checkouts of the customer used the coupon: the orders of one checkout share a group and count once. */
+    public static function countCouponUses(int|string $customerId, mixed $couponCode): int
+    {
+        return Order::where(['customer_id' => $customerId, 'coupon_code' => $couponCode])
+            ->select('order_group_id')
+            ->groupBy('order_group_id')
+            ->get()
+            ->count();
+    }
+
     public static function getTotalCouponAmount($request, $couponCode): array
     {
         $user = Helpers::getCustomerInformation($request);
@@ -508,8 +518,7 @@ class OrderManager
                 'messages' => translate('Coupon_not_applicable'),
             ];
         }
-        $couponLimit = Order::where(['customer_id' => $user['id'], 'coupon_code' => $couponCode])
-            ->groupBy('order_group_id')->get()->count();
+        $couponLimit = self::countCouponUses(customerId: $user['id'], couponCode: $couponCode);
 
         $firstCoupon = Coupon::where(['code' => $couponCode])
             ->where('status', 1)
