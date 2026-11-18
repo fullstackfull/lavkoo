@@ -7,6 +7,7 @@ use App\Models\Shop;
 use App\Models\User;
 use App\Services\Storefront\StorefrontCatalog;
 use App\Services\Storefront\StorefrontCurrency;
+use App\Services\Storefront\StorefrontLegalPages;
 use App\Utils\Helpers;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Storage;
@@ -470,6 +471,7 @@ if (!function_exists('cacheRemoveByType')) {
             cacheRemoveByType(type: 'products');
         } else if ($type == 'business_pages') {
             Cache::forget(CACHE_FOR_BUSINESS_PAGES_LIST);
+            app(StorefrontLegalPages::class)->forgetStorefrontLists();
         } else if ($type == 'banners') {
             cacheGroupRemoveByType(key: CACHE_BANNER_ALL_CACHE_KEYS);
 

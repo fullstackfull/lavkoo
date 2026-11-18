@@ -5,7 +5,6 @@ namespace Tests\Feature\Storefront;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
 use PHPUnit\Framework\Attributes\DataProvider;
-use Tests\Support\BuildsStorefrontCatalog;
 use Tests\Support\BuildsStorefrontLegalPages;
 use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
@@ -18,7 +17,6 @@ use Tests\TestCase;
  */
 class SaudiBusinessPagesUnchangedTest extends TestCase
 {
-    use BuildsStorefrontCatalog;
     use BuildsStorefrontLegalPages;
     use RestoresLanguageFiles;
 
@@ -42,19 +40,6 @@ class SaudiBusinessPagesUnchangedTest extends TestCase
         $this->restoreLanguageFiles();
 
         parent::tearDown();
-    }
-
-    /** @return array<string, array{0: bool, 1: string, 2: array<string, string>}> storefronts on or off, the query string, the headers */
-    public static function requestsOfTheDefaultStorefront(): array
-    {
-        return [
-            'storefronts off' => [false, '', []],
-            'storefronts off, another storefront asked for' => [false, 'storefront=KW', ['X-Storefront' => 'KW']],
-            'storefronts on, no choice made' => [true, '', []],
-            'storefronts on, Saudi chosen in the address' => [true, 'storefront=SA', []],
-            'storefronts on, Saudi chosen in the header' => [true, '', ['X-Storefront' => 'SA']],
-            'storefronts on, Kuwait asked for while it is not active' => [true, 'storefront=KW', ['X-Storefront' => 'KW']],
-        ];
     }
 
     private function serve(bool $storefrontsOn): void
@@ -116,7 +101,7 @@ class SaudiBusinessPagesUnchangedTest extends TestCase
     public function test_the_page_list_of_the_apps_is_what_it_has_always_been(bool $storefrontsOn, string $query, array $headers): void
     {
         $this->serve($storefrontsOn);
-        $this->serveAsHttpRequest($this->withQuery('/api/v1/business-pages', $query), $headers);
+        $this->serveAsHttpRequest(uri: $this->withQuery('/api/v1/business-pages', $query), headers: $headers);
 
         $this->getJson($this->withQuery('/api/v1/business-pages', $query), $headers)
             ->assertOk()
@@ -127,7 +112,7 @@ class SaudiBusinessPagesUnchangedTest extends TestCase
     public function test_the_default_and_the_custom_page_lists_are_what_they_have_always_been(bool $storefrontsOn, string $query, array $headers): void
     {
         $this->serve($storefrontsOn);
-        $this->serveAsHttpRequest($this->withQuery('/api/v1/business-pages', $query), $headers);
+        $this->serveAsHttpRequest(uri: $this->withQuery('/api/v1/business-pages', $query), headers: $headers);
 
         $this->getJson($this->withQuery('/api/v1/business-pages', 'type=default', $query), $headers)
             ->assertOk()
