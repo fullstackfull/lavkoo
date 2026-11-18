@@ -18,6 +18,13 @@ class StorefrontSalesRoutesTest extends TestCase
 
     private const SALE_GATE = 'storefront.sellable';
 
+    private const MAINTENANCE_GATE = 'storefront.available';
+
+    /** The only routes that browse a storefront, and so the only ones a maintenance of it refuses (I2-14). */
+    private const BROWSE_URIS = ['api/v1/cart/add', 'api/v1/products/latest', 'api/v1/products/details/{slug}', 'api/v1/theme/sections', 'api/v1/theme/home', 'api/v1/theme/version'];
+
+    private const BROWSE_PREFIXES = ['api/v1/cart', 'api/v1/products', 'api/v1/theme'];
+
     private const NEW_SALE_ACTIONS = [
         '\\OrderController@place_order',
         '\\OrderController@placeOrderByOfflinePayment',
@@ -96,6 +103,44 @@ class StorefrontSalesRoutesTest extends TestCase
         foreach (self::OPEN_ACTIONS as $action) {
             foreach ($this->routesRunning($action) as $route) {
                 $this->assertNotContains(self::SALE_GATE, $route->gatherMiddleware(), "{$route->methods()[0]} {$route->uri()} ({$action}) must stay open.");
+                $this->assertNotContains(self::MAINTENANCE_GATE, $route->gatherMiddleware(), "{$route->methods()[0]} {$route->uri()} ({$action}) must stay open in a maintenance.");
+            }
+        }
+    }
+
+    public function test_the_routes_that_browse_a_storefront_carry_the_maintenance_gate(): void
+    {
+        foreach (self::BROWSE_URIS as $uri) {
+            $routes = collect(Route::getRoutes()->getRoutes())->filter(fn (RoutingRoute $candidate) => $candidate->uri() === $uri);
+
+            $this->assertNotEmpty($routes, "No route has the address [{$uri}].");
+
+            foreach ($routes as $route) {
+                $this->assertContains(self::MAINTENANCE_GATE, $route->gatherMiddleware(), "{$route->methods()[0]} {$uri} browses a storefront and must carry the maintenance gate.");
+            }
+        }
+    }
+
+    public function test_nothing_but_the_cart_the_catalogue_and_the_theme_carries_the_maintenance_gate(): void
+    {
+        // The middleware a route is declared with, not gatherMiddleware(): that builds the controller of every route, and some controllers need a service this test has no credentials for.
+        $carriers = collect(Route::getRoutes()->getRoutes())->filter(fn (RoutingRoute $route) => in_array(self::MAINTENANCE_GATE, $route->middleware(), true));
+
+        $this->assertNotEmpty($carriers);
+
+        foreach ($carriers as $route) {
+            $this->assertTrue(
+                collect(self::BROWSE_PREFIXES)->contains(fn (string $prefix) => $route->uri() === $prefix || str_starts_with($route->uri(), $prefix . '/')),
+                "{$route->methods()[0]} {$route->uri()} carries the maintenance gate, so a maintenance would refuse what a customer already has.",
+            );
+        }
+    }
+
+    public function test_no_route_that_starts_a_sale_is_refused_by_the_maintenance_gate_alone(): void
+    {
+        foreach (self::NEW_SALE_ACTIONS as $action) {
+            foreach ($this->routesRunning($action) as $route) {
+                $this->assertContains(self::SALE_GATE, $route->gatherMiddleware(), "{$route->methods()[0]} {$route->uri()} ({$action}) is refused by the sale gate in every stop mode.");
             }
         }
     }

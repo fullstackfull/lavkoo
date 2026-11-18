@@ -6732,5 +6732,6 @@ return [
 	"issue_updated" => "Issue updated",
 	"issue_not_found" => "Issue not found",
 	"storefront_not_open_for_checkout_yet" => "This storefront is not open for checkout yet.",
+	"storefront_is_in_maintenance" => "This storefront is under maintenance. Your earlier orders and payments are not affected.",
 	"payment_method_not_available_in_the_currency_of_this_storefront" => "This payment method is not available in the currency of this storefront.",
 ];

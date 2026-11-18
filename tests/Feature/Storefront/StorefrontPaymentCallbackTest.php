@@ -8,6 +8,7 @@ use App\Services\Storefront\StorefrontResolver;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Address\ApiAddressTestCase;
+use Tests\Support\ActivatesStorefront;
 use Tests\Support\ApprovesStorefrontTax;
 use Tests\Support\BuildsStorefrontCatalog;
 use Tests\Support\KeepsOrderDebugLogClean;
@@ -20,6 +21,7 @@ use Tests\Support\KeepsOrderDebugLogClean;
  */
 class StorefrontPaymentCallbackTest extends ApiAddressTestCase
 {
+    use ActivatesStorefront;
     use ApprovesStorefrontTax;
     use BuildsStorefrontCatalog;
     use KeepsOrderDebugLogClean;
@@ -212,6 +214,7 @@ class StorefrontPaymentCallbackTest extends ApiAddressTestCase
         $this->switchStorefrontsOn();
         config(['gcc.storefronts.legal.grandfathered' => ['SA', 'KW']]);
         $this->approveNoTaxFor('KW');
+        $this->activateStorefrontFor('KW');
         $customer = $this->makeCustomer();
         $this->putOneProductInTheCart($customer->id);
         DB::table('products')->where('id', 1)->update(['storefront_country' => 'KW']);
