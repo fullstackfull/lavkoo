@@ -55,7 +55,8 @@ Behind them: the two Flutter apps (K: 42 MISSING of 91; J: 24 of 93), the per-ma
 4. lavkooappseller #3 and #9 add the same helper (`ProductHelper.getApprovedReviewAverage`) with identical text; keep them identical or merge #3 first.
 5. A log download from the CI storage can answer `ServerBusy: Egress is over the account limit`; wait and ask again.
 6. `AdminStorefrontMenuTest` reads tables of the whole panel and is SQLite only; the six skipped tests on MySQL and MariaDB are by design.
-7. `translate()` writes unknown keys into `resources/lang`; the tests of the screens digest the language files and fail when a key is written. Arabic keys for the server go in `sa/messages.php` and `ae/new-messages.php`.
+7. **The history of this docs branch holds one commit the leak guard refuses** (`55d2c700`: it added the generator's data as an archive, which the guard cannot read; the next commit, `bcb8c276`, replaces it with plain files, and an unpacked scan found no e-mail address and no secret in it). I pushed it before reading the guard's verdict, which was my mistake; I did not rewrite the branch (no force push). If the docs are ever proposed as a pull request, squash those two commits away first, because the guard reads commit by commit. From now on a push of this branch waits for the guard's exit status.
+8. `translate()` writes unknown keys into `resources/lang`; the tests of the screens digest the language files and fail when a key is written. Arabic keys for the server go in `sa/messages.php` and `ae/new-messages.php`.
 
 ## Next, in order
 
