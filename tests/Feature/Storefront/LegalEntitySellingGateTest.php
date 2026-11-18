@@ -5,15 +5,17 @@ namespace Tests\Feature\Storefront;
 use App\Exceptions\StorefrontNotSellableException;
 use App\Services\Storefront\StorefrontContext;
 use App\Services\Storefront\StorefrontSellingGate;
+use Tests\Support\ApprovesStorefrontTax;
 use Tests\Support\BuildsLegalEntityWorld;
 use Tests\TestCase;
 
 /**
  * The owner may require a company for a storefront to sell (GCC_LEGAL_ENTITIES_REQUIRED, off by default). The legal texts are treated as approved here
- * (every country is grandfathered), so the only thing the gate can refuse is the missing company.
+ * (every country is grandfathered) and every storefront has a recorded decision that it charges no tax, so the only thing the gate can refuse is the missing company.
  */
 class LegalEntitySellingGateTest extends TestCase
 {
+    use ApprovesStorefrontTax;
     use BuildsLegalEntityWorld;
 
     protected function setUp(): void
@@ -22,6 +24,7 @@ class LegalEntitySellingGateTest extends TestCase
 
         $this->buildLegalEntityWorld();
         config(['gcc.storefronts.legal.grandfathered' => ['SA', 'AE', 'KW', 'QA', 'BH', 'OM']]);
+        $this->approveNoTaxFor('AE', 'KW', 'QA', 'BH', 'OM');
     }
 
     protected function tearDown(): void
