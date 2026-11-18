@@ -76,11 +76,14 @@ class ThemeManager
         });
     }
 
-    /** Make a theme the single active one (deactivates all others). Atomic. */
+    /**
+     * Make a theme the single active one (deactivates all others). Atomic. While themes are kept by storefront, the single active one of ITS storefront: the
+     * active theme of every other storefront stays as it is.
+     */
     public function activate(Theme $theme): Theme
     {
         $activated = DB::transaction(function () use ($theme) {
-            Theme::query()
+            app(StorefrontThemeResolver::class)->themesSharingStorefrontWith(theme: $theme)
                 ->where('id', '!=', $theme->id)
                 ->where('is_active', true)
                 ->update(['is_active' => false]);
@@ -242,8 +245,7 @@ class ThemeManager
     /** The published version of the currently active theme, if any. */
     public function activeThemePublishedVersion(): ?ThemeVersion
     {
-        $theme = Theme::query()->where('is_active', true)->first();
-        return $theme?->publishedVersion()->first();
+        return app(StorefrontThemeResolver::class)->publishedVersion();
     }
 
     /** Deep-merge $override into $base; associative sub-arrays merge, everything else overrides. */

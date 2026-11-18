@@ -2,7 +2,6 @@
 
 namespace App\Services\Theme;
 
-use App\Models\Theme;
 use App\Models\ThemeSection;
 use App\Models\ThemeVersion;
 use App\Services\Storefront\StorefrontContext;
@@ -465,14 +464,7 @@ class StorefrontThemeRenderer
 
     private function publishedVersion(): ?ThemeVersion
     {
-        $theme = Theme::query()->where('is_active', true)->first();
-        if (!$theme) {
-            return null;
-        }
-        return ThemeVersion::query()
-            ->where('theme_id', $theme->id)
-            ->where('status', ThemeVersion::STATUS_PUBLISHED)
-            ->first();
+        return app(StorefrontThemeResolver::class)->publishedVersion();
     }
 
     private function tablesReady(): bool

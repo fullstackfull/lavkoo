@@ -8,6 +8,7 @@ use App\Models\Theme;
 use App\Models\ThemeVersion;
 use App\Services\Theme\BuilderReadiness;
 use App\Services\Theme\PublishValidator;
+use App\Services\Theme\StorefrontThemeResolver;
 use App\Services\Theme\ThemeManager;
 use App\Services\Theme\ThemePermissionService;
 use App\Services\Theme\ThemePortabilityService;
@@ -38,6 +39,7 @@ class ThemeManagementController extends BaseController
         private readonly ThemePortabilityService  $portability,
         private readonly ThemeAssetService         $assets,
         private readonly BuilderReadiness          $readiness,
+        private readonly StorefrontThemeResolver   $storefrontThemes,
     )
     {
     }
@@ -98,6 +100,7 @@ class ThemeManagementController extends BaseController
         $validated = $request->validate([
             'name'        => ['required', 'string', 'max:191'],
             'description' => ['nullable', 'string', 'max:500'],
+            ...$this->storefrontThemes->newThemeRules(),
         ]);
 
         $slug = Str::slug($validated['name']);
@@ -114,13 +117,14 @@ class ThemeManagementController extends BaseController
             'is_system'       => false,
             'created_by_type' => 'admin',
             'created_by_id'   => auth('admin')->id(),
+            ...$this->storefrontThemes->newThemeAttributes(requestedCountry: $validated[StorefrontThemeResolver::COLUMN] ?? null),
         ]);
 
         ToastMagic::success(translate('theme_created_successfully'));
         return $this->backToIndex();
     }
 
-    /** Activate a theme (exclusive — all others are deactivated atomically). */
+    /** Activate a theme (exclusive — all others are deactivated atomically, or only those of its storefront while themes are kept by storefront). */
     public function activate(Request $request): RedirectResponse
     {
         if ($this->blockedOnDemo()) {
