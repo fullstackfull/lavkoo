@@ -2,6 +2,7 @@
 
 namespace App\Utils;
 
+use App\Services\Storefront\StorefrontCurrency;
 use App\Services\Analytics\Analytics;
 use App\Events\OrderEditDuePaymentEvent;
 use App\Models\OrderDetailsRewards;
@@ -858,6 +859,9 @@ class OrderManager
 
             if ($referralCustomer->customer_discount_amount_type === 'percentage') {
                 return ($groupAmount * $discountAmount) / 100;
+            }
+            if (app(StorefrontCurrency::class)->currencyCodeInForce() !== null) {
+                return 0;
             }
             return ($discountAmount * $groupAmount) / $totalAmount;
         }

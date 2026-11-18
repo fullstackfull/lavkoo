@@ -40,6 +40,9 @@ final class StorefrontCurrency
     /** No minimum, no free delivery, and no top-up (a maximum of zero refuses every amount): a number that cannot be in the wrong currency. */
     public const NEUTRAL_AMOUNT = '0';
 
+    /** The shipping type a storefront with its own currency uses: the cost typed on each product, in that storefront's currency. */
+    public const PRODUCT_WISE_SHIPPING = 'product_wise';
+
     private const SINGLE_CURRENCY_MODEL = 'single_currency';
 
     private const DEFAULT_DECIMALS = 2;
@@ -94,6 +97,16 @@ final class StorefrontCurrency
         } finally {
             $this->market = $previous;
         }
+    }
+
+    /**
+     * The shipping type the request prices shipping with. The platform's shipping tables (a cost for each method, each category and each zone) are typed in
+     * the platform's money, so a storefront that trades in its own currency prices shipping from the product alone: the cost typed on the product, in
+     * that storefront's currency, and nothing from the tables. Everywhere else the stored type stands.
+     */
+    public function shippingTypeInForce(?string $stored): ?string
+    {
+        return $this->currencyInForce() === null ? $stored : self::PRODUCT_WISE_SHIPPING;
     }
 
     /** The code of the currency the request's storefront trades in, or null while the platform's own settings stand. */

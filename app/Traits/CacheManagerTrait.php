@@ -18,6 +18,7 @@ use App\Models\Review;
 use App\Models\RobotsMetaContent;
 use App\Models\Seller;
 use App\Models\ShippingType;
+use App\Services\Storefront\StorefrontCurrency;
 use App\Models\Shop;
 use App\Models\StockClearanceProduct;
 use App\Models\StockClearanceSetup;
@@ -125,10 +126,12 @@ trait CacheManagerTrait
 
     public function cacheInHouseShippingType()
     {
-        return Cache::remember(CACHE_FOR_IN_HOUSE_SHIPPING_TYPE, CACHE_FOR_3_HOURS, function () {
+        $stored = Cache::remember(CACHE_FOR_IN_HOUSE_SHIPPING_TYPE, CACHE_FOR_3_HOURS, function () {
             $adminShipping = ShippingType::where(['seller_id' => 0])->first();
-            return isset($adminShipping) ? $adminShipping->shipping_type : 'order_wise';
+            return isset($adminShipping) ? $adminShipping->getRawOriginal('shipping_type') : 'order_wise';
         });
+
+        return app(StorefrontCurrency::class)->shippingTypeInForce($stored);
     }
 
     public function cacheMainCategoriesList()
