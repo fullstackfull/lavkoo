@@ -21,8 +21,24 @@ use Illuminate\Support\Facades\Schema;
 #[Singleton]
 final class StorefrontCurrency
 {
+    /** The business settings that hold the currency a storefront trades in. */
+    public const CURRENCY_SETTINGS = ['system_default_currency', 'currency_model', 'decimal_point_settings'];
+
+    /**
+     * The business settings that hold an amount of money: the minimum order, the free-delivery thresholds and the limits of a wallet top-up.
+     * The platform's own rows are typed in the platform's money, so a storefront with its own currency may not read them; it reads what an
+     * operator gave it (STOREFRONT_AMOUNTS) or, when it has been given nothing, the neutral value.
+     */
+    public const AMOUNT_SETTINGS = ['minimum_order_amount', 'free_delivery_over_amount', 'free_delivery_over_amount_seller', 'minimum_add_fund_amount', 'maximum_add_fund_amount'];
+
+    /** The amounts an operator may give a storefront (gcc:storefront:money). The others answer the neutral value while its money is in force. */
+    public const STOREFRONT_AMOUNTS = ['minimum_order_amount', 'free_delivery_over_amount'];
+
     /** The business settings a storefront answers for itself while it trades in its own currency. */
-    public const OVERRIDDEN_SETTINGS = ['system_default_currency', 'currency_model', 'decimal_point_settings'];
+    public const OVERRIDDEN_SETTINGS = [...self::CURRENCY_SETTINGS, ...self::AMOUNT_SETTINGS];
+
+    /** No minimum, no free delivery, and no top-up (a maximum of zero refuses every amount): a number that cannot be in the wrong currency. */
+    public const NEUTRAL_AMOUNT = '0';
 
     private const SINGLE_CURRENCY_MODEL = 'single_currency';
 
@@ -48,16 +64,18 @@ final class StorefrontCurrency
             return null;
         }
 
-        $currency = $this->currencyInForce();
+        $storefront = $this->inForce();
 
-        if ($currency === null) {
+        if ($storefront === null) {
             return null;
         }
 
         return match ($setting) {
-            'system_default_currency' => (int) $currency->id,
+            'system_default_currency' => (int) $storefront['currency']->id,
             'currency_model' => self::SINGLE_CURRENCY_MODEL,
-            'decimal_point_settings' => $this->decimalsOf($currency->code),
+            'decimal_point_settings' => $this->decimalsOf($storefront['currency']->code),
+            'minimum_order_amount', 'free_delivery_over_amount' => $this->amountOf(country: $storefront['country'], setting: $setting, currencyCode: $storefront['currency']->code),
+            default => self::NEUTRAL_AMOUNT,
         };
     }
 
@@ -141,6 +159,12 @@ final class StorefrontCurrency
         return (int) (config('gcc.storefronts.currency.decimals')[strtoupper($currencyCode)] ?? self::DEFAULT_DECIMALS);
     }
 
+    /** The name of the business setting that holds the amounts an operator gave one storefront (a JSON object tagged with its currency). */
+    public static function amountRowName(string $country): string
+    {
+        return 'storefront_money_' . strtolower($country);
+    }
+
     private function statusOf(string $country, string $currencyCode): string
     {
         if (!$this->tradesInOwnCurrency($country)) {
@@ -164,6 +188,12 @@ final class StorefrontCurrency
 
     private function currencyInForce(): ?Currency
     {
+        return $this->inForce()['currency'] ?? null;
+    }
+
+    /** @return array{country: string, currency: Currency}|null the storefront whose money is in force and its currency, or null while the platform's settings stand */
+    private function inForce(): ?array
+    {
         if (!(bool) config('gcc.storefronts.currency.enabled')) {
             return null;
         }
@@ -175,7 +205,29 @@ final class StorefrontCurrency
             return null;
         }
 
-        return $this->activeCurrency($resolver->currencyOf($country));
+        $currency = $this->activeCurrency($resolver->currencyOf($country));
+
+        return $currency === null ? null : ['country' => $country, 'currency' => $currency];
+    }
+
+    /**
+     * What an operator gave one storefront for an amount, verbatim, or the neutral value. The row counts only while it is tagged with the currency the
+     * storefront is configured to trade in (a row written for another currency is ignored, never converted) and the amount is a plain number that is not
+     * negative; anything else reads as nothing given. getWebConfig reads the row through the settings cache like any other setting, and the row's name is
+     * not in OVERRIDDEN_SETTINGS, so it cannot ask itself.
+     */
+    private function amountOf(string $country, string $setting, string $currencyCode): string
+    {
+        $row = getWebConfig(self::amountRowName($country));
+
+        if (!is_array($row) || strcasecmp((string) ($row['currency'] ?? ''), $currencyCode) !== 0) {
+            return self::NEUTRAL_AMOUNT;
+        }
+
+        $amount = $row[$setting] ?? null;
+        $text = is_int($amount) || is_float($amount) ? (string) $amount : (is_string($amount) ? $amount : '');
+
+        return preg_match('/^\d+(\.\d+)?$/', $text) === 1 ? $text : self::NEUTRAL_AMOUNT;
     }
 
     private function tradesInOwnCurrency(string $country): bool
