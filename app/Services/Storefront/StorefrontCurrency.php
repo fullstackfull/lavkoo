@@ -34,21 +34,25 @@ final class StorefrontCurrency
         return (bool) config('gcc.storefronts.currency.enabled') && StorefrontResolver::fromConfig()->isEnabled();
     }
 
-    /** The value a storefront gives to a business setting, or null while the platform's own value stands. */
+    /**
+     * The value a storefront gives to a business setting, or null while the platform's own value stands. The storefront is the one whose
+     * products the request sees (StorefrontCatalog::country()), so a price is never shown in a currency other than its catalog's: a panel,
+     * a seller API, a queue and a console command, which see every country, read the platform settings.
+     */
     public function override(string $setting): string|int|null
     {
         if (!(bool) config('gcc.storefronts.currency.enabled') || !in_array($setting, self::OVERRIDDEN_SETTINGS, true)) {
             return null;
         }
 
+        $country = StorefrontCatalog::country();
         $resolver = StorefrontResolver::fromConfig();
-        $context = StorefrontContext::current();
 
-        if (!$resolver->isEnabled() || $context->country === $resolver->defaultCountry()) {
+        if ($country === null || $country === $resolver->defaultCountry()) {
             return null;
         }
 
-        $currency = $this->activeCurrency($context->currency);
+        $currency = $this->activeCurrency($resolver->currencyOf($country));
 
         if ($currency === null) {
             return null;
@@ -65,6 +69,28 @@ final class StorefrontCurrency
     public function isReady(string $country, string $currencyCode): bool
     {
         return !$this->isEnabled() || !$this->tradesInOwnCurrency($country) || $this->activeCurrency($currencyCode) !== null;
+    }
+
+    /**
+     * The currency the amounts of an order of this storefront are in, or null when it cannot be told: the storefront has no active currency,
+     * or it is the default storefront on a platform that converts from a base currency, where the currency an order is shown in is the
+     * visitor's own choice. The default storefront is read from the platform settings, so call this from a request that is not served from
+     * another storefront.
+     */
+    public function currencyOfSales(string $country): ?Currency
+    {
+        $resolver = StorefrontResolver::fromConfig();
+        $code = strtoupper($country);
+
+        if ($code !== $resolver->defaultCountry()) {
+            return in_array($code, $resolver->configuredCountries(), true) ? $this->activeCurrency($resolver->currencyOf($code)) : null;
+        }
+
+        if (getWebConfig('currency_model') !== self::SINGLE_CURRENCY_MODEL) {
+            return null;
+        }
+
+        return Currency::query()->find((int) getWebConfig('system_default_currency'));
     }
 
     /**

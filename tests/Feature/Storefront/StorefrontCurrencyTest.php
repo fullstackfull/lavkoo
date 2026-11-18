@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Support\BuildsStorefrontCatalog;
 use Tests\Support\BuildsStorefrontLegalDocuments;
 use Tests\TestCase;
 
@@ -22,6 +23,7 @@ use Tests\TestCase;
  */
 class StorefrontCurrencyTest extends TestCase
 {
+    use BuildsStorefrontCatalog;
     use BuildsStorefrontLegalDocuments;
 
     private const SAUDI_RIYAL_ID = '2';
@@ -279,6 +281,35 @@ class StorefrontCurrencyTest extends TestCase
     {
         $this->assertSame(2, app(StorefrontCurrency::class)->decimalsOf('xyz'));
         $this->assertSame(3, app(StorefrontCurrency::class)->decimalsOf('kwd'));
+    }
+
+    public function test_a_storefront_page_that_no_middleware_bound_reads_the_currency_of_the_storefront_its_products_come_from(): void
+    {
+        // The catalog narrows such a request by what it asks for (path, header or query), so the currency must follow the same rule: a Kuwaiti
+        // product is never shown with the Saudi currency because a route forgot the storefront middleware.
+        $this->serveAsHttpRequest('/products?storefront=KW');
+        $this->assertSame(['single_currency', '3'], [getWebConfig('currency_model'), getWebConfig('decimal_point_settings')]);
+
+        $this->serveAsHttpRequest('/products', ['X-Storefront' => 'AE']);
+        $this->assertSame(['single_currency', '2'], [getWebConfig('currency_model'), getWebConfig('decimal_point_settings')]);
+
+        $this->serveAsHttpRequest('/oman/products');
+        $this->assertSame('multi_currency', getWebConfig('currency_model'));
+
+        $this->serveAsHttpRequest('/om/products');
+        $this->assertSame(['single_currency', '3'], [getWebConfig('currency_model'), getWebConfig('decimal_point_settings')]);
+
+        $this->serveAsHttpRequest('/products');
+        $this->assertSame(['multi_currency', '2'], [getWebConfig('currency_model'), getWebConfig('decimal_point_settings')]);
+    }
+
+    public function test_a_panel_request_reads_the_platform_settings_whatever_storefront_it_names(): void
+    {
+        $this->serveAsHttpRequest('/admin/products/list?storefront=KW');
+        $this->assertSame('multi_currency', getWebConfig('currency_model'));
+
+        $this->serveAsHttpRequest('/api/v3/seller/products/list', ['X-Storefront' => 'KW']);
+        $this->assertSame('multi_currency', getWebConfig('currency_model'));
     }
 
     public function test_a_context_that_was_never_bound_is_the_default_storefront(): void

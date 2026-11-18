@@ -31,11 +31,13 @@ seller APIs (`api/v2`, `api/v3`), queues and the console are never narrowed and 
    approved; the Saudi storefront is grandfathered.
 5. **Currency is decided (GCC-05).** This stack separates products, prices and stock by country; it does not change how an amount is shown.
    Prices are stored in a base currency and converted for display with the session's currency, which is the system default currency unless the
-   visitor picks another one. Slice 1 of GCC-05 is a separate draft pull request behind `GCC_STOREFRONT_CURRENCY` (off by default): a storefront
-   other than the default one then reads its own currency, as stored, with its own symbol and decimals, and may not sell until that currency exists
-   (`docs/gcc/GCC-05-STOREFRONT-CURRENCY.md`, `php artisan gcc:storefront:currency-readiness`). Slices 2 to 4 are not built: a price entered through
-   the admin or seller tools is still converted with the platform's settings, and orders, invoices, e-mails and exports carry no currency of
-   their own (see `docs/gcc/audits/2026-11-16-price-stock-map/`). Do not turn the storefronts on with a priced non-Saudi catalog before they land.
+   visitor picks another one. GCC-05 is a separate stack of draft pull requests behind `GCC_STOREFRONT_CURRENCY` (off by default). Slice 1: a
+   storefront other than the default one reads its own currency, as stored, with its own symbol and decimals, and may not sell until that
+   currency exists (`docs/gcc/GCC-05-STOREFRONT-CURRENCY.md`, `php artisan gcc:storefront:currency-readiness`). Slice 2: an order records its
+   storefront, currency and rate (an additive migration of `orders`). Slices 3 to 5 are not built: a price entered through the admin or seller
+   tools is still converted with the platform's settings, payment amounts and wallets have no currency of their own, and invoices, e-mails and
+   exports do not read the order's record yet (see `docs/gcc/audits/2026-11-16-price-stock-map/`). Do not turn the storefronts on with a priced
+   non-Saudi catalog before they land.
 6. **Run `php artisan cache:clear` once**, after the migration is deployed and again every time the flag is flipped, in either direction.
    Products cached by the previous release do not hide the new column from JSON (`$hidden` is part of the cached object), and the
    per-storefront copies written while the flag was on are not cleared by a product edit made while it was off, so they would be served again

@@ -1,6 +1,6 @@
 # GCC-05: the currency of a storefront
 
-Status: slice 1 of 4, in a draft pull request, behind a switch that is off by default (`GCC_STOREFRONT_CURRENCY`). Nothing here has been run on the pilot server or on production.
+Status: slices 1 and 2 of 5, in draft pull requests, behind one switch that is off by default (`GCC_STOREFRONT_CURRENCY`). Nothing here has been run on the pilot server or on production.
 
 ## The rule
 
@@ -32,14 +32,25 @@ php artisan gcc:storefront:currency-readiness
 
 Read-only. Lists every configured storefront, its currency, decimals, whether it is switched on, and whether its currency is ready, missing or inactive. Exits 1 when a storefront that is switched on lacks its currency.
 
-## What slice 1 does not do (the next slices)
+## What slice 2 does: the order records what it was sold in
 
-Do not turn the switch on with a priced non-Saudi catalog before slice 2.
+An order has no currency of its own: invoices, e-mails and exports recompute its totals with whatever the platform settings are when they are read, so a Kuwaiti order cannot be shown later in the currency it was sold in. Slice 2 adds the record (`App\Services\Storefront\OrderStorefrontSnapshot`, migration `2026_11_26_100000_add_storefront_snapshot_to_orders_table.php`).
 
-1. **Entering and reading a price in the product's own context (slice 2).** The admin product screens, the seller APIs (v2 and v3), the importers and the bulk price tools convert an entered price with the platform's settings (`ProductService`, `Convert::usd`, `currencyConverter`: 121 call sites). They must run in the context of the product's country so an amount entered for Kuwait is stored as dinars. Until then a price entered under a multi-currency platform is converted from the default currency into the base currency, which is the wrong unit for another storefront.
-2. **The order records what it was sold in (slice 3).** An order has no storefront, currency or rate of its own. Invoices, the order e-mails, the exports and the reports re-compute totals in the default currency; queue and console contexts bind no storefront. A migration adds the columns (additive, nullable, guarded like the other GCC columns) and the documents read the order's own snapshot.
-3. **Fixed decimals and gateway amounts (slice 4).** A few formatters round to two decimals whatever the currency (`BackEndHelper::usd_to_currency`, `getFormatCurrency`), the payment controllers convert the amount to the gateway currency with the platform's rates, and wallet and loyalty balances have no currency (GCC-15). Each is listed with its call sites in the pull request that fixes it.
-4. **The apps.** `GET /api/v1/config` does not resolve a storefront, so an app learns the currency of a storefront from the storefront list; making the config answer for the storefront an app asks for is part of slice 2 with the customer and seller app pull requests.
+| Column of `orders` | Meaning |
+|---|---|
+| `storefront_country` | the one country the products of the order's lines belong to (null for an order whose lines belong to two) |
+| `currency_code` | the currency the amounts of the order are in |
+| `currency_rate` | the rate that turns a stored amount into that currency: 1 for a storefront with its own currency, because its amounts are stored as they are |
+
+It is written right after the order's lines are saved, from those lines and not from the request, so the web and API checkout (`OrderManager::generateOrder`, which both POS screens use too) and the seller app's POS record the same thing. A record is written once and never rewritten. The default storefront on a multi-currency platform records its storefront only: the currency an order is shown in there is the visitor's choice, which an order does not know yet. An order saved before the migration, or while the switch is off, carries no record and is read as before (default storefront, platform settings). The migration is additive (three nullable columns appended without a position), and its rollback is refused while any order carries a record.
+
+## What is not done yet (slices 3 to 5)
+
+Do not turn the switch on with a priced non-Saudi catalog before slice 3.
+
+3. **Entering and reading a price in the product's own context.** The admin product screens, the importers and the bulk price tools convert an entered price with the platform's settings (121 call sites use `currencyConverter`, `Convert::usd` or `BackEndHelper::currency_to_usd`). They must run in the context of the product's country so an amount entered for Kuwait is stored as dinars. Seller products are all Saudi today (every seller write saves the table default). Until then a price entered under a multi-currency platform is converted from the default currency into the base currency, which is the wrong unit for another storefront.
+4. **Payment amounts, wallets and fixed decimals.** The payment controllers convert the amount to the gateway currency with the platform's rates, wallet and loyalty balances have no currency (GCC-15), and a few formatters round to two decimals whatever the currency (`BackEndHelper::usd_to_currency`, `getFormatCurrency`).
+5. **The documents and the apps.** Invoices, order e-mails, exports and reports read the order's own record; queue jobs carry the storefront they work for; `GET /api/v1/config` answers for the storefront an app asks for.
 
 ## Rollback
 
@@ -47,4 +58,6 @@ Switch `GCC_STOREFRONT_CURRENCY` off (and clear the config cache). No data was w
 
 ## Tests
 
-`tests/Feature/Storefront/StorefrontCurrencyTest.php`: the default storefront and the switched-off cases read the platform settings; each of the five other storefronts answers its own id, model and decimals; amounts are shown as stored in each symbol with the right decimals and no rate; a session that moves between storefronts keeps no symbol of the previous one; the platform settings and their cache are not touched; a missing or switched-off currency refuses the sale and shows `sellable: false`; the readiness command.
+`tests/Feature/Storefront/StorefrontCurrencyTest.php` (slice 1): the default storefront and the switched-off cases read the platform settings; each of the five other storefronts answers its own id, model and decimals; amounts are shown as stored in each symbol with the right decimals and no rate; a session that moves between storefronts keeps no symbol of the previous one; the platform settings and their cache are not touched; a missing or switched-off currency refuses the sale and shows `sellable: false`; the readiness command.
+
+`tests/Feature/Storefront/OrderStorefrontSnapshotTest.php` and `StorefrontCheckoutSnapshotTest.php` (slice 2): each of the five other storefronts records its country and currency at rate one; the default storefront records its currency only on a single-currency platform; nothing is recorded while the switch or the storefronts are off, before the migration, for an order of two countries or without lines; a record is written once; a request served from another storefront never records a currency it cannot vouch for; the migration is idempotent and its rollback is refused while a record exists; a real cash-on-delivery checkout of the API from each of the six storefronts (SA, AE, KW, QA, BH, OM, each with its own product priced in its own currency) saves one order with the record and the price of its own catalog, converted by no rate, and none while the switch is off.
