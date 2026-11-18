@@ -182,12 +182,10 @@ class StorefrontThemePreviewTokenTest extends TestCase
         }
     }
 
-    // ---- defects of the app's routes, found by these tests and not fixed here -----------------------------------------------------------------------
+    // ---- the app's routes: a list sent as the token, and the marks a response carries when a token summoned its draft ---------------------------------------
 
     public function test_a_list_sent_as_the_preview_of_the_home_page_is_ignored_and_the_published_page_is_given(): void
     {
-        $this->markTestSkipped('Defect, a decision of the owner: /api/v1/theme/home?preview[]=x answers 500, because ThemePreviewToken::version takes a ?string and a list is a TypeError. Widening it to mixed changes behaviour outside F-07.4.');
-
         $response = $this->getJson('/api/v1/theme/home?preview[]=' . $this->previewTokenOf(version: $this->saudiDraft));
 
         $this->assertAppServes(height: self::SAUDI_PUBLISHED, response: $response);
@@ -196,8 +194,6 @@ class StorefrontThemePreviewTokenTest extends TestCase
 
     public function test_the_home_page_of_the_app_that_a_token_summoned_is_marked_noindex(): void
     {
-        $this->markTestSkipped('Defect, a decision of the owner: /api/v1/theme/home?preview=<live token> answers the draft with no X-Robots-Tag, because NoIndexThemePreview is in the web group only and reads theme_preview, which this route does not take.');
-
         $response = $this->appHome(token: $this->previewTokenOf(version: $this->saudiDraft));
 
         $this->assertAppServes(height: self::SAUDI_DRAFT, response: $response);
@@ -206,8 +202,6 @@ class StorefrontThemePreviewTokenTest extends TestCase
 
     public function test_the_sections_of_the_app_that_a_token_summoned_are_marked_noindex(): void
     {
-        $this->markTestSkipped('Defect, a decision of the owner: /api/v1/theme/sections?theme_preview=<live token> answers the draft with no X-Robots-Tag, because NoIndexThemePreview is in the web group only.');
-
         $response = $this->appSections(token: $this->previewTokenOf(version: $this->saudiDraft));
 
         $this->assertAppServes(height: self::SAUDI_DRAFT, response: $response);
@@ -216,8 +210,6 @@ class StorefrontThemePreviewTokenTest extends TestCase
 
     public function test_the_sections_of_the_app_that_a_token_summoned_are_sent_with_no_store(): void
     {
-        $this->markTestSkipped('Defect, a decision of the owner: /api/v1/theme/sections?theme_preview=<live token> answers the draft with Cache-Control "no-cache, private", not "no-store, private", because only the home route sets the header.');
-
         $response = $this->appSections(token: $this->previewTokenOf(version: $this->saudiDraft));
 
         $this->assertAppServes(height: self::SAUDI_DRAFT, response: $response);

@@ -438,6 +438,12 @@ class StorefrontThemeRenderer
      * Checked in that order because the session is the cheaper answer and the one an admin
      * browsing their own storefront already has.
      */
+    /** Whether this request is drawing a draft, by a token on the URL or by the session of an admin. */
+    public function isPreviewing(): bool
+    {
+        return $this->activePreviewVersionId() !== null;
+    }
+
     private function activePreviewVersionId(): ?int
     {
         try {

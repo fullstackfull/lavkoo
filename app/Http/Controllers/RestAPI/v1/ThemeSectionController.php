@@ -145,16 +145,19 @@ class ThemeSectionController extends Controller
         $type = $request->query('type');
         $type = is_string($type) && $type !== '' ? $type : null;
 
+        $previewing = $this->renderer->isPreviewing();
         $sections = $this->renderer->sectionsFor($page) ?? [];
 
         if ($type !== null) {
             $sections = array_values(array_filter($sections, fn (array $section) => $section['type'] === $type));
         }
 
-        return response()->json([
+        $response = response()->json([
             'page' => $page,
             'sections' => array_map(fn (array $section) => $this->present($section), $sections),
         ]);
+
+        return $previewing ? $this->markAsDraft($response) : $response;
     }
 
     #[ApiDoc(
@@ -194,12 +197,11 @@ class ThemeSectionController extends Controller
         // A merchant checking a draft on a real phone before it is anyone else's home page. The
         // preview path shares no cache and no validator with the published one: a draft changes on
         // every save, and a 304 against a shopper's checksum would hand them the draft.
-        $previewing = $this->previews->version($request->query('preview'));
+        $token = $request->query('preview');
+        $previewing = $this->previews->version(is_string($token) ? $token : null);
 
         if ($previewing !== null) {
-            return response()
-                ->json($this->delivery->previewPayload($previewing, $page, $viewer))
-                ->header('Cache-Control', 'no-store, private');
+            return $this->markAsDraft(response()->json($this->delivery->previewPayload($previewing, $page, $viewer)));
         }
 
         $payload = $this->delivery->payload($page, $viewer);
@@ -238,6 +240,12 @@ class ThemeSectionController extends Controller
     public function version(): JsonResponse
     {
         return response()->json($this->delivery->revision());
+    }
+
+    /** A draft is for one merchant and one phone: no cache keeps it and no crawler is offered it. */
+    private function markAsDraft(JsonResponse $response): JsonResponse
+    {
+        return $response->header('Cache-Control', 'no-store, private')->header('X-Robots-Tag', 'noindex, nofollow');
     }
 
     /**
