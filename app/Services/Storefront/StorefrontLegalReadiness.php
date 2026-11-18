@@ -137,8 +137,8 @@ final class StorefrontLegalReadiness
             && ($text->template_hash === null || $text->template_hash !== $text->body_hash);
     }
 
-    /** @return list<array{0: string, 1: string}> */
-    private function requiredPairsOf(string $country): array
+    /** @return list<array{0: string, 1: string}> the document type and the locale of each text the storefront needs */
+    public function requiredPairsOf(string $country): array
     {
         $locales = config("gcc.storefronts.legal.locales_by_country.{$country}") ?? config('gcc.storefronts.legal.required_locales', []);
 
