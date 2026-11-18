@@ -90,6 +90,21 @@ class StorefrontListApiTest extends TestCase
             ->assertJsonPath('storefronts.1.sellable', true);
     }
 
+    public function test_flag_on_lists_an_active_storefront_as_not_sellable_while_the_independent_legal_review_is_missing(): void
+    {
+        config([
+            'gcc.storefronts.enabled' => true,
+            'gcc.storefronts.countries.AE.active' => true,
+        ]);
+        $this->publishRequiredLegalDocuments(country: 'AE', reviewed: false);
+        $this->approveNoTaxFor('AE');
+
+        $this->getJson('/api/v1/storefronts')
+            ->assertOk()
+            ->assertJsonPath('storefronts.1.country', 'AE')
+            ->assertJsonPath('storefronts.1.sellable', false);
+    }
+
     public function test_flag_on_without_the_legal_table_lists_every_non_default_storefront_as_not_sellable(): void
     {
         config([
