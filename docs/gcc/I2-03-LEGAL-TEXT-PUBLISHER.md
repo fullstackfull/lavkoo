@@ -24,7 +24,7 @@ Nothing is deleted. The default storefront keeps the documents it has always had
 
 ### An approval is bound to the words that were read
 
-`approve()` and `publish()` take an optional `expectedBodyHash` (the sha256 of the words the person read, hex in either case). When it is given and is not the `body_hash` of the row **locked inside the transaction** (`hash_equals`), the step is refused with "changed after it was read ... read it again"; nothing is changed and nothing is audited. Without it the step behaves as before, so a caller that does not name a hash (the future admin screen, until it does) is unchanged. A text edited between the reading and the approval, or between the approval and the publication (an edit sends an approved text back to draft), is therefore never approved or published on words nobody read.
+`approve()` and `publish()` take an optional `expectedBodyHash` (the sha256 of the words the person read, hex in either case). When it is given and is not the `body_hash` of the row **locked inside the transaction** (`hash_equals`), the step is refused with "changed after it was read ... read it again"; nothing is changed and nothing is audited. Without it the step behaves as before, so a caller that does not name a hash (the console command without `--hash`) is unchanged; the admin screen always names it, from the whole `body_hash` its approve and publish forms carry (`docs/gcc/I2-STOREFRONT-ADMIN-SCREENS.md`). A text edited between the reading and the approval, or between the approval and the publication (an edit sends an approved text back to draft), is therefore never approved or published on words nobody read.
 
 ## The command
 
