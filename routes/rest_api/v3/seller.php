@@ -28,6 +28,7 @@ use App\Http\Controllers\RestAPI\v3\seller\SellerIntegrationController;
 use App\Http\Controllers\RestAPI\v3\seller\SellerInventoryController;
 use App\Http\Controllers\RestAPI\v3\seller\SellerController;
 use App\Http\Controllers\RestAPI\v3\seller\SellerPayoutController;
+use App\Http\Controllers\RestAPI\v3\seller\SellerPrincipalController;
 use App\Http\Controllers\RestAPI\v3\seller\SellerActionCenterController;
 use App\Http\Controllers\RestAPI\v3\seller\SellerReportController;
 use App\Http\Controllers\RestAPI\v3\seller\SellerReturnController;
@@ -534,6 +535,12 @@ Route::group(['namespace' => 'RestAPI\v3\seller', 'prefix' => 'v3/seller', 'midd
             // is open to anyone who may see the shop; changing it needs staff.manage, which is the
             // permission that can grant every other permission and so is the one that matters most.
             Route::group(['prefix' => 'security'], function () {
+                // Who is signed in. Asked by anybody who holds a credential of the shop, with no permission: an app that cannot ask who it is cannot
+                // know which of its screens to draw. It is outside the group below, which is for the people who manage the team.
+                Route::controller(SellerPrincipalController::class)->group(function () {
+                    Route::get('me', 'me');
+                });
+
                 Route::controller(SellerSecurityController::class)->group(function () {
                     // Reading is gated as deliberately as writing. The audit trail carries the
                     // before and after of a bank-details change, and the team list carries every
