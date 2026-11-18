@@ -189,7 +189,7 @@ final class StorefrontLegalPublisher
         });
     }
 
-    /** Revokes a published text. It stays a row, and while it is the text in force the storefront is closed. */
+    /** Revokes a published text. It stays a row, and while it is the text in force the storefront is closed; a text that has not taken effect yet is archived instead, and never takes effect. */
     public function revoke(int $textId, int $revoker, string $reason): StorefrontLegalDocument
     {
         $this->nonBlank(text: $reason, what: 'The reason');
@@ -204,9 +204,13 @@ final class StorefrontLegalPublisher
 
             $before = $text->replicate()->forceFill(['id' => $text->id]);
 
-            $text->forceFill(['revoked_at' => now()])->save();
+            // A text that has not taken effect yet is not the text in force and never will be: it is archived, so that on its day it is not the newest text of its type and
+            // locale (the readiness orders by effective day), which a revoked text that stayed published would be, closing the storefront in the text it was meant to replace.
+            $beforeItTookEffect = $text->effective_from !== null && $text->effective_from->isFuture();
 
-            $this->audit(action: 'storefront.legal_text.revoked', text: $text, before: $before, after: $text, admin: $revoker, context: ['reason' => trim($reason)]);
+            $text->forceFill(['revoked_at' => now()] + ($beforeItTookEffect ? ['status' => StorefrontLegalDocument::STATUS_ARCHIVED] : []))->save();
+
+            $this->audit(action: 'storefront.legal_text.revoked', text: $text, before: $before, after: $text, admin: $revoker, context: ['reason' => trim($reason), 'before_it_took_effect' => $beforeItTookEffect]);
 
             return $text;
         });

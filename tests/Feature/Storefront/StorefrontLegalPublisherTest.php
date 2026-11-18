@@ -340,6 +340,38 @@ class StorefrontLegalPublisherTest extends TestCase
         $this->assertSame(2, StorefrontLegalDocument::query()->where('document_type', 'terms')->where('locale', 'en')->count(), 'nothing was deleted');
     }
 
+    public function test_a_text_revoked_before_it_takes_effect_never_takes_effect_and_the_text_in_force_stays_in_force(): void
+    {
+        $this->publishEveryRequiredText();
+        $terms = StorefrontLegalDocument::query()->where('document_type', 'terms')->where('locale', 'en')->firstOrFail();
+
+        $second = $this->publisher()->draftNewVersionOf(textId: $terms->id, author: self::AUTHOR);
+        $this->publisher()->edit(textId: $second->id, body: 'The terms of Kuwait, version 2.', editor: self::AUTHOR);
+        $this->publisher()->approve(textId: $second->id, approver: self::APPROVER);
+        $this->publisher()->publish(textId: $second->id, publisher: self::APPROVER, effectiveFrom: now()->addDays(30));
+
+        $revoked = $this->publisher()->revoke(textId: $second->id, revoker: self::APPROVER, reason: 'Wrong clause, found before it took effect');
+
+        $this->assertSame(StorefrontLegalDocument::STATUS_ARCHIVED, $revoked->status);
+        $this->assertNotNull($revoked->revoked_at);
+        $this->assertTrue($this->ready());
+
+        $this->travelTo(now()->addDays(31));
+        $this->assertTrue($this->ready(), 'the revoked text never became the text in force, so the storefront did not close on its day');
+        $this->assertSame(1, (int) app(StorefrontLegalReadiness::class)->currentTextFor('KW', 'terms', 'en')->version);
+
+        $this->travelBack();
+        $third = $this->publisher()->draftNewVersionOf(textId: $terms->id, author: self::AUTHOR);
+        $this->publisher()->edit(textId: $third->id, body: 'The terms of Kuwait, version 3.', editor: self::AUTHOR);
+        $this->publisher()->approve(textId: $third->id, approver: self::APPROVER);
+        $this->publisher()->publish(textId: $third->id, publisher: self::APPROVER, effectiveFrom: now()->addDays(2));
+        $this->assertSame(StorefrontLegalDocument::STATUS_PUBLISHED, $third->fresh()->status, 'a revoked scheduled text no longer stands in the way of a text that takes effect earlier');
+
+        $line = collect($this->auditLines())->firstWhere('action', 'storefront.legal_text.revoked');
+        $this->assertTrue($line->context['before_it_took_effect'], 'the audit line says the text was revoked before it took effect');
+        $this->assertSame(StorefrontLegalDocument::STATUS_ARCHIVED, $line->after['status']);
+    }
+
     public function test_only_a_published_text_that_still_stands_is_revoked_and_a_reason_is_required(): void
     {
         $published = $this->publishedText();

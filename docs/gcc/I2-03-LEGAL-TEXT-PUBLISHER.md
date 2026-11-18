@@ -17,7 +17,7 @@ The readiness of a storefront (`StorefrontLegalReadiness`) reads the newest effe
 | `edit` | changes a draft; an **approved** text goes back to draft and its approval is void; the editor is its author now | a published, revoked or discarded text (a published text is never edited in place); a blank text |
 | `approve` | draft to approved | the **author** (the last person who changed it), a text that is still its template, a blank text, a text that is not a draft |
 | `publish` | approved to published, from now or a later day | a day in the past (five minutes of tolerance), a day before another text of the same type and locale that is already scheduled (the newest by effective day wins, so a newer version must not lose to an older one scheduled for later), a text that is not approved |
-| `revoke` | marks a published text revoked; **the row stays**, and while it is the text in force the storefront does not sell | a blank reason; a text that is not published or is already revoked |
+| `revoke` | marks a published text revoked; **the row stays**, and while it is the text in force the storefront does not sell; a text that has **not taken effect yet** is archived instead (revoked before its day), because a revoked text that stayed published would be the newest text of its type and locale on its day and would close the storefront in the text it was meant to replace | a blank reason; a text that is not published or is already revoked |
 | `discard` | puts a draft or approved text away (archived), kept as history | a published text (it is revoked) |
 
 Nothing is deleted. The default storefront keeps the documents it has always had (GCC-19) and has no text here.
