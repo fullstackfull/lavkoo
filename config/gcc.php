@@ -27,6 +27,16 @@ return [
             'OM' => ['path' => 'om', 'currency' => 'OMR', 'active' => false],
         ],
 
+        'currency' => [
+            // Off by default: every storefront reads the platform's own currency settings, as before. When it is on, a storefront other than the default
+            // one trades in the currency of its `countries` entry: its prices are entered and shown in that currency, nothing is converted from another
+            // storefront's amounts, and the three money settings (default currency, currency model, decimals) answer for that storefront alone. A storefront
+            // may sell only while its currency exists and is active in the currencies table. Read docs/gcc/GCC-05-STOREFRONT-CURRENCY.md before turning it on.
+            'enabled' => filter_var(env('GCC_STOREFRONT_CURRENCY', false), FILTER_VALIDATE_BOOLEAN),
+            // The currencies that do not use two decimals (ISO 4217). Every other currency uses two.
+            'decimals' => ['KWD' => 3, 'BHD' => 3, 'OMR' => 3],
+        ],
+
         'legal' => [
             // Configuration, not a statement of what the law requires. A qualified reviewer confirms the list per country before release.
             'required_documents' => ['terms', 'privacy', 'refund', 'return', 'cancellation', 'shipping'],
