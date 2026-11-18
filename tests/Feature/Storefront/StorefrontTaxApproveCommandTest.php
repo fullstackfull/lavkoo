@@ -41,7 +41,7 @@ class StorefrontTaxApproveCommandTest extends TestCase
         });
         $this->createTaxModuleTables();
         $this->seedTheTaxRates();
-        $this->buildTheTablesOfATaxDecision();
+        $this->buildTheTablesOfAStorefrontDecision(settingPrefix: 'storefront_tax_approval_');
     }
 
     protected function tearDown(): void

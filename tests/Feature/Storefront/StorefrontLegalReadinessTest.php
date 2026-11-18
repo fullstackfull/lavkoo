@@ -124,6 +124,43 @@ class StorefrontLegalReadinessTest extends TestCase
         $this->assertTrue($this->readiness()->isReady('ae'));
     }
 
+    public function test_a_configuration_that_requires_no_document_keeps_every_storefront_but_the_grandfathered_one_closed(): void
+    {
+        $this->publishRequiredDocuments(country: 'AE');
+        config(['gcc.storefronts.legal.required_documents' => []]);
+
+        $this->assertFalse($this->readiness()->isReady('AE'), 'nothing required is a missing configuration, not a reason to open a market');
+        $this->assertFalse($this->readiness()->isReady('KW'));
+        $this->assertTrue($this->readiness()->isReady('SA'));
+    }
+
+    public function test_a_configuration_that_requires_no_locale_keeps_the_storefront_closed(): void
+    {
+        $this->publishRequiredDocuments(country: 'AE');
+        config(['gcc.storefronts.legal.required_locales' => []]);
+
+        $this->assertFalse($this->readiness()->isReady('AE'));
+    }
+
+    public function test_a_country_configured_to_present_no_locale_stays_closed(): void
+    {
+        $this->publishRequiredDocuments(country: 'QA');
+        config(['gcc.storefronts.legal.locales_by_country.QA' => []]);
+
+        $this->assertFalse($this->readiness()->isReady('QA'));
+        $this->assertTrue($this->readiness()->isReady('SA'));
+    }
+
+    public function test_the_grandfathered_list_is_read_without_regard_to_case_or_spaces(): void
+    {
+        $this->assertTrue($this->readiness()->isGrandfathered(' sa '));
+        $this->assertFalse($this->readiness()->isGrandfathered('AE'));
+
+        config(['gcc.storefronts.legal.grandfathered' => []]);
+
+        $this->assertFalse($this->readiness()->isGrandfathered('SA'));
+    }
+
     public function test_one_missing_required_document_keeps_the_storefront_closed(): void
     {
         $this->publishRequiredDocuments(country: 'KW', withheldType: 'refund');

@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Schema;
 use Tests\Support\ApprovesStorefrontTax;
 use Tests\Support\BuildsStorefrontMoneyWorld;
 use Tests\Support\BuildsTaxModuleWorld;
+use Tests\Support\RecordsStorefrontLegalReview;
 use Tests\TestCase;
 
 /**
@@ -21,12 +22,14 @@ class StorefrontTaxReadinessTest extends TestCase
     use ApprovesStorefrontTax;
     use BuildsStorefrontMoneyWorld;
     use BuildsTaxModuleWorld;
+    use RecordsStorefrontLegalReview;
 
     protected function setUp(): void
     {
         parent::setUp();
 
         $this->buildStorefrontMoneyWorld();
+        $this->leaveTheLegalTextsOutOfThisTest();
         $this->dropTaxTables();
         foreach (['products', 'coupons', 'shipping_types'] as $table) {
             Schema::dropIfExists($table);

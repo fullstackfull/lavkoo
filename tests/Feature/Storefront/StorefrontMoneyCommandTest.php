@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\ApprovesStorefrontTax;
 use Tests\Support\BuildsStorefrontMoneyWorld;
+use Tests\Support\RecordsStorefrontLegalReview;
 use Tests\TestCase;
 
 /**
@@ -18,6 +19,7 @@ class StorefrontMoneyCommandTest extends TestCase
 {
     use ApprovesStorefrontTax;
     use BuildsStorefrontMoneyWorld;
+    use RecordsStorefrontLegalReview;
 
     protected function setUp(): void
     {
@@ -181,6 +183,7 @@ class StorefrontMoneyCommandTest extends TestCase
     public function test_the_readiness_command_says_what_each_storefront_was_given_and_what_it_was_not_and_still_succeeds(): void
     {
         config(['gcc.storefronts.countries.QA.active' => false]);
+        $this->leaveTheLegalTextsOutOfThisTest();
         $this->approveNoTaxFor('AE', 'KW', 'BH', 'OM');
         Schema::dropIfExists('shipping_types');
         $this->giveStorefrontAmounts(country: 'KW', currency: 'KWD', amounts: ['minimum_order_amount' => '5.000', 'free_delivery_over_amount' => '50.000']);

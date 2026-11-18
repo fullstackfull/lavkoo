@@ -8,10 +8,13 @@ use Illuminate\Support\Facades\Schema;
 
 /**
  * Builds the legal-documents table at its current schema and publishes texts the way readiness reads them: effective, approved by
- * someone other than the author, and in every locale the storefront requires.
+ * someone other than the author, and in every locale the storefront requires, and records the independent legal review of them (unless a test says it is
+ * the missing review that it tests).
  */
 trait BuildsStorefrontLegalDocuments
 {
+    use RecordsStorefrontLegalReview;
+
     /** Creates the table once, at its current schema, and empties it, because MySQL keeps tables and rows between tests. */
     protected function buildStorefrontLegalDocumentsTable(): void
     {
@@ -55,8 +58,12 @@ trait BuildsStorefrontLegalDocuments
         ], $overrides));
     }
 
-    protected function publishRequiredLegalDocuments(string $country, ?string $withheldType = null): void
+    protected function publishRequiredLegalDocuments(string $country, ?string $withheldType = null, bool $reviewed = true): void
     {
+        if ($reviewed) {
+            $this->recordLegalReviewFor($country);
+        }
+
         $locales = config("gcc.storefronts.legal.locales_by_country.{$country}") ?? config('gcc.storefronts.legal.required_locales');
 
         foreach (config('gcc.storefronts.legal.required_documents') as $type) {

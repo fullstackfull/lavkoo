@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Schema;
 use Tests\Support\ApprovesStorefrontTax;
 use Tests\Support\BuildsStorefrontCouponWorld;
 use Tests\Support\BuildsStorefrontMoneyWorld;
+use Tests\Support\RecordsStorefrontLegalReview;
 use Tests\TestCase;
 
 /**
@@ -19,6 +20,7 @@ class StorefrontMoneyReadinessTest extends TestCase
     use ApprovesStorefrontTax;
     use BuildsStorefrontCouponWorld;
     use BuildsStorefrontMoneyWorld;
+    use RecordsStorefrontLegalReview;
 
     protected function setUp(): void
     {
@@ -26,6 +28,7 @@ class StorefrontMoneyReadinessTest extends TestCase
 
         $this->buildStorefrontMoneyWorld();
         $this->buildStorefrontCouponWorld();
+        $this->leaveTheLegalTextsOutOfThisTest();
         $this->approveNoTaxFor('AE', 'KW', 'QA', 'BH', 'OM');
         Schema::dropIfExists('products');
         Schema::dropIfExists('shipping_types');
