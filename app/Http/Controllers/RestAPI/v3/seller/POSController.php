@@ -10,6 +10,7 @@ use App\Contracts\Repositories\StorageRepositoryInterface;
 use App\Enums\Address\AddressChannel;
 use App\Events\CustomerRegistrationEvent;
 use App\Events\DigitalProductDownloadEvent;
+use App\Exceptions\PosSaleReplayedException;
 use App\Exceptions\WalletDebitRefusedException;
 use App\Http\Controllers\Controller;
 use App\Models\BusinessSetting;
@@ -309,7 +310,7 @@ class POSController extends Controller
         $couponDiscountAmount = $request['coupon_discount_amount'];
         $couponCode = $request['coupon_code'];
         $paymentMethod = $request['payment_method'];
-        $paidAmount = currencyConverter(amount: $request['paid_amount'] ?? 0);
+        $tenderedAmount = floatval($request['paid_amount'] ?? 0);
         // Same lifecycle contract as the panel POS: a delivery-fulfillment sale
         // starts pending and, when paid in cash, is stored as a COD/unpaid
         // order settled through the standard status machinery.
@@ -346,35 +347,36 @@ class POSController extends Controller
             }
         }
 
-        foreach ($request['modified_cart'] ?: [] as $cartItem) {
-            if (is_array($cartItem)) {
-                $product = Product::where(['id' => $cartItem['id']])->with(['digitalVariation', 'clearanceSale' => function ($query) {
-                    return $query->active();
-                }])->withCount('reviews')->first();
-                if (!$product || $cartItem['quantity'] > $product['current_stock']) {
-                    return response()->json([
-                        'product_not_available' => true,
-                        'message' => $product['name'] . ' ' . translate('not_available_for_order_place')
-                    ]);
-                }
-            }
+        $idempotencyKey = $this->idempotencyKeyOf(request: $request);
+        if ($idempotencyKey !== null && strlen($idempotencyKey) > 191) {
+            return response()->json(['message' => 'Idempotency-Key must be 191 characters or fewer.'], 422);
+        }
+        if ($idempotencyKey !== null && ($placedOrderId = $this->placedOrderIdOf(sellerId: $seller->id, key: $idempotencyKey)) !== null) {
+            return response()->json(['order_id' => $placedOrderId], 200);
         }
 
+        $orderTotal = self::cartsTotalAmount(modifiedCart: $request['modified_cart'] ?: []);
         $payByWallet = $paymentMethod == 'wallet' && $customerId != 0;
         if ($payByWallet) {
             $customerBalance = $this->customerRepo->getFirstWhere(params: ['id' => $customerId]) ?? 0;
-            if ($customerBalance['wallet_balance'] < $paidAmount) {
+            if ($customerBalance['wallet_balance'] < currencyConverter(amount: $orderTotal)) {
                 return $this->walletBalanceNeededResponse();
             }
         }
+        if ($paymentMethod == 'cash' && !$isCashOnDelivery && round($tenderedAmount, 6) < round($orderTotal, 6)) {
+            return response()->json(['message' => translate('paid_amount_is_less_than_total_amount')], 403);
+        }
+        $amountPaid = $payByWallet ? currencyConverter(amount: $orderTotal) : currencyConverter(amount: $tenderedAmount);
 
         try {
-            $generateOrderID = DB::transaction(function () use ($request, $seller, $customerId, $carts, $extraDiscount, $extraDiscountType, $couponDiscountAmount, $couponCode, $paymentMethod, $paidAmount, $fulfillment, $isCashOnDelivery, $taxConfig, $deliveryShippingAddress, $payByWallet) {
-                if ($payByWallet && $this->createWalletTransaction(user_id: $customerId, amount: floatval($paidAmount), transaction_type: 'order_place', reference: 'order_place_in_pos') === false) {
+            $generateOrderID = DB::transaction(function () use ($request, $seller, $customerId, $carts, $extraDiscount, $extraDiscountType, $couponDiscountAmount, $couponCode, $paymentMethod, $orderTotal, $amountPaid, $fulfillment, $isCashOnDelivery, $taxConfig, $deliveryShippingAddress, $payByWallet, $idempotencyKey) {
+                if ($idempotencyKey !== null && !$this->claimIdempotencyKey(sellerId: $seller->id, key: $idempotencyKey)) {
+                    throw new PosSaleReplayedException(orderId: (int) $this->placedOrderIdOf(sellerId: $seller->id, key: $idempotencyKey, lock: true));
+                }
+                if ($payByWallet && $this->createWalletTransaction(user_id: $customerId, amount: floatval($orderTotal), transaction_type: 'order_place', reference: 'order_place_in_pos') === false) {
                     throw new WalletDebitRefusedException(customerId: $customerId);
                 }
 
-                $cartsTotalAmount = 0;
                 $generateOrderID = self::getOrderNewId();
 
                 if ($request['modified_cart']) {
@@ -384,10 +386,6 @@ class POSController extends Controller
                             $product = $this->ownedCartProduct(cartItem: $cartItem, sellerId: $seller->id);
                             if ($product) {
                                 $getProductArray = self::getOrderDetailsAddData(cartItem: $cartItem, product: $product);
-                                $cartsTotalAmount += $cartItem['discounted_price'] * $cartItem['quantity'];
-                                $cartsTotalAmount += $cartItem['applied_tax_amount'] * $cartItem['quantity'];
-                                $cartsTotalAmount -= $cartItem['coupon_discount'] ?? 0;
-                                $cartsTotalAmount -= $cartItem['extra_discount'] ?? 0;
 
                                 $orderDetailsData = [
                                     'order_id' => $generateOrderID,
@@ -434,11 +432,11 @@ class POSController extends Controller
                     'checked' => 1,
                     'extra_discount' => $extraDiscount ?? 0,
                     'extra_discount_type' => $extraDiscountType ?? null,
-                    'order_amount' => $cartsTotalAmount,
-                    'init_order_amount' => $cartsTotalAmount,
+                    'order_amount' => $orderTotal,
+                    'init_order_amount' => $orderTotal,
                     'total_tax_amount' => $request['total_tax_amount'] ?? 0,
                     'tax_type' => $taxConfig['SystemTaxVatType'],
-                    'paid_amount' => $isCashOnDelivery ? 0 : $paidAmount,
+                    'paid_amount' => $isCashOnDelivery ? 0 : $amountPaid,
                     'discount_amount' => currencyConverter(amount: $couponDiscountAmount ?? 0),
                     'coupon_code' => $couponCode ?? null,
                     'discount_type' => (isset($carts['coupon_code']) && $carts['coupon_code']) ? 'coupon_discount' : NULL,
@@ -447,11 +445,16 @@ class POSController extends Controller
                     'updated_at' => now(),
                 ];
                 DB::table('orders')->insertGetId($orderData);
+                if ($idempotencyKey !== null) {
+                    $this->recordIdempotencyKeyOrder(sellerId: $seller->id, key: $idempotencyKey, orderId: $generateOrderID);
+                }
 
                 return $generateOrderID;
             });
         } catch (WalletDebitRefusedException) {
             return $this->walletBalanceNeededResponse();
+        } catch (PosSaleReplayedException $exception) {
+            return response()->json(['order_id' => $exception->orderId], 200);
         }
 
         if ($isDigitalProduct) {
@@ -494,6 +497,50 @@ class POSController extends Controller
         return Product::ofSeller(sellerId: $sellerId)->where(['id' => $cartItem['id']])->with(['digitalVariation', 'clearanceSale' => function ($query) {
             return $query->active();
         }])->withCount('reviews')->first();
+    }
+
+    /** The total of the seller app's lines in the store currency. The sale is charged this, not the amount the client says it was paid. */
+    private static function cartsTotalAmount(array $modifiedCart): float
+    {
+        $total = 0;
+        foreach (collect($modifiedCart)->sortBy('id') as $cartItem) {
+            if (is_array($cartItem)) {
+                $total += $cartItem['discounted_price'] * $cartItem['quantity'];
+                $total += $cartItem['applied_tax_amount'] * $cartItem['quantity'];
+                $total -= $cartItem['coupon_discount'] ?? 0;
+                $total -= $cartItem['extra_discount'] ?? 0;
+            }
+        }
+
+        return $total;
+    }
+
+    private function idempotencyKeyOf(Request $request): ?string
+    {
+        $key = trim((string) $request->header('Idempotency-Key', ''));
+
+        return $key === '' ? null : $key;
+    }
+
+    private function placedOrderIdOf(int $sellerId, string $key, bool $lock = false): ?int
+    {
+        $sale = DB::table('pos_sale_idempotency_keys')->where(['seller_id' => $sellerId, 'idempotency_key' => $key]);
+        $orderId = $lock ? $sale->lockForUpdate()->value('order_id') : $sale->value('order_id');
+
+        return $orderId === null ? null : (int) $orderId;
+    }
+
+    /** False when a sale already holds the key, whether that sale has been written or another request is still writing it. */
+    private function claimIdempotencyKey(int $sellerId, string $key): bool
+    {
+        return DB::table('pos_sale_idempotency_keys')->insertOrIgnore([
+            'seller_id' => $sellerId, 'idempotency_key' => $key, 'order_id' => null, 'created_at' => now(), 'updated_at' => now(),
+        ]) === 1;
+    }
+
+    private function recordIdempotencyKeyOrder(int $sellerId, string $key, int $orderId): void
+    {
+        DB::table('pos_sale_idempotency_keys')->where(['seller_id' => $sellerId, 'idempotency_key' => $key])->update(['order_id' => $orderId, 'updated_at' => now()]);
     }
 
     private function walletBalanceNeededResponse(): JsonResponse
