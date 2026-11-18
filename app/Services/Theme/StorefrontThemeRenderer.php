@@ -360,8 +360,12 @@ class StorefrontThemeRenderer
         return $settings[$key] ?? null;
     }
 
-    /** Drop the cached structure for every page — call after publishing. */
-    public function flush(array $pages = ['home', 'header', 'footer']): void
+    /**
+     * Drop the cached structure for every page — call after publishing. For the storefronts given only (F-02), or for every storefront when none is given, as it always was.
+     *
+     * @param list<string>|null $storefronts
+     */
+    public function flush(array $pages = ['home', 'header', 'footer'], ?array $storefronts = null): void
     {
         // Custom pages are cached under the same prefix by their own slugs; a publish that only
         // flushed the three built-ins left every composed page stale for a full TTL.
@@ -373,12 +377,14 @@ class StorefrontThemeRenderer
             // The built-ins still flush.
         }
 
+        $keysOf = static fn (string $key): array => $storefronts === null ? StorefrontContext::keysForEveryStorefront($key) : StorefrontContext::keysForStorefronts(countries: $storefronts, key: $key);
+
         foreach ($pages as $page) {
-            foreach (StorefrontContext::keysForEveryStorefront(self::CACHE_KEY_PREFIX . $page) as $key) {
+            foreach ($keysOf(self::CACHE_KEY_PREFIX . $page) as $key) {
                 Cache::forget($key);
             }
         }
-        foreach (StorefrontContext::keysForEveryStorefront(self::GLOBAL_SETTINGS_CACHE_KEY) as $key) {
+        foreach ($keysOf(self::GLOBAL_SETTINGS_CACHE_KEY) as $key) {
             Cache::forget($key);
         }
     }

@@ -70,6 +70,33 @@ final class StorefrontThemeResolver
         return $this->keepsThemesByStorefront() ? $this->themesOf(storefront: $this->storefrontOf(theme: $theme)) : Theme::query();
     }
 
+    /**
+     * The storefronts whose cached copies of a theme go stale when it changes (F-02): only its own, unless it is the default storefront's, which every storefront without a theme of
+     * its own falls back to, or themes are not kept by storefront, where one theme serves all. Null means every storefront, which is what a change always reached.
+     *
+     * @return list<string>|null
+     */
+    public function storefrontsAffectedBy(Theme $theme): ?array
+    {
+        if (!$this->keepsThemesByStorefront()) {
+            return null;
+        }
+
+        $storefront = $this->storefrontOf(theme: $theme);
+
+        return $storefront === $this->defaultStorefront() ? null : [$storefront];
+    }
+
+    /**
+     * What an audit line of a change of a theme adds to say which storefront it was for. Nothing while themes are not kept by storefront, so the lines stay what they were.
+     *
+     * @return array<string, string>
+     */
+    public function auditContextOf(Theme $theme): array
+    {
+        return $this->keepsThemesByStorefront() ? ['storefront' => $this->storefrontOf(theme: $theme)] : [];
+    }
+
     /** The storefront a theme belongs to: the default one for a theme that names no country. */
     public function storefrontOf(Theme $theme): string
     {
