@@ -38,6 +38,7 @@ use App\Models\User;
 use App\Utils\CustomerManager;
 use App\Utils\Helpers;
 use App\Utils\ImageManager;
+use App\Services\Storefront\RefundOrderMoney;
 use App\Utils\OrderManager;
 use Brian2694\Toastr\Facades\Toastr;
 use Carbon\Carbon;
@@ -911,6 +912,9 @@ class UserProfileController extends Controller
         $refundRequest->product_id = $orderDetails->product_id;
         $refundRequest->order_id = $orderDetails->order_id;
         $refundRequest->refund_reason = $request->refund_reason;
+        foreach (app(RefundOrderMoney::class)->of(order: Order::find($orderDetails->order_id), table: 'refund_requests') as $column => $value) {
+            $refundRequest->{$column} = $value;
+        }
 
         if ($request->file('images')) {
             $images = [];

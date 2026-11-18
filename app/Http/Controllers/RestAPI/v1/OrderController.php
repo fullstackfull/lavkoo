@@ -34,6 +34,7 @@ use App\Utils\CartManager;
 use App\Utils\CustomerManager;
 use App\Utils\Helpers;
 use App\Utils\ImageManager;
+use App\Services\Storefront\RefundOrderMoney;
 use App\Utils\OrderManager;
 use App\Utils\PlainFileName;
 use App\Utils\SMSModule;
@@ -616,6 +617,9 @@ class OrderController extends Controller
         $refund_request->product_id = $orderDetails->product_id;
         $refund_request->order_id = $orderDetails->order_id;
         $refund_request->refund_reason = $request->refund_reason;
+        foreach (app(RefundOrderMoney::class)->of(order: Order::find($orderDetails->order_id), table: 'refund_requests') as $column => $value) {
+            $refund_request->{$column} = $value;
+        }
 
         if ($request->hasFile('images')) {
             $images = [];
