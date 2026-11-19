@@ -1532,7 +1532,7 @@ CRITERIA.setdefault('K-18', {})[1] = ('CODED', "RECORDED AS MET TOO EARLY AND SE
     "problems the build had not (a guard that weighed a stale copy of the customer in lavkoo PR 131; a test that dropped a credentials table on a "
     "real engine, and three claims wider than their assertions, in lavkoo PR 132). What follows is true of head 6becf35b and proves what CI ran, not "
     "yet that the tests prove the criterion; it returns to MET only when the reviewed head's own run has been read. "
-    "lavkooappseller PR 17 (draft, base main at 93e3f63, head 6becf35b, NO app version change, no package id, "
+    "lavkooappseller PR 17 (draft, base main at d556fb4, head 6becf35b, NO app version change, no package id, "
     "bundle id, Firebase setting or import renamed). Two commits, in that order deliberately: the first WRITES DOWN the image rules the two seller forms "
     "state today \u2014 registration asks for four slots and the shop form for four, registration states a 2 MB limit for all four while the shop form "
     "states 1 MB for the logo and the cover, and the two forms still DISAGREE about the shop banner, 3:1 against 4:1, which is recorded as a fact rather "
