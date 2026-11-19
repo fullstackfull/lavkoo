@@ -2,15 +2,19 @@
 
 namespace Tests\Feature\Notifications;
 
+use App\Http\Controllers\Admin\Notification\NotificationController;
 use App\Http\Controllers\Admin\Settings\BusinessSettingsController;
+use App\Http\Requests\Admin\NotificationRequest;
 use App\Models\Product;
 use App\Models\RestockProduct;
 use App\Services\ProductService;
 use App\Services\Theme\ThemeSyncBeacon;
 use App\Traits\PushNotificationTrait;
 use FilesystemIterator;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use Tests\Feature\Address\ApiAddressTestCase;
@@ -18,13 +22,17 @@ use Tests\Support\FakesThePushService;
 
 /**
  * The topics that Saudi apps and the browser panels already hold keep receiving messages only while the backend keeps naming them the same.
- * A topic is a name the backend publishes to (FCM) or hands to a client to subscribe to. This pins every one of them: a hand-written list
- * (the name, what the backend does with it, the file that does it), a scan of the code that fails on a topic name that is not on the list
- * or on a new place that publishes to a topic, and the name as it leaves the server (published) or is handed to the browser (subscribed).
- * A topic renamed or added is then a decision made on this list, not an accident.
+ * A topic is a name the backend publishes to (FCM) or hands to a client to subscribe to. This pins every one of them in four ways: a hand-written
+ * list (the name, what the backend does with it, the file that does it); a scan that fails on a topic name written in the code that is not on
+ * the list; a scan of every way a message reaches FCM, each against a hand-written list (the files that call the one sending method or name the
+ * FCM host, the value of the topic key of every message those files build, the arguments of every call of the campaign push and of the client
+ * subscription); and the name as it leaves the server (published) or is handed to the browser (subscribed), through the real code of each
+ * publisher. A topic renamed or added is then a decision made on this list, not an accident.
  *
- * What is NOT covered: the apps. The customer app, the seller app and the delivery-man app subscribe to their topics in their own code;
- * no test here (or anywhere in this repository) reads that code, so a topic renamed on that side is not seen by this test.
+ * What the scans do not see: a message that is not built from a literal `topic` key, or that reaches the sending method by another name than
+ * its own, or that is sent by another HTTP call than the two that name the FCM host (the legacy sender of app/Utils/Helpers.php addresses a
+ * device token and is not read further); and the apps. The customer app, the seller app and the delivery-man app subscribe to their topics in
+ * their own code; no test here (or anywhere in this repository) reads that code, so a topic renamed on that side is not seen by this test.
  */
 class PushTopicNamesTest extends ApiAddressTestCase
 {
@@ -37,6 +45,8 @@ class PushTopicNamesTest extends ApiAddressTestCase
     private const TRAIT = 'app/Traits/PushNotificationTrait.php';
 
     private const SETTINGS_HELPER = 'app/Utils/settings.php';
+
+    private const CAMPAIGN_CONTROLLER = 'app/Http/Controllers/Admin/Notification/NotificationController.php';
 
     /**
      * @var list<array{name: string, use: string, file: string, text: string}> every topic, the file that uses it and the text of that file that proves it
@@ -68,22 +78,60 @@ class PushTopicNamesTest extends ApiAddressTestCase
         '/\bconst\s+(?:\w+_)?TOPIC\s*=\s*([\'"])(?<name>[\w.~%-]+)\1/',
     ];
 
-    /** A message whose first key is the topic: where a topic reaches FCM. */
-    private const FCM_MESSAGE_TO_A_TOPIC = '/[\'"]message[\'"]\s*=>\s*\[\s*[\'"]topic[\'"]/';
+    /** The value of the `topic` key of a message, wherever in the message the key is written. */
+    private const TOPIC_KEY_OF_A_MESSAGE = '/[\'"]topic[\'"]\s*=>\s*(?<value>[^,\n]+?)\s*(?:,|\n)/';
+
+    /** The method every message reaches FCM through, and the host a message that does not go through it must name. */
+    private const SENDING_METHOD = 'sendNotificationToHttp';
+
+    private const FCM_HOST = 'fcm.googleapis.com';
+
+    /** @var array<string, int> every file that calls the sending method, with how many times: a device is addressed by a token and a topic by a name, both keys of the message it is given */
+    private const SENDERS = [
+        'app/Listeners/MaintenanceModeNotificationListener.php' => 1,
+        'app/Listeners/RequestProductRestockListener.php' => 1,
+        'app/Listeners/RestockProductNotificationListener.php' => 1,
+        'app/Services/Theme/ThemeSyncBeacon.php' => 1,
+        self::TRAIT => 3,
+    ];
+
+    /** @var list<string> every file that names the FCM host: the trait and the legacy sender of the delivery-man notifications */
+    private const FILES_THAT_NAME_THE_FCM_HOST = [self::TRAIT, 'app/Utils/Helpers.php'];
+
+    /** @var array<string, list<string>> the value of the `topic` key of every message the senders build: where each one gets the topic it publishes to */
+    private const TOPIC_KEYS = [
+        'app/Listeners/MaintenanceModeNotificationListener.php' => ['$data[\'topic\']'],
+        'app/Listeners/RestockProductNotificationListener.php' => ['$data[\'topic\']'],
+        'app/Services/Theme/ThemeSyncBeacon.php' => ['self::TOPIC'],
+        self::TRAIT => ['$topic'],
+    ];
+
+    /** @var array<string, list<string>> the arguments of every call of the campaign push: the campaign names no topic (the default one is the topic), the demo reset names its own */
+    private const CAMPAIGN_CALLS = [
+        self::CAMPAIGN_CONTROLLER => ['$notification', '$notification'],
+        self::TRAIT => ['data: $data, topic: $data[\'type\']'],
+    ];
+
+    /** @var array<string, list<string>> the arguments of every call that subscribes a client to a topic: the name the client asked for */
+    private const CLIENT_SUBSCRIPTIONS = ['app/Http/Controllers/FirebaseController.php' => ['$topic, $token']];
 
     protected function setUp(): void
     {
         parent::setUp();
 
+        config(['app.mode' => 'live']);
         $this->createOrderPipelineTables();
         $this->configureThePushService();
     }
 
-    /** @return array<string, list<string>> the topic names written in the code, with the files that write them */
-    private function topicNamesWrittenInTheCode(): array
+    /**
+     * @param array<string, string> $sources
+     * @return array<string, list<string>> the topic names written in the code, with the files that write them
+     */
+    private function topicNamesWrittenInTheCode(array $sources): array
     {
         $written = [];
-        foreach ($this->phpFilesOfTheCode() as $file => $source) {
+        foreach ($sources as $file => $source) {
             $names = [];
             foreach (self::TOPIC_NAME_WRITTEN as $pattern) {
                 preg_match_all($pattern, $source, $matches);
@@ -102,6 +150,24 @@ class PushTopicNamesTest extends ApiAddressTestCase
         ksort($written);
 
         return array_map(static fn (array $files): array => array_values(array_unique($files)), $written);
+    }
+
+    /**
+     * @param array<string, string> $sources
+     * @return array<string, list<string>> the arguments of every call of the method as written (its own definition is not a call), by the file that calls it
+     */
+    private function callsOf(string $method, array $sources): array
+    {
+        $calls = [];
+        foreach ($sources as $file => $source) {
+            preg_match_all('/(?<!function )\b' . $method . '\s*(?<arguments>\((?:[^()]++|(?&arguments))*\))/', $source, $matches);
+            if ($matches['arguments'] !== []) {
+                $calls[$file] = array_map(static fn (string $arguments): string => trim((string) preg_replace('/\s+/', ' ', substr($arguments, 1, -1))), $matches['arguments']);
+            }
+        }
+        ksort($calls);
+
+        return $calls;
     }
 
     /** @return array<string, string> source by path relative to the project, for every PHP file of the scanned directories */
@@ -144,6 +210,24 @@ class PushTopicNamesTest extends ApiAddressTestCase
         };
     }
 
+    private function createTheNotificationTables(): void
+    {
+        Schema::table('sellers', static function (Blueprint $table): void {
+            $table->string('cm_firebase_token')->nullable();
+        });
+        Schema::create('notifications', static function (Blueprint $table): void {
+            $table->id();
+            $table->string('sent_by')->nullable();
+            $table->string('sent_to')->nullable();
+            $table->string('title')->nullable();
+            $table->text('description')->nullable();
+            $table->unsignedInteger('notification_count')->default(0);
+            $table->string('image')->nullable();
+            $table->boolean('status')->default(true);
+            $table->timestamps();
+        });
+    }
+
     public function test_every_topic_of_the_list_is_still_used_in_the_file_the_list_names(): void
     {
         foreach (self::TOPICS as $topic) {
@@ -161,7 +245,7 @@ class PushTopicNamesTest extends ApiAddressTestCase
     public function test_the_code_names_no_topic_that_is_not_on_the_list_and_none_of_the_literal_topics_is_gone(): void
     {
         $listed = array_column(self::TOPICS, 'name');
-        $written = $this->topicNamesWrittenInTheCode();
+        $written = $this->topicNamesWrittenInTheCode(sources: $this->phpFilesOfTheCode());
 
         $this->assertSame([], array_values(array_diff(array_keys($written), $listed)), 'a topic is written in the code that this list does not know: a renamed or a new topic is a decision, add it here on purpose');
         $this->assertEqualsCanonicalizing(
@@ -171,32 +255,37 @@ class PushTopicNamesTest extends ApiAddressTestCase
         );
     }
 
-    public function test_a_topic_reaches_the_push_service_from_the_known_places_only(): void
+    public function test_only_the_known_files_send_a_message_to_the_push_service(): void
     {
-        $messagesToATopic = [];
-        $campaignCalls = [];
-        $clientSubscriptions = [];
-        foreach ($this->phpFilesOfTheCode() as $file => $source) {
-            if (preg_match(self::FCM_MESSAGE_TO_A_TOPIC, $source) === 1) {
-                $messagesToATopic[] = $file;
-            }
-            if (($calls = preg_match_all('/(?<!function )\bsendPushNotificationToTopic\s*\(/', $source)) > 0) {
-                $campaignCalls[$file] = $calls;
-            }
-            if (($calls = preg_match_all('/->subscribeToTopic\s*\(/', $source)) > 0) {
-                $clientSubscriptions[$file] = $calls;
+        $sources = $this->phpFilesOfTheCode();
+
+        $this->assertSame(self::SENDERS, array_map('count', $this->callsOf(method: self::SENDING_METHOD, sources: $sources)), 'a file sends a message to FCM that this list does not know: say here which topic or device it addresses');
+        $filesThatNameTheHost = array_keys(array_filter($sources, static fn (string $source): bool => str_contains($source, self::FCM_HOST)));
+        sort($filesThatNameTheHost);
+        $this->assertSame(self::FILES_THAT_NAME_THE_FCM_HOST, $filesThatNameTheHost, 'a file reaches FCM without the sending method: say here which topic or device it addresses');
+    }
+
+    public function test_every_message_the_senders_build_names_its_topic_where_the_list_says(): void
+    {
+        $sources = $this->phpFilesOfTheCode();
+
+        $topicKeys = [];
+        foreach (array_keys(self::SENDERS) as $file) {
+            if (preg_match_all(self::TOPIC_KEY_OF_A_MESSAGE, $sources[$file], $matches) > 0) {
+                $topicKeys[$file] = $matches['value'];
             }
         }
-        sort($messagesToATopic);
-        ksort($campaignCalls);
+        ksort($topicKeys);
 
-        $this->assertSame(
-            ['app/Listeners/MaintenanceModeNotificationListener.php', 'app/Listeners/RestockProductNotificationListener.php', 'app/Services/Theme/ThemeSyncBeacon.php', self::TRAIT],
-            $messagesToATopic,
-            'a file builds an FCM message to a topic that this list does not know',
-        );
-        $this->assertSame(['app/Http/Controllers/Admin/Notification/NotificationController.php' => 2, self::TRAIT => 1], $campaignCalls, 'a campaign push to a topic is sent from a new place');
-        $this->assertSame(['app/Http/Controllers/FirebaseController.php' => 1], $clientSubscriptions, 'a client is subscribed to a topic from a new place');
+        $this->assertSame(self::TOPIC_KEYS, $topicKeys, 'a message is addressed to a topic from a place this list does not know, or the topic of a known message comes from somewhere else');
+    }
+
+    public function test_the_campaign_push_is_called_with_the_arguments_the_list_names_and_a_client_is_subscribed_from_the_known_place_only(): void
+    {
+        $sources = $this->phpFilesOfTheCode();
+
+        $this->assertSame(self::CAMPAIGN_CALLS, $this->callsOf(method: 'sendPushNotificationToTopic', sources: $sources), 'a campaign push is sent from a new place or names a topic of its own');
+        $this->assertSame(self::CLIENT_SUBSCRIPTIONS, $this->callsOf(method: 'subscribeToTopic', sources: $sources), 'a client is subscribed to a topic from a new place');
     }
 
     public function test_the_theme_beacon_publishes_on_the_topic_every_customer_app_subscribes_to_at_startup(): void
@@ -230,6 +319,18 @@ class PushTopicNamesTest extends ApiAddressTestCase
         $this->assertSame(['sixvalley'], $this->topicsPublished());
     }
 
+    public function test_the_admin_campaign_and_its_resend_are_published_on_sixvalley(): void
+    {
+        $this->createTheNotificationTables();
+        $controller = app(NotificationController::class);
+
+        $controller->add(NotificationRequest::create(uri: '/admin/notification/add', method: 'POST', parameters: ['title' => 'Weekend sale', 'description' => 'Ten per cent off']));
+        $response = $controller->resendNotification(Request::create(uri: '/admin/notification/resend-notification', method: 'POST', parameters: ['id' => DB::table('notifications')->value('id')]));
+
+        $this->assertTrue($response->getData(true)['success'], 'the resend reached the push');
+        $this->assertSame(['sixvalley', 'sixvalley'], $this->topicsPublished());
+    }
+
     public function test_the_demo_reset_alert_is_published_on_the_topic_demo_reset(): void
     {
         $this->publisher()->demoReset();
@@ -239,11 +340,11 @@ class PushTopicNamesTest extends ApiAddressTestCase
 
     public function test_the_browser_panels_subscribe_to_sixvalley_the_maintenance_topic_and_the_restock_topics_of_the_customer(): void
     {
-        $this->assertSame(['sixvalley', 'maintenance_mode_start_user_app'], getFCMTopicListToSubscribe());
+        $this->assertEqualsCanonicalizing(['sixvalley', 'maintenance_mode_start_user_app'], getFCMTopicListToSubscribe());
 
         session()->put('customer_fcm_topic', ['restock_7_product_restock_9_topic']);
 
-        $this->assertSame(['restock_7_product_restock_9_topic', 'sixvalley', 'maintenance_mode_start_user_app'], getFCMTopicListToSubscribe());
+        $this->assertEqualsCanonicalizing(['restock_7_product_restock_9_topic', 'sixvalley', 'maintenance_mode_start_user_app'], getFCMTopicListToSubscribe());
     }
 
     public function test_a_restock_request_has_its_own_topic_and_a_restock_notification_is_published_on_it(): void

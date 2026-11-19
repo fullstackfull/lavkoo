@@ -22,7 +22,9 @@ use Tests\Feature\Address\ApiAddressTestCase;
  *
  * No migration in this repository creates the ledger (the installation dump does, and it is not here): the table is built here from the model
  * and the code that writes it, like the other store tables of these tests, with the unique key the command documents. That the live table has
- * the key is not proved by any file of this repository.
+ * the key is not proved by any file of this repository. The two tests that need the key (the key itself and the lost race) therefore document
+ * the contract the command relies on and cannot fail on a change of the live table; the others fail on a change of the command. When a
+ * migration creates the ledger, build the table from it in createTheLedger().
  */
 class AbandonedCartReminderLedgerTest extends ApiAddressTestCase
 {
@@ -129,6 +131,7 @@ class AbandonedCartReminderLedgerTest extends ApiAddressTestCase
         $this->assertSame([[$this->cartGroup(), 1]], $this->ledger(), 'at most once: a reminder whose send failed is not tried again for that cart group and stage');
     }
 
+    /** The collision comes from the key createTheLedger() builds; what this pins is the command's side of it: a ledger insert that fails sends nothing and does not stop the run. */
     public function test_a_run_that_loses_the_insert_to_another_worker_sends_nothing_and_leaves_the_row_of_the_other_worker(): void
     {
         Mail::fake();
@@ -145,7 +148,8 @@ class AbandonedCartReminderLedgerTest extends ApiAddressTestCase
         $this->assertSame([[$this->cartGroup(), 1]], $this->ledger());
     }
 
-    public function test_the_unique_key_of_the_ledger_refuses_a_second_row_for_the_same_cart_group_and_stage_and_allows_another_stage_or_group(): void
+    /** Documents the contract of the table the command writes to; it asserts the key of the table this class builds, not the live one. */
+    public function test_contract_the_unique_key_of_the_ledger_refuses_a_second_row_for_the_same_cart_group_and_stage_and_allows_another_stage_or_group(): void
     {
         $reminder = ['cart_group_id' => 'group-1', 'customer_id' => 1, 'email' => 'shopper@example.test', 'stage' => 1, 'cart_value' => 100, 'item_count' => 1, 'sent_at' => now()];
         AbandonedCartReminder::create($reminder);

@@ -22,6 +22,11 @@ use Tests\Support\FakesThePushService;
  *
  * The push service is faked at the HTTP call (the Google token and the FCM send), so what is asserted is the request body that would
  * have left the server. Only the body is pinned: the title comes from translate() in the language of the request, not of the recipient.
+ *
+ * Driven here: the order notifications of the four recipients of sendOrderNotification (the customer, the seller, the delivery man and the
+ * promoter who referred the customer), through the order status event. Not driven: the pushes that other callers send with a language of
+ * their own (chat, wallet withdrawal, cash collection, customer block, product request): they share pushNotificationMessage() with the
+ * order notifications, but each of them chooses the language itself.
  */
 class PushBodyLanguageTest extends ApiAddressTestCase
 {
@@ -36,6 +41,14 @@ class PushBodyLanguageTest extends ApiAddressTestCase
     private const SELLER_GLOBAL_TEXT = 'A new order {orderId} is waiting';
 
     private const SELLER_ARABIC_TEXT = 'لديك طلب جديد {orderId}';
+
+    private const DELIVERY_MAN_GLOBAL_TEXT = 'Order {orderId} is assigned to you';
+
+    private const DELIVERY_MAN_ARABIC_TEXT = 'تم إسناد الطلب {orderId} إليك';
+
+    private const PROMOTER_GLOBAL_TEXT = 'The customer you referred placed order {orderId}';
+
+    private const PROMOTER_ARABIC_TEXT = 'العميل الذي أحلته أنشأ الطلب {orderId}';
 
     private const ORDER_ID = 100001;
 
@@ -52,6 +65,24 @@ class PushBodyLanguageTest extends ApiAddressTestCase
             $table->string('cm_firebase_token')->nullable();
             $table->string('app_language')->nullable();
         });
+        Schema::create('delivery_men', static function (Blueprint $table): void {
+            $table->id();
+            $table->string('f_name')->nullable();
+            $table->string('l_name')->nullable();
+            $table->string('fcm_token')->nullable();
+            $table->string('app_language')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('deliveryman_notifications', static function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('order_id')->nullable();
+            $table->unsignedBigInteger('delivery_man_id')->nullable();
+            $table->text('description')->nullable();
+            $table->timestamps();
+        });
+        Schema::table('referral_customers', static function (Blueprint $table): void {
+            $table->unsignedBigInteger('refer_by')->nullable();
+        });
         Schema::create('notification_messages', static function (Blueprint $table): void {
             $table->id();
             $table->string('user_type');
@@ -63,6 +94,8 @@ class PushBodyLanguageTest extends ApiAddressTestCase
 
         $this->messageFor(userType: 'customer', key: 'order_pending_message', text: self::GLOBAL_TEXT, translations: ['ar' => self::ARABIC_TEXT, 'sa' => self::DEFAULT_LANGUAGE_TEXT]);
         $this->messageFor(userType: 'seller', key: 'new_order_message', text: self::SELLER_GLOBAL_TEXT, translations: ['ar' => self::SELLER_ARABIC_TEXT]);
+        $this->messageFor(userType: 'delivery_man', key: 'new_order_assigned_message', text: self::DELIVERY_MAN_GLOBAL_TEXT, translations: ['ar' => self::DELIVERY_MAN_ARABIC_TEXT]);
+        $this->messageFor(userType: 'customer', key: 'your_referred_customer_has_been_place_order', text: self::PROMOTER_GLOBAL_TEXT, translations: ['ar' => self::PROMOTER_ARABIC_TEXT]);
         $this->configureThePushService();
         $this->setStoreLanguages(default: 'en');
     }
@@ -85,9 +118,12 @@ class PushBodyLanguageTest extends ApiAddressTestCase
         Cache::flush();
     }
 
-    private function placeOrderOf(User $customer, ?int $sellerId = null): Order
+    private function placeOrderOf(User $customer, ?int $sellerId = null, ?int $deliveryManId = null): Order
     {
-        DB::table('orders')->insert(['id' => self::ORDER_ID, 'customer_id' => $customer->id, 'seller_id' => $sellerId, 'seller_is' => $sellerId === null ? 'admin' : 'seller', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('orders')->insert([
+            'id' => self::ORDER_ID, 'customer_id' => $customer->id, 'seller_id' => $sellerId, 'seller_is' => $sellerId === null ? 'admin' : 'seller',
+            'delivery_man_id' => $deliveryManId, 'created_at' => now(), 'updated_at' => now(),
+        ]);
 
         return Order::findOrFail(self::ORDER_ID);
     }
@@ -179,5 +215,48 @@ class PushBodyLanguageTest extends ApiAddressTestCase
         $this->newOrderNotificationToTheSellerOf($this->placeOrderOf($customer, $sellerId));
 
         $this->assertOnePushWithTheBody(expectedBody: $expectedBody, expectedDevice: 'device-of-the-seller');
+    }
+
+    /** @return array<string, array{0: ?string, 1: string}> the delivery man's app language and the body the delivery man is sent */
+    public static function deliveryManLanguages(): array
+    {
+        return [
+            'a delivery man whose language has a translation' => ['ar', 'تم إسناد الطلب 100001 إليك'],
+            'a delivery man whose language has none' => ['bd', 'Order 100001 is assigned to you'],
+            'a delivery man with no language' => [null, 'Order 100001 is assigned to you'],
+        ];
+    }
+
+    #[DataProvider('deliveryManLanguages')]
+    public function test_a_delivery_man_is_written_to_in_the_delivery_mans_own_language_whatever_the_language_of_the_customer(?string $deliveryManLanguage, string $expectedBody): void
+    {
+        $deliveryManId = DB::table('delivery_men')->insertGetId(['f_name' => 'Delivery man one', 'fcm_token' => 'device-of-the-delivery-man', 'app_language' => $deliveryManLanguage, 'created_at' => now(), 'updated_at' => now()]);
+        $customer = $this->makeCustomer(['app_language' => 'ar', 'cm_firebase_token' => 'device-of-the-arabic-customer']);
+
+        event(new OrderStatusEvent(key: 'new_order_assigned_message', type: 'delivery_man', order: $this->placeOrderOf($customer, deliveryManId: $deliveryManId)));
+
+        $this->assertOnePushWithTheBody(expectedBody: $expectedBody, expectedDevice: 'device-of-the-delivery-man');
+    }
+
+    /** @return array<string, array{0: ?string, 1: string}> the promoter's app language and the body the promoter is sent */
+    public static function promoterLanguages(): array
+    {
+        return [
+            'a promoter whose language has a translation' => ['ar', 'العميل الذي أحلته أنشأ الطلب 100001'],
+            'a promoter whose language has none' => ['bd', 'The customer you referred placed order 100001'],
+            'a promoter with no language' => [null, 'The customer you referred placed order 100001'],
+        ];
+    }
+
+    #[DataProvider('promoterLanguages')]
+    public function test_a_promoter_is_written_to_in_the_promoters_own_language_whatever_the_language_of_the_referred_customer(?string $promoterLanguage, string $expectedBody): void
+    {
+        $promoter = $this->makeCustomer(['app_language' => $promoterLanguage, 'cm_firebase_token' => 'device-of-the-promoter']);
+        $customer = $this->makeCustomer(['app_language' => 'ar', 'cm_firebase_token' => 'device-of-the-arabic-customer']);
+        DB::table('referral_customers')->insert(['user_id' => $customer->id, 'refer_by' => $promoter->id, 'created_at' => now(), 'updated_at' => now()]);
+
+        event(new OrderStatusEvent(key: 'your_referred_customer_has_been_place_order', type: 'promoter', order: $this->placeOrderOf($customer)));
+
+        $this->assertOnePushWithTheBody(expectedBody: $expectedBody, expectedDevice: 'device-of-the-promoter');
     }
 }

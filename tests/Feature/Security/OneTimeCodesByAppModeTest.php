@@ -2,6 +2,13 @@
 
 namespace Tests\Feature\Security;
 
+use App\Http\Middleware\ApplySeoRedirects;
+use App\Http\Middleware\DetectMobile;
+use App\Http\Middleware\Localization;
+use App\Http\Middleware\MonitorRequest;
+use App\Http\Middleware\NoIndexThemePreview;
+use App\Http\Middleware\RecordAnalytics;
+use App\Http\Middleware\RecordHttpTelemetry;
 use App\Services\Web\CustomerAuthService;
 use FilesystemIterator;
 use Illuminate\Database\Schema\Blueprint;
@@ -19,14 +26,21 @@ use Tests\Feature\Address\ApiAddressTestCase;
  * codes). The mode is the `mode` line of config/app.php, which reads APP_MODE. A configuration without that line made every code the
  * constant on a live server, so the person who knew a phone number could ask for a code and type it.
  *
- * Pinned here: the config line; the codes that leave eight of the twelve places that decide a code by the mode, through the real routes of the
- * apps (seven) and the service the website uses (one); and a scan that fails when a fixed code is written anywhere that is not one of the
- * twelve known places, or when one of them stops deciding by the mode it decides by now. The four places that no request here drives are
- * covered by that scan only: the website's resend of a customer code (Customer\Auth\CustomerAuthController), the vendor panel's password reset,
- * and two actions that no route reaches (RestAPI\v1\auth\ForgotPasswordController::reset_password_request and PhoneVerificationController::check_phone).
+ * Pinned here: the config line; the codes that leave ten of the twelve places that decide a code by the mode, through the real routes of the
+ * apps and of the website (nine: the customer, delivery-man and seller apps, the website's resend of a code, the vendor panel's password
+ * reset) and the service the website uses (one); and two scans of app/. The first fails when a fixed code (123456 or 1234, quoted or not) is
+ * written anywhere that is not one of the twelve known places, or when one of them stops deciding by the mode it decides by now. The second
+ * fails when a number of four to eight digits is assigned to a variable called token, otp or code, whatever the number: it is a heuristic
+ * and does not see a fixed code under another name or in another form. The two places that no request here drives are covered by the scans
+ * only: two actions that no route reaches (RestAPI\v1\auth\ForgotPasswordController::reset_password_request and
+ * PhoneVerificationController::check_phone).
  *
  * No SMS gateway is configured, so the routes answer that the message could not be sent; the code is written to its table before a gateway
  * is asked, and it is read from there.
+ *
+ * A defect of main that this test goes round and does not pin: the website's resend (Customer\Auth\CustomerAuthController::resendOTPCode)
+ * for a customer who has no stored code makes `new PhoneOrEmailVerification()` in a file that does not import the class, so the request ends
+ * in a 500. The test stores a code first, as the verification step of the website does.
  */
 class OneTimeCodesByAppModeTest extends ApiAddressTestCase
 {
@@ -55,10 +69,20 @@ class OneTimeCodesByAppModeTest extends ApiAddressTestCase
         'app/Http/Controllers/Vendor/Auth/ForgotPasswordController.php' => ['count' => 1, 'condition' => "config('app.mode') == 'live'", 'random' => 'rand(111111, 999999)', 'fixed' => '123456'],
     ];
 
+    /** @var array<string, int> the places that write 123456 or 1234 without issuing a code: the example value of a code field in the generated API documentation */
+    private const EXAMPLE_VALUES = ['app/Services/DeveloperPortal/Support/RuleTranslator.php' => 1];
+
+    /** A fixed number of four to eight digits assigned to a variable that holds a token, an otp or a code: how a code is made constant, whatever the number. */
+    private const FIXED_NUMBER_ASSIGNED_TO_A_CODE = '/\$\w*(?:token|otp|code)\w*\s*=\s*[\'"]?\d{4,8}[\'"]?\s*;/i';
+
     protected function setUp(): void
     {
         parent::setUp();
 
+        $this->withoutMiddleware([
+            Localization::class, DetectMobile::class, ApplySeoRedirects::class, NoIndexThemePreview::class,
+            RecordHttpTelemetry::class, MonitorRequest::class, RecordAnalytics::class,
+        ]);
         Schema::table('users', static function (Blueprint $table): void {
             $table->string('temporary_token')->nullable();
         });
@@ -187,6 +211,26 @@ class OneTimeCodesByAppModeTest extends ApiAddressTestCase
         return (string) (new CustomerAuthService())->getCustomerVerificationToken();
     }
 
+    /** The customer is on the verification step of the website, so a code of theirs is already stored: with none, the action fails on a class it never imports (a 500 on main, left as it is). */
+    private function codeAskedAgainForTheCustomerOnTheWebsite(): string
+    {
+        foreach (['mail_config', 'mail_config_sendgrid'] as $mailService) {
+            DB::table('business_settings')->updateOrInsert(['type' => $mailService], ['value' => json_encode(['status' => 0])]);
+        }
+        DB::table('phone_or_email_verifications')->updateOrInsert(['phone_or_email' => self::PHONE], ['token' => 'no-code-yet', 'created_at' => now()->subHour(), 'updated_at' => now()->subHour()]);
+
+        $this->post('/customer/auth/login/resend-otp-code', ['identity' => base64_encode(self::PHONE)]);
+
+        return $this->codeOf('phone_or_email_verifications', 'phone_or_email');
+    }
+
+    private function codeAskedToResetAVendorPasswordOnThePanel(): string
+    {
+        $this->postJson('/vendor/auth/forgot-password/index', ['identity' => self::PHONE]);
+
+        return $this->codeOf('password_resets', 'identity', userType: 'seller');
+    }
+
     /**
      * @return array<string, array{0: string, 1: string, 2: string, 3: string}> the way a code is asked for, the shape of a random code, the fixed code and the mode that keeps it
      */
@@ -201,6 +245,8 @@ class OneTimeCodesByAppModeTest extends ApiAddressTestCase
             'POST /api/v3/seller/auth/forgot-password' => ['codeAskedToResetASellerPassword', self::SIX_DIGITS, '123456', 'demo'],
             'POST /api/v2/seller/auth/forgot-password (fixed in dev mode only)' => ['codeAskedToResetASellerPasswordByTheOlderApp', self::FOUR_DIGITS, '1234', 'dev'],
             'CustomerAuthService::getCustomerVerificationToken() (the website)' => ['codeTheWebsiteGetsFromTheService', self::SIX_DIGITS, '123456', 'demo'],
+            'POST /customer/auth/login/resend-otp-code (the website)' => ['codeAskedAgainForTheCustomerOnTheWebsite', self::SIX_DIGITS, '123456', 'demo'],
+            'POST /vendor/auth/forgot-password/index (the vendor panel)' => ['codeAskedToResetAVendorPasswordOnThePanel', self::SIX_DIGITS, '123456', 'demo'],
         ];
     }
 
@@ -287,7 +333,7 @@ class OneTimeCodesByAppModeTest extends ApiAddressTestCase
     {
         $found = [];
         foreach ($this->sourcesOfApp() as $file => $source) {
-            $fixedCodes = preg_match_all('/(?<![\w.\'"$])(?:123456|1234)(?![\w.\'"])/', $source);
+            $fixedCodes = preg_match_all('/(?<![\w.$])(?:123456|1234)(?![\w.])/', $source) - (self::EXAMPLE_VALUES[$file] ?? 0);
             $deciders = preg_match_all('/config\(\s*\'app\.mode\'\s*\)\s*==\s*\'(?<mode>\w+)\'\s*\)?\s*\?\s*(?<first>[^:;?]+?)\s*:\s*(?<second>[^;]+?);/', $source, $matches, PREG_SET_ORDER);
             if ($fixedCodes === 0 && $deciders === 0) {
                 continue;
@@ -310,6 +356,18 @@ class OneTimeCodesByAppModeTest extends ApiAddressTestCase
         ksort($expected);
 
         $this->assertSame($expected, $found, 'a fixed code is decided by something else than the known mode checks: a live server must never issue it');
+    }
+
+    public function test_no_number_is_assigned_to_a_token_an_otp_or_a_code_whatever_the_number(): void
+    {
+        $assignments = [];
+        foreach ($this->sourcesOfApp() as $file => $source) {
+            if (preg_match_all(self::FIXED_NUMBER_ASSIGNED_TO_A_CODE, $source, $matches) > 0) {
+                $assignments[$file] = $matches[0];
+            }
+        }
+
+        $this->assertSame([], $assignments, 'a token, an otp or a code is given a fixed number: a live server must never issue it');
     }
 
     /** @return array<string, string> the source of every PHP file of app/, by path relative to the project */

@@ -1,13 +1,12 @@
 <?php
 
-namespace Tests\Feature\Checkout;
+namespace Tests\Feature\Address;
 
 use App\Models\User;
 use App\Utils\OrderManager;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
-use Tests\Feature\Address\ApiAddressTestCase;
 
 /**
  * A cart that holds the products of two sellers is one cart group per seller, and the checkout turns it into one order per seller: each order
@@ -15,9 +14,10 @@ use Tests\Feature\Address\ApiAddressTestCase;
  * the cart said. The order is placed through the real route of the app (cash on delivery), so nothing here is a call into the order writer.
  *
  * The currency of an order is not a column of its own on main: the one an order row names is the one the cash-on-delivery route records beside
- * the "bring change" amount (bring_change_amount_currency), the same for every order of the request.
+ * the "bring change" amount (bring_change_amount_currency), the same for every order of the request. Not covered: the currency of the
+ * commission snapshot of each order line (order_item_commissions), whose table this test world does not build.
  */
-class VendorSplitOrderTest extends ApiAddressTestCase
+class ApiVendorSplitOrderTest extends ApiAddressTestCase
 {
     private const PLACE_ORDER = '/api/v1/customer/order/place';
 
@@ -31,7 +31,7 @@ class VendorSplitOrderTest extends ApiAddressTestCase
     {
         parent::setUp();
 
-        $this->skipInStrictModeUntilTheCouponCountIsFixed();
+        $this->skipInStrictModeWhileTheCouponCountIsABareGroupBy();
         $this->createOrderPipelineTables();
         $this->useTaxIncludedPrices();
         DB::table('business_settings')->insert(['type' => 'shipping_method', 'value' => 'inhouse_shipping']);
@@ -45,11 +45,11 @@ class VendorSplitOrderTest extends ApiAddressTestCase
         $this->putInTheCart(sellerId: self::SECOND_SELLER, productId: 22, cartGroupId: 'cart-of-seller-12', quantity: 1, price: 70, shipping: 15);
     }
 
-    /** A checkout that prices the cart reads the use count of a coupon, which a strict SQL server refuses until PR 89 replaces its bare GROUP BY. */
-    private function skipInStrictModeUntilTheCouponCountIsFixed(): void
+    /** A checkout reads the use count of a coupon with a bare GROUP BY, which a strict SQL server refuses (error 1055, ONLY_FULL_GROUP_BY); where OrderManager has countCouponUses() the query is not there and the test runs. */
+    private function skipInStrictModeWhileTheCouponCountIsABareGroupBy(): void
     {
         if (getenv('DB_STRICT_TESTS') === '1' && !method_exists(OrderManager::class, 'countCouponUses')) {
-            $this->markTestSkipped('The use count of a coupon is still the bare GROUP BY that a strict server refuses (PR 89 fixes it).');
+            $this->markTestSkipped('The use count of a coupon is a bare GROUP BY that a strict server refuses (ONLY_FULL_GROUP_BY).');
         }
     }
 
