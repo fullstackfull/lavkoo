@@ -219,7 +219,7 @@ class AdminOperationalCostsExchangeRateGapsTest extends AdminPagesTestCase
     /** @return array{0: string, 1: list<list<string>>} */
     private function download(string $dimension): array
     {
-        Cache::flush();
+        Cache::store(config('cache.limiter'))->flush();
         $csv = $this->get(route('admin.operational-costs.profit.export', ['dimension' => $dimension] + self::NOVEMBER))->assertOk()->streamedContent();
 
         return [$csv, array_map('str_getcsv', explode("\r\n", rtrim(substr($csv, strlen(CsvExporter::BYTE_ORDER_MARK)), "\r\n")))];

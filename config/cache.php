@@ -22,6 +22,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Rate Limiter Store
+    |--------------------------------------------------------------------------
+    |
+    | The counters behind every `throttle:` middleware are kept in the store
+    | named here. It is deliberately not the default store: the application
+    | empties the default store while it runs (cache:clear, cache()->flush()),
+    | and a counter that is emptied with it limits nothing.
+    |
+    */
+
+    'limiter' => 'limiter',
+
+    /*
+    |--------------------------------------------------------------------------
     | Cache Stores
     |--------------------------------------------------------------------------
     |
@@ -50,6 +64,11 @@ return [
         'file' => [
             'driver' => 'file',
             'path' => storage_path('framework/cache/data'),
+        ],
+
+        'limiter' => [
+            'driver' => env('CACHE_LIMITER_DRIVER', 'file'),
+            'path' => storage_path('framework/cache/limiter'),
         ],
 
         'memcached' => [
