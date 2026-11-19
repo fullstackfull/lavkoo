@@ -11,9 +11,12 @@ use App\Http\Middleware\NoIndexThemePreview;
 use App\Http\Middleware\RecordAnalytics;
 use App\Http\Middleware\RecordHttpTelemetry;
 use App\Models\Admin;
+use Illuminate\Cache\RateLimiter;
+use Illuminate\Http\Request;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\View;
@@ -37,6 +40,13 @@ class AdminRouteAuthenticationTest extends TestCase
     private const PUBLIC_BY_DESIGN = [
         'App\Http\Controllers\Admin\Auth\LoginController',
     ];
+
+    /**
+     * The actions of that controller a stranger can guess a password at, and so the ones the throttle must cover.
+     * `logout` is deliberately not here: it lives on the same controller, takes no credentials, and rate-limiting it
+     * would mean rate-limiting signing OUT, which protects nobody.
+     */
+    private const SIGN_IN_ACTIONS = ['index', 'login'];
 
     private const FORMERLY_OPEN = [
         ['GET', '/admin/otp/settings'],
@@ -189,5 +199,85 @@ class AdminRouteAuthenticationTest extends TestCase
 
         $this->post('/admin/zender/toggle', ['enabled' => 1])->assertRedirect();
         $this->assertSame(1, (int) DB::table('zender_settings')->value('enabled'));
+    }
+
+    // ---- the two guards that stand BESIDE the admin middleware, and were pinned by nothing (G-V2) ----
+
+    public function test_every_admin_sign_in_route_carries_the_brute_force_throttle(): void
+    {
+        $unthrottled = [];
+
+        foreach (Route::getRoutes()->getRoutes() as $route) {
+            if (!$this->takesCredentials($route)) {
+                continue;
+            }
+            if (!in_array('throttle:auth', $this->declaredMiddleware($route), true)) {
+                $unthrottled[] = implode('|', $route->methods()) . ' /' . $route->uri();
+            }
+        }
+
+        $this->assertNotSame([], $this->signInRoutes(), 'the scan found no sign-in route at all, so it proves nothing');
+        $this->assertSame([], $unthrottled, "Admin sign-in routes without throttle:auth:\n" . implode("\n", $unthrottled));
+    }
+
+    public function test_the_scan_sees_a_sign_in_route_that_loses_the_throttle(): void
+    {
+        $throttled = Route::post('zz-login-probe', [\App\Http\Controllers\Admin\Auth\LoginController::class, 'login'])->middleware(['throttle:auth']);
+        $bare = Route::post('zz-login-probe-bare', [\App\Http\Controllers\Admin\Auth\LoginController::class, 'login']);
+
+        $this->assertContains('throttle:auth', $this->declaredMiddleware($throttled));
+        $this->assertNotContains('throttle:auth', $this->declaredMiddleware($bare), 'the scan must see a sign-in route with no throttle');
+    }
+
+    public function test_the_auth_throttle_is_counted_per_caller_and_is_not_unlimited(): void
+    {
+        $limiter = app(RateLimiter::class)->limiter('auth');
+
+        $this->assertNotNull($limiter, 'the `auth` rate limiter is not registered, so throttle:auth throttles nothing');
+
+        $limit = $limiter(Request::create('/login', 'POST', server: ['REMOTE_ADDR' => '203.0.113.9']));
+
+        $this->assertGreaterThan(0, $limit->maxAttempts, 'an unlimited limit is not a brute-force barrier');
+        $this->assertSame('203.0.113.9', $limit->key, 'the limit must be counted per caller, not shared by everyone at once');
+    }
+
+    public function test_a_signed_in_admin_whose_account_is_switched_off_is_turned_out(): void
+    {
+        Route::get('admin/zz-status-probe', static fn (): string => 'in')->middleware('admin');
+        DB::table('admins')->where('id', 2)->update(['status' => 0]);
+
+        $this->actingAs(Admin::findOrFail(2), 'admin')->get('admin/zz-status-probe')->assertRedirect();
+
+        $this->assertFalse(Auth::guard('admin')->check(), 'a switched-off admin must be logged out, not merely redirected');
+    }
+
+    public function test_the_first_admin_cannot_be_locked_out_by_the_status_check(): void
+    {
+        Route::get('admin/zz-status-probe', static fn (): string => 'in')->middleware('admin');
+        DB::table('admins')->where('id', 1)->update(['status' => 0]);
+
+        $this->actingAs(Admin::findOrFail(1), 'admin')->get('admin/zz-status-probe')->assertOk()->assertSee('in');
+    }
+
+    /** Whether a route is one a stranger can present a password to: an action of SIGN_IN_ACTIONS on a sign-in controller. */
+    private function takesCredentials(\Illuminate\Routing\Route $route): bool
+    {
+        $parts = explode('@', $route->getActionName());
+
+        return in_array(ltrim($parts[0], '\\'), self::PUBLIC_BY_DESIGN, true) && in_array($parts[1] ?? '', self::SIGN_IN_ACTIONS, true);
+    }
+
+    /** @return list<string> the sign-in routes the throttle scan looked at, so a scan that found none fails loudly */
+    private function signInRoutes(): array
+    {
+        $found = [];
+
+        foreach (Route::getRoutes()->getRoutes() as $route) {
+            if ($this->takesCredentials($route)) {
+                $found[] = implode('|', $route->methods()) . ' /' . $route->uri();
+            }
+        }
+
+        return $found;
     }
 }
