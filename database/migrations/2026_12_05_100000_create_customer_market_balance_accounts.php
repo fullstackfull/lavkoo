@@ -39,8 +39,8 @@ return new class extends Migration {
 
     public function up(): void
     {
-        $this->createAccounts(accounts: self::WALLET_ACCOUNTS, balance: 'balance', index: 'customer_market_wallet_accounts');
-        $this->createAccounts(accounts: self::LOYALTY_ACCOUNTS, balance: 'points', index: 'customer_market_loyalty_accounts');
+        $this->createAccounts(accounts: self::WALLET_ACCOUNTS, balance: 'balance');
+        $this->createAccounts(accounts: self::LOYALTY_ACCOUNTS, balance: 'points');
 
         foreach (self::LEDGERS as $ledger) {
             $this->attributeLedger(ledger: $ledger);
@@ -64,17 +64,18 @@ return new class extends Migration {
     }
 
     /**
+     * The index names are given rather than derived, so that they stay what they are if a column is ever renamed.
+     *
      * @param string $accounts the table to create
      * @param string $balance the column that holds what the account is worth: money in the market's currency, or points of the market
-     * @param string $index the prefix of the index names, which have to be unique across the database and are longer than MySQL allows if they are derived
      */
-    private function createAccounts(string $accounts, string $balance, string $index): void
+    private function createAccounts(string $accounts, string $balance): void
     {
         if (Schema::hasTable($accounts)) {
             return;
         }
 
-        Schema::create($accounts, function (Blueprint $table) use ($balance, $index): void {
+        Schema::create($accounts, function (Blueprint $table) use ($accounts, $balance): void {
             $table->id();
             $table->unsignedBigInteger('customer_id');
             $market = $table->char('market', 2);
@@ -92,8 +93,8 @@ return new class extends Migration {
             $table->decimal($balance, 40, 20)->default(0);
             $table->timestamps();
 
-            $table->unique(['customer_id', 'market'], $index . '_customer_market_unique');
-            $table->index('market', $index . '_market_idx');
+            $table->unique(['customer_id', 'market'], $accounts . '_customer_market_unique');
+            $table->index('market', $accounts . '_market_idx');
         });
     }
 
