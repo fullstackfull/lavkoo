@@ -22,10 +22,12 @@ use App\Models\Seller;
 use App\Models\User;
 use App\Services\Storefront\StorefrontContext;
 use App\Services\Storefront\StorefrontLifecycle;
+use App\Services\Storefront\StorefrontPreflight;
+use App\Services\Storefront\StorefrontTaxApproval;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Mail\Transport\ArrayTransport;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Address\ApiAddressTestCase;
@@ -35,33 +37,38 @@ use Tests\Support\BuildsStorefrontCatalog;
 use Tests\Support\FakesPushNotifications;
 
 /**
- * I1-07.1: what a customer and a vendor are told about an order of a storefront that may not sell. No listener, push helper or controller that sends these notifications reads the state of a storefront, and
- * until this class no test sent one for a storefront that may not sell. Each driven case runs in every state in which a storefront may not sell and, as its control, in two storefronts that sell, so that the
- * answers asserted are the answers of a storefront that sells: the three stop modes on a storefront other than the default one (browse only, maintenance, redirect) and browse only on the default one (I2-17
- * allows nothing else); a storefront found in draft or in ready after an order of it exists (no transition of the lifecycle leads back there: it is what a lost record, or an older record put back, leaves); and an
- * active storefront that has lost something it needs to sell (its legal texts are no longer accepted, so the selling gate closes it with no transition). Every case ends with the new sale a shopper had waiting:
- * refused in each state, taken in the controls.
+ * I1-07.1: what a customer, a vendor and a delivery man are told about an order of a storefront that may not sell. No listener, push helper or controller that sends these notifications reads the state of a
+ * storefront, and until this class no test sent one for a storefront that may not sell. Each driven case runs in every way the selling gate closes a storefront and, as its control, in two storefronts that sell,
+ * so that the answers asserted are the answers of a storefront that sells. The states: the three stop modes on a storefront other than the default one (browse only, maintenance, redirect) and browse only on the
+ * default one (I2-17 allows nothing else); a storefront found in draft or in ready after an order of it exists (no transition of the lifecycle leads back there: it is what a lost record, or an older record put back,
+ * leaves); and an active storefront that has lost what it needs to sell, so that the selling gate closes it with no transition. Of the four prerequisites of StorefrontPreflight two are withdrawn together in each of
+ * those cases: the legal texts with their review (grandfathering excuses both, and takes both away), and the currency with the tax decision. None of the four is withdrawn alone. Every case ends with the new sale a
+ * shopper had waiting: refused in each state, taken in the controls.
  *
- * Driven over HTTP on an order of the shop or of a vendor that the real checkout of the API placed before the state, by the staff member who may act on it, with Firebase and the mail faked
- * (Tests\Support\FakesPushNotifications). The status of the order: moved by the administrator (confirmed, processing, out for delivery, delivered; canceled), by the vendor from the vendor panel and from the seller
- * API v3 (confirmed, delivered) and from the seller API v2 (confirmed, out for delivery: that route refuses to deliver an unpaid order), and by the delivery man from the delivery-man API (out for delivery,
- * delivered). The refund of a line: rejected and refunded by the administrator, rejected by the vendor. The amount of an edited order that the administrator returns to the customer. Each step asserts that the
- * route did its work, that the customer's device got exactly one message for that order carrying the key of the step and the text the operator switched on for it, and that no mail went out. The refund
- * the customer asks for while the storefront is in the state is driven as well: the vendor's device got exactly one message, naming the order and the refund (its key is not asserted: RefundListener gives a new
- * request the key of a status change by the staff, because its branch for a request is never reached).
+ * Driven over HTTP on an order of the shop or of a vendor that the real checkout of the API placed before the state, by the staff member who may act on it, with Firebase faked (Tests\Support\FakesPushNotifications).
+ * What each step must have sent is asserted exactly: the device of each person named below got one message for that order, of the type and with the key the step raises and the text the operator switched on for it.
+ * The status of an order, and the customer is told in each: moved by the administrator (confirmed, processing, out for delivery, delivered; canceled), by the vendor from the vendor panel (confirmed, delivered), from the
+ * status route and from the order update route of the seller API v3 (confirmed, delivered) and from the seller API v2 (confirmed, out for delivery: that route refuses to deliver an unpaid order), and by the delivery man
+ * from the delivery-man API (out for delivery, delivered). When the administrator cancels the order of a vendor that has a delivery man, the vendor and the delivery man are told as well. The refund of a line, and the
+ * customer is told in each: rejected and refunded by the administrator on an order of the shop, rejected by the administrator on an order of a vendor, rejected by the vendor in the panel, in the seller API v3 and in the
+ * seller API v2. On an order of a vendor the vendor is told as well, in every one of these but the seller API v2, whose route raises no event for it. The refund the customer asks for while the storefront is in the
+ * state, from the app and from the website: the vendor's device got one message, naming the order and the refund (RefundListener gives it the key of a status change by the staff, see NEW_REFUND_KEY). The amount of an
+ * edited order that the administrator returns to the customer.
  *
- * E-mail: the application sends no e-mail for the status of an order, for a refund or for a due payment (the only order mails are the one that tells a customer an order was placed and the one that tells a vendor or
- * the staff a new order came in, both sent when the order is made), so there is no mail path that a stop could have cut. Every step asserts that the faked mail stayed empty, as a tripwire: the day one of these steps
- * sends a mail, the test fails until that mail is asserted here in every state like the push is. The fake records mailables, which is how every order mail of the application is sent; a mail written as a raw text
- * or as a bare view would not be seen. Nothing here proves that a mail is sent.
+ * E-mail: the application sends no e-mail for the status of an order, for a refund or for a due payment (the listeners of these events only push; the only order mails are the one that tells a customer an order
+ * was placed and the one that tells a vendor or the staff a new order came in, both sent when the order is made), so there is no mail that a stop could have cut. After every step the test asserts that nothing
+ * reached the transport of the application, the array transport of the test environment, which keeps what the default mailer is given whatever its form: a mailable, a raw text or a bare view. It is a tripwire:
+ * the day a step sends a mail, the test fails until that mail is asserted here in every state like the push is. Nothing here proves that a mail is sent, and a mail sent through a mailer other than the default one
+ * is not seen.
  *
- * The due payment: the customer chooses cash for the due amount of an edited order of a vendor on the website, and the event that asks for the vendor's push is asserted, once, for that order, in every state. That
- * the push itself is sent is NOT asserted and is not true today: the key of that message (order_edit_due_payment_message) has no entry in the lookup of PushNotificationTrait::pushNotificationMessage, so the push is
- * dropped in a storefront that sells as well. The customer gets no message of a due payment from this path: the only recipient it names is the vendor.
+ * The due payment: the customer chooses cash for the due amount of an edited order of a vendor on the website, and the event that asks for the vendor's push is asserted, once, for that order, in every state, with the
+ * listener of the event running. That the push itself is sent is NOT asserted and is not true today: the key of that message (order_edit_due_payment_message) has no entry in the lookup of
+ * PushNotificationTrait::pushNotificationMessage, so the push is dropped in a storefront that sells as well as in one that may not. The test asserts that no push is sent, in every state, as a characterisation:
+ * the day the key is mapped it fails, and the assertion becomes one message to the vendor. The customer gets no message of a due payment from this path: the only recipient it names is the vendor.
  *
- * Not driven: the refund routes of the seller API (v2 and v3), the MyFatoorah refund, the bulk status route and the delivery-man assignment; the notification of an order edit; the pushes to a delivery man and to a
- * vendor that an order status raises (only the customer's device is asserted, except for the refund the customer asks for); a queued listener run by a worker (the queue is sync here); the delivery of the message by
- * Firebase to the device (the stub answers 200).
+ * Not driven: the MyFatoorah refund, the bulk status route, the assignment of a delivery man, the expected delivery date and the delivery charge, the notification of an order edit and the reward of a referral; the
+ * approval of a refund, and its payment by a vendor; the push to a vendor when the administrator delivers its order, and the pushes to a delivery man that a cancellation by the vendor or by the delivery man raises;
+ * a queued listener run by a worker (the queue is sync here); the delivery of the message by Firebase to the device (the stub answers 200).
  */
 class StorefrontStopNotificationsTest extends ApiAddressTestCase
 {
@@ -74,8 +81,11 @@ class StorefrontStopNotificationsTest extends ApiAddressTestCase
 
     private const REASON = 'Decision of the operations meeting';
 
-    /** A state a storefront is found in, besides the lifecycle ones: it is active, and one of the things it needs to sell is no longer there. */
-    private const PREREQUISITE_WITHDRAWN = 'prerequisite_withdrawn';
+    /** A state a storefront is found in, besides the lifecycle ones: it is active, and its legal texts are no longer accepted, nor is their review on record. */
+    private const LEGAL_TEXTS_WITHDRAWN = 'legal_texts_withdrawn';
+
+    /** A state a storefront is found in, besides the lifecycle ones: it is active, and its currency is no longer active, nor is its tax decision on record. */
+    private const CURRENCY_AND_TAX_WITHDRAWN = 'currency_and_tax_withdrawn';
 
     /** The default guard of the website. After a request of the app the auth manager keeps the api guard as the default, and that guard erases an Authorization header that is not one of its own tokens, as the staff tokens of the apps are not. */
     private const WEBSITE_GUARD = 'web';
@@ -83,6 +93,8 @@ class StorefrontStopNotificationsTest extends ApiAddressTestCase
     private const CUSTOMER_DEVICE = 'device-of-the-customer';
 
     private const VENDOR_DEVICE = 'device-of-the-vendor';
+
+    private const DELIVERY_MAN_DEVICE = 'device-of-the-delivery-man';
 
     private const VENDOR_ID = 5;
 
@@ -102,16 +114,25 @@ class StorefrontStopNotificationsTest extends ApiAddressTestCase
 
     private const VENDOR_API_V3_STATUS = '/api/v3/seller/orders/order-detail-status/';
 
+    private const VENDOR_API_V3_ORDER_UPDATE = '/api/v3/seller/orders/order-detail-info-update';
+
+    private const VENDOR_API_V2_REFUND = '/api/v2/seller/refund/refund-status-update';
+
+    private const VENDOR_API_V3_REFUND = '/api/v3/seller/refund/refund-status-update';
+
     private const DUE_PAYMENT = '/customer/customer-order-edit-pay-amount';
 
-    /** The product each storefront sells in this world: the shop's own and a vendor's, and the price of the first in its own currency. */
+    /** The key RefundListener gives the vendor's message about a new request. Its branch for a request ('refund_request_message') is never reached, because the branch before it takes every status but a refusal and a payment: a request is announced as a status change by the staff. */
+    private const NEW_REFUND_KEY = 'refund_request_status_changed_by_admin';
+
+    /** The product each storefront sells in this world: the shop's own and a vendor's, the price of the first in its own currency and that currency. */
     private const PRODUCTS = [
-        'KW' => ['house' => 3, 'vendor' => 7, 'price' => 30],
-        'SA' => ['house' => 1, 'vendor' => 8, 'price' => 100],
+        'KW' => ['house' => 3, 'vendor' => 7, 'price' => 30, 'currency' => 'KWD'],
+        'SA' => ['house' => 1, 'vendor' => 8, 'price' => 100, 'currency' => 'SAR'],
     ];
 
-    /** The status an order is given and the text an operator switched on for the message that tells the customer of it. */
-    private const TEXT_OF_STATUS = [
+    /** The key of the text an operator switched on for a message, where it is not the key of the message itself: the status an order is given. */
+    private const TEXT_OF_KEY = [
         'confirmed' => 'order_confirmation_message',
         'processing' => 'order_processing_message',
         'out_for_delivery' => 'out_for_delivery_message',
@@ -135,9 +156,15 @@ class StorefrontStopNotificationsTest extends ApiAddressTestCase
     ];
 
     private const VENDOR_TEXTS = [
-        'refund_request_status_changed_by_admin' => 'A refund of order #{orderId} was asked for',
+        self::NEW_REFUND_KEY => 'A refund of order #{orderId} was asked for',
         'refund_request_canceled_message' => 'The refund of order #{orderId} was refused',
         'order_refunded_message' => 'The refund of order #{orderId} was paid',
+        'order_canceled' => 'The order #{orderId} was canceled',
+        'order_edit_due_payment_message' => 'The due amount of order #{orderId} is to be paid in cash',
+    ];
+
+    private const DELIVERY_MAN_TEXTS = [
+        'order_canceled' => 'The order #{orderId} was canceled: do not deliver it',
     ];
 
     /** The request middleware that needs the installation or is not what a staff test is about: the same ones the panel tests of the address work leave out. */
@@ -152,7 +179,7 @@ class StorefrontStopNotificationsTest extends ApiAddressTestCase
         parent::setUp();
 
         $this->buildSixStorefrontCheckoutWorld();
-        $this->buildThePushWorld(texts: ['customer' => self::CUSTOMER_TEXTS, 'seller' => self::VENDOR_TEXTS]);
+        $this->buildThePushWorld(texts: ['customer' => self::CUSTOMER_TEXTS, 'seller' => self::VENDOR_TEXTS, 'delivery_man' => self::DELIVERY_MAN_TEXTS]);
         $this->addWhatTheStaffAndTheVendorsRead();
     }
 
@@ -168,7 +195,8 @@ class StorefrontStopNotificationsTest extends ApiAddressTestCase
             'the default storefront, browse only' => ['SA', StorefrontLifecycle::BROWSE_ONLY],
             'Kuwait, back to draft' => ['KW', StorefrontLifecycle::DRAFT],
             'Kuwait, back to ready' => ['KW', StorefrontLifecycle::READY],
-            'Kuwait, active but a prerequisite withdrawn' => ['KW', self::PREREQUISITE_WITHDRAWN],
+            'Kuwait, active but its legal texts and their review withdrawn' => ['KW', self::LEGAL_TEXTS_WITHDRAWN],
+            'Kuwait, active but its currency and its tax decision withdrawn' => ['KW', self::CURRENCY_AND_TAX_WITHDRAWN],
         ];
     }
 
@@ -252,6 +280,13 @@ class StorefrontStopNotificationsTest extends ApiAddressTestCase
             $table->string('app_language')->default('en');
             $table->timestamps();
         });
+        Schema::create('deliveryman_notifications', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('delivery_man_id');
+            $table->unsignedBigInteger('order_id');
+            $table->string('description');
+            $table->timestamps();
+        });
         Schema::create('deliveryman_wallets', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('delivery_man_id')->nullable();
@@ -276,7 +311,7 @@ class StorefrontStopNotificationsTest extends ApiAddressTestCase
         (require database_path('migrations/2026_01_11_211839_create_order_edit_histories_table.php'))->up();
 
         DB::table('admin_wallets')->insert(['admin_id' => 1, 'inhouse_earning' => 500, 'pending_amount' => 50]);
-        DB::table('delivery_men')->insert(['id' => self::DELIVERY_MAN_ID, 'f_name' => 'Driver', 'auth_token' => self::DELIVERY_MAN_TOKEN, 'fcm_token' => 'device-of-the-delivery-man']);
+        DB::table('delivery_men')->insert(['id' => self::DELIVERY_MAN_ID, 'f_name' => 'Driver', 'auth_token' => self::DELIVERY_MAN_TOKEN, 'fcm_token' => self::DELIVERY_MAN_DEVICE]);
         Schema::table('sellers', function (Blueprint $table) {
             $table->string('auth_token')->nullable();
         });
@@ -335,6 +370,14 @@ class StorefrontStopNotificationsTest extends ApiAddressTestCase
         return $this->asStaff(panel: false)->withHeader('Authorization', 'Bearer ' . self::VENDOR_TOKEN);
     }
 
+    /** A customer signed in on the website: the website's middleware for a customer lets an active account through only. */
+    private function asTheCustomerOnTheWebsite(User $customer): static
+    {
+        DB::table('users')->where('id', $customer->id)->update(['is_active' => 1]);
+
+        return $this->asStaff()->actingAs($customer->refresh(), 'customer');
+    }
+
     // ---- the order and the storefront --------------------------------------------------------------------------------------------------------
 
     /** @return array{0: User, 1: int} a customer with a device and the order that the real checkout of the storefront saved for them, of the shop itself or of the vendor */
@@ -348,7 +391,7 @@ class StorefrontStopNotificationsTest extends ApiAddressTestCase
         $order = DB::table('orders')->where('id', $orderId)->first();
         $this->assertSame([$customer->id, $country, $soldByTheVendor ? 'seller' : 'admin', 'pending'], [(int) $order->customer_id, $order->storefront_country, $order->seller_is, $order->order_status]);
 
-        Mail::fake();
+        $this->startCountingTheMail();
         $this->takeThePushes();
 
         return [$customer, $orderId];
@@ -363,7 +406,7 @@ class StorefrontStopNotificationsTest extends ApiAddressTestCase
         return (int) DB::table('order_details')->where('order_id', $orderId)->value('id');
     }
 
-    /** The customer asks for the refund of a line through the real route of the app: the request the staff then decides on. */
+    /** The customer asks for the refund of a line through the real route of the app: the request the staff then decides on. The vendor's push about it is left to be read. */
     private function askForARefund(User $customer, string $country, int $lineId): int
     {
         $this->asTheApp(customer: $customer, country: $country)
@@ -371,6 +414,16 @@ class StorefrontStopNotificationsTest extends ApiAddressTestCase
             ->assertOk();
 
         return (int) DB::table('refund_requests')->where('order_details_id', $lineId)->value('id');
+    }
+
+    /** @return array{0: int, 1: int} the order and the refund the customer asked for on it before the state, with the vendor's push about the request read away: the decision is what the step sends */
+    private function placeAnOrderWithARefundAsked(string $country, bool $soldByTheVendor = false): array
+    {
+        [$customer, $orderId] = $this->placeAnOrder(country: $country, soldByTheVendor: $soldByTheVendor);
+        $refundId = $this->askForARefund(customer: $customer, country: $country, lineId: $this->deliverTheOrder(orderId: $orderId));
+        $this->takeThePushes();
+
+        return [$orderId, $refundId];
     }
 
     /** A shopper whose cart is full while the storefront still sells, and then the state the storefront is put in, if there is one: the new sale the state is asked to refuse. */
@@ -383,7 +436,7 @@ class StorefrontStopNotificationsTest extends ApiAddressTestCase
             $this->putTheStorefrontIn(country: $country, state: $state);
         }
 
-        $this->assertTheLifecycleMatches(country: $country, state: $state);
+        $this->assertTheStorefrontIsInTheState(country: $country, state: $state);
 
         return $shopper;
     }
@@ -396,21 +449,28 @@ class StorefrontStopNotificationsTest extends ApiAddressTestCase
             StorefrontLifecycle::BROWSE_ONLY, StorefrontLifecycle::MAINTENANCE, StorefrontLifecycle::REDIRECT => $lifecycle->pause(country: $country, mode: $state, by: self::PERSON, reason: self::REASON),
             StorefrontLifecycle::DRAFT => $this->loseTheLifecycleRecord(country: $country),
             StorefrontLifecycle::READY => $this->restoreAnOlderRecordOf(country: $country),
-            self::PREREQUISITE_WITHDRAWN => config(['gcc.storefronts.legal.grandfathered' => array_values(array_diff((array) config('gcc.storefronts.legal.grandfathered'), [$country]))]),
+            self::LEGAL_TEXTS_WITHDRAWN => config(['gcc.storefronts.legal.grandfathered' => array_values(array_diff((array) config('gcc.storefronts.legal.grandfathered'), [$country]))]),
+            self::CURRENCY_AND_TAX_WITHDRAWN => $this->withdrawTheCurrencyAndTheTaxDecisionOf(country: $country),
         };
     }
 
-    /** The storefront is in the lifecycle state the case says it is in: a draft is a draft, and a storefront that has lost a prerequisite is still active. */
-    private function assertTheLifecycleMatches(string $country, ?string $state): void
+    /** The storefront is in the state the case says it is in: a draft is a draft, a storefront that has lost prerequisites is still active, and the prerequisites that are not met are the ones the case withdrew. */
+    private function assertTheStorefrontIsInTheState(string $country, ?string $state): void
     {
         $expected = match ($state) {
             StorefrontLifecycle::BROWSE_ONLY, StorefrontLifecycle::MAINTENANCE, StorefrontLifecycle::REDIRECT => StorefrontLifecycle::PAUSED,
             StorefrontLifecycle::DRAFT, StorefrontLifecycle::READY => $state,
             default => StorefrontLifecycle::ACTIVE,
         };
+        $withdrawn = match ($state) {
+            self::LEGAL_TEXTS_WITHDRAWN => [StorefrontPreflight::LEGAL_TEXTS, StorefrontPreflight::LEGAL_REVIEW],
+            self::CURRENCY_AND_TAX_WITHDRAWN => [StorefrontPreflight::CURRENCY, StorefrontPreflight::TAX],
+            default => [],
+        };
         $status = app(StorefrontLifecycle::class)->statusOf($country);
 
         $this->assertSame([$expected, in_array($state, StorefrontLifecycle::MODES, true) ? $state : null], [$status['state'], $status['mode']], "{$country} is not in the state the case says");
+        $this->assertSame($withdrawn, app(StorefrontPreflight::class)->unmet(country: $country, currencyCode: self::PRODUCTS[$country]['currency']), "{$country} does not lack what the case says");
     }
 
     /** No transition of the lifecycle leads back to a draft: this is the state a lost row or a restored older database leaves, and the code reads it as a storefront nobody prepared. */
@@ -424,6 +484,14 @@ class StorefrontStopNotificationsTest extends ApiAddressTestCase
     {
         $this->loseTheLifecycleRecord(country: $country);
         app(StorefrontLifecycle::class)->markReady(country: $country, by: self::PERSON, reason: self::REASON);
+    }
+
+    /** The currency of the storefront is switched off and its tax decision is revoked, through the service that records and revokes it: two things that take a storefront that sells out of the selling gate with no change of its lifecycle. */
+    private function withdrawTheCurrencyAndTheTaxDecisionOf(string $country): void
+    {
+        DB::table('currencies')->where('code', self::PRODUCTS[$country]['currency'])->update(['status' => 0]);
+        cache()->forget('active_currency_list');
+        app(StorefrontTaxApproval::class)->revoke(country: $country, revokedBy: self::PERSON);
     }
 
     private function assertANewSaleFollowsTheState(User $shopper, string $country, ?string $state): void
@@ -445,29 +513,76 @@ class StorefrontStopNotificationsTest extends ApiAddressTestCase
 
     // ---- what was sent -----------------------------------------------------------------------------------------------------------------------
 
-    /** The customer's device got exactly one message in the step that has just run: for this order, carrying the key the step raised and the text the operator switched on for it. */
-    private function assertTheCustomerWasToldOnce(int $orderId, string $messageKey, string $textKey): void
+    /** From here on the mail that reaches the transport of the application is counted: the mail of the checkout that placed the order is not. */
+    private function startCountingTheMail(): void
     {
-        $told = array_values(array_filter($this->takeThePushes(), fn (array $push) => $push['token'] === self::CUSTOMER_DEVICE));
+        config(['mail.driver' => 'array']);
+        app('mail.manager')->purge();
+        $this->mailTransport()->flush();
+    }
 
-        $this->assertCount(1, $told, "the customer is told once of [{$messageKey}]");
-        $this->assertSame(
-            ['order', (string) $orderId, $messageKey, str_replace('{orderId}', (string) $orderId, self::CUSTOMER_TEXTS[$textKey])],
-            [$told[0]['data']['type'], $told[0]['data']['order_id'], $told[0]['data']['message_key'], $told[0]['notification']['body']],
-        );
+    private function mailTransport(): ArrayTransport
+    {
+        return app('mail.manager')->mailer()->getSymfonyTransport();
+    }
+
+    private function assertNoOrderMailWasSent(): void
+    {
+        $this->assertCount(0, $this->mailTransport()->messages(), 'a mail reached the transport of the application');
+    }
+
+    /** @return array{type: string, key: string, text: string, refund_id: string} the message the customer's device is to get: the key the step raised and the text the operator switched on for it */
+    private function toTheCustomer(string $key): array
+    {
+        return ['type' => 'order', 'key' => $key, 'text' => self::CUSTOMER_TEXTS[self::TEXT_OF_KEY[$key] ?? $key], 'refund_id' => ''];
+    }
+
+    /** @return array{type: string, key: string, text: string, refund_id: string} the message the vendor's device is to get: one about a refund when the refund is named, about an order otherwise */
+    private function toTheVendor(string $key, ?int $refundId = null): array
+    {
+        return ['type' => $refundId === null ? 'order' : 'refund', 'key' => $key, 'text' => self::VENDOR_TEXTS[self::TEXT_OF_KEY[$key] ?? $key], 'refund_id' => (string) $refundId];
+    }
+
+    /** @return array{type: string, key: string, text: string, refund_id: string} the message the delivery man's device is to get: its payload carries no key of the message */
+    private function toTheDeliveryMan(string $key): array
+    {
+        return ['type' => 'order', 'key' => '', 'text' => self::DELIVERY_MAN_TEXTS[self::TEXT_OF_KEY[$key] ?? $key], 'refund_id' => ''];
+    }
+
+    /**
+     * Every device named got exactly one message in the step that has just run, for this order, of the type and with the key and the text the step is to send, and no mail reached the transport of the application.
+     *
+     * @param array<string, array{type: string, key: string, text: string, refund_id: string}> $told the message each device was to get, by device
+     */
+    private function assertTheDevicesWereToldOnce(int $orderId, array $told): void
+    {
+        $sent = $this->takeThePushes();
+
+        foreach ($told as $device => $expected) {
+            $text = str_replace('{orderId}', (string) $orderId, $expected['text']);
+            $toTheDevice = array_values(array_filter($sent, fn (array $push) => $push['token'] === $device));
+
+            $this->assertCount(1, $toTheDevice, "{$device} is told once: {$text}");
+            $this->assertSame(
+                [$expected['type'], (string) $orderId, $expected['key'], $text, $expected['refund_id']],
+                [$toTheDevice[0]['data']['type'], $toTheDevice[0]['data']['order_id'], $toTheDevice[0]['data']['message_key'], $toTheDevice[0]['notification']['body'], $toTheDevice[0]['data']['refund_id']],
+                "what {$device} is told",
+            );
+        }
+
+        $this->assertNoOrderMailWasSent();
+    }
+
+    private function assertTheCustomerWasToldOnce(int $orderId, string $messageKey): void
+    {
+        $this->assertTheDevicesWereToldOnce(orderId: $orderId, told: [self::CUSTOMER_DEVICE => $this->toTheCustomer(key: $messageKey)]);
     }
 
     /** The customer is told of the status an order was just given. */
     private function assertTheCustomerWasToldOfTheStatus(int $orderId, string $status): void
     {
         $this->assertSame($status, DB::table('orders')->where('id', $orderId)->value('order_status'), "the order is {$status}");
-        $this->assertTheCustomerWasToldOnce(orderId: $orderId, messageKey: $status, textKey: self::TEXT_OF_STATUS[$status]);
-    }
-
-    private function assertNoOrderMailWasSent(): void
-    {
-        Mail::assertNothingSent();
-        Mail::assertNothingQueued();
+        $this->assertTheCustomerWasToldOnce(orderId: $orderId, messageKey: $status);
     }
 
     // ---- the status of an order --------------------------------------------------------------------------------------------------------------
@@ -485,7 +600,6 @@ class StorefrontStopNotificationsTest extends ApiAddressTestCase
             $this->assertTheCustomerWasToldOfTheStatus(orderId: $orderId, status: $status);
         }
 
-        $this->assertNoOrderMailWasSent();
         $this->assertANewSaleFollowsTheState(shopper: $shopper, country: $country, state: $state);
     }
 
@@ -499,7 +613,25 @@ class StorefrontStopNotificationsTest extends ApiAddressTestCase
         $this->asTheAdministrator()->postJson(route('admin.orders.status'), ['id' => $orderId, 'order_status' => 'canceled'])->assertOk()->assertJsonPath('status', 1);
 
         $this->assertTheCustomerWasToldOfTheStatus(orderId: $orderId, status: 'canceled');
-        $this->assertNoOrderMailWasSent();
+        $this->assertANewSaleFollowsTheState(shopper: $shopper, country: $country, state: $state);
+    }
+
+    #[DataProvider('everyStateThatMayNotSellAndItsControl')]
+    public function test_the_vendor_and_the_delivery_man_are_told_as_well_when_the_administrator_cancels_an_earlier_order_of_the_vendor_in_every_state_that_may_not_sell(string $country, ?string $state): void
+    {
+        $this->skipInStrictModeUntilTheCouponCountIsFixed();
+        [, $orderId] = $this->placeAnOrder(country: $country, soldByTheVendor: true);
+        DB::table('orders')->where('id', $orderId)->update(['delivery_man_id' => self::DELIVERY_MAN_ID]);
+        $shopper = $this->stopWithANewSaleWaiting(country: $country, state: $state);
+
+        $this->asTheAdministrator()->postJson(route('admin.orders.status'), ['id' => $orderId, 'order_status' => 'canceled'])->assertOk()->assertJsonPath('status', 1);
+
+        $this->assertSame('canceled', DB::table('orders')->where('id', $orderId)->value('order_status'), 'the order is canceled');
+        $this->assertTheDevicesWereToldOnce(orderId: $orderId, told: [
+            self::CUSTOMER_DEVICE => $this->toTheCustomer(key: 'canceled'),
+            self::VENDOR_DEVICE => $this->toTheVendor(key: 'canceled'),
+            self::DELIVERY_MAN_DEVICE => $this->toTheDeliveryMan(key: 'canceled'),
+        ]);
         $this->assertANewSaleFollowsTheState(shopper: $shopper, country: $country, state: $state);
     }
 
@@ -516,7 +648,6 @@ class StorefrontStopNotificationsTest extends ApiAddressTestCase
             $this->assertTheCustomerWasToldOfTheStatus(orderId: $orderId, status: $status);
         }
 
-        $this->assertNoOrderMailWasSent();
         $this->assertANewSaleFollowsTheState(shopper: $shopper, country: $country, state: $state);
     }
 
@@ -533,7 +664,22 @@ class StorefrontStopNotificationsTest extends ApiAddressTestCase
             $this->assertTheCustomerWasToldOfTheStatus(orderId: $orderId, status: $status);
         }
 
-        $this->assertNoOrderMailWasSent();
+        $this->assertANewSaleFollowsTheState(shopper: $shopper, country: $country, state: $state);
+    }
+
+    #[DataProvider('everyStateThatMayNotSellAndItsControl')]
+    public function test_the_customer_is_told_of_the_steps_that_the_vendor_gives_an_earlier_order_from_the_order_update_of_the_seller_api_v3_in_every_state_that_may_not_sell(string $country, ?string $state): void
+    {
+        $this->skipInStrictModeUntilTheCouponCountIsFixed();
+        [, $orderId] = $this->placeAnOrder(country: $country, soldByTheVendor: true);
+        $shopper = $this->stopWithANewSaleWaiting(country: $country, state: $state);
+
+        foreach (['confirmed', 'delivered'] as $status) {
+            $this->asTheVendorInTheSellerApp()->postJson(self::VENDOR_API_V3_ORDER_UPDATE, ['order_id' => $orderId, 'payment_status' => 'unpaid', 'order_status' => $status])->assertOk()->assertJsonPath('success', 1);
+
+            $this->assertTheCustomerWasToldOfTheStatus(orderId: $orderId, status: $status);
+        }
+
         $this->assertANewSaleFollowsTheState(shopper: $shopper, country: $country, state: $state);
     }
 
@@ -550,7 +696,6 @@ class StorefrontStopNotificationsTest extends ApiAddressTestCase
             $this->assertTheCustomerWasToldOfTheStatus(orderId: $orderId, status: $status);
         }
 
-        $this->assertNoOrderMailWasSent();
         $this->assertANewSaleFollowsTheState(shopper: $shopper, country: $country, state: $state);
     }
 
@@ -568,7 +713,6 @@ class StorefrontStopNotificationsTest extends ApiAddressTestCase
             $this->assertTheCustomerWasToldOfTheStatus(orderId: $orderId, status: $status);
         }
 
-        $this->assertNoOrderMailWasSent();
         $this->assertANewSaleFollowsTheState(shopper: $shopper, country: $country, state: $state);
     }
 
@@ -578,16 +722,14 @@ class StorefrontStopNotificationsTest extends ApiAddressTestCase
     public function test_the_customer_is_told_when_the_administrator_rejects_a_refund_asked_for_before_the_stop_in_every_state_that_may_not_sell(string $country, ?string $state): void
     {
         $this->skipInStrictModeUntilTheCouponCountIsFixed();
-        [$customer, $orderId] = $this->placeAnOrder(country: $country);
-        $refundId = $this->askForARefund(customer: $customer, country: $country, lineId: $this->deliverTheOrder(orderId: $orderId));
+        [$orderId, $refundId] = $this->placeAnOrderWithARefundAsked(country: $country);
         $shopper = $this->stopWithANewSaleWaiting(country: $country, state: $state);
 
         $this->asTheAdministrator()->postJson(route('admin.refund-section.refund.refund-status-update'), ['id' => $refundId, 'refund_status' => 'rejected', 'rejected_note' => 'The box was opened'])
             ->assertOk()->assertJsonPath('message', translate('refund_status_updated') . '.');
 
         $this->assertSame('rejected', DB::table('refund_requests')->where('id', $refundId)->value('status'));
-        $this->assertTheCustomerWasToldOnce(orderId: $orderId, messageKey: 'refund_request_canceled_message', textKey: 'refund_request_canceled_message');
-        $this->assertNoOrderMailWasSent();
+        $this->assertTheCustomerWasToldOnce(orderId: $orderId, messageKey: 'refund_request_canceled_message');
         $this->assertANewSaleFollowsTheState(shopper: $shopper, country: $country, state: $state);
     }
 
@@ -595,8 +737,7 @@ class StorefrontStopNotificationsTest extends ApiAddressTestCase
     public function test_the_customer_is_told_when_the_administrator_refunds_a_refund_asked_for_before_the_stop_in_every_state_that_may_not_sell(string $country, ?string $state): void
     {
         $this->skipInStrictModeUntilTheCouponCountIsFixed();
-        [$customer, $orderId] = $this->placeAnOrder(country: $country);
-        $refundId = $this->askForARefund(customer: $customer, country: $country, lineId: $this->deliverTheOrder(orderId: $orderId));
+        [$orderId, $refundId] = $this->placeAnOrderWithARefundAsked(country: $country);
         $shopper = $this->stopWithANewSaleWaiting(country: $country, state: $state);
 
         $this->asTheAdministrator()->postJson(route('admin.refund-section.refund.refund-status-update'), [
@@ -604,30 +745,81 @@ class StorefrontStopNotificationsTest extends ApiAddressTestCase
         ])->assertOk()->assertJsonPath('message', translate('refund_status_updated') . '.');
 
         $this->assertSame('refunded', DB::table('refund_requests')->where('id', $refundId)->value('status'));
-        $this->assertTheCustomerWasToldOnce(orderId: $orderId, messageKey: 'order_refunded_message', textKey: 'order_refunded_message');
-        $this->assertNoOrderMailWasSent();
+        $this->assertTheCustomerWasToldOnce(orderId: $orderId, messageKey: 'order_refunded_message');
         $this->assertANewSaleFollowsTheState(shopper: $shopper, country: $country, state: $state);
     }
 
     #[DataProvider('everyStateThatMayNotSellAndItsControl')]
-    public function test_the_customer_is_told_when_the_vendor_rejects_a_refund_asked_for_before_the_stop_in_every_state_that_may_not_sell(string $country, ?string $state): void
+    public function test_the_customer_and_the_vendor_are_told_when_the_administrator_rejects_a_refund_of_an_order_of_the_vendor_in_every_state_that_may_not_sell(string $country, ?string $state): void
     {
         $this->skipInStrictModeUntilTheCouponCountIsFixed();
-        [$customer, $orderId] = $this->placeAnOrder(country: $country, soldByTheVendor: true);
-        $refundId = $this->askForARefund(customer: $customer, country: $country, lineId: $this->deliverTheOrder(orderId: $orderId));
+        [$orderId, $refundId] = $this->placeAnOrderWithARefundAsked(country: $country, soldByTheVendor: true);
+        $shopper = $this->stopWithANewSaleWaiting(country: $country, state: $state);
+
+        $this->asTheAdministrator()->postJson(route('admin.refund-section.refund.refund-status-update'), ['id' => $refundId, 'refund_status' => 'rejected', 'rejected_note' => 'The box was opened'])
+            ->assertOk()->assertJsonPath('message', translate('refund_status_updated') . '.');
+
+        $this->assertSame('rejected', DB::table('refund_requests')->where('id', $refundId)->value('status'));
+        $this->assertTheDevicesWereToldOnce(orderId: $orderId, told: [
+            self::CUSTOMER_DEVICE => $this->toTheCustomer(key: 'refund_request_canceled_message'),
+            self::VENDOR_DEVICE => $this->toTheVendor(key: 'refund_request_canceled_message', refundId: $refundId),
+        ]);
+        $this->assertANewSaleFollowsTheState(shopper: $shopper, country: $country, state: $state);
+    }
+
+    #[DataProvider('everyStateThatMayNotSellAndItsControl')]
+    public function test_the_customer_and_the_vendor_are_told_when_the_vendor_rejects_a_refund_from_the_vendor_panel_in_every_state_that_may_not_sell(string $country, ?string $state): void
+    {
+        $this->skipInStrictModeUntilTheCouponCountIsFixed();
+        [$orderId, $refundId] = $this->placeAnOrderWithARefundAsked(country: $country, soldByTheVendor: true);
         $shopper = $this->stopWithANewSaleWaiting(country: $country, state: $state);
 
         $this->asTheVendor()->postJson(route('vendor.refund.update-status'), ['id' => $refundId, 'refund_status' => 'rejected', 'rejected_note' => 'The box was opened'])
             ->assertOk()->assertJsonPath('message', translate('refund_status_updated') . '!!');
 
         $this->assertSame('rejected', DB::table('refund_requests')->where('id', $refundId)->value('status'));
-        $this->assertTheCustomerWasToldOnce(orderId: $orderId, messageKey: 'refund_request_canceled_message', textKey: 'refund_request_canceled_message');
-        $this->assertNoOrderMailWasSent();
+        $this->assertTheDevicesWereToldOnce(orderId: $orderId, told: [
+            self::CUSTOMER_DEVICE => $this->toTheCustomer(key: 'refund_request_canceled_message'),
+            self::VENDOR_DEVICE => $this->toTheVendor(key: 'refund_request_canceled_message', refundId: $refundId),
+        ]);
         $this->assertANewSaleFollowsTheState(shopper: $shopper, country: $country, state: $state);
     }
 
     #[DataProvider('everyStateThatMayNotSellAndItsControl')]
-    public function test_the_vendor_is_told_when_the_customer_asks_for_a_refund_during_the_stop_in_every_state_that_may_not_sell(string $country, ?string $state): void
+    public function test_the_customer_and_the_vendor_are_told_when_the_vendor_rejects_a_refund_from_the_seller_api_v3_in_every_state_that_may_not_sell(string $country, ?string $state): void
+    {
+        $this->skipInStrictModeUntilTheCouponCountIsFixed();
+        [$orderId, $refundId] = $this->placeAnOrderWithARefundAsked(country: $country, soldByTheVendor: true);
+        $shopper = $this->stopWithANewSaleWaiting(country: $country, state: $state);
+
+        $this->asTheVendorInTheSellerApp()->postJson(self::VENDOR_API_V3_REFUND, ['refund_request_id' => $refundId, 'refund_status' => 'rejected', 'note' => 'The box was opened'])
+            ->assertOk()->assertJsonPath('message', 'refund status updated successfully!');
+
+        $this->assertSame('rejected', DB::table('refund_requests')->where('id', $refundId)->value('status'));
+        $this->assertTheDevicesWereToldOnce(orderId: $orderId, told: [
+            self::CUSTOMER_DEVICE => $this->toTheCustomer(key: 'refund_request_canceled_message'),
+            self::VENDOR_DEVICE => $this->toTheVendor(key: 'refund_request_canceled_message', refundId: $refundId),
+        ]);
+        $this->assertANewSaleFollowsTheState(shopper: $shopper, country: $country, state: $state);
+    }
+
+    #[DataProvider('everyStateThatMayNotSellAndItsControl')]
+    public function test_the_customer_is_told_when_the_vendor_rejects_a_refund_from_the_seller_api_v2_in_every_state_that_may_not_sell(string $country, ?string $state): void
+    {
+        $this->skipInStrictModeUntilTheCouponCountIsFixed();
+        [$orderId, $refundId] = $this->placeAnOrderWithARefundAsked(country: $country, soldByTheVendor: true);
+        $shopper = $this->stopWithANewSaleWaiting(country: $country, state: $state);
+
+        $this->asTheVendorInTheSellerApp()->postJson(self::VENDOR_API_V2_REFUND, ['refund_request_id' => $refundId, 'refund_status' => 'rejected', 'note' => 'The box was opened'])
+            ->assertOk()->assertJsonPath('message', 'refund status updated successfully!');
+
+        $this->assertSame('rejected', DB::table('refund_requests')->where('id', $refundId)->value('status'));
+        $this->assertTheCustomerWasToldOnce(orderId: $orderId, messageKey: 'refund_request_canceled_message');
+        $this->assertANewSaleFollowsTheState(shopper: $shopper, country: $country, state: $state);
+    }
+
+    #[DataProvider('everyStateThatMayNotSellAndItsControl')]
+    public function test_the_vendor_is_told_when_the_customer_asks_for_a_refund_from_the_app_during_the_stop_in_every_state_that_may_not_sell(string $country, ?string $state): void
     {
         $this->skipInStrictModeUntilTheCouponCountIsFixed();
         [$customer, $orderId] = $this->placeAnOrder(country: $country, soldByTheVendor: true);
@@ -636,10 +828,24 @@ class StorefrontStopNotificationsTest extends ApiAddressTestCase
 
         $refundId = $this->askForARefund(customer: $customer, country: $country, lineId: $lineId);
 
-        $told = array_values(array_filter($this->takeThePushes(), fn (array $push) => $push['token'] === self::VENDOR_DEVICE));
-        $this->assertCount(1, $told, 'the vendor is told once');
-        $this->assertSame(['refund', (string) $orderId, (string) $refundId], [$told[0]['data']['type'], $told[0]['data']['order_id'], $told[0]['data']['refund_id']]);
-        $this->assertNoOrderMailWasSent();
+        $this->assertTheDevicesWereToldOnce(orderId: $orderId, told: [self::VENDOR_DEVICE => $this->toTheVendor(key: self::NEW_REFUND_KEY, refundId: $refundId)]);
+        $this->assertANewSaleFollowsTheState(shopper: $shopper, country: $country, state: $state);
+    }
+
+    #[DataProvider('everyStateThatMayNotSellAndItsControl')]
+    public function test_the_vendor_is_told_when_the_customer_asks_for_a_refund_on_the_website_during_the_stop_in_every_state_that_may_not_sell(string $country, ?string $state): void
+    {
+        $this->skipInStrictModeUntilTheCouponCountIsFixed();
+        [$customer, $orderId] = $this->placeAnOrder(country: $country, soldByTheVendor: true);
+        $lineId = $this->deliverTheOrder(orderId: $orderId);
+        $shopper = $this->stopWithANewSaleWaiting(country: $country, state: $state);
+
+        $this->asTheCustomerOnTheWebsite($customer)->post(route('refund-store'), ['order_details_id' => $lineId, 'amount' => self::PRODUCTS[$country]['price'], 'refund_reason' => 'The box arrived damaged'])
+            ->assertRedirect(route('account-order-details', ['id' => $orderId]));
+
+        $refundId = (int) DB::table('refund_requests')->where('order_details_id', $lineId)->value('id');
+        $this->assertNotSame(0, $refundId, 'the refund is asked for');
+        $this->assertTheDevicesWereToldOnce(orderId: $orderId, told: [self::VENDOR_DEVICE => $this->toTheVendor(key: self::NEW_REFUND_KEY, refundId: $refundId)]);
         $this->assertANewSaleFollowsTheState(shopper: $shopper, country: $country, state: $state);
     }
 
@@ -659,27 +865,29 @@ class StorefrontStopNotificationsTest extends ApiAddressTestCase
         ])->assertRedirect();
 
         $this->assertSame('returned', OrderEditHistory::where('order_id', $orderId)->value('order_return_payment_status'), 'the amount is returned');
-        $this->assertTheCustomerWasToldOnce(orderId: $orderId, messageKey: 'order_edit_return_amount_message', textKey: 'order_edit_return_amount_message');
-        $this->assertNoOrderMailWasSent();
+        $this->assertTheCustomerWasToldOnce(orderId: $orderId, messageKey: 'order_edit_return_amount_message');
         $this->assertANewSaleFollowsTheState(shopper: $shopper, country: $country, state: $state);
     }
 
     // ---- the due payment ---------------------------------------------------------------------------------------------------------------------
 
     #[DataProvider('everyStateThatMayNotSellAndItsControl')]
-    public function test_the_push_of_a_due_payment_is_asked_for_once_when_the_customer_chooses_cash_in_every_state_that_may_not_sell(string $country, ?string $state): void
+    public function test_the_push_of_a_due_payment_is_asked_for_once_and_reaches_no_device_in_every_state_that_may_not_sell(string $country, ?string $state): void
     {
         $this->skipInStrictModeUntilTheCouponCountIsFixed();
         [$customer, $orderId] = $this->placeAnOrder(country: $country, soldByTheVendor: true);
         OrderEditHistory::create(['order_id' => $orderId, 'order_amount' => self::PRODUCTS[$country]['price'], 'order_due_amount' => 10, 'order_due_payment_status' => 'unpaid']);
         $shopper = $this->stopWithANewSaleWaiting(country: $country, state: $state);
-        Event::fake([OrderEditDuePaymentEvent::class]);
+        $asked = [];
+        Event::listen(OrderEditDuePaymentEvent::class, function (OrderEditDuePaymentEvent $event) use (&$asked) {
+            $asked[] = [$event->notification->key, $event->notification->type, (int) $event->notification->order->id];
+        });
 
-        $this->asStaff()->actingAs($customer, 'customer')->post(self::DUE_PAYMENT, ['order_id' => $orderId, 'payment_method' => 'cash_on_delivery', 'payment_platform' => 'web'])->assertRedirect();
+        $this->asTheCustomerOnTheWebsite($customer)->post(self::DUE_PAYMENT, ['order_id' => $orderId, 'payment_method' => 'cash_on_delivery', 'payment_platform' => 'web'])->assertRedirect();
 
         $this->assertSame('cash_on_delivery', OrderEditHistory::where('order_id', $orderId)->value('order_due_payment_method'), 'the customer chose cash for the due amount');
-        Event::assertDispatchedTimes(OrderEditDuePaymentEvent::class, 1);
-        Event::assertDispatched(OrderEditDuePaymentEvent::class, fn (OrderEditDuePaymentEvent $event) => [$event->notification->key, $event->notification->type, (int) $event->notification->order->id] === ['order_edit_due_payment_message', 'seller', $orderId]);
+        $this->assertSame([['order_edit_due_payment_message', 'seller', $orderId]], $asked, 'the push of the due payment is asked for once, for the vendor of that order');
+        $this->assertSame([], $this->takeThePushes(), 'the push of a due payment reaches no device today, in a storefront that sells as well as in one that may not: its key has no entry in PushNotificationTrait::pushNotificationMessage. Once it has one, assert the one message to the vendor here, in every state');
         $this->assertNoOrderMailWasSent();
         $this->assertANewSaleFollowsTheState(shopper: $shopper, country: $country, state: $state);
     }
