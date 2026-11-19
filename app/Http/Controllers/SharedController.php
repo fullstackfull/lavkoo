@@ -45,14 +45,25 @@ class SharedController extends Controller
 
     public function getActivationCheckView(Request $request): View|RedirectResponse
     {
-        $config = $this->getAddonsConfig();
-        $adminPanel = $config['admin_panel'] ?? [];
-        $status = ($this->is_local() || env('DEVELOPMENT_ENVIRONMENT', false)) ? 1 : ($adminPanel['active'] ?? 0);
-        return $status == 1 ? redirect(url('/')) : view('installation.activation-check');
+        return $this->isAdminPanelActivated() ? redirect(url('/')) : view('installation.activation-check');
+    }
+
+    /** The activation form and the request it posts have nothing to do on a panel that is activated already. */
+    private function isAdminPanelActivated(): bool
+    {
+        if ($this->is_local() || env('DEVELOPMENT_ENVIRONMENT', false)) {
+            return true;
+        }
+
+        return ($this->getAddonsConfig()['admin_panel']['active'] ?? 0) == 1;
     }
 
     public function activationCheck(Request $request): RedirectResponse
     {
+        if ($this->isAdminPanelActivated()) {
+            return redirect(url('/'));
+        }
+
         $response = $this->getRequestConfig(
             username: $request['username'],
             purchaseKey: $request['purchase_key'],
