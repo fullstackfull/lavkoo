@@ -423,7 +423,7 @@ class ComplianceClaimScanTest extends TestCase
         $this->assertSame([], (new ComplianceClaimScanner())->inPayload(label: 'a clean payload', payload: ['enabled' => true, 'storefronts' => [['country' => 'KW', 'sellable' => false, 'state' => 'draft']]]));
     }
 
-    public function test_the_scan_read_every_language_directory_and_the_views_of_the_panels_the_modules_and_the_theme(): void
+    public function test_the_scan_reads_every_language_directory_and_the_views_of_the_panels_the_modules_and_the_theme(): void
     {
         $scanner = new ComplianceClaimScanner();
         $languageFiles = $scanner->languageFiles(languageRoots: self::languageRoots());

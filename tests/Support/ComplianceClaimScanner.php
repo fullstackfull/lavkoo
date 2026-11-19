@@ -186,7 +186,7 @@ final class ComplianceClaimScanner
     {
         $findings = [];
 
-        foreach ($this->languageFiles($languageRoots) as $file) {
+        foreach ($this->languageFiles(languageRoots: $languageRoots) as $file) {
             foreach ($this->flatten(messages: $this->messagesOf(file: $file)) as $key => $text) {
                 $claims = array_values(array_unique(array_merge($this->claimsIn(text: (string) $key), $this->claimsIn(text: $text))));
 
@@ -209,7 +209,7 @@ final class ComplianceClaimScanner
     {
         $findings = [];
 
-        foreach ($this->viewFiles($directories) as $file) {
+        foreach ($this->viewFiles(directories: $directories) as $file) {
             $source = (string) file_get_contents($file);
             $claimsOfTheFile = $this->claimsIn(text: $source);
 
@@ -322,7 +322,7 @@ final class ComplianceClaimScanner
     /** @return array<string, mixed> */
     private function messagesOf(string $file): array
     {
-        $messages = str_ends_with($file, '.json') ? json_decode((string) file_get_contents($file), true) : (static fn (string $path): mixed => require $path)($file);
+        $messages = str_ends_with($file, '.json') ? json_decode((string) file_get_contents($file), true) : (static fn (string $path): mixed => require $path)(path: $file);
 
         if (!is_array($messages)) {
             throw new UnexpectedValueException("The language file {$file} does not hold an array of messages.");

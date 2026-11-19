@@ -109,7 +109,7 @@ class ComplianceClaimPayloadsTest extends TestCase
 
         $this->assertSame(
             [],
-            array_map(static fn (array $finding): string => $scanner->describe($finding), $findings),
+            array_map(static fn (array $finding): string => $scanner->describe(finding: $finding), $findings),
             "{$answer} says a storefront is compliant, certified or approved by an authority. The platform reviews and approves nothing: an answer says a storefront is not open for checkout, or not approved (I2-07).",
         );
     }
