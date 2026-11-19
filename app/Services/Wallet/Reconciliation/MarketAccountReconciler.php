@@ -64,7 +64,7 @@ final class MarketAccountReconciler
 
         foreach ($markets as $market) {
             $held = $probe->sum($accounts, $kind->amountColumn(), static fn (Builder $query) => $query->where('market', $market));
-            $moved = $this->netOfLedger($probe, $ledger, static fn (Builder $query) => $query->where(MarketBalanceKind::MARKET_COLUMN, $market));
+            $moved = $this->netOfLedger(probe: $probe, ledger: $ledger, where: static fn (Builder $query) => $query->where(MarketBalanceKind::MARKET_COLUMN, $market));
             $difference = $held - $moved;
             $equal = abs($difference) <= $tolerance;
 
@@ -85,7 +85,7 @@ final class MarketAccountReconciler
             'ledger rows that name no market',
             CompatibilityCheck::INFO,
             sprintf('%d rows, net %s: written before the markets, or by a writer that has not been switched over', $unattributed, $this->plain(
-                $this->netOfLedger($probe, $ledger, static fn (Builder $query) => $query->whereNull(MarketBalanceKind::MARKET_COLUMN)),
+                $this->netOfLedger(probe: $probe, ledger: $ledger, where: static fn (Builder $query) => $query->whereNull(MarketBalanceKind::MARKET_COLUMN)),
             )),
             ['rows' => $unattributed],
         );
