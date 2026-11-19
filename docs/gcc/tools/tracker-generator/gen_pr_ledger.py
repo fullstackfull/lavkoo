@@ -60,6 +60,9 @@ EXTRA = {
     122: ('test(gcc): six legacy behaviours of main are pinned as they are: push language, push topics, the abandoned-cart ledger, one-time codes by app mode, the vendor split of an order and the website direction (I1-03.1, I1-05.3, I1-09.1, M1-05.5, M2-06.2, I1-16.5; draft, test only, main based)', 'gcc/p1-legacy-behaviour-pins', 'main'),
     123: ('test(gcc): the status, refund and due-payment notifications of an earlier order are sent in every state in which a storefront may not sell (I1-07.1; draft, test only, stacked on PR 111)', 'gcc/p1-notification-stop-pins', 'gcc/p1-storefront-lifecycle'),
     124: ('M2-19: the Saudi literals in the platform\'s code are a closed list that fails on a new one (tests only)', 'gcc/p1-saudi-literals-guard', 'main'),
+    125: ('I1-07.2, I1-07.3: a storefront that may not sell is sent no marketing, and every notification type is listed as necessary or marketing (draft, off by default, stacked on #111)', 'gcc/p1-marketing-stop-registry', 'gcc/p1-storefront-lifecycle'),
+    126: ('J-13.1 backend half: every customer answer that carries an order carries the storefront and the currency it was sold in (draft, tests only, stacked on #111)', 'gcc/p1-order-answer-market', 'gcc/p1-storefront-lifecycle'),
+    127: ("F-10.2, F-12.2, F-12.3: a banner section's theme folder is chosen before the storefront narrows it, and a theme switched back to stays active (draft, off by default, stacked on #112)", 'gcc/p1-theme-banner-folder-and-identity', 'gcc/p1-theme-publish-per-storefront'),
 }
 
 
