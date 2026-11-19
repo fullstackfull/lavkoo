@@ -44,8 +44,11 @@ class MasterAccountInStaffManagementTest extends TestCase
 
     private const INTEGRATIONS_EMPLOYEE = 3;
 
-    /** An employee whose role holds staff management and nothing else. */
-    private const PEOPLE_EMPLOYEE = 9;
+    /**
+     * Who asks in these tests: an account that holds the master role and is not the first admin. Staff management lets nobody
+     * else in, and such an account is the one that must not be able to raise itself over the first admin or over its equals.
+     */
+    private const ANOTHER_MASTER = 9;
 
     private const PEOPLE_ROLE = 9;
 
@@ -67,7 +70,7 @@ class MasterAccountInStaffManagementTest extends TestCase
             $table->text('identify_image')->nullable();
         });
         DB::table('admin_roles')->insert(['id' => self::PEOPLE_ROLE, 'name' => 'People only', 'module_access' => json_encode(['people']), 'status' => 1]);
-        DB::table('admins')->insert(['id' => self::PEOPLE_EMPLOYEE, 'name' => 'People employee', 'email' => 'people@example.test', 'admin_role_id' => self::PEOPLE_ROLE]);
+        DB::table('admins')->insert(['id' => self::ANOTHER_MASTER, 'name' => 'Another master', 'email' => 'another-master@example.test', 'admin_role_id' => self::MASTER_ROLE]);
         DB::table('admins')->update(['password' => bcrypt(self::OWN_PASSWORD), 'phone' => '0500000000']);
 
         View::getFinder()->prependLocation(base_path('tests/Support/views'));
@@ -84,17 +87,17 @@ class MasterAccountInStaffManagementTest extends TestCase
     {
         $before = $this->everyAccount();
 
-        $this->signedInAs(self::PEOPLE_EMPLOYEE)->post('/admin/employee/update/' . self::MASTER, $this->anEmployeeForm())->assertRedirect();
+        $this->signedInAs(self::ANOTHER_MASTER)->post('/admin/employee/update/' . self::MASTER, $this->anEmployeeForm())->assertRedirect();
 
         $this->assertSame($before, $this->everyAccount());
-        $this->assertSame(1, DB::table('admins')->where('admin_role_id', self::MASTER_ROLE)->count(), 'the platform must never be left with no master account');
+        $this->assertSame(self::MASTER_ROLE, (int) $this->account(self::MASTER)->admin_role_id, 'the first admin must never lose the master role to a request of staff management');
     }
 
     public function test_an_id_in_the_body_is_refused_as_surely_as_an_id_in_the_address(): void
     {
         $before = $this->everyAccount();
 
-        $this->signedInAs(self::PEOPLE_EMPLOYEE)
+        $this->signedInAs(self::ANOTHER_MASTER)
             ->post('/admin/employee/update/' . self::INTEGRATIONS_EMPLOYEE, ['id' => self::MASTER] + $this->anEmployeeForm())
             ->assertRedirect();
 
@@ -103,7 +106,7 @@ class MasterAccountInStaffManagementTest extends TestCase
 
     public function test_staff_management_does_not_switch_the_first_admin_off_whichever_way_it_is_asked(): void
     {
-        $asked = $this->signedInAs(self::PEOPLE_EMPLOYEE);
+        $asked = $this->signedInAs(self::ANOTHER_MASTER);
 
         $asked->post('/admin/employee/status', ['id' => self::MASTER, 'status' => 0])->assertRedirect();
         $this->assertSame(1, (int) $this->account(self::MASTER)->status);
@@ -116,13 +119,56 @@ class MasterAccountInStaffManagementTest extends TestCase
     {
         DB::table('admins')->insert(['id' => 7, 'name' => 'Second master', 'email' => 'second@example.test', 'admin_role_id' => self::MASTER_ROLE, 'password' => bcrypt(self::OWN_PASSWORD), 'phone' => '0500000000']);
         $before = $this->everyAccount();
-        $asked = $this->signedInAs(self::PEOPLE_EMPLOYEE);
+        $asked = $this->signedInAs(self::ANOTHER_MASTER);
 
         $asked->post('/admin/employee/update/7', $this->anEmployeeForm())->assertRedirect();
         $asked->post('/admin/employee/status', ['id' => 7, 'status' => 0])->assertRedirect();
         $asked->get('/admin/employee/update/7')->assertRedirect();
 
         $this->assertSame($before, $this->everyAccount());
+    }
+
+    /** Such an account must always be removable, and by one account only: otherwise whoever obtains the master role keeps it. */
+    public function test_the_first_admin_alone_switches_off_and_demotes_another_account_that_holds_the_master_role(): void
+    {
+        DB::table('admins')->insert(['id' => 7, 'name' => 'Second master', 'email' => 'second@example.test', 'admin_role_id' => self::MASTER_ROLE, 'password' => bcrypt(self::OWN_PASSWORD), 'phone' => '0500000007', 'status' => 1]);
+        DB::table('admins')->insert(['id' => 8, 'name' => 'Third master', 'email' => 'third@example.test', 'admin_role_id' => self::MASTER_ROLE, 'password' => bcrypt(self::OWN_PASSWORD), 'phone' => '0500000008', 'status' => 1]);
+
+        $before = $this->everyAccount();
+        $this->signedInAs(8)->post('/admin/employee/status', ['id' => 7, 'status' => 0])->assertRedirect();
+        $this->signedInAs(8)->post('/admin/employee/update/7', $this->anEmployeeForm())->assertRedirect();
+        $this->assertSame($before, $this->everyAccount(), 'an account holding the master role does not manage its equals');
+
+        $this->signedInAs(self::MASTER)->post('/admin/employee/status', ['id' => 7, 'status' => 0])->assertRedirect();
+        $this->signedInAs(self::MASTER)->post('/admin/employee/update/7', $this->anEmployeeForm())->assertRedirect();
+
+        $second = $this->account(7);
+        $this->assertSame(0, (int) $second->status);
+        $this->assertSame(self::PEOPLE_ROLE, (int) $second->admin_role_id);
+        $this->assertSame($this->everyAccountBut(7), array_diff_key($before, [7 => true]), 'and nobody else was touched');
+    }
+
+    /** The first admin is the account with id 1, whatever role its row carries. */
+    public function test_the_first_admin_is_out_of_reach_even_when_its_row_carries_another_role(): void
+    {
+        DB::table('admins')->where('id', self::MASTER)->update(['admin_role_id' => self::PEOPLE_ROLE]);
+        $before = $this->everyAccount();
+        $asked = $this->signedInAs(self::ANOTHER_MASTER);
+
+        $asked->post('/admin/employee/update/' . self::MASTER, $this->anEmployeeForm())->assertRedirect();
+        $asked->post('/admin/employee/status', ['id' => self::MASTER, 'status' => 0])->assertRedirect();
+
+        $this->assertSame($before, $this->everyAccount());
+    }
+
+    public function test_the_record_of_a_master_account_is_not_shown_by_staff_management(): void
+    {
+        DB::table('admins')->insert(['id' => 7, 'name' => 'Second master', 'email' => 'second@example.test', 'admin_role_id' => self::MASTER_ROLE, 'password' => bcrypt(self::OWN_PASSWORD), 'phone' => '0500000007', 'status' => 1]);
+        $asked = $this->signedInAs(self::ANOTHER_MASTER);
+
+        $asked->get('/admin/employee/view/' . self::MASTER)->assertRedirect(route('admin.employee.list'));
+        $asked->get('/admin/employee/view/7')->assertRedirect(route('admin.employee.list'));
+        $asked->get('/admin/employee/update/7')->assertRedirect(route('admin.employee.list'));
     }
 
     public function test_the_first_admin_does_not_manage_a_master_account_through_staff_management_either(): void
@@ -137,7 +183,7 @@ class MasterAccountInStaffManagementTest extends TestCase
     public function test_staff_management_still_rewrites_and_switches_off_an_ordinary_employee(): void
     {
         $others = $this->everyAccountBut(self::INTEGRATIONS_EMPLOYEE);
-        $asked = $this->signedInAs(self::PEOPLE_EMPLOYEE);
+        $asked = $this->signedInAs(self::ANOTHER_MASTER);
 
         $asked->post('/admin/employee/update/' . self::INTEGRATIONS_EMPLOYEE, $this->anEmployeeForm())->assertRedirect();
         $asked->post('/admin/employee/status', ['id' => self::INTEGRATIONS_EMPLOYEE, 'status' => 0])->assertRedirect();
@@ -152,7 +198,7 @@ class MasterAccountInStaffManagementTest extends TestCase
     {
         $before = $this->everyAccount();
 
-        $this->signedInAs(self::PEOPLE_EMPLOYEE)
+        $this->signedInAs(self::ANOTHER_MASTER)
             ->post('/admin/employee/update/' . self::INTEGRATIONS_EMPLOYEE, ['role_id' => self::MASTER_ROLE] + $this->anEmployeeForm())
             ->assertRedirect();
 
@@ -179,7 +225,7 @@ class MasterAccountInStaffManagementTest extends TestCase
     {
         $before = $this->everyAccount();
 
-        $this->signedInAs(self::PEOPLE_EMPLOYEE)
+        $this->signedInAs(self::ANOTHER_MASTER)
             ->post('/admin/employee/update/' . self::INTEGRATIONS_EMPLOYEE, ['role_id' => $spelling] + $this->anEmployeeForm())
             ->assertRedirect();
 
@@ -191,8 +237,8 @@ class MasterAccountInStaffManagementTest extends TestCase
     {
         $before = $this->everyAccount();
 
-        $this->signedInAs(self::PEOPLE_EMPLOYEE)
-            ->post('/admin/employee/update/' . self::PEOPLE_EMPLOYEE, ['role_id' => $spelling] + $this->anEmployeeForm())
+        $this->signedInAs(self::ANOTHER_MASTER)
+            ->post('/admin/employee/update/' . self::ANOTHER_MASTER, ['role_id' => $spelling] + $this->anEmployeeForm())
             ->assertRedirect();
 
         $this->assertSame($before, $this->everyAccount());
@@ -203,7 +249,7 @@ class MasterAccountInStaffManagementTest extends TestCase
     {
         $before = $this->everyAccount();
 
-        $this->signedInAs(self::PEOPLE_EMPLOYEE)
+        $this->signedInAs(self::ANOTHER_MASTER)
             ->post('/admin/employee/add', ['role_id' => $spelling, 'email' => 'new@example.test', 'image' => UploadedFile::fake()->image('face.png')] + $this->anEmployeeForm())
             ->assertRedirect();
 
@@ -212,7 +258,7 @@ class MasterAccountInStaffManagementTest extends TestCase
 
     public function test_an_ordinary_role_is_stored_as_the_number_it_is(): void
     {
-        $this->signedInAs(self::PEOPLE_EMPLOYEE)
+        $this->signedInAs(self::ANOTHER_MASTER)
             ->post('/admin/employee/update/' . self::INTEGRATIONS_EMPLOYEE, ['role_id' => (string) self::PEOPLE_ROLE] + $this->anEmployeeForm())
             ->assertRedirect();
 
@@ -224,7 +270,7 @@ class MasterAccountInStaffManagementTest extends TestCase
     public function test_the_master_role_is_not_rewritten_switched_off_or_deleted(): void
     {
         $before = $this->everyRole();
-        $asked = $this->signedInAs(self::PEOPLE_EMPLOYEE);
+        $asked = $this->signedInAs(self::ANOTHER_MASTER);
 
         $asked->post('/admin/custom-role/update/' . self::MASTER_ROLE, ['name' => 'Renamed', 'modules' => ['people']])->assertRedirect();
         $asked->post('/admin/custom-role/employee-role-status', ['id' => self::MASTER_ROLE, 'status' => 0])->assertForbidden();
@@ -234,9 +280,33 @@ class MasterAccountInStaffManagementTest extends TestCase
         $this->assertSame($before, $this->everyRole());
     }
 
+    /** The role is the one the request will write to: an id in the body is read before the one in the address. */
+    public function test_the_master_role_is_not_rewritten_through_the_address_of_another_role(): void
+    {
+        $before = $this->everyRole();
+
+        $this->signedInAs(self::ANOTHER_MASTER)
+            ->post('/admin/custom-role/update/' . self::PEOPLE_ROLE, ['id' => self::MASTER_ROLE, 'name' => 'Renamed', 'modules' => ['people']])
+            ->assertRedirect();
+
+        $this->assertSame($before, $this->everyRole());
+    }
+
+    #[DataProvider('aMasterRoleInDisguise')]
+    public function test_the_master_role_is_not_switched_off_or_deleted_under_another_spelling(mixed $spelling): void
+    {
+        $before = $this->everyRole();
+        $asked = $this->signedInAs(self::ANOTHER_MASTER);
+
+        $asked->post('/admin/custom-role/employee-role-status', ['id' => $spelling, 'status' => 0]);
+        $asked->post('/admin/custom-role/delete', ['id' => $spelling]);
+
+        $this->assertSame($before, $this->everyRole(), 'no spelling of a role id may reach the master role');
+    }
+
     public function test_an_ordinary_role_is_still_switched_off_and_deleted(): void
     {
-        $asked = $this->signedInAs(self::PEOPLE_EMPLOYEE);
+        $asked = $this->signedInAs(self::ANOTHER_MASTER);
 
         $asked->post('/admin/custom-role/employee-role-status', ['id' => 3, 'status' => 0])->assertOk();
         $this->assertSame(0, (int) DB::table('admin_roles')->where('id', 3)->value('status'));
