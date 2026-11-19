@@ -11239,4 +11239,6 @@ return [
 	'sections_the_app_cannot_show' => 'Sections the app cannot show',
 	'section_types_will_not_appear_in_the_mobile_app' => 'Section types will not appear in the mobile app',
 	'theme_activated_successfully' => 'Theme activated successfully',
+	'you_can_not_delete_account_while_your_wallet_holds_money' => 'You can not delete account while your wallet holds money',
+	'you_can_not_delete_account_while_you_still_have_loyalty_points' => 'You can not delete account while you still have loyalty points',
 ];
