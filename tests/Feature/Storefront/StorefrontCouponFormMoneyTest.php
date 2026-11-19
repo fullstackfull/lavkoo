@@ -39,8 +39,6 @@ class StorefrontCouponFormMoneyTest extends TestCase
     use BuildsStorefrontMoneyWorld;
     use RestoresLanguageFiles;
 
-    private const KUWAITI_DINAR_ID = 4;
-
     protected function setUp(): void
     {
         parent::setUp();
@@ -112,7 +110,7 @@ class StorefrontCouponFormMoneyTest extends TestCase
         DB::table('business_settings')->where('type', 'decimal_point_settings')->update(['value' => (string) $decimals]);
 
         if ($decimals === 3) {
-            DB::table('business_settings')->where('type', 'system_default_currency')->update(['value' => (string) self::KUWAITI_DINAR_ID]);
+            DB::table('business_settings')->where('type', 'system_default_currency')->update(['value' => (string) DB::table('currencies')->where('code', 'KWD')->value('id')]);
         }
 
         clearWebConfigCacheKeys();
@@ -203,7 +201,7 @@ class StorefrontCouponFormMoneyTest extends TestCase
         $id = $this->addCoupon(['storefront_country' => 'SA', 'min_purchase' => 4.35, 'discount' => 1.13, 'max_discount' => 2.26]);
         $before = $this->storedAmounts($id);
 
-        foreach (range(1, 3) as $edit) {
+        for ($edit = 1; $edit <= 3; $edit++) {
             $this->postTheEditFormBack($id, $this->fieldsOfTheEditForm($id));
         }
 

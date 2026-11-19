@@ -249,7 +249,7 @@
                                     @endphp
                                     <td class="k-table__num">
                                         <span class="k-num">{{ $coupon['coupon_type'] === 'free_delivery' ? '—' : $couponAmounts['discount'] }}</span>
-                                        <span class="k-text-subtle d-block">{{ translate('minimum_purchase') }} {{ $couponAmounts['minimumPurchase'] }}</span>
+                                        <span class="k-text-subtle" style="display:block;font-size:var(--k-text-sm)">{{ translate('minimum_purchase') }} {{ $couponAmounts['minimumPurchase'] }}</span>
                                     </td>
                                 @endif
                                 <td>
