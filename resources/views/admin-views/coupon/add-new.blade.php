@@ -3,6 +3,11 @@
 @section('title', translate('coupon_Add'))
 
 @section('content')
+    @php
+        use App\Services\Storefront\CouponCountry;
+
+        $tracksCouponCountry = CouponCountry::isTracked();
+    @endphp
     <div class="content container-fluid">
         <div class="mb-3">
             <h2 class="h1 mb-0 text-capitalize d-flex align-items-center gap-2">
@@ -199,6 +204,9 @@
                             </th>
                             <th>{{ translate('coupon') }}</th>
                             <th>{{ translate('coupon_type') }}</th>
+                            @if ($tracksCouponCountry)
+                                <th class="k-table__num">{{ translate('discount') }}</th>
+                            @endif
                             <th>{{ translate('duration') }}</th>
                             <th class="k-table__num">{{ translate('Limit') }}</th>
                             <th class="k-table__num">{{ translate('Total_Used') }}</th>
@@ -228,6 +236,22 @@
                                     <code class="k-text-subtle">{{ $coupon['code'] }}</code>
                                 </td>
                                 <td class="text-capitalize">{{ translate(str_replace('_', ' ', $coupon['coupon_type'])) }}</td>
+                                @if ($tracksCouponCountry)
+                                    @php
+                                        // A coupon's amounts are typed in the currency of its own storefront and never converted
+                                        // from another's, so each row is read in the money it was written in.
+                                        $couponAmounts = CouponCountry::inMoneyOf(coupon: $coupon, callback: fn (): array => [
+                                            'discount' => $coupon['discount_type'] === 'percentage'
+                                                ? $coupon['discount'] . '%'
+                                                : setCurrencySymbol(amount: usdToDefaultCurrency(amount: $coupon['discount']), currencyCode: getCurrencyCode()),
+                                            'minimumPurchase' => setCurrencySymbol(amount: usdToDefaultCurrency(amount: $coupon['min_purchase']), currencyCode: getCurrencyCode()),
+                                        ]);
+                                    @endphp
+                                    <td class="k-table__num">
+                                        <span class="k-num">{{ $coupon['coupon_type'] === 'free_delivery' ? '—' : $couponAmounts['discount'] }}</span>
+                                        <span class="k-text-subtle d-block">{{ translate('minimum_purchase') }} {{ $couponAmounts['minimumPurchase'] }}</span>
+                                    </td>
+                                @endif
                                 <td>
                                     <span class="k-num">{{ date('d M, y', $couponStartsAt) }} – {{ date('d M, y', $couponExpiresAt) }}</span>
                                     @if ($couponExpiresAt < $today)
