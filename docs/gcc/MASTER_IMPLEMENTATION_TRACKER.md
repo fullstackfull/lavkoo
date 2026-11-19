@@ -14,7 +14,7 @@ As of 2026-11-19. Generated from the independent assessment of every requirement
 
 | Axis | Requirements | Criteria | MET | CODED | MISSING | Code completion | Proven by tests | Release readiness | Verified |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| [A. Six-country base and customer identity](tracker/axis-a-six-country-base-and-customer-identity.md) | 37 | 170 | 88 | 25 | 57 | 66% | 52% | 9% | all |
+| [A. Six-country base and customer identity](tracker/axis-a-six-country-base-and-customer-identity.md) | 37 | 173 | 88 | 26 | 59 | 66% | 51% | 9% | all |
 | [B. Catalogue and products](tracker/axis-b-catalogue-and-products.md) | 18 | 91 | 34 | 17 | 40 | 56% | 37% | 0% | all |
 | [C. Inventory and fulfillment](tracker/axis-c-inventory-and-fulfillment.md) | 18 | 94 | 65 | 9 | 20 | 79% | 69% | 30% | all |
 | [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 179 | 83 | 31 | 65 | 64% | 46% | 8% | all |
@@ -26,8 +26,8 @@ As of 2026-11-19. Generated from the independent assessment of every requirement
 | [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 98 | 42 | 30 | 26 | 73% | 43% | 5% | all |
 | [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 104 | 44 | 19 | 41 | 61% | 42% | 3% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 45 | 18 | 31 | 67% | 48% | 7% | all |
-| [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 302 | 104 | 109 | 89 | 71% | 34% | 3% | all |
-| **All axes (pooled)** | **359** | **1741** | **808** | **333** | **600** | **66%** | **46%** | **8%** | |
+| [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 311 | 104 | 113 | 94 | 70% | 33% | 3% | all |
+| **All axes (pooled)** | **359** | **1753** | **808** | **338** | **607** | **65%** | **46%** | **8%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -146,7 +146,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [A1-16](tracker/axis-a-six-country-base-and-customer-identity.md) | IMPLEMENTED IN DRAFT | 4/0/0 | App-local caches in the Flutter apps are market-scoped |
 | [A1-17](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 2/0/3 | Notifications are market-scoped (push topics, queued mail) |
 | [A1-18](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 2/1/2 | Inventory is market-scoped: no shared stock between countries |
-| [A1-V1](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 0/0/1 | One platform: one website, one customer Flutter app and one central control panel serve all six mark... |
+| [A1-V1](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 0/1/3 | One platform: one website, one customer Flutter app and one central control panel serve all six mark... |
 | [A1-V2](tracker/axis-a-six-country-base-and-customer-identity.md) | NOT STARTED | 1/0/3 | SEO surfaces (canonical URL, hreflang, sitemap, robots, SEO redirects) are market-scoped. |
 | [A2-01](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 1/2/2 | One customer record serves all six markets |
 | [A2-02](tracker/axis-a-six-country-base-and-customer-identity.md) | IMPLEMENTED IN DRAFT | 2/2/0 | One login on the website and in the app |
@@ -523,11 +523,11 @@ Executable on an isolated branch without production access, ordered by the prior
 | [M2-17](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1/3/2 | Historical Saudi data: ids preserved, backfill, reconciliation, staged upgrade, rollback |
 | [M2-18](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 4/0/2 | Operational services: logs, queues, scheduler, caches, search, storage, metrics, sync, rollback |
 | [M2-19](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/3/2 | Saudi assumptions, old links and integrations (axis L) |
-| [M2-V1](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/0/1 | Every existing Laravel and Flutter feature is classified as Reuse As-Is, Extend Existing, Refactor C... |
+| [M2-V1](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/1/3 | Every existing Laravel and Flutter feature is classified as Reuse As-Is, Extend Existing, Refactor C... |
 | [M2-V2](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/2/1 | No quick production change and no direct SQL is used to settle an architectural problem: changes shi... |
 | [M2-V3](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/1/2 | Global data and per-market data are told apart in the migration plan and in code: every table the pl... |
-| [M2-V4](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/0/1 | The staged upgrade needs no downtime and no migration is created-and-run on live data: each step is ... |
-| [M2-V5](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/0/1 | Storage and rollback capabilities (axis K bullets) are audited and tested for six markets: private d... |
+| [M2-V4](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/1/3 | The staged upgrade needs no downtime and no migration is created-and-run on live data: each step is ... |
+| [M2-V5](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/2/2 | Storage and rollback capabilities (axis K bullets) are audited and tested for six markets: private d... |
 | [M2-V6](tracker/axis-m-security-tests-and-deployment.md) | NOT STARTED | 0/0/4 | Stock balances (current_stock, holds, outbox, provider stock) and prices of existing products reconc... |
 | [M3-01](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/3/1 | Report 01 Executive Assessment: state of the project and readiness for GCC, tagged Verified / Inferred / Unknown |
 | [M3-02](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/3/1 | Report 02 Current Architecture Map: browser and Flutter to Laravel APIs, services, storage, integrations |

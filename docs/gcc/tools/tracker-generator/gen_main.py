@@ -1999,6 +1999,80 @@ WRITTEN_CRITERIA['M1-V1'] = _WRITTEN
 
 
 
+# ---- The verifiers' requirements, batch 7 of 28: the last four (2026-11-19, evening) ----
+
+CRITERIA_SPLIT['A1-V1'] = {0: [
+    ('One backend, one customer app and one seller app serve all six markets', 'CODED',
+     "One Laravel backend, and both Flutter apps carry the storefront code in the drafts. CODED because it is true of the drafts and of nothing "
+     "merged."),
+    ('The website serves each market', 'MISSING',
+     "The website has no country routes: A1-05's criteria are MISSING. One site that cannot be reached per country is not yet one platform "
+     "serving six markets."),
+    ('An operator can switch each market on and off separately', 'MISSING',
+     "A1-02's criterion is MISSING. PR 111 adds the storefront lifecycle so that a store needs a person to open it; until that merges, no "
+     "operator control opens or closes a market."),
+    ('The apps learn their markets FROM the backend, not from a list inside themselves', 'MISSING',
+     "Measured on lavkooappseller: `MarketScope` appears in 9 files on gcc/p1-seller-outbox-market and in NONE on main, and in that branch "
+     "`SellerMarketController` answers `List<MarketScope> get markets => MarketScope.gccMarkets` \u2014 a constant list compiled into the app. "
+     "So opening a seventh market, or closing one of the six, needs an app release in both stores, which is the opposite of 'each market "
+     "switched on separately'. This is the criterion that makes the requirement worth having and it is the one nobody had written."),
+]}
+WRITTEN_CRITERIA['A1-V1'] = _WRITTEN
+
+CRITERIA_SPLIT['M2-V1'] = {0: [
+    ('Every existing feature carries a class', 'CODED',
+     "Discovery-01 report 04 (04-preserve-extend-refactor-new-matrix.md) classifies 220 rows: Preserve 76, Extend 80, Refactor 33, New 20, "
+     "Dependent-On-PR 11. The work was done and it is thorough."),
+    ('The classes are the six the requirement names', 'MISSING',
+     "The report uses FIVE: Preserve, Extend, Refactor, New and Dependent-On-PR. 'Reuse As-Is' and 'Unknown / Requires Verification' are not "
+     "separate classes in it. The missing one that matters is **Unknown / Requires Verification**: without it, a feature nobody has checked is "
+     "recorded as Preserve, which reads as a decision when it is an absence of one."),
+    ('The classification is where the designers can find it', 'MISSING',
+     "Report 04 is on the docs branch only and not in main \u2014 the same finding as G-V1 and I2-V1, now for the third time, which is itself "
+     "worth the owner's attention: three separate requirements are blocked on the same unmerged documentation."),
+    ('A feature is classified BEFORE it is designed', 'MISSING',
+     "Nothing enforces the order. M2-16's fifth criterion covers new tables and historical relations only, and the published tracker holds the "
+     "rule as M1-18, which is prose."),
+]}
+WRITTEN_CRITERIA['M2-V1'] = _WRITTEN
+
+CRITERIA_SPLIT['M2-V4'] = {0: [
+    ('Each step of the staged upgrade is expand-only', 'CODED',
+     "True of every GCC migration read in this programme, and the storefront flag is the example: "
+     "`storefront_country CHAR(2) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'SA'` with no index. CODED because it holds for the "
+     "migrations that were read and nothing makes it hold for the next one."),
+    ('The ALTER time is measured on EVERY engine in use', 'MISSING',
+     "docs/gcc/STOREFRONT_FLAG_RUNBOOK.md (on the integration branch) records the measurement and its own gap in the same breath: 'Measured on "
+     "MySQL 8.0.46 with 200,000 products (62 columns, 15 indexes): the column was added instantly. **MariaDB 11.4.2 (the pilot's engine) has not "
+     "been run with this migration.**' The engine that has NOT been measured is the one the pilot will run on, which is the wrong way round."),
+    ('Each step is rehearsed on a disposable copy before it touches live data', 'MISSING',
+     "The runbook instructs it \u2014 read `@@version`, `@@lock_wait_timeout` and `@@alter_algorithm`, then rehearse on a staging copy \u2014 "
+     "and the rehearsal is blocked: the structure-only schema copy (P0-C) is not available, and charter section 4 forbids touching live data. So "
+     "this criterion waits on the owner for a copy, not on an engineer for code."),
+    ('No migration is created and run on live data', 'MISSING',
+     "Forbidden by charter section 4 and respected by this programme, but nothing records it as checked, which is what the criterion asks. The "
+     "runbook's own instruction to read the three server variables before scheduling the ALTER is the shape the check should take."),
+]}
+WRITTEN_CRITERIA['M2-V4'] = _WRITTEN
+
+CRITERIA_SPLIT['M2-V5'] = {0: [
+    ('Digital files are on a private disk, and uploads are hardened', 'CODED',
+     "M2-18 names both in done_in_drafts: PR 69 (private disk, shipped OFF) and PR 63 (uploads). CODED, and the 'off' matters \u2014 a private "
+     "disk that is switched off is a plan, not a protection."),
+    ('Deployment can be rolled back', 'CODED',
+     "tests/Unit/Deploy/OverlayDeploymentTest.php on main, with the overlay build, apply and drift check."),
+    ('The database can be rolled back', 'MISSING',
+     "tests/Unit/Deploy/BackupScriptsTest.php covers the backup scripts, which is not the same as proving a restore. The sharper gap M2-18 "
+     "records is that `down()` of the three legal-text migrations is untested \u2014 and a rollback nobody has run is a rollback nobody has."),
+    ('All of it is audited for SIX markets, not one', 'MISSING',
+     "None of M2-18's six criteria covers storage or rollback at all; the published tracker carries them in M1-09 and M1-11. Six markets means "
+     "six legal entities whose digital files and backups may not be allowed to sit in one place \u2014 a legal reading this requirement needs "
+     "and does not have."),
+]}
+WRITTEN_CRITERIA['M2-V5'] = _WRITTEN
+
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]

@@ -1,6 +1,6 @@
 # Axis M: Security, tests and deployment
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 63. Acceptance criteria: 302 (MET 104, CODED 109, MISSING 89). Code completion 71%, proven by a passing test 34%, release readiness 3%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 63. Acceptance criteria: 311 (MET 104, CODED 113, MISSING 94). Code completion 70%, proven by a passing test 33%, release readiness 3%.
 
 Independent verification: done for unit(s) M1, M2, M3.
 
@@ -915,13 +915,16 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** Every existing Laravel and Flutter feature is classified as Reuse As-Is, Extend Existing, Refactor Carefully, New Capability Required, Dependent on Open PR, or Unknown / Requires Verification before it is designed
 - **(3) Exists now in code (main).** No M2 requirement carries it (M2-16 AC5 only covers new tables and historical relations). Discovery-01 report 04 (docs/gcc/audits/2026-11-12-0115-discovery-01/04-preserve-extend-refactor-new-matrix.md, docs branch only, not in main) classifies with five classes (Preserve, Extend, Refactor, New, Dependent-On-PR); 'Reuse As-Is' and 'Unknown / Requires Verification' are not separate classes. The published tracker already holds it as M1-18 (plan lines 539, 546-562); keep one owner.
 - **(4) Done in the draft PRs.** See the evidence note above.
-- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(5) What remains.** Its acceptance criteria are written (batch 1 of the 28 requirements the verifiers added). What remains is in the criteria themselves.
 - **(6) PRs and commits.** none
 - **(7) Tests.** none
 - **(8) Dependencies and blockers.** See the evidence note.
 - **(9) Acceptance criteria.**
-  - [MISSING] Every existing Laravel and Flutter feature is classified as Reuse As-Is, Extend Existing, Refactor Carefully, New Capability Required, Dependent on Open PR, or  (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
-- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+  - [CODED] Every existing feature carries a class (Discovery-01 report 04 (04-preserve-extend-refactor-new-matrix.md) classifies 220 rows: Preserve 76, Extend 80, Refactor 33, New 20, Dependent-On-PR 11. The work was done and it is thorough.)
+  - [MISSING] The classes are the six the requirement names (The report uses FIVE: Preserve, Extend, Refactor, New and Dependent-On-PR. 'Reuse As-Is' and 'Unknown / Requires Verification' are not separate classes in it. The missing one that matters is **Unknown / Requires Verification**: without it, a feature nobody has checked is recorded as Preserve, which reads as a decision when it is an absence of one.)
+  - [MISSING] The classification is where the designers can find it (Report 04 is on the docs branch only and not in main — the same finding as G-V1 and I2-V1, now for the third time, which is itself worth the owner's attention: three separate requirements are blocked on the same unmerged documentation.)
+  - [MISSING] A feature is classified BEFORE it is designed (Nothing enforces the order. M2-16's fifth criterion covers new tables and historical relations only, and the published tracker holds the rule as M1-18, which is prose.)
+- **(10) Next coding task.** See the criteria: the unmet ones name the file and the line that has to change.
 
 #### M2-V2. No quick production change and no direct SQL is used to settle an architectural problem: changes shi...
 
@@ -961,13 +964,16 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** The staged upgrade needs no downtime and no migration is created-and-run on live data: each step is expand-only, rehearsed on a disposable copy, and the ALTER time is measured on every engine in use
 - **(3) Exists now in code (main).** Stated only in M2-17's and M2-16's functional text; no criterion. Measured: ADD COLUMN on 200,000 products was instant on MySQL 8.0.46 (STOREFRONT_FLAG_RUNBOOK line 21); MariaDB 11.4.2 'has not been run with this' (line 22); charter s.4 forbids touching live data; the structure-only schema copy (P0-C) is blocked.
 - **(4) Done in the draft PRs.** See the evidence note above.
-- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(5) What remains.** Its acceptance criteria are written (batch 1 of the 28 requirements the verifiers added). What remains is in the criteria themselves.
 - **(6) PRs and commits.** none
 - **(7) Tests.** none
 - **(8) Dependencies and blockers.** See the evidence note.
 - **(9) Acceptance criteria.**
-  - [MISSING] The staged upgrade needs no downtime and no migration is created-and-run on live data: each step is expand-only, rehearsed on a disposable copy, and the ALTER t (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
-- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+  - [CODED] Each step of the staged upgrade is expand-only (True of every GCC migration read in this programme, and the storefront flag is the example: `storefront_country CHAR(2) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'SA'` with no index. CODED because it holds for the migrations that were read and nothing makes it hold for the next one.)
+  - [MISSING] The ALTER time is measured on EVERY engine in use (docs/gcc/STOREFRONT_FLAG_RUNBOOK.md (on the integration branch) records the measurement and its own gap in the same breath: 'Measured on MySQL 8.0.46 with 200,000 products (62 columns, 15 indexes): the column was added instantly. **MariaDB 11.4.2 (the pilot's engine) has not been run with this migration.**' The engine that has NOT been measured is the one the pilot will run on, which is the wrong way round.)
+  - [MISSING] Each step is rehearsed on a disposable copy before it touches live data (The runbook instructs it — read `@@version`, `@@lock_wait_timeout` and `@@alter_algorithm`, then rehearse on a staging copy — and the rehearsal is blocked: the structure-only schema copy (P0-C) is not available, and charter section 4 forbids touching live data. So this criterion waits on the owner for a copy, not on an engineer for code.)
+  - [MISSING] No migration is created and run on live data (Forbidden by charter section 4 and respected by this programme, but nothing records it as checked, which is what the criterion asks. The runbook's own instruction to read the three server variables before scheduling the ALTER is the shape the check should take.)
+- **(10) Next coding task.** See the criteria: the unmet ones name the file and the line that has to change.
 
 #### M2-V5. Storage and rollback capabilities (axis K bullets) are audited and tested for six markets: private d...
 
@@ -975,13 +981,16 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** Storage and rollback capabilities (axis K bullets) are audited and tested for six markets: private disk for digital files, upload hardening, deployment and database rollback, backups
 - **(3) Exists now in code (main).** M2-18 names storage (#69 private disk, off; #63 uploads) in done_in_drafts and rollback tests (OverlayDeploymentTest, BackupScriptsTest on main) in tests[1], but none of its six criteria covers storage or rollback. The published tracker covers them in M1-09 and M1-11; down() of the three legal-text migrations is untested.
 - **(4) Done in the draft PRs.** See the evidence note above.
-- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(5) What remains.** Its acceptance criteria are written (batch 1 of the 28 requirements the verifiers added). What remains is in the criteria themselves.
 - **(6) PRs and commits.** none
 - **(7) Tests.** none
 - **(8) Dependencies and blockers.** See the evidence note.
 - **(9) Acceptance criteria.**
-  - [MISSING] Storage and rollback capabilities (axis K bullets) are audited and tested for six markets: private disk for digital files, upload hardening, deployment and data (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
-- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+  - [CODED] Digital files are on a private disk, and uploads are hardened (M2-18 names both in done_in_drafts: PR 69 (private disk, shipped OFF) and PR 63 (uploads). CODED, and the 'off' matters — a private disk that is switched off is a plan, not a protection.)
+  - [CODED] Deployment can be rolled back (tests/Unit/Deploy/OverlayDeploymentTest.php on main, with the overlay build, apply and drift check.)
+  - [MISSING] The database can be rolled back (tests/Unit/Deploy/BackupScriptsTest.php covers the backup scripts, which is not the same as proving a restore. The sharper gap M2-18 records is that `down()` of the three legal-text migrations is untested — and a rollback nobody has run is a rollback nobody has.)
+  - [MISSING] All of it is audited for SIX markets, not one (None of M2-18's six criteria covers storage or rollback at all; the published tracker carries them in M1-09 and M1-11. Six markets means six legal entities whose digital files and backups may not be allowed to sit in one place — a legal reading this requirement needs and does not have.)
+- **(10) Next coding task.** See the criteria: the unmet ones name the file and the line that has to change.
 
 #### M2-V6. Stock balances (current_stock, holds, outbox, provider stock) and prices of existing products reconc...
 

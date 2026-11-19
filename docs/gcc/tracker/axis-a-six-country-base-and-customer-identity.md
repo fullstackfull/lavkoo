@@ -1,6 +1,6 @@
 # Axis A: Six-country base and customer identity
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 37. Acceptance criteria: 170 (MET 88, CODED 25, MISSING 57). Code completion 66%, proven by a passing test 52%, release readiness 9%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 37. Acceptance criteria: 173 (MET 88, CODED 26, MISSING 59). Code completion 66%, proven by a passing test 51%, release readiness 9%.
 
 Independent verification: done for unit(s) A1, A2.
 
@@ -407,13 +407,16 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** One platform: one website, one customer Flutter app and one central control panel serve all six markets, each market switched on separately (plan 'one platform, one site, one Flutter app, one central admin').
 - **(3) Exists now in code (main).** The unit scope lists 'one platform' but no requirement covers it; A1-02 covers only independent activation. One Laravel backend and the lavkooapp and lavkooappseller apps carry the storefront code in the drafts, but the website has no country routes (A1-05 criteria MISSING) and no operator control opens or closes a market (A1-02 criterion MISSING), and the seller app does not read the backend's market list (seller app hard-codes MarketScope). Criteria to add: one backend serves every market; one customer app lets the customer choose (MET in A1-06); one central admin operates market activation (MISSING).
 - **(4) Done in the draft PRs.** See the evidence note above.
-- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(5) What remains.** Its acceptance criteria are written (batch 1 of the 28 requirements the verifiers added). What remains is in the criteria themselves.
 - **(6) PRs and commits.** none
 - **(7) Tests.** none
 - **(8) Dependencies and blockers.** See the evidence note.
 - **(9) Acceptance criteria.**
-  - [MISSING] One platform: one website, one customer Flutter app and one central control panel serve all six markets, each market switched on separately (plan 'one platform, (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
-- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+  - [CODED] One backend, one customer app and one seller app serve all six markets (One Laravel backend, and both Flutter apps carry the storefront code in the drafts. CODED because it is true of the drafts and of nothing merged.)
+  - [MISSING] The website serves each market (The website has no country routes: A1-05's criteria are MISSING. One site that cannot be reached per country is not yet one platform serving six markets.)
+  - [MISSING] An operator can switch each market on and off separately (A1-02's criterion is MISSING. PR 111 adds the storefront lifecycle so that a store needs a person to open it; until that merges, no operator control opens or closes a market.)
+  - [MISSING] The apps learn their markets FROM the backend, not from a list inside themselves (Measured on lavkooappseller: `MarketScope` appears in 9 files on gcc/p1-seller-outbox-market and in NONE on main, and in that branch `SellerMarketController` answers `List<MarketScope> get markets => MarketScope.gccMarkets` — a constant list compiled into the app. So opening a seventh market, or closing one of the six, needs an app release in both stores, which is the opposite of 'each market switched on separately'. This is the criterion that makes the requirement worth having and it is the one nobody had written.)
+- **(10) Next coding task.** See the criteria: the unmet ones name the file and the line that has to change.
 
 #### A1-V2. SEO surfaces (canonical URL, hreflang, sitemap, robots, SEO redirects) are market-scoped.
 
