@@ -6,18 +6,26 @@ use App\Http\Controllers\Controller;
 use App\Models\Cart;
 use App\Models\User;
 use App\Models\NotificationTemplateMapping;
+use App\Services\Notification\NotificationTypeRegistry;
+use App\Services\Storefront\StorefrontMarketingStop;
+use Illuminate\Support\Collection;
 use Illuminate\View\View;
 use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
 class CartMarketingController extends Controller
 {
+    public function __construct(private readonly StorefrontMarketingStop $marketingStop)
+    {
+    }
+
     public function index(): View
     {
-        $carts = Cart::query()
-            ->where('is_guest', 0)
-            ->whereNotNull('customer_id')
-            ->get()
-            ->groupBy('customer_id');
+        $carts = $this->withoutStoppedStorefronts(
+            Cart::query()
+                ->where('is_guest', 0)
+                ->whereNotNull('customer_id')
+                ->get()
+        )->groupBy('customer_id');
 
         $customers = [];
 
@@ -128,6 +136,14 @@ if (!$mapping) {
             if ($carts->isEmpty()) {
                 throw new \RuntimeException(
                     'Customer cart is empty.'
+                );
+            }
+
+            $carts = $this->withoutStoppedStorefronts($carts);
+
+            if ($carts->isEmpty()) {
+                throw new \RuntimeException(
+                    'Customer cart is in a storefront that may not sell.'
                 );
             }
 
@@ -246,6 +262,20 @@ return redirect()
 }
 
 
+
+/**
+ * The carts a template may be sent about: a message that invites a purchase does not go about a storefront that may not sell.
+ */
+private function withoutStoppedStorefronts(Collection $carts): Collection
+{
+    $stopped = $this->marketingStop->stoppedCartGroups(
+        channel: NotificationTypeRegistry::WHATSAPP,
+        type: NotificationTypeRegistry::CART_MARKETING,
+        cartGroupIds: $carts->pluck('cart_group_id')->unique()->all(),
+    );
+
+    return $carts->reject(fn (Cart $cart): bool => in_array((string) $cart->cart_group_id, $stopped, true))->values();
+}
 
 protected function resolveMarketingField(
     string $field,

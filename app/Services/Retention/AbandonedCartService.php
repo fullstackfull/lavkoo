@@ -7,7 +7,9 @@ use App\Models\Cart;
 use App\Models\Order;
 use App\Models\ShippingAddress;
 use App\Models\User;
+use App\Services\Notification\NotificationTypeRegistry;
 use App\Services\Storefront\StorefrontCatalog;
+use App\Services\Storefront\StorefrontMarketingStop;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
@@ -35,6 +37,9 @@ use Illuminate\Support\Facades\URL;
  *  5. **Not already reminded at this stage**, which is what makes the command safe to re-run.
  *  6. **Still buyable.** A cart whose products are deactivated or deleted is a dead link; sending
  *     it invites the customer to a 404.
+ *  7. **Its storefront may sell.** A reminder invites a purchase, so a cart whose products belong to a
+ *     storefront that may not sell (StorefrontMarketingStop) is left for later: it is neither selected nor
+ *     recorded, and is reminded once the storefront sells again.
  */
 class AbandonedCartService
 {
@@ -54,6 +59,10 @@ class AbandonedCartService
 
     public const DEFAULT_IDLE_HOURS = 6;
     public const DEFAULT_MAX_AGE_HOURS = 168;   // one week
+
+    public function __construct(private readonly StorefrontMarketingStop $marketingStop)
+    {
+    }
 
     /**
      * Is the whole feature switched on? Defaults to **off**: this sends mail to real people, so an
@@ -135,7 +144,7 @@ class AbandonedCartService
         $minimum = $this->minimumCartValue();
         $includeGuests = $this->includesGuests();
 
-        return $rows->groupBy('cart_group_id')
+        $candidates = $rows->groupBy('cart_group_id')
             ->map(function (Collection $lines, string $groupId) use ($alreadySent, $minimum, $includeGuests) {
                 if ($alreadySent->has($groupId)) {
                     return null;
@@ -178,6 +187,40 @@ class AbandonedCartService
             ->filter()
             ->sortByDesc('last_activity')
             ->values();
+
+        return $this->withoutStoppedStorefronts($candidates);
+    }
+
+    /**
+     * Whether the storefront this cart was made in may not be sent a reminder now. The command asks again before each send, because a storefront can be stopped while a run is under way.
+     */
+    public function isStoppedByItsStorefront(string $cartGroupId): bool
+    {
+        return $this->stoppedGroupsAmong(cartGroupIds: [$cartGroupId]) !== [];
+    }
+
+    /**
+     * @param Collection<int, array{cart_group_id: string}> $candidates
+     * @return Collection<int, array{cart_group_id: string}>
+     */
+    private function withoutStoppedStorefronts(Collection $candidates): Collection
+    {
+        $stopped = $this->stoppedGroupsAmong(cartGroupIds: $candidates->pluck('cart_group_id')->all());
+
+        return $candidates->reject(fn (array $candidate): bool => in_array($candidate['cart_group_id'], $stopped, true))->values();
+    }
+
+    /**
+     * @param list<string> $cartGroupIds
+     * @return list<string>
+     */
+    private function stoppedGroupsAmong(array $cartGroupIds): array
+    {
+        return $this->marketingStop->stoppedCartGroups(
+            channel: NotificationTypeRegistry::EMAIL,
+            type: NotificationTypeRegistry::ABANDONED_CART_REMINDER,
+            cartGroupIds: $cartGroupIds,
+        );
     }
 
     /**
