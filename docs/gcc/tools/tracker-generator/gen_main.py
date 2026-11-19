@@ -961,6 +961,25 @@ EXTRA_LINKS['M2-04'] = [{'repo': 'lavkoo', 'pr': 96, 'sha': 'e624e43e'}]
 EXTRA_LINKS['I1-12'] = EXTRA_LINKS.get('I1-12', []) + [{'repo': 'lavkoo', 'pr': 96, 'sha': 'e624e43e'}]
 NEXT_CURRENT['I1-12'] = "I1-12.0 and I1-12.1 (the single-currency and the multi-currency round trip of a coupon) and I1-12.2 (the round-trip matrix, three-decimal currencies included) are pinned by the coupon pins of wave 3 (gcc/p1-coupon-behaviour-pins) once they are pushed and run."
 
+# ---- the audit of the criteria flipped on 2026-11-19 (wf_029fd79b-3ce, wf_01709d87-16e): a skeptical verifier for each unit and a judge for every criterion the verifier flagged; data/flips-audit-2026-11-19.json holds each decision with its reason and the replacement text the judge wrote ----
+_AUDIT_2026_11_19 = json.load(open(T.MASTER + 'flips-audit-2026-11-19.json', encoding='utf-8'))['judged']
+_AUDIT_STATES = {'DOWNGRADE_TO_CODED': 'CODED', 'DOWNGRADE_TO_MISSING': 'MISSING', 'UPGRADE_TO_MET': 'MET'}
+
+
+def apply_audit_2026_11_19(only):
+    for identifier in only:
+        entry = _AUDIT_2026_11_19[identifier]
+        if entry['decision'] == 'KEEP':
+            continue
+        requirement, index = identifier.rsplit('.', 1)
+        state, text = CRITERIA[requirement][int(index)]
+        CRITERIA[requirement][int(index)] = (_AUDIT_STATES.get(entry['decision'], state), entry['replacement'] or text)
+
+
+# J-17.1 was published as MET on 2026-11-18 and the audit does not agree: the rule is pinned, the splash screen's use of it is not (judge: DOWNGRADE_TO_CODED); J-17.0 keeps CODED and says what ran
+apply_audit_2026_11_19(only=['J-17.0', 'J-17.1'])
+
+
 def apply_override(requirement, override):
     requirement['state'] = override['state']
     for field in ('done_in_drafts', 'remaining', 'next_task'):
