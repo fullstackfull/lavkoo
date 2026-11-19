@@ -1527,22 +1527,21 @@ for _req, _link in [('K-18', {'repo': 'lavkooappseller', 'pr': 17, 'sha': '6becf
     EXTRA_LINKS[_req] = [l for l in EXTRA_LINKS.get(_req, [])
                          if not (l.get('repo') == _link['repo'] and l.get('pr') == _link['pr'])] + [_link]
 
-CRITERIA.setdefault('K-18', {})[1] = ('CODED', "RECORDED AS MET TOO EARLY AND SET BACK TO CODED THE SAME EVENING: the CI below was read on the head "
-    "as it stood BEFORE the two independent reviews of this stream had reported, and in the same wave both reviews that had finished found real "
-    "problems the build had not (a guard that weighed a stale copy of the customer in lavkoo PR 131; a test that dropped a credentials table on a "
-    "real engine, and three claims wider than their assertions, in lavkoo PR 132). What follows is true of head 6becf35b and proves what CI ran, not "
-    "yet that the tests prove the criterion; it returns to MET only when the reviewed head's own run has been read. "
-    "lavkooappseller PR 17 (draft, base main at d556fb4, head 6becf35b, NO app version change, no package id, "
-    "bundle id, Firebase setting or import renamed). Two commits, in that order deliberately: the first WRITES DOWN the image rules the two seller forms "
-    "state today \u2014 registration asks for four slots and the shop form for four, registration states a 2 MB limit for all four while the shop form "
-    "states 1 MB for the logo and the cover, and the two forms still DISAGREE about the shop banner, 3:1 against 4:1, which is recorded as a fact rather "
-    "than quietly harmonised \u2014 so the refactor has something to be measured against; the second moves both forms to read every ratio, size and slot "
-    "rule from the rules table instead of deciding them from the single global active_theme, which is what the criterion asks. With six storefronts an "
-    "image rule that comes from one global theme is a rule no country can differ on; reading from the table is what makes a per-storefront answer "
-    "possible, and this does not add one. THREE of the eleven source-rule tests exist to keep the scan honest rather than to assert the feature, which is "
-    "the I2-09 lesson applied: the scan is made to SEE a theme read when one is written, to SEE a ratio or a size when one is written, and to LEAVE the "
-    "app's own colour theme and names that only look like it alone. A scan that cannot fail is not evidence. %s NOT covered: no full seller-app suite "
-    "beyond CI's own run is reported, and the per-storefront answer itself is not implemented \u2014 only the reading of the rule is moved." % _R17S)
+CRITERIA.setdefault('K-18', {})[1] = ('CODED', "NOT MET, and the author of the work never said it was. lavkooappseller PR 17 (draft, base main at "
+    "d556fb4, head 5b2fd40, three commits, no app version change, read by two independent reviewers and repaired). The criterion asks that the shop "
+    "banner and logo rules do not depend on the single global active_theme, and THEY STILL DO: whether the secondary banner and the offer banner are "
+    "offered resolves from that one value, in `ShopImageRules.isAskedOf(config) => audience.asks(config?.activeTheme)`. The dependence moved one layer "
+    "down, from four places in three screens into one line of one table (lib/utill/shop_image_rules.dart); it did not go away. That is a deliberate "
+    "stop and the report says so in these words: 'any fixed per-slot answer changes what a seller sees for some config value ... K-18.1 therefore "
+    "stays short of MET'. What remains is one line to repoint once risk R-117 (whether the seller app follows a storefront theme at all) is answered "
+    "and GCC-07 lands. WHAT THE WORK DOES DELIVER: the image rules of the two seller forms are written down as they stand (registration and the shop "
+    "form disagree about the shop banner, 3:1 against 4:1, recorded and not harmonised) and stated once; the reviews closed two holes the first head "
+    "had, a `!` in front of the visibility condition that flipped who is offered the uploader while the whole suite stayed green, and a slot no form "
+    "has a rule for failing a null check inside the form's build; 26 tests, and no test in that repository builds a widget, so 'a seller sees no "
+    "change' rests on table equivalence and the source and not on a rendered screen. THIS LINE WAS WRONG TWICE ON 2026-11-19 AND IS CORRECTED: it was "
+    "first recorded MET from the CI of the first head (6becf35b) before the reviews had reported and against the author's own claim of CODED; it was "
+    "then set back to CODED with the reason 'until the reviewed head's run is read', which was also wrong, because no run can meet it while the "
+    "decision reads active_theme. The CI of the first head, for what it shows of the tests that existed then: %s The CI of 5b2fd40 is not read." % _R17S)
 
 
 
