@@ -1594,10 +1594,15 @@ CRITERIA_SPLIT['E-V1'] = {0: [
      "add_fund_to_wallet_success (app/Utils/module-helper.php) credits whenever `$payment_data['is_paid'] == 1` and holds no guard of its own, so a "
      "callback delivered twice calls CustomerManager::create_wallet_transaction twice. The two units point at each other on this \u2014 D2's cross "
      "note hands the gateway top-up hook to E, E's hands the replay guard to D2 \u2014 which is how it ended up with no owner."),
-    ('The ledger row names the payment that produced it', 'MISSING',
-     "create_wallet_transaction records `payment_method` alone, from `$payment_data['payment_method']`, and generates its own `transaction_id` with "
-     "Str::uuid(). The gateway's own payment id is passed into the function and never stored, so a wallet credit cannot be traced back to the payment "
-     "that paid for it. The column that would hold it is E-05's."),
+    ('The ledger row names the payment that produced it', 'CODED',
+     "CORRECTED 2026-11-19 from MISSING: this was first written off origin/main alone and missed a draft. ON MAIN, create_wallet_transaction records "
+     "`payment_method` alone and generates its own `transaction_id` with Str::uuid(); the gateway's payment id is passed in and never stored. ON PR 109 "
+     "(gcc/p1-wallet-ledger-attribution, head bb55ab83, draft, awaiting the finance review): add_fund_to_wallet_success passes "
+     "`origin: LedgerOrigin::payment(id: $payment_data['id'])`, and the migration 2026_12_05_100000_add_attribution_to_wallet_and_loyalty_ledgers adds "
+     "`source_type` and `source_id` (with `actor_type`, `actor_id`, `legal_entity_id`, `currency_code` and a country column) to both ledgers, filled "
+     "through LedgerAttribution. So a top-up credit names its payment there. CODED and not MET: a draft with no CI run read for this criterion, and it "
+     "conflicts with the wallet pull requests. It also matters for the criterion above: a row that names its payment is what a replay guard would be "
+     "keyed on, and no branch adds that guard."),
     ('The add-fund bonus is applied once', 'MISSING',
      "The bonus is computed inside create_wallet_transaction for transaction_type 'add_fund' (admin_bonus = Helpers::add_fund_to_wallet_bonus). It is "
      "once PER ROW, which is not the same as once per payment: with no replay guard above it, a second callback writes a second row and a second "
