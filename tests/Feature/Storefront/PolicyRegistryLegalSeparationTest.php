@@ -9,6 +9,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use ReflectionClass;
 use ReflectionClassConstant;
 use ReflectionMethod;
+use Tests\Support\NamesLegalDocumentTypes;
 use Tests\TestCase;
 
 /**
@@ -22,18 +23,20 @@ use Tests\TestCase;
  *
  * Criterion 2, not named for a legal document: no group or policy name equals or contains, as a whole word, the type of a legal text (the types of the legal text store: the documents a storefront must
  * publish, read from its configuration, and the ones no storefront requires yet), no type is a policy of the registry, and no policy takes the setting name of a business page (the page list and the
- * cookie text, which shares the table of the registry). Whole words only, the singular and the plural being one word: 'returns' is 'return' and 'cookie' is 'cookies', but 'returnable' is not 'return'.
+ * cookie text, which shares the table of the registry, in both the spellings the codebase uses; the list of them is kept with the check, in Tests\Support\NamesLegalDocumentTypes).
+ * Whole words only, the singular and the plural being one word: 'returns' is 'return' and 'cookie' is 'cookies', but 'returnable' is not 'return'.
  * The check is proved on in-memory registries below, one that blurs the two and one that does not. A name that holds no type and is not a setting name of a page is not judged: what a rule is called
  * is the owner's, the test only keeps the names of the legal documents and of the pages out of the registry.
  *
- * KNOWN COINCIDENCES, LISTED BY NAME. Eleven names of the registry do contain a type as a whole word, because 'shipping', 'return', 'refund' and 'cancellation' are also what operating rules are about:
- * the group 'shipping' and its two policies are courier silence on a parcel, two policies are the hours a seller has to answer a refund request and to process a return, and six seller-standing bands are rates of cancelled,
- * returned and refunded orders. None of them is a legal text, none is read or written as one, and renaming them would change the registry, which criterion 1 forbids; so they are listed below with the
- * reason, and any other name that does the same fails. Whether the owner wants them renamed is the owner's to say. The titles of two groups use the words too ('payment_terms',
- * 'analytics_and_privacy'); titles are labels, not names, and are not checked.
+ * KNOWN COINCIDENCES, LISTED BY NAME. Eleven names of the registry do contain a type as a whole word, and each is listed with the reason it is an operating rule all the same, by
+ * the check itself (Tests\Support\NamesLegalDocumentTypes, which LegalVersusOperatingRulesTest reads too); any other name that does the same fails. Whether the owner wants them
+ * renamed is the owner's to say. The titles of two groups use the words too ('payment_terms', 'analytics_and_privacy'); titles are labels, not names, and are checked by
+ * LegalVersusOperatingRulesTest, not here.
  */
 class PolicyRegistryLegalSeparationTest extends TestCase
 {
+    use NamesLegalDocumentTypes;
+
     private const UPDATE_THE_LIST = 'The registry of the platform\'s operating rules is not touched by the legal text work (I2-06). If this change is deliberate, update EXPECTED_POLICIES in this test in the same change, and say why in its message.';
 
     /** @var array<string, list<string>> the groups of PolicyRegistry and the policies of each, as they are today */
@@ -79,29 +82,6 @@ class PolicyRegistryLegalSeparationTest extends TestCase
 
     /** @var list<string> the types of legal document that a storefront is asked for or may be asked for; the documents it must publish are added from its configuration */
     private const LEGAL_DOCUMENT_TYPES = ['terms', 'privacy', 'refund', 'return', 'cancellation', 'shipping', 'cookies'];
-
-    /** @var list<string> how the business pages of the Saudi storefront and its cookie text are named in business_settings and in the page list: a policy with one of these names would be written over a legal page */
-    private const SETTING_NAMES_OF_THE_LEGAL_PAGES = [
-        'terms_condition', 'privacy_policy', 'refund_policy', 'return_policy', 'cancellation_policy', 'shipping_policy',
-        'refund-policy', 'return-policy', 'cancellation-policy', 'shipping-policy',
-        'terms-and-conditions', 'privacy-policy', 'about_us', 'about-us',
-        'cookie_setting', 'cookie_policy', 'cookie-policy', 'cookies_policy',
-    ];
-
-    /** @var array<string, string> every name of the registry that contains a legal document type as a whole word today, and what it is */
-    private const OPERATING_NAMES_THAT_SHARE_A_WORD_WITH_A_LEGAL_DOCUMENT_TYPE = [
-        'group:shipping' => 'the courier-silence thresholds of the fulfilment policy: a parcel that does not move, not the shipping policy a customer reads',
-        'policy:shipping_silent_hours' => 'hours a parcel may go without courier movement before it is raised',
-        'policy:shipping_stop_after_days' => 'days after which a silent parcel is no longer raised',
-        'policy:ops_returns_response_hours' => 'hours a seller has to answer a refund request before the action center raises it: a window of the work, not the return policy a customer reads',
-        'policy:ops_returns_processing_hours' => 'hours a seller has to process an authorised return before the action center raises it: a window of the work, not the return policy a customer reads',
-        'policy:health_watch_cancellation_rate' => 'the share of a seller\'s orders cancelled that puts the seller on watch: a rate, not the cancellation policy',
-        'policy:health_watch_return_rate' => 'the share of a seller\'s orders returned that puts the seller on watch: a rate, not the return policy',
-        'policy:health_watch_refund_rate' => 'the share of a seller\'s orders refunded that puts the seller on watch: a rate, not the refund policy',
-        'policy:health_at_risk_cancellation_rate' => 'the share of a seller\'s orders cancelled that puts the seller at risk: a rate, not the cancellation policy',
-        'policy:health_at_risk_return_rate' => 'the share of a seller\'s orders returned that puts the seller at risk: a rate, not the return policy',
-        'policy:health_at_risk_refund_rate' => 'the share of a seller\'s orders refunded that puts the seller at risk: a rate, not the refund policy',
-    ];
 
     /** @return array<string, list<string>> */
     private function policiesByGroup(): array
@@ -152,15 +132,7 @@ class PolicyRegistryLegalSeparationTest extends TestCase
     /** @return list<string> the legal document types the names of the registry are checked against */
     private function legalDocumentTypes(): array
     {
-        return array_values(array_unique(array_merge(self::LEGAL_DOCUMENT_TYPES, (array) config('gcc.storefronts.legal.required_documents'))));
-    }
-
-    /** @return list<string> the words of a name, lower case and in the singular: 'privacy_policy', 'privacy-policy' and 'privacyPolicy' are 'privacy' and 'policy', and 'returns' is 'return' */
-    private function wordsOf(string $name): array
-    {
-        $words = preg_split('/[^a-z0-9]+/', strtolower((string) preg_replace('/(?<=[a-z0-9])(?=[A-Z])/', ' ', $name)), -1, PREG_SPLIT_NO_EMPTY);
-
-        return array_map(static fn (string $word): string => (string) preg_replace('/s$/', '', $word), $words);
+        return array_values(array_unique(array_merge(self::LEGAL_DOCUMENT_TYPES, $this->legalDocumentTypesInTheCode())));
     }
 
     /**
@@ -170,25 +142,7 @@ class PolicyRegistryLegalSeparationTest extends TestCase
      */
     private function namesForLegalDocumentTypes(array $groups, array $types): array
     {
-        $names = [];
-        foreach ($groups as $group => $meta) {
-            $names['group:' . $group] = (string) $group;
-            foreach (array_keys($meta['policies']) as $policy) {
-                $names['policy:' . $policy] = (string) $policy;
-            }
-        }
-
-        $found = [];
-        foreach ($names as $label => $name) {
-            $spokenName = ' ' . implode(' ', $this->wordsOf(name: $name)) . ' ';
-            $named = array_values(array_filter($types, fn (string $type): bool => str_contains($spokenName, ' ' . implode(' ', $this->wordsOf(name: $type)) . ' ')));
-            if ($named !== []) {
-                $found[$label] = $named;
-            }
-        }
-        ksort($found);
-
-        return $found;
+        return $this->legalDocumentTypesNamedIn(names: $this->namesOfTheRegistry(groups: $groups), types: $types);
     }
 
     /**
@@ -254,7 +208,7 @@ class PolicyRegistryLegalSeparationTest extends TestCase
     public function test_no_group_or_policy_of_the_registry_is_named_for_a_legal_document_type_but_the_operating_thresholds_listed_here(): void
     {
         $found = $this->namesForLegalDocumentTypes(groups: PolicyRegistry::GROUPS, types: $this->legalDocumentTypes());
-        $listed = array_keys(self::OPERATING_NAMES_THAT_SHARE_A_WORD_WITH_A_LEGAL_DOCUMENT_TYPE);
+        $listed = array_keys($this->operatingRuleNamesThatHoldALegalDocumentType());
 
         $unlisted = array_diff_key($found, array_flip($listed));
         $this->assertSame(
@@ -272,7 +226,7 @@ class PolicyRegistryLegalSeparationTest extends TestCase
 
     public function test_every_name_on_the_list_of_shared_words_says_why_it_is_not_a_legal_text(): void
     {
-        foreach (self::OPERATING_NAMES_THAT_SHARE_A_WORD_WITH_A_LEGAL_DOCUMENT_TYPE as $name => $reason) {
+        foreach ($this->operatingRuleNamesThatHoldALegalDocumentType() as $name => $reason) {
             $this->assertGreaterThan(20, strlen($reason), "{$name} has no reason");
         }
     }
@@ -290,8 +244,8 @@ class PolicyRegistryLegalSeparationTest extends TestCase
 
     public function test_no_policy_takes_the_setting_name_of_a_legal_page(): void
     {
-        $this->assertSame([], $this->policiesCalled(groups: PolicyRegistry::GROUPS, names: self::SETTING_NAMES_OF_THE_LEGAL_PAGES));
-        foreach (self::SETTING_NAMES_OF_THE_LEGAL_PAGES as $name) {
+        $this->assertSame([], $this->policiesCalled(groups: PolicyRegistry::GROUPS, names: $this->settingNamesOfTheLegalPages()));
+        foreach ($this->settingNamesOfTheLegalPages() as $name) {
             $this->assertFalse(PolicyRegistry::has(key: $name), "'{$name}' is the setting name of a legal page and is declared as a policy: saving the policy would write over the page");
         }
     }
@@ -346,7 +300,7 @@ class PolicyRegistryLegalSeparationTest extends TestCase
         $registry = ['legal' => ['policies' => ['terms' => [], 'privacy_policy' => [], 'ops_stuck_order_hours' => []]]];
 
         $this->assertSame(['terms'], $this->policiesCalled(groups: $registry, names: ['terms', 'privacy', 'refund']));
-        $this->assertSame(['privacy_policy'], $this->policiesCalled(groups: $registry, names: self::SETTING_NAMES_OF_THE_LEGAL_PAGES));
-        $this->assertSame([], $this->policiesCalled(groups: ['ops' => ['policies' => ['ops_stuck_order_hours' => []]]], names: self::SETTING_NAMES_OF_THE_LEGAL_PAGES));
+        $this->assertSame(['privacy_policy'], $this->policiesCalled(groups: $registry, names: $this->settingNamesOfTheLegalPages()));
+        $this->assertSame([], $this->policiesCalled(groups: ['ops' => ['policies' => ['ops_stuck_order_hours' => []]]], names: $this->settingNamesOfTheLegalPages()));
     }
 }
