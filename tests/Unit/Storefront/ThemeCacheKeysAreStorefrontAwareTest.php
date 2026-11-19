@@ -19,7 +19,8 @@ use Tests\TestCase;
  * declaration that went stale. Checked in the source of the theme code by the scanner in `tests/Support/CacheKeyScanner.php`, which proves itself on source written in this file.
  *
  * It is a lint, not a proof: a key built by a method it cannot read is reported as "(a key held in a variable)", and a cache held in a property (`$this->cache->get(...)`) is not seen at all. The
- * facts a declaration rests on (the rows behind a global cache name no storefront) are pinned by their own tests, so that adding a storefront to those rows makes this fail.
+ * facts a declaration rests on (the rows behind a global cache name no storefront) are pinned by their own tests, so that adding a storefront to those rows makes this fail. One declaration rests on a
+ * different fact and says so: the customer metrics are read over orders that DO name a storefront and a currency, and CustomerSegmentMetricsTest pins what that makes of the money among them.
  */
 class ThemeCacheKeysAreStorefrontAwareTest extends TestCase
 {
@@ -37,7 +38,7 @@ class ThemeCacheKeysAreStorefrontAwareTest extends TestCase
         'commerce_experiment_reach' => 'The visitors of each variant over thirty days, counted over analytics events that carry no storefront. Only the admin experiments screen reads it.',
         'commerce_segment_keys' => 'The keys of the live customer segments, read from segments that name no storefront (CustomerSegment has no storefront column).',
         'commerce_segments_live' => 'The live customer segments, read from segments that name no storefront (CustomerSegment has no storefront column).',
-        'commerce_segment_ctx_*' => 'The order metrics of one customer, under the id of the customer: one customer identity serves the six storefronts, and the metrics count every order of the customer, whichever storefront took it.',
+        'commerce_segment_ctx_*' => 'The order metrics of one customer, under the id of the customer: one customer identity serves the six storefronts, and the metrics are read over every order of the customer, whichever storefront took it. The orders they are read over DO name a storefront and a currency, so this one is global in spite of its rows and not because of them: the count, the recency and the registration age are the customer\'s own whichever storefront took the order, while total_spent is a plain SUM of order_amount over orders priced in different currencies and is therefore a figure in no one currency, which no rule should compare against a threshold while storefront currencies are on. Narrowing or converting it is an owner decision of its own, open beside decision 7; CustomerSegmentMetricsTest holds this declaration to what the code does.',
     ];
 
     /** Where the theme code lives: its services, the commerce services that dress its pages and the screens that edit them. */

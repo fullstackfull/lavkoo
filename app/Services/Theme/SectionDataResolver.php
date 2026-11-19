@@ -375,8 +375,7 @@ class SectionDataResolver
     public function dashboardBanners(string $bannerType, int $limit): array
     {
         $rows = $this->safely(function () use ($bannerType, $limit) {
-            $notOffered = $this->bannersNotOfferedByTheStorefront();
-            $base = fn () => Banner::with(['storage'])
+            $ofTheType = fn () => Banner::query()
                 ->where('published', 1)
                 ->where('banner_type', $bannerType)
                 // Placement types find their page through their resource; one pointing
@@ -386,24 +385,33 @@ class SectionDataResolver
                     fn ($query, $resourceType) => $query->where('resource_type', $resourceType),
                 );
 
-            // Which folder the banners come from is decided over every banner of the type, before the
-            // storefront narrows them: a storefront is given the banners of a folder the theme left
-            // behind only when the active folder holds none at all, and never because the ones it
-            // holds happen to point at another country's products.
-            $activeFolder = theme_root_path();
-            $activeFolderHasBanners = $base()->where('theme', $activeFolder)->exists();
-
-            // Same ordering as BannerPlacementService — priority first, then creation
-            // order — so a section shows the banners in the arrangement the merchant
-            // sees in their built-in slot.
-            return $base()
-                ->when($activeFolderHasBanners, fn ($query) => $query->where('theme', $activeFolder))
-                // Left out before the limit counts, so a storefront is still given as many banners as it may show.
-                ->when($notOffered !== [], fn ($query) => $query->whereNotIn('id', $notOffered))
+            // The storefront narrows the read itself, so the limit counts the banners it may show and
+            // a read that cannot be answered takes the section with it rather than letting another
+            // country's banner through. Same ordering as BannerPlacementService — priority first, then
+            // creation order — so a section shows the banners in the arrangement the merchant sees in
+            // their built-in slot.
+            $placement = app(BannerPlacementService::class);
+            $cards = fn () => $placement->narrowToTheStorefront(banners: $ofTheType()->with(['storage']))
                 ->orderBy('priority')
                 ->orderBy('id')
-                ->take($this->bounded($limit, 24))
-                ->get();
+                ->take($this->bounded($limit, 24));
+
+            $activeFolder = theme_root_path();
+            $ofTheActiveFolder = $cards()->where('theme', $activeFolder)->get();
+
+            if ($ofTheActiveFolder->isNotEmpty()) {
+                return $ofTheActiveFolder;
+            }
+
+            // Which folder the banners come from is decided over every banner of the type, before the
+            // storefront narrows them: a storefront is given the banners of a folder the theme left
+            // behind only when the active folder holds none at all, and never because the ones it holds
+            // happen to point at another country's products. Nothing narrows a request that is bound to
+            // no storefront, so for one of those the empty read above has already answered this.
+            $theActiveFolderHoldsBannersThisStorefrontMayNotSee = StorefrontCatalog::country() !== null
+                && $ofTheType()->where('theme', $activeFolder)->exists();
+
+            return $theActiveFolderHoldsBannersThisStorefrontMayNotSee ? $ofTheActiveFolder : $cards()->get();
         });
 
         return $rows->map(fn (Banner $banner) => [
@@ -946,27 +954,26 @@ class SectionDataResolver
     }
 
     /**
-     * The banners, among the given ones or among every one, that point at a product the storefront of this request may not sell. A banner belongs to no country, but the product it points at does: another
-     * storefront's product is neither shown nor opened. Nothing is left out for a request that is not narrowed to a storefront, and nothing is read for it.
+     * The banners, among the given ones, that point at a product the storefront of this request may not sell. A banner belongs to no country, but the product it points at does: another storefront's
+     * product is neither shown nor opened. Nothing is left out for a request that is not narrowed to a storefront, and nothing is read for it.
      *
-     * @param list<int>|null $among
+     * Asked the other way round — which of them the storefront IS offered — so that the empty answer a failed read gives back leaves every one of them out instead of none: a card held back is a gap in
+     * a section, a card let through is another country's product on the page.
+     *
+     * @param list<int> $among
      * @return list<int>
      */
-    private function bannersNotOfferedByTheStorefront(?array $among = null): array
+    private function bannersNotOfferedByTheStorefront(array $among): array
     {
         if (StorefrontCatalog::country() === null || $among === []) {
             return [];
         }
 
-        return $this->safely(function () use ($among) {
-            $pointingAtProducts = Banner::query()
-                ->where('resource_type', 'product')
-                ->when($among !== null, fn ($query) => $query->whereIn('id', $among))
-                ->get(['id', 'resource_type', 'resource_id']);
-            $offered = app(BannerPlacementService::class)->offeredByTheStorefront(banners: $pointingAtProducts);
+        $offered = $this->safely(fn () => app(BannerPlacementService::class)
+            ->narrowToTheStorefront(banners: Banner::query()->whereIn('id', $among))
+            ->pluck('id'));
 
-            return $pointingAtProducts->pluck('id')->diff($offered->pluck('id'))->values();
-        })->all();
+        return array_values(array_diff($among, $offered->all()));
     }
 
     /** Clamp a merchant-supplied count so a stray value cannot fetch the whole catalogue. */

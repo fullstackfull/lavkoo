@@ -6,6 +6,8 @@ use App\Models\Banner;
 use App\Models\Product;
 use App\Services\Storefront\StorefrontCatalog;
 use App\Traits\CacheManagerTrait;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 
@@ -21,6 +23,9 @@ use Illuminate\Support\Facades\Cache;
 class BannerPlacementService
 {
     use CacheManagerTrait;
+
+    /** The table the country of a banner's product is read from. */
+    private const PRODUCTS = 'products';
 
     /**
      * Every published category-page banner, for resolving a page's own or its
@@ -75,10 +80,33 @@ class BannerPlacementService
     }
 
     /**
+     * The same rule in the read itself, for a list of banners that is still a query: a banner that points at a product the storefront of
+     * this request may not sell is left out before any cap on the number of rows counts, and a read that cannot be answered throws rather
+     * than handing back a list with nothing left out. A banner that points at nothing, at a category or a brand, or at a product that is
+     * gone, belongs to no country and stays, as it does above.
+     */
+    public function narrowToTheStorefront(Builder $banners): Builder
+    {
+        if (StorefrontCatalog::country() === null) {
+            return $banners;
+        }
+
+        $productOfTheBanner = fn (QueryBuilder $product): QueryBuilder => $product
+            ->from(self::PRODUCTS)
+            ->whereColumn(self::PRODUCTS . '.id', $banners->qualifyColumn('resource_id'));
+
+        return $banners->where(fn (Builder $banner) => $banner
+            ->where('resource_type', '!=', 'product')
+            ->orWhereNull('resource_type')
+            ->orWhereNotExists($productOfTheBanner)
+            ->orWhereExists(fn (QueryBuilder $product) => StorefrontCatalog::restrictJoinedProducts(query: $productOfTheBanner($product))));
+    }
+
+    /**
      * A banner belongs to no country, but the product it points at does: another storefront's product is neither shown nor opened. The
      * cache holds every banner, whatever the storefront, so this runs after it.
      */
-    public function offeredByTheStorefront(Collection $banners): Collection
+    private function offeredByTheStorefront(Collection $banners): Collection
     {
         $productIds = $banners->where('resource_type', 'product')->pluck('resource_id')->unique();
 

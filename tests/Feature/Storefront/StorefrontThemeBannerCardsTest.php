@@ -8,6 +8,7 @@ use App\Services\Storefront\StorefrontContext;
 use App\Services\Theme\SectionDataResolver;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsProductCatalog;
 use Tests\Support\BuildsStorefrontCatalog;
@@ -328,5 +329,71 @@ class StorefrontThemeBannerCardsTest extends TestCase
         Cache::flush();
 
         return $this->getJson('/api/v1/theme/home', ['X-Storefront' => 'SA'])->assertOk()->json();
+    }
+
+    // ---- what the narrowing costs, and what it does when it cannot be read -----------------------------------------------------------------
+
+    /** @return list<string> the text of every statement the callback ran, without the quotes each engine puts around a name and without the questions it asks the schema */
+    private function statementsOf(callable $callback): array
+    {
+        $connection = DB::connection();
+        $connection->flushQueryLog();
+        $connection->enableQueryLog();
+        $callback();
+        $connection->disableQueryLog();
+
+        $statements = array_map(static fn (string $statement): string => str_replace(['"', '`'], '', $statement), array_column($connection->getQueryLog(), 'query'));
+
+        return array_values(array_filter($statements, static fn (string $statement): bool => preg_match('/pragma|information_schema|sqlite_master/', $statement) !== 1));
+    }
+
+    /**
+     * @param list<string> $statements
+     * @return list<string> those of them that read the banners table
+     */
+    private function readsOfTheBanners(array $statements): array
+    {
+        return array_values(array_filter($statements, static fn (string $statement): bool => str_contains($statement, 'from banners')));
+    }
+
+    public function test_the_banners_of_a_section_are_read_with_the_one_statement_they_were_always_read_with_while_storefronts_are_off(): void
+    {
+        config(['gcc.storefronts.enabled' => false]);
+        $this->app->forgetInstance(StorefrontContext::class);
+
+        $statements = $this->statementsOf(fn () => app(SectionDataResolver::class)->dashboardBanners('Main Banner', 6));
+
+        $this->assertSame(
+            ['select * from banners where published = ? and banner_type = ? and theme = ? order by priority asc, id asc limit 6'],
+            $this->readsOfTheBanners($statements),
+            'the switched-off storefront reads its banners once, as it did before any of this was written',
+        );
+        $this->assertCount(2, $statements, "the banner read and the one that loads their images, and nothing else:\n" . implode("\n", $statements));
+    }
+
+    public function test_the_storefront_narrows_the_banners_in_the_read_that_fetches_them_and_not_by_reading_every_banner_of_the_shop(): void
+    {
+        $this->serveRequestFromStorefront(country: 'KW');
+        app(SectionDataResolver::class)->dashboardBanners('Main Banner', 6);
+
+        $statements = $this->statementsOf(fn () => app(SectionDataResolver::class)->dashboardBanners('Main Banner', 6));
+
+        $this->assertCount(1, $this->readsOfTheBanners($statements), "the banners are read once, not once to narrow them and once to fetch them:\n" . implode("\n", $statements));
+        $this->assertStringContainsString('from products', $this->readsOfTheBanners($statements)[0], 'the storefront narrows the read itself, so the limit counts the banners it may show');
+        $this->assertCount(2, $statements, "the banner read and the one that loads their images, and nothing else:\n" . implode("\n", $statements));
+    }
+
+    public function test_a_section_draws_nothing_rather_than_another_countrys_banner_when_the_read_that_narrows_it_cannot_be_answered(): void
+    {
+        $this->givePublishedBannerTheme();
+        $offered = ['Kuwaiti serum offer', ...self::BANNERS_OF_NO_PRODUCT];
+        $this->assertSame($offered, $this->titlesTheAppIsGiven(type: 'store_banner', country: 'KW'));
+        $this->assertSame($offered, $this->titlesTheAppIsGiven(type: 'banner_mosaic', country: 'KW'));
+
+        Schema::drop('products');
+        Cache::flush();
+
+        $this->assertSame([], $this->titlesTheAppIsGiven(type: 'store_banner', country: 'KW'), 'the banners created in the dashboard');
+        $this->assertSame([], $this->titlesTheAppIsGiven(type: 'banner_mosaic', country: 'KW'), 'the tiles linked to a banner');
     }
 }
