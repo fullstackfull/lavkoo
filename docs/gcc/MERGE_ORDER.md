@@ -229,3 +229,42 @@ The lists above were made from the pull requests that existed then (up to #90). 
 **#109 and the wallet pull requests: 15 conflicts, not merged into the integration yet.** #109 adds an optional `LedgerOrigin` argument and one `fill()` call to each of the six writers of the wallet and loyalty ledgers, and passes an origin from 24 callers; #9 and #10 change the same writers and some of the same callers. Merging #109 into the integration conflicts in `app/Utils/CustomerManager.php` (4 hunks), `OrderManager.php`, `module-helper.php`, `app/Traits/CustomerTrait.php`, `OrderEditManager.php`, `WalletTransactionRepository.php`, `LoyaltyPointTransactionRepository.php`, the web, vendor, admin, delivery-man and seller order controllers and the two POS controllers (28 hunks in all). Each is the same shape (two additions to one signature or one call); resolve by keeping both, then run `tests/Feature/Storefront/LedgerWritersAskForAttributionTest`, which fails when a writer stops asking, a new writer appears or a caller drops its origin. The finance review of the ledger columns comes first.
 
 **Three tests that open a storefront by hand need the activation of #111, and one test of #108 depends on the seller scoping.** When #111 is merged after #90 and #101, `LegalEntitySellingGateTest` (#90) and `StorefrontRefundRecordTest` (#101) fail, because they build a storefront that may sell without the helpers that #111 teaches to activate it: add `$this->activateStorefrontFor(...)` next to their `approveNoTaxFor(...)` (the integration does, in `7d81f8f3`). #108's `test_a_line_whose_order_is_gone...` pinned the base's answer (the line with a null order); with the seller scoping of #20 the detail answers 404, so the test now pins that storefronts being on change nothing in whichever answer the tree gives (`11a9707f`, on #108). A storefront test that asserts a sale must call `activateStorefrontFor()` or one of the helpers that do.
+
+## 5. The pull requests opened on 2026-11-19 (#124 to #130)
+
+Computed on 2026-11-19 by `tools/merge_conflicts.py`, which is the same dry-run method as section 1 (`git merge-tree`, nothing checked out, nothing written to a branch) and is now a script in the repository so it can be re-run: each of these seven was tried against **every** other open pull request (130 open, 882 pairs after de-duplication), and then against its own base, so that a conflict a pull request **inherits** from the branch it is stacked on is told apart from one it **causes**.
+
+| PR | branch | depth | stacked on | conflicting pairs | of which its own |
+|---|---|---:|---|---:|---:|
+| [#124](https://github.com/fullstackfull/lavkoo/pull/124) | `gcc/p1-saudi-literals-guard` | 0 | `main` | 4 | 4, all with the hotfix line |
+| [#125](https://github.com/fullstackfull/lavkoo/pull/125) | `gcc/p1-marketing-stop-registry` | 18 | [#111](https://github.com/fullstackfull/lavkoo/pull/111) | 27 | **0** |
+| [#126](https://github.com/fullstackfull/lavkoo/pull/126) | `gcc/p1-order-answer-market` | 18 | [#111](https://github.com/fullstackfull/lavkoo/pull/111) | 27 | **0** |
+| [#127](https://github.com/fullstackfull/lavkoo/pull/127) | `gcc/p1-theme-banner-folder-and-identity` | 17 | [#112](https://github.com/fullstackfull/lavkoo/pull/112) | 28 | **0** |
+| [#128](https://github.com/fullstackfull/lavkoo/pull/128) | `gcc/p1-market-wallet-loyalty-accounts` | 18 | [#111](https://github.com/fullstackfull/lavkoo/pull/111) | 32 | 14, in three files |
+| [#129](https://github.com/fullstackfull/lavkoo/pull/129) | `gcc/p1-coupon-form-money` | 16 | [#96](https://github.com/fullstackfull/lavkoo/pull/96) | 39 | 13, in one file |
+| [#130](https://github.com/fullstackfull/lavkoo/pull/130) | `gcc/p1-market-account-sharing-key` | 19 | [#128](https://github.com/fullstackfull/lavkoo/pull/128) | 32 | **0** |
+
+**Four of the seven add no conflict of their own at all.** #125, #126, #127 and #130 conflict with exactly what their base conflicts with, in the same files: settle the base and they are settled.
+
+**#124 meets nothing but the hotfix line.** Its four pairs are with #78, #81, #85 and #86, which section 1 excludes on purpose: that line is cut from the server baseline `698aa1e` and is deployed in stages, never merged with the main-based set. It merges cleanly with 125 of the other 129 open pull requests. The files are the ones that line rewrites wholesale (the four order controllers, `module-helper.php`, `SaudiPhone.php` and the two security tests), not anything the guard touches — #124 adds two files under `tests/` and changes nothing else.
+
+**#128's own conflicts are three files, and each is additive.**
+
+| with | file | how to settle |
+|---|---|---|
+| #14, #71, #79, #80, #83, #84 | `.github/workflows/ci.yml` | #128 adds a matrix group for `tests/Feature/Wallet` and appends one path to the strict-mode job. The others add their own groups. Keep every group; the file is a list. |
+| #90, #101, #103, #107, #109, #112, #113, #127 | `config/gcc.php` | #128 adds the `storefronts.market_accounts` sub-key next to the `currency` and `legal` sub-keys the others add. Keep both sides; the file is a registry of switches and every one of them ships off. |
+| #109 | `app/Models/WalletTransaction.php` | **This one was designed for.** #109 (the E-05 ledger attribution) and #128 both give the model a `$hidden` list, and #128's list is **byte-identical** to #109's on purpose, so either side may be kept. #128's migration is also timestamped `2026_12_05_120000`, after #109's `_100000`, and its `down()` drops no ledger column while #109 is recorded in the `migrations` table. Merge #109 first. |
+
+**#129's own conflicts are one file, thirteen times:** `tests/Feature/Storefront/StorefrontCurrencyTest.php`, against #99, #105, #111, #114, #115, #117, #119, #121, #123, #125, #126, #128 and #130 — that is, the whole storefront chain above its base #96. #129 changes `StorefrontCurrency::within()` so that it restores the six session keys the currency loader overwrites, and adds its cases to that class; the chain above #96 adds its own cases to the same class. **Keep both sets of cases** and run the class whole: at #129's head it is 34 tests / 74 assertions, and the storefront suites are 897 tests / 3601 assertions. Nothing of the production change collides — `app/Services/Storefront/StorefrontCurrency.php` itself auto-merges.
+
+**What this does not say.** It is textual conflict only, the same limit as section 1: a pair that merges cleanly here can still break a guard the other one wrote. Two semantic collisions are already known and are not textual — #109's `down()` drops `storefront_country` while customers hold market accounts (a guard is needed on #109, see that pull request's own notes), and the coupon **quick view** and **export** keep the fail-open #129 repaired in the list, because they are screens #129 did not touch.
+
+### Re-running it
+
+```bash
+python3 docs/gcc/tools/merge_conflicts.py <clone of lavkoo> 124,125,126,127 --json /tmp/out.json
+python3 docs/gcc/tools/merge_conflicts.py <clone of lavkoo> 111 --json /tmp/base.json   # to tell inherited from own
+```
+
+It checks out nothing and writes to no branch. `--against` narrows what each is tried against; the default is every open pull request.

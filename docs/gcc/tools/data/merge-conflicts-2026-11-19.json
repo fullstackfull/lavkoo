@@ -1,0 +1,1850 @@
+{
+ "pulls": {
+  "124": {
+   "branch": "gcc/p1-saudi-literals-guard",
+   "sha": "3a23dadc1c2a8fb61fa8a2958ddf4a28ad8a3075",
+   "base": "main",
+   "depth": 0,
+   "stacked_on": null,
+   "title": "M2-19: the Saudi literals in the platform's code are a closed list that fails on a new one (tests only)"
+  },
+  "125": {
+   "branch": "gcc/p1-marketing-stop-registry",
+   "sha": "6b1bf942f8273622290548bb01f336572d960f56",
+   "base": "gcc/p1-storefront-lifecycle",
+   "depth": 18,
+   "stacked_on": 111,
+   "title": "I1-07.2, I1-07.3: a storefront that may not sell is sent no marketing, and every notification type is listed as necessary or marketing (draft, off by default, stacked on #111)"
+  },
+  "126": {
+   "branch": "gcc/p1-order-answer-market",
+   "sha": "331ee6712974c8299eaa64ad621175c31cb277f1",
+   "base": "gcc/p1-storefront-lifecycle",
+   "depth": 18,
+   "stacked_on": 111,
+   "title": "J-13.1 backend half: every customer answer that carries an order carries the storefront and the currency it was sold in (draft, tests only, stacked on #111)"
+  },
+  "127": {
+   "branch": "gcc/p1-theme-banner-folder-and-identity",
+   "sha": "2976ebb2a2cfa0e72974c55cca8855ed9165c23c",
+   "base": "gcc/p1-theme-publish-per-storefront",
+   "depth": 17,
+   "stacked_on": 112,
+   "title": "F-10.2, F-12.2, F-12.3: a banner section's theme folder is chosen before the storefront narrows it, and a theme switched back to stays active (draft, off by default, stacked on #112)"
+  },
+  "128": {
+   "branch": "gcc/p1-market-wallet-loyalty-accounts",
+   "sha": "2629b9f151b373c15de472e6fea2b28e511770ca",
+   "base": "gcc/p1-storefront-lifecycle",
+   "depth": 18,
+   "stacked_on": 111,
+   "title": "E-01, E-02 foundation: a dormant wallet and loyalty account per market, expand only, with a read-only reconciler (draft, off by default, stacked on #111)"
+  },
+  "129": {
+   "branch": "gcc/p1-coupon-form-money",
+   "sha": "7ca87a9f0526823e1408da91440e9ed5fe3a5200",
+   "base": "gcc/p1-storefront-six-country-isolation",
+   "depth": 16,
+   "stacked_on": 96,
+   "title": "I1-12.1, I1-12.2: a coupon is read and written only in the money it was typed in — and a session leak that corrupted every later conversion (draft, off by default, stacked on #96)"
+  },
+  "130": {
+   "branch": "gcc/p1-market-account-sharing-key",
+   "sha": "b6723a1f07bc6b0c9171fd27cce96301ee95364f",
+   "base": "gcc/p1-market-wallet-loyalty-accounts",
+   "depth": 19,
+   "stacked_on": 128,
+   "title": "E-02.3: the room the structure leaves for shared balances, which nothing reads (draft, expand only, stacked on #128)"
+  }
+ },
+ "pairs": [
+  {
+   "left": 5,
+   "right": 125,
+   "files": [
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 5,
+   "right": 126,
+   "files": [
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 5,
+   "right": 127,
+   "files": [
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 5,
+   "right": 128,
+   "files": [
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 5,
+   "right": 129,
+   "files": [
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 5,
+   "right": 130,
+   "files": [
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 7,
+   "right": 125,
+   "files": [
+    ".env.example"
+   ]
+  },
+  {
+   "left": 7,
+   "right": 126,
+   "files": [
+    ".env.example"
+   ]
+  },
+  {
+   "left": 7,
+   "right": 127,
+   "files": [
+    ".env.example"
+   ]
+  },
+  {
+   "left": 7,
+   "right": 128,
+   "files": [
+    ".env.example"
+   ]
+  },
+  {
+   "left": 7,
+   "right": 129,
+   "files": [
+    ".env.example"
+   ]
+  },
+  {
+   "left": 7,
+   "right": 130,
+   "files": [
+    ".env.example"
+   ]
+  },
+  {
+   "left": 13,
+   "right": 125,
+   "files": [
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php"
+   ]
+  },
+  {
+   "left": 13,
+   "right": 126,
+   "files": [
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php"
+   ]
+  },
+  {
+   "left": 13,
+   "right": 127,
+   "files": [
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php"
+   ]
+  },
+  {
+   "left": 13,
+   "right": 128,
+   "files": [
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php"
+   ]
+  },
+  {
+   "left": 13,
+   "right": 129,
+   "files": [
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php"
+   ]
+  },
+  {
+   "left": 13,
+   "right": 130,
+   "files": [
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php"
+   ]
+  },
+  {
+   "left": 14,
+   "right": 128,
+   "files": [
+    ".github/workflows/ci.yml"
+   ]
+  },
+  {
+   "left": 14,
+   "right": 130,
+   "files": [
+    ".github/workflows/ci.yml"
+   ]
+  },
+  {
+   "left": 35,
+   "right": 125,
+   "files": [
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php"
+   ]
+  },
+  {
+   "left": 35,
+   "right": 126,
+   "files": [
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php"
+   ]
+  },
+  {
+   "left": 35,
+   "right": 127,
+   "files": [
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php"
+   ]
+  },
+  {
+   "left": 35,
+   "right": 128,
+   "files": [
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php"
+   ]
+  },
+  {
+   "left": 35,
+   "right": 129,
+   "files": [
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php"
+   ]
+  },
+  {
+   "left": 35,
+   "right": 130,
+   "files": [
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php"
+   ]
+  },
+  {
+   "left": 41,
+   "right": 125,
+   "files": [
+    "resources/lang/en/new-messages.php"
+   ]
+  },
+  {
+   "left": 41,
+   "right": 126,
+   "files": [
+    "resources/lang/en/new-messages.php"
+   ]
+  },
+  {
+   "left": 41,
+   "right": 127,
+   "files": [
+    "resources/lang/en/new-messages.php"
+   ]
+  },
+  {
+   "left": 41,
+   "right": 128,
+   "files": [
+    "resources/lang/en/new-messages.php"
+   ]
+  },
+  {
+   "left": 41,
+   "right": 129,
+   "files": [
+    "resources/lang/en/new-messages.php"
+   ]
+  },
+  {
+   "left": 41,
+   "right": 130,
+   "files": [
+    "resources/lang/en/new-messages.php"
+   ]
+  },
+  {
+   "left": 52,
+   "right": 125,
+   "files": [
+    "app/Traits/OrderEditManager.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 52,
+   "right": 126,
+   "files": [
+    "app/Traits/OrderEditManager.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 52,
+   "right": 127,
+   "files": [
+    "app/Traits/OrderEditManager.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 52,
+   "right": 128,
+   "files": [
+    "app/Traits/OrderEditManager.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 52,
+   "right": 129,
+   "files": [
+    "app/Traits/OrderEditManager.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 52,
+   "right": 130,
+   "files": [
+    "app/Traits/OrderEditManager.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 54,
+   "right": 125,
+   "files": [
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Utils/CartManager.php"
+   ]
+  },
+  {
+   "left": 54,
+   "right": 126,
+   "files": [
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Utils/CartManager.php"
+   ]
+  },
+  {
+   "left": 54,
+   "right": 127,
+   "files": [
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Utils/CartManager.php"
+   ]
+  },
+  {
+   "left": 54,
+   "right": 128,
+   "files": [
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Utils/CartManager.php"
+   ]
+  },
+  {
+   "left": 54,
+   "right": 129,
+   "files": [
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Utils/CartManager.php"
+   ]
+  },
+  {
+   "left": 54,
+   "right": 130,
+   "files": [
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Utils/CartManager.php"
+   ]
+  },
+  {
+   "left": 56,
+   "right": 125,
+   "files": [
+    "app/Utils/module-helper.php"
+   ]
+  },
+  {
+   "left": 56,
+   "right": 126,
+   "files": [
+    "app/Utils/module-helper.php"
+   ]
+  },
+  {
+   "left": 56,
+   "right": 127,
+   "files": [
+    "app/Utils/module-helper.php"
+   ]
+  },
+  {
+   "left": 56,
+   "right": 128,
+   "files": [
+    "app/Utils/module-helper.php"
+   ]
+  },
+  {
+   "left": 56,
+   "right": 129,
+   "files": [
+    "app/Utils/module-helper.php"
+   ]
+  },
+  {
+   "left": 56,
+   "right": 130,
+   "files": [
+    "app/Utils/module-helper.php"
+   ]
+  },
+  {
+   "left": 68,
+   "right": 125,
+   "files": [
+    "app/Traits/OrderEditManager.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 68,
+   "right": 126,
+   "files": [
+    "app/Traits/OrderEditManager.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 68,
+   "right": 127,
+   "files": [
+    "app/Traits/OrderEditManager.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 68,
+   "right": 128,
+   "files": [
+    "app/Traits/OrderEditManager.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 68,
+   "right": 129,
+   "files": [
+    "app/Traits/OrderEditManager.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 68,
+   "right": 130,
+   "files": [
+    "app/Traits/OrderEditManager.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 71,
+   "right": 125,
+   "files": [
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 71,
+   "right": 126,
+   "files": [
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 71,
+   "right": 127,
+   "files": [
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 71,
+   "right": 128,
+   "files": [
+    ".github/workflows/ci.yml",
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 71,
+   "right": 129,
+   "files": [
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 71,
+   "right": 130,
+   "files": [
+    ".github/workflows/ci.yml",
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 75,
+   "right": 125,
+   "files": [
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Traits/OrderEditManager.php",
+    "app/Utils/CartManager.php",
+    "app/Utils/module-helper.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 75,
+   "right": 126,
+   "files": [
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Traits/OrderEditManager.php",
+    "app/Utils/CartManager.php",
+    "app/Utils/module-helper.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 75,
+   "right": 127,
+   "files": [
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Traits/OrderEditManager.php",
+    "app/Utils/CartManager.php",
+    "app/Utils/module-helper.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 75,
+   "right": 128,
+   "files": [
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Traits/OrderEditManager.php",
+    "app/Utils/CartManager.php",
+    "app/Utils/module-helper.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 75,
+   "right": 129,
+   "files": [
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Traits/OrderEditManager.php",
+    "app/Utils/CartManager.php",
+    "app/Utils/module-helper.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 75,
+   "right": 130,
+   "files": [
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Traits/OrderEditManager.php",
+    "app/Utils/CartManager.php",
+    "app/Utils/module-helper.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 78,
+   "right": 124,
+   "files": [
+    "app/Http/Controllers/RestAPI/v1/ConfigController.php",
+    "app/Http/Controllers/RestAPI/v1/CustomerController.php",
+    "app/Http/Controllers/RestAPI/v1/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php",
+    "app/Http/Controllers/Vendor/Order/OrderController.php",
+    "app/Http/Controllers/Web/UserProfileController.php",
+    "app/Http/Controllers/Web/WebController.php",
+    "app/Services/Fulfillment/Support/SaudiPhone.php",
+    "app/Utils/module-helper.php",
+    "tests/Feature/Security/AdminRouteAuthenticationTest.php",
+    "tests/Feature/Security/MaintenanceRoutesTest.php"
+   ]
+  },
+  {
+   "left": 78,
+   "right": 125,
+   "files": [
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Http/Controllers/RestAPI/v1/ConfigController.php",
+    "app/Http/Controllers/RestAPI/v1/CustomerController.php",
+    "app/Http/Controllers/RestAPI/v1/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php",
+    "app/Http/Controllers/Vendor/Order/OrderController.php",
+    "app/Http/Controllers/Web/CartController.php",
+    "app/Http/Controllers/Web/UserProfileController.php",
+    "app/Http/Controllers/Web/WebController.php",
+    "app/Services/Fulfillment/Support/SaudiPhone.php",
+    "app/Services/Search/ProductSearchService.php",
+    "app/Traits/OrderEditManager.php",
+    "app/Utils/CartManager.php",
+    "app/Utils/module-helper.php",
+    "tests/Feature/Security/AdminRouteAuthenticationTest.php",
+    "tests/Feature/Security/MaintenanceRoutesTest.php",
+    "tests/Feature/Security/SearchVisibilityTest.php"
+   ]
+  },
+  {
+   "left": 78,
+   "right": 126,
+   "files": [
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Http/Controllers/RestAPI/v1/ConfigController.php",
+    "app/Http/Controllers/RestAPI/v1/CustomerController.php",
+    "app/Http/Controllers/RestAPI/v1/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php",
+    "app/Http/Controllers/Vendor/Order/OrderController.php",
+    "app/Http/Controllers/Web/CartController.php",
+    "app/Http/Controllers/Web/UserProfileController.php",
+    "app/Http/Controllers/Web/WebController.php",
+    "app/Services/Fulfillment/Support/SaudiPhone.php",
+    "app/Services/Search/ProductSearchService.php",
+    "app/Traits/OrderEditManager.php",
+    "app/Utils/CartManager.php",
+    "app/Utils/module-helper.php",
+    "tests/Feature/Security/AdminRouteAuthenticationTest.php",
+    "tests/Feature/Security/MaintenanceRoutesTest.php",
+    "tests/Feature/Security/SearchVisibilityTest.php"
+   ]
+  },
+  {
+   "left": 78,
+   "right": 127,
+   "files": [
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Http/Controllers/RestAPI/v1/ConfigController.php",
+    "app/Http/Controllers/RestAPI/v1/CustomerController.php",
+    "app/Http/Controllers/RestAPI/v1/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php",
+    "app/Http/Controllers/Vendor/Order/OrderController.php",
+    "app/Http/Controllers/Web/CartController.php",
+    "app/Http/Controllers/Web/UserProfileController.php",
+    "app/Http/Controllers/Web/WebController.php",
+    "app/Services/Fulfillment/Support/SaudiPhone.php",
+    "app/Services/Search/ProductSearchService.php",
+    "app/Traits/OrderEditManager.php",
+    "app/Utils/CartManager.php",
+    "app/Utils/module-helper.php",
+    "tests/Feature/Security/AdminRouteAuthenticationTest.php",
+    "tests/Feature/Security/MaintenanceRoutesTest.php",
+    "tests/Feature/Security/SearchVisibilityTest.php"
+   ]
+  },
+  {
+   "left": 78,
+   "right": 128,
+   "files": [
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Http/Controllers/RestAPI/v1/ConfigController.php",
+    "app/Http/Controllers/RestAPI/v1/CustomerController.php",
+    "app/Http/Controllers/RestAPI/v1/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php",
+    "app/Http/Controllers/Vendor/Order/OrderController.php",
+    "app/Http/Controllers/Web/CartController.php",
+    "app/Http/Controllers/Web/UserProfileController.php",
+    "app/Http/Controllers/Web/WebController.php",
+    "app/Services/Fulfillment/Support/SaudiPhone.php",
+    "app/Services/Search/ProductSearchService.php",
+    "app/Traits/OrderEditManager.php",
+    "app/Utils/CartManager.php",
+    "app/Utils/module-helper.php",
+    "tests/Feature/Security/AdminRouteAuthenticationTest.php",
+    "tests/Feature/Security/MaintenanceRoutesTest.php",
+    "tests/Feature/Security/SearchVisibilityTest.php"
+   ]
+  },
+  {
+   "left": 78,
+   "right": 129,
+   "files": [
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Http/Controllers/RestAPI/v1/ConfigController.php",
+    "app/Http/Controllers/RestAPI/v1/CustomerController.php",
+    "app/Http/Controllers/RestAPI/v1/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php",
+    "app/Http/Controllers/Vendor/Order/OrderController.php",
+    "app/Http/Controllers/Web/CartController.php",
+    "app/Http/Controllers/Web/UserProfileController.php",
+    "app/Http/Controllers/Web/WebController.php",
+    "app/Services/Fulfillment/Support/SaudiPhone.php",
+    "app/Services/Search/ProductSearchService.php",
+    "app/Traits/OrderEditManager.php",
+    "app/Utils/CartManager.php",
+    "app/Utils/module-helper.php",
+    "tests/Feature/Security/AdminRouteAuthenticationTest.php",
+    "tests/Feature/Security/MaintenanceRoutesTest.php",
+    "tests/Feature/Security/SearchVisibilityTest.php"
+   ]
+  },
+  {
+   "left": 78,
+   "right": 130,
+   "files": [
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Http/Controllers/RestAPI/v1/ConfigController.php",
+    "app/Http/Controllers/RestAPI/v1/CustomerController.php",
+    "app/Http/Controllers/RestAPI/v1/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php",
+    "app/Http/Controllers/Vendor/Order/OrderController.php",
+    "app/Http/Controllers/Web/CartController.php",
+    "app/Http/Controllers/Web/UserProfileController.php",
+    "app/Http/Controllers/Web/WebController.php",
+    "app/Services/Fulfillment/Support/SaudiPhone.php",
+    "app/Services/Search/ProductSearchService.php",
+    "app/Traits/OrderEditManager.php",
+    "app/Utils/CartManager.php",
+    "app/Utils/module-helper.php",
+    "tests/Feature/Security/AdminRouteAuthenticationTest.php",
+    "tests/Feature/Security/MaintenanceRoutesTest.php",
+    "tests/Feature/Security/SearchVisibilityTest.php"
+   ]
+  },
+  {
+   "left": 79,
+   "right": 125,
+   "files": [
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 79,
+   "right": 126,
+   "files": [
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 79,
+   "right": 127,
+   "files": [
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 79,
+   "right": 128,
+   "files": [
+    ".github/workflows/ci.yml",
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 79,
+   "right": 129,
+   "files": [
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 79,
+   "right": 130,
+   "files": [
+    ".github/workflows/ci.yml",
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 80,
+   "right": 125,
+   "files": [
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 80,
+   "right": 126,
+   "files": [
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 80,
+   "right": 127,
+   "files": [
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 80,
+   "right": 128,
+   "files": [
+    ".github/workflows/ci.yml",
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 80,
+   "right": 129,
+   "files": [
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 80,
+   "right": 130,
+   "files": [
+    ".github/workflows/ci.yml",
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 81,
+   "right": 124,
+   "files": [
+    ".github/workflows/ci.yml",
+    "app/Http/Controllers/RestAPI/v1/ConfigController.php",
+    "app/Http/Controllers/RestAPI/v1/CustomerController.php",
+    "app/Http/Controllers/RestAPI/v1/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php",
+    "app/Http/Controllers/Vendor/Order/OrderController.php",
+    "app/Http/Controllers/Web/UserProfileController.php",
+    "app/Http/Controllers/Web/WebController.php",
+    "app/Services/Fulfillment/Support/SaudiPhone.php",
+    "app/Utils/module-helper.php",
+    "tests/Feature/Security/AdminRouteAuthenticationTest.php",
+    "tests/Feature/Security/MaintenanceRoutesTest.php"
+   ]
+  },
+  {
+   "left": 81,
+   "right": 125,
+   "files": [
+    ".github/workflows/ci.yml",
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Http/Controllers/RestAPI/v1/ConfigController.php",
+    "app/Http/Controllers/RestAPI/v1/CustomerController.php",
+    "app/Http/Controllers/RestAPI/v1/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php",
+    "app/Http/Controllers/Vendor/Order/OrderController.php",
+    "app/Http/Controllers/Web/CartController.php",
+    "app/Http/Controllers/Web/UserProfileController.php",
+    "app/Http/Controllers/Web/WebController.php",
+    "app/Services/Fulfillment/Support/SaudiPhone.php",
+    "app/Services/Search/ProductSearchService.php",
+    "app/Traits/OrderEditManager.php",
+    "app/Utils/CartManager.php",
+    "app/Utils/module-helper.php",
+    "tests/Feature/Security/AdminRouteAuthenticationTest.php",
+    "tests/Feature/Security/MaintenanceRoutesTest.php",
+    "tests/Feature/Security/SearchVisibilityTest.php"
+   ]
+  },
+  {
+   "left": 81,
+   "right": 126,
+   "files": [
+    ".github/workflows/ci.yml",
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Http/Controllers/RestAPI/v1/ConfigController.php",
+    "app/Http/Controllers/RestAPI/v1/CustomerController.php",
+    "app/Http/Controllers/RestAPI/v1/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php",
+    "app/Http/Controllers/Vendor/Order/OrderController.php",
+    "app/Http/Controllers/Web/CartController.php",
+    "app/Http/Controllers/Web/UserProfileController.php",
+    "app/Http/Controllers/Web/WebController.php",
+    "app/Services/Fulfillment/Support/SaudiPhone.php",
+    "app/Services/Search/ProductSearchService.php",
+    "app/Traits/OrderEditManager.php",
+    "app/Utils/CartManager.php",
+    "app/Utils/module-helper.php",
+    "tests/Feature/Security/AdminRouteAuthenticationTest.php",
+    "tests/Feature/Security/MaintenanceRoutesTest.php",
+    "tests/Feature/Security/SearchVisibilityTest.php"
+   ]
+  },
+  {
+   "left": 81,
+   "right": 127,
+   "files": [
+    ".github/workflows/ci.yml",
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Http/Controllers/RestAPI/v1/ConfigController.php",
+    "app/Http/Controllers/RestAPI/v1/CustomerController.php",
+    "app/Http/Controllers/RestAPI/v1/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php",
+    "app/Http/Controllers/Vendor/Order/OrderController.php",
+    "app/Http/Controllers/Web/CartController.php",
+    "app/Http/Controllers/Web/UserProfileController.php",
+    "app/Http/Controllers/Web/WebController.php",
+    "app/Services/Fulfillment/Support/SaudiPhone.php",
+    "app/Services/Search/ProductSearchService.php",
+    "app/Traits/OrderEditManager.php",
+    "app/Utils/CartManager.php",
+    "app/Utils/module-helper.php",
+    "tests/Feature/Security/AdminRouteAuthenticationTest.php",
+    "tests/Feature/Security/MaintenanceRoutesTest.php",
+    "tests/Feature/Security/SearchVisibilityTest.php"
+   ]
+  },
+  {
+   "left": 81,
+   "right": 128,
+   "files": [
+    ".github/workflows/ci.yml",
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Http/Controllers/RestAPI/v1/ConfigController.php",
+    "app/Http/Controllers/RestAPI/v1/CustomerController.php",
+    "app/Http/Controllers/RestAPI/v1/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php",
+    "app/Http/Controllers/Vendor/Order/OrderController.php",
+    "app/Http/Controllers/Web/CartController.php",
+    "app/Http/Controllers/Web/UserProfileController.php",
+    "app/Http/Controllers/Web/WebController.php",
+    "app/Services/Fulfillment/Support/SaudiPhone.php",
+    "app/Services/Search/ProductSearchService.php",
+    "app/Traits/OrderEditManager.php",
+    "app/Utils/CartManager.php",
+    "app/Utils/module-helper.php",
+    "tests/Feature/Security/AdminRouteAuthenticationTest.php",
+    "tests/Feature/Security/MaintenanceRoutesTest.php",
+    "tests/Feature/Security/SearchVisibilityTest.php"
+   ]
+  },
+  {
+   "left": 81,
+   "right": 129,
+   "files": [
+    ".github/workflows/ci.yml",
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Http/Controllers/RestAPI/v1/ConfigController.php",
+    "app/Http/Controllers/RestAPI/v1/CustomerController.php",
+    "app/Http/Controllers/RestAPI/v1/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php",
+    "app/Http/Controllers/Vendor/Order/OrderController.php",
+    "app/Http/Controllers/Web/CartController.php",
+    "app/Http/Controllers/Web/UserProfileController.php",
+    "app/Http/Controllers/Web/WebController.php",
+    "app/Services/Fulfillment/Support/SaudiPhone.php",
+    "app/Services/Search/ProductSearchService.php",
+    "app/Traits/OrderEditManager.php",
+    "app/Utils/CartManager.php",
+    "app/Utils/module-helper.php",
+    "tests/Feature/Security/AdminRouteAuthenticationTest.php",
+    "tests/Feature/Security/MaintenanceRoutesTest.php",
+    "tests/Feature/Security/SearchVisibilityTest.php"
+   ]
+  },
+  {
+   "left": 81,
+   "right": 130,
+   "files": [
+    ".github/workflows/ci.yml",
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Http/Controllers/RestAPI/v1/ConfigController.php",
+    "app/Http/Controllers/RestAPI/v1/CustomerController.php",
+    "app/Http/Controllers/RestAPI/v1/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php",
+    "app/Http/Controllers/Vendor/Order/OrderController.php",
+    "app/Http/Controllers/Web/CartController.php",
+    "app/Http/Controllers/Web/UserProfileController.php",
+    "app/Http/Controllers/Web/WebController.php",
+    "app/Services/Fulfillment/Support/SaudiPhone.php",
+    "app/Services/Search/ProductSearchService.php",
+    "app/Traits/OrderEditManager.php",
+    "app/Utils/CartManager.php",
+    "app/Utils/module-helper.php",
+    "tests/Feature/Security/AdminRouteAuthenticationTest.php",
+    "tests/Feature/Security/MaintenanceRoutesTest.php",
+    "tests/Feature/Security/SearchVisibilityTest.php"
+   ]
+  },
+  {
+   "left": 83,
+   "right": 125,
+   "files": [
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 83,
+   "right": 126,
+   "files": [
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 83,
+   "right": 127,
+   "files": [
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 83,
+   "right": 128,
+   "files": [
+    ".github/workflows/ci.yml",
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 83,
+   "right": 129,
+   "files": [
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 83,
+   "right": 130,
+   "files": [
+    ".github/workflows/ci.yml",
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 84,
+   "right": 125,
+   "files": [
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 84,
+   "right": 126,
+   "files": [
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 84,
+   "right": 127,
+   "files": [
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 84,
+   "right": 128,
+   "files": [
+    ".github/workflows/ci.yml",
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 84,
+   "right": 129,
+   "files": [
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 84,
+   "right": 130,
+   "files": [
+    ".github/workflows/ci.yml",
+    "bootstrap/app.php"
+   ]
+  },
+  {
+   "left": 85,
+   "right": 124,
+   "files": [
+    "tests/Feature/Security/MaintenanceRoutesTest.php"
+   ]
+  },
+  {
+   "left": 85,
+   "right": 125,
+   "files": [
+    "tests/Feature/Security/MaintenanceRoutesTest.php"
+   ]
+  },
+  {
+   "left": 85,
+   "right": 126,
+   "files": [
+    "tests/Feature/Security/MaintenanceRoutesTest.php"
+   ]
+  },
+  {
+   "left": 85,
+   "right": 127,
+   "files": [
+    "tests/Feature/Security/MaintenanceRoutesTest.php"
+   ]
+  },
+  {
+   "left": 85,
+   "right": 128,
+   "files": [
+    "tests/Feature/Security/MaintenanceRoutesTest.php"
+   ]
+  },
+  {
+   "left": 85,
+   "right": 129,
+   "files": [
+    "tests/Feature/Security/MaintenanceRoutesTest.php"
+   ]
+  },
+  {
+   "left": 85,
+   "right": 130,
+   "files": [
+    "tests/Feature/Security/MaintenanceRoutesTest.php"
+   ]
+  },
+  {
+   "left": 86,
+   "right": 124,
+   "files": [
+    ".github/workflows/ci.yml",
+    "app/Http/Controllers/RestAPI/v1/ConfigController.php",
+    "app/Http/Controllers/RestAPI/v1/CustomerController.php",
+    "app/Http/Controllers/RestAPI/v1/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php",
+    "app/Http/Controllers/Vendor/Order/OrderController.php",
+    "app/Http/Controllers/Web/UserProfileController.php",
+    "app/Http/Controllers/Web/WebController.php",
+    "app/Services/Fulfillment/Support/SaudiPhone.php",
+    "app/Utils/module-helper.php",
+    "tests/Feature/Security/AdminRouteAuthenticationTest.php",
+    "tests/Feature/Security/MaintenanceRoutesTest.php"
+   ]
+  },
+  {
+   "left": 86,
+   "right": 125,
+   "files": [
+    ".github/workflows/ci.yml",
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Http/Controllers/RestAPI/v1/ConfigController.php",
+    "app/Http/Controllers/RestAPI/v1/CustomerController.php",
+    "app/Http/Controllers/RestAPI/v1/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php",
+    "app/Http/Controllers/Vendor/Order/OrderController.php",
+    "app/Http/Controllers/Web/CartController.php",
+    "app/Http/Controllers/Web/UserProfileController.php",
+    "app/Http/Controllers/Web/WebController.php",
+    "app/Services/Fulfillment/Support/SaudiPhone.php",
+    "app/Services/Search/ProductSearchService.php",
+    "app/Traits/OrderEditManager.php",
+    "app/Utils/CartManager.php",
+    "app/Utils/module-helper.php",
+    "tests/Feature/Security/AdminRouteAuthenticationTest.php",
+    "tests/Feature/Security/MaintenanceRoutesTest.php",
+    "tests/Feature/Security/SearchVisibilityTest.php"
+   ]
+  },
+  {
+   "left": 86,
+   "right": 126,
+   "files": [
+    ".github/workflows/ci.yml",
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Http/Controllers/RestAPI/v1/ConfigController.php",
+    "app/Http/Controllers/RestAPI/v1/CustomerController.php",
+    "app/Http/Controllers/RestAPI/v1/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php",
+    "app/Http/Controllers/Vendor/Order/OrderController.php",
+    "app/Http/Controllers/Web/CartController.php",
+    "app/Http/Controllers/Web/UserProfileController.php",
+    "app/Http/Controllers/Web/WebController.php",
+    "app/Services/Fulfillment/Support/SaudiPhone.php",
+    "app/Services/Search/ProductSearchService.php",
+    "app/Traits/OrderEditManager.php",
+    "app/Utils/CartManager.php",
+    "app/Utils/module-helper.php",
+    "tests/Feature/Security/AdminRouteAuthenticationTest.php",
+    "tests/Feature/Security/MaintenanceRoutesTest.php",
+    "tests/Feature/Security/SearchVisibilityTest.php"
+   ]
+  },
+  {
+   "left": 86,
+   "right": 127,
+   "files": [
+    ".github/workflows/ci.yml",
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Http/Controllers/RestAPI/v1/ConfigController.php",
+    "app/Http/Controllers/RestAPI/v1/CustomerController.php",
+    "app/Http/Controllers/RestAPI/v1/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php",
+    "app/Http/Controllers/Vendor/Order/OrderController.php",
+    "app/Http/Controllers/Web/CartController.php",
+    "app/Http/Controllers/Web/UserProfileController.php",
+    "app/Http/Controllers/Web/WebController.php",
+    "app/Services/Fulfillment/Support/SaudiPhone.php",
+    "app/Services/Search/ProductSearchService.php",
+    "app/Traits/OrderEditManager.php",
+    "app/Utils/CartManager.php",
+    "app/Utils/module-helper.php",
+    "tests/Feature/Security/AdminRouteAuthenticationTest.php",
+    "tests/Feature/Security/MaintenanceRoutesTest.php",
+    "tests/Feature/Security/SearchVisibilityTest.php"
+   ]
+  },
+  {
+   "left": 86,
+   "right": 128,
+   "files": [
+    ".github/workflows/ci.yml",
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Http/Controllers/RestAPI/v1/ConfigController.php",
+    "app/Http/Controllers/RestAPI/v1/CustomerController.php",
+    "app/Http/Controllers/RestAPI/v1/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php",
+    "app/Http/Controllers/Vendor/Order/OrderController.php",
+    "app/Http/Controllers/Web/CartController.php",
+    "app/Http/Controllers/Web/UserProfileController.php",
+    "app/Http/Controllers/Web/WebController.php",
+    "app/Services/Fulfillment/Support/SaudiPhone.php",
+    "app/Services/Search/ProductSearchService.php",
+    "app/Traits/OrderEditManager.php",
+    "app/Utils/CartManager.php",
+    "app/Utils/module-helper.php",
+    "tests/Feature/Security/AdminRouteAuthenticationTest.php",
+    "tests/Feature/Security/MaintenanceRoutesTest.php",
+    "tests/Feature/Security/SearchVisibilityTest.php"
+   ]
+  },
+  {
+   "left": 86,
+   "right": 129,
+   "files": [
+    ".github/workflows/ci.yml",
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Http/Controllers/RestAPI/v1/ConfigController.php",
+    "app/Http/Controllers/RestAPI/v1/CustomerController.php",
+    "app/Http/Controllers/RestAPI/v1/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php",
+    "app/Http/Controllers/Vendor/Order/OrderController.php",
+    "app/Http/Controllers/Web/CartController.php",
+    "app/Http/Controllers/Web/UserProfileController.php",
+    "app/Http/Controllers/Web/WebController.php",
+    "app/Services/Fulfillment/Support/SaudiPhone.php",
+    "app/Services/Search/ProductSearchService.php",
+    "app/Traits/OrderEditManager.php",
+    "app/Utils/CartManager.php",
+    "app/Utils/module-helper.php",
+    "tests/Feature/Security/AdminRouteAuthenticationTest.php",
+    "tests/Feature/Security/MaintenanceRoutesTest.php",
+    "tests/Feature/Security/SearchVisibilityTest.php"
+   ]
+  },
+  {
+   "left": 86,
+   "right": 130,
+   "files": [
+    ".github/workflows/ci.yml",
+    "app/Http/Controllers/RestAPI/v1/CartController.php",
+    "app/Http/Controllers/RestAPI/v1/ConfigController.php",
+    "app/Http/Controllers/RestAPI/v1/CustomerController.php",
+    "app/Http/Controllers/RestAPI/v1/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/OrderController.php",
+    "app/Http/Controllers/RestAPI/v3/seller/POSController.php",
+    "app/Http/Controllers/Vendor/Order/OrderController.php",
+    "app/Http/Controllers/Web/CartController.php",
+    "app/Http/Controllers/Web/UserProfileController.php",
+    "app/Http/Controllers/Web/WebController.php",
+    "app/Services/Fulfillment/Support/SaudiPhone.php",
+    "app/Services/Search/ProductSearchService.php",
+    "app/Traits/OrderEditManager.php",
+    "app/Utils/CartManager.php",
+    "app/Utils/module-helper.php",
+    "tests/Feature/Security/AdminRouteAuthenticationTest.php",
+    "tests/Feature/Security/MaintenanceRoutesTest.php",
+    "tests/Feature/Security/SearchVisibilityTest.php"
+   ]
+  },
+  {
+   "left": 90,
+   "right": 125,
+   "files": [
+    "app/Services/Storefront/StorefrontSellingGate.php",
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 90,
+   "right": 126,
+   "files": [
+    "app/Services/Storefront/StorefrontSellingGate.php",
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 90,
+   "right": 127,
+   "files": [
+    "config/gcc.php",
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 90,
+   "right": 128,
+   "files": [
+    "app/Services/Storefront/StorefrontSellingGate.php",
+    "config/gcc.php",
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 90,
+   "right": 129,
+   "files": [
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 90,
+   "right": 130,
+   "files": [
+    "app/Services/Storefront/StorefrontSellingGate.php",
+    "config/gcc.php",
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 92,
+   "right": 125,
+   "files": [
+    "tests/TestCase.php"
+   ]
+  },
+  {
+   "left": 92,
+   "right": 126,
+   "files": [
+    "tests/TestCase.php"
+   ]
+  },
+  {
+   "left": 92,
+   "right": 127,
+   "files": [
+    "tests/TestCase.php"
+   ]
+  },
+  {
+   "left": 92,
+   "right": 128,
+   "files": [
+    "tests/TestCase.php"
+   ]
+  },
+  {
+   "left": 92,
+   "right": 129,
+   "files": [
+    "tests/TestCase.php"
+   ]
+  },
+  {
+   "left": 92,
+   "right": 130,
+   "files": [
+    "tests/TestCase.php"
+   ]
+  },
+  {
+   "left": 99,
+   "right": 129,
+   "files": [
+    "tests/Feature/Storefront/StorefrontCurrencyTest.php"
+   ]
+  },
+  {
+   "left": 101,
+   "right": 125,
+   "files": [
+    "app/Services/Storefront/StorefrontSellingGate.php",
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 101,
+   "right": 126,
+   "files": [
+    "app/Services/Storefront/StorefrontSellingGate.php",
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 101,
+   "right": 127,
+   "files": [
+    "config/gcc.php",
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 101,
+   "right": 128,
+   "files": [
+    "app/Services/Storefront/StorefrontSellingGate.php",
+    "config/gcc.php",
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 101,
+   "right": 129,
+   "files": [
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 101,
+   "right": 130,
+   "files": [
+    "app/Services/Storefront/StorefrontSellingGate.php",
+    "config/gcc.php",
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 103,
+   "right": 125,
+   "files": [
+    "app/Services/Storefront/StorefrontSellingGate.php",
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 103,
+   "right": 126,
+   "files": [
+    "app/Services/Storefront/StorefrontSellingGate.php",
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 103,
+   "right": 127,
+   "files": [
+    "config/gcc.php",
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 103,
+   "right": 128,
+   "files": [
+    "app/Services/Storefront/StorefrontSellingGate.php",
+    "config/gcc.php",
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 103,
+   "right": 129,
+   "files": [
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 103,
+   "right": 130,
+   "files": [
+    "app/Services/Storefront/StorefrontSellingGate.php",
+    "config/gcc.php",
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 104,
+   "right": 125,
+   "files": [
+    ".github/workflows/ci.yml"
+   ]
+  },
+  {
+   "left": 104,
+   "right": 126,
+   "files": [
+    ".github/workflows/ci.yml"
+   ]
+  },
+  {
+   "left": 104,
+   "right": 127,
+   "files": [
+    ".github/workflows/ci.yml"
+   ]
+  },
+  {
+   "left": 104,
+   "right": 128,
+   "files": [
+    ".github/workflows/ci.yml"
+   ]
+  },
+  {
+   "left": 104,
+   "right": 129,
+   "files": [
+    ".github/workflows/ci.yml"
+   ]
+  },
+  {
+   "left": 104,
+   "right": 130,
+   "files": [
+    ".github/workflows/ci.yml"
+   ]
+  },
+  {
+   "left": 105,
+   "right": 129,
+   "files": [
+    "tests/Feature/Storefront/StorefrontCurrencyTest.php"
+   ]
+  },
+  {
+   "left": 107,
+   "right": 128,
+   "files": [
+    "config/gcc.php"
+   ]
+  },
+  {
+   "left": 107,
+   "right": 130,
+   "files": [
+    "config/gcc.php"
+   ]
+  },
+  {
+   "left": 109,
+   "right": 125,
+   "files": [
+    "app/Services/Storefront/StorefrontSellingGate.php",
+    "app/Traits/OrderEditManager.php",
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 109,
+   "right": 126,
+   "files": [
+    "app/Services/Storefront/StorefrontSellingGate.php",
+    "app/Traits/OrderEditManager.php",
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 109,
+   "right": 127,
+   "files": [
+    "app/Traits/OrderEditManager.php",
+    "config/gcc.php",
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 109,
+   "right": 128,
+   "files": [
+    "app/Models/WalletTransaction.php",
+    "app/Services/Storefront/StorefrontSellingGate.php",
+    "app/Traits/OrderEditManager.php",
+    "config/gcc.php",
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 109,
+   "right": 129,
+   "files": [
+    "app/Traits/OrderEditManager.php",
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 109,
+   "right": 130,
+   "files": [
+    "app/Models/WalletTransaction.php",
+    "app/Services/Storefront/StorefrontSellingGate.php",
+    "app/Traits/OrderEditManager.php",
+    "config/gcc.php",
+    "resources/lang/ae/new-messages.php",
+    "resources/lang/en/new-messages.php",
+    "resources/lang/sa/new-messages.php"
+   ]
+  },
+  {
+   "left": 111,
+   "right": 129,
+   "files": [
+    "tests/Feature/Storefront/StorefrontCurrencyTest.php"
+   ]
+  },
+  {
+   "left": 112,
+   "right": 128,
+   "files": [
+    "config/gcc.php"
+   ]
+  },
+  {
+   "left": 112,
+   "right": 130,
+   "files": [
+    "config/gcc.php"
+   ]
+  },
+  {
+   "left": 113,
+   "right": 128,
+   "files": [
+    "config/gcc.php"
+   ]
+  },
+  {
+   "left": 113,
+   "right": 130,
+   "files": [
+    "config/gcc.php"
+   ]
+  },
+  {
+   "left": 114,
+   "right": 129,
+   "files": [
+    "tests/Feature/Storefront/StorefrontCurrencyTest.php"
+   ]
+  },
+  {
+   "left": 115,
+   "right": 129,
+   "files": [
+    "tests/Feature/Storefront/StorefrontCurrencyTest.php"
+   ]
+  },
+  {
+   "left": 117,
+   "right": 129,
+   "files": [
+    "tests/Feature/Storefront/StorefrontCurrencyTest.php"
+   ]
+  },
+  {
+   "left": 119,
+   "right": 129,
+   "files": [
+    "tests/Feature/Storefront/StorefrontCurrencyTest.php"
+   ]
+  },
+  {
+   "left": 121,
+   "right": 129,
+   "files": [
+    "tests/Feature/Storefront/StorefrontCurrencyTest.php"
+   ]
+  },
+  {
+   "left": 122,
+   "right": 125,
+   "files": [
+    ".github/workflows/ci.yml"
+   ]
+  },
+  {
+   "left": 122,
+   "right": 126,
+   "files": [
+    ".github/workflows/ci.yml"
+   ]
+  },
+  {
+   "left": 122,
+   "right": 127,
+   "files": [
+    ".github/workflows/ci.yml"
+   ]
+  },
+  {
+   "left": 122,
+   "right": 128,
+   "files": [
+    ".github/workflows/ci.yml"
+   ]
+  },
+  {
+   "left": 122,
+   "right": 129,
+   "files": [
+    ".github/workflows/ci.yml"
+   ]
+  },
+  {
+   "left": 122,
+   "right": 130,
+   "files": [
+    ".github/workflows/ci.yml"
+   ]
+  },
+  {
+   "left": 123,
+   "right": 129,
+   "files": [
+    "tests/Feature/Storefront/StorefrontCurrencyTest.php"
+   ]
+  },
+  {
+   "left": 125,
+   "right": 129,
+   "files": [
+    "tests/Feature/Storefront/StorefrontCurrencyTest.php"
+   ]
+  },
+  {
+   "left": 126,
+   "right": 129,
+   "files": [
+    "tests/Feature/Storefront/StorefrontCurrencyTest.php"
+   ]
+  },
+  {
+   "left": 127,
+   "right": 128,
+   "files": [
+    "config/gcc.php"
+   ]
+  },
+  {
+   "left": 127,
+   "right": 130,
+   "files": [
+    "config/gcc.php"
+   ]
+  },
+  {
+   "left": 128,
+   "right": 129,
+   "files": [
+    "tests/Feature/Storefront/StorefrontCurrencyTest.php"
+   ]
+  },
+  {
+   "left": 129,
+   "right": 130,
+   "files": [
+    "tests/Feature/Storefront/StorefrontCurrencyTest.php"
+   ]
+  }
+ ]
+}
