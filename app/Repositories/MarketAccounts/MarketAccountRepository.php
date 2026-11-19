@@ -4,12 +4,13 @@ namespace App\Repositories\MarketAccounts;
 
 use App\Contracts\Repositories\MarketAccounts\MarketAccountRepositoryInterface;
 use App\Contracts\Repositories\MarketAccounts\MarketAccountRow;
+use App\Enums\Wallet\MarketBalanceKind;
 use Illuminate\Database\Eloquent\Model;
 use RuntimeException;
 
 /**
- * The reads and writes both market account tables share. A subclass says which model it works on and which column holds what the account
- * is worth: money for a wallet, points for a loyalty account.
+ * The reads and writes both market account tables share. A subclass says which model it works on and which balance it holds, and the
+ * balance says which column is the amount: money for a wallet, points for a loyalty account.
  *
  * It lives in a sub-namespace so the convention-based binder in `App\Providers\InterfaceServiceProvider`, which pairs each file of
  * `app/Repositories` with the interface of the same name, never pairs this abstract class with anything.
@@ -18,8 +19,7 @@ abstract class MarketAccountRepository implements MarketAccountRepositoryInterfa
 {
     abstract protected function account(): Model;
 
-    /** The column that holds what the account is worth. */
-    abstract protected function amountColumn(): string;
+    abstract protected function kind(): MarketBalanceKind;
 
     public function amountOf(int|string $customerId, string $market): ?float
     {
@@ -28,6 +28,21 @@ abstract class MarketAccountRepository implements MarketAccountRepositoryInterfa
             ->value($this->amountColumn());
 
         return $amount === null ? null : (float) $amount;
+    }
+
+    public function locked(int|string $customerId, string $market): ?MarketAccountRow
+    {
+        $row = $this->account()->newQuery()
+            ->where(['customer_id' => $customerId, 'market' => $market])
+            ->lockForUpdate()
+            ->first();
+
+        return $row === null ? null : new MarketAccountRow(
+            id: (int) $row->getKey(),
+            market: (string) $row->market,
+            currencyCode: (string) $row->currency_code,
+            amount: (float) $row->{$this->amountColumn()},
+        );
     }
 
     public function lockedOrOpened(int|string $customerId, string $market, string $currencyCode, ?string $legalEntity): MarketAccountRow
@@ -57,21 +72,9 @@ abstract class MarketAccountRepository implements MarketAccountRepositoryInterfa
         ]);
     }
 
-    private function locked(int|string $customerId, string $market): ?MarketAccountRow
+    private function amountColumn(): string
     {
-        $row = $this->account()->newQuery()
-            ->where(['customer_id' => $customerId, 'market' => $market])
-            ->lockForUpdate()
-            ->first();
-
-        return $row === null ? null : new MarketAccountRow(
-            id: (int) $row->getKey(),
-            customerId: (int) $row->customer_id,
-            market: (string) $row->market,
-            currencyCode: (string) $row->currency_code,
-            legalEntity: $row->legal_entity === null ? null : (string) $row->legal_entity,
-            amount: (float) $row->{$this->amountColumn()},
-        );
+        return $this->kind()->amountColumn();
     }
 
     /**

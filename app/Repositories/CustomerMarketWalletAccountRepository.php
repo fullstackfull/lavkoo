@@ -3,6 +3,7 @@
 namespace App\Repositories;
 
 use App\Contracts\Repositories\CustomerMarketWalletAccountRepositoryInterface;
+use App\Enums\Wallet\MarketBalanceKind;
 use App\Models\CustomerMarketWalletAccount;
 use App\Repositories\MarketAccounts\MarketAccountRepository;
 use Illuminate\Database\Eloquent\Model;
@@ -18,8 +19,8 @@ class CustomerMarketWalletAccountRepository extends MarketAccountRepository impl
         return $this->walletAccount;
     }
 
-    protected function amountColumn(): string
+    protected function kind(): MarketBalanceKind
     {
-        return 'balance';
+        return MarketBalanceKind::Wallet;
     }
 }

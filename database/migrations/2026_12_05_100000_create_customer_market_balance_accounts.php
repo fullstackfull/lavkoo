@@ -64,6 +64,7 @@ return new class extends Migration {
     }
 
     /**
+     * @param string $accounts the table to create
      * @param string $balance the column that holds what the account is worth: money in the market's currency, or points of the market
      * @param string $index the prefix of the index names, which have to be unique across the database and are longer than MySQL allows if they are derived
      */

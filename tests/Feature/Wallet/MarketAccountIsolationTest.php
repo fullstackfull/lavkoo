@@ -187,6 +187,16 @@ class MarketAccountIsolationTest extends TestCase
     }
 
     #[DataProvider('balances')]
+    public function test_a_refused_debit_opens_no_account_and_writes_nothing(MarketBalanceKind $kind): void
+    {
+        $debit = $this->balances->debit(kind: $kind, customerId: self::CUSTOMER, market: 'KW', amount: 50);
+
+        $this->assertFalse($debit->applied, 'there is no account to take from');
+        $this->assertSame(MarketBalanceRefusal::Overdraft, $debit->refusal);
+        $this->assertSame(0, DB::table($kind->accountsTable())->count(), 'not even an empty account is left behind');
+    }
+
+    #[DataProvider('balances')]
     public function test_a_market_this_platform_does_not_serve_is_refused_and_opens_no_account(MarketBalanceKind $kind): void
     {
         $change = $this->balances->credit(kind: $kind, customerId: self::CUSTOMER, market: 'US', amount: 100);

@@ -90,6 +90,9 @@ final class CustomerMarketBalances
      * The account row is locked from the moment its amount is read until the write commits, so two overlapping credits cannot both read the
      * same amount and the later one replace the earlier. The lock is on the account, not on the customer: two markets of one customer are
      * two independent accounts and never wait for each other.
+     *
+     * A credit opens the account when it is not there; a debit never does, because there is nothing in an account that does not exist to
+     * take. So a refusal writes nothing at all, not even an empty account.
      */
     private function change(MarketBalanceKind $kind, int|string $customerId, string $market, float $amount, bool $isDebit): MarketBalanceChange
     {
@@ -111,7 +114,13 @@ final class CustomerMarketBalances
         $accounts = $this->accounts($kind);
 
         return DB::transaction(function () use ($accounts, $customerId, $code, $currencyCode, $amount, $isDebit): MarketBalanceChange {
-            $account = $accounts->lockedOrOpened(customerId: $customerId, market: $code, currencyCode: $currencyCode, legalEntity: $this->legalEntity());
+            $account = $isDebit
+                ? $accounts->locked(customerId: $customerId, market: $code)
+                : $accounts->lockedOrOpened(customerId: $customerId, market: $code, currencyCode: $currencyCode, legalEntity: $this->legalEntity());
+
+            if ($account === null) {
+                return MarketBalanceChange::refused(refusal: MarketBalanceRefusal::Overdraft, market: $code, currencyCode: $currencyCode);
+            }
 
             if (strcasecmp($account->currencyCode, $currencyCode) !== 0) {
                 return MarketBalanceChange::refused(refusal: MarketBalanceRefusal::CurrencyMismatch, market: $code, currencyCode: $account->currencyCode, amount: $account->amount);

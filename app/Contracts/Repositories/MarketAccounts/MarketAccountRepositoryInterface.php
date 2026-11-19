@@ -15,9 +15,12 @@ interface MarketAccountRepositoryInterface
     public function amountOf(int|string $customerId, string $market): ?float;
 
     /**
-     * The customer's account in this market, with its row locked for the rest of the transaction, opening it with a zero amount when it is
-     * not there. Call it inside a transaction: outside one the lock is released at once and two writers can still overwrite each other.
+     * The customer's account in this market with its row locked for the rest of the transaction, or null when they have none. Call it inside
+     * a transaction: outside one the lock is released at once and two writers can still overwrite each other.
      */
+    public function locked(int|string $customerId, string $market): ?MarketAccountRow;
+
+    /** The same, opening the account with a zero amount when it is not there. Also only inside a transaction. */
     public function lockedOrOpened(int|string $customerId, string $market, string $currencyCode, ?string $legalEntity): MarketAccountRow;
 
     /** Writes what the account holds. The row must already be locked by `lockedOrOpened` in the same transaction. */

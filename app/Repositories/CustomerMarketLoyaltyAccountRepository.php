@@ -3,6 +3,7 @@
 namespace App\Repositories;
 
 use App\Contracts\Repositories\CustomerMarketLoyaltyAccountRepositoryInterface;
+use App\Enums\Wallet\MarketBalanceKind;
 use App\Models\CustomerMarketLoyaltyAccount;
 use App\Repositories\MarketAccounts\MarketAccountRepository;
 use Illuminate\Database\Eloquent\Model;
@@ -18,8 +19,8 @@ class CustomerMarketLoyaltyAccountRepository extends MarketAccountRepository imp
         return $this->loyaltyAccount;
     }
 
-    protected function amountColumn(): string
+    protected function kind(): MarketBalanceKind
     {
-        return 'points';
+        return MarketBalanceKind::Loyalty;
     }
 }
