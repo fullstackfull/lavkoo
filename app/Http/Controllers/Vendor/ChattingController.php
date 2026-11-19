@@ -285,7 +285,8 @@ class ChattingController extends BaseController
     protected function getRenderMessagesView(object $user, object $message, string $type): array
     {
         $userData = [
-            'name' => $user['f_name'] . ' ' . $user['l_name'],
+            // The inbox page writes this field into the page as markup, and the name is whatever its owner typed when registering.
+            'name' => e($user['f_name'] . ' ' . $user['l_name']),
             'phone' => $user['country_code'] . $user['phone'],
             'detailsRoute' => $type == 'customer' ? route('vendor.orders.list', ['status' => 'all', 'filter' => 'all', 'customer_id' => $user['id']]) : '#'
         ];
