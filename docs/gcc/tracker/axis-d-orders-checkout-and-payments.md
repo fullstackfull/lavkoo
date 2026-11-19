@@ -1,6 +1,6 @@
 # Axis D: Orders, checkout and payments
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 37. Acceptance criteria: 176 (MET 83, CODED 31, MISSING 62). Code completion 65%, proven by a passing test 47%, release readiness 8%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 37. Acceptance criteria: 179 (MET 83, CODED 31, MISSING 65). Code completion 64%, proven by a passing test 46%, release readiness 8%.
 
 Independent verification: done for unit(s) D1, D2.
 
@@ -807,10 +807,13 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** Per-storefront on/off of payment methods that are not gateways (cash on delivery, offline payment, digital payment, wallet top-up limits): today platform-wide business settings, so one market cannot be switched off without the others
 - **(3) Exists now in code (main).** E10-F11 (P1). getWebConfig 'cash_on_delivery', 'digital_payment' and 'offline_payment' are read platform-wide in app/Http/Controllers/Admin/ThirdParty/PaymentMethodController.php:94-96 and app/Http/Controllers/RestAPI/v1/ConfigController.php:159-160; no storefront-level switch exists in app/Services/Storefront or config/gcc.php on origin/gcc/release/gcc-integration-ci or gcc/p1-storefront-currency. D2-05 and D2-06 cover gateway and rule-based eligibility only.
 - **(4) Done in the draft PRs.** See the evidence note above.
-- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(5) What remains.** Its acceptance criteria are written (batch 1 of the 28 requirements the verifiers added). What remains is in the criteria themselves.
 - **(6) PRs and commits.** none
 - **(7) Tests.** none
 - **(8) Dependencies and blockers.** See the evidence note.
 - **(9) Acceptance criteria.**
-  - [MISSING] Per-storefront on/off of payment methods that are not gateways (cash on delivery, offline payment, digital payment, wallet top-up limits): today platform-wide b (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
-- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+  - [MISSING] Cash on delivery can be switched off for one market without the others (Read on origin/main: Admin/ThirdParty/PaymentMethodController passes `getWebConfig(name: 'cash_on_delivery')` to the view and RestAPI/v1/ConfigController answers `(boolean)getWebConfig(name: 'cash_on_delivery')['status']` to the apps. Both are platform-wide business settings read with no storefront argument, so switching it off anywhere switches it off in all six markets.)
+  - [MISSING] Digital payment can be switched off for one market without the others (The same two readers, the same line: `getWebConfig(name: 'digital_payment')` in the admin view and in the API config answer. No storefront dimension on either.)
+  - [MISSING] Offline payment can be switched off for one market without the others (`getWebConfig(name: 'offline_payment')` in Admin/ThirdParty/PaymentMethodController. Offline payment matters more than the other two here, because which offline methods are lawful differs by country — this is the one of the three with a legal reading behind it.)
+  - [MISSING] Wallet top-up limits are per market (No storefront-level switch exists in app/Services/Storefront or config/gcc.php on the integration head. It is recorded with the three above because the plan's line groups them, and it depends on E-01: a top-up limit per market needs a wallet per market first.)
+- **(10) Next coding task.** See the criteria: the unmet ones name the file and the line that has to change.

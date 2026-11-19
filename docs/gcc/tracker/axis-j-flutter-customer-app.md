@@ -1,6 +1,6 @@
 # Axis J: Flutter customer app
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 20. Acceptance criteria: 93 (MET 42, CODED 28, MISSING 23). Code completion 75%, proven by a passing test 45%, release readiness 5%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 20. Acceptance criteria: 96 (MET 42, CODED 29, MISSING 25). Code completion 74%, proven by a passing test 44%, release readiness 5%.
 
 Independent verification: done for unit(s) J.
 
@@ -401,10 +401,13 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** Loyalty points in the customer app (points ledger, earn rules, point-to-wallet conversion) belong to the current storefront: shown, earned and converted only there, with no automatic transfer between storefronts.
 - **(3) Exists now in code (main).** assess-J cross_axis_notes say the app side of wallet and points is 'J-09 criterion 6', but that criterion names only the wallet balance, ledger and top-up, so no J requirement covers the points. storefront_cache_inventory_test at 56deea7 classifies lib/features/loyaltyPoint/controllers/loyalty_point_controller.dart as 'the customer's own points ledger, loaded when its screen opens' (not storefront data); no draft or test scopes points by storefront. Outside the unit's listed plan lines, but the result claims it covered.
 - **(4) Done in the draft PRs.** See the evidence note above.
-- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(5) What remains.** Its acceptance criteria are written (batch 1 of the 28 requirements the verifiers added). What remains is in the criteria themselves.
 - **(6) PRs and commits.** none
 - **(7) Tests.** none
 - **(8) Dependencies and blockers.** See the evidence note.
 - **(9) Acceptance criteria.**
-  - [MISSING] Loyalty points in the customer app (points ledger, earn rules, point-to-wallet conversion) belong to the current storefront: shown, earned and converted only th (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
-- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+  - [CODED] The customer app's points ledger belongs to the storefront the customer is on (Sharper than the card's note, which says no J requirement covers the points: on lavkooapp PR 20's branch (gcc/p1-customer-order-currency) lib/features/loyaltyPoint/controllers/loyalty_point_controller.dart IS storefront-aware — it imports StorefrontChangeNotifier and StorefrontScope, calls followStorefrontChanges() in its constructor and reads StorefrontScope.current when it loads. It even avoids a wasted request: a storefront change reloads the points only for a customer who had asked for them. CODED rather than MET because the behaviour has no named test of its own in the run that was read.)
+  - [MISSING] Points are earned in the storefront the order was placed in, at that storefront's rate (The app can only show what the backend holds, and the backend holds one global users.loyalty_point with one platform-wide loyalty_point_exchange_rate (read inside CustomerManager::create_wallet_transaction). This criterion is E-02's to satisfy first; the app side cannot be proved until there is a per-market balance to show.)
+  - [MISSING] Point-to-wallet conversion credits the wallet of the same storefront, at that storefront's rate (PointsToWalletConversion (PR 10) converts inside one global account, which E-02 records. Nothing in the app or the backend names a market on either side of the conversion.)
+  - [MISSING] No points move between storefronts by themselves (With a single global balance there is nothing to move BETWEEN: the same number is shown in every market, which is the defect this criterion exists to forbid, and it will only become assertable once the per-market account of E-02 exists.)
+- **(10) Next coding task.** See the criteria: the unmet ones name the file and the line that has to change.

@@ -1,6 +1,6 @@
 # Axis A: Six-country base and customer identity
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 37. Acceptance criteria: 164 (MET 87, CODED 21, MISSING 56). Code completion 66%, proven by a passing test 53%, release readiness 9%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 37. Acceptance criteria: 167 (MET 88, CODED 21, MISSING 58). Code completion 65%, proven by a passing test 53%, release readiness 9%.
 
 Independent verification: done for unit(s) A1, A2.
 
@@ -421,13 +421,16 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** SEO surfaces (canonical URL, hreflang, sitemap, robots, SEO redirects) are market-scoped.
 - **(3) Exists now in code (main).** The DECISIONS bullet names SEO next to caching, queues, routes, app caches, notifications and inventory, but the result only has a cross-axis note handing it to unit B, so no A1 requirement exists. No code anywhere: git diff origin/main..origin/gcc/release/gcc-integration-ci adds no canonical, hreflang or sitemap line, app/Http/Middleware/ApplySeoRedirects.php is identical to main and caches one global redirect list (Cache::remember(Redirect::ACTIVE_CACHE_KEY ...)), and the Default theme templates emit canonical and hreflang with no market input.
 - **(4) Done in the draft PRs.** See the evidence note above.
-- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(5) What remains.** Its acceptance criteria are written (batch 1 of the 28 requirements the verifiers added). What remains is in the criteria themselves.
 - **(6) PRs and commits.** none
 - **(7) Tests.** none
 - **(8) Dependencies and blockers.** See the evidence note.
 - **(9) Acceptance criteria.**
-  - [MISSING] SEO surfaces (canonical URL, hreflang, sitemap, robots, SEO redirects) are market-scoped. (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
-- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+  - [MET] The SEO surfaces exist at all (They do, on origin/main, and the card's note that there is 'no code anywhere' is about the GCC DIFF rather than about main: app/Services/Seo holds SeoTagRenderer, SitemapHreflangGenerator and StructuredDataBuilder, and ApplySeoRedirects is the admin-managed 301/302 middleware (all marked 'Phase 1.6'). So this requirement is not 'build SEO', it is 'give the SEO that exists a market dimension', which is a much smaller piece of work than the placeholder implied.)
+  - [MISSING] The canonical URL and the hreflang set are scoped by MARKET, not only by language (SitemapHreflangGenerator is scoped by LANGUAGE: its own docblock says it exists so that 'the Arabic and English versions of a page' are grouped rather than competing. There is a trap here worth naming, because it makes the gap look closed when it is not: line 86 records that the platform stores 'country-ish codes such as "sa"/"sy"' which are passed through as hreflang REGION tags, so an existing `ar-SA` alternate is a language tag and not a market. Six markets selling different catalogues at different prices need a canonical per market.)
+  - [MISSING] The sitemap, robots and SEO redirects answer per market (ApplySeoRedirects resolves its rules globally. The word 'storefront' throughout app/Services/Seo means THE SHOP FRONT-END AS OPPOSED TO THE ADMIN PANEL — 'panel and API/mobile prefixes are excluded' — and not one of the six GCC markets; the same word carries both meanings in this codebase and reading it the wrong way is how SEO gets recorded as market-aware when it is not.)
+  - [MISSING] A market that is not selling is not advertised to search engines (Follows from the three above and is listed on its own because it is the customer-visible harm: with the storefront lifecycle of PR 111 a market can be closed, and nothing in the SEO path reads that state, so a closed market's pages stay canonical and stay in the sitemap.)
+- **(10) Next coding task.** See the criteria: the unmet ones name the file and the line that has to change.
 
 #### A2-01. One customer record serves all six markets
 

@@ -1,6 +1,6 @@
 # Axis K: Flutter seller app
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 23. Acceptance criteria: 94 (MET 42, CODED 19, MISSING 33). Code completion 65%, proven by a passing test 45%, release readiness 3%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 23. Acceptance criteria: 97 (MET 42, CODED 19, MISSING 36). Code completion 63%, proven by a passing test 43%, release readiness 3%.
 
 Independent verification: done for unit(s) K.
 
@@ -457,13 +457,16 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** Seller app behaviour when a market is paused: maintenance or pause of one market keeps order handling, refunds and payouts of that market working, instead of one global vendor_app switch that replaces the whole app
 - **(3) Exists now in code (main).** cross_axis_notes says K-04 and K-11 'need a paused-market state in the app', but no requirement or criterion carries it. Today splash_screen.dart sends every seller to MaintenanceScreen when maintenanceStatus == 1 and selectedMaintenanceSystem.vendorApp == 1.
 - **(4) Done in the draft PRs.** See the evidence note above.
-- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(5) What remains.** Its acceptance criteria are written (batch 1 of the 28 requirements the verifiers added). What remains is in the criteria themselves.
 - **(6) PRs and commits.** none
 - **(7) Tests.** none
 - **(8) Dependencies and blockers.** See the evidence note.
 - **(9) Acceptance criteria.**
-  - [MISSING] Seller app behaviour when a market is paused: maintenance or pause of one market keeps order handling, refunds and payouts of that market working, instead of on (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
-- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+  - [MISSING] Pausing one market does not replace the whole seller app (Read in lib/features/splash/screens/splash_screen.dart on the seller app: the only maintenance branch is `config?.maintenanceModeData?.maintenanceStatus == 1 && config?.maintenanceModeData?.selectedMaintenanceSystem?.vendorApp == 1`, and it pushReplacement()es MaintenanceScreen for EVERY seller. One global vendor_app switch, no market dimension, and a seller who trades in five other markets loses the app entirely.)
+  - [MISSING] Order handling of the markets that are not paused keeps working (MaintenanceScreen replaces the navigation stack, so no order screen of any market is reachable while the switch is on. There is no per-market state in the app to branch on.)
+  - [MISSING] Refunds and payouts of the markets that are not paused keep working (The same single screen. Payouts are the sharper half: a payout is money owed to the seller, and a global pause stops a seller collecting money earned in a market that was never paused.)
+  - [MISSING] The seller is told WHICH market is paused (MaintenanceScreen carries no market. The cross-axis note says K-04 and K-11 'need a paused-market state in the app' and no requirement or criterion carried it, which is why the verifier added this one.)
+- **(10) Next coding task.** See the criteria: the unmet ones name the file and the line that has to change.
 
 #### K-V5. The seller version gate can be switched off per platform without a release (the published status hon...
 

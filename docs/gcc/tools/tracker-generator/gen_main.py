@@ -1631,6 +1631,86 @@ WRITTEN_CRITERIA['K-V5'] = _WRITTEN
 
 
 
+# ---- The verifiers' requirements, batch 2 of 28 (2026-11-19, evening) ----
+
+CRITERIA_SPLIT['A1-V2'] = {0: [
+    ('The SEO surfaces exist at all', 'MET',
+     "They do, on origin/main, and the card's note that there is 'no code anywhere' is about the GCC DIFF rather than about main: "
+     "app/Services/Seo holds SeoTagRenderer, SitemapHreflangGenerator and StructuredDataBuilder, and ApplySeoRedirects is the admin-managed "
+     "301/302 middleware (all marked 'Phase 1.6'). So this requirement is not 'build SEO', it is 'give the SEO that exists a market dimension', "
+     "which is a much smaller piece of work than the placeholder implied."),
+    ('The canonical URL and the hreflang set are scoped by MARKET, not only by language', 'MISSING',
+     "SitemapHreflangGenerator is scoped by LANGUAGE: its own docblock says it exists so that 'the Arabic and English versions of a page' are "
+     "grouped rather than competing. There is a trap here worth naming, because it makes the gap look closed when it is not: line 86 records that "
+     "the platform stores 'country-ish codes such as \"sa\"/\"sy\"' which are passed through as hreflang REGION tags, so an existing `ar-SA` "
+     "alternate is a language tag and not a market. Six markets selling different catalogues at different prices need a canonical per market."),
+    ('The sitemap, robots and SEO redirects answer per market', 'MISSING',
+     "ApplySeoRedirects resolves its rules globally. The word 'storefront' throughout app/Services/Seo means THE SHOP FRONT-END AS OPPOSED TO THE "
+     "ADMIN PANEL \u2014 'panel and API/mobile prefixes are excluded' \u2014 and not one of the six GCC markets; the same word carries both "
+     "meanings in this codebase and reading it the wrong way is how SEO gets recorded as market-aware when it is not."),
+    ('A market that is not selling is not advertised to search engines', 'MISSING',
+     "Follows from the three above and is listed on its own because it is the customer-visible harm: with the storefront lifecycle of PR 111 a "
+     "market can be closed, and nothing in the SEO path reads that state, so a closed market's pages stay canonical and stay in the sitemap."),
+]}
+WRITTEN_CRITERIA['A1-V2'] = _WRITTEN
+
+CRITERIA_SPLIT['D2-V2'] = {0: [
+    ('Cash on delivery can be switched off for one market without the others', 'MISSING',
+     "Read on origin/main: Admin/ThirdParty/PaymentMethodController passes `getWebConfig(name: 'cash_on_delivery')` to the view and "
+     "RestAPI/v1/ConfigController answers `(boolean)getWebConfig(name: 'cash_on_delivery')['status']` to the apps. Both are platform-wide business "
+     "settings read with no storefront argument, so switching it off anywhere switches it off in all six markets."),
+    ('Digital payment can be switched off for one market without the others', 'MISSING',
+     "The same two readers, the same line: `getWebConfig(name: 'digital_payment')` in the admin view and in the API config answer. No storefront "
+     "dimension on either."),
+    ('Offline payment can be switched off for one market without the others', 'MISSING',
+     "`getWebConfig(name: 'offline_payment')` in Admin/ThirdParty/PaymentMethodController. Offline payment matters more than the other two here, "
+     "because which offline methods are lawful differs by country \u2014 this is the one of the three with a legal reading behind it."),
+    ('Wallet top-up limits are per market', 'MISSING',
+     "No storefront-level switch exists in app/Services/Storefront or config/gcc.php on the integration head. It is recorded with the three above "
+     "because the plan's line groups them, and it depends on E-01: a top-up limit per market needs a wallet per market first."),
+]}
+WRITTEN_CRITERIA['D2-V2'] = _WRITTEN
+
+CRITERIA_SPLIT['J-V2'] = {0: [
+    ("The customer app's points ledger belongs to the storefront the customer is on", 'CODED',
+     "Sharper than the card's note, which says no J requirement covers the points: on lavkooapp PR 20's branch "
+     "(gcc/p1-customer-order-currency) lib/features/loyaltyPoint/controllers/loyalty_point_controller.dart IS storefront-aware \u2014 it imports "
+     "StorefrontChangeNotifier and StorefrontScope, calls followStorefrontChanges() in its constructor and reads StorefrontScope.current when it "
+     "loads. It even avoids a wasted request: a storefront change reloads the points only for a customer who had asked for them. CODED rather than "
+     "MET because the behaviour has no named test of its own in the run that was read."),
+    ('Points are earned in the storefront the order was placed in, at that storefront\'s rate', 'MISSING',
+     "The app can only show what the backend holds, and the backend holds one global users.loyalty_point with one platform-wide "
+     "loyalty_point_exchange_rate (read inside CustomerManager::create_wallet_transaction). This criterion is E-02's to satisfy first; the app side "
+     "cannot be proved until there is a per-market balance to show."),
+    ('Point-to-wallet conversion credits the wallet of the same storefront, at that storefront\'s rate', 'MISSING',
+     "PointsToWalletConversion (PR 10) converts inside one global account, which E-02 records. Nothing in the app or the backend names a market on "
+     "either side of the conversion."),
+    ('No points move between storefronts by themselves', 'MISSING',
+     "With a single global balance there is nothing to move BETWEEN: the same number is shown in every market, which is the defect this criterion "
+     "exists to forbid, and it will only become assertable once the per-market account of E-02 exists."),
+]}
+WRITTEN_CRITERIA['J-V2'] = _WRITTEN
+
+CRITERIA_SPLIT['K-V4'] = {0: [
+    ('Pausing one market does not replace the whole seller app', 'MISSING',
+     "Read in lib/features/splash/screens/splash_screen.dart on the seller app: the only maintenance branch is "
+     "`config?.maintenanceModeData?.maintenanceStatus == 1 && config?.maintenanceModeData?.selectedMaintenanceSystem?.vendorApp == 1`, and it "
+     "pushReplacement()es MaintenanceScreen for EVERY seller. One global vendor_app switch, no market dimension, and a seller who trades in five "
+     "other markets loses the app entirely."),
+    ('Order handling of the markets that are not paused keeps working', 'MISSING',
+     "MaintenanceScreen replaces the navigation stack, so no order screen of any market is reachable while the switch is on. There is no "
+     "per-market state in the app to branch on."),
+    ('Refunds and payouts of the markets that are not paused keep working', 'MISSING',
+     "The same single screen. Payouts are the sharper half: a payout is money owed to the seller, and a global pause stops a seller collecting "
+     "money earned in a market that was never paused."),
+    ('The seller is told WHICH market is paused', 'MISSING',
+     "MaintenanceScreen carries no market. The cross-axis note says K-04 and K-11 'need a paused-market state in the app' and no requirement or "
+     "criterion carried it, which is why the verifier added this one."),
+]}
+WRITTEN_CRITERIA['K-V4'] = _WRITTEN
+
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
