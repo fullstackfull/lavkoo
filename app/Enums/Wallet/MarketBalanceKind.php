@@ -50,4 +50,22 @@ enum MarketBalanceKind: string
             self::Loyalty => 'loyalty_point_transactions',
         };
     }
+
+    /**
+     * The columns of the ledger that ADD to the balance. A wallet add-fund puts its bonus in `admin_bonus`, which
+     * `App\Utils\CustomerManager::create_wallet_transaction` adds to `users.wallet_balance` without adding it to `credit`, so a net of
+     * credit alone is short by every bonus ever given. A loyalty ledger has no such column.
+     *
+     * This restates `App\Services\Wallet\Reconciliation\LedgerSpec::wallet()` on the branch gcc/p1-wallet-reconcile-command, whose net
+     * expression is `credit + admin_bonus - debit`; when the branches meet, this method is where the two agree.
+     *
+     * @return list<string>
+     */
+    public function ledgerCreditColumns(): array
+    {
+        return match ($this) {
+            self::Wallet => ['credit', 'admin_bonus'],
+            self::Loyalty => ['credit'],
+        };
+    }
 }

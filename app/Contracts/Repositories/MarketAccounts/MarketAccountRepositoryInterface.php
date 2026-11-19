@@ -20,9 +20,13 @@ interface MarketAccountRepositoryInterface
      */
     public function locked(int|string $customerId, string $market): ?MarketAccountRow;
 
-    /** The same, opening the account with a zero amount when it is not there. Also only inside a transaction. */
-    public function lockedOrOpened(int|string $customerId, string $market, string $currencyCode, ?string $legalEntity): MarketAccountRow;
+    /**
+     * Opens the account with nothing in it, or leaves the one that is already there alone. Call it BEFORE the transaction that locks the
+     * account, never inside it: see the note on the implementation for what holding an opening inside a transaction does to two writers
+     * racing for the same new account.
+     */
+    public function open(int|string $customerId, string $market, string $currencyCode, ?string $legalEntity): void;
 
-    /** Writes what the account holds. The row must already be locked by `lockedOrOpened` in the same transaction. */
+    /** Writes what the account holds. The row must already be locked by `locked` in the same transaction. */
     public function writeAmount(int $accountId, float $amount): void;
 }

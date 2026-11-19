@@ -187,6 +187,25 @@ class MarketAccountIsolationTest extends TestCase
     }
 
     #[DataProvider('balances')]
+    public function test_the_overdraft_floor_is_one_millionth_under_zero_and_not_zero_itself(MarketBalanceKind $kind): void
+    {
+        $this->balances->credit(kind: $kind, customerId: self::CUSTOMER, market: 'KW', amount: 1);
+
+        $withinTheTolerance = $this->balances->debit(kind: $kind, customerId: self::CUSTOMER, market: 'KW', amount: 1.0000009);
+
+        $this->assertTrue($withinTheTolerance->applied, 'the tolerance absorbs float representation error, so the floor sits just under zero');
+        $this->assertLessThan(0, $withinTheTolerance->amount, 'and the account is left a hair below zero, not at it');
+        $this->assertGreaterThan(-0.000001, $withinTheTolerance->amount);
+
+        $this->balances->credit(kind: $kind, customerId: self::CUSTOMER, market: 'AE', amount: 1);
+        $pastTheTolerance = $this->balances->debit(kind: $kind, customerId: self::CUSTOMER, market: 'AE', amount: 1.0000011);
+
+        $this->assertFalse($pastTheTolerance->applied);
+        $this->assertSame(MarketBalanceRefusal::Overdraft, $pastTheTolerance->refusal);
+        $this->assertSame(1.0, $this->amount($kind, 'AE'));
+    }
+
+    #[DataProvider('balances')]
     public function test_a_refused_debit_opens_no_account_and_writes_nothing(MarketBalanceKind $kind): void
     {
         $debit = $this->balances->debit(kind: $kind, customerId: self::CUSTOMER, market: 'KW', amount: 50);

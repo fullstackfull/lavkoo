@@ -17,6 +17,9 @@ enum MarketBalanceRefusal: string
     /** The account was opened in another currency than the market is configured to trade in now: money may not change currency by itself. */
     case CurrencyMismatch = 'currency_mismatch';
 
+    /** What currency this market's money is in cannot be told, so there is no label to open an account under. See `StorefrontCurrency`. */
+    case CurrencyUnknown = 'currency_unknown';
+
     /** Nothing to move: an amount that is not a positive number. */
     case NotAnAmount = 'not_an_amount';
 
@@ -29,6 +32,7 @@ enum MarketBalanceRefusal: string
             self::Dormant => 'market accounts are dormant: the legacy balance writers are the authority',
             self::UnknownMarket => 'the market is not configured',
             self::CurrencyMismatch => 'the account is kept in another currency than the market trades in',
+            self::CurrencyUnknown => 'the currency this market sells in cannot be told',
             self::NotAnAmount => 'the amount is not a positive number',
             self::Overdraft => 'the debit would take the account below zero',
         };

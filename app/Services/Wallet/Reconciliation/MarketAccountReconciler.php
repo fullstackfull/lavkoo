@@ -16,14 +16,23 @@ use Illuminate\Database\Query\Builder;
  *
  * It does not reconcile the one global balance: `App\Services\Wallet\Reconciliation\BalanceReconciler`, on the branch
  * gcc/p1-wallet-reconcile-command, already does that and classifies every difference. This class returns checks of the same shape from the
- * same read-only probe, so the reconcile command appends them to that reconciler's own and one report covers both. Nothing here is
- * duplicated from it.
+ * same read-only probe, so the reconcile command appends them to that reconciler's own and one report covers both. It nets a ledger the way
+ * that branch's `LedgerSpec` does — a wallet credit and the bonus of an add-fund both add to the balance, a point has no bonus — so the two
+ * halves of one report cannot disagree about the same rows. Nothing here is duplicated from it.
  *
  * While `gcc.storefronts.market_accounts.enabled` is off it returns nothing, so the report says exactly what it says today. It only reads,
  * through the probe, and only counts and sums: no name, no contact detail, no row.
  */
 final class MarketAccountReconciler
 {
+    /**
+     * How many decimals a sum is printed to. Far beyond any currency's scale — three, for the dinar and the rial — and far short of where a
+     * float's own representation begins to show: 12.30 printed to twenty decimals reads 12.30000000000000071054, which is not the number in
+     * the database. The verdict itself is decided on the floats against the tolerance, which is ten thousand times the last decimal printed
+     * here, so nothing a PASS or a FAIL turns on is rounded away.
+     */
+    private const DECIMALS = 10;
+
     public function __construct(private readonly CustomerMarketBalances $balances)
     {
     }
@@ -59,23 +68,29 @@ final class MarketAccountReconciler
             return [new CompatibilityCheck($section, 'the accounts can be compared', CompatibilityCheck::INFO, $missing)];
         }
 
-        $markets = StorefrontResolver::fromConfig()->configuredCountries();
+        $resolver = StorefrontResolver::fromConfig();
+        $markets = $resolver->configuredCountries();
         $checks = [];
 
         foreach ($markets as $market) {
+            $currencyCode = $resolver->currencyOf($market);
             $held = $probe->sum($accounts, $kind->amountColumn(), static fn (Builder $query) => $query->where('market', $market));
-            $moved = $this->netOfLedger(probe: $probe, ledger: $ledger, where: static fn (Builder $query) => $query->where(MarketBalanceKind::MARKET_COLUMN, $market));
+            $moved = $this->netOfLedger(probe: $probe, kind: $kind, where: static fn (Builder $query) => $query->where(MarketBalanceKind::MARKET_COLUMN, $market));
             $difference = $held - $moved;
             $equal = abs($difference) <= $tolerance;
+            $inAnotherCurrency = $this->accountsInAnotherCurrency(probe: $probe, accounts: $accounts, market: $market, currencyCode: $currencyCode);
 
             $checks[] = new CompatibilityCheck(
                 $section,
                 "market {$market}: the accounts hold what their ledger moved",
-                $equal ? CompatibilityCheck::PASS : CompatibilityCheck::FAIL,
-                $equal
-                    ? sprintf('%s held, %s moved', $this->plain($held), $this->plain($moved))
-                    : sprintf('%s held but %s moved: a difference of %s', $this->plain($held), $this->plain($moved), $this->plain($difference)),
-                ['held' => $this->plain($held), 'moved' => $this->plain($moved), 'difference' => $this->plain($difference)],
+                $equal && $inAnotherCurrency === 0 ? CompatibilityCheck::PASS : CompatibilityCheck::FAIL,
+                $this->verdict(market: $market, currencyCode: $currencyCode, held: $held, moved: $moved, difference: $difference, equal: $equal, inAnotherCurrency: $inAnotherCurrency),
+                [
+                    'held' => $this->plain($held),
+                    'moved' => $this->plain($moved),
+                    'difference' => $this->plain($difference),
+                    'accounts_in_another_currency' => $inAnotherCurrency,
+                ],
             );
         }
 
@@ -85,7 +100,7 @@ final class MarketAccountReconciler
             'ledger rows that name no market',
             CompatibilityCheck::INFO,
             sprintf('%d rows, net %s: written before the markets, or by a writer that has not been switched over', $unattributed, $this->plain(
-                $this->netOfLedger(probe: $probe, ledger: $ledger, where: static fn (Builder $query) => $query->whereNull(MarketBalanceKind::MARKET_COLUMN)),
+                $this->netOfLedger(probe: $probe, kind: $kind, where: static fn (Builder $query) => $query->whereNull(MarketBalanceKind::MARKET_COLUMN)),
             )),
             ['rows' => $unattributed],
         );
@@ -102,10 +117,53 @@ final class MarketAccountReconciler
         return $checks;
     }
 
-    /** What the ledger moved: everything credited less everything debited. */
-    private function netOfLedger(ReadOnlyProbe $probe, string $ledger, Closure $where): float
+    /**
+     * What the ledger moved: everything that adds to the balance less everything debited. For a wallet that is the credit AND the bonus of
+     * an add-fund, which the platform's own writer adds to the balance without adding it to the credit, so a net of credit alone would be
+     * short by every bonus ever given and would fail a market that is perfectly consistent.
+     */
+    private function netOfLedger(ReadOnlyProbe $probe, MarketBalanceKind $kind, Closure $where): float
     {
-        return $probe->sum($ledger, 'credit', $where) - $probe->sum($ledger, 'debit', $where);
+        $ledger = $kind->ledgerTable();
+        $added = 0.0;
+
+        foreach ($kind->ledgerCreditColumns() as $column) {
+            $added += $probe->sum($ledger, $column, $where);
+        }
+
+        return $added - $probe->sum($ledger, 'debit', $where);
+    }
+
+    /**
+     * How many of a market's accounts are kept in a currency the market does not trade in. Summing those into one number would add dinars to
+     * dollars and call the total reconciled, so the market fails while one is there. The service refuses to write to such an account
+     * (`MarketBalanceRefusal::CurrencyMismatch`) but leaves it in place, which is why the report has to see it.
+     */
+    private function accountsInAnotherCurrency(ReadOnlyProbe $probe, string $accounts, string $market, string $currencyCode): int
+    {
+        return $probe->count(
+            $accounts,
+            static fn (Builder $query) => $query->where('market', $market)->whereRaw('upper(currency_code) <> ?', [strtoupper($currencyCode)]),
+        );
+    }
+
+    /** What the per-market check says: the currency first, because a sum of two currencies is not an amount to compare at all. */
+    private function verdict(string $market, string $currencyCode, float $held, float $moved, float $difference, bool $equal, int $inAnotherCurrency): string
+    {
+        if ($inAnotherCurrency > 0) {
+            return sprintf(
+                '%d of the accounts of market %s are not kept in %s, so what they hold is not one amount: %s across the currencies, %s moved',
+                $inAnotherCurrency,
+                $market,
+                $currencyCode,
+                $this->plain($held),
+                $this->plain($moved),
+            );
+        }
+
+        return $equal
+            ? sprintf('%s held, %s moved', $this->plain($held), $this->plain($moved))
+            : sprintf('%s held but %s moved: a difference of %s', $this->plain($held), $this->plain($moved), $this->plain($difference));
     }
 
     /** Why the comparison cannot be made on this database, or null when it can. */
@@ -129,9 +187,11 @@ final class MarketAccountReconciler
             : "{$ledger} has no column " . MarketBalanceKind::MARKET_COLUMN . ': the expand migration has not run';
     }
 
-    /** A sum as a plain decimal string, so a report never shows exponent notation. */
+    /** A sum as a plain decimal string, so a report never shows exponent notation, a float's representation noise or a negative zero. */
     private function plain(float $amount): string
     {
-        return rtrim(rtrim(number_format($amount, 20, '.', ''), '0'), '.') ?: '0';
+        $text = rtrim(rtrim(number_format($amount, self::DECIMALS, '.', ''), '0'), '.');
+
+        return $text === '' || $text === '-0' ? '0' : $text;
     }
 }

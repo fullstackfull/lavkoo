@@ -4,6 +4,7 @@ namespace Tests\Feature\Wallet;
 
 use App\Enums\Wallet\MarketBalanceKind;
 use Illuminate\Database\QueryException;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -25,7 +26,11 @@ class MarketAccountExpandMigrationTest extends TestCase
 
     private const ACCOUNTS = ['customer_market_wallet_accounts', 'customer_market_loyalty_accounts'];
 
-    private const ADDED_COLUMNS = ['storefront_country', 'currency_code', 'legal_entity'];
+    /** Every column the migration adds to a ledger. The rest of a ledger row's attribution belongs to E-05 (see the migration's docblock). */
+    private const ADDED_COLUMNS = ['storefront_country'];
+
+    /** The E-05 migration that owns a ledger row's attribution wherever it has run. */
+    private const ATTRIBUTION_MIGRATION = '2026_12_05_100000_add_attribution_to_wallet_and_loyalty_ledgers';
 
     protected function setUp(): void
     {
@@ -97,7 +102,7 @@ class MarketAccountExpandMigrationTest extends TestCase
         $after = $this->columns($ledger);
         $added = array_diff(array_keys($after), array_keys($before));
 
-        $this->assertSame(self::ADDED_COLUMNS, array_values($added), 'the three attribution columns and nothing else');
+        $this->assertSame(self::ADDED_COLUMNS, array_values($added), 'the market column and nothing else');
         $this->assertSame($before, array_intersect_key($after, $before), 'no column that was there is changed');
 
         foreach (self::ADDED_COLUMNS as $column) {
@@ -245,6 +250,79 @@ class MarketAccountExpandMigrationTest extends TestCase
             $this->rollBackMarketAccountMigration();
         } finally {
             $this->assertTrue(Schema::hasColumn($ledger, MarketBalanceKind::MARKET_COLUMN), 'nothing is dropped before the refusal');
+        }
+    }
+
+    // ---- where the E-05 attribution migration has run -------------------------------------------------------------------------
+
+    public function test_it_adds_nothing_to_a_ledger_the_attribution_migration_has_already_attributed(): void
+    {
+        $this->recordTheAttributionMigration();
+        $before = array_map($this->columns(...), array_combine(self::LEDGERS, self::LEDGERS));
+
+        $this->runMarketAccountMigration();
+
+        $this->assertSame($before, array_map($this->columns(...), array_combine(self::LEDGERS, self::LEDGERS)), 'the ledgers are left exactly as that migration left them');
+    }
+
+    public function test_rolling_back_leaves_every_ledger_column_the_attribution_migration_owns(): void
+    {
+        $this->recordTheAttributionMigration();
+        $this->runMarketAccountMigration();
+        $this->seedCustomer(1, walletBalance: 100);
+        // A Saudi top-up as that stream records one: the default storefront leaves the market empty and the currency filled.
+        DB::table('wallet_transactions')->insert(['user_id' => 1, 'transaction_id' => 'd0000000-0000-4000-8000-000000000001', 'credit' => 100, 'debit' => 0, 'balance' => 100, 'transaction_type' => 'add_fund', 'storefront_country' => null, 'currency_code' => 'SAR', 'legal_entity_id' => 4, 'created_at' => now(), 'updated_at' => now()]);
+
+        $this->rollBackMarketAccountMigration();
+
+        foreach (self::ACCOUNTS as $accounts) {
+            $this->assertFalse(Schema::hasTable($accounts), "{$accounts} is gone: this migration's own tables are dropped");
+        }
+
+        foreach (self::LEDGERS as $ledger) {
+            $this->assertTrue(Schema::hasColumn($ledger, MarketBalanceKind::MARKET_COLUMN), "{$ledger} keeps the column that migration owns");
+        }
+
+        $row = (array) DB::table('wallet_transactions')->first();
+        $this->assertSame('SAR', $row['currency_code'], 'the recorded currency of a real wallet movement is still there');
+        $this->assertSame(4, (int) $row['legal_entity_id']);
+    }
+
+    // ---- the indexes the accounts are read by ---------------------------------------------------------------------------------
+
+    #[DataProvider('accountTables')]
+    public function test_an_account_table_carries_the_indexes_named_after_it(string $accounts): void
+    {
+        $this->runMarketAccountMigration();
+
+        $names = array_map(static fn (array $index): string => (string) $index['name'], Schema::getIndexes($accounts));
+
+        $this->assertContains($accounts . '_customer_market_unique', $names);
+        $this->assertContains($accounts . '_market_idx', $names);
+    }
+
+    /**
+     * The database of a platform that has run the E-05 ledger attribution migration (gcc/p1-wallet-ledger-attribution): its columns on both
+     * ledgers, and its name in the `migrations` table, which is how this migration knows the ledger columns are not its to drop.
+     */
+    private function recordTheAttributionMigration(): void
+    {
+        Schema::create('migrations', function (Blueprint $table): void {
+            $table->id();
+            $table->string('migration');
+            $table->integer('batch');
+        });
+        DB::table('migrations')->insert(['migration' => self::ATTRIBUTION_MIGRATION, 'batch' => 1]);
+
+        foreach (self::LEDGERS as $ledger) {
+            Schema::table($ledger, function (Blueprint $table) use ($ledger): void {
+                $table->char(MarketBalanceKind::MARKET_COLUMN, 2)->nullable();
+                $table->unsignedBigInteger('legal_entity_id')->nullable();
+
+                if ($ledger === 'wallet_transactions') {
+                    $table->string('currency_code', 8)->nullable();
+                }
+            });
         }
     }
 

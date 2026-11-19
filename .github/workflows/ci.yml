@@ -90,7 +90,7 @@ jobs:
       fail-fast: false
       matrix:
         engine: ['MySQL 8', 'MariaDB 11.4.2']
-        group: ['Fulfillment + security tests', 'Address tests', 'Storefront tests']
+        group: ['Fulfillment + security tests', 'Address tests', 'Storefront tests', 'Wallet tests']
         include:
           - engine: MySQL 8
             image: mysql:8.0
@@ -106,6 +106,16 @@ jobs:
             paths: tests/Feature/Address
           - group: Storefront tests
             paths: tests/Unit/Storefront tests/Feature/Storefront
+          - group: Wallet tests
+            # The per-market wallet and loyalty accounts, on a real engine because that is the only place their content means anything:
+            # the unique key on (customer, market), the row lock a credit is taken under, the ascii_bin market, DECIMAL(40,20) balances and
+            # the ALTER TABLE the expand migration runs. SQLite answers yes to all of them without enforcing any, which is what
+            # tests/Feature/CiDatabaseTest.php says it cannot vouch for.
+            #
+            # Its OWN group, not an append to one above: Tests\Support\BuildsMarketAccountSchema starts from an empty database
+            # (Schema::dropAllTables) on a real engine, so sharing a job's database with another suite would take that suite's tables away.
+            # The races these accounts have are in tests/Feature/Concurrency, which the sales-channel job below runs on both engines.
+            paths: tests/Feature/Wallet
     services:
       mysql:
         image: ${{ matrix.image }}
@@ -356,4 +366,5 @@ jobs:
       - name: Environment
         run: cp .env.example .env
       - name: Tests with the database connection in strict mode
-        run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Feature/StrictModeTest.php tests/Feature/SalesChannels tests/Feature/OperationalCosts tests/Unit/Fulfillment tests/Feature/Fulfillment --display-skipped
+        # tests/Feature/Wallet is LAST: it starts from an empty database, so anything after it would find its own tables gone.
+        run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Feature/StrictModeTest.php tests/Feature/SalesChannels tests/Feature/OperationalCosts tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Wallet --display-skipped

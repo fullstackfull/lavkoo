@@ -8,6 +8,7 @@ use App\Contracts\Repositories\MarketAccounts\MarketAccountRepositoryInterface;
 use App\Enums\Wallet\MarketBalanceKind;
 use App\Enums\Wallet\MarketBalanceRefusal;
 use App\Models\User;
+use App\Services\Storefront\StorefrontCurrency;
 use App\Services\Storefront\StorefrontResolver;
 use Illuminate\Container\Attributes\Singleton;
 use Illuminate\Support\Facades\DB;
@@ -26,6 +27,10 @@ use Illuminate\Support\Facades\Schema;
  * debit touches the account of the market it names and no other, and no path here moves or converts money between two markets. A market
  * with no account yet reads zero; a credit opens the account before it adds to it, and a debit never opens one, so a refusal writes nothing.
  *
+ * A market here is one of `gcc.storefronts.countries`, configured, which is not the same as active: a credit to a market an operator has
+ * switched off still opens an account, because the money exists whether or not the storefront is serving visitors. Only a market the
+ * configuration does not name at all is refused.
+ *
  * Nothing in the application calls this service yet. The writers are wired market by market in a later slice (E-07), and a caller that pays
  * for an order has to answer a refusal with the refusal its own transaction rolls back on (E-10), never ignore it.
  */
@@ -33,9 +38,11 @@ use Illuminate\Support\Facades\Schema;
 final class CustomerMarketBalances
 {
     /**
-     * The floor every debit is held to while the account row is locked: a debit may not take the account below zero. The tolerance absorbs
-     * float representation error only. `App\Services\Wallet\WalletOverdraft` on the branch gcc/p0-wallet-debit-result-handling is the same
-     * rule for the one global balance; when the branches meet, this call becomes that class's.
+     * The floor every debit is held to while the account row is locked. A debit that would leave the account below MINUS this much is
+     * refused, so the floor is one millionth under zero rather than zero itself: the tolerance is there to absorb float representation
+     * error, and it lets a debit of 1.0000009 against an account of 1 through, leaving about minus nine ten-millionths behind.
+     * `App\Services\Wallet\WalletOverdraft` on the branch gcc/p0-wallet-debit-result-handling holds the one global balance to the same
+     * floor with the same tolerance; when the branches meet, this call becomes that class's.
      */
     private const OVERDRAFT_TOLERANCE = 0.000001;
 
@@ -48,6 +55,7 @@ final class CustomerMarketBalances
     public function __construct(
         private readonly CustomerMarketWalletAccountRepositoryInterface $walletAccounts,
         private readonly CustomerMarketLoyaltyAccountRepositoryInterface $loyaltyAccounts,
+        private readonly StorefrontCurrency $storefrontCurrency,
     ) {
     }
 
@@ -91,8 +99,17 @@ final class CustomerMarketBalances
      * same amount and the later one replace the earlier. The lock is on the account, not on the customer: two markets of one customer are
      * two independent accounts and never wait for each other.
      *
-     * A credit opens the account when it is not there; a debit never does, because there is nothing in an account that does not exist to
-     * take. So a refusal writes nothing at all, not even an empty account.
+     * A credit opens the account when it is not there, BEFORE the transaction that locks it rather than inside it, so that the lock is
+     * always a plain record lock on a row that exists and two writers racing for one new account queue instead of deadlocking (see
+     * `MarketAccountRepository::open`). A debit never opens one, because there is nothing in an account that does not exist to take. Every
+     * refusal a caller can reach is decided before the open — dormant, an unknown market, an amount that is not positive, a currency that
+     * cannot be told, and a debit of what is not there — or by an account that was already open, so a refusal still leaves no empty
+     * account behind.
+     *
+     * The currency is the one the market SELLS in, asked of `StorefrontCurrency`, not the code the country map is configured with: while the
+     * storefront currency is off, or the configured currency is missing or inactive, a storefront's money is still the platform's own and
+     * stamping the market's code on it would label the balance with a currency it is not in. There is no account to open then, so the write
+     * is refused rather than guessed at.
      */
     private function change(MarketBalanceKind $kind, int|string $customerId, string $market, float $amount, bool $isDebit): MarketBalanceChange
     {
@@ -110,14 +127,22 @@ final class CustomerMarketBalances
             return MarketBalanceChange::refused(refusal: MarketBalanceRefusal::NotAnAmount, market: $code);
         }
 
-        $currencyCode = StorefrontResolver::fromConfig()->currencyOf($code);
+        $currencyCode = $this->currencyOfSales($code);
+
+        if ($currencyCode === null) {
+            return MarketBalanceChange::refused(refusal: MarketBalanceRefusal::CurrencyUnknown, market: $code);
+        }
+
         $accounts = $this->accounts($kind);
 
-        return DB::transaction(function () use ($accounts, $customerId, $code, $currencyCode, $amount, $isDebit): MarketBalanceChange {
-            $account = $isDebit
-                ? $accounts->locked(customerId: $customerId, market: $code)
-                : $accounts->lockedOrOpened(customerId: $customerId, market: $code, currencyCode: $currencyCode, legalEntity: $this->legalEntity());
+        if (!$isDebit) {
+            $accounts->open(customerId: $customerId, market: $code, currencyCode: $currencyCode, legalEntity: $this->legalEntity());
+        }
 
+        return DB::transaction(function () use ($accounts, $customerId, $code, $currencyCode, $amount, $isDebit): MarketBalanceChange {
+            $account = $accounts->locked(customerId: $customerId, market: $code);
+
+            // Only a debit arrives here with nothing to take: a credit has just opened the account, and nothing ever deletes one.
             if ($account === null) {
                 return MarketBalanceChange::refused(refusal: MarketBalanceRefusal::Overdraft, market: $code, currencyCode: $currencyCode);
             }
@@ -159,7 +184,23 @@ final class CustomerMarketBalances
         return in_array($code, StorefrontResolver::fromConfig()->configuredCountries(), true) ? $code : null;
     }
 
-    /** The company that sells in these markets, recorded on an account as it is opened. Null while none is configured. */
+    /**
+     * The currency this market's money is in, as the one authority on it answers, or null when it cannot be told. A storefront whose
+     * currency is missing or inactive may not sell at all, and while `gcc.storefronts.currency.enabled` is off every storefront reads the
+     * platform's own currency settings, so neither state has a currency of its own to open an account in.
+     * `App\Services\Storefront\OrderStorefrontSnapshot` stamps an order the same way, and is likewise silent when it cannot be told.
+     */
+    private function currencyOfSales(string $market): ?string
+    {
+        return $this->storefrontCurrency->isEnabled() ? $this->storefrontCurrency->currencyOfSales($market)?->code : null;
+    }
+
+    /**
+     * The company that sells in these markets, recorded on an account as it is opened. It is ONE platform-wide value
+     * (`gcc.storefronts.legal.legal_entity`), so every market's account carries the same string until per-market entities exist: it records
+     * which company the platform was selling as when the account was opened, not which company sells in that market. Null while none is
+     * configured, which is how the Saudi market has always traded.
+     */
     private function legalEntity(): ?string
     {
         $entity = config('gcc.storefronts.legal.legal_entity');

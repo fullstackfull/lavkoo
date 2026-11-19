@@ -7,6 +7,7 @@ use App\Services\Fulfillment\Readiness\Compatibility\CompatibilityCheck;
 use App\Services\Fulfillment\Readiness\Compatibility\ReadOnlyProbe;
 use App\Services\Wallet\Reconciliation\MarketAccountReconciler;
 use Illuminate\Support\Facades\DB;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsMarketAccountSchema;
 use Tests\TestCase;
 
@@ -50,10 +51,10 @@ class MarketAccountReconcilerTest extends TestCase
         $this->fail("no check '{$name}' in section '{$section}'; there were: " . implode(', ', array_map(static fn (CompatibilityCheck $check): string => "{$check->section}/{$check->name}", $checks)));
     }
 
-    private function openAccount(MarketBalanceKind $kind, string $market, string $currencyCode, float $amount): void
+    private function openAccount(MarketBalanceKind $kind, string $market, string $currencyCode, float $amount, int $customerId = 1): void
     {
         DB::table($kind->accountsTable())->insert([
-            'customer_id' => 1,
+            'customer_id' => $customerId,
             'market' => $market,
             'currency_code' => $currencyCode,
             $kind->amountColumn() => $amount,
@@ -100,7 +101,7 @@ class MarketAccountReconcilerTest extends TestCase
         $check = $this->named($this->checks(), 'wallet accounts by market', 'market KW: the accounts hold what their ledger moved');
 
         $this->assertSame(CompatibilityCheck::PASS, $check->status);
-        $this->assertSame(['held' => '70.5', 'moved' => '70.5', 'difference' => '0'], $check->facts);
+        $this->assertSame(['held' => '70.5', 'moved' => '70.5', 'difference' => '0', 'accounts_in_another_currency' => 0], $check->facts);
     }
 
     public function test_a_market_whose_accounts_do_not_hold_what_its_ledger_moved_fails_with_the_difference(): void
@@ -184,6 +185,91 @@ class MarketAccountReconcilerTest extends TestCase
         $this->assertSame(CompatibilityCheck::PASS, $this->named($checks, 'wallet accounts by market', 'market KW: the accounts hold what their ledger moved')->status);
         $this->assertSame(CompatibilityCheck::FAIL, $this->named($checks, 'loyalty accounts by market', 'market KW: the accounts hold what their ledger moved')->status);
         $this->assertSame('40', $this->named($checks, 'loyalty accounts by market', 'market KW: the accounts hold what their ledger moved')->facts['difference']);
+    }
+
+    // ---- what the ledger moved ------------------------------------------------------------------------------------------------
+
+    public function test_the_bonus_of_an_add_fund_is_part_of_what_the_wallet_ledger_moved(): void
+    {
+        $this->runMarketAccountMigration();
+        $this->withMarketAccountsOn();
+        $this->openAccount(MarketBalanceKind::Wallet, market: 'KW', currencyCode: 'KWD', amount: 110);
+        $this->recordMovement('wallet_transactions', customerId: 1, market: 'KW', credit: 100, adminBonus: 10);
+
+        $check = $this->named($this->checks(), 'wallet accounts by market', 'market KW: the accounts hold what their ledger moved');
+
+        $this->assertSame(CompatibilityCheck::PASS, $check->status, 'the bonus reaches the balance, so it is part of the net');
+        $this->assertSame('110', $check->facts['moved']);
+    }
+
+    public function test_a_bonus_counts_towards_the_market_whose_row_carries_it_and_no_other(): void
+    {
+        $this->runMarketAccountMigration();
+        $this->withMarketAccountsOn();
+        $this->recordMovement('wallet_transactions', customerId: 1, market: 'KW', credit: 100, adminBonus: 10);
+
+        $checks = $this->checks();
+
+        $this->assertSame('-110', $this->named($checks, 'wallet accounts by market', 'market KW: the accounts hold what their ledger moved')->facts['difference']);
+        $this->assertSame('0', $this->named($checks, 'wallet accounts by market', 'market SA: the accounts hold what their ledger moved')->facts['difference']);
+    }
+
+    // ---- a market whose accounts are not all in one currency ------------------------------------------------------------------
+
+    public function test_a_market_whose_accounts_are_kept_in_two_currencies_never_passes(): void
+    {
+        $this->runMarketAccountMigration();
+        $this->withMarketAccountsOn();
+        $this->seedCustomer(2);
+        $this->openAccount(MarketBalanceKind::Wallet, market: 'KW', currencyCode: 'KWD', amount: 100);
+        $this->openAccount(MarketBalanceKind::Wallet, market: 'KW', currencyCode: 'USD', amount: 100, customerId: 2);
+        $this->recordMovement('wallet_transactions', customerId: 1, market: 'KW', credit: 100);
+        $this->recordMovement('wallet_transactions', customerId: 2, market: 'KW', credit: 100);
+
+        $check = $this->named($this->checks(), 'wallet accounts by market', 'market KW: the accounts hold what their ledger moved');
+
+        $this->assertSame(CompatibilityCheck::FAIL, $check->status, 'a hundred dinars and a hundred dollars are not two hundred of anything');
+        $this->assertSame(1, $check->facts['accounts_in_another_currency']);
+        $this->assertStringContainsString('are not kept in KWD', $check->detail);
+    }
+
+    public function test_a_market_whose_accounts_are_all_in_its_own_currency_says_so(): void
+    {
+        $this->runMarketAccountMigration();
+        $this->withMarketAccountsOn();
+        $this->openAccount(MarketBalanceKind::Wallet, market: 'KW', currencyCode: 'KWD', amount: 100);
+        $this->recordMovement('wallet_transactions', customerId: 1, market: 'KW', credit: 100);
+
+        $check = $this->named($this->checks(), 'wallet accounts by market', 'market KW: the accounts hold what their ledger moved');
+
+        $this->assertSame(CompatibilityCheck::PASS, $check->status);
+        $this->assertSame(0, $check->facts['accounts_in_another_currency']);
+    }
+
+    // ---- the numbers an operator reads ----------------------------------------------------------------------------------------
+
+    /** @return array<string, array{float, float, string, string, string}> held, moved, and the three numbers the report prints */
+    public static function amountsThatNoFloatHoldsExactly(): array
+    {
+        return [
+            'a market that balances at twelve thirty' => [12.3, 12.3, '12.3', '12.3', '0'],
+            'a market that is short by twenty nine ninety' => [100.1, 70.2, '100.1', '70.2', '29.9'],
+            'a market that holds a tenth' => [0.1, 0.1, '0.1', '0.1', '0'],
+        ];
+    }
+
+    #[DataProvider('amountsThatNoFloatHoldsExactly')]
+    public function test_a_sum_is_printed_as_the_amount_it_is_and_not_as_a_floats_representation(float $held, float $moved, string $heldText, string $movedText, string $differenceText): void
+    {
+        $this->runMarketAccountMigration();
+        $this->withMarketAccountsOn();
+        $this->openAccount(MarketBalanceKind::Wallet, market: 'KW', currencyCode: 'KWD', amount: $held);
+        $this->recordMovement('wallet_transactions', customerId: 1, market: 'KW', credit: $moved);
+
+        $check = $this->named($this->checks(), 'wallet accounts by market', 'market KW: the accounts hold what their ledger moved');
+
+        $this->assertSame(['held' => $heldText, 'moved' => $movedText, 'difference' => $differenceText, 'accounts_in_another_currency' => 0], $check->facts);
+        $this->assertStringNotContainsString('0000000', $check->detail, 'no twenty decimals of representation noise');
     }
 
     public function test_it_only_reads(): void
