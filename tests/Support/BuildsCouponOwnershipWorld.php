@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Two approved vendors and the eight kinds of coupon row they can meet, as the seller app and the vendor panel read them.
+ * Two approved vendors and the nine kinds of coupon row they can meet, as the seller app and the vendor panel read them.
  *
  * Like the other schema builders the `coupons` and `sellers` tables are INFERRED from the models and the migrations that add columns to them:
  * the installation dump is not in the repository. They hold the columns the two coupon controllers read or write and prove the ownership
@@ -30,6 +30,7 @@ use Illuminate\Support\Facades\Schema;
  *   ADMINFORME  added by the admin for vendor 5 alone, borne by the vendor, seller_id 5
  *   REPOINTED   added by a vendor, then sent by the admin (who may edit any coupon) to every vendor: seller_id 0
  *   ORPHANED    added by a vendor, then taken from it by the admin: seller_id NULL
+ *   OWNHOUSE    added by vendor 5, then made borne by the platform by the admin: bearer inhouse, seller_id 5
  */
 trait BuildsCouponOwnershipWorld
 {
@@ -48,19 +49,27 @@ trait BuildsCouponOwnershipWorld
     /** The codes of the coupons vendor 5 neither edits nor switches, on either surface. */
     private const NOT_THE_VENDORS_TO_CHANGE = ['THEIRS', 'PLATFORM', 'ALLVENDORS', 'ALLHOUSE', 'ADMINFORME', 'REPOINTED', 'ORPHANED'];
 
+    /** The same for the seller app alone, which also refuses OWNHOUSE. The vendor panel edits that one (and hands the bearer back to the vendor) but neither switches nor deletes it; the app has refused all three since before the fixes. */
+    private const NOT_THE_APPS_TO_CHANGE = [...self::NOT_THE_VENDORS_TO_CHANGE, 'OWNHOUSE'];
+
+    /** The eight kinds on which the app and the panel decide alike: both edit and switch MINE and nothing else. OWNHOUSE is the ninth, where they differ. */
+    private const DECIDED_ALIKE_BY_BOTH_SURFACES = ['MINE', ...self::NOT_THE_VENDORS_TO_CHANGE];
+
     /** The codes of the coupons vendor 5 does not delete either. REPOINTED is not among them: a vendor-added coupon addressed to every vendor has always been deletable by any vendor, and the fixes leave that as it was. */
-    private const NOT_THE_VENDORS_TO_DELETE = ['THEIRS', 'PLATFORM', 'ALLVENDORS', 'ALLHOUSE', 'ADMINFORME', 'ORPHANED'];
+    private const NOT_THE_VENDORS_TO_DELETE = ['THEIRS', 'PLATFORM', 'ALLVENDORS', 'ALLHOUSE', 'ADMINFORME', 'ORPHANED', 'OWNHOUSE'];
 
     /** The codes, in alphabetical order, that the vendor's list shows vendor 5: its own coupons and the ones addressed to every vendor. */
-    private const LISTED_TO_THE_VENDOR = ['ADMINFORME', 'ALLHOUSE', 'ALLVENDORS', 'MINE', 'REPOINTED'];
+    private const LISTED_TO_THE_VENDOR = ['ADMINFORME', 'ALLHOUSE', 'ALLVENDORS', 'MINE', 'OWNHOUSE', 'REPOINTED'];
 
     protected function buildCouponOwnershipWorld(): void
     {
         $this->buildCoreSchema();
 
-        Schema::table('orders', static function (Blueprint $table): void {
-            $table->string('coupon_code')->nullable();
-        });
+        if (!Schema::hasColumn('orders', 'coupon_code')) {
+            Schema::table('orders', static function (Blueprint $table): void {
+                $table->string('coupon_code')->nullable();
+            });
+        }
 
         Schema::create('sellers', static function (Blueprint $table): void {
             $table->id();
@@ -105,9 +114,9 @@ trait BuildsCouponOwnershipWorld
 
         DB::table('currencies')->insert(['id' => 1, 'name' => 'Saudi Riyal', 'code' => 'SAR', 'symbol' => 'SAR', 'exchange_rate' => 1, 'status' => 1]);
         DB::table('business_settings')->insert([
-            ['type' => 'currency_model', 'value' => json_encode('single_currency')],
-            ['type' => 'system_default_currency', 'value' => json_encode(1)],
-            ['type' => 'pagination_limit', 'value' => json_encode(10)],
+            ['type' => 'currency_model', 'value' => json_encode(value: 'single_currency')],
+            ['type' => 'system_default_currency', 'value' => json_encode(value: 1)],
+            ['type' => 'pagination_limit', 'value' => json_encode(value: 10)],
         ]);
 
         DB::table('users')->insert(['id' => 1, 'f_name' => 'Test', 'l_name' => 'Customer', 'phone' => '0500000000']);
@@ -125,6 +134,7 @@ trait BuildsCouponOwnershipWorld
             ['code' => 'ADMINFORME', 'title' => 'Special offer', 'added_by' => 'admin', 'coupon_bearer' => 'seller', 'seller_id' => self::VENDOR],
             ['code' => 'REPOINTED', 'title' => 'Moved offer', 'added_by' => 'seller', 'coupon_bearer' => 'seller', 'seller_id' => 0],
             ['code' => 'ORPHANED', 'title' => 'Lost offer', 'added_by' => 'seller', 'coupon_bearer' => 'seller', 'seller_id' => null],
+            ['code' => 'OWNHOUSE', 'title' => 'Housed own offer', 'added_by' => 'seller', 'coupon_bearer' => 'inhouse', 'seller_id' => self::VENDOR],
         ] as $coupon) {
             DB::table('coupons')->insert($coupon + [
                 'coupon_type' => 'discount_on_purchase', 'customer_id' => 0, 'limit' => 100,
@@ -160,13 +170,25 @@ trait BuildsCouponOwnershipWorld
     /** @return array<string, array{string}> */
     public static function everyCoupon(): array
     {
-        return self::datasetOf(['MINE', ...self::NOT_THE_VENDORS_TO_CHANGE]);
+        return self::datasetOf([...self::DECIDED_ALIKE_BY_BOTH_SURFACES, 'OWNHOUSE']);
+    }
+
+    /** @return array<string, array{string}> */
+    public static function couponsBothSurfacesDecideAlike(): array
+    {
+        return self::datasetOf(self::DECIDED_ALIKE_BY_BOTH_SURFACES);
     }
 
     /** @return array<string, array{string}> */
     public static function couponsTheVendorMayNotChange(): array
     {
         return self::datasetOf(self::NOT_THE_VENDORS_TO_CHANGE);
+    }
+
+    /** @return array<string, array{string}> */
+    public static function couponsTheAppMayNotChange(): array
+    {
+        return self::datasetOf(self::NOT_THE_APPS_TO_CHANGE);
     }
 
     /** @return array<string, array{string}> */
@@ -181,13 +203,13 @@ trait BuildsCouponOwnershipWorld
      */
     private static function datasetOf(array $codes): array
     {
-        return array_combine($codes, array_map(static fn (string $code): array => [$code], $codes));
+        return array_combine(keys: $codes, values: array_map(callback: static fn (string $code): array => [$code], array: $codes));
     }
 
     /** @return list<string> the kinds of toast (success, error, warning) that the requests so far asked the next page to show */
     private function toastTypes(): array
     {
-        return array_column(session('laravel-toaster-magic::messages', []), 'type');
+        return array_column(array: session(key: 'laravel-toaster-magic::messages', default: []), column_key: 'type');
     }
 
     private function couponId(string $code): int
@@ -217,9 +239,9 @@ trait BuildsCouponOwnershipWorld
     {
         $codes = [];
         foreach ($coupons as $coupon) {
-            $codes[] = is_array($coupon) ? $coupon['code'] : $coupon->code;
+            $codes[] = is_array(value: $coupon) ? $coupon['code'] : $coupon->code;
         }
-        sort($codes);
+        sort(array: $codes);
 
         return $codes;
     }

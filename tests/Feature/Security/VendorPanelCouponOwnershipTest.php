@@ -20,9 +20,11 @@ use Tests\TestCase;
  * the platform's. It now opens what the vendor's own list shows and nothing else, and answers anything else as it answers a coupon that is not there.
  * delete: a coupon the admin made was not found by its lookup, and reading the seller_id of nothing was a PHP warning that Laravel turns into a 500;
  * with the warning silenced, null == 0 passed the loose in_array and the coupon was deleted by its number alone. The same loose comparison deleted a
- * coupon a vendor had added once its seller_id was NULL.
+ * coupon a vendor had added once its seller_id was NULL. REPOINTED, a vendor-added coupon the admin addressed to every vendor, is still deletable by
+ * any vendor, as before: pinned here so that tightening it is a decision of the owner and not an accident.
  * The edit page, the update and the switch already refused everything but the vendor's own coupon: their tests here are the reference the seller
- * app is held to (SellerAppCouponOwnershipTest).
+ * app is held to (SellerAppCouponOwnershipTest). OWNHOUSE, a vendor-added coupon the admin made the platform bear, is the one kind they treat
+ * differently, and always did: the panel edits it (and hands the bearer back to the vendor) but neither switches nor deletes it.
  */
 class VendorPanelCouponOwnershipTest extends TestCase
 {
@@ -46,7 +48,7 @@ class VendorPanelCouponOwnershipTest extends TestCase
     protected function tearDown(): void
     {
         if ($this->errorReportingBefore !== null) {
-            error_reporting($this->errorReportingBefore);
+            error_reporting(error_level: $this->errorReportingBefore);
         }
         $this->restoreLanguageFiles();
 
@@ -59,6 +61,12 @@ class VendorPanelCouponOwnershipTest extends TestCase
         return $this->withHeader('X-Requested-With', 'XMLHttpRequest')->get(route('vendor.coupon.quick-view', $couponId === null ? [] : ['id' => $couponId]));
     }
 
+    /** The request the bin button of the coupon list sends: the redirect back goes to the list it came from. */
+    private function deleteFromTheList(int $couponId): TestResponse
+    {
+        return $this->from(route('vendor.coupon.index'))->delete(route('vendor.coupon.delete', ['id' => $couponId]));
+    }
+
     /** @return list<string> the codes, in alphabetical order, that the list page of the panel was given for this vendor */
     private function listedCodes(): array
     {
@@ -68,7 +76,10 @@ class VendorPanelCouponOwnershipTest extends TestCase
     /** @return array<string, array{string}> the coupons the vendor's list does not show */
     public static function couponsOutsideTheVendorsList(): array
     {
-        return self::datasetOf(array_values(array_diff(self::NOT_THE_VENDORS_TO_CHANGE, self::LISTED_TO_THE_VENDOR)));
+        return self::datasetOf(array_values(array: array_filter(
+            array: self::NOT_THE_VENDORS_TO_CHANGE,
+            callback: static fn (string $code): bool => !in_array(needle: $code, haystack: self::LISTED_TO_THE_VENDOR, strict: true),
+        )));
     }
 
     public function test_the_list_shows_the_vendors_own_coupons_and_the_ones_made_for_every_vendor(): void
@@ -79,7 +90,7 @@ class VendorPanelCouponOwnershipTest extends TestCase
     #[DataProvider('everyCoupon')]
     public function test_the_quick_view_opens_the_coupons_the_list_shows_and_no_other(string $code): void
     {
-        $listed = in_array($code, $this->listedCodes(), true);
+        $listed = in_array(needle: $code, haystack: $this->listedCodes(), strict: true);
         $title = (string) DB::table('coupons')->where('code', $code)->value('title');
 
         $response = $this->quickView($this->couponId($code));
@@ -124,17 +135,17 @@ class VendorPanelCouponOwnershipTest extends TestCase
     {
         $before = $this->storedCoupons();
 
-        $this->delete(route('vendor.coupon.delete', ['id' => $this->couponId($code)]))->assertRedirect();
+        $this->deleteFromTheList($this->couponId($code))->assertRedirect(route('vendor.coupon.index'));
 
         $this->assertSame(expected: $before, actual: $this->storedCoupons());
         $this->assertSame(expected: ['warning'], actual: $this->toastTypes());
     }
 
-    public function test_a_coupon_that_does_not_exist_is_deleted_with_the_answer_of_one_that_is_not_the_vendors(): void
+    public function test_deleting_a_coupon_that_does_not_exist_answers_like_deleting_one_that_is_not_the_vendors(): void
     {
         $before = $this->storedCoupons();
 
-        $this->delete(route('vendor.coupon.delete', ['id' => self::MISSING_COUPON]))->assertRedirect();
+        $this->deleteFromTheList(self::MISSING_COUPON)->assertRedirect(route('vendor.coupon.index'));
 
         $this->assertSame(expected: $before, actual: $this->storedCoupons());
         $this->assertSame(expected: ['warning'], actual: $this->toastTypes());
@@ -147,9 +158,9 @@ class VendorPanelCouponOwnershipTest extends TestCase
     public function test_a_coupon_that_is_not_the_vendors_survives_even_when_php_warnings_are_not_turned_into_exceptions(): void
     {
         $before = $this->storedCoupons();
-        $this->errorReportingBefore = error_reporting(E_ALL & ~E_WARNING);
+        $this->errorReportingBefore = error_reporting(error_level: E_ALL & ~E_WARNING);
 
-        foreach ([...array_map($this->couponId(...), self::NOT_THE_VENDORS_TO_DELETE), self::MISSING_COUPON] as $couponId) {
+        foreach ([...array_map(callback: $this->couponId(...), array: self::NOT_THE_VENDORS_TO_DELETE), self::MISSING_COUPON] as $couponId) {
             $this->delete(route('vendor.coupon.delete', ['id' => $couponId]));
 
             $this->assertSame(expected: $before, actual: $this->storedCoupons(), message: "deleting coupon {$couponId} with warnings silenced changed the stored coupons");
@@ -160,9 +171,19 @@ class VendorPanelCouponOwnershipTest extends TestCase
     {
         $before = $this->storedCoupons();
 
-        $this->delete(route('vendor.coupon.delete', ['id' => $this->couponId('MINE')]))->assertRedirect();
+        $this->deleteFromTheList($this->couponId('MINE'))->assertRedirect(route('vendor.coupon.index'));
 
         $this->assertSame(expected: $this->withoutCode(coupons: $before, code: 'MINE'), actual: $this->storedCoupons());
+        $this->assertSame(expected: ['success'], actual: $this->toastTypes());
+    }
+
+    public function test_a_coupon_a_vendor_added_and_the_admin_addressed_to_every_vendor_stays_deletable_as_before(): void
+    {
+        $before = $this->storedCoupons();
+
+        $this->deleteFromTheList($this->couponId('REPOINTED'))->assertRedirect(route('vendor.coupon.index'));
+
+        $this->assertSame(expected: $this->withoutCode(coupons: $before, code: 'REPOINTED'), actual: $this->storedCoupons());
         $this->assertSame(expected: ['success'], actual: $this->toastTypes());
     }
 
@@ -179,6 +200,30 @@ class VendorPanelCouponOwnershipTest extends TestCase
             ->assertNotFound()->assertExactJson(['status' => 0, 'message' => translate('coupon_not_found')]);
 
         $this->assertSame(expected: $before, actual: $this->storedCoupons());
+    }
+
+    public function test_a_coupon_the_vendor_added_and_the_platform_bears_is_not_switched(): void
+    {
+        $before = $this->storedCoupons();
+
+        $this->get(route('vendor.coupon.update-status', ['id' => $this->couponId('OWNHOUSE'), 'status' => 0]))
+            ->assertNotFound()->assertExactJson(['status' => 0, 'message' => translate('coupon_not_found')]);
+
+        $this->assertSame(expected: $before, actual: $this->storedCoupons());
+    }
+
+    public function test_a_coupon_the_vendor_added_and_the_platform_bears_is_still_edited_and_the_bearer_goes_back_to_the_vendor(): void
+    {
+        $couponId = $this->couponId('OWNHOUSE');
+        $before = $this->storedCoupons();
+
+        $this->get(route('vendor.coupon.update', ['id' => $couponId]))->assertOk();
+        $this->post(route('vendor.coupon.update', ['id' => $couponId]), $this->editOf('OWNHOUSE'))->assertRedirect(route('vendor.coupon.index'));
+
+        $after = $this->storedCoupons();
+        $this->assertSame(expected: ['success'], actual: $this->toastTypes());
+        $this->assertSame(expected: [self::EDITED_TITLE, 'seller'], actual: [$after['OWNHOUSE']['title'], $after['OWNHOUSE']['coupon_bearer']]);
+        $this->assertSame(expected: $this->withoutCode(coupons: $before, code: 'OWNHOUSE'), actual: $this->withoutCode(coupons: $after, code: 'OWNHOUSE'));
     }
 
     public function test_the_vendor_still_opens_edits_and_switches_its_own_coupon(): void

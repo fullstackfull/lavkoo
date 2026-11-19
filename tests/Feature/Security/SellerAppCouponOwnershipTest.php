@@ -16,10 +16,14 @@ use Tests\TestCase;
  * The seller app's coupon routes (/api/v3/seller/coupon/*), called with a bearer token through the real middleware (seller_api_auth, seller_can).
  *
  * list: a search term broke the shop filter, because the orWhere conditions of the search were not grouped with it, so a vendor who typed any
- * word saw every other vendor's coupons and the platform's.
+ * word saw every other vendor's coupons and the platform's. The search is now one group inside the filter and is otherwise what it was: for the
+ * vendor's own coupons every answer, several words included, is the old one.
  * update and status-update: a coupon addressed to every vendor (seller_id 0) was editable and switchable by any vendor, because the lookup took
- * seller_id 0 as "mine". The vendor panel never did (VendorPanelCouponOwnershipTest): the two surfaces now decide alike, so a coupon the admin
- * made is the admin's on both, even when it is addressed to this vendor alone.
+ * seller_id 0 as "mine". The vendor panel never did (VendorPanelCouponOwnershipTest): on the eight kinds of coupon in the shared world the two
+ * surfaces now decide alike, so a coupon the admin made is the admin's on both, even when it is addressed to this vendor alone. The ninth kind,
+ * OWNHOUSE, is where they differ and always did: the panel edits it, the app refuses it.
+ * delete: unchanged by the fixes and pinned here, REPOINTED included: that vendor-added coupon, addressed to every vendor by the admin, is still
+ * deletable by any vendor. Tightening that is a decision for the owner, not an accident of a later change.
  *
  * A staff member or an API key reaches these routes with the same shop id; only the owner's token is built here.
  */
@@ -52,7 +56,7 @@ class SellerAppCouponOwnershipTest extends TestCase
 
     private function listCoupons(?string $search = null): TestResponse
     {
-        return $this->asVendor()->getJson('/api/v3/seller/coupon/list?' . http_build_query(['limit' => 50, 'offset' => 1] + ($search === null ? [] : ['search' => $search])));
+        return $this->asVendor()->getJson('/api/v3/seller/coupon/list?' . http_build_query(data: ['limit' => 50, 'offset' => 1] + ($search === null ? [] : ['search' => $search])));
     }
 
     private function updateCoupon(string $code, string $token = self::VENDOR_TOKEN): TestResponse
@@ -95,7 +99,31 @@ class SellerAppCouponOwnershipTest extends TestCase
         $response = $this->listCoupons(search: $search)->assertOk();
 
         $this->assertSame(expected: $expectedCodes, actual: $this->codesOf($response->json('coupons')));
-        $this->assertSame(expected: count($expectedCodes), actual: $response->json('total_size'));
+        $this->assertSame(expected: count(value: $expectedCodes), actual: $response->json('total_size'));
+    }
+
+    /**
+     * The conditions of each word are chained inside the group exactly as they were: a later word counts by its title only when the word before it
+     * matched the discount type, so the order of the words matters. These pin that reading for the vendor's own coupons; the shop filter is what changed.
+     *
+     * @return array<string, array{string, list<string>}>
+     */
+    public static function searchesOfSeveralWordsOverTheVendorsOwnCoupons(): array
+    {
+        return [
+            'a word nothing matches, then a title word' => ['zzz offer', []],
+            'a title word, then a word nothing matches' => ['offer zzz', self::LISTED_TO_THE_VENDOR],
+            'a discount type, then the one title it narrows to' => ['amount special', ['ADMINFORME']],
+        ];
+    }
+
+    #[DataProvider('searchesOfSeveralWordsOverTheVendorsOwnCoupons')]
+    public function test_a_search_of_several_words_keeps_its_reading_for_the_vendors_own_coupons(string $search, array $expectedCodes): void
+    {
+        $response = $this->listCoupons(search: $search)->assertOk();
+
+        $this->assertSame(expected: $expectedCodes, actual: $this->codesOf($response->json('coupons')));
+        $this->assertSame(expected: count(value: $expectedCodes), actual: $response->json('total_size'));
     }
 
     public function test_the_list_without_a_search_term_shows_the_vendors_own_coupons_and_the_ones_made_for_every_vendor(): void
@@ -103,7 +131,7 @@ class SellerAppCouponOwnershipTest extends TestCase
         $response = $this->listCoupons()->assertOk();
 
         $this->assertSame(expected: self::LISTED_TO_THE_VENDOR, actual: $this->codesOf($response->json('coupons')));
-        $this->assertSame(expected: count(self::LISTED_TO_THE_VENDOR), actual: $response->json('total_size'));
+        $this->assertSame(expected: count(value: self::LISTED_TO_THE_VENDOR), actual: $response->json('total_size'));
     }
 
     public function test_a_search_that_matches_the_vendors_own_coupons_keeps_the_answer_shape(): void
@@ -121,7 +149,7 @@ class SellerAppCouponOwnershipTest extends TestCase
         $this->assertSame(expected: self::LISTED_TO_THE_VENDOR, actual: $this->codesOf($this->listCoupons(search: '   ')->assertOk()->json('coupons')));
     }
 
-    #[DataProvider('couponsTheVendorMayNotChange')]
+    #[DataProvider('couponsTheAppMayNotChange')]
     public function test_a_coupon_that_is_not_the_vendors_own_is_not_edited(string $code): void
     {
         $before = $this->storedCoupons();
@@ -131,7 +159,7 @@ class SellerAppCouponOwnershipTest extends TestCase
         $this->assertSame(expected: $before, actual: $this->storedCoupons());
     }
 
-    #[DataProvider('couponsTheVendorMayNotChange')]
+    #[DataProvider('couponsTheAppMayNotChange')]
     public function test_a_coupon_that_is_not_the_vendors_own_is_not_switched(string $code): void
     {
         $before = $this->storedCoupons();
@@ -158,7 +186,7 @@ class SellerAppCouponOwnershipTest extends TestCase
 
         $this->assertCouponNotFound($missing);
         $this->assertCouponNotFound($missingSwitch);
-        foreach (self::NOT_THE_VENDORS_TO_CHANGE as $code) {
+        foreach (self::NOT_THE_APPS_TO_CHANGE as $code) {
             $this->assertSame(expected: $missing->getContent(), actual: $this->updateCoupon(code: $code)->getContent(), message: "{$code}: edit");
             $this->assertSame(expected: $missingSwitch->getContent(), actual: $this->switchCoupon(code: $code, status: 0)->getContent(), message: "{$code}: switch");
         }
@@ -166,9 +194,10 @@ class SellerAppCouponOwnershipTest extends TestCase
 
     /**
      * The vendor panel is the reference: whatever it lets the vendor edit or switch, the app does, and nothing more. Each answer is read from a
-     * real request of each surface for the same coupon, so a change of the panel's rule shows here as a difference between the two.
+     * real request of each surface for the same coupon, so a change of the panel's rule shows here as a difference between the two. This holds
+     * for the eight kinds listed; OWNHOUSE is left out because the panel edits it and the app does not (both refuse to switch it), as before the fixes.
      */
-    #[DataProvider('everyCoupon')]
+    #[DataProvider('couponsBothSurfacesDecideAlike')]
     public function test_the_app_edits_and_switches_exactly_the_coupons_the_vendor_panel_does(string $code): void
     {
         $this->withoutMiddleware(MaintenanceModeMiddleware::class);
@@ -220,6 +249,15 @@ class SellerAppCouponOwnershipTest extends TestCase
         $this->deleteCoupon(code: 'MINE')->assertOk()->assertExactJson(['message' => translate('coupon_deleted_successfully')]);
 
         $this->assertSame(expected: $this->withoutCode(coupons: $before, code: 'MINE'), actual: $this->storedCoupons());
+    }
+
+    public function test_a_coupon_a_vendor_added_and_the_admin_addressed_to_every_vendor_stays_deletable_as_before(): void
+    {
+        $before = $this->storedCoupons();
+
+        $this->deleteCoupon(code: 'REPOINTED')->assertOk()->assertExactJson(['message' => translate('coupon_deleted_successfully')]);
+
+        $this->assertSame(expected: $this->withoutCode(coupons: $before, code: 'REPOINTED'), actual: $this->storedCoupons());
     }
 
     public function test_another_vendors_token_does_not_reach_the_coupon_either(): void

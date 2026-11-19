@@ -23,7 +23,7 @@ class CouponController extends Controller
                 $key = searchTerms($request['search']);
                 $query->where(function ($query) use ($key) {
                     foreach ($key as $value) {
-                        $query->orWhere('title', 'like', "%{$value}%")
+                        $query->where('title', 'like', "%{$value}%")
                             ->orWhere('code', 'like', "%{$value}%")
                             ->orWhere('discount_type', 'like', "%{$value}%");
                     }
@@ -217,12 +217,6 @@ class CouponController extends Controller
         return response()->json(['message' => translate('coupon_invalid')], 202);
     }
 
-    // seller_id 0 means every vendor, so it is never the vendor's own: only a coupon the vendor added for its own shop may be changed.
-    private function findOwnCoupon(int|string $sellerId, int|string|null $id): ?Coupon
-    {
-        return Coupon::where(['added_by' => 'seller', 'coupon_bearer' => 'seller', 'seller_id' => $sellerId])->find($id);
-    }
-
     public function customers(Request $request): JsonResponse
     {
         $seller = $request->seller;
@@ -247,6 +241,12 @@ class CouponController extends Controller
             'customers' => $customers
         );
         return response()->json($data, 200);
+    }
+
+    // seller_id 0 addresses every vendor, so such a coupon is never the vendor's own to edit or switch.
+    private function findOwnCoupon(int|string $sellerId, int|string|null $id): ?Coupon
+    {
+        return Coupon::where(['added_by' => 'seller', 'coupon_bearer' => 'seller', 'seller_id' => $sellerId])->find($id);
     }
 
 }
