@@ -20,11 +20,15 @@ use Tests\Support\BuildsStorefrontCouponWorld;
 /**
  * What the customer API does with a coupon today, pinned through its two real routes (the apply route and the checkout) with the amounts written in the
  * fixtures: the cap of a percentage coupon, a fixed coupon above the eligible total, free delivery, first order, the limit for one customer and the bearer of a
- * vendor coupon. The rule that a minimum purchase greater than the eligible total refuses the coupon is OrderManager::getTotalCouponAmount's own and is proved at
- * its boundary by StorefrontCouponRedemptionTest, so no case here moves it. The platform runs as it ships (no storefront switch on), with one in-house product
- * of 100, one of 30 and one vendor product of 60, and 25 of shipping for each cart group.
+ * vendor coupon. The one case that does not go through those routes is the posting of the bearer when a vendor's order is delivered: it calls
+ * OrderManager::getWalletManageOnOrderStatusChange directly, on orders the real checkout made, and the seller app and delivery routes that call it are not
+ * exercised. The rule that a minimum purchase greater than the eligible total refuses the coupon is OrderManager::getTotalCouponAmount's own and is proved at its
+ * boundary by StorefrontCouponRedemptionTest, so no case here moves it. The platform runs as it ships (no storefront switch on), with one in-house product of
+ * 100, one of 30 and one vendor product of 60, and 25 of shipping for each cart group.
  *
- * A refused coupon is not an error at the checkout: the order is placed without it, and records the code 0.
+ * A refused coupon is not an error at the checkout: the order is placed without it, and records the code 0. The limit of a coupon counts the customer's orders that
+ * carry that coupon, one for each order group and a canceled one included; the customer's orders without a coupon or with another one, and another customer's
+ * orders, do not count.
  */
 class CouponBehaviourPinsTest extends ApiAddressTestCase
 {
@@ -144,14 +148,15 @@ class CouponBehaviourPinsTest extends ApiAddressTestCase
 
     public function test_a_percentage_coupon_whose_percentage_figure_is_above_the_eligible_total_is_refused_the_same_way(): void
     {
-        $this->giveCoupon(code: 'HALF', country: null, attributes: ['discount_type' => 'percentage', 'discount' => 50, 'max_discount' => 1000, 'min_purchase' => 0]);
+        $figure = self::SMALL_IN_HOUSE_PRICE + 1;
+        $this->giveCoupon(code: 'FIGURE', country: null, attributes: ['discount_type' => 'percentage', 'discount' => $figure, 'max_discount' => 1000, 'min_purchase' => 0]);
         $smallCart = $this->makeCustomer();
         $this->fillTheCart($smallCart, self::SMALL_IN_HOUSE_PRODUCT);
         $largeCart = $this->makeCustomer();
         $this->fillTheCart($largeCart, self::IN_HOUSE_PRODUCT);
 
-        $this->assertCouponRefused(message: $this->minimumNotReached(), response: $this->applyTheCoupon(customer: $smallCart, code: 'HALF'));
-        $this->assertCouponApplied(discount: 50.0, response: $this->applyTheCoupon(customer: $largeCart, code: 'HALF'));
+        $this->assertCouponRefused(message: $this->minimumNotReached(), response: $this->applyTheCoupon(customer: $smallCart, code: 'FIGURE'));
+        $this->assertCouponApplied(discount: $figure / 100 * self::IN_HOUSE_PRICE, response: $this->applyTheCoupon(customer: $largeCart, code: 'FIGURE'));
     }
 
     // ---- free delivery --------------------------------------------------------------------------------------------------------------
@@ -276,6 +281,36 @@ class CouponBehaviourPinsTest extends ApiAddressTestCase
         $other = $this->makeCustomer();
         $this->fillTheCart($other, self::IN_HOUSE_PRODUCT);
         $this->assertCouponApplied(discount: 5.0, response: $this->applyTheCoupon(customer: $other, code: 'TWICE'));
+    }
+
+    public function test_only_the_orders_of_the_customer_that_carry_the_coupon_count_against_its_limit_not_the_ones_without_it_or_with_another(): void
+    {
+        $this->giveCoupon(code: 'TWICE', country: null, attributes: ['discount' => 5, 'limit' => 2]);
+        $this->giveCoupon(code: 'OTHER', country: null, attributes: ['discount' => 5, 'limit' => 2]);
+        $customer = $this->makeCustomer();
+        $this->fillTheCart($customer, self::IN_HOUSE_PRODUCT);
+        $this->placeTheOrder(customer: $customer)->assertOk();
+        $this->fillTheCart($customer, self::IN_HOUSE_PRODUCT);
+        $this->placeTheOrder(customer: $customer, code: 'OTHER')->assertOk();
+
+        $this->redeemTheCouponOnceMore(customer: $customer, code: 'TWICE');
+        $this->redeemTheCouponOnceMore(customer: $customer, code: 'TWICE');
+
+        $this->assertSame(['0', 'OTHER', 'TWICE', 'TWICE'], array_map(fn (object $order): string => (string) $order->coupon_code, $this->ordersOf($customer)), 'four orders of the customer, two of them with the coupon');
+        $this->fillTheCart($customer, self::IN_HOUSE_PRODUCT);
+        $this->assertCouponRefused(message: $this->notValidForThisUser(), response: $this->applyTheCoupon(customer: $customer, code: 'TWICE'));
+        $this->assertCouponApplied(discount: 5.0, response: $this->applyTheCoupon(customer: $customer, code: 'OTHER'));
+    }
+
+    public function test_a_canceled_order_still_counts_against_the_limit_of_its_coupon(): void
+    {
+        $this->giveCoupon(code: 'ONCE', country: null, attributes: ['discount' => 5, 'limit' => 1]);
+        $customer = $this->makeCustomer();
+        $this->redeemTheCouponOnceMore(customer: $customer, code: 'ONCE');
+        $this->assertSame(1, DB::table('orders')->where('customer_id', $customer->id)->update(['order_status' => 'canceled']));
+
+        $this->fillTheCart($customer, self::IN_HOUSE_PRODUCT);
+        $this->assertCouponRefused(message: $this->notValidForThisUser(), response: $this->applyTheCoupon(customer: $customer, code: 'ONCE'));
     }
 
     public function test_the_limit_counts_the_order_groups_of_the_customer_so_a_checkout_of_two_vendors_is_one_redemption(): void

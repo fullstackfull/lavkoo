@@ -19,15 +19,25 @@ use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
 
 /**
- * Whose coupons a vendor reaches. A vendor works on a coupon through the vendor panel (its own routes, under the seller guard) and the seller app (the v3 API, whose
- * real bearer-token middleware resolves the shop), and each answers for the coupons of the shop that is signed in: those it made (seller_id its own), and, for the
- * list only, the ones the admin made for every vendor (seller_id 0). A platform coupon (no vendor at all) and another vendor's coupon are neither listed, nor opened,
- * nor edited, nor switched. Every refusal below is the answer the code gives today, and a refused request changes nothing.
+ * What a vendor can do with a coupon today, through the vendor panel (its own routes, under the seller guard) and the seller app (the v3 API, whose real bearer-token
+ * middleware resolves the shop). Every case below is the answer the code gives, for the shop that is signed in, and a refused request changes nothing:
+ *  - the panel's list without a search term shows the coupons of the shop (seller_id its own) and those the admin made for every vendor (seller_id 0, without an edit
+ *    or a switch link) and no others; its edit page, its update and its switch answer for a coupon of the shop and refuse another vendor's coupon, a platform coupon
+ *    (no vendor at all) and the admin's coupons for every vendor (not found, or back to the list with an error);
+ *  - the seller app's list without a search term shows the same two sets and no others; its update and its switch answer for a coupon of the shop and refuse another
+ *    vendor's coupon, a platform coupon and the admin's coupon for every vendor that the platform bears (403, coupon not found).
  *
- * Not pinned here, because the code does not do what the sentence above says and a test that pinned it would call it right: the seller app's coupon list with a search
- * term returns the coupons of every vendor and of the platform (its OR clauses are not grouped with the shop's filter), the seller app edits and switches a coupon the
- * admin made for every vendor and that a vendor bears, the vendor panel's quick view opens any coupon whatever its owner, and the panel's delete of a coupon that is
- * not the vendor's ends in an error page instead of a refusal.
+ * I1-11.3 of the master plan ("only their own coupons") is therefore NOT proved. Four defects are OPEN: each was reproduced through the real route on this base, none
+ * is pinned (a test that pinned it would call it right) and the code is not changed here.
+ *  1. The seller app's list with a search term: GET /api/v3/seller/coupon/list?limit=50&offset=1&search=THEIRS (the code of another vendor's coupon) answers 200 with
+ *     that coupon, and search=amount answers 200 with all five coupons of the fixture, the platform's included: the OR clauses of the search are not grouped with the
+ *     shop's filter.
+ *  2. The seller app's edit and switch of the coupon the admin made for every vendor and that vendors bear (added_by admin, coupon_bearer seller, seller_id 0): PUT
+ *     /api/v3/seller/coupon/update/{id} and PUT /api/v3/seller/coupon/status-update/{id} answer 200 and change it (title rewritten, status 0), where its platform-borne
+ *     twin answers 403 and the panel refuses it.
+ *  3. The panel's quick view: GET /vendor/coupon/quick-view?id={id} answers 200 with the quick view of another vendor's coupon and of a platform coupon, naming their codes.
+ *  4. The panel's delete: DELETE /vendor/coupon/delete/{id} of a platform coupon or of an admin coupon for every vendor answers 500 (ErrorException "Trying to access
+ *     array offset on null", Vendor/Coupon/CouponController.php line 150) and deletes nothing; another vendor's coupon is refused with a warning and a redirect.
  */
 class CouponOwnershipTest extends TestCase
 {

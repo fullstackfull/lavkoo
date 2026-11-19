@@ -21,14 +21,26 @@ use Tests\Support\BuildsStorefrontCouponWorld;
  * max_discount in the default currency of the platform, through the real form; the tests read the stored columns, the edit form, the coupon list of the customer
  * API, the apply route and the checkout.
  *
- * Under the single-currency model the platform has no other unit, so a coupon is stored as typed (even with a rate in the currency rows, which a conversion would use). Under the multi-currency model every amount is stored in dollars: the amount typed is divided by the rate of the default currency, and everything
- * the customer's cart holds is in dollars too, so a cart of 100 is 375 riyals, 30.700 dinars, 37.600 dinars of Bahrain or 38.500 Omani rials at the rates of the
- * cases. The stored amounts are written by hand in the cases (50, 5 and 10 for the minimum, the discount and the cap), so the division is checked against a number
- * and not against the code's own arithmetic.
+ * Under the single-currency model the platform has no other unit, so a coupon is stored as typed (even with a rate in the currency rows, which a conversion would use).
+ * Under the multi-currency model every amount is stored in dollars: the amount typed is divided by the rate of the default currency, and everything the customer's cart
+ * holds is in dollars too, so a cart of 100 is 375 riyals, 30.700 dinars, 37.600 dinars of Bahrain or 38.500 Omani rials at the rates of the cases. The stored amounts
+ * are written by hand in the cases: 50, 5 and 10 for the minimum, the discount and the cap in the unit of the cart on the four multi-currency platforms, so the division
+ * is checked against a number and not against the code's own arithmetic, and the amounts as typed (50, 5 and 10 riyals; 50.505, 5.505 and 10.505 dinars) on the two
+ * single-currency platforms.
  *
  * What the admin is shown back is the stored amount floored to the decimals setting of the platform (usdToDefaultCurrency), so an amount whose binary value falls just
- * below its digits can come back one minor unit low: the cases use amounts that come back as typed, and the same test pins the bound of the rounding over a range of
- * amounts (never above what was typed, never more than one minor unit below it) instead of a value of it.
+ * below its digits can come back one minor unit low. The edit-form test therefore asserts the amounts of the cases as typed, which are chosen to come back unchanged,
+ * and, for the 1,200 amounts from one minor unit up to 12.00 (1.200 with three decimals), calls the converter that stores an amount and the reader that shows it
+ * directly (currencyConverter and usdToDefaultCurrency, without the form or the database) and pins the bound of the rounding (never above what was typed, never more
+ * than one minor unit below it) instead of a value of it.
+ *
+ * Reported and not changed here, so not pinned as values: the form floors. With the setting at 2 a riyal typed as 4.35 is shown as 4.34 (8.2 as 8.19, 0.29 as 0.28, 2.01
+ * as 2; 4,586 of the 100,000 amounts from 0.01 to 1000.00 come back a cent low), and with the setting at 3 a dinar typed as 1.005 is shown as 1.004 (1.001 as 1; 741 of the
+ * 100,000 amounts from 0.001 to 100.000). Under the multi-currency model 10.505 Kuwaiti dinars at 0.307 are stored as 34.218241042345 dollars and shown as 10.504, a Qatari
+ * riyal typed as 1 at 3.64 comes back as 0.99 (30 as 29.99) and a Bahraini dinar typed as 100 at 0.376 as 99.999. usdToDefaultCurrency rounds to six places before it floors
+ * only while a storefront currency is in force, and these tests run with the storefront switches off. The matrix runs the three-decimal currencies with the setting at 3
+ * only: with the setting at 2, which is what the platform falls back to, the third decimal is lost on the edit form under either model (1.505 is shown as 1.5 and 10.505 as
+ * 10.5), so a three-decimal amount cannot round-trip there.
  */
 class CouponCurrencyRoundTripTest extends ApiAddressTestCase
 {
@@ -170,7 +182,7 @@ class CouponCurrencyRoundTripTest extends ApiAddressTestCase
 
     /** @param array<string, mixed> $platform */
     #[DataProvider('platforms')]
-    public function test_the_edit_form_shows_back_the_amounts_that_were_typed_within_the_rounding_of_the_decimals_setting(array $platform): void
+    public function test_the_edit_form_shows_the_amounts_of_the_cases_as_typed_and_no_amount_of_the_sweep_more_than_one_minor_unit_lower(array $platform): void
     {
         $this->runThePlatformAs($platform);
         $this->typeTheThreeCoupons($platform);
