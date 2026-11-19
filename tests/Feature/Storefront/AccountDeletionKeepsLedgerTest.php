@@ -277,4 +277,169 @@ class AccountDeletionKeepsLedgerTest extends TestCase
     {
         DB::table('orders')->insert(['id' => $id, 'customer_id' => $customer->id, 'is_guest' => 0, 'order_status' => 'processing', 'created_at' => now(), 'updated_at' => now()]);
     }
+
+    private function refuseWhileBalanceRemains(): void
+    {
+        config(['gcc.account_deletion.refuse_while_balance_remains' => true]);
+    }
+
+    private function assertAppRefused(TestResponse $response, string $message, User $customer): void
+    {
+        $response->assertForbidden();
+        $this->assertSame(['message' => translate($message)], $response->json());
+        $this->assertNotNull(User::find($customer->id), 'the account was deleted after the refusal');
+    }
+
+    private function assertWebsiteRefused(TestResponse $response, string $message, User $customer): void
+    {
+        $response->assertRedirect();
+        $this->assertSame([translate($message)], $this->toastrMessages());
+        $this->assertNotNull(User::find($customer->id), 'the account was deleted after the refusal');
+    }
+
+    public function test_the_switch_ships_off(): void
+    {
+        $this->assertFalse(config('gcc.account_deletion.refuse_while_balance_remains'), 'the account-deletion guard must ship off');
+    }
+
+    public function test_with_the_guard_on_the_app_refuses_while_the_wallet_still_holds_money(): void
+    {
+        $this->refuseWhileBalanceRemains();
+        $customer = $this->customerHolding(walletBalance: 125.5, loyaltyPoints: 0.0);
+
+        $this->assertAppRefused($this->appDeletes($customer), message: 'you_can_not_delete_account_while_your_wallet_holds_money', customer: $customer);
+        $this->assertLedgerRowsOf(customer: $customer, walletRows: 1, loyaltyRows: 1);
+        $this->assertSame(125.5, (float) DB::table('users')->where('id', $customer->id)->value('wallet_balance'));
+    }
+
+    public function test_with_the_guard_on_the_website_refuses_while_the_wallet_still_holds_money(): void
+    {
+        $this->refuseWhileBalanceRemains();
+        $customer = $this->customerHolding(walletBalance: 125.5, loyaltyPoints: 0.0);
+
+        $this->assertWebsiteRefused($this->websiteDeletes($customer), message: 'you_can_not_delete_account_while_your_wallet_holds_money', customer: $customer);
+        $this->assertLedgerRowsOf(customer: $customer, walletRows: 1, loyaltyRows: 1);
+    }
+
+    public function test_with_the_guard_on_the_app_refuses_while_loyalty_points_still_stand(): void
+    {
+        $this->refuseWhileBalanceRemains();
+        $customer = $this->customerHolding(walletBalance: 0.0, loyaltyPoints: 340.0);
+
+        $this->assertAppRefused($this->appDeletes($customer), message: 'you_can_not_delete_account_while_you_still_have_loyalty_points', customer: $customer);
+        $this->assertSame(340.0, (float) DB::table('users')->where('id', $customer->id)->value('loyalty_point'));
+    }
+
+    public function test_with_the_guard_on_the_website_refuses_while_loyalty_points_still_stand(): void
+    {
+        $this->refuseWhileBalanceRemains();
+        $customer = $this->customerHolding(walletBalance: 0.0, loyaltyPoints: 340.0);
+
+        $this->assertWebsiteRefused($this->websiteDeletes($customer), message: 'you_can_not_delete_account_while_you_still_have_loyalty_points', customer: $customer);
+    }
+
+    public function test_with_the_guard_on_a_customer_who_holds_both_is_told_about_the_wallet_first(): void
+    {
+        $this->refuseWhileBalanceRemains();
+        $appCustomer = $this->customerHolding(walletBalance: 125.5, loyaltyPoints: 340.0);
+        $websiteCustomer = $this->customerHolding(walletBalance: 125.5, loyaltyPoints: 340.0);
+
+        $this->assertAppRefused($this->appDeletes($appCustomer), message: 'you_can_not_delete_account_while_your_wallet_holds_money', customer: $appCustomer);
+        $this->assertWebsiteRefused($this->websiteDeletes($websiteCustomer), message: 'you_can_not_delete_account_while_your_wallet_holds_money', customer: $websiteCustomer);
+    }
+
+    public function test_with_the_guard_on_a_customer_who_holds_nothing_still_deletes_the_account_over_both_routes(): void
+    {
+        $this->refuseWhileBalanceRemains();
+        $appCustomer = $this->customerHolding(walletBalance: 0.0, loyaltyPoints: 0.0);
+        $websiteCustomer = $this->customerHolding(walletBalance: 0.0, loyaltyPoints: 0.0);
+
+        $this->appDeletes($appCustomer)->assertOk();
+        $this->websiteDeletes($websiteCustomer)->assertRedirect(route('home'));
+
+        $this->assertAccountIsGone($appCustomer);
+        $this->assertAccountIsGone($websiteCustomer);
+        $this->assertLedgerRowsOf(customer: $appCustomer, walletRows: 1, loyaltyRows: 1);
+        $this->assertLedgerRowsOf(customer: $websiteCustomer, walletRows: 1, loyaltyRows: 1);
+    }
+
+    public function test_with_the_guard_on_a_debt_is_held_as_surely_as_a_credit(): void
+    {
+        $this->refuseWhileBalanceRemains();
+        $customer = $this->customerHolding(walletBalance: -40.0, loyaltyPoints: 0.0);
+
+        $this->assertAppRefused($this->appDeletes($customer), message: 'you_can_not_delete_account_while_your_wallet_holds_money', customer: $customer);
+    }
+
+    public function test_with_the_guard_on_a_holding_of_one_halala_is_money_and_anything_under_it_is_rounding_dust(): void
+    {
+        $this->refuseWhileBalanceRemains();
+        $oneHalala = $this->customerHolding(walletBalance: 0.01, loyaltyPoints: 0.0);
+        $justUnder = $this->customerHolding(walletBalance: 0.009, loyaltyPoints: 0.0);
+        $dust = $this->customerHolding(walletBalance: 0.0000000001, loyaltyPoints: 0.0000000001);
+
+        $this->assertAppRefused($this->appDeletes($oneHalala), message: 'you_can_not_delete_account_while_your_wallet_holds_money', customer: $oneHalala);
+        $this->appDeletes($justUnder)->assertOk();
+        $this->appDeletes($dust)->assertOk();
+
+        $this->assertAccountIsGone($justUnder);
+        $this->assertAccountIsGone($dust);
+    }
+
+    public function test_with_the_guard_on_one_hundredth_of_a_point_is_a_holding_too(): void
+    {
+        $this->refuseWhileBalanceRemains();
+        $oneHundredthOfAPoint = $this->customerHolding(walletBalance: 0.0, loyaltyPoints: 0.01);
+        $justUnder = $this->customerHolding(walletBalance: 0.0, loyaltyPoints: 0.009);
+
+        $this->assertAppRefused($this->appDeletes($oneHundredthOfAPoint), message: 'you_can_not_delete_account_while_you_still_have_loyalty_points', customer: $oneHundredthOfAPoint);
+        $this->appDeletes($justUnder)->assertOk();
+        $this->assertAccountIsGone($justUnder);
+    }
+
+    public function test_with_the_guard_on_what_a_neighbour_holds_is_not_what_this_customer_holds(): void
+    {
+        $this->refuseWhileBalanceRemains();
+        $customer = $this->customerHolding(walletBalance: 0.0, loyaltyPoints: 0.0);
+        $neighbour = $this->customerHolding(walletBalance: 900.0, loyaltyPoints: 700.0);
+
+        $this->appDeletes($customer)->assertOk();
+
+        $this->assertAccountIsGone($customer);
+        $this->assertNotNull(User::find($neighbour->id));
+        $this->assertSame(900.0, (float) DB::table('users')->where('id', $neighbour->id)->value('wallet_balance'));
+        $this->assertLedgerRowsOf(customer: $neighbour, walletRows: 1, loyaltyRows: 1);
+    }
+
+    public function test_with_the_guard_on_the_customer_who_holds_the_money_is_the_one_refused_and_their_neighbour_is_not(): void
+    {
+        $this->refuseWhileBalanceRemains();
+        $holder = $this->customerHolding(walletBalance: 900.0, loyaltyPoints: 0.0);
+        $neighbour = $this->customerHolding(walletBalance: 0.0, loyaltyPoints: 0.0);
+
+        $this->assertAppRefused($this->appDeletes($holder), message: 'you_can_not_delete_account_while_your_wallet_holds_money', customer: $holder);
+        $this->appDeletes($neighbour)->assertOk();
+        $this->assertAccountIsGone($neighbour);
+    }
+
+    public function test_with_the_guard_on_the_refusal_answers_in_the_shape_each_route_already_refuses_an_ongoing_order_with(): void
+    {
+        $this->refuseWhileBalanceRemains();
+        $appCustomer = $this->customerHolding(walletBalance: 125.5, loyaltyPoints: 0.0);
+        $websiteCustomer = $this->customerHolding(walletBalance: 125.5, loyaltyPoints: 0.0);
+        $appOrderCustomer = $this->customerHolding(walletBalance: 0.0, loyaltyPoints: 0.0);
+        $websiteOrderCustomer = $this->customerHolding(walletBalance: 0.0, loyaltyPoints: 0.0);
+        $this->orderOnItsWayFor($appOrderCustomer, id: 2001);
+        $this->orderOnItsWayFor($websiteOrderCustomer, id: 2002);
+
+        $appMoney = $this->appDeletes($appCustomer);
+        $appOrder = $this->appDeletes($appOrderCustomer);
+        $websiteMoney = $this->websiteDeletes($websiteCustomer);
+        $websiteOrder = $this->websiteDeletes($websiteOrderCustomer);
+
+        $this->assertSame($appOrder->getStatusCode(), $appMoney->getStatusCode());
+        $this->assertSame(array_keys($appOrder->json()), array_keys($appMoney->json()));
+        $this->assertSame($websiteOrder->getStatusCode(), $websiteMoney->getStatusCode());
+        $this->assertSame(['warning', 'warning'], array_column(session('toastr::messages'), 'type'));
+    }
 }
