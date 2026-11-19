@@ -5,6 +5,7 @@ namespace Tests\Feature\Storefront;
 use App\Services\Notification\NotificationTypeRegistry;
 use App\Services\Storefront\StorefrontLifecycle;
 use App\Services\Storefront\StorefrontMarketingStop;
+use App\Services\Storefront\StorefrontSellingGate;
 use Closure;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -160,6 +161,51 @@ class StorefrontMarketingStopTest extends ApiAddressTestCase
         $this->assertTrue($this->skipsTheAbandonedCartReminder(country: 'EG'));
     }
 
+    // ---- a storefront the configuration does not serve ------------------------------------------------------------------------------
+
+    public function test_a_storefront_switched_off_in_the_configuration_alone_is_skipped(): void
+    {
+        config(['gcc.storefronts.countries.AE.active' => false]);
+
+        $this->assertTrue($this->skipsTheAbandonedCartReminder(country: 'AE'), 'nobody can reach it, so the invitation would lead nowhere');
+        $this->assertFalse($this->skipsTheAbandonedCartReminder(country: 'SA'), 'another storefront is not touched');
+    }
+
+    public function test_a_storefront_switched_off_in_the_configuration_is_not_skipped_while_storefronts_are_off(): void
+    {
+        config(['gcc.storefronts.countries.AE.active' => false, 'gcc.storefronts.enabled' => false]);
+
+        $this->assertFalse($this->skipsTheAbandonedCartReminder(country: 'AE'));
+    }
+
+    public function test_the_carts_of_a_storefront_switched_off_in_the_configuration_are_stopped(): void
+    {
+        $this->cartRow(customerId: 1, productId: 1, price: 100, group: 'saudi-one');
+        $this->cartRow(customerId: 2, productId: 2, price: 250, group: 'emirati-one');
+        config(['gcc.storefronts.countries.AE.active' => false]);
+
+        $stopped = $this->marketingStop()->stoppedCartGroups(
+            channel: NotificationTypeRegistry::EMAIL,
+            type: NotificationTypeRegistry::ABANDONED_CART_REMINDER,
+            cartGroupIds: ['saudi-one', 'emirati-one'],
+        );
+
+        $this->assertSame(['emirati-one'], $stopped);
+    }
+
+    /**
+     * What the selling gate itself answers is left as it was: it reads the lifecycle and the preflight, not the configuration, so it still
+     * says that a storefront switched off in the configuration alone may sell. Every other caller of the gate judges a storefront a request
+     * resolved to, and the resolver never resolves one the configuration does not serve, so only the marketing stop, which judges the
+     * country recorded on a cart, could see one. Whether the gate should read the configuration too is the owner's to decide (I1-07).
+     */
+    public function test_the_selling_gate_is_unchanged_for_a_storefront_switched_off_in_the_configuration(): void
+    {
+        config(['gcc.storefronts.countries.AE.active' => false]);
+
+        $this->assertTrue(app(StorefrontSellingGate::class)->maySell(country: 'AE', currencyCode: 'AED'));
+    }
+
     public function test_a_type_nobody_classified_is_refused_for_a_storefront(): void
     {
         $this->expectException(InvalidArgumentException::class);
@@ -201,6 +247,26 @@ class StorefrontMarketingStopTest extends ApiAddressTestCase
 
         $this->assertGreaterThan(0, $oneCart, 'the decision is read from the legal texts, so the count means something');
         $this->assertSame($oneCart, $sixCarts);
+    }
+
+    public function test_the_countries_of_many_carts_are_read_in_one_query(): void
+    {
+        foreach (range(1, 6) as $number) {
+            $this->cartRow(customerId: $number, productId: 2, price: 250, group: "emirati-{$number}");
+        }
+
+        $readsOfTheCarts = 0;
+        DB::listen(function ($query) use (&$readsOfTheCarts): void {
+            $readsOfTheCarts += str_contains($query->sql, 'from "carts"') || str_contains($query->sql, 'from `carts`') ? 1 : 0;
+        });
+
+        $this->marketingStop()->stoppedCartGroups(
+            channel: NotificationTypeRegistry::EMAIL,
+            type: NotificationTypeRegistry::ABANDONED_CART_REMINDER,
+            cartGroupIds: array_map(fn (int $number): string => "emirati-{$number}", range(1, 6)),
+        );
+
+        $this->assertSame(1, $readsOfTheCarts, 'the country of every cart group is read together, not one query per cart');
     }
 
     /** @param Closure(): mixed $work */

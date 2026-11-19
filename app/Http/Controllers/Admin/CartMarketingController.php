@@ -271,7 +271,7 @@ private function withoutStoppedStorefronts(Collection $carts): Collection
     $stopped = $this->marketingStop->stoppedCartGroups(
         channel: NotificationTypeRegistry::WHATSAPP,
         type: NotificationTypeRegistry::CART_MARKETING,
-        cartGroupIds: $carts->pluck('cart_group_id')->unique()->all(),
+        cartGroupIds: $carts->pluck('cart_group_id')->unique()->values()->all(),
     );
 
     return $carts->reject(fn (Cart $cart): bool => in_array((string) $cart->cart_group_id, $stopped, true))->values();

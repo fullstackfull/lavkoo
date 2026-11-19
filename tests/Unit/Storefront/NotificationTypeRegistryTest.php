@@ -79,6 +79,7 @@ class NotificationTypeRegistryTest extends TestCase
 
         $this->assertSame(['order_pending_message', 'flash_sale_message'], $this->scanner()->messageKeysOfTheAdminList($adminList));
         $this->assertSame(['order_pending_message', 'flash_sale_message'], $this->scanner()->messageKeysOfTheMessageMap($messageMap));
+        $this->assertSame(['pending', 'promo'], $this->scanner()->keysAnsweredByTheMessageMap($messageMap), 'the keys a sender may pass');
     }
 
     public function test_the_scan_reads_the_type_a_push_payload_carries_however_it_is_written(): void
@@ -163,6 +164,55 @@ class NotificationTypeRegistryTest extends TestCase
             'app/Services/Retention/AbandonedCartService.php',
             'app/Services/Storefront/StorefrontMarketingStop.php',
         ], $this->scanner()->filesNaming('StorefrontMarketingStop'), 'A sender that asks the stop is a marketing sender: classify it in NotificationTypeRegistry and list it here. No order, refund, payment or code message asks it.');
+    }
+
+    // ---- what the code does today, pinned so that changing it is deliberate ----------------------------------------------------
+
+    /**
+     * The admin broadcast (NotificationController::add) sends one push to one FCM topic, which every app subscribed to it receives, and
+     * one push to every approved seller. It carries no storefront, so the marketing stop is never asked and a customer of a storefront
+     * that may not sell is reached by it even though the type it carries is marketing. Whether a broadcast should be addressed per
+     * storefront is the owner's to decide (I1-07): this pins what it does now.
+     */
+    public function test_the_admin_broadcast_goes_to_one_topic_and_carries_no_storefront(): void
+    {
+        $broadcast = 'app/Http/Controllers/Admin/Notification/NotificationController.php';
+        $named = $this->scanner()->filesNamingEachOf('sendPushNotificationToTopic', 'Storefront');
+
+        $this->assertContains($broadcast, $named['sendPushNotificationToTopic']);
+        $this->assertNotContains($broadcast, $named['Storefront'], 'nothing of the storefront system is read where the broadcast is sent');
+        $this->assertSame(NotificationTypeRegistry::MARKETING, NotificationTypeRegistry::classificationOf(channel: NotificationTypeRegistry::PUSH, type: 'notification'));
+    }
+
+    /**
+     * NotificationAutomationService is named by no other file of the application: nothing calls trigger() or triggerOrderStatusChanged(),
+     * so the automation it holds never runs. A finding about the application, not about the marketing stop. Pinned so that wiring it up is
+     * a visible change, which has to classify what it then sends.
+     */
+    public function test_the_notification_automation_has_no_caller(): void
+    {
+        $this->assertSame(['app/Services/NotificationAutomationService.php'], $this->scanner()->filesNaming('NotificationAutomationService'));
+    }
+
+    /**
+     * Three pushes the code prepares and never sends. customer_block_message and customer_unblock_message are messages the push map
+     * answers to, and their only sender, customerStatusUpdateNotification, is named by no other file. order_edit_due_payment_message is a
+     * message the admin can edit and a key the push map does not answer to at all, so the due-payment push that OrderManager raises,
+     * through OrderEditDuePaymentEvent and its listener, finds no message and sends nothing. Findings about the application, not about the
+     * marketing stop. Pinned so that sending any of them is deliberate.
+     */
+    public function test_the_blocked_customer_pushes_and_the_due_payment_push_are_never_sent(): void
+    {
+        $answered = $this->scanner()->keysAnsweredByTheMessageMap((string) file_get_contents(base_path('app/Traits/PushNotificationTrait.php')));
+        $named = $this->scanner()->filesNamingEachOf('customerStatusUpdateNotification', 'sendPushNotificationAfterDuePayment');
+
+        $this->assertContains('customer_block_message', $answered);
+        $this->assertContains('customer_unblock_message', $answered);
+        $this->assertSame(['app/Traits/PushNotificationTrait.php'], $named['customerStatusUpdateNotification'], 'their only sender has no caller');
+
+        $this->assertNotContains('order_edit_due_payment_message', $answered, 'the push map answers to no such key, so the send finds no message');
+        $this->assertArrayHasKey('order_edit_due_payment_message', $this->scanner()->typesNamedInCode()[NotificationTypeRegistry::PUSH], 'the admin can still edit the message');
+        $this->assertContains('app/Utils/OrderManager.php', $named['sendPushNotificationAfterDuePayment'], 'the push is raised; it is the message that is missing');
     }
 
     public function test_a_type_nobody_classified_is_refused_rather_than_guessed(): void

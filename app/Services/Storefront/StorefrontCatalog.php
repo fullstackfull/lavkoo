@@ -31,6 +31,9 @@ final class StorefrontCatalog
     /** How long a "no" is remembered, so a worker started before the migration notices it without a restart. A "yes" lasts for the process. */
     private const NEGATIVE_ANSWER_SECONDS = 30;
 
+    /** How many cart groups one country lookup asks for: every engine has a cap on the placeholders of a single statement. */
+    private const CART_GROUPS_PER_QUERY = 500;
+
     /** @var array{value: bool, at: int}|null */
     private static ?array $columnAnswer = null;
 
@@ -132,15 +135,41 @@ final class StorefrontCatalog
     /** The country the products of a cart group belong to, for a link that must open the storefront the cart was made in. Null while storefronts are off. */
     public static function countryOfCartGroup(string $cartGroupId): ?string
     {
-        if (!config('gcc.storefronts.enabled') || !self::columnReady()) {
-            return null;
+        return self::countriesOfCartGroups(cartGroupIds: [$cartGroupId])[$cartGroupId] ?? null;
+    }
+
+    /**
+     * The country the products of each cart group belong to, in one query for all of them, leaving out a group whose rows belong to no
+     * country: a list that has to judge the storefront of many carts, such as the marketing stop, asks once instead of once per cart.
+     * Empty while storefronts are off.
+     *
+     * @param list<string> $cartGroupIds
+     * @return array<string, string> cart group id => country
+     */
+    public static function countriesOfCartGroups(array $cartGroupIds): array
+    {
+        $ids = array_values(array_unique(array_map('strval', $cartGroupIds)));
+
+        if ($ids === [] || !config('gcc.storefronts.enabled') || !self::columnReady()) {
+            return [];
         }
 
-        return DB::table('carts')
-            ->join(self::TABLE, self::TABLE . '.id', '=', 'carts.product_id')
-            ->where('carts.cart_group_id', $cartGroupId)
-            ->orderBy('carts.id')
-            ->value(self::TABLE . '.' . self::COLUMN);
+        $countries = [];
+
+        foreach (array_chunk($ids, self::CART_GROUPS_PER_QUERY) as $chunk) {
+            $rows = DB::table('carts')
+                ->join(self::TABLE, self::TABLE . '.id', '=', 'carts.product_id')
+                ->whereIn('carts.cart_group_id', $chunk)
+                ->orderBy('carts.id')
+                ->get(['carts.cart_group_id', self::TABLE . '.' . self::COLUMN]);
+
+            // The first row of a group decides, as a lookup of that one group always did, even when the country it carries is empty.
+            foreach ($rows as $row) {
+                $countries[(string) $row->cart_group_id] ??= $row->{self::COLUMN} ?? '';
+            }
+        }
+
+        return array_filter($countries, static fn (string $country): bool => $country !== '');
     }
 
     /** Whether the admin tools see a product's country: storefronts are on and the products migration has run. */

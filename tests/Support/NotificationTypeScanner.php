@@ -98,10 +98,24 @@ final class NotificationTypeScanner
     /** @return list<string> the messages a push can be sent with: the values of the map from an event key to a message key */
     public function messageKeysOfTheMessageMap(string $code): array
     {
-        preg_match('/\$notificationKey\s*=\s*\[(.*?)\n\s*\];/s', $code, $map);
-        preg_match_all("/'[a-z_]+'\s*=>\s*'([a-z_]+)'/", $map[1] ?? '', $keys);
+        preg_match_all("/'[a-z_]+'\s*=>\s*'([a-z_]+)'/", $this->mapOfTheMessageKeys($code), $keys);
 
         return $keys[1];
+    }
+
+    /** @return list<string> the keys the map answers to: what a sender passes, so a key that is not here finds no message and sends nothing */
+    public function keysAnsweredByTheMessageMap(string $code): array
+    {
+        preg_match_all("/'([a-z_]+)'\s*=>\s*'[a-z_]+'/", $this->mapOfTheMessageKeys($code), $keys);
+
+        return $keys[1];
+    }
+
+    private function mapOfTheMessageKeys(string $code): string
+    {
+        preg_match('/\$notificationKey\s*=\s*\[(.*?)\n\s*\];/s', $code, $map);
+
+        return $map[1] ?? '';
     }
 
     /**
@@ -153,13 +167,28 @@ final class NotificationTypeScanner
     /** @return list<string> the files of the application whose code, not its comments, names the text, by their path from the root, sorted */
     public function filesNaming(string $text): array
     {
-        $files = [];
+        return $this->filesNamingEachOf($text)[$text];
+    }
+
+    /**
+     * The same for several texts, in one pass over the code: a test that asks about more than one of them reads every file once.
+     *
+     * @return array<string, list<string>> the text => the files that name it, sorted
+     */
+    public function filesNamingEachOf(string ...$texts): array
+    {
+        $files = array_fill_keys($texts, []);
         foreach ($this->phpFiles() as $file) {
-            if (str_contains($this->withoutComments((string) file_get_contents($file)), $text)) {
-                $files[] = $this->relative($file);
+            $code = $this->withoutComments((string) file_get_contents($file));
+            foreach ($texts as $text) {
+                if (str_contains($code, $text)) {
+                    $files[$text][] = $this->relative($file);
+                }
             }
         }
-        sort($files);
+        foreach ($files as &$named) {
+            sort($named);
+        }
 
         return $files;
     }
