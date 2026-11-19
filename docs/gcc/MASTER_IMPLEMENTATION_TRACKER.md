@@ -4,7 +4,7 @@ As of 2026-11-19. Generated from the independent assessment of every requirement
 
 ## 1. Read this first
 
-- **Nothing here is merged, deployed or verified in production.** All 124 draft pull requests of `lavkoo`, 20 of `lavkooapp` and 16 of `lavkooappseller` are open; `main` has none of the GCC work. The live server is described by the release documents as running an older baseline (`698aa1e`), which no document proves from outside. No state in this document claims production.
+- **Nothing here is merged, deployed or verified in production.** All 133 draft pull requests of `lavkoo`, 20 of `lavkooapp` and 17 of `lavkooappseller` are open; `main` has none of the GCC work. The live server is described by the release documents as running an older baseline (`698aa1e`), which no document proves from outside. No state in this document claims production.
 - **A percentage is shown only where it is computed from acceptance criteria that a test could assert** (formulas in section 4). Code completion and release readiness are two different numbers and are never mixed: code can be 90% complete and still 0% released.
 - **MET means a named test or CI job on a named head passed.** A limited unit test, a pull request body or a green job that does not cover the behaviour is not proof; the verifiers refuted such claims and the corrections are applied.
 - The exposed keys and credentials stay in the register of unremediated risks (`DEFERRED_RISKS.md`, DR-1 to DR-5). Deferring their rotation does not close them.
@@ -22,12 +22,12 @@ As of 2026-11-19. Generated from the independent assessment of every requirement
 | [F. Themes and brand](tracker/axis-f-themes-and-brand.md) | 16 | 74 | 42 | 11 | 21 | 72% | 57% | 4% | all |
 | [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 96 | 57 | 7 | 32 | 67% | 59% | 15% | all |
 | [H. Shipping and integrations](tracker/axis-h-shipping-and-integrations.md) | 34 | 152 | 79 | 10 | 63 | 59% | 52% | 16% | all |
-| [I. Marketing, policies and operations](tracker/axis-i-marketing-policies-and-operations.md) | 37 | 183 | 82 | 42 | 59 | 68% | 45% | 3% | all |
+| [I. Marketing, policies and operations](tracker/axis-i-marketing-policies-and-operations.md) | 37 | 183 | 84 | 40 | 59 | 68% | 46% | 3% | all |
 | [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 93 | 42 | 28 | 23 | 75% | 45% | 5% | all |
 | [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 91 | 40 | 19 | 32 | 65% | 44% | 3% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 45 | 18 | 31 | 67% | 48% | 7% | all |
 | [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 289 | 103 | 106 | 80 | 72% | 36% | 3% | all |
-| **All axes (pooled)** | **359** | **1675** | **795** | **320** | **560** | **67%** | **47%** | **8%** | |
+| **All axes (pooled)** | **359** | **1675** | **797** | **318** | **560** | **67%** | **48%** | **8%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -377,7 +377,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [I1-09](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 0/2/3 | Notification sends are idempotent and logged |
 | [I1-10](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 3/2/0 | Existing notification classes and senders are kept and pinned |
 | [I1-11](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 4/1/1 | Coupon and CouponService logic is kept, its boundary pinned and its messages defined |
-| [I1-12](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 1/4/0 | Coupon amounts in each store's currency; legacy conversions verified |
+| [I1-12](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 3/2/0 | Coupon amounts in each store's currency; legacy conversions verified |
 | [I1-13](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 3/1/1 | Coupons name their eligible products and store |
 | [I1-14](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 2/0/3 | Per-store coupon limits and budget |
 | [I1-15](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 1/0/4 | Campaigns: central ones choose stores, local ones belong to one store |

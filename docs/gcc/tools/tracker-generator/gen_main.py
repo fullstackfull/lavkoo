@@ -1440,6 +1440,63 @@ CRITERIA['F-12'][3] = ('MET', "PR 127 (2976ebb2): StorefrontThemeSharedIdentityT
 CRITERIA.setdefault('K-16', {})[4] = ('MET', "lavkooappseller PR 16 (draft, base main at d556fb4, head 7538ad9b, TESTS ONLY plus CI steps \u2014 no lib/ change, no app version change): six flow files under test/flows drive controllers, services, repositories and the app's own Dio client through a scripted HTTP adapter for orders, products, stock, withdrawals and reviews \u2014 174 flow tests, up from 164, with all 7 skips removed. They are not fixture-echo tests: each asserts the request the app really builds (method, path, exact body or query map, headers) and the encodings that live in app code rather than in the fixture (active -> [1], denied -> '2', a date -> '11/01/2026 09:30:00 AM', a removal -> a negative delta); the most important test of each of the six files was mutation-proved by breaking the lib/ code behind it. Two flows now run in Arabic with the request's lang header derived from the locale, where before not one test used the harness's locale support although most sellers in the six markets read the app in Arabic. The CI steps were TIGHTENED, not relaxed: the six named flow steps used if: always(), which also ran them after a run was cancelled, and are now if: ${{ !cancelled() }}; the YAML was parsed to confirm all six paths exist, none carries continue-on-error and the Flutter pin 3.47.0 is unchanged. %s TWELVE DEFECTS ARE PINNED AND NONE IS FIXED \u2014 a characterisation proves what the app does, not that it is right: a refusal inside a 200 with success: 0 read as success, so the seller is told 'Updated Successfully' over an order that never moved; a refused withdrawal leaving the typed values in inputValueList, so correcting an account number re-sends the old one (money); RestockController.getRestockProductList having no else and its only _isLoading = false inside the 200 branch, so a failure spins forever; ApiErrorHandler.getMessage's default: returning the object, so a 422 reaches the screen as Instance of 'ErrorResponse'; updateBalance reading .error off an ErrorResponse and throwing NoSuchMethodError on a status ApiErrorHandler does not name; searchProductReviewList dropping every filter the seller applied; setUpOrder sending a 202 down the else branch with error == null, destroying the server's reason; the re-read after an accepted status change hard-coding status 'all'; two screens showing the raw key no_internet_connection; and StockAdjustSheet's number row overflowing at 400 logical pixels. NOT covered: 403 and 404 with a non-JSON body would throw in both branches, and the screens themselves are mostly not built." % _R16)
 
 
+# ---- Wave 6 CI read job by job, PRs 128 and 129 (2026-11-19, evening) ----
+
+_R128 = ("CI run id 44545336093 (pull_request, head 2629b9f1), read job by job on 2026-11-19: 24 of 25 jobs success. "
+         "The whole suite 'Tests, SQLite' 7337 tests / 797753 assertions, 106 skipped, on PHP 8.3 and on PHP 8.2; "
+         "'Storefront tests' 941 / 4660 on MySQL 8 and on MariaDB 11.4.2; strict-mode MariaDB 11.4.2 4121 / 35792; "
+         "address 1045 / 4956 on both engines; fulfillment and security 1703 / 8897 (MySQL) and 1703 / 8900 (MariaDB); "
+         "the ten sales-channel and cost shards green on both engines. The job that matters most to the review is the NEW one: "
+         "'Wallet tests' 100 tests / 322 assertions on MySQL 8 AND on MariaDB 11.4.2 \u2014 the directory the programme's own M2-15 guard "
+         "named as running on no real engine now has its own group in the engine matrix, so the reviewers' MEDIUM finding is closed by CI "
+         "rather than by assertion. The single red is 'Deployment overlay (artifact, deploys nothing)', red by design and not this branch's: "
+         "its step refuses because firebase-messaging-sw.js, public/firebase-messaging-sw.js and robots.txt differ between the deploy baseline "
+         "698aa1e and the BASE branch gcc/p1-storefront-lifecycle; git diff --name-only origin/gcc/p1-storefront-lifecycle...2629b9f1 names none "
+         "of the three.")
+
+_R129 = ("CI run id 44546598026 (pull_request, head 7ca87a9f), read job by job on 2026-11-19: 22 of 23 jobs success. "
+         "'Storefront tests' 897 tests / 3602 assertions on MySQL 8 AND on MariaDB 11.4.2 \u2014 the pull request itself had claimed MariaDB 10.11 "
+         "only and named CI as the authority for the other two engines, so this is the reading it asked for, and both agree. "
+         "The whole suite 'Tests, SQLite' 7186 / 796372, 99 skipped, on PHP 8.3 and on PHP 8.2; strict-mode MariaDB 11.4.2 4021 / 35470; "
+         "address 1045 / 4956 on both engines; fulfillment and security 1703 / 8897 (MySQL) and 1703 / 8900 (MariaDB); the ten sales-channel and "
+         "cost shards green. One figure of the pull request body is corrected by this reading rather than reconciled quietly: the body reports the "
+         "whole suite at 796378 assertions and CI reports 796372, a difference of six; CI is the authority for the count. The single red is the "
+         "deployment overlay, red by design for three files of the base branch gcc/p1-storefront-six-country-isolation that this head does not touch.")
+
+for _req, _link in [('E-01', {'repo': 'lavkoo', 'pr': 128, 'sha': '2629b9f1'}),
+                    ('E-02', {'repo': 'lavkoo', 'pr': 128, 'sha': '2629b9f1'}),
+                    ('I1-12', {'repo': 'lavkoo', 'pr': 129, 'sha': '7ca87a9f'})]:
+    EXTRA_LINKS[_req] = [l for l in EXTRA_LINKS.get(_req, [])
+                         if not (l.get('repo') == _link['repo'] and l.get('pr') == _link['pr'])] + [_link]
+
+CRITERIA.setdefault('I1-12', {})[1] = ('MET', "PR 129 (draft, base gcc/p1-storefront-six-country-isolation at e624e43e, head 7ca87a9f). "
+    "usdToDefaultCurrency() TRUNCATES, and the admin coupon edit form posts back what it shows, so a form showing 4.34 for a stored 4.35 wrote 4.34 on an "
+    "Update that changed nothing: three edits in a row took three minor units off a coupon. Both coupon forms \u2014 admin and vendor, the product has two and "
+    "leaving one would have let a seller's screen keep taking a halala off on every untouched Update \u2014 now use an editing helper that shows the amount that "
+    "is STORED, and test_three_edits_in_a_row_take_nothing_from_a_coupon pins it. It is a repair, not a new rounding rule: a stored 2.675 at two decimals is "
+    "still cut to 2.67, and the mutation that rounds instead of cutting kills that test. A reviewer HIGH is closed here too: StorefrontCurrency::within() "
+    "restored the market and nothing else, so the first amount formatted inside a market re-filled four session currency keys from the overridden setting and "
+    "corrupted EVERY conversion afterwards \u2014 measured on the real route, after one view of a Kuwaiti coupon's edit page localToDefaultCurrency(100) answered "
+    "325.73 instead of 26.67; within() now snapshots the six keys and restores them in the same finally, and snapshots nothing while the currency switch is off. "
+    "%s OWNER SIGN-OFF REQUIRED BEFORE MERGE: this changes two LIVE Saudi screens with every flag off (admin and vendor coupon edit forms now show 4.35 where "
+    "they showed 4.34). NOT covered: the same fail-open remains on the coupon quick view and file-exports/coupon-list.blade.php, both pre-dating this branch and "
+    "measured at base e624e43e; and 42 editable value= attributes in 28 other files still lose a minor unit on an untouched save." % _R129)
+
+CRITERIA['I1-12'][2] = ('MET', "PR 129 (7ca87a9f): the round-trip matrix runs over min_purchase, the flat discount and max_discount, in two- and "
+    "three-decimal currencies, in both coupon forms. StorefrontCouponFormMoneyTest 43 tests / 225 assertions and StorefrontCurrencyTest 34 / 74; the seven coupon "
+    "files 135 tests on both engines. Two more reviewer findings are closed with the measurement that found them: with KWD switched off in the currency panel the "
+    "new list cell printed 5.64SAR and 'Minimum purchase 39.39SAR' for a coupon holding 1.505/10.505 dinars \u2014 the exact string the branch's own assertion "
+    "forbids \u2014 and the list now prints the stored amounts with the trading currency's code, never another storefront's figure, while the edit screen and the "
+    "update route refuse a coupon whose storefront has lost the money its amounts were typed in; and an N+1 of 64 reads of the currencies table for twenty rows "
+    "of two storefronts (against 10 for two rows of the same two) is now 10 for both pages, asserted as equal counts. A FIFTH reviewer finding is REFUTED with "
+    "its measurement rather than accepted: making the list cell follow the form's figure moves the inconsistency instead of removing it, because the quick view "
+    "the same row opens prints 1.12SAR and prints it with the storefront switch OFF as well; the suggestion was applied as a mutation and fails. Saudi default-off "
+    "proved on four legs, each with its own killing mutation. %s NOT covered: only discount_on_purchase coupons are typed anywhere in the matrix; a platform whose "
+    "own currency has three decimals while decimal_point_settings is 2 is uncovered; the vendor form keeps step=\".01\", so a browser refuses a three-decimal "
+    "amount there even though the value round-trips, and no server-side test can see that." % _R129)
+
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]

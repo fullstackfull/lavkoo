@@ -63,6 +63,12 @@ EXTRA = {
     125: ('I1-07.2, I1-07.3: a storefront that may not sell is sent no marketing, and every notification type is listed as necessary or marketing (draft, off by default, stacked on #111)', 'gcc/p1-marketing-stop-registry', 'gcc/p1-storefront-lifecycle'),
     126: ('J-13.1 backend half: every customer answer that carries an order carries the storefront and the currency it was sold in (draft, tests only, stacked on #111)', 'gcc/p1-order-answer-market', 'gcc/p1-storefront-lifecycle'),
     127: ("F-10.2, F-12.2, F-12.3: a banner section's theme folder is chosen before the storefront narrows it, and a theme switched back to stays active (draft, off by default, stacked on #112)", 'gcc/p1-theme-banner-folder-and-identity', 'gcc/p1-theme-publish-per-storefront'),
+    128: ("E-01, E-02 foundation: a dormant wallet and loyalty account per market, expand only, with a read-only reconciler (draft, off by default, stacked on #111)", "gcc/p1-market-wallet-loyalty-accounts", "gcc/p1-storefront-lifecycle"),
+    129: ("I1-12.1, I1-12.2: a coupon is read and written only in the money it was typed in \u2014 and a session leak that corrupted every later conversion (draft, off by default, stacked on #96)", "gcc/p1-coupon-form-money", "gcc/p1-storefront-six-country-isolation"),
+    130: ("E-02.3: the room the structure leaves for shared balances, which nothing reads (draft, expand only, stacked on #128)", "gcc/p1-market-account-sharing-key", "gcc/p1-market-wallet-loyalty-accounts"),
+    131: ("E-08: an account deletion that keeps the customer's money, behind a flag that is off (draft, off by default, stacked on #118)", "gcc/p1-account-deletion-keeps-money", "gcc/p1-wallet-contract-tests"),
+    132: ("D2-04.2: pin the six payment gateway registries to each other with a test that reads them (draft, tests only, stacked on #3)", "gcc/p1-gateway-registry-consistency", "gcc/p0-remove-duplicate-payment-routing"),
+    133: ("I2-06.3: the legal texts a customer accepts are not the operating rules the platform applies to itself (draft, tests plus four docblock lines, stacked on #121)", "gcc/p1-legal-versus-operating-rules", "gcc/p1-legal-store-pins"),
 }
 
 
