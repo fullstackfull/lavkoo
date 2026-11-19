@@ -6,18 +6,30 @@ use App\Http\Controllers\Controller;
 use App\Models\Cart;
 use App\Models\User;
 use App\Models\NotificationTemplateMapping;
+use App\Services\Notification\NotificationTypeRegistry;
+use App\Services\Storefront\StorefrontCatalog;
+use App\Services\Storefront\StorefrontCurrency;
+use App\Services\Storefront\StorefrontMarketingStop;
+use Illuminate\Support\Collection;
 use Illuminate\View\View;
 use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
 class CartMarketingController extends Controller
 {
+    public function __construct(
+        private readonly StorefrontMarketingStop $marketingStop,
+        private readonly StorefrontCurrency $storefrontCurrency,
+    ) {
+    }
+
     public function index(): View
     {
-        $carts = Cart::query()
-            ->where('is_guest', 0)
-            ->whereNotNull('customer_id')
-            ->get()
-            ->groupBy('customer_id');
+        $carts = $this->withoutStoppedStorefronts(
+            Cart::query()
+                ->where('is_guest', 0)
+                ->whereNotNull('customer_id')
+                ->get()
+        )->groupBy('customer_id');
 
         $customers = [];
 
@@ -26,6 +38,10 @@ class CartMarketingController extends Controller
             $customer = User::find($customerId);
 
             if (!$customer || empty($customer->phone)) {
+                continue;
+            }
+
+            if (!$this->holdsTheMoneyOfOneStorefront(carts: $customerCarts)) {
                 continue;
             }
 
@@ -128,6 +144,20 @@ if (!$mapping) {
             if ($carts->isEmpty()) {
                 throw new \RuntimeException(
                     'Customer cart is empty.'
+                );
+            }
+
+            $carts = $this->withoutStoppedStorefronts($carts);
+
+            if ($carts->isEmpty()) {
+                throw new \RuntimeException(
+                    'Customer cart is in a storefront that may not sell.'
+                );
+            }
+
+            if (!$this->holdsTheMoneyOfOneStorefront(carts: $carts)) {
+                throw new \RuntimeException(
+                    'Customer carts are in two storefronts, each with its own money.'
                 );
             }
 
@@ -246,6 +276,41 @@ return redirect()
 }
 
 
+
+/**
+ * The carts a template may be sent about: a message that invites a purchase does not go about a storefront that may not sell.
+ */
+private function withoutStoppedStorefronts(Collection $carts): Collection
+{
+    $stopped = $this->marketingStop->stoppedCartGroups(
+        channel: NotificationTypeRegistry::WHATSAPP,
+        type: NotificationTypeRegistry::CART_MARKETING,
+        cartGroupIds: $carts->pluck('cart_group_id')->unique()->values()->all(),
+    );
+
+    return $carts->reject(fn (Cart $cart): bool => in_array((string) $cart->cart_group_id, $stopped, true))->values();
+}
+
+/**
+ * Whether one figure can be written for these carts. The message and the list carry the money of the whole cart, and while each storefront
+ * trades in its own currency the amounts of two of them are in two currencies that nothing converts between (gcc.storefronts.currency), so
+ * there is no such figure: a customer whose carts span two storefronts is left out rather than sent a number in no currency. Nothing is
+ * asked while that switch is off, where every storefront reads the platform's own currency settings and the amounts can be added.
+ */
+private function holdsTheMoneyOfOneStorefront(Collection $carts): bool
+{
+    if (!$this->storefrontCurrency->isEnabled()) {
+        return true;
+    }
+
+    $countries = StorefrontCatalog::countriesOfCartGroups(
+        cartGroupIds: $carts->pluck('cart_group_id')->unique()->values()->all(),
+    );
+
+    $named = array_filter(array_merge(...array_values($countries)), static fn (string $country): bool => $country !== '');
+
+    return count(array_unique($named)) <= 1;
+}
 
 protected function resolveMarketingField(
     string $field,

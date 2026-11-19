@@ -131,6 +131,17 @@ final class StorefrontResolver
         return $this->enabled;
     }
 
+    /**
+     * Whether the configuration serves a storefront for this country at all: it is configured and switched on. A country it does not
+     * serve cannot be reached by anybody, whatever its lifecycle record says, so nothing invites a visit to it.
+     */
+    public function servesStorefront(string $countryCode): bool
+    {
+        $code = strtoupper(trim($countryCode));
+
+        return isset($this->countries[$code]) && $this->isActive($code);
+    }
+
     public function defaultCountry(): string
     {
         return $this->defaultCountry;
