@@ -197,7 +197,11 @@ class StorefrontMarketingStopTest extends ApiAddressTestCase
      * What the selling gate itself answers is left as it was: it reads the lifecycle and the preflight, not the configuration, so it still
      * says that a storefront switched off in the configuration alone may sell. Every other caller of the gate judges a storefront a request
      * resolved to, and the resolver never resolves one the configuration does not serve, so only the marketing stop, which judges the
-     * country recorded on a cart, could see one. Whether the gate should read the configuration too is the owner's to decide (I1-07).
+     * country recorded on a cart, can see one. The reason not to move the judgement into the gate is not the gate's own tests, which all
+     * pass either way, but what a recorded country is for: a payment taken in a storefront that was switched off afterwards still has to be
+     * finished there (StorefrontResolver::contextOfRecordedCountry), and a gate that refused a country the configuration no longer serves
+     * would refuse exactly that. Unreachable means do not invite, which is this stop; it does not mean refuse money already taken. Whether
+     * the gate should read the configuration too is the owner's to decide (I1-07).
      */
     public function test_the_selling_gate_is_unchanged_for_a_storefront_switched_off_in_the_configuration(): void
     {
