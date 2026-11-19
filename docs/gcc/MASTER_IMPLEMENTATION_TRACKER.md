@@ -19,15 +19,15 @@ As of 2026-11-19. Generated from the independent assessment of every requirement
 | [C. Inventory and fulfillment](tracker/axis-c-inventory-and-fulfillment.md) | 18 | 94 | 65 | 9 | 20 | 79% | 69% | 30% | all |
 | [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 173 | 83 | 30 | 60 | 65% | 48% | 8% | all |
 | [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 84 | 35 | 5 | 44 | 48% | 42% | 7% | all |
-| [F. Themes and brand](tracker/axis-f-themes-and-brand.md) | 16 | 74 | 19 | 29 | 26 | 65% | 26% | 4% | all |
+| [F. Themes and brand](tracker/axis-f-themes-and-brand.md) | 16 | 74 | 39 | 11 | 24 | 68% | 53% | 4% | all |
 | [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 96 | 57 | 7 | 32 | 67% | 59% | 15% | all |
 | [H. Shipping and integrations](tracker/axis-h-shipping-and-integrations.md) | 34 | 152 | 79 | 10 | 63 | 59% | 52% | 16% | all |
-| [I. Marketing, policies and operations](tracker/axis-i-marketing-policies-and-operations.md) | 37 | 183 | 79 | 36 | 68 | 63% | 43% | 3% | all |
+| [I. Marketing, policies and operations](tracker/axis-i-marketing-policies-and-operations.md) | 37 | 183 | 75 | 40 | 68 | 63% | 41% | 3% | all |
 | [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 93 | 42 | 27 | 24 | 74% | 45% | 5% | all |
-| [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 91 | 36 | 16 | 39 | 57% | 40% | 3% | all |
+| [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 91 | 39 | 19 | 33 | 64% | 43% | 3% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 45 | 18 | 31 | 67% | 48% | 7% | all |
-| [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 289 | 100 | 105 | 84 | 71% | 35% | 3% | all |
-| **All axes (pooled)** | **359** | **1675** | **761** | **328** | **586** | **65%** | **45%** | **8%** | |
+| [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 289 | 103 | 105 | 81 | 72% | 36% | 3% | all |
+| **All axes (pooled)** | **359** | **1675** | **783** | **317** | **575** | **66%** | **47%** | **8%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -51,7 +51,7 @@ Chosen from the table of requirements, not from the pull request list: each one 
 
 - **Blocks:** orders with the right currency; prices that are the same in the app and on the web; wallets, coupons, shipping and tax that agree with the order.
 - **Where it stands:** GCC-05 (draft PR 87, slices 1 to 4 and most of slice 5, off by default) makes a non-default storefront single-currency in its own currency with the right decimals, records the storefront and currency on the order, refuses a gateway that cannot take that currency, makes the admin product screens work in the product's country, gives the storefront its own minimum order and free-delivery threshold (never the platform's riyal figure), prices its shipping from the product alone, lets the panel edit of an order read all of these in the order's money, and gives a coupon its storefront (stored, narrowed on every customer finder, and typed in the storefront's currency through the admin routes). Still reading the platform's one currency: the admin coupon form, list and export, coupon budgets, the tax snapshot, refunds in the original currency, channel prices, invoices, e-mails and exports, and both apps' other formatters (the customer app has the price formatter and the currency it sends, lavkooapp #8 and #9).
-- **Measured:** 20 requirements (2 not started), 100 criteria of which 50 MISSING (50%) as the assessors read it; slices 3 and 4 of PR 87 came after and are in the cards as updates. Requirements: B-02, B-03, D1-05, D1-06, D1-07, D1-10, D2-05, D2-10, E-16, H1-08, H1-09, H1-14, H2-08, I1-12, I1-14, J-05, K-10, L-08, M2-07, C-15.
+- **Measured:** 20 requirements (2 not started), 100 criteria of which 47 MISSING (47%) as the assessors read it; slices 3 and 4 of PR 87 came after and are in the cards as updates. Requirements: B-02, B-03, D1-05, D1-06, D1-07, D1-10, D2-05, D2-10, E-16, H1-08, H1-09, H1-14, H2-08, I1-12, I1-14, J-05, K-10, L-08, M2-07, C-15.
 - **First executable step:** Step 9 of the GCC-05 slice 5 plan on PR 87: the country select and currency labels on the admin coupon form, and the coupon list, quick view and export in the coupon's own money; then the readiness lines (step 10) and the tax and refund snapshot.
 
 ### Gap 2. Wallet and loyalty are one global balance
@@ -71,7 +71,7 @@ Chosen from the table of requirements, not from the pull request list: each one 
 Next in line (not in the top three because they depend on these, or are optional until the owner opens them):
 
 - **Seller markets and the seller app:** sellers and seller staff have no market or entity scope (B-09, K-03, K-04, K-09, K-17); seller products are all Saudi today.
-- **Per-storefront themes and brand:** one published theme per storefront, independent drafts and brand override (F-01, F-02, F-13) are not started.
+- **Per-storefront themes and brand:** a theme of its own for each storefront, its publish, schedule, preview and caches are built in drafts (PR 107 and 112, off by default); what is not started is the shared design identity with a brand override for each storefront (F-12.2, F-12.3, F-13), the copy of a theme between storefronts (F-11.2, F-11.3) and the banner rows of a draft (F-02.2).
 - **Shipping eligibility and carriers:** the cross-border engine, carrier route declarations and regulated-goods refusal (H1-01 to H1-09, M2-09) are not started; cross-border stays off by default.
 - **Notifications and consent per store:** sender accounts, templates, audiences and consent per store (I1-01 to I1-09, A2-13).
 
@@ -282,17 +282,17 @@ Executable on an isolated branch without production access, ordered by the prior
 | Id | State | M/C/X | Requirement |
 |---|---|---|---|
 | [F-01](tracker/axis-f-themes-and-brand.md) | INTEGRATED AND TESTED | 4/0/0 | One active published theme per country storefront |
-| [F-02](tracker/axis-f-themes-and-brand.md) | IN PROGRESS | 1/1/2 | Independent drafts, versions and publish per storefront |
+| [F-02](tracker/axis-f-themes-and-brand.md) | IN PROGRESS | 2/0/2 | Independent drafts, versions and publish per storefront |
 | [F-03](tracker/axis-f-themes-and-brand.md) | IN PROGRESS | 2/2/1 | Web and customer-app customisation, per-platform publish |
-| [F-04](tracker/axis-f-themes-and-brand.md) | IN PROGRESS | 1/4/1 | Theme caches isolated per storefront |
+| [F-04](tracker/axis-f-themes-and-brand.md) | IN PROGRESS | 4/1/1 | Theme caches isolated per storefront |
 | [F-05](tracker/axis-f-themes-and-brand.md) | IMPLEMENTED IN DRAFT | 2/4/0 | Storefront context reaches the theme API and the web theme |
 | [F-06](tracker/axis-f-themes-and-brand.md) | IN PROGRESS | 5/0/1 | Customer app theme cache follows the storefront and the language |
-| [F-07](tracker/axis-f-themes-and-brand.md) | IN PROGRESS | 0/4/1 | Theme preview isolated from shoppers, caches and other storefronts |
-| [F-08](tracker/axis-f-themes-and-brand.md) | IN PROGRESS | 0/4/1 | Scheduled publish and rollback, safe and per storefront |
-| [F-09](tracker/axis-f-themes-and-brand.md) | IN PROGRESS | 1/3/2 | App-version compatibility of the theme contract |
-| [F-10](tracker/axis-f-themes-and-brand.md) | IN PROGRESS | 0/2/4 | Shared section library serving each storefront's own data |
-| [F-11](tracker/axis-f-themes-and-brand.md) | IN PROGRESS | 0/2/2 | Template library and optional theme copy between storefronts |
-| [F-12](tracker/axis-f-themes-and-brand.md) | IN PROGRESS | 0/2/2 | Shared design identity with per-storefront override |
+| [F-07](tracker/axis-f-themes-and-brand.md) | IN PROGRESS | 4/1/0 | Theme preview isolated from shoppers, caches and other storefronts |
+| [F-08](tracker/axis-f-themes-and-brand.md) | IN PROGRESS | 4/0/1 | Scheduled publish and rollback, safe and per storefront |
+| [F-09](tracker/axis-f-themes-and-brand.md) | IN PROGRESS | 5/0/1 | App-version compatibility of the theme contract |
+| [F-10](tracker/axis-f-themes-and-brand.md) | IN PROGRESS | 1/1/4 | Shared section library serving each storefront's own data |
+| [F-11](tracker/axis-f-themes-and-brand.md) | IN PROGRESS | 2/0/2 | Template library and optional theme copy between storefronts |
+| [F-12](tracker/axis-f-themes-and-brand.md) | IN PROGRESS | 1/1/2 | Shared design identity with per-storefront override |
 | [F-13](tracker/axis-f-themes-and-brand.md) | NOT STARTED | 0/0/4 | Brand name, logo and identity: global default, country override |
 | [F-14](tracker/axis-f-themes-and-brand.md) | IN PROGRESS | 3/0/1 | Visible brand separate from the legal company name on invoices and contracts |
 | [F-15](tracker/axis-f-themes-and-brand.md) | IN PROGRESS | 0/1/3 | Existing Theme Editor extended with a storefront selector, not rebuilt |
@@ -377,7 +377,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [I1-09](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 0/2/3 | Notification sends are idempotent and logged |
 | [I1-10](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 3/1/1 | Existing notification classes and senders are kept and pinned |
 | [I1-11](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 3/2/1 | Coupon and CouponService logic is kept, its boundary pinned and its messages defined |
-| [I1-12](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 2/2/1 | Coupon amounts in each store's currency; legacy conversions verified |
+| [I1-12](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 1/3/1 | Coupon amounts in each store's currency; legacy conversions verified |
 | [I1-13](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 3/1/1 | Coupons name their eligible products and store |
 | [I1-14](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 0/2/3 | Per-store coupon limits and budget |
 | [I1-15](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 1/0/4 | Campaigns: central ones choose stores, local ones belong to one store |
@@ -394,12 +394,12 @@ Executable on an isolated branch without production access, ordered by the prior
 | [I2-08](tracker/axis-i-marketing-policies-and-operations.md) | IMPLEMENTED IN DRAFT | 4/2/0 | Sale gate on the customer API and web checkout for a storefront that may not sell |
 | [I2-09](tracker/axis-i-marketing-policies-and-operations.md) | NOT STARTED | 0/0/4 | Sale gate on POS, seller API and marketplace order writers |
 | [I2-10](tracker/axis-i-marketing-policies-and-operations.md) | IMPLEMENTED IN DRAFT | 4/2/0 | Customer app follows the server answer: browse-only storefront cannot order or pay |
-| [I2-11](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 5/0/0 | Store lifecycle states Draft, Ready, Active, Paused, managed by admin |
+| [I2-11](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 4/1/0 | Store lifecycle states Draft, Ready, Active, Paused, managed by admin |
 | [I2-12](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 4/0/1 | Readiness preflight before a country is activated |
 | [I2-13](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 3/2/0 | Stop mode Browse Only |
 | [I2-14](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 4/1/0 | Stop mode Maintenance per storefront |
 | [I2-15](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 2/0/3 | Stop mode Redirect to the default storefront |
-| [I2-16](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 4/1/0 | Stop never loses earlier orders or breaks webhooks, refunds, settlements, shipments, support |
+| [I2-16](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 2/3/0 | Stop never loses earlier orders or breaks webhooks, refunds, settlements, shipments, support |
 | [I2-17](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 4/0/2 | Saudi Arabia is the default storefront; a default must stay valid and operational |
 | [I2-18](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 3/1/2 | Safe first-launch migration plan that confirms current Saudi work continues |
 | [I2-V1](tracker/axis-i-marketing-policies-and-operations.md) | IMPLEMENTED IN DRAFT | 0/1/0 | Audit axis J, legal half: the legal documents and their versions are reviewed with file evidence (da... |
@@ -433,16 +433,16 @@ Executable on an isolated branch without production access, ordered by the prior
 
 | Id | State | M/C/X | Requirement |
 |---|---|---|---|
-| [K-01](tracker/axis-k-flutter-seller-app.md) | IMPLEMENTED IN DRAFT | 3/1/0 | Seller market scope and X-Storefront header (default off) |
+| [K-01](tracker/axis-k-flutter-seller-app.md) | IMPLEMENTED IN DRAFT | 4/0/0 | Seller market scope and X-Storefront header (default off) |
 | [K-02](tracker/axis-k-flutter-seller-app.md) | IMPLEMENTED IN DRAFT | 4/1/0 | Seller market choice: storage and manual precedence |
-| [K-03](tracker/axis-k-flutter-seller-app.md) | NOT STARTED | 0/0/4 | Market selector, live header update and market-switch hygiene |
+| [K-03](tracker/axis-k-flutter-seller-app.md) | NOT STARTED | 2/1/1 | Market selector, live header update and market-switch hygiene |
 | [K-04](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 1/0/2 | Per-market data in seller screens (orders, products, stock, finance) |
 | [K-05](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 5/1/0 | POS scan with country-scoped codes |
 | [K-06](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 3/1/1 | POS sale safety: retries, offline outbox and customer id |
 | [K-07](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 5/0/0 | Order edit refusal handling and approved-only review average |
 | [K-08](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 1/3/1 | Seller owner and staff roles keep working; the app shows what a role may use |
 | [K-09](tracker/axis-k-flutter-seller-app.md) | NOT STARTED | 0/0/4 | Country and entity scopes for sellers and seller staff (GCC-14, seller side) |
-| [K-10](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 2/0/3 | Per-market currency, decimals and no app-side conversion |
+| [K-10](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 2/3/0 | Per-market currency, decimals and no app-side conversion |
 | [K-11](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 2/0/3 | Seller push: tokens, topics, payload market and routing |
 | [K-12](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 2/0/3 | Session and token handling in the seller app |
 | [K-13](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 1/1/2 | Arabic strings awaiting a native reader |
@@ -513,10 +513,10 @@ Executable on an isolated branch without production access, ordered by the prior
 | [M2-07](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 2/1/2 | Independent prices and currencies (test plan 7) |
 | [M2-08](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 3/0/3 | Concurrent stock reservation and sync (test plan 8) |
 | [M2-09](tracker/axis-m-security-tests-and-deployment.md) | NOT STARTED | 0/0/4 | International shipping and product eligibility (test plan 9) |
-| [M2-10](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 2/0/3 | Themes and Flutter caches (test plan 10) |
+| [M2-10](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 4/0/1 | Themes and Flutter caches (test plan 10) |
 | [M2-11](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 3/0/2 | Payments, refunds and webhooks (test plan 11) |
 | [M2-12](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 2/0/3 | Sales channels and stock sync (test plan 12) |
-| [M2-13](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 2/1/2 | Notifications and legal policies (test plan 13) |
+| [M2-13](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 3/1/1 | Notifications and legal policies (test plan 13) |
 | [M2-14](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 3/1/1 | Stopping a store and handling its earlier orders (test plan 14) |
 | [M2-15](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 4/0/2 | Six-country integration test matrix and CI gates |
 | [M2-16](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/4/2 | Migration files and change discipline: Preserve, Extend, Isolate, Verify |
