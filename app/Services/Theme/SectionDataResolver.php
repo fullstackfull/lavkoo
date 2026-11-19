@@ -384,21 +384,25 @@ class SectionDataResolver
                 ->when(
                     BannerService::REQUIRED_RESOURCE_TYPES[$bannerType] ?? null,
                     fn ($query, $resourceType) => $query->where('resource_type', $resourceType),
-                )
-                // Left out before the limit counts, so a storefront is still given as many banners as it may show.
-                ->when($notOffered !== [], fn ($query) => $query->whereNotIn('id', $notOffered));
+                );
+
+            // Which folder the banners come from is decided over every banner of the type, before the
+            // storefront narrows them: a storefront is given the banners of a folder the theme left
+            // behind only when the active folder holds none at all, and never because the ones it
+            // holds happen to point at another country's products.
+            $activeFolder = $base()->where('theme', theme_root_path())->exists();
 
             // Same ordering as BannerPlacementService — priority first, then creation
             // order — so a section shows the banners in the arrangement the merchant
             // sees in their built-in slot.
-            $ordered = fn ($query) => $query->orderBy('priority')->orderBy('id');
-
-            $scoped = $ordered((clone $base())->where('theme', theme_root_path()))
-                ->take($this->bounded($limit, 24))->get();
-
-            return $scoped->isNotEmpty()
-                ? $scoped
-                : $ordered($base())->take($this->bounded($limit, 24))->get();
+            return $base()
+                ->when($activeFolder, fn ($query) => $query->where('theme', theme_root_path()))
+                // Left out before the limit counts, so a storefront is still given as many banners as it may show.
+                ->when($notOffered !== [], fn ($query) => $query->whereNotIn('id', $notOffered))
+                ->orderBy('priority')
+                ->orderBy('id')
+                ->take($this->bounded($limit, 24))
+                ->get();
         });
 
         return $rows->map(fn (Banner $banner) => [

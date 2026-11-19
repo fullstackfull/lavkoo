@@ -93,6 +93,10 @@ class ThemeManager
                 ->where('is_active', true)
                 ->update(['is_active' => false]);
 
+            // Read again before the flag is set: an instance loaded while this theme was the active one
+            // holds is_active already true, so the save would find nothing dirty and write nothing,
+            // leaving the storefront with no active theme at all now the others are deactivated.
+            $theme->refresh();
             $theme->is_active = true;
             $theme->save();
 

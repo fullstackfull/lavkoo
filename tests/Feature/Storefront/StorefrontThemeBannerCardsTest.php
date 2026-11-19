@@ -21,6 +21,9 @@ use Tests\TestCase;
  * blocks are linked to one banner each (through blockCards): the four types of block that can be, in the section that holds each of them. Both are drawn by the web page and delivered to the app, from the one resolver. A banner that points at a category,
  * a brand or nothing is delivered everywhere, as it always was; so is every banner while storefronts are off, and to the admin panel, which works across every country.
  *
+ * Which theme folder the dashboard banners come from is decided before the storefront narrows them: the folder the theme left behind is read only when the active folder holds no banner of the type at all, and
+ * never because the ones it holds happen to point at another country's products.
+ *
  * The six banners are told apart by their titles, and the list is in the order of their priority, which puts two foreign ones first: a section that is limited to two banners must still show two of the banners
  * its storefront is offered, so the limit counts what a storefront may show and not what it may not.
  */
@@ -46,6 +49,9 @@ class StorefrontThemeBannerCardsTest extends TestCase
 
     /** The banners that point at no product: every storefront is delivered these. */
     private const BANNERS_OF_NO_PRODUCT = ['Category offer', 'Brand offer', 'Plain offer'];
+
+    /** A banner the theme left behind: it belongs to a folder that is not the active one. */
+    private const RETIRED = 'Retired offer';
 
     protected function setUp(): void
     {
@@ -256,6 +262,33 @@ class StorefrontThemeBannerCardsTest extends TestCase
             $this->assertSame(array_keys(self::BANNERS), $this->titlesTheAppIsGiven(type: 'store_banner', country: $country), $country);
             $this->assertSame(array_keys(self::BANNERS), $this->titlesTheAppIsGiven(type: 'banner_mosaic', country: $country), $country);
         }
+    }
+
+    public function test_which_folder_the_dashboard_banners_come_from_is_decided_before_the_storefront_narrows_them(): void
+    {
+        $this->giveARetiredBannerInAnotherFolder();
+        DB::table('banners')->whereNotIn('title', ['Emirati serum offer', self::RETIRED])->delete();
+        $this->givePublishedBannerTheme(sections: ['store_banner']);
+
+        $this->assertSame(['Emirati serum offer'], $this->titlesTheAppIsGiven(type: 'store_banner', country: 'AE'));
+        $this->assertSame([], $this->titlesTheAppIsGiven(type: 'store_banner', country: 'KW'));
+    }
+
+    public function test_the_banners_of_a_folder_the_theme_left_behind_are_still_delivered_while_the_active_folder_holds_none(): void
+    {
+        DB::table('banners')->update(['theme' => 'aster']);
+        $this->givePublishedBannerTheme(sections: ['store_banner']);
+
+        $this->assertSame(['Emirati serum offer', ...self::BANNERS_OF_NO_PRODUCT], $this->titlesTheAppIsGiven(type: 'store_banner', country: 'AE'));
+        $this->assertSame(self::BANNERS_OF_NO_PRODUCT, $this->titlesTheAppIsGiven(type: 'store_banner', country: 'QA'));
+    }
+
+    private function giveARetiredBannerInAnotherFolder(): void
+    {
+        DB::table('banners')->insert([
+            'banner_type' => 'Main Banner', 'theme' => 'aster', 'published' => 1, 'priority' => 9, 'title' => self::RETIRED,
+            'resource_type' => null, 'resource_id' => null, 'url' => '', 'created_at' => now(), 'updated_at' => now(),
+        ]);
     }
 
     public function test_the_admin_panel_is_given_every_banner_because_it_works_across_every_country(): void

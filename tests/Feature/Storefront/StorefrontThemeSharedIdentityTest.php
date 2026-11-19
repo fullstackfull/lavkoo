@@ -16,6 +16,9 @@ use Tests\TestCase;
  * GCC F-12.2 and F-12.3: one shared design identity, and a storefront override that changes one storefront only. The shared identity is the settings of the default storefront's published theme, which
  * every other storefront is served when it has no theme of its own and which it inherits, key by key, when it has one that does not set the key. A storefront's own theme overrides the keys it sets and no other.
  *
+ * The shared identity changes in two ways, and both are read from every other storefront: the default storefront publishes an edit of the theme it has activated, and the default storefront activates another theme.
+ * An edit that is only a draft is neither of them and reaches nobody.
+ *
  * Everything here goes through the services a merchant's actions go through: a theme is made, published and activated by ThemeManager, the app is given its tokens by /api/v1/theme/home (and told by
  * /api/v1/theme/version whether to ask), and the page head reads them from StorefrontThemeRenderer. Each storefront reads its tokens before a change and after it, because what is cached under the key of a
  * storefront is what it is served until something forgets it: the new value has to be served after a change, not only stored. The shared identity here sets values the code defaults do not hold, or what a
@@ -208,6 +211,68 @@ class StorefrontThemeSharedIdentityTest extends TestCase
 
         $this->assertSame([url('/storage/emirati-logo.png'), 180], $this->logoTheAppIsGivenBy(country: 'AE'), 'after the override');
         $this->assertSame([url('/storage/shared-logo.png'), 180], $this->logoTheAppIsGivenBy(country: 'SA'), 'the default storefront');
+    }
+
+    // ---- the two ways the shared identity changes: the default storefront publishes, or it activates another theme -------------------------
+
+    /** @return array<string, array{0: array<string, mixed>|null}> what the Emirati storefront's own theme sets, or null where it has no theme of its own and is served the default storefront's */
+    public static function emiratiStorefrontsBeneathTheIdentity(): array
+    {
+        return [
+            'a storefront with no theme of its own' => [null],
+            'a storefront whose own theme sets nothing' => [[]],
+            'a storefront whose own theme overrides one colour' => [self::EMIRATI_OVERRIDE],
+        ];
+    }
+
+    /** @param array<string, mixed>|null $emiratiSettings */
+    #[DataProvider('emiratiStorefrontsBeneathTheIdentity')]
+    public function test_an_edit_of_the_default_storefronts_theme_that_is_not_published_reaches_no_other_storefront(?array $emiratiSettings): void
+    {
+        $saudi = $this->publishThemeOf(country: null, settings: self::SHARED_IDENTITY, name: 'Saudi');
+        if ($emiratiSettings !== null) {
+            $this->publishThemeOf(country: 'AE', settings: $emiratiSettings, name: 'Emirati');
+        }
+        $inherited = $this->expectedTokens(self::SHARED_IDENTITY, $emiratiSettings ?? []);
+        $this->assertGiven(country: 'AE', expected: $inherited, when: 'before the edit');
+        $told = $this->stampTheAppIsToldFor(country: 'AE');
+
+        $draft = app(ThemeManager::class)->createDraftFrom(source: $saudi->publishedVersion()->firstOrFail());
+        $draft->update(['settings' => self::CHANGED_IDENTITY]);
+        Cache::flush();
+
+        $this->assertNotSame($inherited, $this->expectedTokens(self::CHANGED_IDENTITY, $emiratiSettings ?? []), 'the premise: the edit is a change');
+        $this->assertGiven(country: 'AE', expected: $inherited, when: 'while the edit is only a draft');
+        $this->assertGiven(country: 'SA', expected: $this->expectedTokens(self::SHARED_IDENTITY), when: 'while the edit is only a draft');
+        $this->assertSame($told, $this->stampTheAppIsToldFor(country: 'AE'), 'an edit that is not live is nothing for the app to refetch for');
+
+        app(ThemeManager::class)->publish(version: $draft->fresh());
+
+        $this->assertGiven(country: 'AE', expected: $this->expectedTokens(self::CHANGED_IDENTITY, $emiratiSettings ?? []), when: 'once the edit is published');
+        $this->assertNotSame($told, $this->stampTheAppIsToldFor(country: 'AE'), 'the app is told there is something new once the edit is live');
+    }
+
+    /** @param array<string, mixed>|null $emiratiSettings */
+    #[DataProvider('emiratiStorefrontsBeneathTheIdentity')]
+    public function test_the_identity_another_storefront_inherits_is_that_of_whichever_theme_the_default_storefront_has_activated(?array $emiratiSettings): void
+    {
+        $firstSaudiTheme = $this->publishThemeOf(country: null, settings: self::SHARED_IDENTITY, name: 'Saudi');
+        if ($emiratiSettings !== null) {
+            $this->publishThemeOf(country: 'AE', settings: $emiratiSettings, name: 'Emirati');
+        }
+        $this->assertGiven(country: 'AE', expected: $this->expectedTokens(self::SHARED_IDENTITY, $emiratiSettings ?? []), when: 'before the other theme is activated');
+        $told = $this->stampTheAppIsToldFor(country: 'AE');
+
+        $this->publishThemeOf(country: null, settings: self::CHANGED_IDENTITY, name: 'Saudi festive');
+
+        $this->assertGiven(country: 'AE', expected: $this->expectedTokens(self::CHANGED_IDENTITY, $emiratiSettings ?? []), when: 'once the other theme is activated');
+        $this->assertGiven(country: 'SA', expected: $this->expectedTokens(self::CHANGED_IDENTITY), when: 'once the other theme is activated');
+        $this->assertNotSame($told, $this->stampTheAppIsToldFor(country: 'AE'), 'the app is told there is something new');
+
+        app(ThemeManager::class)->activate(theme: $firstSaudiTheme);
+
+        $this->assertGiven(country: 'AE', expected: $this->expectedTokens(self::SHARED_IDENTITY, $emiratiSettings ?? []), when: 'once the first theme is activated again');
+        $this->assertGiven(country: 'SA', expected: $this->expectedTokens(self::SHARED_IDENTITY), when: 'once the first theme is activated again');
     }
 
     // ---- what the app is told, and what is left as it was --------------------------------------------------------------------------------------
