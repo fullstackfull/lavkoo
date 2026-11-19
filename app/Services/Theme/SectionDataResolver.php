@@ -390,13 +390,14 @@ class SectionDataResolver
             // storefront narrows them: a storefront is given the banners of a folder the theme left
             // behind only when the active folder holds none at all, and never because the ones it
             // holds happen to point at another country's products.
-            $activeFolder = $base()->where('theme', theme_root_path())->exists();
+            $activeFolder = theme_root_path();
+            $activeFolderHasBanners = $base()->where('theme', $activeFolder)->exists();
 
             // Same ordering as BannerPlacementService — priority first, then creation
             // order — so a section shows the banners in the arrangement the merchant
             // sees in their built-in slot.
             return $base()
-                ->when($activeFolder, fn ($query) => $query->where('theme', theme_root_path()))
+                ->when($activeFolderHasBanners, fn ($query) => $query->where('theme', $activeFolder))
                 // Left out before the limit counts, so a storefront is still given as many banners as it may show.
                 ->when($notOffered !== [], fn ($query) => $query->whereNotIn('id', $notOffered))
                 ->orderBy('priority')
