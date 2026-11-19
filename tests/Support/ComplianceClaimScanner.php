@@ -16,8 +16,8 @@ use UnexpectedValueException;
  * It reads text, not meaning. The text is normalised first (lower case, every run of anything that is not a letter, a digit or a percent sign becomes one space, so that a translation key such as
  * `legally_compliant` reads as the words it humanises to, and Arabic loses its vowel marks, its stretching and its variants of the alef) and then matched against the phrases below, in English and in
  * Arabic. A phrase that is negated just before it ("not legally compliant", "غير متوافق") is not a claim. A sentence that says something else about compliance ("compliance documents", "approved
- * products", "compatible with S3") matches nothing, and what a person has to decide about is only what matches. The other languages of the language files (Spanish, Hindi, Bengali) are read through
- * the key of each string, which is English, and through any English left in the text.
+ * products", "compatible with S3") matches nothing, and what a person has to decide about is only what matches: a bare "معتمد" (approved, certified) is not a claim by itself, it is one with "legally"
+ * or "by the authorities". The other languages of the language files (Spanish, Hindi, Bengali) are read through the key of each string, which is English, and through any English left in the text.
  *
  * A finding is an array: the source (language, view or payload), the file (or the label of the payload), the line of a view, the key of a string or the path of a field, the text, the names of the
  * claims, and, for a view, the keys passed to translate() on the line.
@@ -86,10 +86,16 @@ final class ComplianceClaimScanner
         'متوافق قانونيا' => [
             '(?<!\p{L})' . self::ARABIC_COMPLIANT . '\s+قانوني[اةه]?(?!\p{L})',
             '(?<!\p{L})قانوني[اةه]?\s+(?:متوافق|ممتثل|ملتزم)',
+            '(?<!\p{L})(?:ال)?امتثال\s+(?:ال)?قانوني',
         ],
         'متوافق بالكامل' => [
             '(?<!\p{L})' . self::ARABIC_COMPLIANT . '\s+(?:بالكامل|كليا|تماما|بشكل\s+كامل|بنسبه\s+100)',
             '100\s*%\s*(?:متوافق|ممتثل|قانوني)',
+            '(?<!\p{L})(?:ال)?امتثال\s+(?:(?:ال)?قانوني[ةه]?\s+)?(?:ال)?(?:كامل|تام)',
+        ],
+        'معتمد قانونيا' => [
+            '(?<!\p{L})(?:معتمد|مصدق|موثق)[ةهاونيم]*\s+قانوني[اةه]?(?!\p{L})',
+            '(?<!\p{L})قانوني[اةه]?\s+(?:بالكامل|كليا|تماما)',
         ],
         'معتمد من الجهات' => [
             '(?<!\p{L})(?:معتمد|مصدق|مرخص|موثق)[ةهاونيم]*\s+(?:من|لدي|بواسطه|بواسطة|عن\s+طريق)\s+' . self::ARABIC_AUTHORITY,
@@ -112,20 +118,10 @@ final class ComplianceClaimScanner
 
     private ?string $anyClaim = null;
 
-    public function normalise(string $text): string
-    {
-        $text = strtr(mb_strtolower((string) preg_replace('/(?<=[a-z0-9])(?=[A-Z])/', ' ', mb_scrub($text))), [
-            '٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4', '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9', '٪' => '%',
-            'أ' => 'ا', 'إ' => 'ا', 'آ' => 'ا', 'ٱ' => 'ا', 'ى' => 'ي',
-        ]);
-
-        return trim((string) preg_replace('/[^\p{L}\p{N}%]+/u', ' ', (string) preg_replace('/[\x{064B}-\x{065F}\x{0670}\x{0640}]+/u', '', $text)));
-    }
-
     /** @return list<string> the names of the claims a text makes, none of them negated just before it */
     public function claimsIn(string $text): array
     {
-        $normalised = $this->normalise($text);
+        $normalised = $this->normalise(text: $text);
 
         if ($normalised === '' || $this->offsetsOf(pattern: $this->anyClaim(), subject: $normalised) === []) {
             return [];
@@ -148,8 +144,8 @@ final class ComplianceClaimScanner
     /** @return list<string> the claims of a field name: the ones of any text, and the names that hold compliance or certification */
     public function claimsInFieldName(string $name): array
     {
-        $normalised = $this->normalise($name);
-        $claims = $this->claimsIn($name);
+        $normalised = $this->normalise(text: $name);
+        $claims = $this->claimsIn(text: $name);
 
         foreach (self::FIELD_NAMES as $claim => $patterns) {
             foreach ($patterns as $pattern) {
@@ -191,8 +187,8 @@ final class ComplianceClaimScanner
         $findings = [];
 
         foreach ($this->languageFiles($languageRoots) as $file) {
-            foreach ($this->flatten(messages: $this->messagesOf($file)) as $key => $text) {
-                $claims = array_values(array_unique(array_merge($this->claimsIn((string) $key), $this->claimsIn($text))));
+            foreach ($this->flatten(messages: $this->messagesOf(file: $file)) as $key => $text) {
+                $claims = array_values(array_unique(array_merge($this->claimsIn(text: (string) $key), $this->claimsIn(text: $text))));
 
                 if ($claims !== []) {
                     $findings[] = ['source' => self::LANGUAGE, 'file' => $this->relative(file: $file, repository: $repository), 'line' => null, 'key' => (string) $key, 'text' => $text, 'claims' => $claims, 'keys' => []];
@@ -215,7 +211,7 @@ final class ComplianceClaimScanner
 
         foreach ($this->viewFiles($directories) as $file) {
             $source = (string) file_get_contents($file);
-            $claimsOfTheFile = $this->claimsIn($source);
+            $claimsOfTheFile = $this->claimsIn(text: $source);
 
             if ($claimsOfTheFile === []) {
                 continue;
@@ -223,11 +219,11 @@ final class ComplianceClaimScanner
 
             $claimsOfTheLines = [];
             foreach (preg_split('/\R/', $source) ?: [] as $index => $line) {
-                $claims = $this->claimsIn($line);
+                $claims = $this->claimsIn(text: $line);
 
                 if ($claims !== []) {
                     $claimsOfTheLines = array_merge($claimsOfTheLines, $claims);
-                    $findings[] = ['source' => self::VIEW, 'file' => $this->relative(file: $file, repository: $repository), 'line' => $index + 1, 'key' => null, 'text' => trim($line), 'claims' => $claims, 'keys' => $this->translationKeysIn($line)];
+                    $findings[] = ['source' => self::VIEW, 'file' => $this->relative(file: $file, repository: $repository), 'line' => $index + 1, 'key' => null, 'text' => trim($line), 'claims' => $claims, 'keys' => $this->translationKeysIn(line: $line)];
                 }
             }
 
@@ -272,6 +268,16 @@ final class ComplianceClaimScanner
         return $matches[2];
     }
 
+    private function normalise(string $text): string
+    {
+        $text = strtr(mb_strtolower((string) preg_replace('/(?<=[a-z0-9])(?=[A-Z])/', ' ', mb_scrub($text))), [
+            '٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4', '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9', '٪' => '%',
+            'أ' => 'ا', 'إ' => 'ا', 'آ' => 'ا', 'ٱ' => 'ا', 'ى' => 'ي',
+        ]);
+
+        return trim((string) preg_replace('/[^\p{L}\p{N}%]+/u', ' ', (string) preg_replace('/[\x{064B}-\x{065F}\x{0670}\x{0640}]+/u', '', $text)));
+    }
+
     /**
      * @param array<array-key, mixed> $payload
      * @return list<array<string, mixed>>
@@ -282,12 +288,12 @@ final class ComplianceClaimScanner
 
         foreach ($payload as $name => $value) {
             $here = $path === '' ? (string) $name : $path . '.' . $name;
-            $claims = is_string($name) ? $this->claimsInFieldName($name) : [];
+            $claims = is_string($name) ? $this->claimsInFieldName(name: $name) : [];
 
             if (is_array($value)) {
                 $findings = array_merge($findings, $this->payloadFindings(label: $label, payload: $value, path: $here));
             } elseif (is_string($value)) {
-                $claims = array_values(array_unique(array_merge($claims, $this->claimsIn($value))));
+                $claims = array_values(array_unique(array_merge($claims, $this->claimsIn(text: $value))));
             }
 
             if ($claims !== []) {

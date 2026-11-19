@@ -21,13 +21,16 @@ use Tests\TestCase;
  * the code of Policy, and the other file of app/Services/Platform (PasswordPolicy).
  *
  * Criterion 2, not named for a legal document: no group or policy name equals or contains, as a whole word, the type of a legal text (the types of the legal text store: the documents a storefront must
- * publish, read from its configuration, and the ones no storefront requires yet), no type is a policy of the registry, and no policy takes the setting name of a business page. Whole words only:
- * 'returns' is not 'return', 'returnable' is not 'return'. The check is proved on in-memory registries below, one that blurs the two and one that does not.
+ * publish, read from its configuration, and the ones no storefront requires yet), no type is a policy of the registry, and no policy takes the setting name of a business page (the page list and the
+ * cookie text, which shares the table of the registry). Whole words only, the singular and the plural being one word: 'returns' is 'return' and 'cookie' is 'cookies', but 'returnable' is not 'return'.
+ * The check is proved on in-memory registries below, one that blurs the two and one that does not. A name that holds no type and is not a setting name of a page is not judged: what a rule is called
+ * is the owner's, the test only keeps the names of the legal documents and of the pages out of the registry.
  *
- * KNOWN COINCIDENCES, LISTED BY NAME. Nine names of the registry do contain a type as a whole word, because 'shipping', 'return', 'refund' and 'cancellation' are also what operating rules are about:
- * the group 'shipping' and its two policies are courier silence on a parcel, and six seller-standing bands are rates of cancelled, returned and refunded orders. None of them is a legal text, none is
- * read or written as one, and renaming them would change the registry, which criterion 1 forbids; so they are listed below with the reason, and any other name that does the same fails. Whether the owner
- * wants them renamed is the owner's to say. The titles of two groups use the words too ('payment_terms', 'analytics_and_privacy'); titles are labels, not names, and are not checked.
+ * KNOWN COINCIDENCES, LISTED BY NAME. Eleven names of the registry do contain a type as a whole word, because 'shipping', 'return', 'refund' and 'cancellation' are also what operating rules are about:
+ * the group 'shipping' and its two policies are courier silence on a parcel, two policies are the hours a seller has to answer a refund request and to process a return, and six seller-standing bands are rates of cancelled,
+ * returned and refunded orders. None of them is a legal text, none is read or written as one, and renaming them would change the registry, which criterion 1 forbids; so they are listed below with the
+ * reason, and any other name that does the same fails. Whether the owner wants them renamed is the owner's to say. The titles of two groups use the words too ('payment_terms',
+ * 'analytics_and_privacy'); titles are labels, not names, and are not checked.
  */
 class PolicyRegistryLegalSeparationTest extends TestCase
 {
@@ -77,11 +80,12 @@ class PolicyRegistryLegalSeparationTest extends TestCase
     /** @var list<string> the types of legal document that a storefront is asked for or may be asked for; the documents it must publish are added from its configuration */
     private const LEGAL_DOCUMENT_TYPES = ['terms', 'privacy', 'refund', 'return', 'cancellation', 'shipping', 'cookies'];
 
-    /** @var list<string> how the business pages of the Saudi storefront are named in business_settings and in the page list: a policy with one of these names would be written over a legal page */
+    /** @var list<string> how the business pages of the Saudi storefront and its cookie text are named in business_settings and in the page list: a policy with one of these names would be written over a legal page */
     private const SETTING_NAMES_OF_THE_LEGAL_PAGES = [
         'terms_condition', 'privacy_policy', 'refund_policy', 'return_policy', 'cancellation_policy', 'shipping_policy',
         'refund-policy', 'return-policy', 'cancellation-policy', 'shipping-policy',
         'terms-and-conditions', 'privacy-policy', 'about_us', 'about-us',
+        'cookie_setting', 'cookie_policy', 'cookie-policy', 'cookies_policy',
     ];
 
     /** @var array<string, string> every name of the registry that contains a legal document type as a whole word today, and what it is */
@@ -89,6 +93,8 @@ class PolicyRegistryLegalSeparationTest extends TestCase
         'group:shipping' => 'the courier-silence thresholds of the fulfilment policy: a parcel that does not move, not the shipping policy a customer reads',
         'policy:shipping_silent_hours' => 'hours a parcel may go without courier movement before it is raised',
         'policy:shipping_stop_after_days' => 'days after which a silent parcel is no longer raised',
+        'policy:ops_returns_response_hours' => 'hours a seller has to answer a refund request before the action center raises it: a window of the work, not the return policy a customer reads',
+        'policy:ops_returns_processing_hours' => 'hours a seller has to process an authorised return before the action center raises it: a window of the work, not the return policy a customer reads',
         'policy:health_watch_cancellation_rate' => 'the share of a seller\'s orders cancelled that puts the seller on watch: a rate, not the cancellation policy',
         'policy:health_watch_return_rate' => 'the share of a seller\'s orders returned that puts the seller on watch: a rate, not the return policy',
         'policy:health_watch_refund_rate' => 'the share of a seller\'s orders refunded that puts the seller on watch: a rate, not the refund policy',
@@ -149,10 +155,12 @@ class PolicyRegistryLegalSeparationTest extends TestCase
         return array_values(array_unique(array_merge(self::LEGAL_DOCUMENT_TYPES, (array) config('gcc.storefronts.legal.required_documents'))));
     }
 
-    /** @return list<string> the words of a name, lower case: 'privacy_policy', 'privacy-policy' and 'privacyPolicy' are 'privacy' and 'policy' */
+    /** @return list<string> the words of a name, lower case and in the singular: 'privacy_policy', 'privacy-policy' and 'privacyPolicy' are 'privacy' and 'policy', and 'returns' is 'return' */
     private function wordsOf(string $name): array
     {
-        return preg_split('/[^a-z0-9]+/', strtolower((string) preg_replace('/(?<=[a-z0-9])(?=[A-Z])/', ' ', $name)), -1, PREG_SPLIT_NO_EMPTY);
+        $words = preg_split('/[^a-z0-9]+/', strtolower((string) preg_replace('/(?<=[a-z0-9])(?=[A-Z])/', ' ', $name)), -1, PREG_SPLIT_NO_EMPTY);
+
+        return array_map(static fn (string $word): string => (string) preg_replace('/s$/', '', $word), $words);
     }
 
     /**
@@ -172,8 +180,8 @@ class PolicyRegistryLegalSeparationTest extends TestCase
 
         $found = [];
         foreach ($names as $label => $name) {
-            $spokenName = ' ' . implode(' ', $this->wordsOf($name)) . ' ';
-            $named = array_values(array_filter($types, fn (string $type): bool => str_contains($spokenName, ' ' . implode(' ', $this->wordsOf($type)) . ' ')));
+            $spokenName = ' ' . implode(' ', $this->wordsOf(name: $name)) . ' ';
+            $named = array_values(array_filter($types, fn (string $type): bool => str_contains($spokenName, ' ' . implode(' ', $this->wordsOf(name: $type)) . ' ')));
             if ($named !== []) {
                 $found[$label] = $named;
             }
@@ -194,8 +202,6 @@ class PolicyRegistryLegalSeparationTest extends TestCase
 
         return array_values(array_intersect($policies, $names));
     }
-
-    // ---- criterion 1: the registry is unchanged ----------------------------------------------------------------------------------------------
 
     public function test_the_groups_and_the_policies_of_the_registry_are_the_ones_written_here(): void
     {
@@ -218,8 +224,8 @@ class PolicyRegistryLegalSeparationTest extends TestCase
         sort($expectedOfTheRegistry);
         sort($expectedOfTheReader);
 
-        $this->assertSame($expectedOfTheRegistry, $this->publicMembersOf(PolicyRegistry::class), self::UPDATE_THE_LIST);
-        $this->assertSame($expectedOfTheReader, $this->publicMembersOf(Policy::class), self::UPDATE_THE_LIST);
+        $this->assertSame($expectedOfTheRegistry, $this->publicMembersOf(class: PolicyRegistry::class), self::UPDATE_THE_LIST);
+        $this->assertSame($expectedOfTheReader, $this->publicMembersOf(class: Policy::class), self::UPDATE_THE_LIST);
     }
 
     public function test_the_check_of_the_registry_sees_a_policy_that_was_added_renamed_moved_or_removed(): void
@@ -234,14 +240,15 @@ class PolicyRegistryLegalSeparationTest extends TestCase
         $this->assertSame(["group 'beta' was removed, with three"], $this->driftFrom(expected: $expected, actual: ['alpha' => ['one', 'two']]));
     }
 
-    // ---- criterion 2: no group or policy is named for a legal document type -------------------------------------------------------------------
-
-    public function test_the_names_are_checked_against_every_document_a_storefront_must_publish(): void
+    public function test_a_type_that_only_the_configuration_of_the_legal_texts_names_is_checked_too(): void
     {
-        $required = (array) config('gcc.storefronts.legal.required_documents');
+        config(['gcc.storefronts.legal.required_documents' => ['terms', 'consumer_rights']]);
 
-        $this->assertNotEmpty($required);
-        $this->assertSame([], array_values(array_diff($required, $this->legalDocumentTypes())));
+        $this->assertContains('consumer_rights', $this->legalDocumentTypes());
+        $this->assertSame(
+            ['policy:consumer_rights_days' => ['consumer_rights']],
+            $this->namesForLegalDocumentTypes(groups: ['legal' => ['policies' => ['consumer_rights_days' => []]]], types: $this->legalDocumentTypes()),
+        );
     }
 
     public function test_no_group_or_policy_of_the_registry_is_named_for_a_legal_document_type_but_the_operating_thresholds_listed_here(): void
@@ -275,9 +282,9 @@ class PolicyRegistryLegalSeparationTest extends TestCase
         $reader = new Policy();
 
         foreach ($this->legalDocumentTypes() as $type) {
-            $this->assertFalse(PolicyRegistry::has($type), "'{$type}' is a legal document type and is declared as a policy");
-            $this->assertNull(PolicyRegistry::definition($type));
-            $this->assertThrows(fn () => $reader->get($type), InvalidArgumentException::class, "Unknown policy: {$type}");
+            $this->assertFalse(PolicyRegistry::has(key: $type), "'{$type}' is a legal document type and is declared as a policy");
+            $this->assertNull(PolicyRegistry::definition(key: $type));
+            $this->assertThrows(fn () => $reader->get(key: $type), InvalidArgumentException::class, "Unknown policy: {$type}");
         }
     }
 
@@ -285,7 +292,7 @@ class PolicyRegistryLegalSeparationTest extends TestCase
     {
         $this->assertSame([], $this->policiesCalled(groups: PolicyRegistry::GROUPS, names: self::SETTING_NAMES_OF_THE_LEGAL_PAGES));
         foreach (self::SETTING_NAMES_OF_THE_LEGAL_PAGES as $name) {
-            $this->assertFalse(PolicyRegistry::has($name), "'{$name}' is the setting name of a legal page and is declared as a policy: saving the policy would write over the page");
+            $this->assertFalse(PolicyRegistry::has(key: $name), "'{$name}' is the setting name of a legal page and is declared as a policy: saving the policy would write over the page");
         }
     }
 
@@ -309,6 +316,9 @@ class PolicyRegistryLegalSeparationTest extends TestCase
             'a policy written with hyphens' => [['ops' => ['policies' => ['cancellation-policy' => []]]], $types, ['policy:cancellation-policy' => ['cancellation']]],
             'a policy that names two types' => [['ops' => ['policies' => ['terms_and_privacy_mode' => []]]], $types, ['policy:terms_and_privacy_mode' => ['terms', 'privacy']]],
             'a type of several words' => [['ops' => ['policies' => ['terms_of_service_version' => []]]], ['terms_of_service'], ['policy:terms_of_service_version' => ['terms_of_service']]],
+            'a plural of a type' => [['ops' => ['policies' => ['returns_policy' => [], 'refunds_window' => []]]], $types, ['policy:refunds_window' => ['refund'], 'policy:returns_policy' => ['return']]],
+            'a singular of a type that is a plural' => [['ops' => ['policies' => ['cookie_text' => [], 'term_days' => []]]], $types, ['policy:cookie_text' => ['cookies'], 'policy:term_days' => ['terms']]],
+            'a plural of a type of several words' => [['ops' => ['policies' => ['terms_of_services_version' => []]]], ['terms_of_service'], ['policy:terms_of_services_version' => ['terms_of_service']]],
             'a group and its policy' => [['shipping' => ['policies' => ['shipping_label_size' => []]]], $types, ['group:shipping' => ['shipping'], 'policy:shipping_label_size' => ['shipping']]],
         ];
     }
@@ -327,7 +337,6 @@ class PolicyRegistryLegalSeparationTest extends TestCase
             'operating rules' => [['operations' => ['policies' => ['ops_stuck_order_hours' => [], 'stock_cover_low_days' => []]]], $types],
             'a word that only starts with a type' => [['ops' => ['policies' => ['returnable_items' => [], 'refunded_total' => []]]], $types],
             'a word that only holds a type' => [['ops' => ['policies' => ['terminal_id' => [], 'shippingless' => []]]], $types],
-            'a plural is another word' => [['ops' => ['policies' => ['ops_returns_response_hours' => []]]], $types],
             'a type of several words needs all of them' => [['ops' => ['policies' => ['terms_version' => []]]], ['terms_of_service']],
         ];
     }

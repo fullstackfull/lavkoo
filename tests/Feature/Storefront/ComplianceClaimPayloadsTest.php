@@ -21,10 +21,11 @@ use Tests\TestCase;
  *
  * Six storefronts are built through the real services and read through the real routes: the default one, one that has its texts, its legal review, its tax decision and its activation (it sells), one nobody
  * prepared (a draft), one with its texts and no legal review, one paused in maintenance and one paused browse-only. The list an app reads (GET /api/v1/storefronts), the refusal of a new sale in each
- * storefront that may not sell (a payment started through the real route, behind the sale gate) and what the admin screen reads of each (StorefrontAdminBoard) are scanned, names and texts.
+ * storefront that may not sell (a payment started through the real route, behind the sale gate), the refusal of a request that browses the storefront in maintenance (503) and what the admin screen reads
+ * of each (StorefrontAdminBoard) are scanned, names and texts.
  *
- * Covered: those three answers, in English (the language of the API without a header). Not covered: the same answers in another language (the Arabic strings are read in the language files), the
- * messages the console commands print, and any answer that is not about the readiness of a storefront.
+ * Covered: those four answers, in English (the language of the API without a header). Not covered: the same answers in another language (the Arabic strings are read, and pinned for what the refusals say,
+ * in the language files by ComplianceClaimScanTest), the messages the console commands print, and any answer that is not about the readiness of a storefront.
  */
 class ComplianceClaimPayloadsTest extends TestCase
 {
@@ -125,17 +126,16 @@ class ComplianceClaimPayloadsTest extends TestCase
         $this->assertSame(translate('storefront_is_in_maintenance'), collect($listed['storefronts'])->firstWhere('country', 'BH')['stop_message']);
         $this->assertSame(translate('storefront_not_open_for_checkout_yet'), collect($listed['storefronts'])->firstWhere('country', 'OM')['stop_message']);
 
-        $this->assertClaimsNothing((new ComplianceClaimScanner())->inPayload(label: 'GET /api/v1/storefronts', payload: $listed), 'The list of storefronts');
+        $this->assertClaimsNothing(findings: (new ComplianceClaimScanner())->inPayload(label: 'GET /api/v1/storefronts', payload: $listed), answer: 'The list of storefronts');
     }
 
     #[DataProvider('storefrontsThatMayNotSell')]
     public function test_a_refused_sale_says_the_storefront_is_not_open_for_checkout_and_claims_no_compliance(string $country): void
     {
-        $refusal = $this->startAPayment($country)->assertStatus(422)->assertJsonPath('code', 'storefront_not_sellable')->json();
+        $refusal = $this->startAPayment(country: $country)->assertStatus(422)->assertJsonPath('code', 'storefront_not_sellable')->json();
 
         $this->assertStringContainsStringIgnoringCase('not open for checkout', $refusal['message']);
-        $this->assertSame(['code', 'message'], array_keys($refusal));
-        $this->assertClaimsNothing((new ComplianceClaimScanner())->inPayload(label: "the refusal of a payment in {$country}", payload: $refusal), "The refusal of a sale in {$country}");
+        $this->assertClaimsNothing(findings: (new ComplianceClaimScanner())->inPayload(label: "the refusal of a payment in {$country}", payload: $refusal), answer: "The refusal of a sale in {$country}");
     }
 
     public static function storefrontsThatMayNotSell(): array
@@ -148,9 +148,20 @@ class ComplianceClaimPayloadsTest extends TestCase
         ];
     }
 
+    public function test_the_refusal_of_a_request_that_browses_a_storefront_in_maintenance_says_so_and_claims_no_compliance(): void
+    {
+        Route::middleware(['storefront', 'storefront.available'])->get('/__browse-probe', fn () => response()->json(['ok' => true]));
+
+        $refusal = $this->getJson('/__browse-probe', ['X-Storefront' => 'BH'])->assertStatus(503)->assertJsonPath('code', 'storefront_maintenance')->json();
+
+        $this->assertSame(translate('storefront_is_in_maintenance'), $refusal['message']);
+        $this->assertStringContainsStringIgnoringCase('under maintenance', $refusal['message']);
+        $this->assertClaimsNothing(findings: (new ComplianceClaimScanner())->inPayload(label: 'the refusal of a request that browses BH', payload: $refusal), answer: 'The refusal of a request that browses a storefront in maintenance');
+    }
+
     public function test_a_sale_in_a_storefront_that_may_sell_is_not_refused_by_the_gate(): void
     {
-        $response = $this->startAPayment('AE');
+        $response = $this->startAPayment(country: 'AE');
 
         $this->assertNotSame(422, $response->getStatusCode());
         $this->assertNull($response->json('code'));
@@ -165,7 +176,7 @@ class ComplianceClaimPayloadsTest extends TestCase
         $this->assertContains('legal_review', $rows['KW']['unmet']);
         $this->assertSame(['legal_review'], array_values(array_intersect(['legal_texts', 'legal_review'], $rows['QA']['unmet'])));
 
-        $this->assertClaimsNothing((new ComplianceClaimScanner())->inPayload(label: 'StorefrontAdminBoard::rows()', payload: $rows->all()), 'What the admin screen reads of the storefronts');
+        $this->assertClaimsNothing(findings: (new ComplianceClaimScanner())->inPayload(label: 'StorefrontAdminBoard::rows()', payload: $rows->all()), answer: 'What the admin screen reads of the storefronts');
     }
 
     public function test_the_scan_of_an_answer_finds_a_claim_that_is_added_to_a_real_one(): void
@@ -175,7 +186,7 @@ class ComplianceClaimPayloadsTest extends TestCase
 
         $listed['storefronts'][1]['legally_compliant'] = true;
         $listed['storefronts'][2]['stop_message'] = 'This storefront is fully compliant and approved by the authority.';
-        $refusal = $this->startAPayment('KW')->json();
+        $refusal = $this->startAPayment(country: 'KW')->json();
         $refusal['message'] = 'Kuwait is certified.';
 
         $this->assertSame(

@@ -15,8 +15,9 @@ use Tests\TestCase;
  * real migrations (BuildsStorefrontLegalDocuments), and every case writes through the query builder, past the publisher, so that what refuses a second row is the key of the table.
  *
  * Covered: a second row with the same country, type, locale and version is refused whatever the status of the first (a version number is never reused, because the rows are kept as
- * history), a row that differs in any one of the four parts is stored (so the key is neither wider nor narrower than the four), and the key has the name and the columns the migration
- * gives it. Not covered: the publisher numbering its versions (StorefrontLegalPublisherTest) and the key under a case-insensitive collation of the country code.
+ * history), a row that differs in any one of the four parts is stored (so the key is neither wider nor narrower than the four), the key has the name the migration gives it and covers the four
+ * columns (in any order, which does not change what it refuses), and it is the only unique key of the table besides the primary key, so that what refuses a duplicate is that key. Not covered:
+ * the publisher numbering its versions (StorefrontLegalPublisherTest) and the key under a case-insensitive collation of the country code.
  */
 class StorefrontLegalDocumentVersionKeyTest extends TestCase
 {
@@ -109,6 +110,17 @@ class StorefrontLegalDocumentVersionKeyTest extends TestCase
 
         $this->assertNotNull($key, 'the table has no key named ' . self::VERSION_KEY);
         $this->assertTrue($key['unique'], self::VERSION_KEY . ' is not a unique key');
-        $this->assertSame(self::COLUMNS_OF_THE_KEY, $key['columns']);
+        $this->assertEqualsCanonicalizing(self::COLUMNS_OF_THE_KEY, $key['columns']);
+    }
+
+    public function test_the_version_key_is_the_only_unique_key_of_the_table_besides_the_primary_key(): void
+    {
+        $uniqueKeys = collect(Schema::getIndexes('storefront_legal_documents'))
+            ->filter(static fn (array $index): bool => $index['unique'] && !$index['primary'])
+            ->pluck('name')
+            ->values()
+            ->all();
+
+        $this->assertSame([self::VERSION_KEY], $uniqueKeys, 'a second unique key would also refuse a row, and the tests above would no longer prove that it is the version key that does');
     }
 }
