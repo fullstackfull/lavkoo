@@ -1,6 +1,6 @@
 # Axis M: Security, tests and deployment
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 63. Acceptance criteria: 295 (MET 104, CODED 106, MISSING 85). Code completion 71%, proven by a passing test 35%, release readiness 3%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 63. Acceptance criteria: 299 (MET 104, CODED 109, MISSING 86). Code completion 71%, proven by a passing test 35%, release readiness 3%.
 
 Independent verification: done for unit(s) M1, M2, M3.
 
@@ -926,13 +926,15 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** No quick production change and no direct SQL is used to settle an architectural problem: changes ship by path through the overlay and additive migrations only
 - **(3) Exists now in code (main).** M2-15 maps 560-562 but its only criterion on them is 'no CI protection is weakened'. The rule is carried by deployment tooling and docs (overlay build and apply, drift check, tests/Unit/Deploy on main; runbooks say never a bare php artisan migrate) with no test that forbids direct SQL. M1-18 and M1-11 hold it in the published tracker.
 - **(4) Done in the draft PRs.** See the evidence note above.
-- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(5) What remains.** Its acceptance criteria are written (batch 1 of the 28 requirements the verifiers added). What remains is in the criteria themselves.
 - **(6) PRs and commits.** none
 - **(7) Tests.** none
 - **(8) Dependencies and blockers.** See the evidence note.
 - **(9) Acceptance criteria.**
-  - [MISSING] No quick production change and no direct SQL is used to settle an architectural problem: changes ship by path through the overlay and additive migrations only (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
-- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+  - [CODED] A change reaches the server by the overlay path, not by hand (The rule is carried by tooling and runbooks rather than by a guard: tests/Unit/Deploy/OverlayDeploymentTest.php and tests/Unit/Deploy/BackupScriptsTest.php are on main, with the overlay build, the apply step and the drift check, and the runbooks say never a bare `php artisan migrate`. CODED because that is a practice a person follows, not a thing the repository refuses.)
+  - [MISSING] No direct SQL settles an architectural problem (No test forbids it. M2-15 maps plan lines 560-562 and its only criterion on them is 'no CI protection is weakened', which is a different promise. M1-18 and M1-11 hold the rule in the published tracker as prose.)
+  - [CODED] Migrations are additive (Every GCC migration read in this programme is expand-only and several refuse their own rollback while data would be lost — PR 130's sharing-key migration refuses `down()` once any account carries a key, and PR 128's refuses while any row carries a column it would drop. CODED rather than MET because it is true of the migrations that were read, and nothing makes it true of the next one somebody writes.)
+- **(10) Next coding task.** See the criteria: the unmet ones name the file and the line that has to change.
 
 #### M2-V3. Global data and per-market data are told apart in the migration plan and in code: every table the pl...
 
@@ -940,13 +942,15 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** Global data and per-market data are told apart in the migration plan and in code: every table the plan touches is classed global (users, admins, catalogue ids) or per market, and the class is checked
 - **(3) Exists now in code (main).** M2-17 has no criterion for it. Discovery-01 report 03 classifies tables (Global, Customer, Storefront, Legal Entity) and report 07 phases do not restate it; in code only products.storefront_country and the per-storefront cart rows are per market, users, wallet_balance and loyalty_point stay global by default, and no test marks which tables are global.
 - **(4) Done in the draft PRs.** See the evidence note above.
-- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(5) What remains.** Its acceptance criteria are written (batch 1 of the 28 requirements the verifiers added). What remains is in the criteria themselves.
 - **(6) PRs and commits.** none
 - **(7) Tests.** none
 - **(8) Dependencies and blockers.** See the evidence note.
 - **(9) Acceptance criteria.**
-  - [MISSING] Global data and per-market data are told apart in the migration plan and in code: every table the plan touches is classed global (users, admins, catalogue ids)  (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
-- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+  - [MISSING] Every table the plan touches is classed global or per market (Discovery-01 report 03 classifies tables as Global, Customer, Storefront or Legal Entity, and report 07's phases do not restate it, so the classification exists in one report and is carried into nothing. M2-17 has no criterion for it.)
+  - [MISSING] The class is checked, not just written down (No test marks which tables are global. This is the criterion that makes the first one worth anything: a classification nothing checks drifts the first time a column is added.)
+  - [CODED] What is per market today is per market deliberately (Measured on the integration head: exactly three migrations name `storefront_country` — products, storefront_legal_acceptances and admin_country_scopes. Everything else is global BY DEFAULT rather than by decision, `users`, `wallet_balance` and `loyalty_point` included, which is the same gap E-01, E-02 and A2-V1 each meet from their own side.)
+- **(10) Next coding task.** See the criteria: the unmet ones name the file and the line that has to change.
 
 #### M2-V4. The staged upgrade needs no downtime and no migration is created-and-run on live data: each step is ...
 

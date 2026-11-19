@@ -1,6 +1,6 @@
 # Axis G: Admin panel and staff permissions
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 20. Acceptance criteria: 96 (MET 57, CODED 7, MISSING 32). Code completion 67%, proven by a passing test 59%, release readiness 15%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 20. Acceptance criteria: 102 (MET 59, CODED 8, MISSING 35). Code completion 66%, proven by a passing test 58%, release readiness 15%.
 
 Independent verification: done for unit(s) G.
 
@@ -391,13 +391,16 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** A written data-isolation design (the concept the plan asks for) with a rule for each of the eight layers: backend authorization, API, queries, exports, reports, jobs, sensitive actions and audit logs, each naming the slice, owner decision or requirement that builds it.
 - **(3) Exists now in code (main).** docs/gcc/GCC-14C-STAFF-COUNTRY-SCOPES.md at #83 (984 lines) carries the switch, who is restricted, queries (slices 1 to 3), exports and reports inside those slices and the platform API as a consumer of the staff scope; its only statement on jobs is one sentence (line 32: a queue worker and a console command start unbound); grep for audit, sensitive, step-up and approval finds no section, and the eight layers are listed nowhere. The discovery audit (03-data-ownership-isolation-matrix.md) proposes a staff_scopes table and says jobs carry entity ids only. G-11, G-14 and G-15 track the code gaps, but no requirement tracks the design the plan asks for first.
 - **(4) Done in the draft PRs.** See the evidence note above.
-- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(5) What remains.** Its acceptance criteria are written (batch 1 of the 28 requirements the verifiers added). What remains is in the criteria themselves.
 - **(6) PRs and commits.** none
 - **(7) Tests.** none
 - **(8) Dependencies and blockers.** See the evidence note.
 - **(9) Acceptance criteria.**
-  - [MISSING] A written data-isolation design (the concept the plan asks for) with a rule for each of the eight layers: backend authorization, API, queries, exports, reports, (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
-- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+  - [CODED] Four of the eight layers are written down: authorization, API, queries, exports and reports (docs/gcc/GCC-14C-STAFF-COUNTRY-SCOPES.md on the integration branch is 984 lines and carries the switch, who is restricted, the queries of slices 1 to 3, and exports and reports inside those slices, with the platform API as a consumer of the staff scope. CODED, not MET: the document is a design, and the requirement asks that each layer name the slice, owner decision or requirement that builds it.)
+  - [MISSING] Jobs have a rule (The document's only statement on jobs is ONE sentence, line 32: a queue worker and a console command start unbound. That is the problem stated, not a rule — and it is the layer where an unbound worker silently crosses every market boundary the other seven layers hold.)
+  - [MISSING] Sensitive actions and audit logs have a rule (Searching the 984 lines for audit, sensitive, step-up and approval finds no section for any of them. These are the two layers a reviewer will ask about first, because they are what a country regulator asks about first.)
+  - [MISSING] The design is where the people who need it can find it (The document exists only on the integration branch: `git show origin/main:docs/gcc/GCC-14C-STAFF-COUNTRY-SCOPES.md` is empty, so it is not on main. A data-isolation design that lives on an unmerged branch is not yet the platform's design.)
+- **(10) Next coding task.** See the criteria: the unmet ones name the file and the line that has to change.
 
 #### G-V2. The current security systems around staff stay in force, in the same order, when scope code is added...
 
@@ -405,10 +408,13 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** The current security systems around staff stay in force, in the same order, when scope code is added: the admin sign-in throttle (throttle:auth on the login group), the status check of AdminMiddleware (admin 1 exempt), the activation check and the admin guard, with the module middleware before any scope middleware; each pinned by a test.
 - **(3) Exists now in code (main).** G-01 covers only the role and module gate. Pinned today: the admin guard on every admin route (AdminRouteAuthenticationTest in main) and the module permission running before the scope middleware (StaffProductIdRoutesTest::test_the_middleware_of_the_scope_runs_after_the_permission_of_the_route_on_every_covered_route, #74). Not pinned in main, #75 or #83: the login throttle (routes/admin/routes.php line 174, throttle:auth; the only throttle assertions in tests are for address routes) and the AdminMiddleware status check.
 - **(4) Done in the draft PRs.** See the evidence note above.
-- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(5) What remains.** Its acceptance criteria are written (batch 1 of the 28 requirements the verifiers added). What remains is in the criteria themselves.
 - **(6) PRs and commits.** none
 - **(7) Tests.** none
 - **(8) Dependencies and blockers.** See the evidence note.
 - **(9) Acceptance criteria.**
-  - [MISSING] The current security systems around staff stay in force, in the same order, when scope code is added: the admin sign-in throttle (throttle:auth on the login gro (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
-- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+  - [MET] The admin guard still protects every admin route when scope code is added (AdminRouteAuthenticationTest on main, and AdminMiddleware opens with `Auth::guard('admin')->check()`.)
+  - [MET] The module permission still runs BEFORE any scope middleware (PR 74: StaffProductIdRoutesTest::test_the_middleware_of_the_scope_runs_after_the_permission_of_the_route_on_every_covered_route. The order matters and not only the presence: a scope that ran first would answer 'not your country' to someone who should have been told 'not your module', which leaks which countries exist.)
+  - [MISSING] The admin sign-in throttle stays in force (It EXISTS — routes/admin/routes.php line 174 is `Route::group(['prefix' => 'login', 'middleware' => ['throttle:auth']], ...)` — and it is pinned by NO test on main, #75 or #83. The requirement is that the scope work does not disturb it, and nothing would currently notice if it did. This is the cheapest criterion in the whole batch to close: one test that asserts the login group carries throttle:auth.)
+  - [MISSING] The status check and its admin-1 exemption stay in force (AdminMiddleware lines 21-22 log out a signed-in admin whose `status != 1` while exempting `id() == 1`, so the first admin cannot lock themselves out. Unpinned on main, #75 and #83 alike: a scope change that reordered this middleware could switch the exemption off and no test would say so.)
+- **(10) Next coding task.** See the criteria: the unmet ones name the file and the line that has to change.

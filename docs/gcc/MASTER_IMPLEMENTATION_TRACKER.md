@@ -20,14 +20,14 @@ As of 2026-11-19. Generated from the independent assessment of every requirement
 | [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 179 | 83 | 31 | 65 | 64% | 46% | 8% | all |
 | [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 88 | 36 | 4 | 48 | 45% | 41% | 7% | all |
 | [F. Themes and brand](tracker/axis-f-themes-and-brand.md) | 16 | 74 | 42 | 11 | 21 | 72% | 57% | 4% | all |
-| [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 96 | 57 | 7 | 32 | 67% | 59% | 15% | all |
+| [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 102 | 59 | 8 | 35 | 66% | 58% | 15% | all |
 | [H. Shipping and integrations](tracker/axis-h-shipping-and-integrations.md) | 34 | 154 | 81 | 10 | 63 | 59% | 53% | 16% | all |
 | [I. Marketing, policies and operations](tracker/axis-i-marketing-policies-and-operations.md) | 37 | 183 | 84 | 40 | 59 | 68% | 46% | 3% | all |
 | [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 96 | 42 | 29 | 25 | 74% | 44% | 5% | all |
 | [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 99 | 42 | 19 | 38 | 62% | 42% | 3% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 45 | 18 | 31 | 67% | 48% | 7% | all |
-| [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 295 | 104 | 106 | 85 | 71% | 35% | 3% | all |
-| **All axes (pooled)** | **359** | **1710** | **803** | **322** | **585** | **66%** | **47%** | **8%** | |
+| [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 299 | 104 | 109 | 86 | 71% | 35% | 3% | all |
+| **All axes (pooled)** | **359** | **1720** | **805** | **326** | **589** | **66%** | **47%** | **8%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -320,8 +320,8 @@ Executable on an isolated branch without production access, ordered by the prior
 | [G-16](tracker/axis-g-admin-panel-and-staff-permissions.md) | IN PROGRESS | 3/1/2 | Provider secrets in the admin panel: who may read or change them and what is shown |
 | [G-17](tracker/axis-g-admin-panel-and-staff-permissions.md) | IN PROGRESS | 2/1/3 | Super admin rules and the management of employees and roles |
 | [G-18](tracker/axis-g-admin-panel-and-staff-permissions.md) | INTEGRATED AND TESTED | 5/0/0 | Every admin route asks for the permission of its menu, or is listed with a reason |
-| [G-V1](tracker/axis-g-admin-panel-and-staff-permissions.md) | IN PROGRESS | 0/0/1 | A written data-isolation design (the concept the plan asks for) with a rule for each of the eight la... |
-| [G-V2](tracker/axis-g-admin-panel-and-staff-permissions.md) | IN PROGRESS | 0/0/1 | The current security systems around staff stay in force, in the same order, when scope code is added... |
+| [G-V1](tracker/axis-g-admin-panel-and-staff-permissions.md) | IN PROGRESS | 0/1/3 | A written data-isolation design (the concept the plan asks for) with a rule for each of the eight la... |
+| [G-V2](tracker/axis-g-admin-panel-and-staff-permissions.md) | IN PROGRESS | 2/0/2 | The current security systems around staff stay in force, in the same order, when scope code is added... |
 
 ### H. Shipping and integrations
 
@@ -524,8 +524,8 @@ Executable on an isolated branch without production access, ordered by the prior
 | [M2-18](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 4/0/2 | Operational services: logs, queues, scheduler, caches, search, storage, metrics, sync, rollback |
 | [M2-19](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/3/2 | Saudi assumptions, old links and integrations (axis L) |
 | [M2-V1](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/0/1 | Every existing Laravel and Flutter feature is classified as Reuse As-Is, Extend Existing, Refactor C... |
-| [M2-V2](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/0/1 | No quick production change and no direct SQL is used to settle an architectural problem: changes shi... |
-| [M2-V3](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/0/1 | Global data and per-market data are told apart in the migration plan and in code: every table the pl... |
+| [M2-V2](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/2/1 | No quick production change and no direct SQL is used to settle an architectural problem: changes shi... |
+| [M2-V3](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/1/2 | Global data and per-market data are told apart in the migration plan and in code: every table the pl... |
 | [M2-V4](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/0/1 | The staged upgrade needs no downtime and no migration is created-and-run on live data: each step is ... |
 | [M2-V5](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/0/1 | Storage and rollback capabilities (axis K bullets) are audited and tested for six markets: private d... |
 | [M2-V6](tracker/axis-m-security-tests-and-deployment.md) | NOT STARTED | 0/0/4 | Stock balances (current_stock, holds, outbox, provider stock) and prices of existing products reconc... |

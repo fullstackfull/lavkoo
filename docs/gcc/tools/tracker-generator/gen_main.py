@@ -1787,6 +1787,75 @@ WRITTEN_CRITERIA['K-V3'] = _WRITTEN
 
 
 
+# ---- The verifiers' requirements, batch 4 of 28 (2026-11-19, evening) ----
+
+CRITERIA_SPLIT['G-V1'] = {0: [
+    ('Four of the eight layers are written down: authorization, API, queries, exports and reports', 'CODED',
+     "docs/gcc/GCC-14C-STAFF-COUNTRY-SCOPES.md on the integration branch is 984 lines and carries the switch, who is restricted, the queries of "
+     "slices 1 to 3, and exports and reports inside those slices, with the platform API as a consumer of the staff scope. CODED, not MET: the "
+     "document is a design, and the requirement asks that each layer name the slice, owner decision or requirement that builds it."),
+    ('Jobs have a rule', 'MISSING',
+     "The document's only statement on jobs is ONE sentence, line 32: a queue worker and a console command start unbound. That is the problem "
+     "stated, not a rule \u2014 and it is the layer where an unbound worker silently crosses every market boundary the other seven layers hold."),
+    ('Sensitive actions and audit logs have a rule', 'MISSING',
+     "Searching the 984 lines for audit, sensitive, step-up and approval finds no section for any of them. These are the two layers a reviewer "
+     "will ask about first, because they are what a country regulator asks about first."),
+    ('The design is where the people who need it can find it', 'MISSING',
+     "The document exists only on the integration branch: `git show origin/main:docs/gcc/GCC-14C-STAFF-COUNTRY-SCOPES.md` is empty, so it is not "
+     "on main. A data-isolation design that lives on an unmerged branch is not yet the platform's design."),
+]}
+WRITTEN_CRITERIA['G-V1'] = _WRITTEN
+
+CRITERIA_SPLIT['G-V2'] = {0: [
+    ('The admin guard still protects every admin route when scope code is added', 'MET',
+     "AdminRouteAuthenticationTest on main, and AdminMiddleware opens with `Auth::guard('admin')->check()`."),
+    ('The module permission still runs BEFORE any scope middleware', 'MET',
+     "PR 74: StaffProductIdRoutesTest::test_the_middleware_of_the_scope_runs_after_the_permission_of_the_route_on_every_covered_route. The order "
+     "matters and not only the presence: a scope that ran first would answer 'not your country' to someone who should have been told 'not your "
+     "module', which leaks which countries exist."),
+    ('The admin sign-in throttle stays in force', 'MISSING',
+     "It EXISTS \u2014 routes/admin/routes.php line 174 is "
+     "`Route::group(['prefix' => 'login', 'middleware' => ['throttle:auth']], ...)` \u2014 and it is pinned by NO test on main, #75 or #83. The "
+     "requirement is that the scope work does not disturb it, and nothing would currently notice if it did. This is the cheapest criterion in the "
+     "whole batch to close: one test that asserts the login group carries throttle:auth."),
+    ("The status check and its admin-1 exemption stay in force", 'MISSING',
+     "AdminMiddleware lines 21-22 log out a signed-in admin whose `status != 1` while exempting `id() == 1`, so the first admin cannot lock "
+     "themselves out. Unpinned on main, #75 and #83 alike: a scope change that reordered this middleware could switch the exemption off and no "
+     "test would say so."),
+]}
+WRITTEN_CRITERIA['G-V2'] = _WRITTEN
+
+CRITERIA_SPLIT['M2-V2'] = {0: [
+    ('A change reaches the server by the overlay path, not by hand', 'CODED',
+     "The rule is carried by tooling and runbooks rather than by a guard: tests/Unit/Deploy/OverlayDeploymentTest.php and "
+     "tests/Unit/Deploy/BackupScriptsTest.php are on main, with the overlay build, the apply step and the drift check, and the runbooks say never "
+     "a bare `php artisan migrate`. CODED because that is a practice a person follows, not a thing the repository refuses."),
+    ('No direct SQL settles an architectural problem', 'MISSING',
+     "No test forbids it. M2-15 maps plan lines 560-562 and its only criterion on them is 'no CI protection is weakened', which is a different "
+     "promise. M1-18 and M1-11 hold the rule in the published tracker as prose."),
+    ('Migrations are additive', 'CODED',
+     "Every GCC migration read in this programme is expand-only and several refuse their own rollback while data would be lost \u2014 PR 130's "
+     "sharing-key migration refuses `down()` once any account carries a key, and PR 128's refuses while any row carries a column it would drop. "
+     "CODED rather than MET because it is true of the migrations that were read, and nothing makes it true of the next one somebody writes."),
+]}
+WRITTEN_CRITERIA['M2-V2'] = _WRITTEN
+
+CRITERIA_SPLIT['M2-V3'] = {0: [
+    ('Every table the plan touches is classed global or per market', 'MISSING',
+     "Discovery-01 report 03 classifies tables as Global, Customer, Storefront or Legal Entity, and report 07's phases do not restate it, so the "
+     "classification exists in one report and is carried into nothing. M2-17 has no criterion for it."),
+    ('The class is checked, not just written down', 'MISSING',
+     "No test marks which tables are global. This is the criterion that makes the first one worth anything: a classification nothing checks drifts "
+     "the first time a column is added."),
+    ('What is per market today is per market deliberately', 'CODED',
+     "Measured on the integration head: exactly three migrations name `storefront_country` \u2014 products, storefront_legal_acceptances and "
+     "admin_country_scopes. Everything else is global BY DEFAULT rather than by decision, `users`, `wallet_balance` and `loyalty_point` included, "
+     "which is the same gap E-01, E-02 and A2-V1 each meet from their own side."),
+]}
+WRITTEN_CRITERIA['M2-V3'] = _WRITTEN
+
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
