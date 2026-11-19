@@ -1,6 +1,6 @@
 # Axis H: Shipping and integrations
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 34. Acceptance criteria: 152 (MET 79, CODED 10, MISSING 63). Code completion 59%, proven by a passing test 52%, release readiness 16%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 34. Acceptance criteria: 154 (MET 81, CODED 10, MISSING 63). Code completion 59%, proven by a passing test 53%, release readiness 16%.
 
 Independent verification: done for unit(s) H1, H2.
 
@@ -675,13 +675,15 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** A fulfilment provider (Torod Point, M5AZN, own warehouse) and a sales channel are separate concepts: a provider's shelf is offered to a channel only by an explicit per-location admission, and a channel order reaches a provider only through a recorded routing decision, never by the channel itself. (First clause of line 258, 'separate clearly between the fulfilment provider and the sales channel'; H2-17 covers only the shared-pool half.)
 - **(3) Exists now in code (main).** In origin/main: InventoryLocation provider and publishable_channels; InventoryLocationService::ensureDefaults (noon not admitted); StockListingGate 'location_not_for_this_channel'; DynamicFulfillmentRoutingEngine; DispatchGate. Pinned by NoonPoolMembershipTest, SharedProviderStockTest, RoutingEngineTest::test_a_rule_that_names_a_provider_which_does_not_hold_the_goods_does_not_send_them_there and ::test_an_order_the_channel_ships_itself_is_never_given_to_a_provider_whatever_the_rules_say, ChannelDispatchTest. CI as H2-17 and H2-16 (N-Z, A-M and concurrency jobs green on PR 83 8ff3410). Per-country provider and source assignment stays with unit C.
 - **(4) Done in the draft PRs.** See the evidence note above.
-- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(5) What remains.** Its acceptance criteria are written (batch 1 of the 28 requirements the verifiers added). What remains is in the criteria themselves.
 - **(6) PRs and commits.** none
 - **(7) Tests.** none
 - **(8) Dependencies and blockers.** See the evidence note.
 - **(9) Acceptance criteria.**
-  - [MET] A fulfilment provider (Torod Point, M5AZN, own warehouse) and a sales channel are separate concepts: a provider's shelf is offered to a channel only by an expli (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
-- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+  - [MET] A provider's shelf reaches a sales channel only by an explicit per-location admission (On origin/main: InventoryLocation carries `provider` and `publishable_channels`, InventoryLocationService::ensureDefaults does NOT admit noon, and StockListingGate refuses with 'location_not_for_this_channel'. Pinned by NoonPoolMembershipTest and SharedProviderStockTest. (Path correction: the service is app/Services/SalesChannels/Inventory/InventoryLocationService.php, and the gate app/Services/SalesChannels/Publishing/StockListingGate.php — the card's note gives a shorter path that does not exist.))
+  - [MET] A channel order reaches a provider only through a recorded routing decision (DynamicFulfillmentRoutingEngine (app/Services/SalesChannels/Routing/) and DispatchGate (app/Services/SalesChannels/Dispatch/) on main, with RoutingEngineTest::test_a_rule_that_names_a_provider_which_does_not_hold_the_goods_does_not_send_them_there. The channel cannot route to a provider by itself, which is the second clause of plan line 258.)
+  - [MET] The two concepts stay separate as more channels and providers are added (The separation is structural rather than conventional: a channel is admitted to a LOCATION, and a location belongs to a provider, so a new channel is admitted nowhere until someone admits it, and a new provider offers its shelf to nothing. This is why the requirement reads MET on main with no GCC work at all — one of the two the verifier's placeholder was already satisfying before anyone looked.)
+- **(10) Next coding task.** See the criteria: the unmet ones name the file and the line that has to change.
 
 #### H2-V2. Listing content follows each marketplace's own requirements per market: the store's central categori...
 

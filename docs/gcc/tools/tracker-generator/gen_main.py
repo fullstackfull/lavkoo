@@ -1711,6 +1711,82 @@ WRITTEN_CRITERIA['K-V4'] = _WRITTEN
 
 
 
+# ---- The verifiers' requirements, batch 3 of 28 (2026-11-19, evening) ----
+
+CRITERIA_SPLIT['M1-V2'] = {0: [
+    ('The backend repository refuses a pull request that adds a secret or personal data', 'MET',
+     "origin/main .github/workflows/ci.yml has the job `leak-guard`, named 'No secret or personal data added', which runs "
+     "`php scripts/ci/leak-guard.php --base=\"${{ github.event.pull_request.base.sha || github.event.before || 'origin/main' }}\"` \u2014 so it "
+     "scans the pull request's own range, and a push to a branch is scanned against the commit before it. The scanner is on main "
+     "(scripts/ci/leak-guard.php) and has its own test, tests/Unit/Deploy/LeakGuardTest.php."),
+    ('The SELLER app repository refuses one too', 'MISSING',
+     "lavkooappseller origin/main .github/workflows/ci.yml holds two jobs, `analyze-and-test` (install, verify formatting of changed Dart files, "
+     "analyze, check translation keys, test) and `build-android`. Searching that workflow for leak, secret, gitleaks or trufflehog returns ZERO "
+     "matches. A key committed to the seller app reaches main unchallenged."),
+    ('The CUSTOMER app repository refuses one too', 'MISSING',
+     "lavkooapp origin/main has NO .github directory at all \u2014 `git ls-tree -r --name-only origin/main | grep -c '^.github/'` is 0, so the "
+     "repository has no CI of any kind on its default branch. Some gcc/* branches carry a workflow; the branch that would have to enforce it does "
+     "not. This is the weakest of the three and the one a reader would most easily assume was covered by the other two."),
+    ('What happens on detection is written down', 'MISSING',
+     "SEC-E21-04 step 6 asks for 'a defined action on detection', not only a scan. The backend job fails the run, which is an action, but nothing "
+     "records who is told, whether the key is treated as live, or that DR-1 defers ROTATION and not scanning \u2014 a distinction worth keeping, "
+     "because a scan that finds a key the owner then cannot rotate is a half-closed door."),
+]}
+WRITTEN_CRITERIA['M1-V2'] = _WRITTEN
+
+CRITERIA_SPLIT['M2-V6'] = {0: [
+    ('Adding the country marker leaves every current_stock unchanged', 'MISSING',
+     "M2-17 reconciles wallet, loyalty, order and payment totals only. No reconciler or test in any of the 94 origin branches compares stock "
+     "balances before and after the marker; #24 characterises behaviour and #17 and #18 fix single paths."),
+    ('Holds and the outbox reconcile against the movements that made them', 'MISSING',
+     "Discovery-01 report 07 section 3.5 specifies the stock, reservation and outbox reconciliation and nothing implements it. This is the half "
+     "that matters most on a live platform: a hold that survives its order, or an outbox row with no movement behind it, is stock a customer "
+     "cannot buy and nobody is looking for."),
+    ('Provider stock reconciles against the platform\'s own balance', 'MISSING',
+     "H2-V1's machinery (InventoryLocationBalance, the shared-provider pool) is the thing to reconcile against, and no reconciler reads it."),
+    ('Prices of existing products are unchanged by the marker', 'MISSING',
+     "Named in the same plan line as the stock balances and uncovered by the same gap. It is the cheapest of the four to prove and the one whose "
+     "failure a customer would see first."),
+]}
+WRITTEN_CRITERIA['M2-V6'] = _WRITTEN
+
+CRITERIA_SPLIT['H2-V1'] = {0: [
+    ("A provider's shelf reaches a sales channel only by an explicit per-location admission", 'MET',
+     "On origin/main: InventoryLocation carries `provider` and `publishable_channels`, InventoryLocationService::ensureDefaults does NOT admit "
+     "noon, and StockListingGate refuses with 'location_not_for_this_channel'. Pinned by NoonPoolMembershipTest and SharedProviderStockTest. "
+     "(Path correction: the service is app/Services/SalesChannels/Inventory/InventoryLocationService.php, and the gate "
+     "app/Services/SalesChannels/Publishing/StockListingGate.php \u2014 the card's note gives a shorter path that does not exist.)"),
+    ('A channel order reaches a provider only through a recorded routing decision', 'MET',
+     "DynamicFulfillmentRoutingEngine (app/Services/SalesChannels/Routing/) and DispatchGate (app/Services/SalesChannels/Dispatch/) on main, with "
+     "RoutingEngineTest::test_a_rule_that_names_a_provider_which_does_not_hold_the_goods_does_not_send_them_there. The channel cannot route to a "
+     "provider by itself, which is the second clause of plan line 258."),
+    ('The two concepts stay separate as more channels and providers are added', 'MET',
+     "The separation is structural rather than conventional: a channel is admitted to a LOCATION, and a location belongs to a provider, so a new "
+     "channel is admitted nowhere until someone admits it, and a new provider offers its shelf to nothing. This is why the requirement reads MET "
+     "on main with no GCC work at all \u2014 one of the two the verifier's placeholder was already satisfying before anyone looked."),
+]}
+WRITTEN_CRITERIA['H2-V1'] = _WRITTEN
+
+# K-V3's first criterion is ALREADY MET on lavkooappseller #8's head 7c20717, with CI run 28 read per step; an earlier draft of this split
+# downgraded it to CODED after reading the OLDER branch gcc/p1-seller-outbox-owner instead of that head. The evidence is reused verbatim rather
+# than rewritten, and the two criteria added beneath it are the ones the requirement's own update text says are unwritten.
+CRITERIA_SPLIT['K-V3'] = {0: [
+    ('A queued POS sale that has failed its replays is never dropped silently: it stays visible with its last error until the seller removes it',
+     'MET', CRITERIA['K-V3'][0][1]),
+    ('How long a sale may wait before the app gives up on it', 'MISSING',
+     "The limit is ten attempts (`_maxAttempts` in offline_sales_controller.dart), a number that is in the code rather than chosen: nothing records "
+     "why ten, and on origin/main reaching it DELETED the sale \u2014 `if (retried.attempts < _maxAttempts) remaining.add(retried);` on the "
+     "response path and again in the catch, then `_pending = remaining; await _persist();` wrote the shorter list. #8 stops the deletion; it does "
+     "not answer how long a sale that represents money may sit unsent, which is the owner's to set."),
+    ('Who may remove a failed sale', 'MISSING',
+     "#8 lets the SELLER remove one after an explicit yes, which is what the app does; whether a seller should be able to remove a record of money "
+     "taken on a shared device, or whether that belongs to a manager or to the platform, is the finance owner's decision and is recorded as the "
+     "requirement's next task rather than settled here."),
+]}
+WRITTEN_CRITERIA['K-V3'] = _WRITTEN
+
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]

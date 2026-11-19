@@ -1,6 +1,6 @@
 # Axis M: Security, tests and deployment
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 63. Acceptance criteria: 289 (MET 103, CODED 106, MISSING 80). Code completion 72%, proven by a passing test 36%, release readiness 3%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 63. Acceptance criteria: 295 (MET 104, CODED 106, MISSING 85). Code completion 71%, proven by a passing test 35%, release readiness 3%.
 
 Independent verification: done for unit(s) M1, M2, M3.
 
@@ -438,13 +438,16 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** A secret and personal-data scan gates every repository's pull requests: the triage's urgent item SEC-E21-04 (step 6) asks for secret scanning in the release gate of all repositories with a defined action on detection.
 - **(3) Exists now in code (main).** lavkoo has the leak-guard job 'No secret or personal data added' on every PR (scripts/ci/leak-guard.php, LeakGuardTest with 21 methods). lavkooappseller's origin/main ci.yml has format, analyze, translation-key, test and debug-APK steps and no scan. lavkooapp's origin/main has no .github at all (only some gcc/* branches carry a workflow). DR-1 defers rotation, not scanning, and the charter allows CI work, so this is open development work.
 - **(4) Done in the draft PRs.** See the evidence note above.
-- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(5) What remains.** Its acceptance criteria are written (batch 1 of the 28 requirements the verifiers added). What remains is in the criteria themselves.
 - **(6) PRs and commits.** none
 - **(7) Tests.** none
 - **(8) Dependencies and blockers.** See the evidence note.
 - **(9) Acceptance criteria.**
-  - [MISSING] A secret and personal-data scan gates every repository's pull requests: the triage's urgent item SEC-E21-04 (step 6) asks for secret scanning in the release gat (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
-- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+  - [MET] The backend repository refuses a pull request that adds a secret or personal data (origin/main .github/workflows/ci.yml has the job `leak-guard`, named 'No secret or personal data added', which runs `php scripts/ci/leak-guard.php --base="${{ github.event.pull_request.base.sha || github.event.before || 'origin/main' }}"` — so it scans the pull request's own range, and a push to a branch is scanned against the commit before it. The scanner is on main (scripts/ci/leak-guard.php) and has its own test, tests/Unit/Deploy/LeakGuardTest.php.)
+  - [MISSING] The SELLER app repository refuses one too (lavkooappseller origin/main .github/workflows/ci.yml holds two jobs, `analyze-and-test` (install, verify formatting of changed Dart files, analyze, check translation keys, test) and `build-android`. Searching that workflow for leak, secret, gitleaks or trufflehog returns ZERO matches. A key committed to the seller app reaches main unchallenged.)
+  - [MISSING] The CUSTOMER app repository refuses one too (lavkooapp origin/main has NO .github directory at all — `git ls-tree -r --name-only origin/main | grep -c '^.github/'` is 0, so the repository has no CI of any kind on its default branch. Some gcc/* branches carry a workflow; the branch that would have to enforce it does not. This is the weakest of the three and the one a reader would most easily assume was covered by the other two.)
+  - [MISSING] What happens on detection is written down (SEC-E21-04 step 6 asks for 'a defined action on detection', not only a scan. The backend job fails the run, which is an action, but nothing records who is told, whether the key is treated as live, or that DR-1 defers ROTATION and not scanning — a distinction worth keeping, because a scan that finds a key the owner then cannot rotate is a half-closed door.)
+- **(10) Next coding task.** See the criteria: the unmet ones name the file and the line that has to change.
 
 #### M2-01. Saudi continuity: the Saudi baseline stays as it was (test plan 1)
 
@@ -979,13 +982,16 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** Stock balances (current_stock, holds, outbox, provider stock) and prices of existing products reconcile and stay unchanged when the country marker is added
 - **(3) Exists now in code (main).** M2-17 reconciles wallet, loyalty, order and payment totals only. Discovery-01 report 07 section 3.5 specifies the stock, reservation and outbox reconciliation, but no reconciler or test compares stock balances to movements or holds in any of the 94 origin branches; #24 only characterizes behaviour and #17 and #18 fix single paths.
 - **(4) Done in the draft PRs.** See the evidence note above.
-- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(5) What remains.** Its acceptance criteria are written (batch 1 of the 28 requirements the verifiers added). What remains is in the criteria themselves.
 - **(6) PRs and commits.** none
 - **(7) Tests.** none
 - **(8) Dependencies and blockers.** See the evidence note.
 - **(9) Acceptance criteria.**
-  - [MISSING] Stock balances (current_stock, holds, outbox, provider stock) and prices of existing products reconcile and stay unchanged when the country marker is added (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
-- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+  - [MISSING] Adding the country marker leaves every current_stock unchanged (M2-17 reconciles wallet, loyalty, order and payment totals only. No reconciler or test in any of the 94 origin branches compares stock balances before and after the marker; #24 characterises behaviour and #17 and #18 fix single paths.)
+  - [MISSING] Holds and the outbox reconcile against the movements that made them (Discovery-01 report 07 section 3.5 specifies the stock, reservation and outbox reconciliation and nothing implements it. This is the half that matters most on a live platform: a hold that survives its order, or an outbox row with no movement behind it, is stock a customer cannot buy and nobody is looking for.)
+  - [MISSING] Provider stock reconciles against the platform's own balance (H2-V1's machinery (InventoryLocationBalance, the shared-provider pool) is the thing to reconcile against, and no reconciler reads it.)
+  - [MISSING] Prices of existing products are unchanged by the marker (Named in the same plan line as the stock balances and uncovered by the same gap. It is the cheapest of the four to prove and the one whose failure a customer would see first.)
+- **(10) Next coding task.** See the criteria: the unmet ones name the file and the line that has to change.
 
 #### M3-01. Report 01 Executive Assessment: state of the project and readiness for GCC, tagged Verified / Inferred / Unknown
 
