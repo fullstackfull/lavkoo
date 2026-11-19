@@ -1,5 +1,5 @@
 {
- "lavkoo_prs": 115,
+ "lavkoo_prs": 124,
  "github": [
   "`fullstackfull/lavkoo`: 96 open draft pull requests, none merged; `main` is `c5c04b7b` (2026-11-12). `fullstackfull/lavkooapp`: 9 open drafts. `fullstackfull/lavkooappseller`: 6 open drafts. [PR_LEDGER.md](PR_LEDGER.md) lists every pull request of `lavkoo` with its branch, base and head.",
   "CI-only integration trees (never merged): the security set `gcc/release/security-integration` (PR 75, `47b78ab8`); the GCC stack `gcc/release/gcc-integration-ci` (PR 83, `8ff34109`); both together `gcc/release/security-gcc-integration-ci` (`f6fb03af`); and every main-based open pull request together, `gcc/release/all-integration-ci` (head `1365cdad`, which merges the later drafts 87 to 96; the four main-based pull requests not in it are the baseline hotfix line below). Its run 293 (on the earlier head `8598331b`, which already held PR 88 to 94 and the real-engine group of CI) is the latest proof of the tree: it is read per job in `audits/2026-11-18-all-in-one-integration/README.md`.",
@@ -14,5 +14,6 @@
   "The all-in-one integration branch `gcc/release/all-integration-ci` was built after the assessment. Of its 35 first merges, 15 conflicted (32 file instances, 28 files), all resolved in the branch only; a set of tests and one guarded document pinned behaviour that a sibling pull request changes on purpose, and each is reconciled and listed in [`audits/2026-11-18-all-in-one-integration/README.md`](audits/2026-11-18-all-in-one-integration/README.md). It found one real defect of the security set (a private digital file row read without its id raised a TypeError when serialized; fixed on PR 69 in `4096f1be`, still to be taken into stage 4 of the hotfix line). Run 279 (`c30390d1`) was read per job and showed three more things, all now in drafts of their own: test classes that only ever ran on SQLite collide on a real server (PR 92), two statements an ONLY_FULL_GROUP_BY server refuses in the coupon use count and the checkout cart group (PR 89, a defect of `main` itself), and two characterization tests of unfixed behaviour. The reconciled head `515d5bfa` runs as run 288, which is not read yet, so the criteria that rest on \"a tree contains both sets and is green\" (M1-03, M2-15) stay MISSING.",
   "Cards changed after the assessment (they show an \"Update after the assessment\"): E-01 (the wallet closed on a storefront with its own currency), E-03 (PR 95), E-06 (PR 88, `wallet:reconcile`, CI read in run 285), D1-03 and D1-04 (PR 90, the selling-company registry, the order stamp and the invoice), D1-05 and D1-06 (PR 87), I1-12 and I1-13 (the coupons of a storefront, PR 87), J-05 (lavkooapp #8 and #9, green in the app repository's own CI), M2-02 and M2-04 (PR 96), A2-15 (PR 93), M1-03, M1-07, M1-14 (the staging plan), M1-16 (PR 91) and M2-15."
  ],
- "lavkooapp_prs": 18
+ "lavkooapp_prs": 19,
+ "lavkooappseller_prs": 15
 }

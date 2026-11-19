@@ -50,6 +50,16 @@ EXTRA = {
     115: ('feat(gcc): the lifecycle and the legal texts of a storefront are run from the admin panel, behind three permissions, by the admin who is signed in (I2-03, I2-11; draft, off by default)', 'gcc/p1-storefront-admin-screens', 'gcc/p1-storefront-lifecycle'),
     100: ('fix(privacy): a customer embedded in an order, refund, review or chat carries no wallet balance, loyalty points or referral code (A2-15 criterion 2)', 'gcc/p0-embedded-customer-without-balances', 'main'),
     99: ("feat(gcc): a storefront is taxed by its own setup and cannot sell before its tax is approved (D1-07, GCC-05 step 11, off by default)", 'gcc/p1-storefront-tax-setup', 'gcc/p1-storefront-currency'),
+    # Titles, branches and bases read from the remote's own pull request records on 2026-11-19; the head is always the remote's.
+    116: ('fix(security): a vendor lists, views, edits, switches and deletes only the coupons that are theirs, in the seller app and in the vendor panel (draft, main based; one owner decision)', 'gcc/p1-security-coupon-ownership', 'main'),
+    117: ('test(gcc): every writer of orders says what keeps a stopped storefront out of it, and the marketplace dispatch is pinned as it is (I2-09; draft, test only, stacked on #111)', 'gcc/p1-order-writers-gate-list', 'gcc/p1-storefront-lifecycle'),
+    118: ('test(gcc): the customer balance answers, the ledger edit scan and the vendor ledger entry are pinned as they are (E-04.2; E-08.0 and E-17.0 stay open; draft, test only, main based)', 'gcc/p1-wallet-contract-tests', 'main'),
+    119: ('test(gcc): a stopped storefront still serves its cart, wishlist and catalogue and refuses only a new sale, and the platform maintenance is pinned through the real routes (I2-13.2, I2-14.0; draft, test only, stacked on PR 111)', 'gcc/p1-stop-mode-pins', 'gcc/p1-storefront-lifecycle'),
+    120: ('test(gcc): the coupon rules of the customer API, the currency round trip and the vendor ownership are pinned as they are (I1-11.4, I1-12.0, I1-14.0, I1-14.1; I1-11.3, I1-12.1, I1-12.2 stay open; draft, test only, stacked on PR 96)', 'gcc/p1-coupon-behaviour-pins', 'gcc/p1-storefront-six-country-isolation'),
+    121: ('test(gcc): the legal text version key, the policy registry kept apart from legal documents and a scan for claims of compliance are pinned (I2-01.2, I2-06.2, I2-07.4; I2-06.1 and I2-07.0 in part; draft, test only, stacked on PR 115)', 'gcc/p1-legal-store-pins', 'gcc/p1-storefront-admin-screens'),
+    122: ('test(gcc): six legacy behaviours of main are pinned as they are: push language, push topics, the abandoned-cart ledger, one-time codes by app mode, the vendor split of an order and the website direction (I1-03.1, I1-05.3, I1-09.1, M1-05.5, M2-06.2, I1-16.5; draft, test only, main based)', 'gcc/p1-legacy-behaviour-pins', 'main'),
+    123: ('test(gcc): the status, refund and due-payment notifications of an earlier order are sent in every state in which a storefront may not sell (I1-07.1; draft, test only, stacked on PR 111)', 'gcc/p1-notification-stop-pins', 'gcc/p1-storefront-lifecycle'),
+    124: ('M2-19: the Saudi literals in the platform\'s code are a closed list that fails on a new one (tests only)', 'gcc/p1-saudi-literals-guard', 'main'),
 }
 
 
