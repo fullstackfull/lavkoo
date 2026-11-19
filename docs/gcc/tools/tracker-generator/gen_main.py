@@ -1510,18 +1510,18 @@ CRITERIA['I1-12'][2] = ('MET', "PR 129 (7ca87a9f): the round-trip matrix runs ov
 
 # ---- Wave 7: lavkooappseller 17, CI read job by job and step by step (2026-11-19, evening) ----
 
-_R17S = ("seller CI run id 44566251838 (head 6becf35b), read job by job and then step by step on 2026-11-19: 'analyze-and-test' red, "
-         "'build-android' skipped. The job holds TWO red steps and NEITHER is this branch's, each proved rather than asserted. "
-         "(1) 'dart format --output=none --set-exit-if-changed lib/helper lib/theme lib/common/basewidgets/glass tool' reports "
-         "'Formatted 24 files (20 changed)' \u2014 and this branch touches NONE of those four directories (git diff --name-only "
-         "origin/main..HEAD names only lib/features/auth, lib/features/shop, lib/utill and test/shop_images). Running that exact command "
-         "against origin/main's OWN files, extracted with git archive, prints the identical 20-file list and exits 1, so the step is red on "
-         "main. (2) 'flutter test' reports 164 passed, 1 failed, the one failure being test/app_version_gate_test.dart 'force-update gate the "
-         "shipped version clears the backend minimum, so login is reachable': pubspec 1.0.0 against a backend minimum of 2.0.1. That is red on "
-         "main as well, proved on main's own run 43229610276 job 131221083251 (141 passed, 1 failed, the same test), and it is NOT fixed here, "
-         "because a seller app version change needs verified release evidence the charter does not grant. The arithmetic closes: 164 - 141 = 23, "
-         "and 23 is exactly the number of tests this branch adds \u2014 all 23 appear by name in the run's passing group, 12 from "
-         "shop_image_rules_test.dart and 11 from shop_image_source_rules_test.dart. Flutter 3.47.0, the CI pin.")
+_R17S = ("seller CI read step by step on 2026-11-19, two runs. FIRST HEAD 6becf35b, run 44566251838: job 'analyze-and-test' red, 'build-android' "
+         "skipped. The job is red for ONE reason, its 'Test' step: 164 passed, 1 failed, the failure being test/app_version_gate_test.dart 'force-update "
+         "gate the shipped version clears the backend minimum, so login is reachable' (pubspec 1.0.0 against a backend minimum of 2.0.1). That test is red "
+         "on main as well, proved on main's own run 43229610276 job 131221083251 (141 passed, 1 failed, the same test), and it is NOT fixed here because a "
+         "seller app version change needs verified release evidence. 164 - 141 = 23, exactly the tests that head adds. CORRECTION: an earlier version of "
+         "this text said the job held TWO red steps. The formatting command, dart format --output=none --set-exit-if-changed over lib/helper, lib/theme, "
+         "lib/common/basewidgets/glass and tool, does exit 1, and exits 1 on origin/main's own files too, over four directories this branch never touches; "
+         "but that step is declared continue-on-error: true, so its conclusion is success and it fails no job. The gate is advisory, and 20 of the 24 files "
+         "it reads are unformatted on main. REVIEWED HEAD 5b2fd40, run 44599099287: the same single red step, 167 passed, 1 failed, the same test; "
+         "167 - 164 = 3, the tests the review repair adds, and all 26 tests under test/shop_images are in the passing group. 'Analyze' reports 39 issues "
+         "on main's own run, on the first head and on the reviewed head alike, so the branch adds no analyzer finding; 'Check translation keys' success. "
+         "Flutter 3.47.0, the CI pin.")
 
 for _req, _link in [('K-18', {'repo': 'lavkooappseller', 'pr': 17, 'sha': '6becf35b'})]:
     EXTRA_LINKS[_req] = [l for l in EXTRA_LINKS.get(_req, [])
@@ -1541,7 +1541,7 @@ CRITERIA.setdefault('K-18', {})[1] = ('CODED', "NOT MET, and the author of the w
     "change' rests on table equivalence and the source and not on a rendered screen. THIS LINE WAS WRONG TWICE ON 2026-11-19 AND IS CORRECTED: it was "
     "first recorded MET from the CI of the first head (6becf35b) before the reviews had reported and against the author's own claim of CODED; it was "
     "then set back to CODED with the reason 'until the reviewed head's run is read', which was also wrong, because no run can meet it while the "
-    "decision reads active_theme. The CI of the first head, for what it shows of the tests that existed then: %s The CI of 5b2fd40 is not read." % _R17S)
+    "decision reads active_theme. The two runs, read step by step, for what they show of the tests and not of the criterion: %s" % _R17S)
 
 
 
