@@ -11,15 +11,16 @@ use Tests\Support\LedgerEditScanner;
 /**
  * E-08.0 of the master plan: a customer's wallet and loyalty ledgers (`wallet_transactions`, `loyalty_point_transactions`) are appended to and read, never edited. A correction is a new row, and a
  * balance that can be checked against its ledger is only worth anything while no row of the ledger is rewritten or removed. This test reads the source of app/, Modules/ and routes/ and fails when a
- * statement updates or deletes a ledger row in any of the ways `tests/Support/LedgerEditScanner.php` knows, each of which is proved on a fixture below. It needs no database.
+ * statement updates or deletes a ledger row in any of the ways listed by waysToEditALedgerRow(), each of which is proved on a fixture below. It needs no database.
  *
- * KNOWN GAP, NOT EXCUSED. The rule is not true of one way: the two ledger repositories carry the generic `update()` and `delete()` of the repository contract
- * (`WalletTransactionRepository` and `LoyaltyPointTransactionRepository`), which update and delete rows of their ledger through the model each holds in a property. No code calls them (the REPOSITORY case below is
- * the guard that keeps them dormant), but they are there. The scan finds them as INJECTED_MODEL, a ledger model held in a property of a class; a model handed in as a parameter is PARAMETER_MODEL and is guarded. INJECTED_MODEL is left out of waysToEditALedgerRow() on purpose: a test that fails on main cannot be committed, and the
- * files belong to the ledger's own writers, so no exception is written for them. When the two repositories stop carrying those methods (an application change that is the owner's to make), add INJECTED_MODEL to
- * waysToEditALedgerRow() and the rule is whole.
+ * THE RULE IS NOT WHOLE, AND THAT IS A FINDING, NOT AN EXCEPTION. The two ledger repositories (`WalletTransactionRepository`, `LoyaltyPointTransactionRepository`) carry the generic `update()` and `delete()` of the
+ * repository contract: four statements that update and delete rows of their ledger through the model each holds in a property (the scan calls that way INJECTED_MODEL). No code calls them (the REPOSITORY case is
+ * the guard that keeps them dormant), but they are there, so the sentence "no application code updates or deletes a ledger row" is false of main and E-08.0 must not be read as met. A test of the whole rule would fail on
+ * main, so INJECTED_MODEL is not in waysToEditALedgerRow(), and no exception is written for the two files: they belong to the ledger's own writers. What is pinned instead is the finding itself, by file and text:
+ * these four statements are the only edits of that way in the tree, so that a fifth cannot be added unnoticed (the test named current_behaviour). That pin is not an endorsement. When the owner removes the four
+ * statements (an application change, not made here) it fails; delete it and its list, and add INJECTED_MODEL to waysToEditALedgerRow(): the rule is then whole.
  *
- * The files outside the three roots (resources/views, config, database, tests) are not read.
+ * What the scan cannot see is listed in the docblock of LedgerEditScanner. The files outside the three roots (resources/views, config, database, tests) are not read.
  */
 class LedgerRowsAreNeverEditedTest extends TestCase
 {
@@ -44,6 +45,14 @@ class LedgerRowsAreNeverEditedTest extends TestCase
     private const READERS = [
         'app/Http/Controllers/RestAPI/v1/UserWalletController.php',
         'app/Http/Controllers/RestAPI/v1/UserLoyaltyController.php',
+    ];
+
+    /** @var list<string> file and statement of the four edits through a ledger model held in a property that the two ledger repositories carry today: a finding that is pinned, and not endorsed (see the class comment) */
+    private const KNOWN_INJECTED_MODEL_EDITS = [
+        "app/Repositories/LoyaltyPointTransactionRepository.php  \$this->loyaltyPointTransaction->find(\$id)->update(\$data)",
+        "app/Repositories/LoyaltyPointTransactionRepository.php  \$this->loyaltyPointTransaction->where(\$params)->delete()",
+        "app/Repositories/WalletTransactionRepository.php  \$this->walletTransaction->where('id', \$id)->update(\$data)",
+        "app/Repositories/WalletTransactionRepository.php  \$this->walletTransaction->where(\$params)->delete()",
     ];
 
     /** @var list<array{file: string, kind: string, line: int, statement: string}>|null */
@@ -79,16 +88,21 @@ class LedgerRowsAreNeverEditedTest extends TestCase
     /**
      * @param list<string> $relations
      * @param array<string, string> $properties
+     * @param array<string, string> $constants
      */
-    private static function scanner(array $relations = [], array $properties = []): LedgerEditScanner
+    private static function scanner(array $relations = [], array $properties = [], array $constants = []): LedgerEditScanner
     {
-        return new LedgerEditScanner(tables: self::TABLES, models: self::MODELS, repositories: self::REPOSITORIES, relations: $relations, properties: $properties);
+        return new LedgerEditScanner(tables: self::TABLES, models: self::MODELS, repositories: self::REPOSITORIES, relations: $relations, properties: $properties, constants: $constants);
     }
 
-    /** The relations of a User model that has them, and the repository property a trait declares for the classes that use it. */
+    /** The relations of a User model that has them, the repository property a trait declares for the classes that use it, and the constants a class of tables declares. */
     private static function fixtureScanner(): LedgerEditScanner
     {
-        return self::scanner(relations: ['walletTransactions', 'loyaltyPointTransactions'], properties: ['loyaltyPointTransactionRepo' => LedgerEditScanner::REPOSITORY]);
+        return self::scanner(
+            relations: ['walletTransactions', 'loyaltyPointTransactions'],
+            properties: ['loyaltyPointTransactionRepo' => LedgerEditScanner::REPOSITORY],
+            constants: ['WALLET' => 'wallet_transactions', 'LOYALTY' => 'loyalty_point_transactions'],
+        );
     }
 
     /** @return list<array{file: string, kind: string, line: int, statement: string}> */
@@ -105,7 +119,8 @@ class LedgerRowsAreNeverEditedTest extends TestCase
         $naming = array_values(array_filter($sources, static fn (string $code): bool => $probe->mentionsTheLedger(code: $code)));
         $relations = array_values(array_unique(array_merge(...array_map(static fn (string $code): array => LedgerEditScanner::relationsTo(models: self::MODELS, code: $code), $naming))));
         $properties = array_merge(...array_map(static fn (string $code): array => $probe->propertiesDeclaredIn(code: $code), $naming));
-        $scanner = self::scanner(relations: $relations, properties: $properties);
+        $constants = array_merge(...array_map(static fn (string $code): array => $probe->constantsDeclaredIn(code: $code), $naming));
+        $scanner = self::scanner(relations: $relations, properties: $properties, constants: $constants);
 
         self::$filesRead = count($files);
         self::$editsInTheTree = [];
@@ -122,7 +137,7 @@ class LedgerRowsAreNeverEditedTest extends TestCase
         return self::$editsInTheTree;
     }
 
-    /** @return array<string, array{string}> every way the scan knows, except the one that is a finding on main (see the class comment) */
+    /** @return array<string, array{string}> every way the scan knows, except INJECTED_MODEL, which is a finding on main and is pinned by the test named current_behaviour (see the class comment) */
     public static function waysToEditALedgerRow(): array
     {
         $kinds = [
@@ -142,6 +157,28 @@ class LedgerRowsAreNeverEditedTest extends TestCase
             [],
             array_map(static fn (array $edit): string => $edit['file'] . ':' . $edit['line'] . '  ' . $edit['statement'], $found),
             "A statement edits a row of the wallet or loyalty ledger through {$kind}. A correction is a new row: add one with the ledger's writers instead of rewriting or removing a row.",
+        );
+    }
+
+    /** Not endorsed, and not an exception to the rule above: it pins the finding of the class comment at exactly its present size. */
+    public function test_current_behaviour_the_only_edits_through_a_ledger_model_held_in_a_property_are_the_four_statements_of_the_two_ledger_repositories(): void
+    {
+        $found = [];
+        foreach (self::editsInTheTree() as $edit) {
+            if ($edit['kind'] === LedgerEditScanner::INJECTED_MODEL) {
+                $found[] = $edit['file'] . '  ' . $edit['statement'];
+            }
+        }
+        sort($found);
+        $known = self::KNOWN_INJECTED_MODEL_EDITS;
+        sort($known);
+
+        $this->assertSame(
+            $known,
+            $found,
+            'The statements that update or delete a ledger row through a ledger model held in a property of a class are no longer the four known ones of the two ledger repositories, which are a finding for the owner and '
+            . 'not an endorsement. A new one is a new way for code to rewrite a ledger: a correction is a new row, so add one instead. If the four were removed (the owner\'s change), this pin has done its work: '
+            . 'delete it and KNOWN_INJECTED_MODEL_EDITS, and add LedgerEditScanner::INJECTED_MODEL to waysToEditALedgerRow() so that the rule is whole.',
         );
     }
 
@@ -184,6 +221,9 @@ class LedgerRowsAreNeverEditedTest extends TestCase
             'a model class: a chain over several lines with a closure in it' => ["WalletTransaction::where(function (\$query) {\n    \$query->where('a', 1)->orWhere('b', 2);\n})\n    ->update(['balance' => 0]);", [$model]],
             'a model class: inside a transaction closure' => ["DB::transaction(function () {\n    WalletTransaction::where('id', 1)->delete();\n});", [$model]],
             'a model class: from the container' => ["app(WalletTransaction::class)->where('id', 1)->update(['credit' => 0]);", [$model]],
+            'a model class: from the container with make' => ["App::make(WalletTransaction::class)->where('id', 1)->delete();", [$model]],
+            'a model class: from the container through the application property' => ["\$this->app->make(LoyaltyPointTransaction::class)->where('id', 1)->update(['credit' => 0]);", [$model]],
+            'a model class: from the container through app()' => ["app()->make(WalletTransaction::class)->where('id', 1)->delete();", [$model]],
             'a model class: from a new instance' => ["(new WalletTransaction())->where('id', 1)->delete();", [$model]],
             'a model class: each row deleted by the higher order proxy' => ["WalletTransaction::where('user_id', 1)->get()->each->delete();", [$model]],
             'a query builder: update' => ["DB::table('wallet_transactions')->where('id', 1)->update(['credit' => 0]);", [$builder]],
@@ -196,6 +236,8 @@ class LedgerRowsAreNeverEditedTest extends TestCase
             'a query builder: decrement' => ["DB::table('wallet_transactions')->where('id', 1)->decrement('balance', 2);", [$builder]],
             'a query builder: an update that joins the ledger' => ["DB::table('users')->join('wallet_transactions', 'users.id', '=', 'wallet_transactions.user_id')->update(['wallet_transactions.balance' => 0]);", [$builder]],
             'a query builder: from' => ["\$this->connection->query()->from('wallet_transactions')->where('id', 1)->delete();", [$builder]],
+            'a query builder: a table named by a constant of the class' => ["class Purge\n{\n    private const LEDGER = 'wallet_transactions';\n\n    public function run()\n    {\n        DB::table(self::LEDGER)->delete();\n    }\n}", [$builder]],
+            'a query builder: a table named by a constant that another file declares' => ["DB::table(LedgerTables::WALLET)->where('id', 1)->update(['credit' => 0]);", [$builder]],
             'a query builder: kept in a variable and edited on a later statement' => ["\$query = DB::table('wallet_transactions')->where('id', 1);\n\$query->delete();", [$held]],
             'raw SQL: update' => ["DB::statement('UPDATE wallet_transactions SET credit = 0 WHERE id = 1');", [$sql]],
             'raw SQL: delete' => ["DB::delete('delete from loyalty_point_transactions where id = ?', [1]);", [$sql]],
@@ -211,6 +253,7 @@ class LedgerRowsAreNeverEditedTest extends TestCase
             'raw SQL: a heredoc' => ["DB::statement(<<<SQL\n    DELETE FROM wallet_transactions WHERE id = 1\n    SQL);", [$sql]],
             'the schema builder: dropIfExists' => ["Schema::dropIfExists('wallet_transactions');", [$schema]],
             'the schema builder: drop' => ["Schema::drop('loyalty_point_transactions');", [$schema]],
+            'the schema builder: a table named by a constant that another file declares' => ['Schema::dropIfExists(LedgerTables::LOYALTY);', [$schema]],
             'the schema builder: rename' => ["Schema::rename('wallet_transactions', 'wallet_transactions_old');", [$schema]],
             'a relation: delete' => ['$user->walletTransactions()->delete();', [$relation]],
             'a relation: where and update' => ["\$user->walletTransactions()->where('id', 1)->update(['credit' => 0]);", [$relation]],
@@ -224,6 +267,17 @@ class LedgerRowsAreNeverEditedTest extends TestCase
             'a held row: in a loop over rows kept in a variable' => ["\$rows = LoyaltyPointTransaction::where('user_id', 1)->get();\nforeach (\$rows as \$key => \$row) {\n    \$row->forceDelete();\n}", [$held]],
             'a held row: the parameter of each' => ["WalletTransaction::where('user_id', 1)->get()->each(function (\$row) {\n    \$row->delete();\n});", [$held]],
             'a held row: the parameter of an arrow function' => ["WalletTransaction::where('user_id', 1)->get()->each(fn (\$row) => \$row->update(['credit' => 0]));", [$held]],
+            'a held row: a query that is assigned from itself' => ["\$query = WalletTransaction::where('user_id', 1);\n\$query = \$query->where('id', 1);\n\$query->delete();", [$held]],
+            'a held row: a model made with new, then used as a query' => ["\$transaction = new WalletTransaction();\n\$transaction->where('id', 1)->delete();", [$held]],
+            'a held row: a model taken from the container, then used as a query' => ["\$transaction = app(WalletTransaction::class);\n\$transaction->where('id', 1)->update(['credit' => 0]);", [$held]],
+            'a held row: a model made with make, then used as a query' => ["\$transaction = App::make(LoyaltyPointTransaction::class);\n\$transaction->where('id', 1)->delete();", [$held]],
+            'a held row: rows kept in a variable, each deleted by the higher order proxy' => ["\$rows = WalletTransaction::where('user_id', 1)->get();\n\$rows->each->delete();", [$held]],
+            'a held row: rows kept in a variable, the first one deleted' => ["\$rows = WalletTransaction::where('user_id', 1)->get();\n\$rows->first()->delete();", [$held]],
+            'a held row: rows kept in a variable, the parameter of each' => ["\$rows = LoyaltyPointTransaction::where('user_id', 1)->get();\n\$rows->each(function (\$row) {\n    \$row->update(['credit' => 0]);\n});", [$held]],
+            'a held row: a row fetched with getFirstWhere, set and saved' => [
+                "class Controller\n{\n    public function __construct(private readonly WalletTransactionRepositoryInterface \$walletTransactionRepo)\n    {\n    }\n\n    public function fix(\$id)\n    {\n        \$transaction = \$this->walletTransactionRepo->getFirstWhere(params: ['id' => \$id]);\n        \$transaction->credit = 0;\n        \$transaction->save();\n    }\n}",
+                [$held],
+            ],
             'an injected model: the shape of the two ledger repositories' => [
                 "class Repository\n{\n    public function __construct(private readonly WalletTransaction \$walletTransaction)\n    {\n    }\n\n    public function update(string \$id, array \$data): bool\n    {\n        return \$this->walletTransaction->where('id', \$id)->update(\$data);\n    }\n\n    public function delete(array \$params): bool\n    {\n        \$this->walletTransaction->where(\$params)->delete();\n\n        return true;\n    }\n}",
                 [$injected, $injected],
@@ -234,6 +288,13 @@ class LedgerRowsAreNeverEditedTest extends TestCase
             'a repository: delete' => ["class Controller\n{\n    public function __construct(private readonly WalletTransactionRepositoryInterface \$walletTransactionRepo)\n    {\n    }\n\n    public function purge()\n    {\n        \$this->walletTransactionRepo->delete(params: ['id' => 1]);\n    }\n}", [$repository]],
             'a repository: update' => ["class Controller\n{\n    public function __construct(private readonly LoyaltyPointTransactionRepository \$loyaltyPointTransactionRepo)\n    {\n    }\n\n    public function fix()\n    {\n        \$this->loyaltyPointTransactionRepo->update(id: 1, data: ['balance' => 0]);\n    }\n}", [$repository]],
             'a repository: taken from the container' => ["app(WalletTransactionRepositoryInterface::class)->delete(params: ['id' => 1]);", [$repository]],
+            'a repository: taken from the container with make' => ["app()->make(WalletTransactionRepositoryInterface::class)->delete(params: ['id' => 1]);", [$repository]],
+            'a repository: held in a variable from the container' => ["\$repository = app(WalletTransactionRepositoryInterface::class);\n\$repository->delete(params: ['id' => 1]);", [$repository]],
+            'a repository: held in a variable from new' => ["\$repository = new LoyaltyPointTransactionRepository(\$model, \$settings, \$user);\n\$repository->update(id: 1, data: ['balance' => 0]);", [$repository]],
+            'a repository: held in a variable from the property of the class' => [
+                "class Controller\n{\n    public function __construct(private readonly WalletTransactionRepositoryInterface \$walletTransactionRepo)\n    {\n    }\n\n    public function purge()\n    {\n        \$repository = \$this->walletTransactionRepo;\n        \$repository->delete(params: ['id' => 1]);\n    }\n}",
+                [$repository],
+            ],
             'a repository: made with new' => ["(new LoyaltyPointTransactionRepository(\$model, \$settings, \$user))->update(id: 1, data: ['balance' => 0]);", [$repository]],
             'a repository: a property a trait declares, in a class that only uses the trait' => ["class Controller\n{\n    use CustomerTrait;\n\n    public function fix()\n    {\n        \$this->loyaltyPointTransactionRepo->delete(params: ['id' => 1]);\n    }\n}", [$repository]],
             'two edits in one piece of code are two findings, in the order they are written' => ["WalletTransaction::where('id', 1)->delete();\nDB::table('loyalty_point_transactions')->truncate();\nDB::statement('UPDATE wallet_transactions SET credit = 0');", [$model, $builder, $sql]],
@@ -262,6 +323,13 @@ class LedgerRowsAreNeverEditedTest extends TestCase
             'a new model saved inside a method that takes a typed parameter of another class' => ["public function add(User \$user)\n{\n    \$row = new LoyaltyPointTransaction();\n    \$row->user_id = \$user->id;\n    \$row->save();\n}"],
             'a typed property whose model is only read and created from' => ["class Repository\n{\n    public function __construct(private readonly WalletTransaction \$walletTransaction)\n    {\n    }\n\n    public function add(array \$data)\n    {\n        return \$this->walletTransaction->create(\$data);\n    }\n\n    public function find(array \$params)\n    {\n        return \$this->walletTransaction->where(\$params)->first();\n    }\n}"],
             'a repository that is asked to add and to list' => ["class Controller\n{\n    public function __construct(private readonly WalletTransactionRepositoryInterface \$walletTransactionRepo)\n    {\n    }\n\n    public function index()\n    {\n        \$this->walletTransactionRepo->addWalletTransaction(user_id: '1', amount: 5.0, transactionType: 'add_fund_by_admin', reference: 'x');\n        return \$this->walletTransactionRepo->getListWhere(filters: []);\n    }\n}"],
+            'a row fetched with getFirstWhere and only read' => ["class Controller\n{\n    public function __construct(private readonly WalletTransactionRepositoryInterface \$walletTransactionRepo)\n    {\n    }\n\n    public function show(\$id)\n    {\n        \$transaction = \$this->walletTransactionRepo->getFirstWhere(params: ['id' => \$id]);\n\n        return \$transaction->credit - \$transaction->debit;\n    }\n}"],
+            'a repository held in a variable and asked to add and to list' => ["\$repository = app(WalletTransactionRepositoryInterface::class);\n\$repository->addWalletTransaction(user_id: '1', amount: 5.0, transactionType: 'add_fund_by_admin', reference: 'x');\n\$repository->getListWhere(filters: []);"],
+            'a model made with new or taken from the container, and only read or created from' => ["\$model = new WalletTransaction();\n\$model->where('user_id', 1)->get();\n\$other = app(LoyaltyPointTransaction::class);\n\$other->create(['user_id' => 1]);\n\$other->where('id', 1)->first();\nApp::make(WalletTransaction::class)->where('id', 1)->exists();"],
+            'rows kept in a variable and only read' => ["\$rows = WalletTransaction::where('user_id', 1)->get();\n\$total = \$rows->sum('credit');\n\$rows->each(function (\$row) {\n    echo \$row->credit;\n});\n\$balance = \$rows->first()->balance;"],
+            'a query that is assigned from itself and only read' => ["\$query = WalletTransaction::where('user_id', 1);\n\$query = \$query->where('id', 1);\n\$query->get();"],
+            'a table named by a constant that is not a ledger table, or by one the scan does not know' => ["class Purge\n{\n    private const ORDERS = 'orders';\n\n    public function run()\n    {\n        DB::table(self::ORDERS)->delete();\n        DB::table(self::SOMEWHERE_ELSE)->delete();\n    }\n}"],
+            'a class that is not a ledger class taken from the container' => ["App::make(Order::class)->where('id', 1)->delete();\n\$this->app->make(Cart::class)->where('id', 1)->update(['x' => 1]);\napp()->make(Mailer::class)->delete();"],
             'a relation that is read and added to' => ["\$user->walletTransactions()->where('id', 1)->get();\n\$user->walletTransactions()->create(['credit' => 5]);\n\$user->walletTransactions->sum('credit');"],
             'raw SQL that reads' => ["DB::select('select * from wallet_transactions where id = 1');\nDB::select('SELECT * FROM loyalty_point_transactions WHERE user_id = 1 FOR UPDATE');"],
             'raw SQL that inserts' => ["DB::statement('INSERT INTO wallet_transactions (user_id) VALUES (1)');"],
@@ -299,6 +367,22 @@ class LedgerRowsAreNeverEditedTest extends TestCase
         $code = "<?php\nclass User\n{\n    public function walletTransactions(): HasMany\n    {\n        return \$this->hasMany(WalletTransaction::class);\n    }\n\n    public function loyaltyPointTransactions()\n    {\n        return \$this->hasMany(\\App\\Models\\LoyaltyPointTransaction::class, 'user_id');\n    }\n\n    public function orders()\n    {\n        return \$this->hasMany(Order::class);\n    }\n\n    public function user()\n    {\n        return \$this->belongsTo(User::class);\n    }\n}\n";
 
         $this->assertSame(['walletTransactions', 'loyaltyPointTransactions'], LedgerEditScanner::relationsTo(models: self::MODELS, code: $code));
+    }
+
+    public function test_the_constants_that_hold_a_ledger_table_are_found_by_name_and_no_other_constant_is(): void
+    {
+        $code = "<?php\nfinal class Tables\n{\n    public const WALLET = 'wallet_transactions';\n    private const LOYALTY = \"loyalty_point_transactions\";\n    public const ORDERS = 'orders';\n    public const LIMIT = 10;\n}\n";
+
+        $this->assertSame(['WALLET' => 'wallet_transactions', 'LOYALTY' => 'loyalty_point_transactions'], self::scanner()->constantsDeclaredIn(code: $code));
+    }
+
+    public function test_a_file_is_read_when_it_names_the_ledger_only_by_a_constant_that_holds_its_table(): void
+    {
+        $code = "DB::table(LedgerTables::WALLET)->where('id', 1)->delete();";
+
+        $this->assertFalse(self::scanner()->mentionsTheLedger(code: $code));
+        $this->assertTrue(self::scanner(constants: ['WALLET' => 'wallet_transactions'])->mentionsTheLedger(code: $code));
+        $this->assertFalse(self::scanner(constants: ['WALLET' => 'wallet_transactions'])->mentionsTheLedger(code: 'DB::table(OtherTables::ORDERS)->delete();'));
     }
 
     public function test_the_properties_that_hold_a_ledger_model_or_repository_are_found_by_name_and_parameters_are_not_properties(): void

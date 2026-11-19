@@ -19,8 +19,10 @@ use Tests\TestCase;
  * `vendor_ledger_entries` has no migration; the table is built in setUp with the columns VendorLedger writes (tests/Support/BuildsWalletAndVendorLedgerSchema). What makes two events the same is the key the class asks the
  * ledger for before it appends: the seller, whose side of the shop the seller is on (`seller_is`), the type of entry, and the reference (type and id) the entry is about.
  *
- * The class has ONE update path, `releaseMatured()`: it moves a pending entry whose window has passed to `available`. It changes `status` and `updated_at` and nothing else, and the entry is the same entry. Other classes
- * move the status too (PayoutService marks a reserve `paid`, SettlementEngine stamps `settlement_id` and marks entries `paid`); this test is about what VendorLedger itself does.
+ * The class has ONE update path, `releaseMatured()`: it moves a PENDING entry whose window has passed to `available`, and only a pending one: an entry that is reserved, paid or already available is left as it is, whatever
+ * its window. It changes `status` and `updated_at` and nothing else, and the entry is the same entry. Other classes move the status too (PayoutService marks a reserve `paid`, SettlementEngine stamps `settlement_id`
+ * and marks entries `paid`); this test is about what VendorLedger itself does. NOT COVERED: the same method also holds back an order earning until its order is `delivered`, which needs the `orders` and `order_details`
+ * tables; this test does not build them, so that gate is skipped here (the method only applies it when both tables exist).
  */
 class VendorLedgerEntryTest extends TestCase
 {
@@ -194,6 +196,25 @@ class VendorLedgerEntryTest extends TestCase
         foreach ($before as $position => $row) {
             $this->assertSame(Arr::except($row, ['status', 'updated_at']), Arr::except($after[$position], ['status', 'updated_at']));
         }
+    }
+
+    public function test_releaseMatured_leaves_an_entry_that_is_not_pending_as_it_was_whatever_its_window(): void
+    {
+        $settled = [VendorLedgerEntry::STATUS_RESERVED, VendorLedgerEntry::STATUS_PAID, VendorLedgerEntry::STATUS_AVAILABLE];
+        foreach ($settled as $position => $status) {
+            $this->recordEvent(changes: ['referenceId' => 10 + $position, 'status' => $status, 'availableAt' => now()->subDay()]);
+        }
+        $pending = $this->recordEvent(changes: ['referenceId' => 20, 'availableAt' => now()->subDay()]);
+        $before = $this->rows();
+
+        $released = $this->ledger->releaseMatured();
+
+        $after = $this->rows();
+        $this->assertSame(1, $released);
+        $this->assertSame(array_slice($before, 0, 3), array_slice($after, 0, 3));
+        $this->assertSame($settled, array_column(array_slice($after, 0, 3), 'status'));
+        $this->assertSame($pending->id, $after[3]['id']);
+        $this->assertSame(VendorLedgerEntry::STATUS_AVAILABLE, $after[3]['status']);
     }
 
     public function test_the_class_has_one_statement_that_edits_an_entry_and_it_is_the_one_in_releaseMatured(): void

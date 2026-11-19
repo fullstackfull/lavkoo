@@ -12,12 +12,16 @@ use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
 
 /**
- * E-04.2 of the master plan: the answers the customer app and the web read keep the keys and the meaning they have in the default (Saudi) market, which is the only one a request answers for while it
- * carries no storefront. `wallet_balance` and `loyalty_point` in the profile, `total_wallet_balance` in the wallet list and `total_loyalty_point` in the loyalty list are the customer's own balances as the
- * store holds them, sent as JSON numbers, and the two lists keep the keys around them and the keys of their rows. A later answer may add a key; it may not rename, drop or reshape one of these.
+ * E-04.2 of the master plan: the API v1 answers the customer app reads keep the keys and the meaning they have in the default (Saudi) market, which is the only one a request answers for while it carries no
+ * storefront. `wallet_balance` and `loyalty_point` in the profile, `total_wallet_balance` in the wallet list and `total_loyalty_point` in the loyalty list are the customer's own balance columns
+ * (`users.wallet_balance`, `users.loyalty_point`), sent as JSON numbers; they are not added up from the ledgers, which the two lists only page through. The two lists keep the keys around them and the keys of
+ * their rows. A later answer may add a key; it may not rename, drop or reshape one of these.
  *
  * Every value asserted here is one this test wrote into the tables; none is read back from the code. The balances go through the database and the model's float cast, as they do for a real request: the
  * customer is read from the table before the request is made. A whole number reaches the app without a decimal point (`340`, not `340.0`) because the answer is a plain `json_encode`; that is what is pinned.
+ * The seeds of setUp() are consistent (the balance column is what the ledger adds up to and what its newest row says), so on their own they cannot tell the column from a number derived from the ledger. Two tests
+ * do: one gives a customer whose ledgers add up to something else than the balance columns, the other a customer with no ledger rows at all. The web theme reads `$user->wallet_balance` from the model and not
+ * these answers; `Web\UserWalletController` and `Web\UserLoyaltyController` are not covered here.
  *
  * It uses `BuildsApiAddressSchema` only for the throwaway key pair Passport's guard needs and for `makeCustomer()`.
  */
@@ -226,6 +230,43 @@ class CustomerBalanceAnswersTest extends TestCase
         $this->assertSame(7, $profile['loyalty_point']);
         $this->assertSame(7, $loyalty['total_loyalty_point']);
         $this->assertSame(['dddddddd-0000-4000-8000-000000000001'], array_column($loyalty['loyalty_point_list'], 'transaction_id'));
+    }
+
+    public function test_the_balances_are_the_columns_of_the_customer_and_not_what_the_ledgers_add_up_to(): void
+    {
+        $drifted = $this->customerWith(walletBalance: 250.75, loyaltyPoints: 12.0);
+        $this->walletRow(customer: $drifted, transactionId: 'eeeeeeee-0000-4000-8000-000000000001', daysAgo: 2, type: 'add_fund', credit: 80.0, debit: 0.0, balance: 80.0, reference: 'online-top-up');
+        $this->walletRow(customer: $drifted, transactionId: 'eeeeeeee-0000-4000-8000-000000000002', daysAgo: 1, type: 'order_place', credit: 0.0, debit: 5.0, balance: 75.0, reference: 'order_place_in_pos');
+        $this->loyaltyRow(customer: $drifted, transactionId: 'ffffffff-0000-4000-8000-000000000001', daysAgo: 1, type: 'order_place', credit: 5.0, debit: 0.0, balance: 5.0, reference: '3003');
+
+        $profile = $this->answerTo(customer: $drifted, uri: self::PROFILE)->json();
+        $wallet = $this->answerTo(customer: $drifted, uri: self::WALLET_LIST)->json();
+        $loyalty = $this->answerTo(customer: $drifted, uri: self::LOYALTY_LIST)->json();
+
+        $this->assertSame(250.75, $profile['wallet_balance']);
+        $this->assertSame(250.75, $wallet['total_wallet_balance']);
+        $this->assertSame(2, $wallet['total_size']);
+        $this->assertSame(12, $profile['loyalty_point']);
+        $this->assertSame(12, $loyalty['total_loyalty_point']);
+        $this->assertSame(1, $loyalty['total_size']);
+    }
+
+    public function test_a_customer_without_ledger_rows_is_answered_with_the_balance_columns_and_empty_lists(): void
+    {
+        $newcomer = $this->customerWith(walletBalance: 250.75, loyaltyPoints: 12.0);
+
+        $profile = $this->answerTo(customer: $newcomer, uri: self::PROFILE)->json();
+        $wallet = $this->answerTo(customer: $newcomer, uri: self::WALLET_LIST)->json();
+        $loyalty = $this->answerTo(customer: $newcomer, uri: self::LOYALTY_LIST)->json();
+
+        $this->assertSame(250.75, $profile['wallet_balance']);
+        $this->assertSame(250.75, $wallet['total_wallet_balance']);
+        $this->assertSame(0, $wallet['total_size']);
+        $this->assertSame([], $wallet['wallet_transaction_list']);
+        $this->assertSame(12, $profile['loyalty_point']);
+        $this->assertSame(12, $loyalty['total_loyalty_point']);
+        $this->assertSame(0, $loyalty['total_size']);
+        $this->assertSame([], $loyalty['loyalty_point_list']);
     }
 
     /** @return array<string, array{string}> */

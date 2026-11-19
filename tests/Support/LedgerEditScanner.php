@@ -7,15 +7,19 @@ use PhpToken;
 /**
  * Reads PHP source for every statement that could UPDATE or DELETE a row of a ledger table, and reports it with the way it is made. Inserting is what a ledger is for and is never reported.
  *
- * It follows a call chain from where the ledger enters it to the call that edits: a ledger model class (`WalletTransaction::where(...)->delete()`, `::destroy()`, `::truncate()`), a query on a ledger
- * table by `table()`, `from()` or `join()` (an alias, a schema name or `DB::connection()` in front change nothing), the schema builder (`drop`, `dropIfExists`, `rename`), a relation to the ledger by
- * name, a model or a query kept in a variable (assigned, looped over, or the parameter of an `each` closure) and then updated, deleted or saved, a model or a repository that a class holds in a typed
- * property or a typed parameter, and a model or a repository made by `new` or taken from the container. Raw SQL is read from the string literals (UPDATE, DELETE, TRUNCATE, REPLACE INTO, DROP TABLE, an
- * upsert, an UPDATE that joins the ledger), with literals joined across a `.`. Comments are never read.
+ * It follows a call chain from where the ledger enters it to the call that edits. The ledger enters through: a ledger model class (`WalletTransaction::where(...)->delete()`, `::destroy()`, `::truncate()`); a query on a
+ * ledger table by `table()`, `from()` or `join()` (an alias, a schema name or `DB::connection()` in front change nothing, and the table may be named by a string or by a constant that is the whole argument);
+ * the schema builder (`drop`, `dropIfExists`, `rename`); a relation to the ledger by name; a model or a repository that a class holds in a typed property or takes as a typed parameter; a model or a repository made by
+ * `new`, `app()`, `resolve()` or `->make()` (`App::make()`, `$this->app->make()`, `app()->make()`), chained at once or kept in a variable. A variable that holds a ledger row, many rows, a query, a new model or a
+ * repository (assigned, assigned from itself, looped over, or the first parameter of an `each` closure) is followed to the later statement that updates, deletes or saves it; a repository's `getFirstWhere()` returns a
+ * row. Raw SQL is read from the string literals (UPDATE, DELETE, TRUNCATE, REPLACE INTO, DROP TABLE, an upsert, an UPDATE that joins the ledger), with literals joined across a `.`. Comments are never read.
  *
- * It reads text, not behaviour, and does not see: a table named in a variable (`DB::table($table)`), SQL built from pieces that are not literals, a closure parameter that is not the first parameter of an
- * `each`/`map`/`chunk` callback, a model that reaches a statement through an array, a property or a return value, a `save()` on a model that was handed in (it may be a new one), a model that edits itself
- * with `$this->update()` in its own class, a typed property declared in a file the scan is not told about (see `propertiesDeclaredIn()`), and a call made through a variable method name or `call_user_func`.
+ * It reads text, not behaviour, and does not see: a table named in a variable (`DB::table($table)`), by a constant it does not know (it knows `NAME`, `self::NAME`, `static::NAME` and `Class::NAME` by the constants of
+ * the file and of the files it is told about, see `constantsDeclaredIn()`) or by a constant joined to other text; raw SQL built from pieces that are not literals (a constant or a variable in the middle of the
+ * string); a ledger model or repository assigned to a property that has no ledger type (`$this->model = new WalletTransaction()`) and used on a later statement; a closure parameter that is not the first parameter
+ * of an `each`/`map`/`chunk` callback; a model that reaches a statement through an array, a property or a return value; a `save()` on a model that was handed in (it may be a new one); a model that edits itself
+ * (`$this->update()`, `self::where()->delete()`) inside its own class; a typed property declared in a file the scan is not told about (see `propertiesDeclaredIn()`); a ledger repository reached through a type that
+ * is not a ledger one (the generic `RepositoryInterface`); and a call made through a variable method name, `call_user_func` or a container call that does not name the class (`app($class)`).
  */
 final class LedgerEditScanner
 {
@@ -46,8 +50,8 @@ final class LedgerEditScanner
     /** Calls that write the model they are called on: an insert for a new model, an update for one that was fetched. */
     private const SAVES = ['save', 'saveQuietly', 'push'];
 
-    /** Calls that return one row that exists. */
-    private const FETCHES = ['find', 'findOrFail', 'findMany', 'first', 'firstOrFail', 'firstWhere', 'sole', 'last'];
+    /** Calls that return one row that exists: the query builder's, and `getFirstWhere()` of the repository contract. */
+    private const FETCHES = ['find', 'findOrFail', 'findMany', 'first', 'firstOrFail', 'firstWhere', 'getFirstWhere', 'sole', 'last'];
 
     /** Calls that return many rows that exist. */
     private const FETCH_MANY = ['get', 'all', 'cursor', 'lazy'];
@@ -60,12 +64,28 @@ final class LedgerEditScanner
 
     private const SCHEMA_DROPS = ['drop', 'dropIfExists', 'rename'];
 
+    /** What a variable can hold, by the name the scan keeps it under. */
+    private const HOLDS_ROW = 'row';
+
+    private const HOLDS_ROWS = 'rows';
+
+    private const HOLDS_QUERY = 'query';
+
+    private const HOLDS_REPOSITORY = 'repository';
+
+    /** Functions that take a class from the container. */
     private const CONTAINER_CALLS = ['app', 'resolve', 'make'];
+
+    /** Methods that take a class from the container: `App::make()`, `$this->app->make()`, `app()->make()`, `$container->get()`. */
+    private const CONTAINER_METHODS = ['make', 'makeWith', 'resolve', 'get'];
 
     private string $source = '';
 
     /** @var list<string> the ledger models by the name this file uses: their own, and the alias of a `use ... as ...` */
     private array $modelNames = [];
+
+    /** @var array<string, string> the table by name of the string constants this file declares and of the ones the scan is told about */
+    private array $knownConstants = [];
 
     /**
      * @param list<string> $tables ledger tables, such as `wallet_transactions`
@@ -73,6 +93,7 @@ final class LedgerEditScanner
      * @param list<string> $repositories repositories and repository interfaces of the ledger, by class name
      * @param list<string> $relations names of the relations (methods of other models) that return ledger rows, see relationsTo()
      * @param array<string, string> $properties properties declared in other files (a trait, a parent class) that hold a ledger model or repository, kind by name, see propertiesDeclaredIn()
+     * @param array<string, string> $constants constants declared in other files whose value is a ledger table, table by name, see constantsDeclaredIn()
      */
     public function __construct(
         private readonly array $tables,
@@ -80,6 +101,7 @@ final class LedgerEditScanner
         private readonly array $repositories = [],
         private readonly array $relations = [],
         private readonly array $properties = [],
+        private readonly array $constants = [],
     ) {
     }
 
@@ -112,10 +134,21 @@ final class LedgerEditScanner
         return $this->declarationsIn(tokens: $tokens)['properties'];
     }
 
-    /** Whether a file names a ledger at all, by a model, a table, a repository, a relation or a property: a file that does not cannot edit one. */
+    /**
+     * The string constants a file declares whose value is a ledger table, by name: `private const LEDGER = 'wallet_transactions';`. A class that names its table `Tables::WALLET` reaches it from another file, so
+     * the scan is told the names of the whole tree.
+     *
+     * @return array<string, string> table by constant name
+     */
+    public function constantsDeclaredIn(string $code): array
+    {
+        return array_filter($this->constantsIn(tokens: $this->tokensOf(code: $code)), fn (string $table): bool => $this->isLedgerTable(name: $table));
+    }
+
+    /** Whether a file names a ledger at all, by a model, a table, a repository, a relation, a property or a constant: a file that does not cannot edit one. */
     public function mentionsTheLedger(string $code): bool
     {
-        $names = array_map(static fn (string $name): string => preg_quote($name, '/'), [...$this->models, ...$this->tables, ...$this->repositories, ...$this->relations, ...array_keys($this->properties)]);
+        $names = array_map(static fn (string $name): string => preg_quote($name, '/'), [...$this->models, ...$this->tables, ...$this->repositories, ...$this->relations, ...array_keys($this->properties), ...array_keys($this->constants)]);
 
         return preg_match('/\b(?:' . implode('|', $names) . ')\b/', $code) === 1;
     }
@@ -129,6 +162,7 @@ final class LedgerEditScanner
     {
         $tokens = $this->tokensOf(code: $code);
         $this->modelNames = [...$this->models, ...$this->aliasesIn(tokens: $tokens)];
+        $this->knownConstants = $this->constantsIn(tokens: $tokens) + $this->constants;
         $declared = $this->declarationsIn(tokens: $tokens);
         $declared['properties'] += $this->properties;
 
@@ -151,7 +185,7 @@ final class LedgerEditScanner
 
     /**
      * @param list<PhpToken> $tokens
-     * @param array<string, string> $held variables that hold ledger rows ('row'), many of them ('rows') or a ledger query ('query')
+     * @param array<string, string> $held variables that hold ledger rows (HOLDS_ROW), many of them (HOLDS_ROWS), a ledger query or a new model (HOLDS_QUERY) or a ledger repository (HOLDS_REPOSITORY)
      * @param array{properties: array<string, string>, parameters: array<string, string>} $declared
      * @param list<array{kind: string, line: int, statement: string}> $found
      */
@@ -302,13 +336,15 @@ final class LedgerEditScanner
         return match (true) {
             $root['name'] === 'this' && $first !== null && !$first['call'] && isset($declared['properties'][$first['name']]) => ['kind' => $declared['properties'][$first['name']], 'from' => 1, 'rows' => false],
             isset($declared['parameters'][$root['name']]) => ['kind' => $declared['parameters'][$root['name']], 'from' => 0, 'rows' => false],
-            isset($held[$root['name']]) && $held[$root['name']] !== 'rows' => ['kind' => self::HELD_ROW, 'from' => 0, 'rows' => $held[$root['name']] === 'row'],
+            ($held[$root['name']] ?? null) === self::HOLDS_REPOSITORY => ['kind' => self::REPOSITORY, 'from' => 0, 'rows' => false],
+            isset($held[$root['name']]) => ['kind' => self::HELD_ROW, 'from' => 0, 'rows' => $held[$root['name']] === self::HOLDS_ROW],
             default => null,
         };
     }
 
     /**
-     * The ledger enters in the middle of a chain: a segment that names a ledger table to the query builder, drops one with the schema builder, or is a relation to the ledger.
+     * The ledger enters in the middle of a chain: a segment that names a ledger table to the query builder, drops one with the schema builder, is a relation to the ledger, or takes a ledger class from the
+     * container (`App::make(WalletTransaction::class)`, `$this->app->make(...)`, `app()->make(...)`).
      *
      * @param array<string, mixed> $chain
      * @param list<PhpToken> $tokens
@@ -327,9 +363,29 @@ final class LedgerEditScanner
             if (in_array($segment['name'], $this->relations, true)) {
                 return ['kind' => self::RELATION, 'from' => $position + 1, 'rows' => false];
             }
+
+            $made = $segment['call'] && in_array($segment['name'], self::CONTAINER_METHODS, true) ? $this->ledgerClassKindNamedIn(tokens: $tokens, from: $segment['from'], to: $segment['to']) : null;
+            if ($made !== null) {
+                return ['kind' => $made, 'from' => $position + 1, 'rows' => false];
+            }
         }
 
         return null;
+    }
+
+    /**
+     * A ledger model or repository made with `new`, and not chained on: `$transaction = new WalletTransaction();`.
+     *
+     * @param list<PhpToken> $tokens
+     * @return array{kind: string, from: int, rows: bool}|null
+     */
+    private function entryOfNewInstance(array $tokens, int $start): ?array
+    {
+        $created = $tokens[$start] ?? null;
+        $class = $tokens[$start + 1] ?? null;
+        $kind = $created !== null && $created->id === T_NEW && $class !== null && $this->isName(token: $class) ? $this->ledgerClassKind(name: $this->shortName(name: $class->text)) : null;
+
+        return $kind === null ? null : ['kind' => $kind, 'from' => 0, 'rows' => false];
     }
 
     /**
@@ -379,7 +435,8 @@ final class LedgerEditScanner
     }
 
     /**
-     * `$row = WalletTransaction::find($id);` makes `$row` a ledger row, `$query = DB::table('wallet_transactions')->where(...)` a ledger query, `$rows = ...->get()` many rows.
+     * `$row = WalletTransaction::find($id);` makes `$row` a ledger row, `$query = DB::table('wallet_transactions')->where(...)` a ledger query, `$rows = ...->get()` many rows, `$model = new WalletTransaction()` or
+     * `app(WalletTransaction::class)` a model that is used as a query, `$repository = app(WalletTransactionRepositoryInterface::class)` a repository. A variable that is assigned anything else is no longer held.
      *
      * @param list<PhpToken> $tokens
      * @param array<string, string> $held
@@ -388,18 +445,20 @@ final class LedgerEditScanner
     private function bindAssignedVariable(array $tokens, int $variable, array &$held, array $declared): void
     {
         $name = ltrim($tokens[$variable]->text, '$');
-        unset($held[$name]);
-
         $chain = $this->chainAt(tokens: $tokens, start: $variable + 2);
-        if ($chain === null || $chain['segments'] === [] || $this->entryOf(chain: $chain, tokens: $tokens, held: $held, declared: $declared) === null) {
+        $entry = $chain === null ? $this->entryOfNewInstance(tokens: $tokens, start: $variable + 2) : $this->entryOf(chain: $chain, tokens: $tokens, held: $held, declared: $declared);
+        unset($held[$name]);
+        if ($entry === null) {
             return;
         }
 
-        $last = end($chain['segments'])['name'];
+        $after = $chain === null ? [] : array_slice($chain['segments'], $entry['from']);
+        $last = $after === [] ? null : end($after)['name'];
         $held[$name] = match (true) {
-            in_array($last, self::FETCHES, true) => 'row',
-            in_array($last, self::FETCH_MANY, true) => 'rows',
-            default => 'query',
+            $entry['kind'] === self::REPOSITORY && ($last === null || in_array($last, self::CONTAINER_METHODS, true)) => self::HOLDS_REPOSITORY,
+            in_array($last, self::FETCHES, true) => self::HOLDS_ROW,
+            in_array($last, self::FETCH_MANY, true) => self::HOLDS_ROWS,
+            default => self::HOLDS_QUERY,
         };
     }
 
@@ -431,7 +490,7 @@ final class LedgerEditScanner
             ? $this->entryOf(chain: $subject, tokens: $tokens, held: $held, declared: $declared) !== null
             : ($as === $open + 2 && $tokens[$open + 1]->id === T_VARIABLE && isset($held[ltrim($tokens[$open + 1]->text, '$')]));
         if ($isLedger) {
-            $held[ltrim($tokens[$close - 1]->text, '$')] = 'row';
+            $held[ltrim($tokens[$close - 1]->text, '$')] = self::HOLDS_ROW;
         }
     }
 
@@ -451,7 +510,7 @@ final class LedgerEditScanner
             $close = $this->closerOf(tokens: $tokens, open: $position + 1);
             for ($parameter = $position + 2; $parameter < $close; $parameter++) {
                 if ($tokens[$parameter]->id === T_VARIABLE) {
-                    $held[ltrim($tokens[$parameter]->text, '$')] = 'row';
+                    $held[ltrim($tokens[$parameter]->text, '$')] = self::HOLDS_ROW;
 
                     return;
                 }
@@ -565,10 +624,51 @@ final class LedgerEditScanner
         return $token->id === T_CONSTANT_ENCAPSED_STRING ? substr($token->text, 1, -1) : $token->text;
     }
 
-    /** @param list<PhpToken> $tokens the first argument between two tokens, when it is a string literal */
+    /** @param list<PhpToken> $tokens the first argument between two tokens, when it is a string literal, or a constant that holds one and is the whole argument */
     private function literalAt(array $tokens, int $from, int $to): ?string
     {
-        return $from < $to && $tokens[$from]->id === T_CONSTANT_ENCAPSED_STRING ? $this->stringOf(token: $tokens[$from]) : null;
+        if ($from >= $to) {
+            return null;
+        }
+
+        return $tokens[$from]->id === T_CONSTANT_ENCAPSED_STRING
+            ? $this->stringOf(token: $tokens[$from])
+            : ($this->knownConstants[$this->constantNameAt(tokens: $tokens, from: $from, to: $to) ?? ''] ?? null);
+    }
+
+    /** @param list<PhpToken> $tokens the name of the constant that is the whole first argument between two tokens: `NAME`, `self::NAME`, `static::NAME` or `Class::NAME` */
+    private function constantNameAt(array $tokens, int $from, int $to): ?string
+    {
+        $qualified = ($tokens[$from + 1]->id ?? null) === T_DOUBLE_COLON && $from + 2 < $to && ($tokens[$from + 2]->id ?? null) === T_STRING && in_array($tokens[$from + 3]->text ?? '', [',', ')'], true);
+        $bare = $tokens[$from]->id === T_STRING && in_array($tokens[$from + 1]->text ?? '', [',', ')'], true);
+
+        return match (true) {
+            $qualified => $tokens[$from + 2]->text,
+            $bare => $tokens[$from]->text,
+            default => null,
+        };
+    }
+
+    /**
+     * @param list<PhpToken> $tokens
+     * @return array<string, string> the string constants a file declares, by name: `private const LEDGER = 'wallet_transactions';`
+     */
+    private function constantsIn(array $tokens): array
+    {
+        $constants = [];
+        foreach ($tokens as $index => $token) {
+            if ($token->id !== T_CONST) {
+                continue;
+            }
+
+            for ($position = $index + 1; isset($tokens[$position + 1]) && $tokens[$position]->text !== ';'; $position++) {
+                if ($tokens[$position]->text === '=' && $tokens[$position - 1]->id === T_STRING && $tokens[$position + 1]->id === T_CONSTANT_ENCAPSED_STRING) {
+                    $constants[$tokens[$position - 1]->text] = $this->stringOf(token: $tokens[$position + 1]);
+                }
+            }
+        }
+
+        return $constants;
     }
 
     private function isLedgerTable(?string $name): bool
