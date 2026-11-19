@@ -100,6 +100,8 @@ class StorefrontCouponFormMoneyTest extends TestCase
             'one currency, three decimals' => ['single_currency', 3, 'SA', ['min_purchase' => 1.023, 'discount' => 1.005, 'max_discount' => 1.019]],
             'a base currency, three decimals' => ['multi_currency', 3, 'SA', ['min_purchase' => 10.505, 'discount' => 0.173, 'max_discount' => 0.116]],
             'a Kuwaiti coupon on a platform that converts from the riyal' => ['multi_currency', 2, 'KW', ['min_purchase' => 10.505, 'discount' => 1.005, 'max_discount' => 1.019]],
+            'a Bahraini coupon, the other three-decimal dinar' => ['multi_currency', 2, 'BH', ['min_purchase' => 10.505, 'discount' => 1.005, 'max_discount' => 1.019]],
+            'an Omani coupon, the three-decimal rial' => ['multi_currency', 2, 'OM', ['min_purchase' => 10.505, 'discount' => 1.005, 'max_discount' => 1.019]],
         ];
     }
 
