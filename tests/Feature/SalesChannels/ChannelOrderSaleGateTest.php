@@ -10,9 +10,10 @@ use App\Services\Storefront\StorefrontSellingGate;
 use Illuminate\Support\Facades\DB;
 
 /**
- * I2-09.1: what the marketplace order materializer does while the storefront it runs in may not sell. The owner has recorded no rule for it (docs/gcc/DECISIONS.md and the runbook name the
- * materializer only among the paths that are not behind the sale gate), so the test pins what the code does today under a name that says it is not a decision. The decision it needs is the
- * owner's: whether a stopped storefront also stops the dispatch of a marketplace order to a provider (refused), or the dispatch is exempt because the sale was made, and paid for, at the marketplace.
+ * I2-09.1: what the marketplace order materializer does while the storefront it runs in may not sell. The owner has recorded no rule for it: docs/gcc/DECISIONS.md is silent (it only says to keep
+ * the marketplace integrations), and docs/gcc/STOREFRONT_FLAG_RUNBOOK.md names the materializer only among the paths that are not behind the sale gate. So the test pins what the code does today
+ * under a name that says it is not a decision. The decision it needs is the owner's: whether a stopped storefront also stops the dispatch of a marketplace order to a provider (refused), or the
+ * dispatch is exempt because the sale was made, and paid for, at the marketplace.
  */
 class ChannelOrderSaleGateTest extends DispatchTestCase
 {

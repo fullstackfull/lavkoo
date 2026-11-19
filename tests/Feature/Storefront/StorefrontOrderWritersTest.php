@@ -6,22 +6,26 @@ use App\Http\Middleware\EnsureStorefrontMaySell;
 use App\Http\Middleware\ResolveStorefront;
 use Illuminate\Routing\Route as RoutingRoute;
 use Illuminate\Support\Facades\Route;
+use PHPUnit\Framework\AssertionFailedError;
+use PHPUnit\Framework\Attributes\DataProvider;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
+use Symfony\Component\Finder\Finder;
 use Tests\Support\OrderWriterScanner;
 use Tests\TestCase;
 
 /**
- * I2-09: every writer of orders says what keeps a storefront that may not sell out of it. A scan of app/ and Modules/ finds every place that makes a row of `orders` (CREATORS) and every
+ * I2-09: every writer of orders says what keeps a storefront that may not sell out of it. A scan of app/, Modules/ and routes/ finds every place that makes a row of `orders` (CREATORS) and every
  * piece of code that calls one (WRITERS: the action of a route, a console command, a payment hook), and the hand-written list says for each writer one of three things: the sale gate
  * (`storefront.sellable`, found on every one of its routes as the router resolves it, whether the route names the gate by its alias, by its class, with a parameter or through a group), an
  * exemption with its reason, or the criterion that will gate it (pending). The test fails when the scan finds a creator or a caller that is not on the list, when a gated writer has a route
- * without the gate, when an exemption has no reason, and when the pending writers are not exactly the point-of-sale ones (I2-09.0), which gating one of them changes on purpose.
+ * without the gate, when an exemption has no reason that points at a document, a test or a criterion, and when the pending writers are not exactly the point-of-sale ones (I2-09.0), which gating one of them changes on purpose.
  *
- * The spellings the scan finds, and what it cannot see (a table named by a constant or a variable, a class named by a string, a receiver the file does not declare as an Order, a copy of a
- * fetched order), are pinned in OrderWriterScannerTest. A stop gate declared in the constructor of a controller is not read either: the routes are read as declared, as in
- * StorefrontSalesRoutesTest. The tests directory of a module is not application code and is not scanned. Reorder is not a writer, it fills the cart, and the edit-order flows of the panels and
- * of the seller API change an order that exists.
+ * The spellings the scan finds, and what it cannot see (a table named by a constant or a variable, a class named by a string or called through a callable, a receiver the file does not declare as
+ * an Order, a builder of the model kept in a variable, a class that extends a creator's class and is called by its own name, another model over the table, a copy of a fetched order), are
+ * pinned in OrderWriterScannerTest. The scan reads app/, Modules/ and routes/ and nothing else: not database/, the views, bootstrap/, config/, the tests directory of a module (not application
+ * code), another application, or the database itself. A stop gate declared in the constructor of a controller is not read either: the routes are read as declared, as in
+ * StorefrontSalesRoutesTest. Reorder is not a writer, it fills the cart, and the edit-order flows of the panels and of the seller API change an order that exists.
  */
 class StorefrontOrderWritersTest extends TestCase
 {
@@ -45,6 +49,9 @@ class StorefrontOrderWritersTest extends TestCase
 
     private const SHORTEST_REASON = 60;
 
+    /** What an exemption points at, besides saying why: a document of the repository, a test of it, or a criterion of the tracker. */
+    private const REASON_POINTER = '/\bdocs\/[\w\/.-]+\.md\b|\b[A-Z]\w*Test\b|\b[A-Z]{1,3}\d*-\d{2}(?:\.\d+)?\b/';
+
     private const POS_CRITERION = 'I2-09.0';
 
     private const GENERATE_ORDER = 'App\Utils\OrderManager::generateOrder';
@@ -53,18 +60,25 @@ class StorefrontOrderWritersTest extends TestCase
 
     private const SELLER_POS = 'App\Http\Controllers\RestAPI\v3\seller\POSController::place_order';
 
-    private const MATERIALIZER = 'App\Services\SalesChannels\Dispatch\ChannelOrderMaterializer::insertOrder';
+    private const MATERIALIZER_CLASS = 'App\Services\SalesChannels\Dispatch\ChannelOrderMaterializer';
+
+    private const MATERIALIZER = self::MATERIALIZER_CLASS . '::insertOrder';
+
+    private const DISPATCHER = 'App\Services\SalesChannels\Dispatch\ChannelOrderDispatcher::dispatch';
 
     /**
      * The places that make a row of orders, and how the code that places an order reaches each, from the creator outward: the types of the receiver (`A|B`) and the method called on it, and the
-     * only code that may make that call (null for the last hop, whose callers are the writers below). A creator that is the action of a route itself has no hop.
+     * only code that may make that call (null for the last hop, whose callers are the writers below). A creator that is the action of a route itself has no hop. A method of the creator's own
+     * class that calls it (`self::`, `static::`, `$this->`) is one more hop: the scan finds the call, and the test fails until the method is listed here with the code that may call it.
      */
     private const CREATORS = [
         self::GENERATE_ORDER => ['OrderManager::generateOrder' => null],
         self::REPOSITORY_ADD => ['OrderRepositoryInterface|OrderRepository::add' => null],
         self::SELLER_POS => [],
         self::MATERIALIZER => [
-            'ChannelOrderMaterializer::materialize' => ['App\Services\SalesChannels\Dispatch\ChannelOrderDispatcher::dispatch'],
+            'ChannelOrderMaterializer::insertOrder' => [self::MATERIALIZER_CLASS . '::makeOrder'],
+            'ChannelOrderMaterializer::makeOrder' => [self::MATERIALIZER_CLASS . '::materialize'],
+            'ChannelOrderMaterializer::materialize' => [self::DISPATCHER],
             'ChannelOrderDispatcher::dispatch' => null,
         ],
     ];
@@ -112,7 +126,7 @@ class StorefrontOrderWritersTest extends TestCase
         ],
         'App\Console\Commands\SalesChannelsDispatchCommand::dispatchOne' => [
             'creator' => self::MATERIALIZER, 'kind' => self::MARKETPLACE_IMPORT, 'entry_points' => [],
-            'exempt' => 'The schedule (channels:dispatch, every five minutes, doing nothing unless every dispatch switch is on) runs the same dispatcher as the administrator\'s button, with no request and so no storefront; whatever is decided for the dispatch from the panel holds for it.',
+            'exempt' => 'The schedule (channels:dispatch, every five minutes, doing nothing unless every dispatch switch is on) runs the same dispatcher as the administrator\'s button, with no request and so no storefront; whatever the owner decides for the dispatch from the panel (I2-09.1, ChannelOrderSaleGateTest) holds for it.',
         ],
     ];
 
@@ -123,7 +137,7 @@ class StorefrontOrderWritersTest extends TestCase
         'App\Http\Controllers\Vendor\POS\POSOrderController::placeOrder',
     ];
 
-    /** @var array{writers: array<string, list<string>>, callers: array<string, list<string>>, files: int}|null */
+    /** @var array{writers: array<string, list<string>>, callers: array<string, list<string>>, files: array<string, int>}|null */
     private static ?array $application = null;
 
     // ---- the scan -------------------------------------------------------------------------------------------------------------------------
@@ -162,7 +176,12 @@ class StorefrontOrderWritersTest extends TestCase
 
     public function test_the_scan_reads_the_source_it_is_meant_to_so_a_wrong_root_cannot_make_it_pass(): void
     {
-        $this->assertGreaterThan(2000, $this->theApplication()['files']);
+        $files = $this->theApplication()['files'];
+
+        $this->assertGreaterThan(2000, array_sum($files));
+        foreach (['app', 'Modules', 'routes'] as $root) {
+            $this->assertGreaterThan(0, $files[$root] ?? 0, "The scan read no file of {$root}/.");
+        }
         $this->assertNotSame([], $this->theApplication()['writers']);
         $this->assertNotSame([], $this->theApplication()['callers']['OrderManager::generateOrder']);
     }
@@ -184,6 +203,36 @@ class StorefrontOrderWritersTest extends TestCase
                 'pending' => $this->assertMatchesRegularExpression('/^I\d+-\d{2}\.\d+$/', (string) $entry['pending'], "{$writer} is pending: name the criterion that will gate it."),
             };
         }
+    }
+
+    /** @return array<string, array{mixed, bool}> a reason, and whether an exemption may give it */
+    public static function reasonsForAnExemption(): array
+    {
+        $said = 'A storefront that may not sell is let through here because the sale was made, and paid for, somewhere else; ';
+
+        return [
+            'a document of the repository' => [$said . 'see docs/sales-channels/architecture.md', true],
+            'a test of the repository' => [$said . 'StorefrontOrderWritersTest pins it', true],
+            'a criterion' => [$said . 'I2-09.1 asks the owner', true],
+            'a criterion of the tracker with letters' => [$said . 'GCC-12 keeps it running', true],
+            'no pointer' => [$said . 'and that is all there is to it', false],
+            'too short' => ['because (I2-09.1)', false],
+            'a document that is not there' => [$said . 'see docs/gcc/NO-SUCH-DOCUMENT.md', false],
+            'a test that is not there' => [$said . 'NoSuchThingTest pins it', false],
+            'a document that is there, and one that is not' => [$said . 'see docs/sales-channels/architecture.md and docs/gcc/NO-SUCH-DOCUMENT.md', false],
+            'nothing' => [null, false],
+            'a list' => [[$said . 'I2-09.1'], false],
+        ];
+    }
+
+    #[DataProvider('reasonsForAnExemption')]
+    public function test_a_reason_for_an_exemption_is_long_enough_and_points_at_what_records_it(mixed $reason, bool $accepted): void
+    {
+        if (!$accepted) {
+            $this->expectException(AssertionFailedError::class);
+        }
+
+        $this->assertAReason(reason: $reason, subject: 'The writer is exempt');
     }
 
     public function test_the_entry_points_of_a_writer_are_the_routes_that_run_it_all_of_them_and_nothing_else(): void
@@ -316,6 +365,17 @@ class StorefrontOrderWritersTest extends TestCase
     {
         $this->assertIsString($reason, "{$subject} without a reason.");
         $this->assertGreaterThanOrEqual(self::SHORTEST_REASON, mb_strlen(trim($reason)), "{$subject} without a reason: say why a storefront that may not sell can be let through.");
+        $this->assertMatchesRegularExpression(self::REASON_POINTER, $reason, "{$subject} without a pointer: name the document, the test or the criterion that records why.");
+
+        preg_match_all('#\bdocs/[\w/.-]+\.md\b#', $reason, $documents);
+        foreach ($documents[0] as $document) {
+            $this->assertFileExists(base_path($document), "{$subject}, and the reason names [{$document}], which is not a document of the repository.");
+        }
+
+        preg_match_all('/\b[A-Z]\w*Test\b/', $reason, $tests);
+        foreach ($tests[0] as $test) {
+            $this->assertTrue((new Finder())->files()->in(base_path('tests'))->name("{$test}.php")->hasResults(), "{$subject}, and the reason names [{$test}], which is not a test of the repository.");
+        }
     }
 
     /** @return list<RoutingRoute> */
@@ -373,13 +433,13 @@ class StorefrontOrderWritersTest extends TestCase
             ->all();
     }
 
-    /** @return array{writers: array<string, list<string>>, callers: array<string, list<string>>, files: int} */
+    /** @return array{writers: array<string, list<string>>, callers: array<string, list<string>>, files: array<string, int>} */
     private function theApplication(): array
     {
         return self::$application ??= $this->scanTheApplication();
     }
 
-    /** @return array{writers: array<string, list<string>>, callers: array<string, list<string>>, files: int} */
+    /** @return array{writers: array<string, list<string>>, callers: array<string, list<string>>, files: array<string, int>} */
     private function scanTheApplication(): array
     {
         $scanner = new OrderWriterScanner();
@@ -393,16 +453,17 @@ class StorefrontOrderWritersTest extends TestCase
 
         $writers = [];
         $callers = array_map(static fn (array $query): array => [], $queries);
-        $files = 0;
+        $files = [];
 
-        foreach (['app', 'Modules'] as $root) {
+        foreach (['app', 'Modules', 'routes'] as $root) {
+            $files[$root] = 0;
             foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(base_path($root), RecursiveDirectoryIterator::SKIP_DOTS)) as $file) {
                 $path = substr($file->getPathname(), strlen(base_path()) + 1);
                 if ($file->getExtension() !== 'php' || preg_match('#^Modules/[^/]+/tests/#', $path) === 1) {
                     continue;
                 }
 
-                $files++;
+                $files[$root]++;
                 $found = $scanner->analyse(code: (string) file_get_contents($file->getPathname()), file: $path, callerQueries: $queries);
                 foreach ($found['writers'] as $writer => $spellings) {
                     $writers[$writer] = [...($writers[$writer] ?? []), ...$spellings];
