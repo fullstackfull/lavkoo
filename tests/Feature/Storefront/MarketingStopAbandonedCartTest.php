@@ -171,6 +171,17 @@ class MarketingStopAbandonedCartTest extends ApiAddressTestCase
         $this->assertSame([self::EMIRATI_GROUP, self::SAUDI_GROUP], $this->recordedGroups());
     }
 
+    public function test_a_cart_of_a_storefront_switched_off_in_the_configuration_is_neither_reminded_nor_recorded(): void
+    {
+        $this->aSaudiAndAnEmiratiCart();
+        config(['gcc.storefronts.countries.AE.active' => false]);
+
+        Artisan::call('cart:remind-abandoned');
+
+        $this->assertSame([self::SAUDI_GROUP], $this->mailedGroups());
+        $this->assertSame([self::SAUDI_GROUP], $this->recordedGroups());
+    }
+
     public function test_the_default_storefront_paused_browse_only_is_not_reminded_and_another_one_still_is(): void
     {
         $this->aSaudiAndAnEmiratiCart();

@@ -186,11 +186,11 @@ final class NotificationTypeScanner
                 }
             }
         }
-        foreach ($files as &$named) {
+        return array_map(static function (array $named): array {
             sort($named);
-        }
 
-        return $files;
+            return $named;
+        }, $files);
     }
 
     private function withoutComments(string $code): string

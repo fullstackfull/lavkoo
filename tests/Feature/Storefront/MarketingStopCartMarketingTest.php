@@ -179,6 +179,18 @@ class MarketingStopCartMarketingTest extends ApiAddressTestCase
         $this->assertSame([$saudi->phone], $this->messagedPhones());
     }
 
+    public function test_a_customer_whose_cart_is_in_a_storefront_switched_off_in_the_configuration_is_neither_offered_nor_messaged(): void
+    {
+        $saudi = $this->aCustomerWithCartsIn(self::SAUDI_PRODUCT);
+        $emirati = $this->aCustomerWithCartsIn(self::EMIRATI_PRODUCT);
+        config(['gcc.storefronts.countries.AE.active' => false]);
+
+        $this->assertSame([$saudi->id], array_keys($this->offeredCustomers()));
+        $this->sendTheTemplateTo([$saudi, $emirati])->assertSessionHas('error', "Sent: 1, Failed: 1. Customer #{$emirati->id}: Customer cart is in a storefront that may not sell.");
+
+        $this->assertSame([$saudi->phone], $this->messagedPhones());
+    }
+
     public function test_a_customer_with_carts_in_two_storefronts_is_told_only_about_the_one_that_sells(): void
     {
         $both = $this->aCustomerWithCartsIn(self::SAUDI_PRODUCT, self::EMIRATI_PRODUCT);
