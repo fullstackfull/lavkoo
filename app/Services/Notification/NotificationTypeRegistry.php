@@ -8,8 +8,9 @@ use InvalidArgumentException;
  * Every notification the platform sends, as necessary or marketing (I1-07). A necessary notification reports the state of something its recipient is part of or asked for: an order and
  * its refund, edit, due payment or delivery, a payment, wallet or withdrawal, an account, a chat the recipient takes part in, a code that proves who is asking, an alert the recipient
  * requested, and what only the platform or a seller reads. A marketing notification is one nobody asked for that invites a purchase or a visit: a reminder of a cart, a broadcast, a
- * template that offers something. A storefront that may not sell stops the marketing sent to its customers and never the necessary ones (StorefrontMarketingStop), so an order placed
- * before a stop is still told how it goes.
+ * template that offers something. This is the list the stop of a storefront that may not sell reads, and it never holds back a necessary one, so an order placed before a stop is still
+ * told how it goes. Two of the four marketing types ask the stop today: the reminder of a cart (AbandonedCartService) and the WhatsApp cart template (CartMarketingController). The
+ * admin's broadcast (push `notification`) and the referral push (SendReferralRegistrationNotificationListener) do not yet, so listing a type here does not by itself stop it.
  *
  * A type is named by what the code already names it by. A push is its message key (the messages the admin edits, PushNotificationService) or, when it has none, the `type` it carries to the
  * app; an e-mail is its EmailTemplate key or, when it is sent without a template, the Mailable or the view it is sent with; a WhatsApp message is its automation event or the one-time code.

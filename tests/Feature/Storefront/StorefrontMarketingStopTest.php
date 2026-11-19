@@ -27,6 +27,10 @@ class StorefrontMarketingStopTest extends ApiAddressTestCase
     use BuildsStorefrontLegalDocuments;
     use StopsAStorefront;
 
+    private const SAUDI_ROW_FIRST = 'group-of-two-countries-saudi-row-first';
+
+    private const EMIRATI_ROW_FIRST = 'group-of-two-countries-emirati-row-first';
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -46,6 +50,24 @@ class StorefrontMarketingStopTest extends ApiAddressTestCase
     private function skipsTheAbandonedCartReminder(?string $country): bool
     {
         return $this->marketingStop()->skips(channel: NotificationTypeRegistry::EMAIL, type: NotificationTypeRegistry::ABANDONED_CART_REMINDER, country: $country);
+    }
+
+    /**
+     * @param list<string> $cartGroupIds
+     * @return list<string>
+     */
+    private function stoppedAbandonedCartReminders(array $cartGroupIds): array
+    {
+        return $this->marketingStop()->stoppedCartGroups(channel: NotificationTypeRegistry::EMAIL, type: NotificationTypeRegistry::ABANDONED_CART_REMINDER, cartGroupIds: $cartGroupIds);
+    }
+
+    /** A cart group holding a Saudi row and an Emirati row, in each order, as a legacy group can (CartManager::cartGroupsSharedWithOtherStorefronts). */
+    private function aCartGroupOfTwoCountriesInEachOrder(): void
+    {
+        $this->cartRow(customerId: 1, productId: 1, price: 100, group: self::SAUDI_ROW_FIRST);
+        $this->cartRow(customerId: 1, productId: 2, price: 250, group: self::SAUDI_ROW_FIRST);
+        $this->cartRow(customerId: 2, productId: 2, price: 250, group: self::EMIRATI_ROW_FIRST);
+        $this->cartRow(customerId: 2, productId: 1, price: 100, group: self::EMIRATI_ROW_FIRST);
     }
 
     // ---- a marketing type ---------------------------------------------------------------------------------------------------------
@@ -195,13 +217,16 @@ class StorefrontMarketingStopTest extends ApiAddressTestCase
 
     /**
      * What the selling gate itself answers is left as it was: it reads the lifecycle and the preflight, not the configuration, so it still
-     * says that a storefront switched off in the configuration alone may sell. Every other caller of the gate judges a storefront a request
-     * resolved to, and the resolver never resolves one the configuration does not serve, so only the marketing stop, which judges the
-     * country recorded on a cart, can see one. The reason not to move the judgement into the gate is not the gate's own tests, which all
-     * pass either way, but what a recorded country is for: a payment taken in a storefront that was switched off afterwards still has to be
-     * finished there (StorefrontResolver::contextOfRecordedCountry), and a gate that refused a country the configuration no longer serves
-     * would refuse exactly that. Unreachable means do not invite, which is this stop; it does not mean refuse money already taken. Whether
-     * the gate should read the configuration too is the owner's to decide (I1-07).
+     * says that a storefront switched off in the configuration alone may sell. Nothing that calls the gate today can hand it such a country
+     * anyway: StorefrontListing maps over the storefronts the configuration serves, and EnsureStorefrontMaySell judges a context the
+     * resolver bound, which is never one it does not serve. Only this stop, which judges the country recorded on a cart, can see one, so
+     * moving the judgement into the gate would change the answer for the stop alone and the gate's own tests pass either way.
+     *
+     * It is kept out of the gate because the two questions are not the same one: the gate says whether a storefront may sell, and the
+     * configuration says whether anybody can reach it. A recorded country outlives the configuration — a payment taken in a storefront that
+     * was switched off afterwards is still settled in it (PaymentStorefront::within, StorefrontResolver::contextOfRecordedCountry) — and
+     * while no settlement path asks the gate today, a gate that refused an unserved country would be the wrong place to find that out.
+     * Unreachable means do not invite, which is this stop. Whether the gate should read the configuration too is the owner's to decide (I1-07).
      */
     public function test_the_selling_gate_is_unchanged_for_a_storefront_switched_off_in_the_configuration(): void
     {
@@ -233,6 +258,39 @@ class StorefrontMarketingStopTest extends ApiAddressTestCase
         );
 
         $this->assertSame(['emirati-one', 'emirati-two'], $stopped);
+    }
+
+    // ---- a cart group that holds the rows of two countries --------------------------------------------------------------------------
+
+    /**
+     * A legacy cart group can hold the rows of two countries, as CartManager::cartGroupsSharedWithOtherStorefronts says and handles at the
+     * checkout: a group built while storefronts were off was narrowed by nothing. A reminder or an offer is one message about the whole
+     * group, and it cannot be half sent, so it is withheld as soon as one of the storefronts its rows belong to may not sell, whichever row
+     * comes first. A message that invites a purchase nobody can make is worse than one that does not arrive, and the one that does not
+     * arrive is sent as soon as the storefront sells again.
+     */
+    #[DataProvider('statesThatMayNotSell')]
+    public function test_a_cart_group_that_holds_the_rows_of_two_countries_is_stopped_by_either_of_them(Closure $stopTheEmirates): void
+    {
+        $this->aCartGroupOfTwoCountriesInEachOrder();
+        $stopTheEmirates($this);
+
+        $this->assertSame([self::SAUDI_ROW_FIRST, self::EMIRATI_ROW_FIRST], $this->stoppedAbandonedCartReminders([self::SAUDI_ROW_FIRST, self::EMIRATI_ROW_FIRST]));
+    }
+
+    public function test_a_cart_group_that_holds_the_rows_of_two_countries_that_both_sell_is_stopped_by_neither(): void
+    {
+        $this->aCartGroupOfTwoCountriesInEachOrder();
+
+        $this->assertSame([], $this->stoppedAbandonedCartReminders([self::SAUDI_ROW_FIRST, self::EMIRATI_ROW_FIRST]));
+    }
+
+    public function test_a_cart_group_of_two_countries_is_stopped_by_the_default_storefront_too(): void
+    {
+        $this->aCartGroupOfTwoCountriesInEachOrder();
+        $this->pause(mode: StorefrontLifecycle::BROWSE_ONLY, country: 'SA');
+
+        $this->assertSame([self::SAUDI_ROW_FIRST, self::EMIRATI_ROW_FIRST], $this->stoppedAbandonedCartReminders([self::SAUDI_ROW_FIRST, self::EMIRATI_ROW_FIRST]));
     }
 
     public function test_a_storefront_is_asked_once_for_all_the_carts_it_holds(): void

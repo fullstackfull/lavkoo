@@ -132,19 +132,26 @@ final class StorefrontCatalog
         return [...StorefrontContext::keysForEveryStorefront($key), self::unboundKey($key)];
     }
 
-    /** The country the products of a cart group belong to, for a link that must open the storefront the cart was made in. Null while storefronts are off. */
+    /**
+     * The country of a cart group, for a link that must open the storefront the cart was made in: a link opens one storefront, so the first
+     * row of the group names it, as a lookup of one group always did, and a first row that belongs to no country still names none. Null
+     * while storefronts are off.
+     */
     public static function countryOfCartGroup(string $cartGroupId): ?string
     {
-        return self::countriesOfCartGroups(cartGroupIds: [$cartGroupId])[$cartGroupId] ?? null;
+        $firstRow = self::countriesOfCartGroups(cartGroupIds: [$cartGroupId])[$cartGroupId][0] ?? '';
+
+        return $firstRow === '' ? null : $firstRow;
     }
 
     /**
-     * The country the products of each cart group belong to, in one query for all of them, leaving out a group whose rows belong to no
-     * country: a list that has to judge the storefront of many carts, such as the marketing stop, asks once instead of once per cart.
-     * Empty while storefronts are off.
+     * The countries the products of each cart group belong to, in one query for all of them and in the order of the group's rows. A legacy
+     * cart group can hold the rows of two countries (CartManager::cartGroupsSharedWithOtherStorefronts), so a caller that has to judge the
+     * storefronts of many carts, such as the marketing stop, sees every country a group names and asks once instead of once per cart. A row
+     * whose product belongs to no country is the empty string, which is what such a first row always answered. Empty while storefronts are off.
      *
      * @param list<string> $cartGroupIds
-     * @return array<string, string> cart group id => country
+     * @return array<string, list<string>> cart group id => the countries its rows name, the first row's first
      */
     public static function countriesOfCartGroups(array $cartGroupIds): array
     {
@@ -163,13 +170,18 @@ final class StorefrontCatalog
                 ->orderBy('carts.id')
                 ->get(['carts.cart_group_id', self::TABLE . '.' . self::COLUMN]);
 
-            // The first row of a group decides, as a lookup of that one group always did, even when the country it carries is empty.
             foreach ($rows as $row) {
-                $countries[(string) $row->cart_group_id] ??= $row->{self::COLUMN} ?? '';
+                $cartGroupId = (string) $row->cart_group_id;
+                $country = (string) ($row->{self::COLUMN} ?? '');
+                $countries[$cartGroupId] ??= [];
+
+                if (!in_array($country, $countries[$cartGroupId], true)) {
+                    $countries[$cartGroupId][] = $country;
+                }
             }
         }
 
-        return array_filter($countries, static fn (string $country): bool => $country !== '');
+        return $countries;
     }
 
     /** Whether the admin tools see a product's country: storefronts are on and the products migration has run. */

@@ -39,8 +39,11 @@ final class StorefrontMarketingStop
     }
 
     /**
-     * The cart groups whose storefront, the one their products belong to, is not to be sent this type, in the order they were given: the
-     * countries of every cart are read in one query, and each storefront is asked once for all the carts it holds.
+     * The cart groups that are not to be sent this type, in the order they were given. A legacy cart group can hold the rows of two
+     * countries (CartManager::cartGroupsSharedWithOtherStorefronts), and the send is one message about the whole group that cannot be half
+     * made, so a group is stopped as soon as one of the storefronts its rows belong to may not sell, whichever row comes first: a message
+     * that invites a purchase nobody can make is worse than one that waits. The countries of every cart are read in one query, and each
+     * storefront is asked once for all the carts it holds.
      *
      * @param list<string> $cartGroupIds
      * @return list<string>
@@ -52,16 +55,18 @@ final class StorefrontMarketingStop
         $stopped = [];
 
         foreach ($cartGroupIds as $cartGroupId) {
-            $country = $countries[(string) $cartGroupId] ?? null;
+            foreach ($countries[(string) $cartGroupId] ?? [] as $country) {
+                if ($country === '') {
+                    continue;
+                }
 
-            if ($country === null) {
-                continue;
-            }
+                $skipsCountry[$country] ??= $this->skips(channel: $channel, type: $type, country: $country);
 
-            $skipsCountry[$country] ??= $this->skips(channel: $channel, type: $type, country: $country);
+                if ($skipsCountry[$country]) {
+                    $stopped[] = (string) $cartGroupId;
 
-            if ($skipsCountry[$country]) {
-                $stopped[] = (string) $cartGroupId;
+                    break;
+                }
             }
         }
 

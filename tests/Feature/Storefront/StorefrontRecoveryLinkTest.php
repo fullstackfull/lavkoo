@@ -119,6 +119,34 @@ class StorefrontRecoveryLinkTest extends ApiAddressTestCase
         $this->assertSame('AE', $this->queryOf($location)['storefront']);
     }
 
+    /**
+     * A legacy cart group can hold the rows of two countries (CartManager::cartGroupsSharedWithOtherStorefronts), but a link opens one
+     * storefront, so the first row of the group names it, as a lookup of one group always did. Which rows that storefront then shows is its
+     * own business; what matters here is that the link opens a storefront the group has a row in rather than the default one.
+     */
+    public function test_the_link_of_a_cart_group_of_two_countries_names_the_storefront_of_its_first_row(): void
+    {
+        $this->switchStorefrontsOn();
+        $this->guestRow(self::EMIRATI_GUEST, productId: 2, group: 'guest-emirati-row-first');
+        $this->guestRow(self::EMIRATI_GUEST, productId: 1, group: 'guest-emirati-row-first');
+        $this->guestRow(self::EMIRATI_GUEST, productId: 1, group: 'guest-saudi-row-first');
+        $this->guestRow(self::EMIRATI_GUEST, productId: 2, group: 'guest-saudi-row-first');
+
+        $this->assertSame('AE', $this->queryOf($this->linkOf($this->reminderFor('guest-emirati-row-first', isGuest: true)))['storefront']);
+        $this->assertSame('SA', $this->queryOf($this->linkOf($this->reminderFor('guest-saudi-row-first', isGuest: true)))['storefront']);
+    }
+
+    /** A first row whose product belongs to no country still counts as no storefront, so the link is the one it always was and the website serves the default storefront. */
+    public function test_the_link_of_a_cart_group_whose_first_row_belongs_to_no_country_names_no_storefront(): void
+    {
+        $this->switchStorefrontsOn();
+        $this->seedAProductOfNoCountry();
+        $this->guestRow(self::EMIRATI_GUEST, productId: 3, group: 'guest-no-country-first');
+        $this->guestRow(self::EMIRATI_GUEST, productId: 2, group: 'guest-no-country-first');
+
+        $this->assertArrayNotHasKey('storefront', $this->queryOf($this->linkOf($this->reminderFor('guest-no-country-first', isGuest: true))));
+    }
+
     public function test_opening_the_link_while_storefronts_are_off_redirects_without_a_storefront(): void
     {
         $customer = $this->makeCustomer();

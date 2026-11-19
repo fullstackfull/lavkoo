@@ -37,6 +37,14 @@ class MarketingStopAbandonedCartTest extends ApiAddressTestCase
 
     private const EMIRATI_GROUP = 'group-emirati';
 
+    private const SAUDI_PRODUCT = 1;
+
+    private const EMIRATI_PRODUCT = 2;
+
+    private const SAUDI_ROW_FIRST = 'group-of-two-countries-saudi-row-first';
+
+    private const EMIRATI_ROW_FIRST = 'group-of-two-countries-emirati-row-first';
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -74,14 +82,27 @@ class MarketingStopAbandonedCartTest extends ApiAddressTestCase
     private function anAbandonedCart(string $group, int $productId, int $hoursIdle = 8): User
     {
         $customer = $this->makeCustomer(['email' => "{$group}@example.test"]);
+        $this->anAbandonedRow(customer: $customer, group: $group, productId: $productId, hoursIdle: $hoursIdle);
 
+        return $customer;
+    }
+
+    /** A cart group holding the rows of both countries, as a legacy group can (CartManager::cartGroupsSharedWithOtherStorefronts), the named product's row first. */
+    private function anAbandonedCartOfTwoCountries(string $group, int $firstProductId, int $hoursIdle = 8): User
+    {
+        $customer = $this->anAbandonedCart(group: $group, productId: $firstProductId, hoursIdle: $hoursIdle);
+        $this->anAbandonedRow(customer: $customer, group: $group, productId: $firstProductId === self::SAUDI_PRODUCT ? self::EMIRATI_PRODUCT : self::SAUDI_PRODUCT, hoursIdle: $hoursIdle);
+
+        return $customer;
+    }
+
+    private function anAbandonedRow(User $customer, string $group, int $productId, int $hoursIdle): void
+    {
         DB::table('carts')->insert([
             'customer_id' => $customer->id, 'is_guest' => false, 'cart_group_id' => $group, 'product_id' => $productId, 'quantity' => 1, 'price' => 250,
             'seller_id' => 1, 'seller_is' => 'admin', 'is_checked' => 1, 'product_type' => 'physical',
             'created_at' => now()->subHours($hoursIdle), 'updated_at' => now()->subHours($hoursIdle),
         ]);
-
-        return $customer;
     }
 
     private function aSaudiAndAnEmiratiCart(): void
@@ -191,6 +212,42 @@ class MarketingStopAbandonedCartTest extends ApiAddressTestCase
 
         $this->assertSame([self::EMIRATI_GROUP], $this->mailedGroups());
         $this->assertSame([self::EMIRATI_GROUP], $this->recordedGroups());
+    }
+
+    // ---- a cart group that holds the rows of two countries ----------------------------------------------------------------------
+
+    /**
+     * A reminder is one message about the whole cart group and cannot be half sent, so a legacy group holding the rows of two countries
+     * (CartManager::cartGroupsSharedWithOtherStorefronts) waits while either of them may not sell, whichever row comes first.
+     */
+    #[DataProvider('statesThatMayNotSell')]
+    public function test_a_cart_group_of_two_countries_is_neither_selected_nor_reminded_nor_recorded_while_one_may_not_sell(Closure $stopTheEmirates): void
+    {
+        $this->anAbandonedCartOfTwoCountries(group: self::SAUDI_ROW_FIRST, firstProductId: self::SAUDI_PRODUCT);
+        $this->anAbandonedCartOfTwoCountries(group: self::EMIRATI_ROW_FIRST, firstProductId: self::EMIRATI_PRODUCT);
+        $stopTheEmirates($this);
+
+        $this->assertSame([], $this->selectedGroups());
+
+        Artisan::call('cart:remind-abandoned');
+
+        $this->assertSame([], $this->mailedGroups());
+        $this->assertSame([], $this->recordedGroups());
+    }
+
+    public function test_a_cart_group_of_two_countries_is_reminded_once_both_of_them_sell(): void
+    {
+        $this->anAbandonedCartOfTwoCountries(group: self::SAUDI_ROW_FIRST, firstProductId: self::SAUDI_PRODUCT);
+        $this->anAbandonedCartOfTwoCountries(group: self::EMIRATI_ROW_FIRST, firstProductId: self::EMIRATI_PRODUCT);
+        $this->pause(mode: StorefrontLifecycle::BROWSE_ONLY);
+        Artisan::call('cart:remind-abandoned');
+        $this->assertSame([], $this->recordedGroups());
+
+        $this->lifecycle()->resume(country: 'AE', by: self::PERSON, reason: self::REASON);
+        Artisan::call('cart:remind-abandoned');
+
+        $this->assertSame([self::EMIRATI_ROW_FIRST, self::SAUDI_ROW_FIRST], $this->mailedGroups());
+        $this->assertSame([self::EMIRATI_ROW_FIRST, self::SAUDI_ROW_FIRST], $this->recordedGroups());
     }
 
     // ---- the command ------------------------------------------------------------------------------------------------------------
