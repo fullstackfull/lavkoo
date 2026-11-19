@@ -133,10 +133,101 @@ final class CouponCountry
         return app(StorefrontCurrency::class)->within(country: data_get($coupon, self::COLUMN), callback: $callback);
     }
 
+    /**
+     * Whether a coupon's amounts can still be read and written in the money they were typed in. The default storefront's can always: they are in
+     * the platform's own money. Another storefront's can while the currency it trades in is active; switched off, the platform's settings stand
+     * again, and the three numbers would be read, shown and saved as if they had been typed in the platform's money.
+     */
+    public static function isInItsOwnMoney(int|string $couponId): bool
+    {
+        return !self::tradesWithoutItsCurrency((string) self::countryOf($couponId));
+    }
+
+    /**
+     * The amounts of each coupon of a page, written in the money of its own storefront and keyed by the coupon's id: the discount, or its
+     * percentage, which has no currency, and the minimum purchase. The rows are read one storefront at a time, so a page that holds the coupons
+     * of several storefronts enters the money of each once rather than once a row.
+     *
+     * @param iterable<mixed> $coupons
+     * @return array<int|string, array{discount: string, minimumPurchase: string}>
+     */
+    public static function amountsOfEach(iterable $coupons): array
+    {
+        $rowsOfCountry = [];
+
+        foreach ($coupons as $coupon) {
+            $rowsOfCountry[strtoupper(trim((string) data_get($coupon, self::COLUMN)))][] = $coupon;
+        }
+
+        $amounts = [];
+
+        foreach ($rowsOfCountry as $country => $rows) {
+            $amounts += self::amountsOfOneStorefront(country: (string) $country, coupons: $rows);
+        }
+
+        return $amounts;
+    }
+
     /** Forgets what was learnt about the schema, for a test that builds its own tables. */
     public static function flush(): void
     {
         self::$columnAnswer = null;
+    }
+
+    /**
+     * @param list<mixed> $coupons
+     * @return array<int|string, array{discount: string, minimumPurchase: string}>
+     */
+    private static function amountsOfOneStorefront(string $country, array $coupons): array
+    {
+        if (self::tradesWithoutItsCurrency($country)) {
+            $currencyCode = StorefrontResolver::fromConfig()->currencyOf($country);
+            $decimals = app(StorefrontCurrency::class)->decimalsOf($currencyCode);
+
+            return self::written(coupons: $coupons, write: static fn (float $amount): string => number_format($amount, $decimals) . ' ' . $currencyCode);
+        }
+
+        return app(StorefrontCurrency::class)->within(
+            country: $country,
+            callback: static fn (): array => self::written(
+                coupons: $coupons,
+                write: static fn (float $amount): string => setCurrencySymbol(amount: usdToDefaultCurrency(amount: $amount), currencyCode: getCurrencyCode()),
+            ),
+        );
+    }
+
+    /**
+     * @param list<mixed> $coupons
+     * @param Closure(float): string $write
+     * @return array<int|string, array{discount: string, minimumPurchase: string}>
+     */
+    private static function written(array $coupons, Closure $write): array
+    {
+        $amounts = [];
+
+        foreach ($coupons as $coupon) {
+            $amounts[data_get($coupon, 'id')] = [
+                'discount' => data_get($coupon, 'discount_type') === 'percentage'
+                    ? data_get($coupon, 'discount') . '%'
+                    : $write((float) data_get($coupon, 'discount')),
+                'minimumPurchase' => $write((float) data_get($coupon, 'min_purchase')),
+            ];
+        }
+
+        return $amounts;
+    }
+
+    /**
+     * Whether a storefront's coupons have lost the money they were typed in: it trades in its own currency and an operator has switched that
+     * currency off. A country that is no longer a configured storefront keeps the platform's money, as it always did.
+     */
+    private static function tradesWithoutItsCurrency(string $country): bool
+    {
+        $resolver = StorefrontResolver::fromConfig();
+
+        return $country !== ''
+            && in_array($country, $resolver->configuredCountries(), true)
+            && !app(StorefrontCurrency::class)->isReady(country: $country, currencyCode: $resolver->currencyOf($country));
     }
 
     private static function mustHaveAnActiveCurrency(string $attribute, mixed $country, Closure $fail): void

@@ -68,6 +68,38 @@ if (!function_exists('currencyConverter')) {
     }
 }
 
+if (!function_exists('usdAmountInDefaultCurrency')) {
+    /**
+     * A stored amount in the money in force, before it is cut to the decimals of that money: multiplied by the rate of the default
+     * currency under the multi-currency model, and the amount itself under the single-currency one.
+     * @param float|int|null $amount
+     * @return float|int
+     */
+    function usdAmountInDefaultCurrency(float|int|null $amount = 0): float|int
+    {
+        $currencyModel = getWebConfig('currency_model');
+        if ($currencyModel != MULTI_CURRENCY) {
+            return $amount ?? 0;
+        }
+
+        if (session()->has('default')) {
+            $default = session('default');
+        } else {
+            $default = Currency::find(getWebConfig('system_default_currency'))->exchange_rate;
+            session()->put('default', $default);
+        }
+
+        if (session()->has('usd')) {
+            $usd = session('usd');
+        } else {
+            $usd = exchangeRate(USD);
+            session()->put('usd', $usd);
+        }
+
+        return $amount * ($default / $usd);
+    }
+}
+
 if (!function_exists('usdToDefaultCurrency')) {
     /**
      * system usd currency to default convert
@@ -76,32 +108,9 @@ if (!function_exists('usdToDefaultCurrency')) {
      */
     function usdToDefaultCurrency(float|int|null $amount = 0): float|int
     {
-        $currencyModel = getWebConfig('currency_model');
-        if ($currencyModel == MULTI_CURRENCY) {
-            if (session()->has('default')) {
-                $default = session('default');
-            } else {
-                $default = Currency::find(getWebConfig('system_default_currency'))->exchange_rate;
-                session()->put('default', $default);
-            }
-
-            if (session()->has('usd')) {
-                $usd = session('usd');
-            } else {
-                $usd = exchangeRate(USD);
-                session()->put('usd', $usd);
-            }
-
-            $rate = $default / $usd;
-
-            $value = $amount * $rate;
-        } else {
-            $value = $amount;
-        }
-
         $decimals = getWebConfig('decimal_point_settings') ?? 2;
         $factor = pow(10, $decimals);
-        $scaled = $value * $factor;
+        $scaled = usdAmountInDefaultCurrency(amount: $amount) * $factor;
 
         // In the money of a storefront (GCC-05) the amount was typed as it is shown, and 2.675 is 2.67499999999999982 in binary: its floor would show one fils
         // less, and an edit form that shows it would save that. The platform's own readers keep the arithmetic they always had.
@@ -110,6 +119,27 @@ if (!function_exists('usdToDefaultCurrency')) {
         }
 
         return floor($scaled) / $factor;
+    }
+}
+
+if (!function_exists('usdToDefaultCurrencyForEditing')) {
+    /**
+     * The amount an editable field is filled with. A form posts back the figure it shows, so a field that shows one unit of the smallest
+     * denomination less than the stored amount saves that lower amount the next time the form is submitted, and the amount drops again on
+     * every edit after it. 4.35 is 4.34999999999999964 in binary and its floor at two decimals is 4.34, so the repair is to scale first and
+     * only then cut: the same repair the money of a storefront already makes, made for every storefront.
+     *
+     * A reader that only shows an amount keeps usdToDefaultCurrency() and the truncation the platform has always displayed, and a stored
+     * amount carrying more digits than the currency holds is still truncated here, never rounded up.
+     * @param float|int|null $amount
+     * @return float|int
+     */
+    function usdToDefaultCurrencyForEditing(float|int|null $amount = 0): float|int
+    {
+        $decimals = getWebConfig('decimal_point_settings') ?? 2;
+        $factor = pow(10, $decimals);
+
+        return floor(round(usdAmountInDefaultCurrency(amount: $amount) * $factor, 6)) / $factor;
     }
 }
 
