@@ -1,6 +1,6 @@
 # Axis D: Orders, checkout and payments
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 37. Acceptance criteria: 173 (MET 83, CODED 30, MISSING 60). Code completion 65%, proven by a passing test 48%, release readiness 8%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 37. Acceptance criteria: 176 (MET 83, CODED 31, MISSING 62). Code completion 65%, proven by a passing test 47%, release readiness 8%.
 
 Independent verification: done for unit(s) D1, D2.
 
@@ -790,13 +790,16 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** Payment currency is the storefront's currency: no automatic conversion and no silent fallback to the first active currency or USD when a payment starts (currencies are a named item of axis F line 507 and of line 303; owner decision: local pricing, no auto-FX)
 - **(3) Exists now in code (main).** E10-F05 (P0). On main PaymentGatewayTrait::getPaymentGatewayCurrencyCode (lines 476-499) substitutes the first active listed currency, else USD, instead of refusing. GCC-05 slice 3 on gcc/p1-storefront-currency@25f83fe5 refuses instead (GatewayCurrencyPolicy, GatewayCurrencyPolicyTest, no PR, no CI); slice 4 (prices, amounts, fixed decimals) not done. D2-05 criterion 2 and D2-10 criterion 4 cover it only indirectly; may belong to the GCC-05 unit, in which case D2-05 and D2-10 should reference it.
 - **(4) Done in the draft PRs.** See the evidence note above.
-- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(5) What remains.** Its acceptance criteria are written (batch 1 of the 28 requirements the verifiers added). What remains is in the criteria themselves.
 - **(6) PRs and commits.** none
 - **(7) Tests.** none
 - **(8) Dependencies and blockers.** See the evidence note.
 - **(9) Acceptance criteria.**
-  - [MISSING] Payment currency is the storefront's currency: no automatic conversion and no silent fallback to the first active currency or USD when a payment starts (currenc (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
-- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+  - [CODED] A payment that starts on a storefront is quoted in that storefront's currency (GCC-05 slice 3 on gcc/p1-storefront-currency: GatewayCurrencyPolicy with GatewayCurrencyPolicyTest. CODED, not MET: at the time the card was written the slice had no pull request and no CI; PR 87 now carries the branch.)
+  - [MISSING] A gateway that does not support the storefront's currency is REFUSED, not quietly given another currency (On origin/main, PaymentGatewayTrait::getPaymentGatewayCurrencyCode substitutes instead of refusing, and the substitution has four branches: the single supported currency, a paystack-specific GHS/NGN lookup, `Currency::whereIn($currencyCodes)->where(status 1)->first()` — the FIRST active currency of the gateway's list, in table order — and then a bare `return 'USD';` as the function's last statement. A Kuwaiti checkout whose gateway does not list KWD is therefore charged in whatever that first row is.)
+  - [MISSING] No payment path falls back to USD or to the first active currency (The literal `return 'USD';` is still the last line of getPaymentGatewayCurrencyCode on origin/main. Nothing on any open branch deletes it; the policy class refuses alongside it rather than replacing it, so the fallback stays reachable from any caller that does not ask the policy.)
+  - [MISSING] Amounts and fixed decimals follow the storefront's currency through the whole payment (GCC-05 slice 4 (prices, amounts, fixed decimals) is not done. The three-decimal currencies KWD, BHD and OMR are the cases that fail first, and the coupon work of PR 129 shows the shape of the defect this leaves: a truncating conversion that writes back what it displayed.)
+- **(10) Next coding task.** See the criteria: the unmet ones name the file and the line that has to change.
 
 #### D2-V2. Per-storefront on/off of payment methods that are not gateways (cash on delivery, offline payment, d...
 

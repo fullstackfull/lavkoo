@@ -190,6 +190,10 @@ EXTRA_LINKS = {
     'D1-10': [{'repo': 'lavkoo', 'pr': 101, 'sha': '1447d433'}, {'repo': 'lavkoo', 'pr': 103, 'sha': 'd100dd01'}],
 }
 # A criterion that the work meets in part is split in two, so that no percentage moves for the part that is not done. Only what a named head or file supports.
+# What sections 5 and 10 of a verifier's requirement say once its acceptance criteria have actually been written, replacing
+# "Its acceptance criteria are not written yet" and "Write its acceptance criteria". Keyed by requirement id: (remaining, next_task).
+WRITTEN_CRITERIA = {}
+
 CRITERIA_SPLIT = {
     'D1-07': {
         1: [
@@ -1191,6 +1195,13 @@ def load_all():
                 for index, (status, evidence) in CRITERIA.get(r['id'], {}).items():
                     r['ac'][index]['s'] = status
                     r['ac'][index]['e'] = evidence
+                # A verifier's requirement arrives with ONE placeholder criterion and a section 5 that says so. Splitting that placeholder is how
+                # its real acceptance criteria get written, so the same CRITERIA_SPLIT the other requirements use has to reach these as well; a
+                # card whose criteria are written must also stop saying they are not, which is what WRITTEN_CRITERIA replaces.
+                for index, parts in sorted(CRITERIA_SPLIT.get(r['id'], {}).items(), reverse=True):
+                    r['ac'][index:index + 1] = [{'t': text, 's': status, 'e': evidence} for text, status, evidence in parts]
+                if r['id'] in WRITTEN_CRITERIA:
+                    r['remaining'], r['next_task'] = WRITTEN_CRITERIA[r['id']]
                 if UPDATES.get(r['id']):
                     r['updates'] = [UPDATES[r['id']]]
                 if NEXT_CURRENT.get(r['id']):
@@ -1527,6 +1538,96 @@ CRITERIA.setdefault('K-18', {})[1] = ('MET', "lavkooappseller PR 17 (draft, base
     "the I2-09 lesson applied: the scan is made to SEE a theme read when one is written, to SEE a ratio or a size when one is written, and to LEAVE the "
     "app's own colour theme and names that only look like it alone. A scan that cannot fail is not evidence. %s NOT covered: no full seller-app suite "
     "beyond CI's own run is reported, and the per-storefront answer itself is not implemented \u2014 only the reading of the rule is moved." % _R17S)
+
+
+
+# ---- The verifiers' requirements get their real acceptance criteria, batch 1 of 28 (2026-11-19, evening) ----
+#
+# Each placeholder is replaced by criteria read off origin/main and the branch heads named, not off the card's own evidence note.
+# WRITING THESE RAISES THE MISSING COUNT and is meant to: a placeholder counted one criterion where the behaviour needs four or five.
+
+_WRITTEN = ('Its acceptance criteria are written (batch 1 of the 28 requirements the verifiers added). What remains is in the criteria themselves.',
+            'See the criteria: the unmet ones name the file and the line that has to change.')
+
+CRITERIA_SPLIT['A2-V1'] = {0: [
+    ('Orders, POS sales and refunds of another country are not listed to a country-scoped admin', 'CODED',
+     "PRs 77 (81a2836) and 82 (d1fc5f4), behind GCC_STAFF_COUNTRY_SCOPES which ships off: StaffCountryOrderScope on Order, OrderDetail and "
+     "OrderTransaction, StaffCountryRefundScope on RefundRequest and RefundTransaction, with ScopeOrdersToStaffCountries as the middleware. CODED "
+     "rather than MET because the chain has no CI run read on a head that carries all of it."),
+    ('The dashboard, the reports, the exports and the header search of a scoped admin cover only that admin\'s countries', 'CODED',
+     "PR 82 (d1fc5f4): DashboardController and AdvanceSearch are scope-aware, and StaffCountryScope, StaffCountryAssignments and StaffOrderRoutes "
+     "carry the assignment. Not MET: no run read, and the export paths are not separately pinned."),
+    ("The customer's WALLET transaction screen shows a scoped admin only the markets they hold", 'MISSING',
+     "Measured on the head of PR 82: `git grep -l StaffCountry -- app` names Product, RefundRequest, RefundTransaction and the three scope classes "
+     "(order, product, refund) and NOTHING else. app/Models/WalletTransaction.php carries no scope, so a local admin of one market reads every "
+     "market's wallet movements of a customer. This is the half of plan line 355 that the order and refund scopes do not reach."),
+    ("The customer's LOYALTY transaction screen shows a scoped admin only the markets they hold", 'MISSING',
+     "The same measurement: app/Models/LoyaltyPointTransaction.php carries no StaffCountry scope on any open branch. E-02 keeps points global "
+     "(one users.loyalty_point), so there is also no market on the row to scope BY yet \u2014 this criterion depends on E-02's account key."),
+]}
+WRITTEN_CRITERIA['A2-V1'] = _WRITTEN
+
+CRITERIA_SPLIT['D2-V1'] = {0: [
+    ('A payment that starts on a storefront is quoted in that storefront\'s currency', 'CODED',
+     "GCC-05 slice 3 on gcc/p1-storefront-currency: GatewayCurrencyPolicy with GatewayCurrencyPolicyTest. CODED, not MET: at the time the card was "
+     "written the slice had no pull request and no CI; PR 87 now carries the branch."),
+    ('A gateway that does not support the storefront\'s currency is REFUSED, not quietly given another currency', 'MISSING',
+     "On origin/main, PaymentGatewayTrait::getPaymentGatewayCurrencyCode substitutes instead of refusing, and the substitution has four branches: the "
+     "single supported currency, a paystack-specific GHS/NGN lookup, `Currency::whereIn($currencyCodes)->where(status 1)->first()` \u2014 the FIRST "
+     "active currency of the gateway's list, in table order \u2014 and then a bare `return 'USD';` as the function's last statement. A Kuwaiti "
+     "checkout whose gateway does not list KWD is therefore charged in whatever that first row is."),
+    ('No payment path falls back to USD or to the first active currency', 'MISSING',
+     "The literal `return 'USD';` is still the last line of getPaymentGatewayCurrencyCode on origin/main. Nothing on any open branch deletes it; the "
+     "policy class refuses alongside it rather than replacing it, so the fallback stays reachable from any caller that does not ask the policy."),
+    ('Amounts and fixed decimals follow the storefront\'s currency through the whole payment', 'MISSING',
+     "GCC-05 slice 4 (prices, amounts, fixed decimals) is not done. The three-decimal currencies KWD, BHD and OMR are the cases that fail first, and "
+     "the coupon work of PR 129 shows the shape of the defect this leaves: a truncating conversion that writes back what it displayed."),
+]}
+WRITTEN_CRITERIA['D2-V1'] = _WRITTEN
+
+CRITERIA_SPLIT['E-V1'] = {0: [
+    ('One credit per payment: a replayed gateway callback credits the wallet once', 'MISSING',
+     "add_fund_to_wallet_success (app/Utils/module-helper.php) credits whenever `$payment_data['is_paid'] == 1` and holds no guard of its own, so a "
+     "callback delivered twice calls CustomerManager::create_wallet_transaction twice. The two units point at each other on this \u2014 D2's cross "
+     "note hands the gateway top-up hook to E, E's hands the replay guard to D2 \u2014 which is how it ended up with no owner."),
+    ('The ledger row names the payment that produced it', 'MISSING',
+     "create_wallet_transaction records `payment_method` alone, from `$payment_data['payment_method']`, and generates its own `transaction_id` with "
+     "Str::uuid(). The gateway's own payment id is passed into the function and never stored, so a wallet credit cannot be traced back to the payment "
+     "that paid for it. The column that would hold it is E-05's."),
+    ('The add-fund bonus is applied once', 'MISSING',
+     "The bonus is computed inside create_wallet_transaction for transaction_type 'add_fund' (admin_bonus = Helpers::add_fund_to_wallet_bonus). It is "
+     "once PER ROW, which is not the same as once per payment: with no replay guard above it, a second callback writes a second row and a second "
+     "bonus. PR 128's reconciler already has to count admin_bonus in the wallet net, which is how the column's weight was noticed."),
+    ('A conversion credits what was paid', 'MISSING',
+     "The amount is converted twice before it is credited: Convert::usdPaymentModule(amount, currency_code) to USD, then usdToDefaultCurrency() to the "
+     "PLATFORM's default currency. usdToDefaultCurrency is the same TRUNCATING function PR 129 found cutting a minor unit off a coupon, so a top-up "
+     "can credit less than was charged, and it converts to the platform's money rather than the market's."),
+    ('The credit goes to the wallet of the market where it was made', 'MISSING',
+     "create_wallet_transaction takes ($user_id, $amount, $transaction_type, $reference, $payment_data) and no market. PR 128 adds the dormant "
+     "customer_market_wallet_accounts table and CustomerMarketBalances behind GCC_MARKET_ACCOUNTS, but nothing routes the top-up through it, which "
+     "that pull request states of itself."),
+]}
+WRITTEN_CRITERIA['E-V1'] = _WRITTEN
+
+CRITERIA_SPLIT['K-V5'] = {0: [
+    ('The published per-platform status of the version gate is parsed from the configuration', 'MET',
+     "lib/features/splash/domain/models/config_model.dart: class PlatformVersion carries `final int? status` and PlatformVersion.fromJson reads "
+     "`int.tryParse(json['status']?.toString() ?? '0') ?? 0`. The switch the server sends already reaches the app."),
+    ('The splash version gate consults that status before it refuses entry', 'MISSING',
+     "lib/features/splash/screens/splash_screen.dart reads `appVersion?.forAndroid?.version` and `appVersion?.forIos?.version` and then gates on "
+     "`AppVersion.isUpdateRequired(minimumVersion)`. The parsed `status` is named nowhere on that path, so the gate cannot be switched off from the "
+     "server. The pattern that works is on the NEXT branch of the same if-chain: maintenance mode is gated on "
+     "`config?.maintenanceModeData?.maintenanceStatus == 1`, so the app already honours a server switch \u2014 the version gate alone does not."),
+    ('With the gate switched off, a seller whose shipped version is below the minimum still reaches the login form', 'MISSING',
+     "This is the failure the repository's own red test describes: test/app_version_gate_test.dart fails with 'pubspec version 1.0.0 is older than the "
+     "backend minimum 2.0.1 \u2014 the splash screen would show UpdateScreen and no seller could reach the login form', red on main's own run "
+     "43229610276. A wrong minimum therefore locks out every seller with no way back that does not need a release."),
+    ('Switching the gate off needs no app release', 'MISSING',
+     "It follows from the criterion above and is listed separately because it is the point of the requirement (Discovery E19-F06, P1; GCC-20 item 8). "
+     "No code or test change is proposed here: the charter forbids a seller app version change without verified release evidence, and this requirement "
+     "is about the gate's OFF switch, not about the version number."),
+]}
+WRITTEN_CRITERIA['K-V5'] = _WRITTEN
 
 
 

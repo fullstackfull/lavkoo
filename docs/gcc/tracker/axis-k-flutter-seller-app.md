@@ -1,6 +1,6 @@
 # Axis K: Flutter seller app
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 23. Acceptance criteria: 91 (MET 41, CODED 19, MISSING 31). Code completion 66%, proven by a passing test 45%, release readiness 3%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 23. Acceptance criteria: 94 (MET 42, CODED 19, MISSING 33). Code completion 65%, proven by a passing test 45%, release readiness 3%.
 
 Independent verification: done for unit(s) K.
 
@@ -471,10 +471,13 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** The seller version gate can be switched off per platform without a release (the published status honoured), so a wrong minimum cannot lock every seller out (Discovery E19-F06, P1)
 - **(3) Exists now in code (main).** lib/features/splash/domain/models/config_model.dart parses PlatformVersion.status, but splash_screen.dart reads only .version (lines 79 and 81) before AppVersion.isUpdateRequired; K-14 records the unknown minimum and the red test but not that the gate has no off switch. Lower priority than the other four; no code or test change is proposed while the charter forbids touching the gate.
 - **(4) Done in the draft PRs.** See the evidence note above.
-- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(5) What remains.** Its acceptance criteria are written (batch 1 of the 28 requirements the verifiers added). What remains is in the criteria themselves.
 - **(6) PRs and commits.** none
 - **(7) Tests.** none
 - **(8) Dependencies and blockers.** See the evidence note.
 - **(9) Acceptance criteria.**
-  - [MISSING] The seller version gate can be switched off per platform without a release (the published status honoured), so a wrong minimum cannot lock every seller out (Dis (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
-- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+  - [MET] The published per-platform status of the version gate is parsed from the configuration (lib/features/splash/domain/models/config_model.dart: class PlatformVersion carries `final int? status` and PlatformVersion.fromJson reads `int.tryParse(json['status']?.toString() ?? '0') ?? 0`. The switch the server sends already reaches the app.)
+  - [MISSING] The splash version gate consults that status before it refuses entry (lib/features/splash/screens/splash_screen.dart reads `appVersion?.forAndroid?.version` and `appVersion?.forIos?.version` and then gates on `AppVersion.isUpdateRequired(minimumVersion)`. The parsed `status` is named nowhere on that path, so the gate cannot be switched off from the server. The pattern that works is on the NEXT branch of the same if-chain: maintenance mode is gated on `config?.maintenanceModeData?.maintenanceStatus == 1`, so the app already honours a server switch — the version gate alone does not.)
+  - [MISSING] With the gate switched off, a seller whose shipped version is below the minimum still reaches the login form (This is the failure the repository's own red test describes: test/app_version_gate_test.dart fails with 'pubspec version 1.0.0 is older than the backend minimum 2.0.1 — the splash screen would show UpdateScreen and no seller could reach the login form', red on main's own run 43229610276. A wrong minimum therefore locks out every seller with no way back that does not need a release.)
+  - [MISSING] Switching the gate off needs no app release (It follows from the criterion above and is listed separately because it is the point of the requirement (Discovery E19-F06, P1; GCC-20 item 8). No code or test change is proposed here: the charter forbids a seller app version change without verified release evidence, and this requirement is about the gate's OFF switch, not about the version number.)
+- **(10) Next coding task.** See the criteria: the unmet ones name the file and the line that has to change.

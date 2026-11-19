@@ -1,6 +1,6 @@
 # Axis A: Six-country base and customer identity
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 37. Acceptance criteria: 161 (MET 87, CODED 19, MISSING 55). Code completion 66%, proven by a passing test 54%, release readiness 9%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 37. Acceptance criteria: 164 (MET 87, CODED 21, MISSING 56). Code completion 66%, proven by a passing test 53%, release readiness 9%.
 
 Independent verification: done for unit(s) A1, A2.
 
@@ -752,13 +752,16 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** A local admin or employee of one market cannot see the customer's transactions of other markets without permission: orders, refunds and POS sales of other countries and per-customer counts in the admin screens, reports and exports, and the customer wallet and loyalty transaction screens
 - **(3) Exists now in code (main).** A2 has line 355 only as a cross_axis_note routed to unit G, but the unit's brief lists it, so it needs a requirement here (or G must carry it). Code exists in the GCC chain, default off behind GCC_STAFF_COUNTRY_SCOPES: PR 74 (712509a, products), PR 77 (81a2836, orders, POS, refunds), PR 82 (d1fc5f4, layout, people, dashboard, reports, header search); StaffCountryOrderScope on Order and StaffOrderVisibility (an order follows the countries of its lines). tests/Feature/StaffScope (25 files) ran green in PR 83 8ff3410 (Staff scope tests MySQL 8 and MariaDB 11.4.2, Tests SQLite). Gaps: the customer lists are not narrowed by design ('they belong to no country'); customers' wallet and loyalty reports and the wallet bonus tab carry no country and are not narrowed (PR 82 owner decision 15); money that cannot be told apart by country is hidden, not split. The code touches Admin/Order/OrderControll
 - **(4) Done in the draft PRs.** See the evidence note above.
-- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(5) What remains.** Its acceptance criteria are written (batch 1 of the 28 requirements the verifiers added). What remains is in the criteria themselves.
 - **(6) PRs and commits.** none
 - **(7) Tests.** none
 - **(8) Dependencies and blockers.** See the evidence note.
 - **(9) Acceptance criteria.**
-  - [MISSING] A local admin or employee of one market cannot see the customer's transactions of other markets without permission: orders, refunds and POS sales of other count (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
-- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+  - [CODED] Orders, POS sales and refunds of another country are not listed to a country-scoped admin (PRs 77 (81a2836) and 82 (d1fc5f4), behind GCC_STAFF_COUNTRY_SCOPES which ships off: StaffCountryOrderScope on Order, OrderDetail and OrderTransaction, StaffCountryRefundScope on RefundRequest and RefundTransaction, with ScopeOrdersToStaffCountries as the middleware. CODED rather than MET because the chain has no CI run read on a head that carries all of it.)
+  - [CODED] The dashboard, the reports, the exports and the header search of a scoped admin cover only that admin's countries (PR 82 (d1fc5f4): DashboardController and AdvanceSearch are scope-aware, and StaffCountryScope, StaffCountryAssignments and StaffOrderRoutes carry the assignment. Not MET: no run read, and the export paths are not separately pinned.)
+  - [MISSING] The customer's WALLET transaction screen shows a scoped admin only the markets they hold (Measured on the head of PR 82: `git grep -l StaffCountry -- app` names Product, RefundRequest, RefundTransaction and the three scope classes (order, product, refund) and NOTHING else. app/Models/WalletTransaction.php carries no scope, so a local admin of one market reads every market's wallet movements of a customer. This is the half of plan line 355 that the order and refund scopes do not reach.)
+  - [MISSING] The customer's LOYALTY transaction screen shows a scoped admin only the markets they hold (The same measurement: app/Models/LoyaltyPointTransaction.php carries no StaffCountry scope on any open branch. E-02 keeps points global (one users.loyalty_point), so there is also no market on the row to scope BY yet — this criterion depends on E-02's account key.)
+- **(10) Next coding task.** See the criteria: the unmet ones name the file and the line that has to change.
 
 #### A2-V2. Policy consents are stored in the right scope: the explicit acceptance of a legal text is recorded a...
 
