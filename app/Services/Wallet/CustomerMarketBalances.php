@@ -102,7 +102,7 @@ final class CustomerMarketBalances
             return MarketBalanceChange::refused(refusal: MarketBalanceRefusal::Dormant, market: $code);
         }
 
-        if ($this->configuredMarket($market) === null) {
+        if ($this->configuredMarket($code) === null) {
             return MarketBalanceChange::refused(refusal: MarketBalanceRefusal::UnknownMarket, market: $code);
         }
 
