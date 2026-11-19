@@ -69,6 +69,7 @@ EXTRA = {
     131: ("E-08: an account deletion that keeps the customer's money, behind a flag that is off (draft, off by default, stacked on #118)", "gcc/p1-account-deletion-keeps-money", "gcc/p1-wallet-contract-tests"),
     132: ("D2-04.2: pin the six payment gateway registries to each other with a test that reads them (draft, tests only, stacked on #3)", "gcc/p1-gateway-registry-consistency", "gcc/p0-remove-duplicate-payment-routing"),
     133: ("I2-06.3: the legal texts a customer accepts are not the operating rules the platform applies to itself (draft, tests plus four docblock lines, stacked on #121)", "gcc/p1-legal-versus-operating-rules", "gcc/p1-legal-store-pins"),
+    134: ("G-V2.2, G-V2.3: pin the admin login throttle and the status check that stand beside the guard (draft, tests only, based on main)", "gcc/p0-admin-signin-guards", "main"),
 }
 
 

@@ -1,5 +1,5 @@
 {
- "lavkoo_prs": 133,
+ "lavkoo_prs": 134,
  "github": [
   "`fullstackfull/lavkoo`: 96 open draft pull requests, none merged; `main` is `c5c04b7b` (2026-11-12). `fullstackfull/lavkooapp`: 9 open drafts. `fullstackfull/lavkooappseller`: 6 open drafts. [PR_LEDGER.md](PR_LEDGER.md) lists every pull request of `lavkoo` with its branch, base and head.",
   "CI-only integration trees (never merged): the security set `gcc/release/security-integration` (PR 75, `47b78ab8`); the GCC stack `gcc/release/gcc-integration-ci` (PR 83, `8ff34109`); both together `gcc/release/security-gcc-integration-ci` (`f6fb03af`); and every main-based open pull request together, `gcc/release/all-integration-ci` (head `1365cdad`, which merges the later drafts 87 to 96; the four main-based pull requests not in it are the baseline hotfix line below). Its run 293 (on the earlier head `8598331b`, which already held PR 88 to 94 and the real-engine group of CI) is the latest proof of the tree: it is read per job in `audits/2026-11-18-all-in-one-integration/README.md`.",

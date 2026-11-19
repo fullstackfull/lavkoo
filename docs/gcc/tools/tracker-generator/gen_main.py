@@ -2073,6 +2073,51 @@ WRITTEN_CRITERIA['M2-V5'] = _WRITTEN
 
 
 
+# ---- E-02.3: the sharing key, CI read job by job AFTER the MariaDB repair (2026-11-19, evening) ----
+
+_R130 = ("CI run id 44565065667 (pull_request, head 3152b0de), read job by job on 2026-11-19: 24 of 25 jobs success. This is the run that "
+         "matters, because the run BEFORE it (44546747284, head b6723a1f) was RED on two jobs and the repair is what this one proves. The "
+         "comparison is exact: 'Wallet tests' read `Tests: 114, Assertions: 365, Failures: 2` before and `Tests: 114, Assertions: 365` after "
+         "\u2014 the same test count and the same assertion count, with the failures gone \u2014 on MariaDB 11.4.2 AND on MySQL 8; "
+         "'Strict-mode tests, MariaDB 11.4.2' read `4135 / 35835, Failures: 2` before and `4135 / 35835` after. Nothing was skipped or deleted "
+         "to make them pass. The whole suite 'Tests, SQLite' is 7351 tests / 797796 assertions, 106 skipped, on PHP 8.3 and on PHP 8.2, and "
+         "7351 is PR 128's 7337 plus the 14 tests this head adds, EXACTLY \u2014 so the arithmetic claimed on both pull requests now holds in "
+         "CI and not only in a local run. 'Storefront tests' 941 / 4660 on both engines. One figure is corrected rather than reconciled "
+         "quietly: the local run reported 797802 assertions and CI reports 797796, a difference of six, the same six by which PR 129's local "
+         "and CI whole-suite numbers differ; CI is the authority for the count. The single red is 'Deployment overlay (artifact, deploys "
+         "nothing)', red by design and not this branch's: `git diff --name-only origin/gcc/p1-market-wallet-loyalty-accounts...3152b0de` names "
+         "none of firebase-messaging-sw.js, public/firebase-messaging-sw.js or robots.txt.")
+
+for _req, _link in [('E-02', {'repo': 'lavkoo', 'pr': 130, 'sha': '3152b0de'})]:
+    EXTRA_LINKS[_req] = [l for l in EXTRA_LINKS.get(_req, [])
+                         if not (l.get('repo') == _link['repo'] and l.get('pr') == _link['pr'])] + [_link]
+
+CRITERIA.setdefault('E-02', {})[3] = ('MET', "PR 130 (draft, base gcc/p1-market-wallet-loyalty-accounts at 2629b9f1, head 3152b0de, expand "
+    "only). One nullable column, `sharing_group`, on each of customer_market_wallet_accounts and customer_market_loyalty_accounts, which NO code "
+    "anywhere reads or writes. All three halves of the criterion are asserted by MarketAccountSharingKeyTest (14 tests, 43 assertions) and each "
+    "fails on its own. THE COLUMN IS THERE and is nullable with no default, so adding it changed no existing row. NOTHING NAMES IT: every PHP, "
+    "JavaScript and Vue file of app, config, database, routes, resources, Modules and tests is read, PHP token by token so that the migration's "
+    "own prose explanation does not count as a reader while a `->sharing_group` or a `'sharing_group'` does, and only two files may name it \u2014 "
+    "the migration and that test. The scan fails for a file that merely WRITES the key as well as one that reads it, because a value written is a "
+    "value something later believes, and it fails FROM THE OTHER SIDE too, for a migration or test that stops naming it, so the guard cannot be "
+    "left asserting a column nobody adds. AND THE KEY DOES NOTHING: two markets of one customer carrying the SAME key still hold their own "
+    "balances, and a market with nothing of its own is still refused the money of a market it is grouped with \u2014 so turning sharing on takes "
+    "a code change a person writes and another reviews, which is what the criterion asks, and the scan then fails on that code until the list is "
+    "changed deliberately. The rollback drops the column while nothing carries one and REFUSES once a row does, so a key a later slice has begun "
+    "to fill is never silently forgotten. WHY A STRING AND NOT A FOREIGN KEY: a foreign key needs a table of groups, and the shape of a group is "
+    "exactly what is undecided \u2014 it may be the legal entity, a currency union, or a list the owner writes by hand \u2014 so a nullable free "
+    "string decides none of that and is cheap to replace while the column is empty. No index, because an index pays for a read and there is no "
+    "reader. %s A DEFECT IN THE TEST ITSELF WAS FOUND BY CI AND IS WORTH RECORDING: the first head was green on a local SQLite run and failed "
+    "twice on MariaDB with 'Failed asserting that \\'NULL\\' is null'. The migration was never wrong \u2014 SQLite returns PHP null for a "
+    "column with no default and MariaDB returns the bare word NULL, which is what information_schema.COLUMN_DEFAULT holds \u2014 so assertNull "
+    "failed a column that is exactly as this criterion asks. The repair reads either answer as 'none' through a named helper and hides no real "
+    "default, proved on a real MariaDB rather than by reasoning: a column with no default records as NULL while DEFAULT 'NULL' records as 'NULL' "
+    "WITH its quotes, and that mutation and DEFAULT 'grp' both still fail the fixed test. OPEN OWNER DECISION, unchanged by this: whether a "
+    "customer's points, and later their money, may be shared across some markets is the owner's and a finance and legal reading's per country. "
+    "The column is the room the structure leaves for that answer, not the answer." % _R130)
+
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
