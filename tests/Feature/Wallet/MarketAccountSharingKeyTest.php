@@ -82,7 +82,11 @@ class MarketAccountSharingKeyTest extends TestCase
         $column = $this->columnOf(table: $accounts, column: self::SHARING_KEY);
 
         $this->assertTrue($column['nullable'], 'A sharing key that is not nullable would have to be filled for every account that exists.');
-        $this->assertNull($column['default'], 'A default would group accounts the moment the migration ran, which is not a code change.');
+        $this->assertTrue(
+            $this->meansNoDefault($column['default']),
+            'A default would group accounts the moment the migration ran, which is not a code change. The database records the default as '
+            . var_export($column['default'], true) . '.',
+        );
     }
 
     public function test_running_it_again_changes_nothing(): void
@@ -238,6 +242,19 @@ class MarketAccountSharingKeyTest extends TestCase
         }
 
         return $columns;
+    }
+
+    /**
+     * Whether a recorded column default means "there is none", asked in the one way every database this suite runs on answers alike.
+     *
+     * SQLite hands back PHP null for a column with no default. MariaDB hands back the bare four-letter word NULL, because that is what
+     * `information_schema.COLUMN_DEFAULT` holds for one, and PHPUnit's assertNull then fails on a column that is in fact exactly as the
+     * criterion asks. Reading that bare word as "none" hides no real default: MariaDB records a string default WITH its quotes, so a
+     * column that genuinely defaulted to the text NULL would read as "'NULL'" here and still fail, as would 'grp' or any other group.
+     */
+    private function meansNoDefault(mixed $recorded): bool
+    {
+        return $recorded === null || $recorded === 'NULL';
     }
 
     /** @return array{nullable: bool, default: mixed} what the database itself says about one column */
