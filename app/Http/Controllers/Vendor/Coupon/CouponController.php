@@ -147,7 +147,7 @@ class CouponController extends BaseController
     public function delete(string|int $id): RedirectResponse
     {
         $coupon = $this->couponRepo->getFirstWhere(['added_by' => 'seller', 'coupon_bearer' => 'seller', 'id' => $id]);
-        if (in_array($coupon['seller_id'], [auth('seller')->id(), 0])) {
+        if ($coupon && in_array(needle: $coupon['seller_id'], haystack: [auth('seller')->id(), 0], strict: true)) {
             $this->couponRepo->delete(params: ['id' => $id]);
             ToastMagic::success(translate('coupon_deleted_successfully'));
         } else {
@@ -164,7 +164,13 @@ class CouponController extends BaseController
      */
     public function getQuickView(Request $request): JsonResponse
     {
-        $coupon = $this->couponRepo->getFirstWhere(['id' => $request['id']]);
+        $coupon = $this->couponRepo->getListWhere(
+            filters: ['added_by' => 'seller', 'vendorId' => auth('seller')->id(), 'id' => $request['id']],
+            dataLimit: 'all'
+        )->first();
+        if (!$coupon) {
+            return response()->json(data: ['status' => 0, 'message' => translate('coupon_not_found')], status: 404);
+        }
         return response()->json([
             'view' => view(Coupon::QUICK_VIEW[VIEW], compact('coupon'))->render(),
         ]);
