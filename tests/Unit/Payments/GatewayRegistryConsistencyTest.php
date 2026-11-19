@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Tests\Support\PaymentGatewayRegistryReader;
+use Tests\Support\RefusesToTouchALiveDatabase;
 use Tests\TestCase;
 
 use function App\Utils\payment_gateways;
@@ -25,15 +26,23 @@ use function App\Utils\payment_gateways;
  *
  * Every list here is READ from its own source file (PaymentGatewayRegistryReader) rather than restated
  * in this test. A test that restated them would pass for ever and prove nothing about drift; read from
- * the source, a seventh gateway added tomorrow to one place and not the others fails a named test.
+ * the source, a seventh gateway added tomorrow to one of the six places and not the others fails a named
+ * test. Each pairing is asserted in BOTH directions, because a one-way check passes for whichever list
+ * the new key was added to. The one gap left is the shape of a route: the registered-routes side can
+ * only recognise the conventional `payment/<gateway>/pay` entry path, so a gateway registered under some
+ * other shape — `payment/bkash/make-payment` is the existing example — is not seen there.
  *
- * Two disagreements exist today and are PINNED rather than fixed, because changing a payment route or
- * the trait a deleted add-on restores needs the security or financial owner: `liqpay` (its route map
- * path is not the path the application registers) and the four keys app/Traits/Payment.txt never
- * gained. Each is a named constant below with a message saying what to do when it is put right.
+ * Four disagreements exist today and are PINNED rather than fixed, because changing a payment route, the
+ * trait a deleted add-on restores or a currency table needs the security or financial owner: `liqpay`
+ * (its route-map path is not the path the application registers), `mercadopago_pix` (routed, priced
+ * nowhere), `cinetpay` (priced, routed nowhere, and in no other file in the repository) and the four keys
+ * app/Traits/Payment.txt never gained. Each is a named constant below with a message saying what to do
+ * when it is put right.
  */
 class GatewayRegistryConsistencyTest extends TestCase
 {
+    use RefusesToTouchALiveDatabase;
+
     /**
      * `liqpay` is in both default gateway lists, so an operator can switch it on and a customer can
      * pick it, but Payment::generate_link sends that customer to `payment/liqpay/pay` while
@@ -56,6 +65,22 @@ class GatewayRegistryConsistencyTest extends TestCase
     private const KEYS_THE_DISCARDED_TRAIT_COPY_IS_MISSING = ['paymera', 'mtn_cash', 'my_fatoorah', 'mercadopago_pix'];
 
     private const PATHS_THE_DISCARDED_TRAIT_COPY_SENDS_ELSEWHERE = ['fatoorah' => 'payment/fatoorah/pay'];
+
+    /**
+     * `cinetpay` is priced by the currency map and appears NOWHERE else in the repository: no route-map
+     * entry, no default-list entry, no controller, no route. Nothing can select it, so it costs a customer
+     * nothing today; it is pinned so that a gateway priced and then forgotten cannot hide behind it.
+     */
+    private const CURRENCY_MAP_KEYS_THE_ROUTE_MAP_DOES_NOT_ROUTE = ['cinetpay'];
+
+    /**
+     * `payment/fatoorah/pay` is registered and reaches the MyFatoorah controller, but the route map sends
+     * new links to the canonical `payment/myfatoorah/pay`; the alias path stays registered so that an app
+     * build or a bookmark still holding it resolves (GatewayConfigRepository::ALIASES). Registered on
+     * purpose and unused by the route map on purpose — pinned so that an entry path registered for a
+     * gateway no registry knows about cannot hide behind it.
+     */
+    private const REGISTERED_ENTRY_PATHS_THE_ROUTE_MAP_DOES_NOT_USE = ['payment/fatoorah/pay'];
 
     /** D2-04: every key of the route map that has a route is in the default list and the currency map. */
     public function test_every_routed_gateway_key_is_in_both_default_lists_and_in_the_currency_map(): void
@@ -97,6 +122,18 @@ class GatewayRegistryConsistencyTest extends TestCase
             self::ROUTE_MAP_KEYS_THE_CURRENCY_MAP_DOES_NOT_PRICE,
             $unpriced,
             'The route map in ' . PaymentGatewayRegistryReader::LIVE_TRAIT_FILE . ' and the currency map in ' . PaymentGatewayRegistryReader::CURRENCY_MAP_FILE . ' disagree. Add the gateway to both, or, if a pinned exception has been put right, remove it from ROUTE_MAP_KEYS_THE_CURRENCY_MAP_DOES_NOT_PRICE.'
+        );
+    }
+
+    /** The same pairing the other way round: a gateway priced but never routed is caught too. */
+    public function test_every_gateway_key_the_currency_map_prices_is_in_the_route_map(): void
+    {
+        $routedKeys = array_keys(PaymentGatewayRegistryReader::liveRouteMap());
+
+        $this->assertSame(
+            self::CURRENCY_MAP_KEYS_THE_ROUTE_MAP_DOES_NOT_ROUTE,
+            array_values(array_diff(PaymentGatewayRegistryReader::currencyMapKeys(), $routedKeys)),
+            'The currency map in ' . PaymentGatewayRegistryReader::CURRENCY_MAP_FILE . ' prices a gateway the route map in ' . PaymentGatewayRegistryReader::LIVE_TRAIT_FILE . ' cannot send anyone to, so Payment::generate_link returns false for it. Add the gateway to both, or, if a pinned exception has been put right, remove it from CURRENCY_MAP_KEYS_THE_ROUTE_MAP_DOES_NOT_ROUTE.'
         );
     }
 
@@ -183,6 +220,28 @@ class GatewayRegistryConsistencyTest extends TestCase
     }
 
     /**
+     * The same pairing the other way round: a gateway whose payment page is registered and whose keys
+     * were never written down anywhere is caught too.
+     *
+     * Only the conventional entry path is recognised — `payment/<gateway>/pay`, the shape all but one of
+     * today's gateways use. A gateway registered under another shape (`payment/bkash/make-payment`) is
+     * invisible here, which is a limit of this check, not a licence.
+     */
+    public function test_every_gateway_entry_path_the_application_registers_is_in_the_route_map(): void
+    {
+        $entryPaths = array_filter(
+            $this->registeredPaths(),
+            static fn (string $path): bool => str_starts_with($path, 'payment/') && str_ends_with($path, '/pay')
+        );
+
+        $this->assertSame(
+            self::REGISTERED_ENTRY_PATHS_THE_ROUTE_MAP_DOES_NOT_USE,
+            array_values(array_diff($entryPaths, array_values(PaymentGatewayRegistryReader::liveRouteMap()))),
+            'A payment page is registered that no gateway key in ' . PaymentGatewayRegistryReader::LIVE_TRAIT_FILE . ' leads to, so nothing can ever send a customer there. Add the gateway to the route map and the other registries, or, if a pinned exception has been put right, remove it from REGISTERED_ENTRY_PATHS_THE_ROUTE_MAP_DOES_NOT_USE.'
+        );
+    }
+
+    /**
      * app/Traits/Payment.txt is not dead code: AddonService::deleteAddon copies it over
      * app/Traits/Payment.php when the Gateways add-on is deleted. Whatever it is missing is what the
      * platform would lose at that moment, silently.
@@ -219,13 +278,17 @@ class GatewayRegistryConsistencyTest extends TestCase
     }
 
     /**
-     * A key the application does not route is never offered at checkout.
+     * The behaviour of the default-list filter: a switched-on gateway outside the list is not offered.
      *
-     * This asserts the behaviour, not only the shape of the lists: a stub gateway row is switched on in
-     * the settings table and payment_gateways() — the one function behind both the web checkout and the
-     * `payment_methods` array /api/v1/config hands the mobile app — is asked what it offers.
+     * This asks the running application rather than the source files — a stub gateway row is switched on
+     * in the settings table and payment_gateways(), the one function behind both the web checkout and the
+     * `payment_methods` array /api/v1/config hands the mobile app, is asked what it offers.
+     *
+     * What it proves is exactly that filter, and no more. payment_gateways() never looks at routes, so a
+     * routeless gateway that IS in the default list is still offered; that case belongs to the sibling
+     * below, which follows each offered key to its route.
      */
-    public function test_a_gateway_key_the_application_does_not_route_is_not_offered_at_checkout(): void
+    public function test_a_gateway_key_absent_from_the_default_list_is_not_offered_at_checkout(): void
     {
         $this->buildGatewaySettingsTable();
 
@@ -241,8 +304,46 @@ class GatewayRegistryConsistencyTest extends TestCase
 
         $offered = payment_gateways()->pluck('key_name')->all();
 
-        $this->assertNotContains($stub, $offered, "'{$stub}' has no route and no default-list entry, so a customer picking it could only ever reach a dead link.");
+        $this->assertNotContains($stub, $offered, "'{$stub}' is outside the default list, so the filter should have dropped it.");
         $this->assertContains($offerable, $offered, "'{$offerable}' is routed and in the default list, so the filter has not simply emptied the list.");
+    }
+
+    /**
+     * Every gateway a customer is actually offered reaches a payment page this application registers.
+     *
+     * The structural sibling reads the default list out of its source file; this one switches every
+     * default gateway on, asks payment_gateways() what it would offer a customer, and follows each
+     * answer through the route map to the registered routes. A stub with no route and no controller,
+     * added to both default lists so that it appears in the admin panel, fails here — which is the
+     * regression the checkout filter alone cannot see, because payment_gateways() never reads routes.
+     */
+    public function test_every_gateway_offered_at_checkout_reaches_a_route_the_application_registers(): void
+    {
+        $this->buildGatewaySettingsTable();
+
+        foreach (PaymentGatewayRegistryReader::helpersDefaultGatewayKeys() as $key) {
+            $this->switchOnGateway(key: $key);
+        }
+
+        config(['get_payment_publish_status' => 0]);
+
+        $routeMap = PaymentGatewayRegistryReader::liveRouteMap();
+        $registeredPaths = $this->registeredPaths();
+        $offered = payment_gateways()->pluck('key_name')->all();
+
+        $unreachable = [];
+        foreach ($offered as $key) {
+            if (!in_array($routeMap[$key] ?? '', $registeredPaths, true)) {
+                $unreachable[] = $key;
+            }
+        }
+
+        $this->assertNotSame([], $offered, 'Every default gateway was switched on, so payment_gateways() offering nothing means this test is measuring the wrong thing.');
+        $this->assertSame(
+            self::DEFAULT_GATEWAYS_WHOSE_ROUTE_IS_NOT_REGISTERED,
+            $unreachable,
+            'A gateway offered at checkout is sent by Payment::generate_link to a path routes/web/routes.php does not register, so the customer gets a 404 and an orphan payment_requests row is left behind. Register the path or correct the route map; if a pinned exception has been put right, remove it from DEFAULT_GATEWAYS_WHOSE_ROUTE_IS_NOT_REGISTERED.'
+        );
     }
 
     /** @return list<string> the gateway keys whose route-map path this application actually registers, aliases aside */
@@ -326,9 +427,19 @@ class GatewayRegistryConsistencyTest extends TestCase
         ]);
     }
 
-    /** The gateway settings table, with the columns the Setting model reads. It lives in the installed SQL dump, not in a migration. */
+    /**
+     * The gateway settings table, with the columns the Setting model reads. It lives in the installed SQL
+     * dump, not in a migration, so it is built here.
+     *
+     * Dropped first because on a real engine the table outlives the test and would otherwise carry
+     * another suite's columns and rows — and guarded first because on a real engine the database is
+     * whatever DB_DATABASE points at. addon_settings holds every gateway's encrypted credentials
+     * (GatewayConfigRepository), so this refuses to run at all outside a throwaway test database.
+     */
     private function buildGatewaySettingsTable(): void
     {
+        $this->refuseUnlessTheDatabaseIsThrowaway();
+
         Schema::dropIfExists('addon_settings');
         Schema::create('addon_settings', static function (Blueprint $table): void {
             $table->string('id', 36)->primary();

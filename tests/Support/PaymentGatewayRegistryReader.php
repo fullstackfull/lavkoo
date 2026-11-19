@@ -112,6 +112,11 @@ final class PaymentGatewayRegistryReader
      * Every entry at the top level of the array literal that follows $declaration, in source order and
      * with duplicates kept. `value` is null where the entry's value is itself an array.
      *
+     * An entry this reader cannot read is an ERROR, never a silently empty result: a gateway written as
+     * a class constant or a concatenation would otherwise drop out of every consistency check and the
+     * drift the checks exist to catch would pass unnoticed. Only a plain quoted string, `=>` and `,` are
+     * accepted at the top level, so anything else stops the read and names itself.
+     *
      * @return list<array{key: ?string, value: ?string}>
      */
     private static function entries(string $file, string $declaration): array
@@ -122,10 +127,12 @@ final class PaymentGatewayRegistryReader
         $entries = [];
         $pendingKey = null;
         $depth = 0;
+        $line = 0;
 
         for ($index = $start, $count = count($tokens); $index < $count; $index++) {
             $token = $tokens[$index];
             $text = is_array($token) ? $token[1] : $token;
+            $line = is_array($token) ? $token[2] : $line;
 
             if ($text === '[') {
                 $depth++;
@@ -143,8 +150,24 @@ final class PaymentGatewayRegistryReader
                 continue;
             }
 
-            if ($depth !== 1 || !is_array($token) || $token[0] !== T_CONSTANT_ENCAPSED_STRING) {
+            if ($depth !== 1) {
                 continue;
+            }
+
+            if (!is_array($token)) {
+                if ($text !== ',') {
+                    throw self::unreadable(file: $file, declaration: $declaration, text: $text, line: $line);
+                }
+
+                continue;
+            }
+
+            if (in_array($token[0], [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT, T_DOUBLE_ARROW], true)) {
+                continue;
+            }
+
+            if ($token[0] !== T_CONSTANT_ENCAPSED_STRING) {
+                throw self::unreadable(file: $file, declaration: $declaration, text: $text, line: $line);
             }
 
             $literal = substr($text, 1, -1);
@@ -163,6 +186,11 @@ final class PaymentGatewayRegistryReader
         }
 
         return $entries;
+    }
+
+    private static function unreadable(string $file, string $declaration, string $text, int $line): RuntimeException
+    {
+        return new RuntimeException("The array literal after {$declaration} in {$file} holds `{$text}` at line {$line}, which is not a plain quoted string. Every gateway registry is READ from its source, so an entry this reader cannot see would drop out of all the consistency checks instead of failing one: write the entry as a quoted string, or teach " . self::class . " to read it.");
     }
 
     private static function openingBracketAfter(array $tokens, string $declaration, string $file): int

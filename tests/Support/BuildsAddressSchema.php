@@ -8,7 +8,6 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use RuntimeException;
 
 /**
  * The address tests' database: an INFERRED copy of the store tables the address book touches (the installation dump that owns
@@ -17,6 +16,8 @@ use RuntimeException;
  */
 trait BuildsAddressSchema
 {
+    use RefusesToTouchALiveDatabase;
+
     public const ADDRESS_MIGRATIONS = [
         '2026_11_07_100000_create_address_master_tables.php',
         '2026_11_07_100100_add_unified_address_columns_to_shipping_addresses_table.php',
@@ -26,12 +27,9 @@ trait BuildsAddressSchema
 
     protected function resetAddressTestDatabase(): void
     {
-        $connection = DB::connection();
-        if ($connection->getDriverName() !== 'sqlite') {
-            $database = (string) $connection->getDatabaseName();
-            if (!app()->environment('testing') || !preg_match('/(^|_)test(s|ing)?($|_)/i', $database)) {
-                throw new RuntimeException("Refusing to drop every table of '{$database}': the test database name must contain 'test' and APP_ENV must be 'testing'.");
-            }
+        $this->refuseUnlessTheDatabaseIsThrowaway();
+
+        if (DB::connection()->getDriverName() !== 'sqlite') {
             Schema::dropAllTables();
         }
 
