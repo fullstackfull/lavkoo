@@ -1497,6 +1497,39 @@ CRITERIA['I1-12'][2] = ('MET', "PR 129 (7ca87a9f): the round-trip matrix runs ov
 
 
 
+# ---- Wave 7: lavkooappseller 17, CI read job by job and step by step (2026-11-19, evening) ----
+
+_R17S = ("seller CI run id 44566251838 (head 6becf35b), read job by job and then step by step on 2026-11-19: 'analyze-and-test' red, "
+         "'build-android' skipped. The job holds TWO red steps and NEITHER is this branch's, each proved rather than asserted. "
+         "(1) 'dart format --output=none --set-exit-if-changed lib/helper lib/theme lib/common/basewidgets/glass tool' reports "
+         "'Formatted 24 files (20 changed)' \u2014 and this branch touches NONE of those four directories (git diff --name-only "
+         "origin/main..HEAD names only lib/features/auth, lib/features/shop, lib/utill and test/shop_images). Running that exact command "
+         "against origin/main's OWN files, extracted with git archive, prints the identical 20-file list and exits 1, so the step is red on "
+         "main. (2) 'flutter test' reports 164 passed, 1 failed, the one failure being test/app_version_gate_test.dart 'force-update gate the "
+         "shipped version clears the backend minimum, so login is reachable': pubspec 1.0.0 against a backend minimum of 2.0.1. That is red on "
+         "main as well, proved on main's own run 43229610276 job 131221083251 (141 passed, 1 failed, the same test), and it is NOT fixed here, "
+         "because a seller app version change needs verified release evidence the charter does not grant. The arithmetic closes: 164 - 141 = 23, "
+         "and 23 is exactly the number of tests this branch adds \u2014 all 23 appear by name in the run's passing group, 12 from "
+         "shop_image_rules_test.dart and 11 from shop_image_source_rules_test.dart. Flutter 3.47.0, the CI pin.")
+
+for _req, _link in [('K-18', {'repo': 'lavkooappseller', 'pr': 17, 'sha': '6becf35b'})]:
+    EXTRA_LINKS[_req] = [l for l in EXTRA_LINKS.get(_req, [])
+                         if not (l.get('repo') == _link['repo'] and l.get('pr') == _link['pr'])] + [_link]
+
+CRITERIA.setdefault('K-18', {})[1] = ('MET', "lavkooappseller PR 17 (draft, base main at 93e3f63, head 6becf35b, NO app version change, no package id, "
+    "bundle id, Firebase setting or import renamed). Two commits, in that order deliberately: the first WRITES DOWN the image rules the two seller forms "
+    "state today \u2014 registration asks for four slots and the shop form for four, registration states a 2 MB limit for all four while the shop form "
+    "states 1 MB for the logo and the cover, and the two forms still DISAGREE about the shop banner, 3:1 against 4:1, which is recorded as a fact rather "
+    "than quietly harmonised \u2014 so the refactor has something to be measured against; the second moves both forms to read every ratio, size and slot "
+    "rule from the rules table instead of deciding them from the single global active_theme, which is what the criterion asks. With six storefronts an "
+    "image rule that comes from one global theme is a rule no country can differ on; reading from the table is what makes a per-storefront answer "
+    "possible, and this does not add one. THREE of the eleven source-rule tests exist to keep the scan honest rather than to assert the feature, which is "
+    "the I2-09 lesson applied: the scan is made to SEE a theme read when one is written, to SEE a ratio or a size when one is written, and to LEAVE the "
+    "app's own colour theme and names that only look like it alone. A scan that cannot fail is not evidence. %s NOT covered: no full seller-app suite "
+    "beyond CI's own run is reported, and the per-storefront answer itself is not implemented \u2014 only the reading of the rule is moved." % _R17S)
+
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]

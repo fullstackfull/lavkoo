@@ -24,10 +24,10 @@ As of 2026-11-19. Generated from the independent assessment of every requirement
 | [H. Shipping and integrations](tracker/axis-h-shipping-and-integrations.md) | 34 | 152 | 79 | 10 | 63 | 59% | 52% | 16% | all |
 | [I. Marketing, policies and operations](tracker/axis-i-marketing-policies-and-operations.md) | 37 | 183 | 84 | 40 | 59 | 68% | 46% | 3% | all |
 | [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 93 | 42 | 28 | 23 | 75% | 45% | 5% | all |
-| [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 91 | 40 | 19 | 32 | 65% | 44% | 3% | all |
+| [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 91 | 41 | 19 | 31 | 66% | 45% | 3% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 45 | 18 | 31 | 67% | 48% | 7% | all |
 | [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 289 | 103 | 106 | 80 | 72% | 36% | 3% | all |
-| **All axes (pooled)** | **359** | **1675** | **797** | **318** | **560** | **67%** | **48%** | **8%** | |
+| **All axes (pooled)** | **359** | **1675** | **798** | **318** | **559** | **67%** | **48%** | **8%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -450,7 +450,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [K-15](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 1/3/2 | Tests and CI of the seller app |
 | [K-16](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 4/1/1 | Seller workflows keep working (orders, products, stock, POS, withdrawals, reviews) |
 | [K-17](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 1/1/4 | Backend contracts and decisions the seller app depends on |
-| [K-18](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 1/1/1 | Seller-app theme and API impact of per-country themes (GCC-09 audit) |
+| [K-18](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 2/1/0 | Seller-app theme and API impact of per-country themes (GCC-09 audit) |
 | [K-V1](tracker/axis-k-flutter-seller-app.md) | NOT STARTED | 0/0/1 | Seller app compatibility with the open backend PRs that change seller v3 answers but were not read i... |
 | [K-V2](tracker/axis-k-flutter-seller-app.md) | NOT STARTED | 0/0/1 | Sensitive actions of a seller or seller staff (payout and bank details, staff management, account de... |
 | [K-V3](tracker/axis-k-flutter-seller-app.md) | IMPLEMENTED IN DRAFT | 1/0/0 | A queued POS sale that has failed ten replays is never dropped silently: it stays visible with its l... |
