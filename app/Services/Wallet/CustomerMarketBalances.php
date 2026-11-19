@@ -24,7 +24,7 @@ use Illuminate\Support\Facades\Schema;
  *
  * While it is on, and once the expand migration has run, each market has its own account: a balance is that market's own, a credit or a
  * debit touches the account of the market it names and no other, and no path here moves or converts money between two markets. A market
- * with no account yet reads zero, and a write opens the account with nothing in it before it moves anything.
+ * with no account yet reads zero; a credit opens the account before it adds to it, and a debit never opens one, so a refusal writes nothing.
  *
  * Nothing in the application calls this service yet. The writers are wired market by market in a later slice (E-07), and a caller that pays
  * for an order has to answer a refusal with the refusal its own transaction rolls back on (E-10), never ignore it.
