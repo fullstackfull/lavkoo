@@ -1856,6 +1856,78 @@ WRITTEN_CRITERIA['M2-V3'] = _WRITTEN
 
 
 
+# ---- The verifiers' requirements, batch 5 of 28 (2026-11-19, evening) ----
+
+CRITERIA_SPLIT['A2-V2'] = {0: [
+    ('An acceptance is recorded against the TEXT VERSION that was accepted', 'CODED',
+     "PR 43 (82b6dfa), migration 2026_11_24_110000_create_storefront_legal_acceptances_table: the row carries `legal_document_id`, "
+     "`document_version` AND `document_hash` (char 64). The hash is stronger than the requirement asks for \u2014 a version number can be reused "
+     "by an edit, a hash cannot \u2014 so a receipt says exactly which words were agreed to. CODED: a draft, not merged."),
+    ('...against the STOREFRONT it was given on', 'CODED',
+     "`storefront_country` (char 2) on the same row, with an index on (storefront_country, document_type, locale)."),
+    ('...and against the SELLING LEGAL ENTITY', 'CODED',
+     "`legal_entity` (string 64, nullable) on the same row. Nullable is right while GCC-13's registry is not merged, and it is also the part a "
+     "legal reviewer should look at hardest: a receipt with a null entity cannot say which company the customer contracted with."),
+    ('The receipt cannot be changed afterwards', 'CODED',
+     "app/Models/StorefrontLegalAcceptance declares `public const UPDATED_AT = null;`, so Eloquent has no updated_at to touch and the row is "
+     "append-only by construction. The customer is identified by `customer_id` OR `guest_hash`, and `order_id` links the receipt to the purchase "
+     "it was taken for."),
+]}
+WRITTEN_CRITERIA['A2-V2'] = _WRITTEN
+
+CRITERIA_SPLIT['F-V1'] = {0: [
+    ('Every builder mutation acts on a DRAFT and never on a published version', 'MET',
+     "Read in app/Services/Theme/ThemeBuilderService.php on origin/main: `isEditable($version)` is the first statement of addSection, "
+     "updateSection, setDeliveryRules, setSectionVisibility, reorderSections and duplicateSection, and the class docblock states the intent \u2014 "
+     "'the live storefront can never be edited by accident'. This half of the requirement holds on main with no GCC work."),
+    ('A mutation acts only on the theme of the STOREFRONT being edited', 'MISSING',
+     "The service has NO storefront scope at all: the only occurrence of the word in the whole file is the docblock's 'live storefront', meaning "
+     "the shop rather than a market. Every method takes a ThemeVersion or a ThemeSection that the controller has already loaded BY ID, so the "
+     "object decides the storefront and nothing checks that it is the editor's. With six markets this is the difference between editing your own "
+     "draft and editing Kuwait's."),
+    ("Writes into the global banners table stay inside that storefront", 'MISSING',
+     "ThemeBannerLink::syncBlock writes into a table shared by every storefront, and the scope that would keep a write inside one market is the "
+     "scope the criterion above says does not exist. F-10 covers which banners are DELIVERED; this is about which are WRITTEN."),
+    ('The permission to edit is checked as well as the draft status', 'MISSING',
+     "PR 66 records that section add, update and delete skip canEdit(). isEditable() asks whether the VERSION may be edited; canEdit() asks "
+     "whether this PERSON may edit it, and the two are different questions \u2014 the first is pinned, the second is not."),
+]}
+WRITTEN_CRITERIA['F-V1'] = _WRITTEN
+
+CRITERIA_SPLIT['I2-V1'] = {0: [
+    ('The axis-J legal audit exists, with file evidence', 'CODED',
+     "Discovery E06 section 2.6 with finding E06-F01 and its own independent verification log in section 9, risk R-017 in "
+     "05-gap-risk-register.md and owner question Q-16, under docs/gcc/audits/2026-11-12-0115-discovery-01 and "
+     "docs/gcc/audits/2026-11-12-1240-discovery-02-followup. It covers the data model, the workflow, distribution to web and apps, the link to the "
+     "order, the gaps and the owner questions, which is what the requirement asks for."),
+    ('It is where the people who need it can find it', 'MISSING',
+     "Measured: `docs/gcc/audits` holds **62 files on the docs branch and 0 on origin/main**, and no pull request carries them. The audit that "
+     "the legal review will be read against lives on one branch of one account. This is the same shape as G-V1's finding and the two should "
+     "probably be closed together."),
+    ("The audit's findings are carried into requirements that can be checked", 'CODED',
+     "They largely are \u2014 I2-01 cites this audit in its plan_lines and refs, and the legal-store pins of PRs 114, 115, 121 and now 133 are "
+     "its descendants. CODED rather than MET because the carrying is by citation: nothing fails when a finding has no requirement."),
+]}
+WRITTEN_CRITERIA['I2-V1'] = _WRITTEN
+
+CRITERIA_SPLIT['J-V1'] = {0: [
+    ('The BACKEND serves a draft from a signed preview token, uncached', 'CODED',
+     "ThemeSectionController on the integration head takes `ThemePreviewToken $previews` and documents the contract itself: send `preview`, a "
+     "signed token minted in the admin builder, to render an unpublished draft; the answer carries `preview: true` and is never cached; and an "
+     "INVALID token is ignored and the published page served, so a stale preview link degrades into an ordinary page rather than an error. The "
+     "preview path shares no cache and no validator with the published one. CODED: a draft pull request."),
+    ('The CUSTOMER APP can send that token and render the draft', 'MISSING',
+     "Measured on lavkooapp: `lib/features/dynamic_theme` contains the word 'preview' ZERO times on origin/main and zero on the customer branches "
+     "checked. The backend half is built and has nothing to talk to, so no merchant can check a draft on a real phone \u2014 which is the whole "
+     "point of the requirement."),
+    ('A preview is per storefront, never cached and never given an ETag', 'MISSING',
+     "The backend promises it; nothing asserts it from the app's side, and the app is where a cached preview would actually be shown. Until the "
+     "app sends the token this cannot be proved end to end."),
+]}
+WRITTEN_CRITERIA['J-V1'] = _WRITTEN
+
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]

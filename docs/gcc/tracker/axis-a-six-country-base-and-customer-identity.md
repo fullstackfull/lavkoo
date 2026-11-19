@@ -1,6 +1,6 @@
 # Axis A: Six-country base and customer identity
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 37. Acceptance criteria: 167 (MET 88, CODED 21, MISSING 58). Code completion 65%, proven by a passing test 53%, release readiness 9%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 37. Acceptance criteria: 170 (MET 88, CODED 25, MISSING 57). Code completion 66%, proven by a passing test 52%, release readiness 9%.
 
 Independent verification: done for unit(s) A1, A2.
 
@@ -772,10 +772,13 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** Policy consents are stored in the right scope: the explicit acceptance of a legal text is recorded as a receipt against the text version, the storefront and the selling legal entity (the marketing half of line 354 is A2-13)
 - **(3) Exists now in code (main).** A2 has the policy half of line 354 only as a cross_axis_note routed to unit I2, but the unit's brief lists 'marketing and policy consents', so it needs a requirement here (or I2 must carry it). PR 43 (82b6dfa): migration 2026_11_24_110000_create_storefront_legal_acceptances_table, model StorefrontLegalAcceptance (append-only, UPDATED_AT null) and StorefrontLegalAcceptanceRecorder::recordIfRequired, which stores storefront country, legal entity (GCC_LEGAL_ENTITY), document type, locale, text id, version and hash, an optional order id, and the customer or a guest hash only when gcc.storefronts.legal.store_identity is true (default false). StorefrontLegalAcceptanceTest (8 tests) ran green in PR 83 8ff3410 (Storefront tests MySQL 8 and MariaDB 11.4.2, Tests SQLite). Nothing calls the recorder except its test, gcc.storefronts.legal.explicit_acceptance is empty, no checkout or registration scr
 - **(4) Done in the draft PRs.** See the evidence note above.
-- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(5) What remains.** Its acceptance criteria are written (batch 1 of the 28 requirements the verifiers added). What remains is in the criteria themselves.
 - **(6) PRs and commits.** none
 - **(7) Tests.** none
 - **(8) Dependencies and blockers.** See the evidence note.
 - **(9) Acceptance criteria.**
-  - [MISSING] Policy consents are stored in the right scope: the explicit acceptance of a legal text is recorded as a receipt against the text version, the storefront and the (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
-- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+  - [CODED] An acceptance is recorded against the TEXT VERSION that was accepted (PR 43 (82b6dfa), migration 2026_11_24_110000_create_storefront_legal_acceptances_table: the row carries `legal_document_id`, `document_version` AND `document_hash` (char 64). The hash is stronger than the requirement asks for — a version number can be reused by an edit, a hash cannot — so a receipt says exactly which words were agreed to. CODED: a draft, not merged.)
+  - [CODED] ...against the STOREFRONT it was given on (`storefront_country` (char 2) on the same row, with an index on (storefront_country, document_type, locale).)
+  - [CODED] ...and against the SELLING LEGAL ENTITY (`legal_entity` (string 64, nullable) on the same row. Nullable is right while GCC-13's registry is not merged, and it is also the part a legal reviewer should look at hardest: a receipt with a null entity cannot say which company the customer contracted with.)
+  - [CODED] The receipt cannot be changed afterwards (app/Models/StorefrontLegalAcceptance declares `public const UPDATED_AT = null;`, so Eloquent has no updated_at to touch and the row is append-only by construction. The customer is identified by `customer_id` OR `guest_hash`, and `order_id` links the receipt to the purchase it was taken for.)
+- **(10) Next coding task.** See the criteria: the unmet ones name the file and the line that has to change.

@@ -1,6 +1,6 @@
 # Axis F: Themes and brand
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 16. Acceptance criteria: 74 (MET 42, CODED 11, MISSING 21). Code completion 72%, proven by a passing test 57%, release readiness 4%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 16. Acceptance criteria: 77 (MET 43, CODED 11, MISSING 23). Code completion 70%, proven by a passing test 56%, release readiness 4%.
 
 Independent verification: done for unit(s) F.
 
@@ -336,10 +336,13 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** Builder draft mutations (ThemeBuilderService: add, update, duplicate, delete and reorder sections and blocks, delivery rules, visibility) act only on a draft of the theme of the storefront being edited, never on a published version, and their writes into the global banners table (ThemeBannerLink::syncBlock) stay inside that storefront.
 - **(3) Exists now in code (main).** ThemeBuilderService is named in plan line 325 and in none of the 15 requirements (grep count in assess-F.json = 0). Code exists: isEditable (status must be draft) guards every mutation. Missing: any storefront scope (the service receives ThemeVersion and ThemeSection objects the controller loads by id), PR 66 notes that section add, update and delete skip canEdit(), ThemeBannerLink::syncBlock pushes block edits into the global banners row, no test of the service in any tree. Overlaps F-02 (drafts, banner write) and F-15 (selector, permissions); may be folded into F-15 if the owner prefers one row.
 - **(4) Done in the draft PRs.** See the evidence note above.
-- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(5) What remains.** Its acceptance criteria are written (batch 1 of the 28 requirements the verifiers added). What remains is in the criteria themselves.
 - **(6) PRs and commits.** none
 - **(7) Tests.** none
 - **(8) Dependencies and blockers.** See the evidence note.
 - **(9) Acceptance criteria.**
-  - [MISSING] Builder draft mutations (ThemeBuilderService: add, update, duplicate, delete and reorder sections and blocks, delivery rules, visibility) act only on a draft of (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
-- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+  - [MET] Every builder mutation acts on a DRAFT and never on a published version (Read in app/Services/Theme/ThemeBuilderService.php on origin/main: `isEditable($version)` is the first statement of addSection, updateSection, setDeliveryRules, setSectionVisibility, reorderSections and duplicateSection, and the class docblock states the intent — 'the live storefront can never be edited by accident'. This half of the requirement holds on main with no GCC work.)
+  - [MISSING] A mutation acts only on the theme of the STOREFRONT being edited (The service has NO storefront scope at all: the only occurrence of the word in the whole file is the docblock's 'live storefront', meaning the shop rather than a market. Every method takes a ThemeVersion or a ThemeSection that the controller has already loaded BY ID, so the object decides the storefront and nothing checks that it is the editor's. With six markets this is the difference between editing your own draft and editing Kuwait's.)
+  - [MISSING] Writes into the global banners table stay inside that storefront (ThemeBannerLink::syncBlock writes into a table shared by every storefront, and the scope that would keep a write inside one market is the scope the criterion above says does not exist. F-10 covers which banners are DELIVERED; this is about which are WRITTEN.)
+  - [MISSING] The permission to edit is checked as well as the draft status (PR 66 records that section add, update and delete skip canEdit(). isEditable() asks whether the VERSION may be edited; canEdit() asks whether this PERSON may edit it, and the two are different questions — the first is pinned, the second is not.)
+- **(10) Next coding task.** See the criteria: the unmet ones name the file and the line that has to change.

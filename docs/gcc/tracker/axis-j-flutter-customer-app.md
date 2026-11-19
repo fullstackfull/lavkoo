@@ -1,6 +1,6 @@
 # Axis J: Flutter customer app
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 20. Acceptance criteria: 96 (MET 42, CODED 29, MISSING 25). Code completion 74%, proven by a passing test 44%, release readiness 5%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 20. Acceptance criteria: 98 (MET 42, CODED 30, MISSING 26). Code completion 73%, proven by a passing test 43%, release readiness 5%.
 
 Independent verification: done for unit(s) J.
 
@@ -387,13 +387,15 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** Draft theme preview in the customer app: the app renders an unpublished draft of a storefront's home from a signed preview token (backend GET /api/v1/theme/home with the preview parameter), per storefront, never cached and never sent with an ETag, so a merchant can check a draft on a real phone before publishing.
 - **(3) Exists now in code (main).** ThemeSectionController::home in PR 83 8ff34109 accepts a signed preview query token and answers with Cache-Control no-store; lavkooapp main and all seven heads have no preview parameter or token code in lib/features/dynamic_theme or DynamicThemeRepository (git grep -i preview finds only image assets and unrelated chat and health widgets). J-06 remaining (2) mentions the gap but no requirement or criterion tracks it.
 - **(4) Done in the draft PRs.** See the evidence note above.
-- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(5) What remains.** Its acceptance criteria are written (batch 1 of the 28 requirements the verifiers added). What remains is in the criteria themselves.
 - **(6) PRs and commits.** none
 - **(7) Tests.** none
 - **(8) Dependencies and blockers.** See the evidence note.
 - **(9) Acceptance criteria.**
-  - [MISSING] Draft theme preview in the customer app: the app renders an unpublished draft of a storefront's home from a signed preview token (backend GET /api/v1/theme/home (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
-- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+  - [CODED] The BACKEND serves a draft from a signed preview token, uncached (ThemeSectionController on the integration head takes `ThemePreviewToken $previews` and documents the contract itself: send `preview`, a signed token minted in the admin builder, to render an unpublished draft; the answer carries `preview: true` and is never cached; and an INVALID token is ignored and the published page served, so a stale preview link degrades into an ordinary page rather than an error. The preview path shares no cache and no validator with the published one. CODED: a draft pull request.)
+  - [MISSING] The CUSTOMER APP can send that token and render the draft (Measured on lavkooapp: `lib/features/dynamic_theme` contains the word 'preview' ZERO times on origin/main and zero on the customer branches checked. The backend half is built and has nothing to talk to, so no merchant can check a draft on a real phone — which is the whole point of the requirement.)
+  - [MISSING] A preview is per storefront, never cached and never given an ETag (The backend promises it; nothing asserts it from the app's side, and the app is where a cached preview would actually be shown. Until the app sends the token this cannot be proved end to end.)
+- **(10) Next coding task.** See the criteria: the unmet ones name the file and the line that has to change.
 
 #### J-V2. Loyalty points in the customer app (points ledger, earn rules, point-to-wallet conversion) belong to...
 

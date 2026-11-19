@@ -1,6 +1,6 @@
 # Axis I: Marketing, policies and operations
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 37. Acceptance criteria: 183 (MET 84, CODED 40, MISSING 59). Code completion 68%, proven by a passing test 46%, release readiness 3%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 37. Acceptance criteria: 185 (MET 84, CODED 41, MISSING 60). Code completion 68%, proven by a passing test 45%, release readiness 3%.
 
 Independent verification: done for unit(s) I1, I2.
 
@@ -820,10 +820,12 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** Audit axis J, legal half: the legal documents and their versions are reviewed with file evidence (data model, workflow, distribution to web and apps, link to the order, gaps, owner questions). Only cited inside I2-01's plan_lines and refs; no requirement or criterion of its own.
 - **(3) Exists now in code (main).** Discovery E06 section 2.6 (and finding E06-F01, with an independent verification log in its section 9), risk R-017 in 05-gap-risk-register.md and owner question Q-16 are on origin/claude/exciting-shannon-4mh2ok (docs/gcc/audits/2026-11-12-0115-discovery-01 and 2026-11-12-1240-discovery-02-followup). None of it is in origin/main (docs/gcc/audits is absent there) and no PR carries it, so not MERGED; documents have no CI tests.
 - **(4) Done in the draft PRs.** See the evidence note above.
-- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(5) What remains.** Its acceptance criteria are written (batch 1 of the 28 requirements the verifiers added). What remains is in the criteria themselves.
 - **(6) PRs and commits.** none
 - **(7) Tests.** none
 - **(8) Dependencies and blockers.** See the evidence note.
 - **(9) Acceptance criteria.**
-  - [CODED] Audit axis J, legal half: the legal documents and their versions are reviewed with file evidence (data model, workflow, distribution to web and apps, link to th (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
-- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+  - [CODED] The axis-J legal audit exists, with file evidence (Discovery E06 section 2.6 with finding E06-F01 and its own independent verification log in section 9, risk R-017 in 05-gap-risk-register.md and owner question Q-16, under docs/gcc/audits/2026-11-12-0115-discovery-01 and docs/gcc/audits/2026-11-12-1240-discovery-02-followup. It covers the data model, the workflow, distribution to web and apps, the link to the order, the gaps and the owner questions, which is what the requirement asks for.)
+  - [MISSING] It is where the people who need it can find it (Measured: `docs/gcc/audits` holds **62 files on the docs branch and 0 on origin/main**, and no pull request carries them. The audit that the legal review will be read against lives on one branch of one account. This is the same shape as G-V1's finding and the two should probably be closed together.)
+  - [CODED] The audit's findings are carried into requirements that can be checked (They largely are — I2-01 cites this audit in its plan_lines and refs, and the legal-store pins of PRs 114, 115, 121 and now 133 are its descendants. CODED rather than MET because the carrying is by citation: nothing fails when a finding has no requirement.)
+- **(10) Next coding task.** See the criteria: the unmet ones name the file and the line that has to change.
