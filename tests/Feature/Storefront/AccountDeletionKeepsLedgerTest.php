@@ -22,9 +22,14 @@ use Tests\TestCase;
  * E-08 of the master plan: what a customer's own account deletion does to the money the store still holds for them, over the two routes that really delete
  * an account -- `GET /api/v1/customer/account-delete/{id}` for the customer app and `GET /account-delete/{id}` for the website.
  *
- * The tests of the switched-off half are characterisation tests: they state what the platform does TODAY, before any guard, and they must keep passing
- * unchanged while `gcc.account_deletion.refuse_while_balance_remains` is off, which is how it ships. Today both routes delete the row of a customer whose
- * wallet still holds money or whose loyalty points still stand, and they say nothing about either.
+ * The `current_behaviour` tests are characterisation tests: they were written and watched pass before the guard existed, and they state what the platform
+ * does today, which both routes keep doing while `gcc.account_deletion.refuse_while_balance_remains` is off, as it ships. Today both routes delete the row
+ * of a customer whose wallet still holds money or whose loyalty points still stand, say nothing about either, and leave the wallet and loyalty rows behind
+ * naming a customer id that names nobody; so do the referral grant and the `referred_by` of whoever this customer invited.
+ *
+ * The `with_the_guard_on` tests turn the switch on and ask for the refusal E-08 wants. Each route answers in the shape it already refuses an ongoing order
+ * with, nothing is written either way, and a holding counts from one halala up, in either direction, so that a residual left by a float round trip is not
+ * mistaken for money a person has.
  */
 class AccountDeletionKeepsLedgerTest extends TestCase
 {
@@ -115,6 +120,30 @@ class AccountDeletionKeepsLedgerTest extends TestCase
     {
         $this->assertSame($walletRows, DB::table('wallet_transactions')->where('user_id', $customer->id)->count(), 'the wallet ledger of the customer changed');
         $this->assertSame($loyaltyRows, DB::table('loyalty_point_transactions')->where('user_id', $customer->id)->count(), 'the loyalty ledger of the customer changed');
+    }
+
+    private function orderOnItsWayFor(User $customer, int $id): void
+    {
+        DB::table('orders')->insert(['id' => $id, 'customer_id' => $customer->id, 'is_guest' => 0, 'order_status' => 'processing', 'created_at' => now(), 'updated_at' => now()]);
+    }
+
+    private function refuseWhileBalanceRemains(): void
+    {
+        config(['gcc.account_deletion.refuse_while_balance_remains' => true]);
+    }
+
+    private function assertAppRefused(TestResponse $response, string $message, User $customer): void
+    {
+        $response->assertForbidden();
+        $this->assertSame(['message' => translate($message)], $response->json());
+        $this->assertNotNull(User::find($customer->id), 'the account was deleted after the refusal');
+    }
+
+    private function assertWebsiteRefused(TestResponse $response, string $message, User $customer): void
+    {
+        $response->assertRedirect();
+        $this->assertSame([translate($message)], $this->toastrMessages());
+        $this->assertNotNull(User::find($customer->id), 'the account was deleted after the refusal');
     }
 
     public function test_current_behaviour_the_app_deletes_the_account_of_a_customer_whose_wallet_still_holds_money(): void
@@ -271,30 +300,6 @@ class AccountDeletionKeepsLedgerTest extends TestCase
         $this->assertSame('access_denied!!', $appAnswer->json('message'));
         $websiteAnswer->assertRedirect();
         $this->assertNotNull(User::find($neighbour->id));
-    }
-
-    private function orderOnItsWayFor(User $customer, int $id): void
-    {
-        DB::table('orders')->insert(['id' => $id, 'customer_id' => $customer->id, 'is_guest' => 0, 'order_status' => 'processing', 'created_at' => now(), 'updated_at' => now()]);
-    }
-
-    private function refuseWhileBalanceRemains(): void
-    {
-        config(['gcc.account_deletion.refuse_while_balance_remains' => true]);
-    }
-
-    private function assertAppRefused(TestResponse $response, string $message, User $customer): void
-    {
-        $response->assertForbidden();
-        $this->assertSame(['message' => translate($message)], $response->json());
-        $this->assertNotNull(User::find($customer->id), 'the account was deleted after the refusal');
-    }
-
-    private function assertWebsiteRefused(TestResponse $response, string $message, User $customer): void
-    {
-        $response->assertRedirect();
-        $this->assertSame([translate($message)], $this->toastrMessages());
-        $this->assertNotNull(User::find($customer->id), 'the account was deleted after the refusal');
     }
 
     public function test_the_switch_ships_off(): void
