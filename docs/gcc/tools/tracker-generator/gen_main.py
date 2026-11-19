@@ -1928,6 +1928,77 @@ WRITTEN_CRITERIA['J-V1'] = _WRITTEN
 
 
 
+# ---- The verifiers' requirements, batch 6 of 28 (2026-11-19, evening) ----
+
+CRITERIA_SPLIT['H2-V2'] = {0: [
+    ("Each channel's listing requirements are readable per market", 'CODED',
+     "DescribesListingRequirements (app/Services/SalesChannels/Contracts/) reads each channel's requirements, and Trendyol's "
+     "ResolvesChannelBrands plus ListingDraftService resolve brands per account. The shape is there; what it is missing is the mapping below."),
+    ("The store's categories map to each channel's categories per (channel, market)", 'MISSING',
+     "Measured on origin/main across app and database: `category_map`, `channel_categor`, `category_mapping` and `marketplace_categor` each "
+     "return ZERO files. There is no mapping table and no mapping service, so a category is matched by hand on every draft."),
+    ("The store's brands map to each channel's brand ids per (channel, market)", 'MISSING',
+     "Brand resolution exists per ACCOUNT (Trendyol's ResolvesChannelBrands) and not per (channel, market), which is the pair the requirement "
+     "asks for: the same brand can carry different ids in a marketplace's Saudi and Emirati catalogues."),
+    ('Product type is chosen from the channel\'s own list, not typed per draft', 'MISSING',
+     "The draft takes a product_type TYPED per draft. With six markets that is six chances to mistype the same product, and a rejected listing "
+     "is the kind of failure a seller sees before the platform does."),
+]}
+WRITTEN_CRITERIA['H2-V2'] = _WRITTEN
+
+CRITERIA_SPLIT['K-V1'] = {0: [
+    ('The seller v3 answers the four unread pull requests change are compared against the app', 'MISSING',
+     "The 2026-11-17 audit's section 0 lists only #44, #51, #52, #58, #61 and #63. Measured by git diff against each merge-base, FOUR more change "
+     "seller v3: #20 (v3 OrderController, POSController and RefundController \u2014 order and refund lookups scoped to the seller), #32 (v3 "
+     "SellerController, 65 lines, and the withdraw handling), #29 (v3 OrderController, the referral reward in the order status path) and #13 (v3 "
+     "POSController, POS wallet atomicity). None of the four appears anywhere in assess-K.json."),
+    ('The staged hotfix line is compared too', 'MISSING',
+     "PRs 78, 81 and 86 each touch 21 seller v3 files and are outside the audit as well. A hotfix line is exactly where an answer changes shape "
+     "without anybody re-reading the app that consumes it."),
+    ('A change to a seller v3 answer cannot pass unnoticed by the app', 'MISSING',
+     "This is the criterion that would stop the requirement recurring: today the comparison is an audit someone runs, so a pull request opened "
+     "after the audit is unexamined by construction \u2014 which is how these four were missed, and how the next four will be."),
+]}
+WRITTEN_CRITERIA['K-V1'] = _WRITTEN
+
+CRITERIA_SPLIT['K-V2'] = {0: [
+    ('Payout and bank details are owner-only', 'MET',
+     "routes/rest_api/v3/seller.php on origin/main: the payout-method add, update and updateDefault routes sit inside "
+     "`Route::middleware('seller_owner')->group(...)`. Owner-only is in force today."),
+    ('Account deletion and verification are owner-only', 'MET',
+     "The same file: `account-delete` (GET and DELETE) is inside a seller_owner group, and SellerVerificationController's index, submit and "
+     "document routes are inside another."),
+    ('Those actions are scoped by MARKET as well as by owner', 'MISSING',
+     "None of the three seller_owner groups takes a storefront, and no market dimension exists on any of them. An owner who sells in six markets "
+     "has one set of bank details and one verification for all six, which is the opposite of what six legal entities need \u2014 and payout "
+     "details are money."),
+    ('Only the platform owner sees every market', 'MISSING',
+     "K-09's four criteria cover authorization, X-Storefront, per-market permissions and exports, reports, jobs and audit logs, and none of them "
+     "says who sees ALL markets. This is the criterion a platform-admin review will ask for first, and GCC-20's super-admin mode depends on it."),
+]}
+WRITTEN_CRITERIA['K-V2'] = _WRITTEN
+
+CRITERIA_SPLIT['M1-V1'] = {0: [
+    ('Each P0 of the security triage is closed by a named pull request with a test, or accepted by the owner', 'MISSING',
+     "Measured on the triage itself (docs/gcc/audits/2026-11-12-1240-discovery-02-followup/01-security-triage-public.md): it carries **222 SEC "
+     "rows and every one of them reads OPEN** \u2014 no row reads CLOSED and none reads ACCEPTED. The 23 explicit P0s are SEC-E04-01..06, "
+     "E05-01..03, E14-01..04, 08, 09, E09-01, E10-01, 02, E16-01, E17-01, E19-01, 02 and E20-04, plus 4 conditional."),
+    ('The mapping from SEC id to the thing that closed it exists', 'MISSING',
+     "Fixes DO exist for several whole classes \u2014 stage 1 identity, stage 2 ownership, stage 3 permissions \u2014 so the gap is not that "
+     "nothing was done; it is that the M1 cards map pull requests and stages and NEVER map SEC ids, so no one can say which of the 23 a given "
+     "stage closed. That is the piece of work this criterion names, and it is reading rather than coding."),
+    ("The owner's accepted risks are recorded as accepted", 'MISSING',
+     "DEFERRED_RISKS.md covers five rows (DR-1 to DR-5). Whatever of the 23 the owner decides to accept rather than close needs to land there "
+     "with a date and a reason, and nothing of the kind is recorded yet."),
+    ('The restricted annex is read by someone', 'MISSING',
+     "The public triage carries the ids; the DETAILS are in a restricted annex that no tracker unit read, and coverage gaps C, D1, D2, E, H1 and "
+     "H2 are open because of it. A P0 whose detail nobody has read cannot honestly be called closed, which is why this is a criterion and not a "
+     "note."),
+]}
+WRITTEN_CRITERIA['M1-V1'] = _WRITTEN
+
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]

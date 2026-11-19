@@ -1,6 +1,6 @@
 # Axis M: Security, tests and deployment
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 63. Acceptance criteria: 299 (MET 104, CODED 109, MISSING 86). Code completion 71%, proven by a passing test 35%, release readiness 3%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 63. Acceptance criteria: 302 (MET 104, CODED 109, MISSING 89). Code completion 71%, proven by a passing test 34%, release readiness 3%.
 
 Independent verification: done for unit(s) M1, M2, M3.
 
@@ -424,13 +424,16 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** Every P0 finding of the Discovery-02 security triage (23 explicit P0 plus 4 conditional P0 of 222 SEC ids; the 23 are in section 4 of docs/gcc/audits/2026-11-12-1240-discovery-02-followup/01-security-triage-public.md: SEC-E04-01..06, SEC-E05-01..03, SEC-E14-01..04, 08, 09, SEC-E09-01, SEC-E10-01, 02, SEC-E16-01, SEC-E17-01, SEC-E19-01, 02, SEC-E20-04) is either closed by a named PR or hotfix stage with a test, or recorded as an owner-accepted deferral; the 172 'fix' items beyond P0 have an owner and a state.
 - **(3) Exists now in code (main).** The public triage lists all 222 ids as OPEN, with details only in a restricted annex that no tracker unit read (coverage-gaps C, D1, D2, E, H1, H2). The M1 cards map PRs and stages (stages 0-5, the ten older PRs) but never SEC ids, and DEFERRED_RISKS.md covers five rows. Fixes exist for several classes (stage 1 identity, stage 2 ownership, stage 3 permissions), so the missing piece is the id-by-id mapping and the owner's accepted remainder, not only code.
 - **(4) Done in the draft PRs.** See the evidence note above.
-- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(5) What remains.** Its acceptance criteria are written (batch 1 of the 28 requirements the verifiers added). What remains is in the criteria themselves.
 - **(6) PRs and commits.** none
 - **(7) Tests.** none
 - **(8) Dependencies and blockers.** See the evidence note.
 - **(9) Acceptance criteria.**
-  - [MISSING] Every P0 finding of the Discovery-02 security triage (23 explicit P0 plus 4 conditional P0 of 222 SEC ids; the 23 are in section 4 of docs/gcc/audits/2026-11-12 (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
-- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+  - [MISSING] Each P0 of the security triage is closed by a named pull request with a test, or accepted by the owner (Measured on the triage itself (docs/gcc/audits/2026-11-12-1240-discovery-02-followup/01-security-triage-public.md): it carries **222 SEC rows and every one of them reads OPEN** — no row reads CLOSED and none reads ACCEPTED. The 23 explicit P0s are SEC-E04-01..06, E05-01..03, E14-01..04, 08, 09, E09-01, E10-01, 02, E16-01, E17-01, E19-01, 02 and E20-04, plus 4 conditional.)
+  - [MISSING] The mapping from SEC id to the thing that closed it exists (Fixes DO exist for several whole classes — stage 1 identity, stage 2 ownership, stage 3 permissions — so the gap is not that nothing was done; it is that the M1 cards map pull requests and stages and NEVER map SEC ids, so no one can say which of the 23 a given stage closed. That is the piece of work this criterion names, and it is reading rather than coding.)
+  - [MISSING] The owner's accepted risks are recorded as accepted (DEFERRED_RISKS.md covers five rows (DR-1 to DR-5). Whatever of the 23 the owner decides to accept rather than close needs to land there with a date and a reason, and nothing of the kind is recorded yet.)
+  - [MISSING] The restricted annex is read by someone (The public triage carries the ids; the DETAILS are in a restricted annex that no tracker unit read, and coverage gaps C, D1, D2, E, H1 and H2 are open because of it. A P0 whose detail nobody has read cannot honestly be called closed, which is why this is a criterion and not a note.)
+- **(10) Next coding task.** See the criteria: the unmet ones name the file and the line that has to change.
 
 #### M1-V2. A secret and personal-data scan gates every repository's pull requests: the triage's urgent item SEC...
 

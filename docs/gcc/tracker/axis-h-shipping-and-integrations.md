@@ -1,6 +1,6 @@
 # Axis H: Shipping and integrations
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 34. Acceptance criteria: 154 (MET 81, CODED 10, MISSING 63). Code completion 59%, proven by a passing test 53%, release readiness 16%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 34. Acceptance criteria: 157 (MET 81, CODED 11, MISSING 65). Code completion 59%, proven by a passing test 52%, release readiness 16%.
 
 Independent verification: done for unit(s) H1, H2.
 
@@ -691,10 +691,13 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** Listing content follows each marketplace's own requirements per market: the store's central categories and brands map to each channel's categories, product types and brand ids per (channel, market), instead of manual entry per draft (the 'comply with market requirements' clause; Discovery E12-F19 and the GCC-08 and GCC-18 rows, classified New).
 - **(3) Exists now in code (main).** Some code: DescribesListingRequirements reads each channel's requirements, Trendyol ResolvesChannelBrands and ListingDraftService brand resolution work per account, and the draft takes a product_type typed per draft. Missing: no category or brand mapping table or service in origin/main (git grep for category_map, channel_categor, category_mapping, marketplace_categor in app and database finds none); no test. Not in any H2 requirement.
 - **(4) Done in the draft PRs.** See the evidence note above.
-- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(5) What remains.** Its acceptance criteria are written (batch 1 of the 28 requirements the verifiers added). What remains is in the criteria themselves.
 - **(6) PRs and commits.** none
 - **(7) Tests.** none
 - **(8) Dependencies and blockers.** See the evidence note.
 - **(9) Acceptance criteria.**
-  - [MISSING] Listing content follows each marketplace's own requirements per market: the store's central categories and brands map to each channel's categories, product type (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
-- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+  - [CODED] Each channel's listing requirements are readable per market (DescribesListingRequirements (app/Services/SalesChannels/Contracts/) reads each channel's requirements, and Trendyol's ResolvesChannelBrands plus ListingDraftService resolve brands per account. The shape is there; what it is missing is the mapping below.)
+  - [MISSING] The store's categories map to each channel's categories per (channel, market) (Measured on origin/main across app and database: `category_map`, `channel_categor`, `category_mapping` and `marketplace_categor` each return ZERO files. There is no mapping table and no mapping service, so a category is matched by hand on every draft.)
+  - [MISSING] The store's brands map to each channel's brand ids per (channel, market) (Brand resolution exists per ACCOUNT (Trendyol's ResolvesChannelBrands) and not per (channel, market), which is the pair the requirement asks for: the same brand can carry different ids in a marketplace's Saudi and Emirati catalogues.)
+  - [MISSING] Product type is chosen from the channel's own list, not typed per draft (The draft takes a product_type TYPED per draft. With six markets that is six chances to mistype the same product, and a rejected listing is the kind of failure a seller sees before the platform does.)
+- **(10) Next coding task.** See the criteria: the unmet ones name the file and the line that has to change.

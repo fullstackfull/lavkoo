@@ -1,6 +1,6 @@
 # Axis K: Flutter seller app
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 23. Acceptance criteria: 99 (MET 42, CODED 19, MISSING 38). Code completion 62%, proven by a passing test 42%, release readiness 3%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 23. Acceptance criteria: 104 (MET 44, CODED 19, MISSING 41). Code completion 61%, proven by a passing test 42%, release readiness 3%.
 
 Independent verification: done for unit(s) K.
 
@@ -413,13 +413,15 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** Seller app compatibility with the open backend PRs that change seller v3 answers but were not read in the 2026-11-17 audit: #20 (order and refund lookups scoped to the seller), #32 (seller withdraw updates and closes scoped to the owning seller), #29 (referral reward in the seller order status path) and #13 (POS wallet atomicity), plus the staged hotfix line (PR 78, 81, 86: 21 seller v3 files each)
 - **(3) Exists now in code (main).** The audit lists only #44, #51, #52, #58, #61 and #63 in its section 0. git diff against each merge-base: #20 changes v3 OrderController, POSController and RefundController; #32 changes v3 SellerController (65 lines) and the withdraw handling; #29 changes v3 OrderController; #13 changes v3 POSController. #20, #29, #32 and #13 are in neither the PR 75 nor the PR 83 tree, and none of them appears anywhere in assess-K.json, although withdrawals and orders are named seller workflows.
 - **(4) Done in the draft PRs.** See the evidence note above.
-- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(5) What remains.** Its acceptance criteria are written (batch 1 of the 28 requirements the verifiers added). What remains is in the criteria themselves.
 - **(6) PRs and commits.** none
 - **(7) Tests.** none
 - **(8) Dependencies and blockers.** See the evidence note.
 - **(9) Acceptance criteria.**
-  - [MISSING] Seller app compatibility with the open backend PRs that change seller v3 answers but were not read in the 2026-11-17 audit: #20 (order and refund lookups scoped (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
-- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+  - [MISSING] The seller v3 answers the four unread pull requests change are compared against the app (The 2026-11-17 audit's section 0 lists only #44, #51, #52, #58, #61 and #63. Measured by git diff against each merge-base, FOUR more change seller v3: #20 (v3 OrderController, POSController and RefundController — order and refund lookups scoped to the seller), #32 (v3 SellerController, 65 lines, and the withdraw handling), #29 (v3 OrderController, the referral reward in the order status path) and #13 (v3 POSController, POS wallet atomicity). None of the four appears anywhere in assess-K.json.)
+  - [MISSING] The staged hotfix line is compared too (PRs 78, 81 and 86 each touch 21 seller v3 files and are outside the audit as well. A hotfix line is exactly where an answer changes shape without anybody re-reading the app that consumes it.)
+  - [MISSING] A change to a seller v3 answer cannot pass unnoticed by the app (This is the criterion that would stop the requirement recurring: today the comparison is an audit someone runs, so a pull request opened after the audit is unexamined by construction — which is how these four were missed, and how the next four will be.)
+- **(10) Next coding task.** See the criteria: the unmet ones name the file and the line that has to change.
 
 #### K-V2. Sensitive actions of a seller or seller staff (payout and bank details, staff management, account de...
 
@@ -427,13 +429,16 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(2) Functional requirement.** Sensitive actions of a seller or seller staff (payout and bank details, staff management, account deletion, verification) are scoped by market and entity, and only the platform owner sees every market
 - **(3) Exists now in code (main).** K-09's functional text lists sensitive actions, but its four criteria cover authorization, X-Storefront, per-market permissions and exports, reports, jobs and audit logs only. Owner-only routes exist on main (seller_owner groups for seller-update, account-delete, payout methods, verification) with no market dimension.
 - **(4) Done in the draft PRs.** See the evidence note above.
-- **(5) What remains.** Its acceptance criteria are not written yet; until they are, it counts as one criterion.
+- **(5) What remains.** Its acceptance criteria are written (batch 1 of the 28 requirements the verifiers added). What remains is in the criteria themselves.
 - **(6) PRs and commits.** none
 - **(7) Tests.** none
 - **(8) Dependencies and blockers.** See the evidence note.
 - **(9) Acceptance criteria.**
-  - [MISSING] Sensitive actions of a seller or seller staff (payout and bank details, staff management, account deletion, verification) are scoped by market and entity, and o (one placeholder criterion for a requirement found by the verifier; write the real ones before relying on this line)
-- **(10) Next coding task.** Write its acceptance criteria and its next coding task (added by the verifier).
+  - [MET] Payout and bank details are owner-only (routes/rest_api/v3/seller.php on origin/main: the payout-method add, update and updateDefault routes sit inside `Route::middleware('seller_owner')->group(...)`. Owner-only is in force today.)
+  - [MET] Account deletion and verification are owner-only (The same file: `account-delete` (GET and DELETE) is inside a seller_owner group, and SellerVerificationController's index, submit and document routes are inside another.)
+  - [MISSING] Those actions are scoped by MARKET as well as by owner (None of the three seller_owner groups takes a storefront, and no market dimension exists on any of them. An owner who sells in six markets has one set of bank details and one verification for all six, which is the opposite of what six legal entities need — and payout details are money.)
+  - [MISSING] Only the platform owner sees every market (K-09's four criteria cover authorization, X-Storefront, per-market permissions and exports, reports, jobs and audit logs, and none of them says who sees ALL markets. This is the criterion a platform-admin review will ask for first, and GCC-20's super-admin mode depends on it.)
+- **(10) Next coding task.** See the criteria: the unmet ones name the file and the line that has to change.
 
 #### K-V3. A queued POS sale that has failed ten replays is never dropped silently: it stays visible with its l...
 
