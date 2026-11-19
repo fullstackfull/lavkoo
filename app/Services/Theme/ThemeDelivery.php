@@ -648,7 +648,18 @@ $blocks = $row->blocks
             return $stamp;
         }
 
-        return $stamp === null ? $version->checksum : $version->checksum . '-' . $stamp;
+        return implode('-', array_filter([$version->checksum, $this->sharedIdentityStamp($version), $stamp], static fn (?string $part): bool => $part !== null));
+    }
+
+    /**
+     * The stamp of the shared identity a theme of another storefront inherits (F-12), so that what the app asks and what it is delivered move when the identity does, though the version of the theme does
+     * not. Null for a theme that inherits nothing, which keeps every stamp it had.
+     */
+    private function sharedIdentityStamp(ThemeVersion $version): ?string
+    {
+        $shared = app(StorefrontThemeResolver::class)->sharedIdentityBeneath(version: $version);
+
+        return $shared === [] ? null : 'i' . substr(hash('crc32b', json_encode($shared)), 0, 8);
     }
 
     private function campaignStamp(?string $page = 'home'): ?string

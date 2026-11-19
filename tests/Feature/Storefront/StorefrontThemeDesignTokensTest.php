@@ -13,7 +13,9 @@ use Tests\TestCase;
 /**
  * GCC F-12: the design tokens of a storefront are the settings of the published version of its theme laid over the code defaults, key by key, and the website and the app are given the same ones. A
  * version that sets a key changes that key only (a key the defaults do not know comes through as well), a version that sets nothing is the defaults, and the colours, the type size and the corners the
- * partial theme-global-tokens writes as CSS variables are the values the app payload carries as `tokens`, for a token the version overrides and for one it leaves at the code default.
+ * partial theme-global-tokens writes as CSS variables are the values the app payload carries as `tokens`, for a token the version overrides and for one it leaves at the code default. The theme of a
+ * storefront other than the default one lays its settings over the settings of the default storefront's theme as well (the shared identity, StorefrontThemeSharedIdentityTest): a token it leaves
+ * alone is that theme's, and the code default only where that theme sets none.
  *
  * The web side is that partial rendered with the settings StorefrontThemeRenderer::publishedGlobalSettings resolves for the published theme: four tokens, written as nine variables and two RGB values. That
  * the layout renders the partial with those settings is pinned structurally only (a string match on the layout's source), and the draft-preview branch of publishedGlobalSettings is not covered. The
@@ -166,7 +168,7 @@ class StorefrontThemeDesignTokensTest extends TestCase
         $this->givePublishedThemeTo(country: 'SA');
         $this->givePublishedThemeTo(country: 'AE');
         $defaults = app(ThemeManager::class)->defaultSettings();
-        $expected = array_replace_recursive($defaults, self::OVERRIDES[$country]);
+        $expected = array_replace_recursive($defaults, $country === 'SA' ? [] : self::OVERRIDES['SA'], self::OVERRIDES[$country]);
 
         $web = $this->cssVariablesOfThePageHeadOf(country: $country);
         $app = $this->tokensTheAppIsGivenBy(country: $country);
