@@ -5,9 +5,10 @@ namespace App\Services;
 use App\Models\User;
 
 /**
- * Whether a customer's own account deletion has to be refused because the store still holds money for them, asked the same way by both routes that delete
- * an account: RestAPI\v1\CustomerController::account_delete for the customer app and Web\UserProfileController::account_delete for the website. It answers
- * the translation key of the refusal, or null when nothing stands in the way, the way Auction's own deletion guard answers its callers.
+ * Whether a customer's own account deletion has to be refused because the store still holds money for them, asked the same way by the two routes a customer
+ * deletes their own account over: RestAPI\v1\CustomerController::account_delete for the customer app and Web\UserProfileController::account_delete for the
+ * website. It answers the translation key of the refusal, or null when nothing stands in the way, the way Auction's own deletion guard answers its callers.
+ * A third route deletes a customer account, Admin\Customer\CustomerController::deleteCustomer, and deliberately does not ask this: config/gcc.php says why.
  *
  * Switched off by default (`gcc.account_deletion.refuse_while_balance_remains`): while it is off this answers null whatever the customer holds, and both
  * routes delete the account as they do today. Nothing here ever writes: a ledger row is kept whichever way the answer goes.
@@ -29,15 +30,29 @@ class CustomerAccountDeletionGuardService
             return null;
         }
 
-        if ($this->isHeld(amount: (float) $customer->wallet_balance)) {
+        $holdings = $this->holdingsNow(customer: $customer);
+
+        if ($this->isHeld(amount: (float) $holdings->wallet_balance)) {
             return 'you_can_not_delete_account_while_your_wallet_holds_money';
         }
 
-        if ($this->isHeld(amount: (float) $customer->loyalty_point)) {
+        if ($this->isHeld(amount: (float) $holdings->loyalty_point)) {
             return 'you_can_not_delete_account_while_you_still_have_loyalty_points';
         }
 
         return null;
+    }
+
+    /**
+     * The two columns read again under the customer's own key. Both callers hydrate the customer before they count their orders, ask the Auction addon and
+     * delete a profile image, so a refund credited in that window is money the store holds and a guard that trusts the hydrated copy answers from before the
+     * credit. Reading the row again does not make the deletion atomic -- only a lock held across the delete would -- but it costs one read on a route that
+     * runs once in the life of an account, and it closes the half of the window that is this guard's own. If the row has gone in the meantime, what the
+     * caller hydrated is all there is to weigh.
+     */
+    private function holdingsNow(User $customer): User
+    {
+        return User::whereKey($customer->getKey())->first(['wallet_balance', 'loyalty_point']) ?? $customer;
     }
 
     /** A debt is held as surely as a credit, so what counts is the distance from zero. */
