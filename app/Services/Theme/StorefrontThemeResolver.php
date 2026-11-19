@@ -57,9 +57,30 @@ final class StorefrontThemeResolver
     /** The published version of the active theme, which is what a customer is shown. */
     public function publishedVersion(): ?ThemeVersion
     {
-        $theme = $this->activeTheme();
+        return $this->publishedVersionOf(theme: $this->activeTheme());
+    }
 
-        return $theme === null ? null : ThemeVersion::query()->where('theme_id', $theme->id)->published()->first();
+    /**
+     * The design identity every storefront shares (F-12): the settings of the default storefront's published theme, which a theme of another storefront lays its own settings over, key by key, so that it
+     * overrides the keys it sets and inherits the rest. Empty for a theme of the default storefront, which is the identity, for a version that belongs to no theme, for every theme while themes are not
+     * kept by storefront, and while the default storefront has nothing published.
+     *
+     * @return array<string, mixed>
+     */
+    public function sharedIdentityBeneath(?ThemeVersion $version): array
+    {
+        if ($version === null || !$this->keepsThemesByStorefront()) {
+            return [];
+        }
+
+        $theme = $version->theme;
+        if ($theme === null || $this->storefrontOf(theme: $theme) === $this->defaultStorefront()) {
+            return [];
+        }
+
+        $shared = $this->publishedVersionOf(theme: $this->activeThemeOf(storefront: $this->defaultStorefront()))?->settings;
+
+        return is_array($shared) ? $shared : [];
     }
 
     /**
@@ -170,6 +191,11 @@ final class StorefrontThemeResolver
         $isAnotherConfiguredStorefront = $requestedCountry !== $this->defaultStorefront() && in_array($requestedCountry, ProductCountry::options(), true);
 
         return [self::COLUMN => $isAnotherConfiguredStorefront ? $requestedCountry : null];
+    }
+
+    private function publishedVersionOf(?Theme $theme): ?ThemeVersion
+    {
+        return $theme === null ? null : ThemeVersion::query()->where('theme_id', $theme->id)->published()->first();
     }
 
     private function activeThemeOf(string $storefront): ?Theme

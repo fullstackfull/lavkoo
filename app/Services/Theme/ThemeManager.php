@@ -48,11 +48,16 @@ class ThemeManager
         ];
     }
 
-    /** Effective settings for a version (defaults deep-merged with the version's overrides). */
+    /**
+     * Effective settings for a version: the defaults, the shared identity a theme of another storefront inherits (the settings of the default storefront's published theme, F-12) and the
+     * version's own overrides, each laid over the one before.
+     */
     public function resolveSettings(?ThemeVersion $version): array
     {
         $overrides = $version?->settings ?? [];
-        return $this->deepMerge($this->defaultSettings(), is_array($overrides) ? $overrides : []);
+        $shared = app(StorefrontThemeResolver::class)->sharedIdentityBeneath(version: $version);
+
+        return $this->deepMerge($this->deepMerge($this->defaultSettings(), $shared), is_array($overrides) ? $overrides : []);
     }
 
     /** Create a theme together with an initial empty draft version. */

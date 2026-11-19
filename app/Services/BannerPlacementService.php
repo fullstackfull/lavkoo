@@ -78,7 +78,7 @@ class BannerPlacementService
      * A banner belongs to no country, but the product it points at does: another storefront's product is neither shown nor opened. The
      * cache holds every banner, whatever the storefront, so this runs after it.
      */
-    private function offeredByTheStorefront(Collection $banners): Collection
+    public function offeredByTheStorefront(Collection $banners): Collection
     {
         $productIds = $banners->where('resource_type', 'product')->pluck('resource_id')->unique();
 
