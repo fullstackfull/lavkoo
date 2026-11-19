@@ -9,10 +9,13 @@ use App\Http\Middleware\DetectMobile;
 use App\Http\Middleware\Localization;
 use App\Http\Middleware\MaintenanceModeMiddleware;
 use App\Http\Middleware\ModulePermissionMiddleware;
+use App\Http\Middleware\SellerMiddleware;
+use App\Http\Middleware\SellerStaffAccessMiddleware;
 use App\Http\Middleware\MonitorRequest;
 use App\Http\Middleware\NoIndexThemePreview;
 use App\Http\Middleware\RecordAnalytics;
 use App\Http\Middleware\RecordHttpTelemetry;
+use App\Models\Seller;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -38,6 +41,8 @@ class StorefrontCouponFormMoneyTest extends TestCase
     use BuildsStorefrontCouponWorld;
     use BuildsStorefrontMoneyWorld;
     use RestoresLanguageFiles;
+
+    private const VENDOR_ID = 5;
 
     protected function setUp(): void
     {
@@ -131,16 +136,20 @@ class StorefrontCouponFormMoneyTest extends TestCase
         return (int) DB::table('coupons')->where('code', 'WELCOME')->value('id');
     }
 
-    /** @return array<string, string> the three money fields of the edit form, exactly as the browser would post them back */
-    private function fieldsOfTheEditForm(int $id): array
+    /** @return array<string, string> the three money fields of a coupon form, exactly as the browser would post them back */
+    private function moneyFieldsOf(string $html): array
     {
-        $html = $this->get(route('admin.coupon.update', ['id' => $id]))->assertOk()->getContent();
-
         preg_match_all('/name="(discount|min_purchase|max_discount)"[^>]* value="([^"]*)"/', $html, $fields, PREG_SET_ORDER);
         $shown = array_column($fields, 2, 1);
         ksort($shown);
 
         return $shown;
+    }
+
+    /** @return array<string, string> */
+    private function fieldsOfTheEditForm(int $id): array
+    {
+        return $this->moneyFieldsOf($this->get(route('admin.coupon.update', ['id' => $id]))->assertOk()->getContent());
     }
 
     /** @param array<string, string> $fields */
@@ -211,6 +220,101 @@ class StorefrontCouponFormMoneyTest extends TestCase
         $this->assertSame(['discount' => '1.13', 'max_discount' => '2.26', 'min_purchase' => '4.35'], $this->fieldsOfTheEditForm($id));
     }
 
+    // ---- the vendor's own coupon form --------------------------------------------------------------------------------------------
+
+    /**
+     * A seller's coupon has no storefront of its own: it is typed in the platform's money, under both currency models and at both numbers of
+     * decimals the platform runs. The screen is the vendor panel's, and it carries the same three money fields as the administrator's. An amount
+     * off and a percentage off are both typed, because a maximum discount is only kept for a percentage and only a percentage leaves the
+     * discount field a plain number.
+     *
+     * @return array<string, array{0: string, 1: int, 2: array<string, float|string>}>
+     */
+    public static function couponsAVendorTypes(): array
+    {
+        return [
+            'an amount off, one currency, two decimals' => ['single_currency', 2, ['discount_type' => 'amount', 'min_purchase' => 4.35, 'discount' => 1.13, 'max_discount' => 2.26]],
+            'an amount off, a base currency, two decimals' => ['multi_currency', 2, ['discount_type' => 'amount', 'min_purchase' => 4.35, 'discount' => 1.13, 'max_discount' => 2.26]],
+            'a percentage off, one currency, three decimals' => ['single_currency', 3, ['discount_type' => 'percentage', 'min_purchase' => 1.023, 'discount' => 10, 'max_discount' => 1.005]],
+            'a percentage off, a base currency, three decimals' => ['multi_currency', 3, ['discount_type' => 'percentage', 'min_purchase' => 10.505, 'discount' => 10, 'max_discount' => 1.005]],
+        ];
+    }
+
+    /**
+     * What the three fields must hold when the form is opened again. A maximum discount belongs to a percentage coupon: an amount coupon stores
+     * none, whatever was typed, so its field has nothing to lose.
+     *
+     * @param array<string, float|string> $typed
+     * @return array<string, string>
+     */
+    private function fieldsTheVendorTyped(array $typed): array
+    {
+        return [
+            'discount' => (string) $typed['discount'],
+            'max_discount' => $typed['discount_type'] === 'percentage' ? (string) $typed['max_discount'] : '0',
+            'min_purchase' => (string) $typed['min_purchase'],
+        ];
+    }
+
+    private function actAsTheVendor(): void
+    {
+        $this->withoutMiddleware([SellerMiddleware::class, SellerStaffAccessMiddleware::class]);
+        DB::table('sellers')->insert(['id' => self::VENDOR_ID, 'status' => 'approved']);
+        $this->actingAs((new Seller())->forceFill(['id' => self::VENDOR_ID, 'f_name' => 'Vendor']), 'seller');
+    }
+
+    /** @param array<string, mixed> $input */
+    private function addTheVendorsCoupon(array $input): int
+    {
+        $this->post(route('vendor.coupon.add'), $input + [
+            'coupon_type' => 'discount_on_purchase', 'title' => 'Vendor welcome', 'code' => 'VENDORWELCOME', 'start_date' => '2026-12-01',
+            'expire_date' => '2027-12-01', 'customer_id' => 0, 'limit' => 2, 'discount_type' => 'amount',
+        ])->assertRedirect();
+
+        return (int) DB::table('coupons')->where('code', 'VENDORWELCOME')->value('id');
+    }
+
+    /** @return array<string, string> */
+    private function fieldsOfTheVendorsEditForm(int $id): array
+    {
+        return $this->moneyFieldsOf($this->get(route('vendor.coupon.update', ['id' => $id]))->assertOk()->getContent());
+    }
+
+    /** @param array<string, string> $fields */
+    private function postTheVendorsEditFormBack(int $id, array $fields, string $discountType): void
+    {
+        $this->post(route('vendor.coupon.update', ['id' => $id]), $fields + [
+            'coupon_type' => 'discount_on_purchase', 'title' => 'Vendor welcome', 'code' => 'VENDORWELCOME', 'start_date' => '2026-12-01',
+            'expire_date' => '2027-12-01', 'customer_id' => 0, 'limit' => 2, 'discount_type' => $discountType,
+        ])->assertRedirect();
+    }
+
+    /** @param array<string, float|string> $typed */
+    #[DataProvider('couponsAVendorTypes')]
+    public function test_the_vendors_coupon_form_shows_every_amount_as_the_seller_typed_it(string $currencyModel, int $decimals, array $typed): void
+    {
+        $this->usePlatform(currencyModel: $currencyModel, decimals: $decimals);
+        $this->actAsTheVendor();
+        $id = $this->addTheVendorsCoupon($typed);
+
+        $this->assertSame($this->fieldsTheVendorTyped($typed), $this->fieldsOfTheVendorsEditForm($id));
+    }
+
+    /** @param array<string, float|string> $typed */
+    #[DataProvider('couponsAVendorTypes')]
+    public function test_posting_the_vendors_coupon_form_back_unchanged_leaves_the_stored_amounts_identical(string $currencyModel, int $decimals, array $typed): void
+    {
+        $this->usePlatform(currencyModel: $currencyModel, decimals: $decimals);
+        $this->actAsTheVendor();
+        $id = $this->addTheVendorsCoupon($typed);
+        $before = $this->storedAmounts($id);
+
+        $this->postTheVendorsEditFormBack($id, $this->fieldsOfTheVendorsEditForm($id), (string) $typed['discount_type']);
+
+        $this->assertSame($before, $this->storedAmounts($id));
+        $this->assertSame($this->fieldsTheVendorTyped($typed), $this->fieldsOfTheVendorsEditForm($id), 'and the form is stable: a second edit shows the same figures');
+    }
+
     // ---- the helpers, and what the platform still displays ------------------------------------------------------------------------
 
     /**
@@ -274,6 +378,19 @@ class StorefrontCouponFormMoneyTest extends TestCase
         $this->assertStringContainsString('1.12SAR', $view);
     }
 
+    /** The same screen on the live Saudi panel, where no storefront switch is on: the quick view is a read-out either way. */
+    public function test_the_quick_view_prints_that_figure_while_the_switch_is_off_as_well(): void
+    {
+        config(['gcc.storefronts.currency.enabled' => false]);
+        $this->usePlatform(currencyModel: 'multi_currency', decimals: 2);
+        $id = $this->giveCoupon(code: 'RIYAL', country: null, attributes: ['min_purchase' => 4.35 / 3.75, 'discount' => 1.13 / 3.75, 'discount_type' => 'amount']);
+
+        $view = $this->getJson(route('admin.coupon.quick-view-details', ['id' => $id]))->assertOk()->json('view');
+
+        $this->assertStringContainsString('4.34SAR', $view);
+        $this->assertStringContainsString('1.12SAR', $view);
+    }
+
     // ---- the coupon list ---------------------------------------------------------------------------------------------------------
 
     private function listPage(): string
@@ -281,10 +398,15 @@ class StorefrontCouponFormMoneyTest extends TestCase
         return $this->get(route('admin.coupon.add'))->assertOk()->getContent();
     }
 
-    /** The rows of the list table alone: the add form above it prints the platform's own mark, which is not what these cases are about. */
+    /**
+     * The rows of the list table alone: the add form above it prints the platform's own mark, which is not what these cases are about. The
+     * hidden form token of each row goes with it, because the random forty characters it holds can spell a currency mark of their own.
+     */
     private function listRows(string $html): string
     {
-        return $this->collapsed((string) preg_replace('/.*<tbody>(.*?)<\/tbody>.*/s', '$1', $html));
+        $rows = (string) preg_replace('/.*<tbody>(.*?)<\/tbody>.*/s', '$1', $html);
+
+        return $this->collapsed((string) preg_replace('/<input type="hidden" name="_token"[^>]*>/', '', $rows));
     }
 
     private function collapsed(string $html): string
@@ -342,15 +464,153 @@ class StorefrontCouponFormMoneyTest extends TestCase
         $this->assertStringContainsString(translate('discount'), $head);
     }
 
-    /** The money of one row never leaks into the next, nor out of the page. */
+    /** @return array{code: mixed, symbol: mixed, rate: mixed} the money the helpers that do not reload it read out of the session */
+    private function moneyKeptInTheSession(): array
+    {
+        return ['code' => session('currency_code'), 'symbol' => session('currency_symbol'), 'rate' => session('currency_exchange_rate')];
+    }
+
+    /** The money of one row never leaks into the next, nor out of the page: what the session holds afterwards is the platform's own. */
     public function test_the_money_of_a_coupon_row_is_put_back_after_the_page(): void
     {
-        $this->giveCoupon(code: 'DINAR', country: 'KW', attributes: ['min_purchase' => 10.505, 'discount' => 1.505, 'discount_type' => 'amount']);
         $this->giveCoupon(code: 'RIYAL', country: null, attributes: ['min_purchase' => 4, 'discount' => 2, 'discount_type' => 'amount']);
+        $this->giveCoupon(code: 'DINAR', country: 'KW', attributes: ['min_purchase' => 10.505, 'discount' => 1.505, 'discount_type' => 'amount']);
+        loadCurrency();
+        $platformMoney = $this->moneyKeptInTheSession();
 
         $this->listPage();
 
         $this->assertSame('multi_currency', getWebConfig('currency_model'));
         $this->assertSame('2', getWebConfig('decimal_point_settings'));
+        $this->assertSame($platformMoney, $this->moneyKeptInTheSession(), 'the money of a row is not left behind in the session');
+        $this->assertSame('SAR', getCurrencyCode());
+        $this->assertSame(100 / 3.75, localToDefaultCurrency(amount: 100), 'a converter that reads the session rate without reloading it still answers the platform rate');
+    }
+
+    /** The edit page of a storefront coupon runs in that storefront's money too, and leaves none of it behind either. */
+    public function test_the_money_of_the_edit_page_is_put_back_after_it(): void
+    {
+        $id = $this->giveCoupon(code: 'DINAR', country: 'KW', attributes: ['min_purchase' => 10.505, 'discount' => 1.505, 'discount_type' => 'amount']);
+        loadCurrency();
+        $platformMoney = $this->moneyKeptInTheSession();
+
+        $this->get(route('admin.coupon.update', ['id' => $id]))->assertOk();
+
+        $this->assertSame(100 / 3.75, localToDefaultCurrency(amount: 100), 'a converter that reads the session rate without reloading it still answers the platform rate');
+        $this->assertSame($platformMoney, $this->moneyKeptInTheSession());
+    }
+
+    // ---- a storefront whose currency is switched off ------------------------------------------------------------------------------
+
+    /** Switches the currency a storefront trades in off, as an operator does in the currency panel. */
+    private function switchTheCurrencyOff(string $currencyCode): void
+    {
+        DB::table('currencies')->where('code', $currencyCode)->update(['status' => 0]);
+        Cache::forget('active_currency_list');
+        clearWebConfigCacheKeys();
+    }
+
+    public function test_a_coupon_whose_storefront_lost_its_currency_is_never_shown_in_the_platforms_money(): void
+    {
+        $this->giveCoupon(code: 'DINAR', country: 'KW', attributes: ['min_purchase' => 10.505, 'discount' => 1.505, 'discount_type' => 'amount']);
+        $this->switchTheCurrencyOff('KWD');
+
+        $html = $this->listRows($this->listPage());
+
+        $this->assertStringNotContainsString('5.64SAR', $html, 'a dinar is never reprinted as the platform\'s riyal');
+        $this->assertStringNotContainsString('39.39SAR', $html);
+        $this->assertStringContainsString('1.505 KWD', $html, 'the amount as it is stored, with the code of the currency the storefront trades in');
+        $this->assertStringContainsString('10.505 KWD', $html);
+    }
+
+    /** A percentage is a percentage in any money; only the minimum purchase has a currency to lose. */
+    public function test_a_percentage_coupon_of_a_storefront_that_lost_its_currency_keeps_its_percentage(): void
+    {
+        $this->giveCoupon(code: 'PERCENT', country: 'KW', attributes: ['min_purchase' => 10.505, 'discount' => 10, 'discount_type' => 'percentage']);
+        $this->switchTheCurrencyOff('KWD');
+
+        $html = $this->listRows($this->listPage());
+
+        $this->assertStringContainsString('10%', $html);
+        $this->assertStringContainsString('10.505 KWD', $html);
+        $this->assertStringNotContainsString('39.39SAR', $html);
+    }
+
+    public function test_the_amounts_of_a_coupon_are_not_rewritten_while_its_storefront_has_no_currency(): void
+    {
+        $id = $this->giveCoupon(code: 'DINAR', country: 'KW', attributes: ['min_purchase' => 10.505, 'discount' => 1.505, 'discount_type' => 'amount']);
+        $this->switchTheCurrencyOff('KWD');
+        $before = $this->storedAmounts($id);
+
+        $this->get(route('admin.coupon.update', ['id' => $id]))->assertRedirect(route('admin.coupon.add'));
+        $this->postJson(route('admin.coupon.update', ['id' => $id]), [
+            'discount' => '5.64', 'min_purchase' => '39.39', 'max_discount' => '0',
+            'coupon_type' => 'discount_on_purchase', 'title' => 'Welcome', 'code' => 'DINAR', 'start_date' => '2026-12-01', 'expire_date' => '2027-12-01',
+            'coupon_bearer' => 'inhouse', 'seller_id' => 'inhouse', 'customer_id' => 0, 'limit' => 2, 'discount_type' => 'amount',
+        ])->assertOk()->assertJsonPath('status', 0);
+
+        $this->assertSame($before, $this->storedAmounts($id), 'an update in another storefront\'s money would have cut the dinar amounts to riyal precision');
+    }
+
+    public function test_a_coupon_of_the_default_storefront_is_edited_as_usual_while_another_storefronts_currency_is_off(): void
+    {
+        $id = $this->giveCoupon(code: 'RIYAL', country: null, attributes: ['min_purchase' => 4.35 / 3.75, 'discount' => 1.13 / 3.75, 'discount_type' => 'amount']);
+        $this->switchTheCurrencyOff('KWD');
+        $before = $this->storedAmounts($id);
+
+        $this->postTheEditFormBack($id, $this->fieldsOfTheEditForm($id));
+
+        $this->assertSame($before, $this->storedAmounts($id));
+    }
+
+    // ---- what the page costs -----------------------------------------------------------------------------------------------------
+
+    /** How often one view of the list reads the currencies table itself, leaving out the one schema probe the service remembers for the process. */
+    private function currencyReadsOfTheListPage(): int
+    {
+        session()->flush();
+        Cache::forget('active_currency_list');
+        DB::enableQueryLog();
+        DB::flushQueryLog();
+
+        $this->listPage();
+
+        $queries = DB::getQueryLog();
+        DB::disableQueryLog();
+
+        return count(array_filter($queries, static function (array $query): bool {
+            $sql = (string) $query['query'];
+
+            return str_contains($sql, 'currencies') && !str_contains($sql, 'sqlite_master') && !str_contains($sql, 'information_schema');
+        }));
+    }
+
+    /** The currencies of a page are read once for each storefront on it, not once for each row, however long the page is. */
+    public function test_a_page_of_coupons_reads_a_storefronts_currency_once_however_many_rows_it_has(): void
+    {
+        $this->giveCoupon(code: 'DINAR1', country: 'KW', attributes: ['min_purchase' => 10.505, 'discount' => 1.505, 'discount_type' => 'amount']);
+        $this->giveCoupon(code: 'RIYAL1', country: null, attributes: ['min_purchase' => 4, 'discount' => 2, 'discount_type' => 'amount']);
+        $twoRows = $this->currencyReadsOfTheListPage();
+
+        for ($row = 2; $row <= 10; $row++) {
+            $this->giveCoupon(code: 'DINAR' . $row, country: 'KW', attributes: ['min_purchase' => 10.505, 'discount' => 1.505, 'discount_type' => 'amount']);
+            $this->giveCoupon(code: 'RIYAL' . $row, country: null, attributes: ['min_purchase' => 4, 'discount' => 2, 'discount_type' => 'amount']);
+        }
+
+        $this->assertSame($twoRows, $this->currencyReadsOfTheListPage(), 'twenty rows of two storefronts cost what two rows of the same two cost');
+    }
+
+    /** One coupon, one figure on one page: the row and the quick view it opens read the amount the same way. */
+    public function test_the_list_and_the_quick_view_of_one_coupon_show_the_same_figure(): void
+    {
+        $id = $this->giveCoupon(code: 'RIYAL', country: null, attributes: ['min_purchase' => 4.35 / 3.75, 'discount' => 1.13 / 3.75, 'discount_type' => 'amount']);
+
+        $rows = $this->listRows($this->listPage());
+        $quickView = $this->getJson(route('admin.coupon.quick-view-details', ['id' => $id]))->assertOk()->json('view');
+
+        foreach (['1.12SAR', '4.34SAR'] as $figure) {
+            $this->assertStringContainsString($figure, $rows, 'the row keeps the arithmetic every read-out of the panel has');
+            $this->assertStringContainsString($figure, $quickView, 'and the quick view the row opens prints the same figure');
+        }
     }
 }

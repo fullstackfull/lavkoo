@@ -6,7 +6,10 @@
     @php
         use App\Services\Storefront\CouponCountry;
 
+        // A coupon's amounts are typed in the currency of its own storefront and never converted from another's, so the page is
+        // read one storefront at a time rather than one row at a time.
         $tracksCouponCountry = CouponCountry::isTracked();
+        $couponAmounts = $tracksCouponCountry ? CouponCountry::amountsOfEach(coupons: $coupons) : [];
     @endphp
     <div class="content container-fluid">
         <div class="mb-3">
@@ -237,19 +240,9 @@
                                 </td>
                                 <td class="text-capitalize">{{ translate(str_replace('_', ' ', $coupon['coupon_type'])) }}</td>
                                 @if ($tracksCouponCountry)
-                                    @php
-                                        // A coupon's amounts are typed in the currency of its own storefront and never converted
-                                        // from another's, so each row is read in the money it was written in.
-                                        $couponAmounts = CouponCountry::inMoneyOf(coupon: $coupon, callback: fn (): array => [
-                                            'discount' => $coupon['discount_type'] === 'percentage'
-                                                ? $coupon['discount'] . '%'
-                                                : setCurrencySymbol(amount: usdToDefaultCurrency(amount: $coupon['discount']), currencyCode: getCurrencyCode()),
-                                            'minimumPurchase' => setCurrencySymbol(amount: usdToDefaultCurrency(amount: $coupon['min_purchase']), currencyCode: getCurrencyCode()),
-                                        ]);
-                                    @endphp
                                     <td class="k-table__num">
-                                        <span class="k-num">{{ $coupon['coupon_type'] === 'free_delivery' ? '—' : $couponAmounts['discount'] }}</span>
-                                        <span class="k-text-subtle" style="display:block;font-size:var(--k-text-sm)">{{ translate('minimum_purchase') }} {{ $couponAmounts['minimumPurchase'] }}</span>
+                                        <span class="k-num">{{ $coupon['coupon_type'] === 'free_delivery' ? '—' : $couponAmounts[$coupon['id']]['discount'] }}</span>
+                                        <span class="k-text-subtle" style="display:block;font-size:var(--k-text-sm)">{{ translate('minimum_purchase') }} {{ $couponAmounts[$coupon['id']]['minimumPurchase'] }}</span>
                                     </td>
                                 @endif
                                 <td>

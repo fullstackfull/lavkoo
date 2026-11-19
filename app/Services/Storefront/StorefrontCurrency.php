@@ -51,6 +51,13 @@ final class StorefrontCurrency
 
     private const SINGLE_CURRENCY_MODEL = 'single_currency';
 
+    /**
+     * What loadCurrency() keeps in the session about the money in force. A market switch re-fills them from the default currency setting the
+     * market overrides, so they are put back with the market: localToDefaultCurrency() and loyaltyPointToLocalCurrency() read the rate out of
+     * the session without reloading it, and would otherwise answer one storefront's rate for the rest of the visitor's session.
+     */
+    private const MONEY_KEPT_IN_THE_SESSION = ['system_default_currency_info', 'currency_code', 'currency_symbol', 'currency_exchange_rate', 'usd', 'default'];
+
     private const DEFAULT_DECIMALS = 2;
 
     private ?bool $currenciesTableExists = null;
@@ -91,17 +98,25 @@ final class StorefrontCurrency
     /**
      * Runs the callback with the money of one market in force, whatever the request is narrowed to: an admin screen that works on the rows of one
      * country, whose amounts are in that country's currency, reads and writes them as they are stored. An unknown country, a market that is the
-     * default one, and a time while the switch is off change nothing. The market in force before is put back, even when the callback throws.
+     * default one, and a time while the switch is off change nothing. The market in force before is put back, even when the callback throws, and
+     * with it what the money helpers keep in the session, so a switch of market is as invisible to a later reader as it is to the market itself.
      */
     public function within(?string $country, Closure $callback): mixed
     {
         $previous = $this->market;
         $this->market = $country === null || trim($country) === '' ? null : strtoupper(trim($country));
+        $moneyMoves = $this->isEnabled() && $this->market !== $previous;
+        $money = $moneyMoves ? session()->only(self::MONEY_KEPT_IN_THE_SESSION) : [];
 
         try {
             return $callback();
         } finally {
             $this->market = $previous;
+
+            if ($moneyMoves) {
+                session()->forget(self::MONEY_KEPT_IN_THE_SESSION);
+                session()->put($money);
+            }
         }
     }
 
