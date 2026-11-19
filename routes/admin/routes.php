@@ -117,6 +117,7 @@ use App\Http\Controllers\Admin\ManualMessageController;
 use App\Http\Controllers\Admin\AppCarouselController;
 use App\Http\Controllers\Admin\ZenderSettingController;
 use App\Http\Controllers\Admin\DeliverySyriaSettingController;
+use App\Http\Middleware\EnsureMasterAdmin;
 /*
 | Lynomia/Zender OTP gateway settings, app carousel, manual messages and cart marketing.
 |
@@ -670,7 +671,7 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
     });
 
 
-    Route::group(['prefix' => 'employee', 'as' => 'employee.', 'middleware' => ['module:people']], function () {
+    Route::group(['prefix' => 'employee', 'as' => 'employee.', 'middleware' => ['module:people', EnsureMasterAdmin::class]], function () {
         Route::controller(EmployeeController::class)->group(function () {
             Route::get('list', 'index')->name('list');
             Route::get('add', 'getAddView')->name('add-new');
@@ -683,7 +684,7 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
         });
     });
 
-    Route::group(['prefix' => 'custom-role', 'as' => 'custom-role.', 'middleware' => ['module:people']], function () {
+    Route::group(['prefix' => 'custom-role', 'as' => 'custom-role.', 'middleware' => ['module:people', EnsureMasterAdmin::class]], function () {
         Route::controller(CustomRoleController::class)->group(function () {
             Route::get('add', 'index')->name('create');
             Route::post('add', 'add')->name('store');
