@@ -17,7 +17,10 @@ use RuntimeException;
  */
 trait BuildsWalletAndVendorLedgerSchema
 {
-    /** The customer endpoints read the user, count the orders, look up the profile image and ask the settings whether the wallet and the loyalty points are switched on. */
+    /**
+     * The customer endpoints read the user, count the orders, look up the profile image and ask the settings whether the wallet and the loyalty points are switched on. Account deletion reads the two order columns
+     * that say whether an order is still on its way (`is_guest`, `order_status`), and `referral_customers` holds what a referral still owes a customer, which the same deletion leaves behind.
+     */
     protected function buildCustomerLedgerTables(): void
     {
         $this->dropEveryTableOfTheTestDatabase();
@@ -46,6 +49,19 @@ trait BuildsWalletAndVendorLedgerSchema
         Schema::create('orders', static function (Blueprint $table): void {
             $table->unsignedBigInteger('id')->primary();
             $table->unsignedBigInteger('customer_id')->nullable();
+            $table->boolean('is_guest')->default(false);
+            $table->string('order_status')->default('pending');
+            $table->timestamps();
+        });
+
+        Schema::create('referral_customers', static function (Blueprint $table): void {
+            $table->id();
+            $table->bigInteger('user_id');
+            $table->bigInteger('refer_by');
+            $table->decimal('ref_by_earning_amount', 21, 12)->default(0);
+            $table->decimal('customer_discount_amount', 21, 12)->default(0);
+            $table->string('customer_discount_amount_type')->nullable();
+            $table->boolean('is_used')->default(false);
             $table->timestamps();
         });
 
