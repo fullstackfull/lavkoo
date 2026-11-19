@@ -5,9 +5,7 @@ namespace Tests\Feature\Storefront;
 use App\Models\User;
 use App\Services\Storefront\StorefrontLifecycle;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Routing\Route as RoutingRoute;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -18,13 +16,18 @@ use Tests\Support\BuildsStorefrontCatalog;
 
 /**
  * I2-13: what a stop leaves open. A storefront that a person has paused browse only, or in redirect (which, for the API, is browse only: no route of the API redirects anywhere) is still
- * browsed: its customers fill, read and empty the cart, keep their wishlist and read the catalogue and the details of a product exactly as they do while it sells, and only the start of a new
- * sale (the checkout and the start of a payment) is refused, with the message of the storefront. In maintenance the cart and the catalogue are refused with the 503 and the message, because
+ * browsed: its customers fill, change, read and empty the cart, keep their wishlist and read the catalogue and the details of a product exactly as they do while it sells, and only the start of a
+ * new sale (the checkout and the start of a payment) is refused, with the message of the storefront. In maintenance the cart and the catalogue are refused with the 503 and the message, because
  * they are what browses a storefront (EnsureStorefrontIsAvailable), and the wishlist is not. That the routes which serve an order a customer already has stay open in every mode is driven
- * in StorefrontStopContinuityTest, and which routes carry which gate is pinned in StorefrontSalesRoutesTest.
+ * in StorefrontStopContinuityTest. Which routes carry which gate is pinned in StorefrontSalesRoutesTest and in the structural cases of StorefrontStopContinuityTest; this class drives what the
+ * routes answer.
  *
  * Each case is run for a storefront that is not stopped as well (the control), so the answers asserted are the answers of a storefront that sells, and the sale is taken there. The default
  * storefront can only be stopped browse only (I2-17).
+ *
+ * The wishlist routes carry neither the storefront middleware nor a stop gate: they are not storefront scoped. The wishlist cases use the product of the storefront being driven, so they say
+ * nothing about a product of another storefront, which the same routes list and accept. The cart routes driven are add, list, update and remove; the others of the group (remove all, select,
+ * restock request, referral discount, merge of a guest cart) are not.
  */
 class StorefrontStopBrowsingTest extends ApiAddressTestCase
 {
@@ -41,6 +44,8 @@ class StorefrontStopBrowsingTest extends ApiAddressTestCase
     private const CART = '/api/v1/cart';
 
     private const CART_ADD = '/api/v1/cart/add';
+
+    private const CART_UPDATE = '/api/v1/cart/update';
 
     private const CART_REMOVE = '/api/v1/cart/remove';
 
@@ -59,24 +64,6 @@ class StorefrontStopBrowsingTest extends ApiAddressTestCase
         'KW' => ['id' => 3, 'slug' => 'paracetamol-kw', 'name' => 'Paracetamol KW', 'price' => 30],
         'SA' => ['id' => 1, 'slug' => 'paracetamol-sa', 'name' => 'Paracetamol SA', 'price' => 100],
     ];
-
-    /** The only routes that start a new sale: the apps' API and the website's own checkout. Nothing else carries the sale gate. */
-    private const SALE_ROUTES = [
-        'GET api/v1/customer/order/place',
-        'POST api/v1/customer/order/place-by-offline-payment',
-        'GET api/v1/customer/order/place-by-wallet',
-        'POST api/v1/customer/order/again',
-        'POST api/v1/digital-payment',
-        'POST api/v1/add-to-fund',
-        'POST checkout-complete',
-        'POST offline-payment-checkout-complete',
-        'POST checkout-complete-wallet',
-        'POST cart/order-again',
-        'POST customer/web-payment-request',
-        'POST customer/customer-add-fund-request',
-    ];
-
-    private const SALE_GATE = 'storefront.sellable';
 
     protected function setUp(): void
     {
@@ -158,28 +145,10 @@ class StorefrontStopBrowsingTest extends ApiAddressTestCase
         });
     }
 
-    /** The request as the app sends it: the customer's token and the storefront it is showing. */
-    private function asTheApp(User $customer, string $country): static
-    {
-        return $this->asCustomer($customer)->withHeader('X-Storefront', $country);
-    }
-
     private function stop(string $country, ?string $mode, ?string $message = null): void
     {
         if ($mode !== null) {
             app(StorefrontLifecycle::class)->pause(country: $country, mode: $mode, by: self::PERSON, reason: self::REASON, message: $message);
-        }
-    }
-
-    private function stockOf(string $country): int
-    {
-        return (int) DB::table('products')->where('id', self::PRODUCTS[$country]['id'])->value('current_stock');
-    }
-
-    private function skipInStrictModeUntilThePaymentStartIsFixed(): void
-    {
-        if (getenv('DB_STRICT_TESTS') === '1') {
-            $this->markTestSkipped('The start of a digital payment reads the cart with a bare GROUP BY that a strict server refuses, as the checkout does with the use count of a coupon.');
         }
     }
 
@@ -193,9 +162,8 @@ class StorefrontStopBrowsingTest extends ApiAddressTestCase
     // ---- the cart, the wishlist and the catalogue --------------------------------------------------------------------------------------------
 
     #[DataProvider('everyStopThatBrowsesAndItsControl')]
-    public function test_the_cart_is_filled_shown_and_emptied_in_every_stop_mode_that_browses(string $country, ?string $mode): void
+    public function test_the_cart_is_filled_changed_and_emptied_in_every_stop_mode_that_browses(string $country, ?string $mode): void
     {
-        $this->skipInStrictModeUntilTheCouponCountIsFixed();
         $product = self::PRODUCTS[$country];
         $customer = $this->makeCustomer();
         $this->stop(country: $country, mode: $mode);
@@ -205,14 +173,29 @@ class StorefrontStopBrowsingTest extends ApiAddressTestCase
         $row = DB::table('carts')->first();
         $this->assertSame([$customer->id, $product['id'], 1], [(int) $row->customer_id, (int) $row->product_id, (int) $row->quantity]);
 
-        $listed = $this->asTheApp(customer: $customer, country: $country)->getJson(self::CART)->assertOk();
-        $this->assertSame([$product['id']], collect($listed->json())->pluck('product_id')->all());
-        $this->assertSame([$product['name'], 1], [$listed->json('0.name'), $listed->json('0.is_product_available')]);
-        $this->assertEquals($product['price'], $listed->json('0.price'));
+        $updated = $this->asTheApp(customer: $customer, country: $country)->putJson(self::CART_UPDATE, ['key' => $row->id, 'quantity' => 2])->assertOk();
+        $this->assertSame([1, 2], [$updated->json('status'), $updated->json('qty')]);
+        $this->assertSame(2, (int) DB::table('carts')->where('id', $row->id)->value('quantity'));
 
         $removed = $this->asTheApp(customer: $customer, country: $country)->deleteJson(self::CART_REMOVE, ['key' => $row->id])->assertOk();
         $this->assertSame(translate('successfully_removed'), $removed->json());
         $this->assertSame(0, DB::table('carts')->count());
+    }
+
+    #[DataProvider('everyStopThatBrowsesAndItsControl')]
+    public function test_a_cart_filled_before_the_stop_is_shown_in_every_stop_mode_that_browses(string $country, ?string $mode): void
+    {
+        $this->skipInStrictModeUntilTheCouponCountIsFixed();
+        $product = self::PRODUCTS[$country];
+        $customer = $this->makeCustomer();
+        $this->fillTheCartFrom(customer: $customer, country: $country, productId: $product['id']);
+        $this->stop(country: $country, mode: $mode);
+
+        $listed = $this->asTheApp(customer: $customer, country: $country)->getJson(self::CART)->assertOk();
+
+        $this->assertSame([$product['id']], collect($listed->json())->pluck('product_id')->all());
+        $this->assertSame([$product['name'], 1], [$listed->json('0.name'), $listed->json('0.is_product_available')]);
+        $this->assertEquals($product['price'], $listed->json('0.price'));
     }
 
     #[DataProvider('everyStopThatBrowsesAndItsControl')]
@@ -317,10 +300,11 @@ class StorefrontStopBrowsingTest extends ApiAddressTestCase
 
         $app()->postJson(self::CART_ADD, ['id' => self::PRODUCTS['KW']['id'], 'quantity' => 1])->assertStatus(503)->assertExactJson($refusal);
         $app()->getJson(self::CART)->assertStatus(503)->assertExactJson($refusal);
+        $app()->putJson(self::CART_UPDATE, ['key' => $row->id, 'quantity' => 2])->assertStatus(503)->assertExactJson($refusal);
         $app()->deleteJson(self::CART_REMOVE, ['key' => $row->id])->assertStatus(503)->assertExactJson($refusal);
         $app()->getJson(self::PRODUCT_LIST)->assertStatus(503)->assertExactJson($refusal);
         $app()->getJson(self::PRODUCT_DETAILS . self::PRODUCTS['KW']['slug'])->assertStatus(503)->assertExactJson($refusal);
-        $this->assertSame([[$row->id, 1]], DB::table('carts')->get()->map(fn (object $cart) => [$cart->id, (int) $cart->quantity])->all(), 'the refused cart add added nothing and the refused remove removed nothing');
+        $this->assertSame([[$row->id, 1]], DB::table('carts')->get()->map(fn (object $cart) => [$cart->id, (int) $cart->quantity])->all(), 'the refused cart add added nothing, the refused update changed nothing and the refused remove removed nothing');
 
         $app()->postJson(self::WISHLIST . '/add', ['product_id' => self::PRODUCTS['KW']['id']])->assertOk()->assertJsonPath('message', 'successfully added!');
         $listed = $app()->getJson(self::WISHLIST)->assertOk();
@@ -337,23 +321,5 @@ class StorefrontStopBrowsingTest extends ApiAddressTestCase
         $this->fillTheCartFrom(customer: $customer, country: 'SA', productId: self::PRODUCTS['SA']['id']);
         $this->asTheApp(customer: $customer, country: 'SA')->getJson(self::PRODUCT_LIST)->assertOk()->assertJsonPath('total_size', 1);
         $this->asTheApp(customer: $customer, country: 'KW')->getJson(self::PRODUCT_LIST)->assertStatus(503);
-    }
-
-    // ---- what is pinned and not driven ------------------------------------------------------------------------------------------------------
-
-    public function test_the_sale_gate_is_on_the_twelve_routes_that_start_a_sale_and_on_no_other_route(): void
-    {
-        $carriers = collect(Route::getRoutes()->getRoutes())
-            ->filter(fn (RoutingRoute $route) => in_array(self::SALE_GATE, $route->middleware(), true))
-            ->map(fn (RoutingRoute $route) => implode('|', array_diff($route->methods(), ['HEAD'])) . ' ' . $route->uri())
-            ->sort()
-            ->values()
-            ->all();
-
-        $expected = self::SALE_ROUTES;
-        sort($expected);
-
-        $this->assertCount(12, $expected);
-        $this->assertSame($expected, $carriers, 'a route that carries the sale gate and is not a sale refuses the browsing of a storefront that may not sell');
     }
 }
