@@ -10,6 +10,9 @@ namespace Tests\Support;
  * plural counting as one word — and it names a type when it holds every word of that type, in order and as whole words. So 'payment_terms' names 'terms' and 'returns_window'
  * names 'return', while 'returnable_items', 'terminal_id' and 'shippingless' name nothing. A match is not by itself a defect: what an operating rule is called is the owner's to
  * say, and the tests that use this list by name, with the reason, the names that hold a type and are operating rules all the same.
+ *
+ * It also keeps the names the business pages of the platform are stored under, which the guards of both stores need: one so that no operating rule takes the name of a page, the
+ * other so that a readiness answer is proved not to follow a text written under one.
  */
 trait NamesLegalDocumentTypes
 {
@@ -36,6 +39,23 @@ trait NamesLegalDocumentTypes
             'policy:health_at_risk_cancellation_rate' => 'the share of a seller\'s orders cancelled that puts the seller at risk: a rate, not the cancellation policy',
             'policy:health_at_risk_return_rate' => 'the share of a seller\'s orders returned that puts the seller at risk: a rate, not the return policy',
             'policy:health_at_risk_refund_rate' => 'the share of a seller\'s orders refunded that puts the seller at risk: a rate, not the refund policy',
+        ];
+    }
+
+    /**
+     * How the business pages of the platform and its cookie text are named in `business_settings`, in both spellings the codebase uses: the installer seeds them and
+     * AppServiceProvider reads them hyphenated ('refund-policy'), the older pages and the settings screen use the underscored form ('terms_condition'). An operating rule that took
+     * one of these names would be saved over a legal page, and a readiness answer that read a text under one of them would read the Saudi page as another market's text.
+     *
+     * @return list<string>
+     */
+    protected function settingNamesOfTheLegalPages(): array
+    {
+        return [
+            'terms_condition', 'privacy_policy', 'refund_policy', 'return_policy', 'cancellation_policy', 'shipping_policy',
+            'refund-policy', 'return-policy', 'cancellation-policy', 'shipping-policy',
+            'terms-and-conditions', 'privacy-policy', 'about_us', 'about-us',
+            'cookie_setting', 'cookie_policy', 'cookie-policy', 'cookies_policy',
         ];
     }
 

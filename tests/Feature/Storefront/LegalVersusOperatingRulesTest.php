@@ -8,6 +8,7 @@ use App\Services\Storefront\StorefrontLegalPublisher;
 use App\Services\Storefront\StorefrontLegalReadiness;
 use App\Services\Storefront\StorefrontLegalReview;
 use FilesystemIterator;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\DataProvider;
 use RecursiveDirectoryIterator;
@@ -36,11 +37,14 @@ use Tests\TestCase;
  *    legal document type the configuration of the storefronts knows, in either direction: a type added to `gcc.storefronts.legal` that an existing rule is named for fails just as
  *    a rule named for an existing type does. Neither side is written out by hand here.
  * 2. THE STORES are BEHAVIOUR: they write and read the real tables through the real services. Saving every operating rule of the registry leaves the legal documents untouched;
- *    writing a legal text from its draft to its revocation leaves the business settings untouched, whatever path the writes take; and the readiness answer moves with the documents
- *    and with nothing a business setting says.
- * 3. THE SCANS read the text of the files of the legal chain. They are evidence that NO FILE OF THAT CHAIN NAMES the registry, its reader or the settings table — not that a write
- *    into those tables is impossible, which only the behaviour tests above can say, because a file reaches another store through a service it calls and a scan of one file cannot
- *    see that. The scan asserts first that it has read the files it names, so a wrong root cannot make it pass by finding nothing.
+ *    writing a legal text from its draft to its revocation leaves the business settings untouched, whatever path the writes take; and the readiness answer, worked out on a cold
+ *    cache with the engine listened to, asks for the legal documents and for no other store at all — so no business setting can move it, whichever one it is and however many
+ *    classes away the read is made. The test that writes a text under every name a legal page is stored under proves the same thing of those names only, which is why both are here.
+ * 3. THE SCANS read the text of the files of the legal chain. They are evidence that NO FILE OF THAT CHAIN NAMES OR WRITES the store of the operating rules IN ITS OWN TEXT, but
+ *    the one file that records the independent legal review, which is listed by name below — not that a write into that store is impossible, which only the behaviour tests above
+ *    can say, because a file reaches another store through a service it calls and a scan of one file cannot see that. That blindness is not hypothetical here: the file that keeps
+ *    the record of the review writes `business_settings` through StorefrontDecisionRecord, the scan of its text reports no write at all, and it is listed below with the behaviour
+ *    test that does see the write. The scan asserts first that it has read the files it names, so a wrong root cannot make it pass by finding nothing.
  *
  * THE LEGAL CHAIN, for the scans, is every file of the application named for it and the two that ask it for an answer without being named for it, all listed below by path.
  *
@@ -126,6 +130,23 @@ class LegalVersusOperatingRulesTest extends TestCase
         'Services/Storefront/StorefrontLegalReview.php' => ['the settings table'],
     ];
 
+    /**
+     * The files of the legal chain that do write the store of the operating rules, and do it through a service they call, so that a scan of their own text reports no write at all.
+     * The list keeps the blindness of that scan on the record instead of leaving its name to say more than it checks.
+     *
+     * @var array<string, string> the reason, by path
+     */
+    private const WHERE_THE_LEGAL_CHAIN_WRITES_THE_OPERATING_RULE_STORE_THROUGH_A_SERVICE = [
+        'Services/Storefront/StorefrontLegalReview.php' => 'the record of the independent legal review of one storefront, written through StorefrontDecisionRecord, which is what '
+            . 'test_the_one_business_setting_the_legal_chain_keeps_is_the_record_of_the_review_and_it_holds_no_text watches the real tables for',
+    ];
+
+    /** The catalogues an engine keeps its own schema in: a statement that reads one of them is asking whether a table exists, not reading a store. */
+    private const CATALOGUES_OF_A_SCHEMA = ['information_schema', 'performance_schema', 'mysql'];
+
+    /** How a statement names the table it reads or writes, in the ways the engines of this project spell it: quoted with backticks or with double quotes, and qualified by a schema. */
+    private const HOW_A_STATEMENT_NAMES_A_STORE = '/\b(?:from|join|into|update|table)\b\s+([\w$.`"\[\]]+)/i';
+
     /** The models whose writes the scanner is to see on either side. */
     private const MODELS_OF_THE_TWO_STORES = ['BusinessSetting', 'StorefrontLegalDocument', 'StorefrontLegalAcceptance'];
 
@@ -134,11 +155,6 @@ class LegalVersusOperatingRulesTest extends TestCase
 
     /** The tables and models of the operating-rule store: what the registry's own files may write. */
     private const THE_OPERATING_RULE_STORE = ['business_settings', 'model BusinessSetting'];
-
-    /** How the business pages and the cookie text of the Saudi storefront are named in `business_settings`: a text under one of these names is what a readiness answer must not read. */
-    private const SETTING_NAMES_OF_THE_LEGAL_PAGES = [
-        'terms_condition', 'privacy_policy', 'refund_policy', 'return_policy', 'cancellation_policy', 'shipping_policy', 'cookie_setting',
-    ];
 
     /** @var array<string, array{existed: bool, value: mixed}> what the settings this test wrote held before it wrote them */
     private array $settingsToRestore = [];
@@ -189,11 +205,11 @@ class LegalVersusOperatingRulesTest extends TestCase
         clearWebConfigCacheKeys();
     }
 
-    /** @return array<string, string> a text under every name a legal page of the platform is stored under, and a claim about the version of one */
+    /** @return array<string, string> a text under every name a legal page of the platform is stored under, in both spellings, and a claim about the version of one */
     private function legalTextsWrittenAsBusinessSettings(): array
     {
         $settings = ['storefront_legal_terms_version' => '9'];
-        foreach (self::SETTING_NAMES_OF_THE_LEGAL_PAGES as $name) {
+        foreach ($this->settingNamesOfTheLegalPages() as $name) {
             $settings[$name] = "A long approved {$name} of the test world, in every locale, effective since yesterday.";
         }
 
@@ -285,6 +301,51 @@ class LegalVersusOperatingRulesTest extends TestCase
         return $found;
     }
 
+    /**
+     * Every store the engine was really asked for while the work ran, whatever class made the statement and however many hops away it was made. A read is a statement and a
+     * statement names its table, so this sees a business setting read through any other service, which the scan of a file's text cannot.
+     *
+     * @return list<string> each store once, sorted
+     */
+    private function storesAskedForWhile(callable $work): array
+    {
+        $statements = [];
+        $listening = true;
+        DB::listen(static function (QueryExecuted $query) use (&$statements, &$listening): void {
+            if ($listening) {
+                $statements[] = $query->sql;
+            }
+        });
+
+        $work();
+        $listening = false;
+
+        $stores = array_unique(array_merge(...array_map(fn (string $statement): array => $this->storesNamedIn(statement: $statement), $statements)));
+        sort($stores);
+
+        return array_values($stores);
+    }
+
+    /** @return list<string> the stores a statement names, in the order it names them, the catalogue the engine keeps its own schema in left out */
+    private function storesNamedIn(string $statement): array
+    {
+        preg_match_all(self::HOW_A_STATEMENT_NAMES_A_STORE, $statement, $matches);
+
+        $stores = [];
+        foreach ($matches[1] as $name) {
+            $segments = explode('.', str_replace(['`', '"', '[', ']'], '', strtolower($name)));
+            $store = (string) end($segments);
+
+            if (str_starts_with($store, 'sqlite_') || in_array($segments[0], self::CATALOGUES_OF_A_SCHEMA, true)) {
+                continue;
+            }
+
+            $stores[] = $store;
+        }
+
+        return $stores;
+    }
+
     /** @return list<string> every table and model the code writes */
     private function writesIn(string $code): array
     {
@@ -349,7 +410,45 @@ class LegalVersusOperatingRulesTest extends TestCase
         }
     }
 
-    public function test_the_readiness_of_a_storefront_comes_from_its_documents_and_no_business_setting_moves_it(): void
+    /**
+     * The criterion of I2-06 says the readiness of a storefront is read from its legal documents and from the configuration, and from nothing else. The test below it proves that
+     * of the settings that hold a legal page, by name; this one proves it of every store there is, by listening to the engine while the answer is worked out. Both answers are
+     * listened to, because a fallback onto a setting is reached on the way to YES or on the way to NO and a path not taken reads nothing. The cache the reader of a setting keeps
+     * is emptied before each, so a setting read behind it is a statement here and not a silent cache hit.
+     */
+    public function test_the_readiness_of_a_storefront_asks_the_engine_for_its_legal_documents_and_for_no_other_store(): void
+    {
+        $this->writeBusinessSettings($this->legalTextsWrittenAsBusinessSettings());
+        $this->writeBusinessSettings($this->everyOperatingRuleMoved());
+        clearWebConfigCacheKeys();
+
+        $askedForWhileTheAnswerWasNo = $this->storesAskedForWhile(work: function (): void {
+            $this->assertFalse($this->readiness()->isReady(self::STOREFRONT));
+            $this->assertNull($this->readiness()->currentTextFor(countryCode: self::STOREFRONT, documentType: 'terms', locale: 'en'));
+        });
+
+        $this->publishRequiredLegalDocuments(country: self::STOREFRONT, reviewed: false, activated: false);
+        clearWebConfigCacheKeys();
+
+        $askedForWhileTheAnswerWasYes = $this->storesAskedForWhile(work: function (): void {
+            $this->assertTrue($this->readiness()->isReady(self::STOREFRONT));
+            $this->assertSame(1, (int) $this->readiness()->currentTextFor(countryCode: self::STOREFRONT, documentType: 'terms', locale: 'en')->version);
+        });
+
+        $askedFor = ['is not ready to sell' => $askedForWhileTheAnswerWasNo, 'is ready to sell' => $askedForWhileTheAnswerWasYes];
+
+        foreach ($askedFor as $answer => $stores) {
+            $this->assertSame(
+                ['storefront_legal_documents'],
+                $stores,
+                "Working out that a storefront {$answer} asked the engine for a store other than storefront_legal_documents (I2-06). A readiness answer comes from the legal "
+                    . 'documents of that storefront and from its configuration; a fallback onto a business setting, however many services away it is read, would let a market '
+                    . 'open for sale on the legal page of another one. Asked for: ' . implode(', ', $stores),
+            );
+        }
+    }
+
+    public function test_the_readiness_of_a_storefront_and_the_version_in_force_follow_its_documents_whatever_a_setting_of_a_legal_page_holds(): void
     {
         $this->writeBusinessSettings($this->legalTextsWrittenAsBusinessSettings());
         $this->writeBusinessSettings($this->everyOperatingRuleMoved());
@@ -456,7 +555,11 @@ class LegalVersusOperatingRulesTest extends TestCase
         );
     }
 
-    public function test_no_file_of_the_legal_chain_writes_a_store_that_is_not_the_legal_one(): void
+    /**
+     * In its own text, which is all a scan of a file can speak for. One file of the chain does write the store of the operating rules, through a service it calls, and this scan
+     * reports no write in it at all; it is listed with the behaviour test that watches the real tables, so that the list says what the scan cannot see.
+     */
+    public function test_no_file_of_the_legal_chain_writes_a_store_that_is_not_the_legal_one_in_its_own_text(): void
     {
         $written = [];
         foreach ($this->legalChain() as $path => $code) {
@@ -466,8 +569,17 @@ class LegalVersusOperatingRulesTest extends TestCase
             }
         }
 
-        $this->assertSame([], $written, 'A file of the legal chain writes a store that is not the legal one.');
+        $this->assertSame([], $written, 'A file of the legal chain names a write of a store that is not the legal one in its own text.');
         $this->assertSame(['model StorefrontLegalDocument'], $this->writesIn($this->codeOfTheLegalChainFile(path: 'Services/Storefront/StorefrontLegalPublisher.php')), 'The scan sees no write where the one writer of the legal texts makes them.');
+
+        foreach (array_keys(self::WHERE_THE_LEGAL_CHAIN_WRITES_THE_OPERATING_RULE_STORE_THROUGH_A_SERVICE) as $path) {
+            $this->assertSame(
+                [],
+                $this->writesIn($this->codeOfTheLegalChainFile(path: $path)),
+                "{$path} writes the store of the operating rules through a service it calls, and this scan is listed as blind to that. It now names a write of its own, so the "
+                    . 'list is out of date: say what the file writes in its own text, or take it off the list.',
+            );
+        }
     }
 
     public function test_no_file_of_the_operating_rules_writes_the_legal_store(): void
@@ -501,6 +613,36 @@ class LegalVersusOperatingRulesTest extends TestCase
             'the password policy of the platform is not the reader' => ['app(PasswordPolicy::class)->minimumLength();', []],
             'a legal page named in a string is not the settings table' => ["\$type = 'privacy_policy';", []],
             'the legal store' => ["StorefrontLegalDocument::query()->where('country_code', \$country)->get();", []],
+        ];
+    }
+
+    /**
+     * The listener is only worth what its reading of a statement is worth: a reading that saw no store in anything would let the readiness test above pass on an empty list.
+     *
+     * @param list<string> $expected
+     */
+    #[DataProvider('statementsThatNameAStore')]
+    public function test_the_listener_reads_the_store_a_statement_names_in_each_of_the_ways_an_engine_spells_it(string $statement, array $expected): void
+    {
+        $this->assertSame($expected, $this->storesNamedIn(statement: $statement));
+    }
+
+    /** @return array<string, array{0: string, 1: list<string>}> */
+    public static function statementsThatNameAStore(): array
+    {
+        return [
+            'the legal store read, quoted as SQLite quotes it' => ['select * from "storefront_legal_documents" where "country_code" = ?', ['storefront_legal_documents']],
+            'the legal store read, quoted as MySQL quotes it' => ['select * from `storefront_legal_documents` where `country_code` = ?', ['storefront_legal_documents']],
+            'the settings table read' => ['select * from "business_settings"', ['business_settings']],
+            'one setting read' => ['select "value" from `business_settings` where `type` = ? limit 1', ['business_settings']],
+            'the settings table reached through a join' => ['select * from "users" inner join "business_settings" on "users"."id" = "business_settings"."user_id"', ['users', 'business_settings']],
+            'a setting written' => ['update `business_settings` set `value` = ?, `updated_at` = ? where `type` = ?', ['business_settings']],
+            'a setting inserted' => ['insert into "business_settings" ("type", "value") values (?, ?)', ['business_settings']],
+            'a setting deleted' => ['delete from `business_settings` where `type` = ?', ['business_settings']],
+            'a store named behind its schema' => ['select * from "main"."business_settings" where "type" = ?', ['business_settings']],
+            'a store read under an alias' => ['select b.value from business_settings as b where b.type = ?', ['business_settings']],
+            'the catalogue SQLite keeps its schema in' => ['select exists (select 1 from "main".sqlite_master where name = \'storefront_legal_documents\' and type = \'table\') as "exists"', []],
+            'the catalogue MySQL keeps its schema in' => ["select exists (select 1 from information_schema.tables where table_schema = schema() and table_name = 'storefront_legal_documents' and table_type in ('BASE TABLE', 'SYSTEM VERSIONED')) as `exists`", []],
         ];
     }
 }

@@ -23,7 +23,8 @@ use Tests\TestCase;
  *
  * Criterion 2, not named for a legal document: no group or policy name equals or contains, as a whole word, the type of a legal text (the types of the legal text store: the documents a storefront must
  * publish, read from its configuration, and the ones no storefront requires yet), no type is a policy of the registry, and no policy takes the setting name of a business page (the page list and the
- * cookie text, which shares the table of the registry). Whole words only, the singular and the plural being one word: 'returns' is 'return' and 'cookie' is 'cookies', but 'returnable' is not 'return'.
+ * cookie text, which shares the table of the registry, in both the spellings the codebase uses; the list of them is kept with the check, in Tests\Support\NamesLegalDocumentTypes).
+ * Whole words only, the singular and the plural being one word: 'returns' is 'return' and 'cookie' is 'cookies', but 'returnable' is not 'return'.
  * The check is proved on in-memory registries below, one that blurs the two and one that does not. A name that holds no type and is not a setting name of a page is not judged: what a rule is called
  * is the owner's, the test only keeps the names of the legal documents and of the pages out of the registry.
  *
@@ -81,14 +82,6 @@ class PolicyRegistryLegalSeparationTest extends TestCase
 
     /** @var list<string> the types of legal document that a storefront is asked for or may be asked for; the documents it must publish are added from its configuration */
     private const LEGAL_DOCUMENT_TYPES = ['terms', 'privacy', 'refund', 'return', 'cancellation', 'shipping', 'cookies'];
-
-    /** @var list<string> how the business pages of the Saudi storefront and its cookie text are named in business_settings and in the page list: a policy with one of these names would be written over a legal page */
-    private const SETTING_NAMES_OF_THE_LEGAL_PAGES = [
-        'terms_condition', 'privacy_policy', 'refund_policy', 'return_policy', 'cancellation_policy', 'shipping_policy',
-        'refund-policy', 'return-policy', 'cancellation-policy', 'shipping-policy',
-        'terms-and-conditions', 'privacy-policy', 'about_us', 'about-us',
-        'cookie_setting', 'cookie_policy', 'cookie-policy', 'cookies_policy',
-    ];
 
     /** @return array<string, list<string>> */
     private function policiesByGroup(): array
@@ -251,8 +244,8 @@ class PolicyRegistryLegalSeparationTest extends TestCase
 
     public function test_no_policy_takes_the_setting_name_of_a_legal_page(): void
     {
-        $this->assertSame([], $this->policiesCalled(groups: PolicyRegistry::GROUPS, names: self::SETTING_NAMES_OF_THE_LEGAL_PAGES));
-        foreach (self::SETTING_NAMES_OF_THE_LEGAL_PAGES as $name) {
+        $this->assertSame([], $this->policiesCalled(groups: PolicyRegistry::GROUPS, names: $this->settingNamesOfTheLegalPages()));
+        foreach ($this->settingNamesOfTheLegalPages() as $name) {
             $this->assertFalse(PolicyRegistry::has(key: $name), "'{$name}' is the setting name of a legal page and is declared as a policy: saving the policy would write over the page");
         }
     }
@@ -307,7 +300,7 @@ class PolicyRegistryLegalSeparationTest extends TestCase
         $registry = ['legal' => ['policies' => ['terms' => [], 'privacy_policy' => [], 'ops_stuck_order_hours' => []]]];
 
         $this->assertSame(['terms'], $this->policiesCalled(groups: $registry, names: ['terms', 'privacy', 'refund']));
-        $this->assertSame(['privacy_policy'], $this->policiesCalled(groups: $registry, names: self::SETTING_NAMES_OF_THE_LEGAL_PAGES));
-        $this->assertSame([], $this->policiesCalled(groups: ['ops' => ['policies' => ['ops_stuck_order_hours' => []]]], names: self::SETTING_NAMES_OF_THE_LEGAL_PAGES));
+        $this->assertSame(['privacy_policy'], $this->policiesCalled(groups: $registry, names: $this->settingNamesOfTheLegalPages()));
+        $this->assertSame([], $this->policiesCalled(groups: ['ops' => ['policies' => ['ops_stuck_order_hours' => []]]], names: $this->settingNamesOfTheLegalPages()));
     }
 }
