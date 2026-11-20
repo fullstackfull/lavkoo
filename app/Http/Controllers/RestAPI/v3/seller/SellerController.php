@@ -24,9 +24,9 @@ use App\Models\WithdrawRequest;
 use App\Models\User;
 use App\Repositories\OrderTransactionRepository;
 use App\Services\DashboardService;
+use App\Services\WithdrawRequestService;
 use App\Traits\FileManagerTrait;
 use App\Utils\BackEndHelper;
-use App\Utils\Convert;
 use App\Utils\Helpers;
 use App\Utils\ImageManager;
 use Carbon\Carbon;
@@ -51,6 +51,7 @@ class SellerController extends Controller
         private readonly OrderRepositoryInterface   $orderRepo,
         private readonly ProductRepositoryInterface $productRepo,
         private readonly ReviewRepositoryInterface  $reviewRepo,
+        private readonly WithdrawRequestService     $withdrawRequestService,
     )
     {
     }
@@ -453,10 +454,11 @@ class SellerController extends Controller
         }
 
         $wallet = SellerWallet::where('seller_id', $seller['id'])->first();
-        if (($wallet->total_earning) >= Convert::usd($request['amount']) && $request['amount'] > 0) {
+        $amountInWalletCurrency = $this->withdrawRequestService->getWithdrawAmountInWalletCurrency($request['amount']);
+        if (!is_null($amountInWalletCurrency) && ($wallet->total_earning) >= $amountInWalletCurrency && $request['amount'] > 0) {
             DB::table('withdraw_requests')->insert([
                 'seller_id' => $seller['id'],
-                'amount' => Convert::usd($request['amount']),
+                'amount' => $amountInWalletCurrency,
                 'transaction_note' => null,
                 'withdrawal_method_id' => $request['withdraw_method_id'],
                 'withdrawal_method_fields' => json_encode($data),
@@ -464,8 +466,8 @@ class SellerController extends Controller
                 'created_at' => now(),
                 'updated_at' => now()
             ]);
-            $wallet->total_earning -= BackEndHelper::currency_to_usd($request['amount']);
-            $wallet->pending_withdraw += BackEndHelper::currency_to_usd($request['amount']);
+            $wallet->total_earning -= $amountInWalletCurrency;
+            $wallet->pending_withdraw += $amountInWalletCurrency;
             $wallet->save();
             return response()->json(translate('Withdraw request sent successfully!'), 200);
         }
@@ -497,11 +499,12 @@ class SellerController extends Controller
         if ($withdrawRequest) {
             $totalEarning = $wallet->total_earning + $withdrawRequest['amount'];
             $pendingWithdraw = $wallet->pending_withdraw - $withdrawRequest['amount'];
+            $amountInWalletCurrency = $this->withdrawRequestService->getWithdrawAmountInWalletCurrency($request['amount']);
 
-            if (($totalEarning) >= Convert::usd($request['amount']) && $request['amount'] > 0) {
+            if (!is_null($amountInWalletCurrency) && ($totalEarning) >= $amountInWalletCurrency && $request['amount'] > 0) {
                 WithdrawRequest::where(['id' => $request['withdraw_request_id']])->update([
                     'seller_id' => $seller['id'],
-                    'amount' => Convert::usd($request['amount']),
+                    'amount' => $amountInWalletCurrency,
                     'transaction_note' => null,
                     'withdrawal_method_id' => $request['withdraw_method_id'],
                     'withdrawal_method_fields' => json_encode($data),
@@ -509,8 +512,8 @@ class SellerController extends Controller
                     'updated_at' => now()
                 ]);
                 SellerWallet::where('seller_id', $seller['id'])->update([
-                    'total_earning' => $totalEarning - BackEndHelper::currency_to_usd($request['amount']),
-                    'pending_withdraw' => $pendingWithdraw + BackEndHelper::currency_to_usd($request['amount']),
+                    'total_earning' => $totalEarning - $amountInWalletCurrency,
+                    'pending_withdraw' => $pendingWithdraw + $amountInWalletCurrency,
                 ]);
                 return response()->json(translate('Withdraw request update successfully!'), 200);
             }

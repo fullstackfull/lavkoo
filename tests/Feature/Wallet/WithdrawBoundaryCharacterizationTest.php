@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Wallet;
 
+use App\Models\Seller;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -11,11 +12,15 @@ use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
 
 /**
- * Pins how the seller app's balance-withdraw endpoints (v3 and the legacy v2) decide whether a request fits the wallet, and what they write.
+ * Pins how the balance-withdraw paths (v3, the legacy v2 and the vendor panel) decide whether a request fits the wallet, and what they write.
  *
- * The store sells in SAR at 3.75 per USD and keeps the wallet in USD, so 375 SAR asked for is 100 USD of earnings. The guard converts the
- * amount with Convert::usd (default currency read through the cached settings) and the debit with BackEndHelper::currency_to_usd (default
- * currency read straight from the settings row); the tests named "currently" pin what happens when those two reads disagree.
+ * The store sells in SAR at 3.75 per USD and keeps the wallet in USD, so 375 SAR asked for is 100 USD of earnings.
+ *
+ * The guard, the amount stored on the request row and the wallet debit used to be converted separately: the guard through Convert::usd
+ * (default currency as the settings cache has it) and the debit through BackEndHelper::currency_to_usd (default currency read straight from
+ * the settings row), with the vendor panel on a third helper again. While the cached and stored defaults disagreed, a request passed the
+ * guard at one rate and was debited at another, taking total_earning below zero. All three now take the one amount
+ * WithdrawRequestService::getWithdrawAmountInWalletCurrency returns, and refuse when it cannot be converted.
  */
 class WithdrawBoundaryCharacterizationTest extends TestCase
 {
@@ -26,6 +31,8 @@ class WithdrawBoundaryCharacterizationTest extends TestCase
     private const USD_ID = 1;
     private const SAR_ID = 2;
     private const TOKEN = 'withdraw-boundary-test-token-0123456789abcdef';
+    private const STAFF_TOKEN = 'withdraw-boundary-staff-token-0123456789abcdef';
+    private const TABLES = ['business_settings', 'currencies', 'sellers', 'seller_wallets', 'withdrawal_methods', 'withdraw_requests', 'seller_roles', 'seller_staff'];
 
     protected function setUp(): void
     {
@@ -45,6 +52,13 @@ class WithdrawBoundaryCharacterizationTest extends TestCase
 
     private function buildWalletSchema(): void
     {
+        // Dropped before they are built, the way the repository's other hand-built schemas do it. On
+        // in-memory SQLite each test gets a new database and the tables cannot already be there; on a
+        // real engine they survive the previous test, and creating them again fails.
+        foreach (self::TABLES as $table) {
+            Schema::dropIfExists($table);
+        }
+
         Schema::create('business_settings', function (Blueprint $table) {
             $table->id();
             $table->string('type');
@@ -108,6 +122,30 @@ class WithdrawBoundaryCharacterizationTest extends TestCase
             $table->longText('withdrawal_method_fields')->nullable();
             $table->longText('transaction_note')->nullable();
             $table->boolean('approved')->default(false);
+            $table->string('request_method_type')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('seller_roles', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('seller_id');
+            $table->string('name');
+            $table->longText('permissions')->nullable();
+            $table->string('status')->default('active');
+            $table->unsignedBigInteger('created_by')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('seller_staff', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('seller_id');
+            $table->unsignedBigInteger('seller_role_id')->nullable();
+            $table->string('name')->nullable();
+            $table->string('email')->nullable();
+            $table->string('password')->nullable();
+            $table->string('auth_token')->nullable();
+            $table->string('status')->default('active');
+            $table->timestamp('last_login_at')->nullable();
             $table->timestamps();
         });
     }
@@ -144,6 +182,76 @@ class WithdrawBoundaryCharacterizationTest extends TestCase
     {
         return $this->withHeaders(['Authorization' => 'Bearer ' . self::TOKEN, 'lang' => 'en'])
             ->postJson('/api/v2/seller/balance-withdraw', ['amount' => $amount]);
+    }
+
+    /**
+     * The state the admin's General Settings save leaves behind: business_settings holds the new default
+     * currency, and the business-settings cache still holds the old one, because that writer forgets only
+     * session keys (BusinessSettingsController::updateSystemCurrency).
+     */
+    private function changeTheDefaultCurrencyBehindTheSettingsCache(): void
+    {
+        $this->assertEquals(self::SAR_ID, getWebConfig(name: 'system_default_currency'), 'the cache must be warm on SAR first');
+        DB::table('business_settings')->where('type', 'system_default_currency')->update(['value' => json_encode(self::USD_ID)]);
+        $this->assertEquals(self::SAR_ID, getWebConfig(name: 'system_default_currency'), 'the cached default must still be stale');
+    }
+
+    private function removeTheUsdCurrencyRow(): void
+    {
+        DB::table('currencies')->where('id', self::USD_ID)->delete();
+    }
+
+    private function createStaffWithPayoutPermission(): string
+    {
+        DB::table('seller_roles')->insert([
+            'id' => 1, 'seller_id' => self::SELLER_ID, 'name' => 'Finance',
+            'permissions' => json_encode(['payouts.request']), 'status' => 'active',
+        ]);
+        DB::table('seller_staff')->insert([
+            'id' => 1, 'seller_id' => self::SELLER_ID, 'seller_role_id' => 1, 'name' => 'Nawaf',
+            'email' => 'nawaf@example.test', 'password' => bcrypt('irrelevant'),
+            'auth_token' => self::STAFF_TOKEN, 'status' => 'active',
+        ]);
+
+        return self::STAFF_TOKEN;
+    }
+
+    private function withdrawV3AsStaff(float|int $amount): TestResponse
+    {
+        return $this->withHeaders(['Authorization' => 'Bearer ' . $this->createStaffWithPayoutPermission(), 'lang' => 'en'])
+            ->postJson('/api/v3/seller/balance-withdraw', ['withdraw_method_id' => self::METHOD_ID, 'amount' => $amount, 'iban' => 'SA0380000000608010167519']);
+    }
+
+    private function updateWithdrawV3(int $withdrawRequestId, float|int $amount): TestResponse
+    {
+        return $this->withHeaders(['Authorization' => 'Bearer ' . self::TOKEN, 'lang' => 'en'])
+            ->postJson('/api/v3/seller/balance-withdraw-update', [
+                'withdraw_request_id' => $withdrawRequestId,
+                'withdraw_method_id' => self::METHOD_ID,
+                'amount' => $amount,
+                'iban' => 'SA0380000000608010167519',
+            ]);
+    }
+
+    private function updateWithdrawOnTheVendorPanel(int $withdrawRequestId, float|int $amount): TestResponse
+    {
+        return $this->actingAs(Seller::find(self::SELLER_ID), 'seller')
+            ->post(route('vendor.dashboard.withdraw-request-update'), [
+                'withdraw_request_id' => $withdrawRequestId,
+                'withdraw_method' => self::METHOD_ID,
+                'amount' => $amount,
+                'method_info' => ['iban' => 'SA0380000000608010167519'],
+            ]);
+    }
+
+    private function withdrawOnTheVendorPanel(float|int $amount): TestResponse
+    {
+        return $this->actingAs(Seller::find(self::SELLER_ID), 'seller')
+            ->post(route('vendor.dashboard.withdraw-request'), [
+                'withdraw_method' => self::METHOD_ID,
+                'amount' => $amount,
+                'method_info' => ['iban' => 'SA0380000000608010167519'],
+            ]);
     }
 
     /** @return array{0: float, 1: float} total_earning and pending_withdraw as stored */
@@ -200,16 +308,49 @@ class WithdrawBoundaryCharacterizationTest extends TestCase
         $this->assertNothingWritten();
     }
 
-    public function test_v3_currently_debits_through_a_different_currency_lookup_than_the_guard_and_drives_total_earning_negative(): void
+    public function test_v3_debits_exactly_what_the_guard_approved_when_the_cached_and_stored_default_currency_disagree(): void
     {
-        $this->assertEquals(self::SAR_ID, getWebConfig(name: 'system_default_currency'));
-        DB::table('business_settings')->where('type', 'system_default_currency')->update(['value' => json_encode(self::USD_ID)]);
+        $this->changeTheDefaultCurrencyBehindTheSettingsCache();
 
         $response = $this->withdrawV3(375);
 
         $response->assertStatus(200);
-        $this->assertSame([-275.0, 395.0], $this->wallet());
-        $this->assertSame(100.0, (float) DB::table('withdraw_requests')->value('amount'), 'the request row records the guard conversion, not the debit');
+        $this->assertSame([0.0, 120.0], $this->wallet());
+        [$totalEarning] = $this->wallet();
+        $this->assertGreaterThanOrEqual(0, $totalEarning, 'the debit must never take total_earning below zero');
+        $this->assertSame(100.0, (float) DB::table('withdraw_requests')->value('amount'), 'the request row records the amount that was debited');
+    }
+
+    public function test_v3_refuses_a_withdrawal_when_the_store_has_no_usd_row_to_convert_through(): void
+    {
+        $this->removeTheUsdCurrencyRow();
+
+        $response = $this->withdrawV3(375);
+
+        $response->assertStatus(403);
+        $this->assertSame(['message' => 'Invalid withdraw request'], $response->json());
+        $this->assertNothingWritten();
+    }
+
+    public function test_v3_staff_with_the_payout_permission_debits_the_employer_wallet_by_the_amount_the_guard_approved(): void
+    {
+        $this->changeTheDefaultCurrencyBehindTheSettingsCache();
+
+        $response = $this->withdrawV3AsStaff(375);
+
+        $response->assertStatus(200);
+        $this->assertSame([0.0, 120.0], $this->wallet());
+        $row = DB::table('withdraw_requests')->sole();
+        $this->assertSame([self::SELLER_ID, 100.0], [(int) $row->seller_id, (float) $row->amount], 'the request belongs to the employer shop, at the debited amount');
+    }
+
+    public function test_v3_staff_is_refused_when_the_store_has_no_usd_row_to_convert_through(): void
+    {
+        $this->removeTheUsdCurrencyRow();
+
+        $this->withdrawV3AsStaff(375)->assertStatus(403);
+
+        $this->assertNothingWritten();
     }
 
     public function test_v2_accepts_a_request_that_converts_to_exactly_the_total_earning_and_moves_it_to_pending(): void
@@ -243,15 +384,118 @@ class WithdrawBoundaryCharacterizationTest extends TestCase
         $this->assertNothingWritten();
     }
 
-    public function test_v2_currently_debits_through_a_different_currency_lookup_than_the_guard_and_drives_total_earning_negative(): void
+    public function test_v2_debits_exactly_what_the_guard_approved_when_the_cached_and_stored_default_currency_disagree(): void
     {
-        $this->assertEquals(self::SAR_ID, getWebConfig(name: 'system_default_currency'));
-        DB::table('business_settings')->where('type', 'system_default_currency')->update(['value' => json_encode(self::USD_ID)]);
+        $this->changeTheDefaultCurrencyBehindTheSettingsCache();
 
         $response = $this->withdrawV2(375);
 
         $response->assertStatus(200);
-        $this->assertSame([-275.0, 395.0], $this->wallet());
-        $this->assertSame(100.0, (float) DB::table('withdraw_requests')->value('amount'), 'the request row records the guard conversion, not the debit');
+        $this->assertSame([0.0, 120.0], $this->wallet());
+        [$totalEarning] = $this->wallet();
+        $this->assertGreaterThanOrEqual(0, $totalEarning, 'the debit must never take total_earning below zero');
+        $this->assertSame(100.0, (float) DB::table('withdraw_requests')->value('amount'), 'the request row records the amount that was debited');
+    }
+
+    public function test_v2_refuses_a_withdrawal_when_the_store_has_no_usd_row_to_convert_through(): void
+    {
+        $this->removeTheUsdCurrencyRow();
+
+        $response = $this->withdrawV2(375);
+
+        $response->assertStatus(400);
+        $this->assertSame(['message' => 'Invalid withdraw request'], $response->json());
+        $this->assertNothingWritten();
+    }
+
+    public function test_the_vendor_panel_stores_and_debits_the_one_converted_amount(): void
+    {
+        $this->withdrawOnTheVendorPanel(375)->assertRedirect();
+
+        $this->assertSame([0.0, 120.0], $this->wallet());
+        $this->assertSame(100.0, (float) DB::table('withdraw_requests')->value('amount'));
+    }
+
+    public function test_the_vendor_panel_refuses_a_withdrawal_when_the_store_has_no_usd_row_to_convert_through(): void
+    {
+        $this->removeTheUsdCurrencyRow();
+
+        $this->withdrawOnTheVendorPanel(375)->assertRedirect();
+
+        $this->assertNothingWritten();
+    }
+
+    public function test_v3_update_debits_exactly_what_the_guard_approved_when_the_cached_and_stored_default_currency_disagree(): void
+    {
+        $this->withdrawV3(150)->assertStatus(200);
+        $this->assertSame([60.0, 60.0], $this->wallet());
+        $withdrawRequestId = (int) DB::table('withdraw_requests')->value('id');
+        $this->changeTheDefaultCurrencyBehindTheSettingsCache();
+
+        $this->updateWithdrawV3($withdrawRequestId, 375)->assertStatus(200);
+
+        $this->assertSame([0.0, 120.0], $this->wallet());
+        [$totalEarning] = $this->wallet();
+        $this->assertGreaterThanOrEqual(0, $totalEarning, 'the debit must never take total_earning below zero');
+        $this->assertSame(100.0, (float) DB::table('withdraw_requests')->value('amount'), 'the request row records the amount that was debited');
+    }
+
+    public function test_v3_update_is_refused_when_the_store_has_no_usd_row_to_convert_through(): void
+    {
+        $this->withdrawV3(150)->assertStatus(200);
+        $withdrawRequestId = (int) DB::table('withdraw_requests')->value('id');
+        $this->removeTheUsdCurrencyRow();
+
+        $this->updateWithdrawV3($withdrawRequestId, 375)->assertStatus(403);
+
+        $this->assertSame([60.0, 60.0], $this->wallet(), 'a refused update leaves the wallet as the create left it');
+        $this->assertSame(40.0, (float) DB::table('withdraw_requests')->value('amount'));
+    }
+
+    public function test_the_vendor_panel_update_stores_and_debits_the_one_converted_amount(): void
+    {
+        $this->withdrawOnTheVendorPanel(150)->assertRedirect();
+        $this->assertSame([60.0, 60.0], $this->wallet());
+        $withdrawRequestId = (int) DB::table('withdraw_requests')->value('id');
+
+        $this->updateWithdrawOnTheVendorPanel($withdrawRequestId, 375)->assertRedirect();
+
+        $this->assertSame([0.0, 120.0], $this->wallet());
+        $this->assertSame(100.0, (float) DB::table('withdraw_requests')->value('amount'));
+    }
+
+    /**
+     * The amount stored on the request and the amount taken off the wallet have to be the same number.
+     *
+     * With a USD rate of 1 every conversion in the repository agrees, so the figures alone cannot tell them
+     * apart. A USD rate of 2 can: the vendor panel used to convert through currencyConverter, whose USD
+     * lookup asks for the lowercase code the USD constant holds while the rows are written 'USD', so it fell
+     * back to a rate of 1 on any engine that compares strings case-sensitively and converted at a rate the
+     * store does not hold.
+     */
+    public function test_the_vendor_panel_stores_the_same_amount_it_debits_when_the_usd_rate_is_not_one(): void
+    {
+        DB::table('currencies')->where('id', self::USD_ID)->update(['exchange_rate' => 2]);
+        Cache::flush();
+
+        $this->withdrawOnTheVendorPanel(150)->assertRedirect();
+
+        [$totalEarning, $pendingWithdraw] = $this->wallet();
+        $storedAmount = (float) DB::table('withdraw_requests')->value('amount');
+        $this->assertSame(80.0, $storedAmount, '150 of a 3.75 default currency is 80 at a USD rate of 2');
+        $this->assertSame(100.0 - $storedAmount, $totalEarning, 'the wallet is debited the amount the request records');
+        $this->assertSame(20.0 + $storedAmount, $pendingWithdraw, 'the pending total rises by the amount the request records');
+    }
+
+    public function test_the_vendor_panel_update_is_refused_when_the_store_has_no_usd_row_to_convert_through(): void
+    {
+        $this->withdrawOnTheVendorPanel(150)->assertRedirect();
+        $withdrawRequestId = (int) DB::table('withdraw_requests')->value('id');
+        $this->removeTheUsdCurrencyRow();
+
+        $this->updateWithdrawOnTheVendorPanel($withdrawRequestId, 375)->assertRedirect();
+
+        $this->assertSame([60.0, 60.0], $this->wallet(), 'a refused update leaves the wallet as the create left it');
+        $this->assertSame(40.0, (float) DB::table('withdraw_requests')->value('amount'));
     }
 }
