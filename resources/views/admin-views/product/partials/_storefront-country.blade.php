@@ -3,15 +3,17 @@
     use App\Services\Storefront\ProductCountry;
 
     $isExistingProduct = isset($product) && !request('product-gallery');
-    $chosenCountry = (string) old('storefront_country', isset($product) ? $product->storefront_country : ProductCountry::defaultCountry());
-    // The company that sells the product: the one an existing product names, and the one registered for the chosen country for a product that does
-    // not exist yet. Nothing is drawn while legal entities are off, before the migration has run, or while that country has no registered company,
-    // so a page of the default storefront with an empty registry is the page it is today.
-    $sellingCompany = $isExistingProduct
-        ? app(LegalEntityRegistry::class)->forProduct(product: $product, country: $chosenCountry)
-        : app(LegalEntityRegistry::class)->forCountry(country: $chosenCountry);
 @endphp
 @if (ProductCountry::isTracked())
+    @php
+        $chosenCountry = (string) old('storefront_country', isset($product) ? $product->storefront_country : ProductCountry::defaultCountry());
+        // The company that sells the product: the one an existing product names, and the one registered for the chosen country for a product that
+        // does not exist yet. Nothing is read or drawn while legal entities are off, before the migration has run, or while that country has no
+        // registered company, so a page of the default storefront with an empty registry is the page it is today.
+        $sellingCompany = $isExistingProduct
+            ? app(LegalEntityRegistry::class)->forProduct(product: $product, country: $chosenCountry)
+            : app(LegalEntityRegistry::class)->forCountry(country: $chosenCountry);
+    @endphp
     <div class="col-md-6 col-lg-4">
         <div class="form-group">
             <label class="form-label d-flex align-items-center gap-2" for="storefront-country">
