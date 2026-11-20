@@ -141,12 +141,15 @@ final class PlatformWriteScanner
      * How many places the code gives the column as an array key that is written.
      *
      * A key whose value is a string is counted only where the array is handed to something that writes it, because that is what tells `['wallet_balance' => '0']`, an update, from
-     * `['wallet_balance' => 'float']`, a cast, and from `['loyalty_point' => 'loyalty_point']`, a name map. A key whose value is anything else is counted wherever it is written,
-     * because the array reaches the write in a variable as readily as in the call itself. The two sets overlap, so the count is their union.
+     * `['wallet_balance' => 'float']`, a cast, and from `['loyalty_point' => 'loyalty_point']`, a name map -- of which this project has fifteen, nine of them in its translation
+     * files, so the distinction has to hold. A key whose value is anything else is counted wherever it is written, because the array reaches the write in a variable as readily as
+     * in the call itself. The two sets overlap, so the count is their union.
+     *
+     * @param string $key the column as an array key, as a regular expression
      */
     private static function arrayKeyWrites(string $code, string $key): int
     {
-        $handedToAWrite = implode("\n", self::argumentsOf($code, self::ARRAY_WRITES));
+        $handedToAWrite = self::arraysHandedToAWrite($code);
         $anyValue = '/' . $key . '\s*=>/';
         // The whitespace is in the class as well as in the quantifier: a quantifier that can give its spaces back would let `=> 'float'` match at the space in front of the quote.
         $valueThatIsNoCast = '/' . $key . '\s*=>\s*(?![\s\'"])/';
@@ -157,9 +160,32 @@ final class PlatformWriteScanner
     }
 
     /**
+     * The text of every array the code hands to a write: the ones written out in the call, and the ones it builds in a variable or a property first and hands over on a later
+     * statement, which is as much a write and which gating on the call alone would have let through.
+     */
+    private static function arraysHandedToAWrite(string $code): string
+    {
+        $calls = self::argumentsOf($code, self::ARRAY_WRITES);
+        $arrays = $calls;
+
+        foreach ($calls as $call) {
+            preg_match_all('/\$(?:this->)?(\w+)/', $call, $handed);
+            foreach (array_unique($handed[1]) as $name) {
+                preg_match_all('/\$' . preg_quote($name, '/') . '\s*=\s*(\[[^;]*\])\s*;/', $code, $built, PREG_SET_ORDER);
+                foreach ($built as $assignment) {
+                    $arrays[] = $assignment[1];
+                }
+            }
+        }
+
+        return implode("\n", $arrays);
+    }
+
+    /**
      * The text of the arguments of every call to one of the named methods, the outermost ones only so that no call is read twice. It is taken from the tokens, so that a
      * parenthesis inside a string or a closure does not end the call early.
      *
+     * @param string $methods the method names, as a regular expression alternation
      * @return list<string>
      */
     private static function argumentsOf(string $code, string $methods): array

@@ -255,6 +255,8 @@ class WalletBalanceWritersTest extends TestCase
             'update array whose value is an interpolated string' => ["DB::table('users')->update(['loyalty_point' => \"{\$amount}\"]);", 'loyalty_point', 1],
             'update array whose value is the empty string' => ["DB::table('users')->update(['wallet_balance' => '']);", 'wallet_balance', 1],
             'update array built in a variable and handed over later' => ["\$values = ['wallet_balance' => 0];\nDB::table('users')->update(\$values);", 'wallet_balance', 1],
+            'update array built in a variable whose value is a string' => ["\$values = ['wallet_balance' => '0'];\nDB::table('users')->update(\$values);", 'wallet_balance', 1],
+            'update array built in a property whose value is a string' => ["class X { private \$values = ['loyalty_point' => '0'];\npublic function z() { DB::table('users')->update(\$this->values); } }", 'loyalty_point', 1],
             'upsert whose value is a string' => ["DB::table('users')->upsert([['id' => 1, 'wallet_balance' => '9999']], ['id'], ['wallet_balance']);", 'wallet_balance', 1],
             'updateOrInsert whose value is a string' => ["DB::table('users')->updateOrInsert(['id' => 1], ['wallet_balance' => '9999']);", 'wallet_balance', 1],
             'fill whose value is a string' => ["\$user->fill(['wallet_balance' => '9999'])->save();", 'wallet_balance', 1],
