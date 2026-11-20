@@ -2475,6 +2475,34 @@ CRITERIA.setdefault('E-08', {})[0] = ('CODED', "ADVANCED 2026-11-20. The blocker
     "and routes/, so resources/views, config/, database/ and tests/ are unread by THIS scan, which matters because the sibling branch has just had to add database/ and resources/ to the "
     "balance-column scan for exactly that reason.")
 
+# D1-02.4 was the one MISSING criterion of D1-02's five. PR 143 closes the half that can exist today and is explicit that the other half cannot, which is the pattern PR 137 should have used.
+CRITERIA.setdefault('D1-02', {})[4] = ('MET', "PR 143 (draft, branch gcc/p1-order-one-selling-company, head fc559957, two commits of its own: dceb42bc and fc559957, 6 files, +401/-2). "
+    "THE DEFECT WAS REPRODUCED BEFORE IT WAS FIXED, on 7e32bba2, with one legacy cart group holding Saudi product 1 (100) and Emirati product 2 (250), both ticked: with the storefront switch "
+    "OFF, POST /api/v1/customer/order/place returned 200 and wrote order 100001 with rows [1, 2] and countries [\"SA\",\"AE\"]; on an unbound request (PaymentStorefront::within with no "
+    "recorded storefront, storefronts ON) the same order was written; and checkValidationForCheckoutPages() answered {\"status\":1}. The cart already kept a storefront's rows apart, but only "
+    "for a request a storefront was resolved for and only while storefronts were on — which is exactly the two holes this criterion names. "
+    "THE FIX JUDGES THE ROWS THAT ARE ABOUT TO BE WRITTEN, not the customer's whole cart, which is what keeps criterion [3] (a legacy mixed group is read and checked out per storefront) true. "
+    "app/Services/Storefront/OneSellingCompanyPerOrder names the rule; StorefrontCatalog::sellingScopeOf is the single reader of the columns, taking the country today and the company the day "
+    "products carry one, from the same loop; checkValidationForCheckoutPages() refuses with translate('Product_is_unavailable') — the string the cart guard already uses — status 0 and a "
+    "redirect to the cart; and generateOrder() asserts the rule BEFORE the transaction, so an order that would mix is never partly written, throwing OrderMixesSellingCompaniesException which "
+    "renders 422 for JSON and back()->with('error') for the web. "
+    "IT COSTS NOTHING: the guard reads the product the checkout had already loaded, and the query count is unchanged — measured at 17 for the page check and 218 for the cash-on-delivery order, "
+    "with and without the guard. "
+    "EVIDENCE: tests/Feature/Storefront/StorefrontCheckoutSingleCompanyTest, 13 tests. Five mutations fail 4, 1, 2, 3 and 2 tests of it; the fifth — judging the whole cart instead of the "
+    "order's rows — also fails 2 of StorefrontCartIsolationTest, the criterion [3] test among them, so the two criteria hold each other honest. tests/Feature/Storefront goes 222 to 235 tests "
+    "(876 to 910 assertions) and the four order-placement classes of tests/Feature/Address are unchanged at 20/136, 6/30, 5/15 and 5/18. "
+    "CI ON fc559957, run 44758441263: 21 of 23 jobs success, the only failure the deployment overlay, which is red by design on every run; two MySQL sales-channel shards were still running "
+    "when read and neither had failed. The covering jobs are green on BOTH real engines — 'Storefront tests, MySQL 8' and 'Storefront tests, MariaDB 11.4.2' both success, the workflow running "
+    "tests/Feature/Storefront there — and so are BOTH whole-suite jobs, 'Tests, SQLite (PHP 8.3)' and '(PHP 8.2)', and 'Strict-mode tests, MariaDB 11.4.2'. This branch's base already carries "
+    "the Torod fixture repair, which is why its whole-suite jobs are green where main's are not. "
+    "WHICH HALF IS LIVE, stated by the branch itself rather than left to be discovered: the COUNTRY half. products.legal_entity_id does not exist in this tree, so no order can span two selling "
+    "companies today, and the company half is proved only by a test that ADDS the column and watches sellingScopeOf change. "
+    "WHY THAT IS NOT THE E-02.3 FAILURE, since it looks superficially like it. E-02.3 was corrected from MET because the criterion was ABOUT a sharing key that nothing but a test populated — "
+    "the subject of the criterion was absent. Here the subject is the refusal, the refusal is real, and the company clause describes a state that cannot arise until a column exists. The code "
+    "reads one loop for both, so the company half costs nothing while dormant and needs no second implementation. It returns to review the day products carry a company, and that day is also "
+    "when E-17.2's company half becomes provable: the two share the same missing column, and neither branch can see that from the other. "
+    "THE RUNBOOK WAS CORRECTED TOO: docs/gcc/STOREFRONT_FLAG_RUNBOOK.md recorded a flag-off order of 'paid 275, order 375' which can no longer be written.")
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]

@@ -17,7 +17,7 @@ As of 2026-11-20. Generated from the independent assessment of every requirement
 | [A. Six-country base and customer identity](tracker/axis-a-six-country-base-and-customer-identity.md) | 37 | 173 | 91 | 24 | 58 | 66% | 53% | 9% | all |
 | [B. Catalogue and products](tracker/axis-b-catalogue-and-products.md) | 18 | 91 | 34 | 17 | 40 | 56% | 37% | 0% | all |
 | [C. Inventory and fulfillment](tracker/axis-c-inventory-and-fulfillment.md) | 18 | 94 | 65 | 9 | 20 | 79% | 69% | 30% | all |
-| [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 179 | 87 | 31 | 61 | 66% | 49% | 8% | all |
+| [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 179 | 88 | 31 | 60 | 66% | 49% | 8% | all |
 | [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 88 | 38 | 6 | 44 | 50% | 43% | 7% | all |
 | [F. Themes and brand](tracker/axis-f-themes-and-brand.md) | 16 | 77 | 42 | 13 | 22 | 71% | 55% | 4% | all |
 | [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 102 | 59 | 13 | 30 | 71% | 58% | 15% | all |
@@ -27,7 +27,7 @@ As of 2026-11-20. Generated from the independent assessment of every requirement
 | [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 104 | 40 | 26 | 38 | 63% | 38% | 3% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 45 | 18 | 31 | 67% | 48% | 7% | all |
 | [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 311 | 105 | 119 | 87 | 72% | 34% | 3% | all |
-| **All axes (pooled)** | **359** | **1753** | **813** | **359** | **581** | **67%** | **46%** | **8%** | |
+| **All axes (pooled)** | **359** | **1753** | **814** | **359** | **580** | **67%** | **46%** | **8%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -217,7 +217,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | Id | State | M/C/X | Requirement |
 |---|---|---|---|
 | [D1-01](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 3/1/1 | One storefront per checkout and per order |
-| [D1-02](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 4/0/1 | No cart or checkout mixing countries or selling companies |
+| [D1-02](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 5/0/0 | No cart or checkout mixing countries or selling companies |
 | [D1-03](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 4/0/2 | One selling company (legal entity) per order, with frozen identity |
 | [D1-04](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 2/1/0 | Country, storefront, legal entity, seller and shop kept as separate keys |
 | [D1-05](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 3/2/0 | Local independent pricing at checkout, frozen on the order lines |
