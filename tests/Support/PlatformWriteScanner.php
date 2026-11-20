@@ -10,8 +10,12 @@ namespace Tests\Support;
  * platform's models (made, bound, fetched and saved on another statement, or written through a relation). It reads text, not behaviour: what it cannot resolve it reports as "(a table named in a variable)", which
  * the guard's list has to name.
  *
- * Which writes of a COLUMN's value a piece of code makes (`columnWritesIn`), for the guards that keep a column's writers to a known few. A change to the shape of a table is not a
+ * Which writes of a COLUMN's value a piece of code makes (`columnWritesIn`), for the guards that keep a column's writers to a known few: an assignment, the array access a model
+ * also answers, an array key handed to something that writes it, an increment, setAttribute, and SQL that sets or inserts the column. A change to the shape of a table is not a
  * write of a value, so the two are told apart: see the method.
+ *
+ * Both sides read text, not behaviour, and a name the file never spells -- one that arrives as an argument, out of config() or off a database row -- is past them. What the file
+ * does spell they read however it is spelled: through a constant, a list a constant holds, a concatenation, an escape sequence, a property, or the variable a loop binds.
  */
 final class PlatformWriteScanner
 {
@@ -25,6 +29,18 @@ final class PlatformWriteScanner
 
     /** The first word of a SQL statement that changes rows. A statement that changes the shape of a table (ALTER, CREATE, DROP, RENAME, TRUNCATE) names a column without writing anybody's value. */
     private const SQL_ROW_VERBS = 'update|insert|replace|with';
+
+    /**
+     * Everything that takes an array of column => value and writes it. The two vocabularies above answer "does this statement write the table"; this one answers "is this array
+     * a write", which is what tells a write from a cast or a name map, so it is those two plus setRawAttributes, which writes attributes and no table.
+     */
+    private const ARRAY_WRITES = self::BUILDER_WRITES . '|' . self::MODEL_WRITES . '|setRawAttributes';
+
+    /** PHP's compound assignment operators, so that a balance rewritten with one of the rarer ones is still a write. */
+    private const COMPOUND_ASSIGNMENT = '\*\*|<<|>>|\?\?|[-+*\/.%|&^]';
+
+    /** A parameter passed by name, which this project's own coding standard asks for: `increment(column: 'wallet_balance')` names the column as plainly as `increment('wallet_balance')`. */
+    private const NAMED_ARGUMENT = '(?:\w+\s*:\s*)?';
 
     private const CONSTANT_NAME = '[A-Z][A-Z0-9_]*';
 
@@ -45,7 +61,7 @@ final class PlatformWriteScanner
      */
     public function writesIn(string $code): array
     {
-        $constants = $this->constantsIn($code);
+        $constants = self::constantsIn($code);
         $written = [];
         $builders = [];
         $models = [];
@@ -75,44 +91,130 @@ final class PlatformWriteScanner
     }
 
     /**
-     * Every write of one column's value in a piece of PHP source: an assignment to the attribute, an array key given a value that is not a string (a cast or a name map is one, an
-     * update or a fill is not), an increment or a decrement, setAttribute, and SQL that sets the column or inserts it.
+     * Every write of one column's value in a piece of PHP source: an assignment to the attribute (through `->`, or through the array access a model also answers), an array key
+     * given a value, an increment or a decrement, setAttribute, and SQL that sets the column or inserts it.
      *
      * A change to the shape of a table is not a write of a value, and is told from one by the form of the write, not by a list of files that are allowed to make it: `ALTER TABLE
      * users MODIFY wallet_balance DECIMAL(40,20)`, `$table->decimal('wallet_balance')->change()` and `dropColumn('wallet_balance')` are none of the forms above, and the SQL side
-     * reads only the statements whose verb changes rows.
+     * reads only the statements whose verb changes rows, and only the part of them that assigns.
      *
-     * The names the code writes indirectly are read before the forms are looked for, so that a write cannot hide behind the spelling of its column: a constant, a concatenation, an
-     * escape sequence, and the variable a loop binds walking a list of column names.
+     * A cast and a name map also give the column to an array key (`'wallet_balance' => 'float'`), and are told from a write by what the array is handed to and not by whether the
+     * value is quoted: `['wallet_balance' => '0']` is an ordinary update, and a database writes 0 for it. See arrayKeyWrites().
+     *
+     * The names the code spells indirectly are written out before the forms are looked for, so that a write cannot hide behind the spelling of its column: a constant, a list a
+     * constant holds read at one of its keys, a concatenation, an escape sequence, a property, and the variable a loop binds walking a list of column names.
      *
      * @return list<string> the kind of each write found
      */
     public static function columnWritesIn(string $code, string $column): array
     {
         $literals = self::withLiteralsRead($code);
-        $read = self::withConstantsRead($literals);
+        $read = self::withNamesSpelledOut($code);
         $name = preg_quote($column, '/');
-        $held = self::variablesHolding($read, $column);
-        // A group that cannot match, so that the code that binds no variable to the name is read by the name alone.
-        $heldName = $held === [] ? '(?!)' : implode('|', array_map(static fn (string $variable): string => preg_quote($variable, '/'), $held));
+        $held = self::expressionsHolding($read, $column);
+        // A group that cannot match, so that the code that binds no name to the column is read by the column's own name alone.
+        $heldName = $held === [] ? '(?!)' : implode('|', array_map(static fn (string $expression): string => preg_quote($expression, '/'), $held));
         $named = '(?:[\'"]' . $name . '[\'"]|' . $heldName . ')';
+        // An update may qualify the column with the table or the alias it belongs to: `['users.wallet_balance' => 0]`.
+        $key = '(?:[\'"](?:[a-z0-9_]+\.)?' . $name . '[\'"]|' . $heldName . ')';
 
         $patterns = [
-            'assignment' => '/->\{?[\'"]?(?:' . $name . '|' . $heldName . ')[\'"]?\}?\s*(?:[-+*\/.]|\?\?)?=(?![=>])/',
-            'array key given a value' => '/' . $named . '\s*=>\s*(?![\s\'"])/',
-            'increment or decrement' => '/(?:increment|decrement)(?:Quietly)?\(\s*' . $named . '/',
-            'setAttribute' => '/setAttribute\(\s*' . $named . '/',
+            'assignment' => '/->\s*\{?[\'"]?(?:' . $name . '|' . $heldName . ')[\'"]?\}?\s*(?:' . self::COMPOUND_ASSIGNMENT . ')?=(?![=>])/',
+            'array access assignment' => '/\[\s*' . $named . '\s*\]\s*(?:' . self::COMPOUND_ASSIGNMENT . ')?=(?![=>])/',
+            'increment or decrement' => '/(?:increment|decrement)(?:Quietly)?\(\s*' . self::NAMED_ARGUMENT . $named . '/',
+            'setAttribute' => '/(?:setAttribute|offsetSet)\(\s*' . self::NAMED_ARGUMENT . $named . '/',
         ];
 
         $writes = [];
         foreach ($patterns as $kind => $pattern) {
             $writes = array_merge($writes, array_fill(0, preg_match_all($pattern, $read), $kind));
         }
+        $writes = array_merge($writes, array_fill(0, self::arrayKeyWrites($read, $key), 'array key given a value'));
         foreach (self::stringsIn($literals) as $string) {
             $writes = array_merge($writes, self::sqlWritesOf($string, $column, $heldName));
         }
 
         return $writes;
+    }
+
+    /**
+     * How many places the code gives the column as an array key that is written.
+     *
+     * A key whose value is a string is counted only where the array is handed to something that writes it, because that is what tells `['wallet_balance' => '0']`, an update, from
+     * `['wallet_balance' => 'float']`, a cast, and from `['loyalty_point' => 'loyalty_point']`, a name map. A key whose value is anything else is counted wherever it is written,
+     * because the array reaches the write in a variable as readily as in the call itself. The two sets overlap, so the count is their union.
+     */
+    private static function arrayKeyWrites(string $code, string $key): int
+    {
+        $handedToAWrite = implode("\n", self::argumentsOf($code, self::ARRAY_WRITES));
+        $anyValue = '/' . $key . '\s*=>/';
+        // The whitespace is in the class as well as in the quantifier: a quantifier that can give its spaces back would let `=> 'float'` match at the space in front of the quote.
+        $valueThatIsNoCast = '/' . $key . '\s*=>\s*(?![\s\'"])/';
+
+        return preg_match_all($anyValue, $handedToAWrite)
+            + preg_match_all($valueThatIsNoCast, $code)
+            - preg_match_all($valueThatIsNoCast, $handedToAWrite);
+    }
+
+    /**
+     * The text of the arguments of every call to one of the named methods, the outermost ones only so that no call is read twice. It is taken from the tokens, so that a
+     * parenthesis inside a string or a closure does not end the call early.
+     *
+     * @return list<string>
+     */
+    private static function argumentsOf(string $code, string $methods): array
+    {
+        $tokens = self::tokensOf($code);
+        $called = '/^(?:' . $methods . ')$/i';
+        $arguments = [];
+        $count = count($tokens);
+
+        for ($position = 0; $position < $count; $position++) {
+            $token = $tokens[$position];
+            if (!is_array($token) || $token[0] !== T_STRING || preg_match($called, $token[1]) !== 1) {
+                continue;
+            }
+            $open = $position + 1;
+            while ($open < $count && is_array($tokens[$open]) && $tokens[$open][0] === T_WHITESPACE) {
+                $open++;
+            }
+            if ($open >= $count || $tokens[$open] !== '(') {
+                continue;
+            }
+            [$text, $close] = self::textOfTheCallAt($tokens, $open);
+            $arguments[] = $text;
+            $position = $close;
+        }
+
+        return $arguments;
+    }
+
+    /**
+     * The text from an opening parenthesis to the one that closes it, and the position of that one.
+     *
+     * @param list<array{int, string, int}|string> $tokens
+     * @return array{string, int}
+     */
+    private static function textOfTheCallAt(array $tokens, int $open): array
+    {
+        $depth = 0;
+        $text = '';
+        $count = count($tokens);
+
+        for ($position = $open; $position < $count; $position++) {
+            $token = $tokens[$position];
+            $text .= is_array($token) ? $token[1] : $token;
+            if ($token === '(' || $token === '[') {
+                $depth++;
+            } elseif ($token === ')' || $token === ']') {
+                $depth--;
+                if ($depth === 0) {
+                    return [$text, $position];
+                }
+            }
+        }
+
+        return [$text, $count - 1];
     }
 
     /**
@@ -152,12 +254,30 @@ final class PlatformWriteScanner
         ));
     }
 
-    /** @return array<string, string> the string constants a file defines, by name */
-    private function constantsIn(string $code): array
+    /**
+     * Every constant a file defines, by name, with its value as the file writes it: a quoted string or a list. One definition, read two ways -- the table side wants the name a
+     * scalar stands for, the column side substitutes the value wherever it is referenced -- so that a constant one of them reads is a constant the other reads.
+     *
+     * @return array<string, string>
+     */
+    private static function constantsDefinedIn(string $code): array
     {
-        preg_match_all('/\bconst\s+(' . self::CONSTANT_NAME . ')\s*=\s*[\'"]([a-z0-9_]+)[\'"]/', $code, $found, PREG_SET_ORDER);
+        preg_match_all('/\bconst\s+(' . self::CONSTANT_NAME . ')\s*=\s*(\[[^\]]*\]|[\'"][^\'"]*[\'"])/', $code, $defined, PREG_SET_ORDER);
 
-        return array_column($found, 2, 1);
+        return array_column($defined, 2, 1);
+    }
+
+    /** @return array<string, string> the constants a file defines that hold a table's name, by name */
+    private static function constantsIn(string $code): array
+    {
+        $tables = [];
+        foreach (self::constantsDefinedIn($code) as $name => $value) {
+            if (preg_match('/^([\'"])([a-z0-9_]+)\1$/', $value, $table) === 1) {
+                $tables[$name] = $table[2];
+            }
+        }
+
+        return $tables;
     }
 
     /**
@@ -308,9 +428,7 @@ final class PlatformWriteScanner
     /** The code with the string and list constants it defines standing for their values wherever it names them, so that a column named `self::WALLET` is named plainly. */
     private static function withConstantsRead(string $code): string
     {
-        preg_match_all('/\bconst\s+(' . self::CONSTANT_NAME . ')\s*=\s*(\[[^\]]*\]|[\'"][^\'"]*[\'"])\s*;/', $code, $defined, PREG_SET_ORDER);
-
-        foreach ($defined as [, $name, $value]) {
+        foreach (self::constantsDefinedIn($code) as $name => $value) {
             $code = (string) preg_replace_callback('/' . self::CONSTANT_REFERENCE . $name . '\b/', static fn (): string => $value, $code);
         }
 
@@ -318,20 +436,49 @@ final class PlatformWriteScanner
     }
 
     /**
-     * The variables that may hold the column's name: one it is given to, and the one a loop binds walking a list that holds it (the list written out, or a constant read above).
+     * The code with every name it spells indirectly written out: the escape sequences read, the concatenated literals joined, the constants read, and a list a constant holds read
+     * at one of its keys. A guard that looks for a column's name in the source looks for it here, so that `'wallet' . '_balance'` is not a way past it.
+     */
+    public static function withNamesSpelledOut(string $code): string
+    {
+        return self::withIndexedListsRead(self::withConstantsRead(self::withLiteralsRead($code)));
+    }
+
+    /** A list read at one of its keys standing for the name it holds there, so that a writer cannot spell the column by indexing a map of its own: `self::MONEY['wallet']`. */
+    private static function withIndexedListsRead(string $code): string
+    {
+        return (string) preg_replace_callback(
+            '/\[([^\[\]]*)\]\s*\[\s*([\'"])([a-z0-9_]+)\2\s*\]/',
+            static function (array $indexed): string {
+                preg_match_all('/([\'"])([a-z0-9_]+)\1\s*=>\s*([\'"])([a-z0-9_]+)\3/', $indexed[1], $pairs, PREG_SET_ORDER);
+                foreach ($pairs as $pair) {
+                    if ($pair[2] === $indexed[3]) {
+                        return "'" . $pair[4] . "'";
+                    }
+                }
+
+                return $indexed[0];
+            },
+            $code,
+        );
+    }
+
+    /**
+     * Every way the code may spell the column's name without writing it out: a name it is given to, the one a loop binds walking a list that holds it (the list written out, or a
+     * constant read above), and -- because a writer keeps the name in a property as readily as in a local -- that same name read off `$this`, `self` or `static`.
      *
      * @return list<string>
      */
-    private static function variablesHolding(string $code, string $column): array
+    private static function expressionsHolding(string $code, string $column): array
     {
         $quoted = '[\'"]' . preg_quote($column, '/') . '[\'"]';
         $listWithTheName = '\[[^\]]*' . $quoted . '[^\]]*\]';
-        $holders = [];
+        $bound = [];
         $lists = [$listWithTheName];
 
         preg_match_all('/(\$\w+)\s*=\s*' . $quoted . '\s*;/', $code, $given, PREG_SET_ORDER);
         foreach ($given as [, $variable]) {
-            $holders[] = $variable;
+            $bound[] = $variable;
         }
 
         preg_match_all('/(\$\w+)\s*=\s*' . $listWithTheName . '\s*;/', $code, $assigned, PREG_SET_ORDER);
@@ -341,7 +488,13 @@ final class PlatformWriteScanner
 
         preg_match_all('/foreach\s*\(\s*(?:' . implode('|', $lists) . ')\s+as\s+(?:\$\w+\s*=>\s*)?(\$\w+)\s*\)/', $code, $looped, PREG_SET_ORDER);
         foreach ($looped as [, $variable]) {
-            $holders[] = $variable;
+            $bound[] = $variable;
+        }
+
+        $holders = $bound;
+        foreach ($bound as $variable) {
+            $property = substr($variable, 1);
+            array_push($holders, '$this->' . $property, 'self::' . $variable, 'static::' . $variable);
         }
 
         return array_values(array_unique($holders));
@@ -383,7 +536,15 @@ final class PlatformWriteScanner
      * with the identifier wrapped or qualified or interpolated from a variable that holds the name, or not), or which lists it among the columns it inserts. A statement that
      * changes the shape of a table names the column and writes nobody's value, so its verb is not read.
      *
-     * @param string $heldName the variables that hold the column's name, as a regular expression
+     * The verb is the first word of the statement, so the comments are stripped before it is read: a block comment or a `-- reset` line in front of the verb is not a way past this. A WHERE
+     * clause filters on a column and assigns nothing, so it is cut away before the assignment is looked for: `update users set is_active = 0 where wallet_balance = 0` reads a
+     * balance and writes none.
+     *
+     * A string anywhere in the file that spells a row-changing statement assigning the column is reported, whether or not that string is handed to the database on the same
+     * statement, because SQL reaches the database in a variable as often as in the call. The cost is that a message quoting such a statement is reported too; a false alarm a
+     * person can read is cheaper here than a write nobody sees.
+     *
+     * @param string $heldName the expressions that hold the column's name, as a regular expression
      * @return list<string>
      */
     private static function sqlWritesOf(string $sql, string $column, string $heldName): array
@@ -391,17 +552,64 @@ final class PlatformWriteScanner
         $name = '(?<!\w)(?:' . self::SQL_IDENTIFIER . preg_quote($column, '/') . self::SQL_IDENTIFIER . '|\{?(?:' . $heldName . ')\}?)';
         $writes = [];
 
-        foreach (explode(';', $sql) as $statement) {
+        foreach (self::sqlStatementsOf(self::withSqlCommentsStripped($sql)) as $statement) {
             if (preg_match('/^\s*(?:' . self::SQL_ROW_VERBS . ')\b/i', $statement) !== 1) {
                 continue;
             }
-            if (preg_match('/' . $name . '\s*=(?!=)/i', $statement) === 1) {
+            $assigning = (string) preg_replace('/\bwhere\b.*$/is', '', $statement);
+            if (preg_match('/' . $name . '\s*=(?!=)/i', $assigning) === 1) {
                 $writes[] = 'raw SQL set';
-            } elseif (preg_match('/\b(?:insert|replace)\s+(?:ignore\s+)?into\b[^(]*\([^)]*' . $name . '/i', $statement) === 1) {
+            } elseif (preg_match('/\b(?:insert|replace)\s+(?:ignore\s+)?into\b[^(]*\([^)]*' . $name . '/i', $assigning) === 1) {
                 $writes[] = 'raw SQL insert';
             }
         }
 
         return $writes;
+    }
+
+    /** SQL without its comments, so that the verb a statement starts with is the verb and not a comment in front of it. */
+    private static function withSqlCommentsStripped(string $sql): string
+    {
+        return (string) preg_replace(['/\/\*.*?\*\//s', '/(?:--[ \t]|#)[^\n]*/'], '', $sql);
+    }
+
+    /**
+     * SQL split into its statements. A semicolon inside a quoted literal belongs to the literal: `set remark = 'cleared; see ticket', wallet_balance = 0` is one statement, and
+     * cutting it in two left the second piece starting with no verb at all.
+     *
+     * @return list<string>
+     */
+    private static function sqlStatementsOf(string $sql): array
+    {
+        $statements = [];
+        $current = '';
+        $quote = null;
+        $length = strlen($sql);
+
+        for ($position = 0; $position < $length; $position++) {
+            $character = $sql[$position];
+
+            if ($quote !== null) {
+                $current .= $character;
+                if ($character === '\\') {
+                    $current .= $sql[++$position] ?? '';
+                } elseif ($character === $quote) {
+                    $quote = null;
+                }
+                continue;
+            }
+            if ($character === ';') {
+                $statements[] = $current;
+                $current = '';
+                continue;
+            }
+            if ($character === "'" || $character === '"' || $character === '`') {
+                $quote = $character;
+            }
+            $current .= $character;
+        }
+        $statements[] = $current;
+
+        return $statements;
     }
 }
