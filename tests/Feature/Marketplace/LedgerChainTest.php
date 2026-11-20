@@ -4,6 +4,7 @@ namespace Tests\Feature\Marketplace;
 
 use App\Models\VendorLedgerEntry;
 use App\Models\VendorSettlement;
+use App\Services\Marketplace\AnEventIsAlreadyOnAnotherChain;
 use App\Services\Marketplace\LedgerChain;
 use App\Services\Marketplace\SettlementEngine;
 use App\Services\Marketplace\VendorLedger;
@@ -167,22 +168,36 @@ class LedgerChainTest extends TestCase
         $this->assertSame(40.0, $this->ledger->withdrawable(sellerId: self::SELLER, chain: $this->chain(company: null, currency: 'AED')));
     }
 
-    /** A reference is only unique within a chain. Matching it on the seller alone handed the dirham write the riyal row and the dirhams never reached their chain. */
-    public function test_an_entry_of_one_chain_is_not_taken_for_an_entry_of_another(): void
+    /**
+     * A reference names ONE event on this ledger, so the same reference offered to a second chain is that same event, and the writer refuses it.
+     *
+     * Neither of the other two answers is available to it. Appending a second entry credits one order line twice as soon as the chain key of an event moves, which the
+     * store's base currency setting does (tests/Feature/Marketplace/OneEventIsCreditedOnceTest.php). Handing the caller the entry of the other chain is a write that never
+     * arrives. Which of the two keys is the right one is not in anything the writer can read, so it refuses by name and leaves the one entry that is there.
+     */
+    public function test_the_same_event_offered_to_a_second_chain_is_refused_by_name(): void
     {
         $riyals = $this->ledger->record(
             sellerId: self::SELLER, entryType: VendorLedgerEntry::TYPE_ORDER_EARNING, credit: 100,
             status: VendorLedgerEntry::STATUS_AVAILABLE, referenceType: 'order_details', referenceId: 900,
             currency: 'SAR', legalEntityId: self::COMPANY_SA,
         );
-        $dirhams = $this->ledger->record(
-            sellerId: self::SELLER, entryType: VendorLedgerEntry::TYPE_ORDER_EARNING, credit: 40,
-            status: VendorLedgerEntry::STATUS_AVAILABLE, referenceType: 'order_details', referenceId: 900,
-            currency: 'AED', legalEntityId: self::COMPANY_AE,
-        );
 
-        $this->assertNotSame($riyals->id, $dirhams->id, 'the dirham entry returned the riyal row');
-        $this->assertSame(40.0, $this->balanceOf(company: self::COMPANY_AE, currency: 'AED'), 'the dirhams never reached their chain');
+        try {
+            $this->ledger->record(
+                sellerId: self::SELLER, entryType: VendorLedgerEntry::TYPE_ORDER_EARNING, credit: 40,
+                status: VendorLedgerEntry::STATUS_AVAILABLE, referenceType: 'order_details', referenceId: 900,
+                currency: 'AED', legalEntityId: self::COMPANY_AE,
+            );
+            $this->fail('one order line was credited in two chains, so the seller is paid for it twice');
+        } catch (AnEventIsAlreadyOnAnotherChain $refusal) {
+            $this->assertSame($riyals->id, $refusal->entry->id);
+            $this->assertStringContainsString('currency SAR and selling company 11', $refusal->getMessage());
+            $this->assertStringContainsString('currency AED and selling company 12', $refusal->getMessage());
+        }
+
+        $this->assertSame([$riyals->id], VendorLedgerEntry::query()->orderBy('id')->pluck('id')->all(), 'the refused event was appended all the same');
+        $this->assertSame(0.0, $this->balanceOf(company: self::COMPANY_AE, currency: 'AED'), 'the refused event credited the second chain');
     }
 
     /** Two entries of the SAME chain for the same event are still one entry: the idempotency the ledger has always had, now asked of the chain. */

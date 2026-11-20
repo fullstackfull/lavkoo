@@ -2,6 +2,7 @@
 
 namespace App\Services\Marketplace;
 
+use App\Models\VendorLedgerEntry;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Schema;
 
@@ -130,10 +131,47 @@ final class LedgerChain
         return $query->where(fn (Builder $ofThisCurrency): Builder => $this->sameCurrency($ofThisCurrency));
     }
 
+    /**
+     * Whether an entry already on the ledger belongs to this chain.
+     *
+     * Asked of the database through `narrow()` rather than compared again in PHP, so that what belongs together cannot
+     * come to be spelled two ways: a writer deciding whether the event it is about to append is already in this chain
+     * has to read the row exactly as a reader of this chain's balance reads it. While chains are not kept apart every
+     * entry of the seller is in the one chain they have always had, and this answers so.
+     */
+    public function holds(VendorLedgerEntry $entry): bool
+    {
+        return $this->narrow(VendorLedgerEntry::query())->whereKey($entry->getKey())->exists();
+    }
+
+    /** This chain in the words a message to an operator uses. */
+    public function describe(): string
+    {
+        return self::inWords(company: $this->legalEntityId, currency: $this->currency);
+    }
+
+    /** The chain an entry's own labels name, in those same words, so two chains in one sentence can be compared by eye. */
+    public static function describeTheChainOf(VendorLedgerEntry $entry): string
+    {
+        return self::inWords(
+            company: $entry->getAttribute(self::ENTITY_COLUMN),
+            currency: (string) $entry->currency,
+        );
+    }
+
     /** What the entries of this chain carry in their company column, for a writer about to append one. */
     public function entityForWriting(): array
     {
         return self::entityIsRecorded() ? [self::ENTITY_COLUMN => $this->legalEntityId] : [];
+    }
+
+    private static function inWords(int|string|null $company, string $currency): string
+    {
+        return sprintf(
+            'currency %s and selling company %s',
+            trim($currency) !== '' ? mb_strtoupper(trim($currency)) : 'none',
+            $company === null ? 'none' : $company,
+        );
     }
 
     private function sameCurrency(Builder $query): Builder

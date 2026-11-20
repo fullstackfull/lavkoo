@@ -33,6 +33,9 @@ class VendorLedger
      * Append one entry and return it. Idempotent on (seller, type, reference): calling it twice for
      * the same order line credits once, which is what makes it safe inside a retried transaction or
      * a webhook delivered more than once.
+     *
+     * Refuses, and appends nothing, when that event is already on the ledger in another chain than
+     * the one resolved for this call (AnEventIsAlreadyOnAnotherChain).
      */
     public function record(
         int|string $sellerId,
@@ -61,18 +64,29 @@ class VendorLedger
             $sellerId, $sellerIs, $entryType, $credit, $debit, $status,
             $referenceType, $referenceId, $description, $currency, $availableAt, $chain
         ) {
-            // Idempotency first: if this exact event is already on the ledger, return it unchanged
-            // rather than appending a second one. Narrowed to the chain, because a reference is only
-            // unique within one: an order line sold by another company or in another currency is a
-            // different event, and matching it on the seller alone swallowed the second write and
-            // handed the caller the first chain's row, so the money never arrived.
-            $existing = $chain->narrow(VendorLedgerEntry::query())
-                ->where('entry_type', $entryType)
-                ->where('reference_type', $referenceType)
-                ->where('reference_id', $referenceId)
-                ->first();
+            // Idempotency first, and asked of the EVENT rather than of the chain this call resolved for it:
+            // if this exact event is already on the ledger, return it unchanged rather than appending a
+            // second one. Narrowing this lookup to the chain credited one order line twice, because the
+            // chain key is resolved from the store's base currency setting, which moves: two deliveries of
+            // one line either side of such a change looked in two chains, the second missed, and an event
+            // that had already happened was credited again. The reference cannot tell two events apart
+            // either way, since every reference_id a writer passes is the key of one row of one table of
+            // this database.
+            $existing = $this->eventAlreadyRecorded(
+                sellerId: $sellerId,
+                entryType: $entryType,
+                referenceType: $referenceType,
+                referenceId: $referenceId,
+                sellerIs: $sellerIs,
+            );
 
             if ($existing) {
+                // Same event, another chain: the writer cannot choose between crediting it twice and losing
+                // this write, so it refuses and leaves the one entry that is there (AnEventIsAlreadyOnAnotherChain).
+                if (!$chain->holds($existing)) {
+                    throw new AnEventIsAlreadyOnAnotherChain(entry: $existing, chain: $chain);
+                }
+
                 return $existing;
             }
 
@@ -249,6 +263,29 @@ class VendorLedger
             sellerIs: $sellerIs,
             legalEntityId: $legalEntityId,
         );
+    }
+
+    /**
+     * The entry this event is already on, in whatever chain, or null where the ledger has never seen it.
+     *
+     * The event is the seller, the entry type and the reference, which is the tuple that makes recording
+     * one order line twice credit it once. Public because a writer reversing an event has to label its
+     * reversal with the currency of the entry it reverses, or the two land in different chains and a line
+     * refunded in full leaves money payable (RefundReversalService).
+     */
+    public function eventAlreadyRecorded(
+        int|string $sellerId,
+        string $entryType,
+        ?string $referenceType,
+        int|string|null $referenceId,
+        string $sellerIs = 'seller',
+    ): ?VendorLedgerEntry {
+        return VendorLedgerEntry::query()
+            ->forSeller($sellerId, $sellerIs)
+            ->where('entry_type', $entryType)
+            ->where('reference_type', $referenceType)
+            ->where('reference_id', $referenceId)
+            ->first();
     }
 
     /**
