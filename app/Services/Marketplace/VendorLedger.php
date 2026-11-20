@@ -62,9 +62,11 @@ class VendorLedger
             $referenceType, $referenceId, $description, $currency, $availableAt, $chain
         ) {
             // Idempotency first: if this exact event is already on the ledger, return it unchanged
-            // rather than appending a second one.
-            $existing = VendorLedgerEntry::query()
-                ->forSeller($sellerId, $sellerIs)
+            // rather than appending a second one. Narrowed to the chain, because a reference is only
+            // unique within one: an order line sold by another company or in another currency is a
+            // different event, and matching it on the seller alone swallowed the second write and
+            // handed the caller the first chain's row, so the money never arrived.
+            $existing = $chain->narrow(VendorLedgerEntry::query())
                 ->where('entry_type', $entryType)
                 ->where('reference_type', $referenceType)
                 ->where('reference_id', $referenceId)
@@ -242,10 +244,10 @@ class VendorLedger
 
         return LedgerChain::of(
             sellerId: $sellerId,
-            sellerIs: $sellerIs,
-            legalEntityId: $legalEntityId,
             currency: $code,
             currencyIsTheBaseOne: $code === $base,
+            sellerIs: $sellerIs,
+            legalEntityId: $legalEntityId,
         );
     }
 
@@ -261,8 +263,13 @@ class VendorLedger
             : $chain->narrow(VendorLedgerEntry::query());
     }
 
-    /** A currency label as the chain key spells it: upper case and trimmed, empty when the label names nothing. */
-    private function currencyCode(?string $label): string
+    /**
+     * A currency label as the chain key spells it: upper case and trimmed, empty when the label names nothing.
+     *
+     * Public because this is the one spelling of a currency code on the seller ledger, and SettlementCurrency asks for it rather than keeping a second one of its own: a
+     * settlement that normalised `sar ` differently from the chain would be drawn across two chains and report a balance belonging to only one of them.
+     */
+    public function currencyCode(?string $label): string
     {
         return mb_strtoupper(trim((string) $label));
     }

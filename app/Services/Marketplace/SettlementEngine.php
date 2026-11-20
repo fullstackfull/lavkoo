@@ -369,8 +369,10 @@ class SettlementEngine
      * What the ledger said before the earliest claimed entry and after the latest one. Taken from
      * the entries themselves rather than re-summed, which is why balance_after is stored.
      *
-     * In a settlement drawn in one currency neither is known once the seller's chain has mixed
-     * currencies (see the class docblock).
+     * Neither is known once the seller's chain has mixed currencies (see the class docblock). That is
+     * asked of `areToldApart()` rather than of the settlement switch alone: a ledger kept apart per
+     * chain (E-17.2) also draws a settlement per chain, and `balance_after` then belongs to one chain,
+     * so a settlement whose history ran over two of them has no balance of its own either way.
      *
      * @return array{opening: float|null, closing: float|null}
      */
@@ -379,7 +381,7 @@ class SettlementEngine
         $first = $entries->first();
         $last = $entries->last();
 
-        if ($this->currency->isOnePerSettlement() && !$this->ledgerIsOneChainUpTo(entry: $last, sellerId: $sellerId, sellerIs: $sellerIs)) {
+        if ($this->currency->areToldApart() && !$this->ledgerIsOneChainUpTo(entry: $last, sellerId: $sellerId, sellerIs: $sellerIs)) {
             if (!$this->canLeaveABalanceUnknown()) {
                 throw new ABalanceCannotBeLeftUnknown(sellerId: $sellerId, sellerIs: $sellerIs);
             }
@@ -456,10 +458,10 @@ class SettlementEngine
         return LedgerChain::areKeptApart() && LedgerChain::entityIsRecorded();
     }
 
-    /** While currencies are not kept apart a settlement takes the label of its first entry, whatever the others carry. */
+    /** While currencies are not told apart a settlement takes the label of its first entry, whatever the others carry. */
     private function currencyRecordedFor(Collection $entries): ?string
     {
-        return $this->currency->isOnePerSettlement()
+        return $this->currency->areToldApart()
             ? $this->currency->labelOf(labels: $entries->pluck('currency'))
             : $entries->first()->currency;
     }

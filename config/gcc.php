@@ -40,9 +40,15 @@ return [
         // named by the seller, the selling company and the currency: an entry reads the balance of its own chain, the row lock is taken on its own chain, and a reader can
         // ask for one chain's position instead of the sum of all of them (App\Services\Marketplace\LedgerChain). It has to be on before a seller earns in a second company or
         // a second currency, because until it is, those amounts are added together. Turning it on changes no figure on a ledger that holds one company and one currency, which
-        // is what makes it safe to throw before the second market opens. Entries that name no currency belong to the base-currency chain, so years of unlabelled history stay
-        // in one piece. The selling company is part of the key only where `vendor_ledger_entries` has a `legal_entity_id` column; that table has no migration in this
-        // repository (the live one came from the installation dump), so an installation without the column keys its chains by seller and currency alone.
+        // is what makes it safe to throw on the live Saudi ledger. Entries that name no currency belong to the base-currency chain, so years of unlabelled history stay in one
+        // piece. The selling company is part of the key only where `vendor_ledger_entries` has a `legal_entity_id` column; that table has no migration in this repository (the
+        // live one came from the installation dump), so an installation without the column keys its chains by seller and currency alone — and no writer in the application
+        // passes a company yet, so on a live ledger the key is the seller and the currency whatever the column holds.
+        //
+        // IT IS NOT YET SAFE TO THROW ON A LEDGER THAT ALREADY HOLDS TWO CURRENCIES. A payout is still drawn on the seller's whole withdrawable amount and its reserve names
+        // no currency, so on a two-currency ledger the reserve lands in the base-currency chain and takes that chain's running balance negative by the amount paid out of the
+        // other, which still advertises money that has gone. A payout drawn per chain, or one that refuses while a seller holds more than one, is the owner's decision and the
+        // gate on throwing this where a second currency is already on the ledger (docs/gcc: E-17.2).
         'keyed_by_entity_and_currency' => filter_var(env('GCC_LEDGER_KEYED_BY_ENTITY_AND_CURRENCY', false), FILTER_VALIDATE_BOOLEAN),
     ],
 

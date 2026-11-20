@@ -14,12 +14,23 @@ use Illuminate\Support\Facades\Schema;
  *
  * It stops being right the moment a seller sells in two markets. The selling company differs, the
  * currency differs, and `balance_after` adds them anyway, so the statement of a seller who earned
- * 100 SAR in Riyadh and 100 AED in Dubai says 200 of nothing. The row lock has the same problem from
- * the other side: it serialises a Dubai sale behind a Riyadh one that has no bearing on it.
+ * 100 SAR in Riyadh and 100 AED in Dubai says 200 of nothing.
  *
  * So a chain is named by the seller, the selling company and the currency, and this class is the one
  * place that says so. Everything that reads a balance or takes the lock narrows its query here, so
  * the writer and the readers cannot disagree about which entries belong together.
+ *
+ * ## What the narrowed lock does NOT do
+ *
+ * Narrowing the lock to the chain does not stop two markets waiting for each other, and this class
+ * does not claim it does. `ORDER BY id DESC LIMIT 1 FOR UPDATE` is served by walking the primary key
+ * unless an index covers the narrowing predicates, and InnoDB locks the rows of other chains it walks
+ * over on the way. Measured on MariaDB 10.11 against this table with no index, with (seller_id), with
+ * (seller_id, seller_is) and with (seller_id, seller_is, currency), a second writer waits exactly as
+ * it does for the single-chain query that shipped; only an index that includes `legal_entity_id`
+ * frees it, and `vendor_ledger_entries` has no migration in this repository to add one in. So the
+ * lock is narrowed because a chain's balance is its own, not because two markets stop queueing: that
+ * needs an index on the live table, which is the owner's to approve.
  *
  * ## Dormant until it is switched on
  *
@@ -31,7 +42,11 @@ use Illuminate\Support\Facades\Schema;
  * ## Why the currency is compared through a resolved code
  *
  * An entry that names no currency is in the store's base currency — the ledger wrote NULL for years
- * before the column was filled. An entry labelled `sar ` is in the same currency as one labelled
+ * before the column was filled. (The company half of the key is dormant for the same reason and more:
+ * no writer in the application passes one yet, so `legal_entity_id` is NULL on every live entry and
+ * the key is seller and currency in practice. There is no source of legal entities and no mapping
+ * from a storefront or a market to one; until there is, the company is a column the chain is ready
+ * for rather than one it uses.) An entry labelled `sar ` is in the same currency as one labelled
  * `SAR`. Both have to land in the same chain as the base-currency entries, or a seller's history
  * would break into chains that are really one. The caller resolves the label to a code and says
  * whether that code is the base currency; this class then matches the unlabelled rows to the base
@@ -54,15 +69,21 @@ final class LedgerChain
     /**
      * The chain an entry of this seller, company and currency belongs to.
      *
+     * Neither currency argument has a default, on purpose. `VendorLedger::chain()` is how a caller
+     * names a chain, because resolving a label to a code and deciding whether that code is the base
+     * currency both need the store's settings. A default here let a caller ask for `AED` and be given
+     * a chain that also read every row naming no currency — the base currency's history, in another
+     * currency's balance.
+     *
      * @param string $currency the resolved code, as VendorLedger resolves a label: upper case, trimmed, the base currency where the entry names none
      * @param bool   $currencyIsTheBaseOne whether that code is the store's base currency, which is the chain the unlabelled entries belong to
      */
     public static function of(
         int|string $sellerId,
+        string $currency,
+        bool $currencyIsTheBaseOne,
         string $sellerIs = 'seller',
         ?int $legalEntityId = null,
-        string $currency = '',
-        bool $currencyIsTheBaseOne = true,
     ): self {
         return new self(
             sellerId: $sellerId,
