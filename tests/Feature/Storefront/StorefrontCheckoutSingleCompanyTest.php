@@ -319,16 +319,16 @@ class StorefrontCheckoutSingleCompanyTest extends ApiAddressTestCase
     public function test_a_country_code_is_read_exactly_as_stored_and_only_a_null_names_nothing(): void
     {
         $product = Product::find(1);
-        $this->assertSame('storefront_country=SA', StorefrontCatalog::sellingScopeOf(product: $product));
+        $this->assertSame(['storefront_country' => 'SA'], StorefrontCatalog::sellingScopeOf(product: $product));
 
         $product->setAttribute(StorefrontCatalog::COLUMN, 'sa');
-        $this->assertSame('storefront_country=sa', StorefrontCatalog::sellingScopeOf(product: $product));
+        $this->assertSame(['storefront_country' => 'sa'], StorefrontCatalog::sellingScopeOf(product: $product));
 
         $product->setAttribute(StorefrontCatalog::COLUMN, '');
-        $this->assertSame('storefront_country=', StorefrontCatalog::sellingScopeOf(product: $product));
+        $this->assertSame(['storefront_country' => ''], StorefrontCatalog::sellingScopeOf(product: $product));
 
         $product->setAttribute(StorefrontCatalog::COLUMN, null);
-        $this->assertNull(StorefrontCatalog::sellingScopeOf(product: $product));
+        $this->assertSame([], StorefrontCatalog::sellingScopeOf(product: $product), 'and a null names nothing at all');
     }
 
     public function test_two_companies_of_one_country_are_refused_once_products_carry_a_company(): void
@@ -358,15 +358,83 @@ class StorefrontCheckoutSingleCompanyTest extends ApiAddressTestCase
 
     public function test_a_selling_scope_names_the_company_only_once_products_carry_one(): void
     {
-        $this->assertSame('storefront_country=SA', StorefrontCatalog::sellingScopeOf(product: Product::find(1)));
+        $this->assertSame(['storefront_country' => 'SA'], StorefrontCatalog::sellingScopeOf(product: Product::find(1)));
 
         $this->addTheSellingCompanyColumn();
         DB::table('products')->where('id', 1)->update([StorefrontCatalog::ENTITY_COLUMN => 7]);
 
-        $this->assertSame('storefront_country=SA/legal_entity_id=7', StorefrontCatalog::sellingScopeOf(product: Product::find(1)));
-        $this->assertNull(StorefrontCatalog::sellingScopeOf(product: null), 'a row whose product is gone says nothing');
+        $this->assertSame(
+            ['storefront_country' => 'SA', 'legal_entity_id' => '7'],
+            StorefrontCatalog::sellingScopeOf(product: Product::find(1)),
+            'the two halves are kept apart, because they are compared apart',
+        );
+        $this->assertSame([], StorefrontCatalog::sellingScopeOf(product: null), 'a row whose product is gone says nothing');
 
         $this->removeStorefrontCountryColumn();
-        $this->assertSame('legal_entity_id=7', StorefrontCatalog::sellingScopeOf(product: Product::find(1)));
+        $this->assertSame(['legal_entity_id' => '7'], StorefrontCatalog::sellingScopeOf(product: Product::find(1)));
     }
+
+    /**
+     * The state the company backfill is in from its first row to its last: one product carrying a company, the next not yet reached. The
+     * halves are compared apart, so the row that names only the country neither agrees nor disagrees about the company and the two are one
+     * selling company's rows. Reading the scope as one joined string refused this, which would have refused every Saudi order for the
+     * length of the migration.
+     */
+    public function test_a_half_backfilled_company_column_does_not_refuse_one_countrys_order(): void
+    {
+        $customer = $this->customerWithOneMixedGroup();
+        DB::table('products')->update(['storefront_country' => 'SA']);
+        $this->addTheSellingCompanyColumn();
+        DB::table('products')->where('id', 1)->update([StorefrontCatalog::ENTITY_COLUMN => 1]);
+
+        $this->asCustomer($customer)->getJson(self::COD)->assertOk();
+
+        $this->assertSame([[1, 2]], array_values($this->ordersWithTheirRows()), 'both lines on one order, as before the column existed');
+        $this->assertSame(350.0, (float) DB::table('orders')->value('order_amount'));
+    }
+
+    /** The same half-backfilled state on the checkout page, which is where the customer would have been sent back to the cart. */
+    public function test_the_checkout_page_says_yes_while_the_company_column_is_half_backfilled(): void
+    {
+        DB::table('products')->update(['storefront_country' => 'SA']);
+        $this->addTheSellingCompanyColumn();
+        DB::table('products')->where('id', 2)->update([StorefrontCatalog::ENTITY_COLUMN => 4]);
+        auth('customer')->setUser($this->customerWithOneMixedGroup());
+
+        $this->assertSame(1, OrderManager::checkValidationForCheckoutPages(request())['status']);
+    }
+
+    /** The two halves are judged against their own, so a disagreement in either one is still refused while the other agrees. */
+    public function test_a_disagreement_in_either_half_is_still_refused(): void
+    {
+        $this->addTheSellingCompanyColumn();
+        DB::table('products')->update([StorefrontCatalog::ENTITY_COLUMN => 1]);
+        $this->assertTrue(
+            OneSellingCompanyPerOrder::productsSpanMoreThanOne(products: Product::whereIn('id', [1, 2])->get()),
+            'one company, two countries',
+        );
+
+        DB::table('products')->update(['storefront_country' => 'SA']);
+        DB::table('products')->where('id', 2)->update([StorefrontCatalog::ENTITY_COLUMN => 2]);
+        $this->assertTrue(
+            OneSellingCompanyPerOrder::productsSpanMoreThanOne(products: Product::whereIn('id', [1, 2])->get()),
+            'one country, two companies',
+        );
+    }
+
+    /** A refusal names the half that disagreed and the values it was given, which is all an operator has after a payment. */
+    public function test_a_refusal_names_only_the_half_the_rows_disagreed_on(): void
+    {
+        $this->addTheSellingCompanyColumn();
+        DB::table('products')->update([StorefrontCatalog::ENTITY_COLUMN => 1]);
+
+        try {
+            OneSellingCompanyPerOrder::assertProductsBelongToOne(products: Product::whereIn('id', [1, 2])->get());
+            $this->fail('the rows were not refused');
+        } catch (OrderMixesSellingCompaniesException $refusal) {
+            $this->assertSame(['storefront_country=SA', 'storefront_country=AE'], $refusal->sellingScopes);
+            $this->assertStringNotContainsString('legal_entity_id', $refusal->getMessage(), 'the company the rows agree on is not named');
+        }
+    }
+
 }

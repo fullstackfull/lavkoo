@@ -43,29 +43,34 @@ class PosSingleCompanyTest extends ApiAddressTestCase
 
     // ---- the three tills ---------------------------------------------------------------------------------
 
-    /** A line of the seller app's till payload: the shape its cart screen sends for one unit of a product. */
-    private function payloadLine(int $productId, float $price): array
+    /** A line of the seller app's till payload: the shape its cart screen sends for one unit of a product, or for as many as asked for. */
+    private function payloadLine(int $productId, float $price, int $quantity = 1): array
     {
         return [
-            'id' => $productId, 'quantity' => 1, 'variant' => null, 'price' => $price, 'discounted_price' => $price,
+            'id' => $productId, 'quantity' => $quantity, 'variant' => null, 'price' => $price, 'discounted_price' => $price,
             'discount' => 0, 'applied_tax_amount' => 0, 'coupon_discount' => 0, 'extra_discount' => 0, 'variation' => [],
         ];
     }
 
     /** A line of a panel till's session cart, as CartService::addCartDataOnSession writes it. */
-    private function sessionLine(int $productId, string $name, float $price): array
+    private function sessionLine(int $productId, string $name, float $price, int $customerId = 0): array
     {
         return [
-            'id' => $productId, 'customerId' => 0, 'customerOnHold' => false, 'quantity' => 1, 'price' => $price, 'name' => $name,
+            'id' => $productId, 'customerId' => $customerId, 'customerOnHold' => false, 'quantity' => 1, 'price' => $price, 'name' => $name,
             'productType' => 'physical', 'image' => 'x.png', 'discount' => 0, 'variant' => '', 'variations' => [],
         ];
     }
 
-    /** @param list<array<string, mixed>> $lines */
-    private function tillHolds(array $lines): void
+    /**
+     * Which customer the till is ringing up: a walk-in by default, or the saved customer whose wallet pays, which is the only session key
+     * CartService::getUserId() reads an id out of.
+     *
+     * @param list<array<string, mixed>> $lines
+     */
+    private function tillHolds(array $lines, string $tillCustomer = 'walking-customer-1'): void
     {
-        session([SessionKey::CURRENT_USER => 'walking-customer-1']);
-        session(['walking-customer-1' => $lines]);
+        session([SessionKey::CURRENT_USER => $tillCustomer]);
+        session([$tillCustomer => $lines]);
     }
 
     private function sellerRequest(array $input): Request
@@ -77,32 +82,32 @@ class PosSingleCompanyTest extends ApiAddressTestCase
     }
 
     /** @param list<array<string, mixed>> $lines */
-    private function sellAtTheAdminTill(array $lines, float $amount)
+    private function sellAtTheAdminTill(array $lines, float $amount, string $paymentType = 'cash', string $tillCustomer = 'walking-customer-1')
     {
-        $this->tillHolds($lines);
+        $this->tillHolds($lines, $tillCustomer);
 
         return app(AdminPOSOrderController::class)->placeOrder(Request::create('/admin/pos/order-place', 'POST', [
-            'amount' => $amount, 'fulfillment' => 'instant', 'type' => 'cash', 'paid_amount' => $amount,
+            'amount' => $amount, 'fulfillment' => 'instant', 'type' => $paymentType, 'paid_amount' => $amount,
         ]));
     }
 
     /** @param list<array<string, mixed>> $lines */
-    private function sellAtTheVendorTill(array $lines, float $amount)
+    private function sellAtTheVendorTill(array $lines, float $amount, string $paymentType = 'cash', string $tillCustomer = 'walking-customer-1')
     {
-        $this->tillHolds($lines);
+        $this->tillHolds($lines, $tillCustomer);
         $this->actingAs((new Seller())->forceFill(['id' => self::SELLER_ID, 'f_name' => 'Vendor']), 'seller');
 
         return app(VendorPOSOrderController::class)->placeOrder(Request::create('/vendor/pos/order-place', 'POST', [
-            'amount' => $amount, 'fulfillment' => 'instant', 'type' => 'cash', 'paid_amount' => $amount,
+            'amount' => $amount, 'fulfillment' => 'instant', 'type' => $paymentType, 'paid_amount' => $amount,
         ]));
     }
 
     /** @param list<array<string, mixed>> $lines */
-    private function sellAtTheSellerAppTill(array $lines, float $amount)
+    private function sellAtTheSellerAppTill(array $lines, float $amount, string $paymentMethod = 'cash', int $customerId = 0)
     {
         return app(SellerPOSController::class)->place_order($this->sellerRequest([
-            'customer_id' => 0, 'cart' => [], 'modified_cart' => $lines, 'fulfillment' => 'instant',
-            'payment_method' => 'cash', 'paid_amount' => $amount,
+            'customer_id' => $customerId, 'cart' => [], 'modified_cart' => $lines, 'fulfillment' => 'instant',
+            'payment_method' => $paymentMethod, 'paid_amount' => $amount,
         ]));
     }
 
@@ -259,4 +264,42 @@ class PosSingleCompanyTest extends ApiAddressTestCase
 
         $this->assertSame([15, 15, 19], [$admin, $vendor, $sellerApp], 'every till reads exactly what it read before the guard');
     }
+
+    // ---- the state the company backfill must pass through ------------------------------------------------
+
+    /**
+     * One country, one product carrying a company and one the backfill has not reached: the only state a migration that fills a column row
+     * by row can ever be observed in. The two halves of the selling scope are compared apart, so the row that names no company neither
+     * agrees nor disagrees about one and the sale is lawful. Reading the scope as one joined string refused it at every till.
+     */
+    public function test_a_half_backfilled_company_column_sells_at_every_till(): void
+    {
+        DB::table('products')->where('id', 2)->update(['storefront_country' => 'SA']);
+        $this->addTheSellingCompanyColumn();
+        DB::table('products')->where('id', 1)->update([StorefrontCatalog::ENTITY_COLUMN => 1]);
+
+        $this->sellAtTheAdminTill([$this->sessionLine(1, 'Backfilled', 100), $this->sessionLine(2, 'Not yet reached', 250)], 350);
+        $this->sellAtTheVendorTill([$this->sessionLine(1, 'Backfilled', 100), $this->sessionLine(2, 'Not yet reached', 250)], 350);
+        $this->sellAtTheSellerAppTill([$this->payloadLine(1, 100), $this->payloadLine(2, 250)], 350);
+
+        $this->assertSame(['success', 'success'], $this->toastTypes(), 'neither screen refused the sale');
+        $this->assertSame([100001 => [1, 2], 100002 => [1, 2], 100003 => [1, 2]], $this->ordersWithTheirLines());
+    }
+
+    /** The same half-backfilled state at the customer's own checkout, which is the one a shopper meets while the migration runs. */
+    public function test_a_half_backfilled_company_column_checks_out_at_the_customer_api(): void
+    {
+        $customer = $this->makeCustomer();
+        DB::table('products')->where('id', 2)->update(['storefront_country' => 'SA']);
+        $this->addTheSellingCompanyColumn();
+        DB::table('products')->where('id', 1)->update([StorefrontCatalog::ENTITY_COLUMN => 1]);
+        $this->cartRow($customer->id, 1, 100);
+        $this->cartRow($customer->id, 2, 250);
+        DB::table('cart_shippings')->insert(['cart_group_id' => 'group-' . $customer->id . 'c', 'shipping_method_id' => 1, 'shipping_cost' => 25]);
+
+        $this->asCustomer($customer)->getJson('/api/v1/customer/order/place')->assertOk();
+
+        $this->assertSame([100001 => [1, 2]], $this->ordersWithTheirLines());
+    }
+
 }

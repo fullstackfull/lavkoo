@@ -108,9 +108,15 @@ final class StorefrontCatalog
     }
 
     /**
-     * Who sells this product: the country it belongs to, and the company that sells it once products carry one. Two products with the same
-     * scope may be invoiced on one order; two with different scopes may not, whichever request is asking and whether or not storefronts are
-     * switched on. An order asks this of its rows one last time before it is written (OneSellingCompanyPerOrder).
+     * Who sells this product: the country it belongs to, and the company that sells it once products carry one. The two halves are returned
+     * apart, keyed by their column, because they are compared apart — a country against a country and a company against a company. Two
+     * products may be invoiced on one order while no half they both name disagrees, whichever request is asking and whether or not
+     * storefronts are switched on. An order asks this of its rows one last time before it is written (OneSellingCompanyPerOrder).
+     *
+     * Returning the halves joined would make a row that names one of them disagree with a row that names neither, and the two are not
+     * comparable: a row says nothing about a half it leaves null. That is the state the company backfill is in from its first row to its
+     * last — one product carrying a company, the next not yet reached — so joining them would refuse every lawful order for the length of
+     * the migration.
      *
      * Both halves are read the same way, off the row the caller already loaded, so the company half comes on by itself the day a migration
      * adds the column and costs nothing until then — no schema is read and no query is made, which is what keeps it off the Saudi checkout's
@@ -120,11 +126,13 @@ final class StorefrontCatalog
      * The row is whatever the caller already holds: a Product the checkout or the point of sale loaded, or the plain products row the
      * channel materializer reads with the query builder. Both are asked for the column by name and neither is asked for a column it does
      * not carry, so a row loaded without these columns says nothing rather than failing.
+     *
+     * @return array<string, string> the halves this row names, keyed by column, read as stored; empty when it names none
      */
-    public static function sellingScopeOf(?object $product): ?string
+    public static function sellingScopeOf(?object $product): array
     {
         if ($product === null) {
-            return null;
+            return [];
         }
 
         $scope = [];
@@ -132,11 +140,13 @@ final class StorefrontCatalog
             $value = $product->{$column} ?? null;
 
             if ($value !== null) {
-                $scope[] = $column . '=' . $value;
+                // As a string whichever engine and whichever reader produced the row: a company id arrives as an int from one driver and
+                // as a string from another, and two spellings of one id are one company.
+                $scope[$column] = (string) $value;
             }
         }
 
-        return $scope === [] ? null : implode('/', $scope);
+        return $scope;
     }
 
     /**

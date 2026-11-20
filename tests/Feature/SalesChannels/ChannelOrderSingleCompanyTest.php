@@ -122,6 +122,25 @@ class ChannelOrderSingleCompanyTest extends DispatchTestCase
         $this->assertSame(0, DB::table('orders')->count());
     }
 
+    /**
+     * The state the company backfill is in from its first row to its last: one product carrying a company, the next not yet reached, both in
+     * one country. The two halves of the selling scope are compared apart, so this is one selling company's order and it is materialized. It
+     * matters most here: a blocked dispatch is never retried, so an over-refusal would leave the channel order waiting for a person.
+     */
+    public function test_a_half_backfilled_company_column_still_materializes_a_one_country_channel_order(): void
+    {
+        DB::table('products')->where('id', 11)->update([StorefrontCatalog::COLUMN => 'SA']);
+        Schema::table('products', fn (Blueprint $table) => $table->unsignedBigInteger(StorefrontCatalog::ENTITY_COLUMN)->nullable());
+        StorefrontCatalog::flush();
+        DB::table('products')->where('id', 10)->update([StorefrontCatalog::ENTITY_COLUMN => 1]);
+
+        $outcome = $this->dispatcher()->dispatch($this->placedWithTwoCountries());
+
+        $this->assertSame(DispatchOutcome::MATERIALIZED, $outcome->state);
+        $this->assertSame([10, 11], DB::table('order_details')->orderBy('id')->pluck('product_id')->map(fn ($id) => (int) $id)->all());
+        $this->assertNull(ChannelOrderDispatch::firstOrFail()->reason_code, 'nothing is left waiting for a person');
+    }
+
     // ---- what a legitimate channel order still does ------------------------------------------------------
 
     public function test_a_channel_order_of_one_country_is_still_made_into_one_order_with_its_lines(): void
@@ -134,6 +153,7 @@ class ChannelOrderSingleCompanyTest extends DispatchTestCase
         $line = DB::table('order_details')->sole();
         $this->assertSame([10, 2], [(int) $line->product_id, (int) $line->qty]);
         $this->assertSame('Product 10', json_decode((string) $line->product_details, true)['name'], 'the line still carries the product as the table holds it');
+        $this->assertSame('Channel order 10234567890', $order->order_note, 'and the channel\'s own order number, as it did before the guard');
     }
 
     public function test_two_lines_of_one_country_are_still_both_written(): void

@@ -19,6 +19,10 @@ use App\Models\Cart;
  * point-of-sale screens hold the products of a session cart, the seller app's point of sale holds the products of a request payload and
  * the channel materializer holds the products of a channel row, so the rule is asked either way round and reads one scope either way.
  *
+ * The selling scope has two halves and each is judged against its own: the country against the country, the company against the company.
+ * A half a row leaves null is no value to disagree with, so a product the company backfill has reached and a product it has not yet are
+ * one selling company's rows for as long as the migration runs.
+ *
  * Saudi Arabia never meets it. Every product there carries one country, so the checked rows of any order name one selling scope.
  */
 final class OneSellingCompanyPerOrder
@@ -47,9 +51,9 @@ final class OneSellingCompanyPerOrder
      */
     public static function assertProductsBelongToOne(iterable $products): void
     {
-        $scopes = self::sellingScopesOf(products: $products);
+        $scopes = self::disagreeingScopesOf(products: $products);
 
-        if (count($scopes) > 1) {
+        if ($scopes !== []) {
             throw new OrderMixesSellingCompaniesException(sellingScopes: $scopes);
         }
     }
@@ -57,7 +61,7 @@ final class OneSellingCompanyPerOrder
     /** @param iterable<object|null> $products the products of the lines about to be written */
     public static function productsSpanMoreThanOne(iterable $products): bool
     {
-        return count(self::sellingScopesOf(products: $products)) > 1;
+        return self::disagreeingScopesOf(products: $products) !== [];
     }
 
     /**
@@ -72,23 +76,47 @@ final class OneSellingCompanyPerOrder
     }
 
     /**
-     * The distinct selling scopes the products name. A row whose product is gone, and every product before the country migration has run,
-     * names none: it says nothing about who sells it, so it can neither agree nor disagree with another.
+     * The halves of the selling scope the products disagree on, named value by value, or nothing when they agree on every half they name.
+     *
+     * Each half is judged against its own: a country against a country and a company against a company. A half a row leaves null is not a
+     * value to disagree with, so a row that names one half and a row that names neither are never in conflict — a row whose product is
+     * gone, every product before the country migration has run, and every product the company backfill has not reached yet.
      *
      * @param iterable<object|null> $products
-     * @return list<string>
+     * @return list<string> every value of every disagreeing half, as `column=value`
      */
-    private static function sellingScopesOf(iterable $products): array
+    private static function disagreeingScopesOf(iterable $products): array
     {
         $scopes = [];
-        foreach ($products as $product) {
-            $scope = StorefrontCatalog::sellingScopeOf(product: $product);
-
-            if ($scope !== null && !in_array($scope, $scopes, true)) {
-                $scopes[] = $scope;
+        foreach (self::valuesPerHalf(products: $products) as $column => $values) {
+            if (count($values) > 1) {
+                foreach ($values as $value) {
+                    $scopes[] = $column . '=' . $value;
+                }
             }
         }
 
         return $scopes;
+    }
+
+    /**
+     * The distinct values each half was given, keyed by its column and in the order the rows named them, so a refusal reads in the order
+     * the operator scanned.
+     *
+     * @param iterable<object|null> $products
+     * @return array<string, list<string>>
+     */
+    private static function valuesPerHalf(iterable $products): array
+    {
+        $halves = [];
+        foreach ($products as $product) {
+            foreach (StorefrontCatalog::sellingScopeOf(product: $product) as $column => $value) {
+                if (!in_array($value, $halves[$column] ?? [], true)) {
+                    $halves[$column][] = $value;
+                }
+            }
+        }
+
+        return $halves;
     }
 }

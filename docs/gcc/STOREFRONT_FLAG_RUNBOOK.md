@@ -93,6 +93,12 @@ Still open at the three tills: a sale paid from the customer's wallet is debited
 the wallet debited with no order. That ordering is the tills' own and predates the rule — their existing out-of-stock refusal sits after the
 same debit — and moving a payment debit is not part of the rule.
 
+The rule reads the two halves of the selling scope apart — country against country, company against company — because a row says nothing
+about a half it leaves null. That is the only state a backfill filling `legal_entity_id` row by row can be observed in: one product carrying
+a company, the next not yet reached. Reading the halves as one joined string refused those two Saudi products as if they were two selling
+companies', which would have refused live Saudi orders at every till, at the customer's checkout and at the channel dispatcher (where a
+blocked dispatch is never retried) for the whole length of the migration. The half-backfilled state is pinned as allowed at all three tills,
+at the customer API, on the checkout page and at the materializer.
 Rolling the products migration back is refused while a product of another country exists, because dropping the column would merge the
 catalogues for good.
 
