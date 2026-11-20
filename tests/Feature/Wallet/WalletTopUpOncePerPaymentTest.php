@@ -190,14 +190,16 @@ class WalletTopUpOncePerPaymentTest extends TestCase
     }
 
     /**
-     * The same thing from outside, through a gateway: Paymob sends the customer back to an address that carries the result
-     * and a signature over it, and the address can be opened again.
+     * The same thing from outside, through a gateway: Paymob sends the customer back to an address that carries the result and
+     * a signature over it, and the address can be opened again. The second opening is refused before the register of top-ups is even asked: that confirmation of Paymob has settled its payment already. The wallet is credited once, and the second opening is refused
+     * before the register of top-ups is even asked: that confirmation of Paymob has settled its payment already.
      */
     public function test_a_signed_return_from_the_gateway_that_is_opened_twice_credits_the_wallet_once(): void
     {
         $payment = $this->aPaidTopUp(customer: $this->customer, amount: 100);
         DB::table('payment_requests')->where('id', $payment->id)->update(['is_paid' => 0]);
         $signedReturn = $this->aSignedPaymobReturn(secret: $this->paymobIsConfigured());
+        $this->installTheConfirmationRegister();
         $this->withoutMiddleware([
             Localization::class, DetectMobile::class, ApplySeoRedirects::class, NoIndexThemePreview::class,
             RecordHttpTelemetry::class, MonitorRequest::class, RecordAnalytics::class,
@@ -207,7 +209,7 @@ class WalletTopUpOncePerPaymentTest extends TestCase
         $again = $this->withSession(['payment_id' => $payment->id])->get($signedReturn);
 
         $first->assertRedirectContains('payment-success');
-        $again->assertRedirectContains('payment-success');
+        $again->assertRedirectContains('payment-fail');
         $this->assertSame(1, (int) DB::table('payment_requests')->where('id', $payment->id)->value('is_paid'));
         $this->assertSame(self::OPENING_BALANCE + 100 + self::BONUS, $this->walletBalanceOf($this->customer));
         $this->assertSame(1, DB::table('wallet_transactions')->count());

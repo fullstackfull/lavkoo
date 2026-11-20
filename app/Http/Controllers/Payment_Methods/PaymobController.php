@@ -3,17 +3,22 @@
 namespace App\Http\Controllers\Payment_Methods;
 
 use App\Models\PaymentRequest;
+use App\Services\Payments\GatewayConfirmations;
 use App\Models\User;
 use App\Traits\Processor;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
 class PaymobController extends Controller
 {
     use Processor;
+
+    /** The key this shop stores Paymob's settings and its payments under. */
+    private const GATEWAY = 'paymob_accept';
 
     private mixed $config_values = null;
 
@@ -32,7 +37,7 @@ class PaymobController extends Controller
 
     public function __construct(PaymentRequest $payment, User $user)
     {
-        $config = $this->payment_config('paymob_accept', 'payment_config');
+        $config = $this->payment_config(self::GATEWAY, 'payment_config');
         if (!is_null($config) && $config->mode == 'live') {
             $this->config_values = json_decode($config->live_values, true);
         } elseif (!is_null($config) && $config->mode == 'test') {
@@ -299,16 +304,18 @@ class PaymobController extends Controller
         $isAuthentic = $hmac !== '' && hash_equals($expected, $hmac);
 
         if ($isAuthentic && ($data['success'] ?? null) === "true") {
+            $payment_data = $this->settle(
+                paymentId: (string) session('payment_id'),
+                transaction: (string) ($data['id'] ?? ''),
+                minorUnits: $data['amount_cents'] ?? null,
+                currency: (string) ($data['currency'] ?? ''),
+            );
 
-            $this->payment::where(['id' => session('payment_id')])->update([
-                'payment_method' => 'paymob_accept',
-                'is_paid' => 1,
-                'transaction_id' => session('payment_id'),
-            ]);
+            if ($payment_data === null) {
+                return $this->payment_response($this->payment::where(['id' => session('payment_id')])->first(), 'fail');
+            }
 
-            $payment_data = $this->payment::where(['id' => session('payment_id')])->first();
-
-            if (isset($payment_data) && function_exists($payment_data->success_hook)) {
+            if (function_exists($payment_data->success_hook)) {
                 call_user_func($payment_data->success_hook, $payment_data);
             }
             return $this->payment_response($payment_data, 'success');
@@ -318,5 +325,36 @@ class PaymobController extends Controller
             call_user_func($payment_data->failure_hook, $payment_data);
         }
         return $this->payment_response($payment_data, 'fail');
+    }
+
+    /**
+     * Marks the payment this confirmation settles as paid, and answers it; null when the confirmation settles no payment.
+     *
+     * What Paymob signs is its own transaction, its order and the amount it took -- never the payment this shop is waiting for.
+     * So the amount and the currency of the confirmation must be the payment's, one transaction of Paymob settles one payment
+     * (App\Services\Payments\GatewayConfirmations), and the paid flag is set only while it is still unset: a confirmation that
+     * arrives twice at once settles once.
+     *
+     * @param numeric-string|int|float|null $minorUnits
+     */
+    private function settle(string $paymentId, string $transaction, mixed $minorUnits, string $currency): ?PaymentRequest
+    {
+        $confirmations = app(GatewayConfirmations::class);
+        $payment = $confirmations->thePaymentItSettles(gateway: self::GATEWAY, paymentId: $paymentId, reference: $transaction, minorUnits: $minorUnits, currency: $currency);
+
+        if ($payment === null || $transaction === '') {
+            return null;
+        }
+
+        return DB::transaction(function () use ($confirmations, $payment, $transaction): ?PaymentRequest {
+            if (!$confirmations->hold(gateway: self::GATEWAY, reference: $transaction, paymentId: $payment->id)) {
+                return null;
+            }
+
+            $settled = $this->payment::where(['id' => $payment->id, 'is_paid' => 0])
+                ->update(['payment_method' => self::GATEWAY, 'is_paid' => 1, 'transaction_id' => $transaction]);
+
+            return $settled === 1 ? $payment->refresh() : null;
+        });
     }
 }
