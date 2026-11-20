@@ -100,17 +100,6 @@ class LoyaltyPointTransactionRepository implements LoyaltyPointTransactionReposi
         return $dataLimit == 'all' ? $query->get() : $query->paginate($dataLimit)->appends(['searchValue' => $searchValue]);
     }
 
-    public function update(string $id, array $data): bool
-    {
-        return $this->loyaltyPointTransaction->find($id)->update($data);
-    }
-
-    public function delete(array $params): bool
-    {
-        $this->loyaltyPointTransaction->where($params)->delete();
-        return true;
-    }
-
     public function addLoyaltyPointTransaction(string|int $userId, string $reference, string|int|float $amount, string $transactionType): bool
     {
         $settings = array_column($this->businessSetting->whereIn('type', ['loyalty_point_status', 'loyalty_point_exchange_rate', 'loyalty_point_item_purchase_point'])->get()->toArray(), 'value', 'type');

@@ -17,6 +17,7 @@ use App\Models\OrderStatusHistory;
 use App\Models\SupportTicketConv;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\StorefrontAddressService;
+use App\Services\CustomerAccountDeletionService;
 use App\Services\OrderStatusHistoryService;
 use App\Traits\PdfGenerator;
 use App\Http\Controllers\Controller;
@@ -68,6 +69,7 @@ class UserProfileController extends Controller
         private readonly OrderStatusHistoryRepositoryInterface     $orderStatusHistoryRepo,
         private readonly OrderStatusHistoryService                 $orderStatusHistoryService,
         private readonly StorefrontAddressService                  $storefrontAddresses,
+        private readonly CustomerAccountDeletionService            $customerAccountDeletionService,
     )
     {
         // The address book is the signed-in customer's: nobody else can add, open, change or remove an address.
@@ -139,7 +141,7 @@ class UserProfileController extends Controller
             ImageManager::delete('/profile/' . $user['image']);
             session()->forget('wish_list');
 
-            $user->delete();
+            $this->customerAccountDeletionService->closeAccount(customer: $user);
             Toastr::info(translate('Your_account_deleted_successfully!!'));
             return redirect()->route('home');
         }
