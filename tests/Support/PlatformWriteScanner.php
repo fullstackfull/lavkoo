@@ -7,6 +7,11 @@ namespace Tests\Support;
  * variable, an alias, `from()`, a builder kept in a variable and written on a later statement, a join update), raw SQL (a table named, or interpolated), the schema builder, and the
  * platform's models (made, bound, fetched and saved on another statement, or written through a relation). It reads text, not behaviour: what it cannot resolve it reports as "(a table named in a variable)", which
  * the guard's list has to name.
+ *
+ * `rowsEditedIn()` asks the narrower question an append-only ledger needs: not what the code WRITES but what it goes back and CHANGES or
+ * REMOVES. An insert is not an edit, so the six writers that append a money movement stay off its answer while an update or a delete of
+ * one does not, however it is spelled — including through a model the code holds in a property, which is how both ledger repositories
+ * reach their own table.
  */
 final class PlatformWriteScanner
 {
@@ -17,6 +22,24 @@ final class PlatformWriteScanner
     private const MODEL_WRITES = 'create|forceCreate|update|updateOrCreate|firstOrCreate|insert|upsert|delete|destroy|forceDelete|truncate|increment|decrement|save|saveQuietly|forceFill|fill|push|touch|updateQuietly|deleteQuietly|restore';
 
     private const SCHEMA_WRITES = 'table|create|drop|dropIfExists|dropColumns|rename';
+
+    /** The builder calls that change or remove rows that are already there. `insert` and its kin are missing on purpose: appending is not editing. */
+    private const BUILDER_EDITS = 'update|updateOrInsert|upsert|delete|truncate|increment|decrement|incrementEach|decrementEach';
+
+    /** The same for a model. `create`, `forceCreate`, `firstOrCreate` and `insert` are missing on purpose; `save` is here because a model fetched and saved again is an edit. */
+    private const MODEL_EDITS = 'update|updateOrCreate|upsert|delete|destroy|forceDelete|truncate|increment|decrement|save|saveQuietly|forceFill|fill|push|touch|updateQuietly|deleteQuietly|restore';
+
+    /** The SQL verbs that change or remove rows that are already there; `replace into` is one of them, because it deletes the row it replaces. */
+    private const RAW_EDITS = 'update|delete\\s+from|truncate\\s+table|replace\\s+into|alter\\s+table|drop\\s+table|rename\\s+table';
+
+    /** Every SQL verb the scanner reads, writes and edits together. */
+    private const RAW_WRITES = 'insert\\s+(?:ignore\\s+)?into|replace\\s+into|update|delete\\s+from|truncate\\s+table|alter\\s+table|drop\\s+table|create\\s+table|rename\\s+table';
+
+    /** The calls that hand a whole statement of SQL to the database. */
+    private const RAW_SQL_CALLS = 'DB::(?:statement|unprepared|insert|update|delete|affectingStatement)\\(|->(?:statement|unprepared|affectingStatement)\\(';
+
+    /** The calls whose first argument names the table a query starts from. A join is not one: its other arguments hold columns, not tables. */
+    private const TABLE_ARGUMENT_CALLS = 'DB::table|->table|->from';
 
     /** @param list<string> $platformModels the platform's models whose save, create, update or delete would write one of its tables */
     public function __construct(private readonly array $platformModels)
@@ -30,33 +53,66 @@ final class PlatformWriteScanner
      */
     public function writesIn(string $code): array
     {
+        return $this->tablesTouchedIn($code, editsOnly: false);
+    }
+
+    /**
+     * Every table (or platform model) whose EXISTING rows the code changes or removes. An insert is not one: the question an append-only
+     * ledger asks is not whether the code writes the table but whether anything goes back and edits what was written. A name the scan
+     * cannot read is reported as UNKNOWN_TABLE, so a ledger reached through a name built at run time is never silently absent.
+     *
+     * @return list<string> sorted
+     */
+    public function rowsEditedIn(string $code): array
+    {
+        return $this->tablesTouchedIn($code, editsOnly: true);
+    }
+
+    /**
+     * @param bool $editsOnly true to count only what changes or removes a row that is already there, false to count every write
+     * @return list<string> sorted
+     */
+    private function tablesTouchedIn(string $code, bool $editsOnly): array
+    {
         $constants = $this->constantsIn($code);
-        $written = [];
+        $statements = $this->statementsOf($code);
+        $holders = $editsOnly ? $this->modelHoldersIn($statements) : [];
+        $builderVerbs = $editsOnly ? self::BUILDER_EDITS : self::BUILDER_WRITES;
+        $touched = [];
         $builders = [];
         $models = [];
 
-        foreach ($this->statementsOf($code) as $statement) {
+        foreach ($statements as $statement) {
+            // Folding, the holders and the report of a name that cannot be read are on the edit path only: the write question's guards
+            // assert an exact list of what they find, and widening what they see belongs in a change of its own, not in this one.
+            $statement = $editsOnly ? $this->literalsFolded($statement) : $statement;
             $tables = $this->tablesNamedIn($statement, $constants);
-            $writes = preg_match('/->(?:' . self::BUILDER_WRITES . ')\(/', $statement) === 1;
+            $writes = preg_match('/->(?:' . $builderVerbs . ')\(/', $statement) === 1;
 
             if ($tables !== [] && $writes) {
-                array_push($written, ...$this->tablesWritten($statement, $tables));
+                array_push($touched, ...$this->tablesWritten($statement, $tables));
             }
             if ($tables !== [] && !$writes && preg_match('/^\s*(\$\w+)\s*=/', $statement, $variable) === 1) {
                 $builders[$variable[1]] = $tables[0];
             }
-            if (preg_match('/(\$\w+)\s*->(?:' . self::BUILDER_WRITES . ')\(/', $statement, $variable) === 1 && isset($builders[$variable[1]])) {
-                array_push($written, ...$builders[$variable[1]]);
+            if (preg_match('/(\$\w+)\s*->(?:' . $builderVerbs . ')\(/', $statement, $variable) === 1 && isset($builders[$variable[1]])) {
+                array_push($touched, ...$builders[$variable[1]]);
             }
 
-            array_push($written, ...$this->rawSqlWrites($statement), ...$this->schemaWrites($statement, $constants));
-            array_push($written, ...$this->modelWrites($statement, $models));
+            array_push($touched, ...$this->rawSqlWrites($statement, editsOnly: $editsOnly));
+            if (!$editsOnly) {
+                array_push($touched, ...$this->schemaWrites($statement, $constants));
+            }
+            array_push($touched, ...$this->modelWrites($statement, $models, editsOnly: $editsOnly));
+            if ($editsOnly) {
+                array_push($touched, ...$this->heldModelEdits($statement, $holders), ...$this->unreadableNamesIn($statement));
+            }
         }
 
-        $written = array_values(array_unique($written));
-        sort($written);
+        $touched = array_values(array_unique($touched));
+        sort($touched);
 
-        return $written;
+        return $touched;
     }
 
     /**
@@ -139,13 +195,17 @@ final class PlatformWriteScanner
         return $written;
     }
 
-    /** @return list<string> */
-    private function rawSqlWrites(string $statement): array
+    /**
+     * @param bool $editsOnly true to read only the SQL verbs that change or remove a row that is already there
+     * @return list<string>
+     */
+    private function rawSqlWrites(string $statement, bool $editsOnly): array
     {
-        if (preg_match('/DB::(?:statement|unprepared|insert|update|delete|affectingStatement)\(|->(?:statement|unprepared|affectingStatement)\(/', $statement) !== 1) {
+        if (preg_match('/' . self::RAW_SQL_CALLS . '/', $statement) !== 1) {
             return [];
         }
-        preg_match_all('/\b(?:insert\s+(?:ignore\s+)?into|replace\s+into|update|delete\s+from|truncate\s+table|alter\s+table|drop\s+table|create\s+table|rename\s+table)\s+[`"\']?(\{?\$\w+\}?|[a-z0-9_]+)/i', $statement, $found);
+        $verbs = $editsOnly ? self::RAW_EDITS : self::RAW_WRITES;
+        preg_match_all('/\b(?:' . $verbs . ')\s+[`"\']?(\{?\$\w+\}?|[a-z0-9_]+)/i', $statement, $found);
 
         return array_map(static fn (string $table): string => str_contains($table, '$') ? self::UNKNOWN_TABLE : strtolower($table), $found[1]);
     }
@@ -168,30 +228,114 @@ final class PlatformWriteScanner
      * @param array<string, string> $models the variables that hold a platform model, by variable name (filled as the statements go by)
      * @return list<string>
      */
-    private function modelWrites(string $statement, array &$models): array
+    private function modelWrites(string $statement, array &$models, bool $editsOnly): array
     {
         $names = implode('|', $this->platformModels);
+        $verbs = $editsOnly ? self::MODEL_EDITS : self::MODEL_WRITES;
         $written = [];
 
-        if (preg_match('/new\s+(' . $names . ')\b/', $statement, $new) === 1) {
+        if (!$editsOnly && preg_match('/new\s+(' . $names . ')\b/', $statement, $new) === 1) {
             $written[] = 'model ' . $new[1];
         } elseif (preg_match('/\b(' . $names . ')\s*::(?:class\b|[a-zA-Z_]+\()/', $statement, $model) === 1
-            && preg_match('/(?:->|::)(?:' . self::MODEL_WRITES . ')\(/', $statement) === 1) {
+            && preg_match('/(?:->|::)(?:' . $verbs . ')\(/', $statement) === 1) {
             $written[] = 'model ' . $model[1];
         }
 
         if (preg_match('/^\s*(\$\w+)\s*=\s*.*\b(' . $names . ')\s*::/s', $statement, $held) === 1 || preg_match('/foreach\s*\(.*\b(' . $names . ')\s*::.*\bas\s+(?:\$\w+\s*=>\s*)?(\$\w+)\)/s', $statement, $loop) === 1) {
             $models[$held[1] ?? $loop[2]] = $held[2] ?? $loop[1];
         }
-        if (preg_match('/->\s*(' . implode('|', array_map('lcfirst', $this->platformModels)) . ')(?:\(\))?\s*->\s*(?:' . self::MODEL_WRITES . ')\(/', $statement, $relation) === 1) {
+        if (preg_match('/->\s*(' . implode('|', array_map('lcfirst', $this->platformModels)) . ')(?:\(\))?\s*->\s*(?:' . $verbs . ')\(/', $statement, $relation) === 1) {
             $written[] = 'model ' . ucfirst($relation[1]);
         }
         foreach ($models as $variable => $model) {
-            if (preg_match('/' . preg_quote($variable, '/') . '\s*->\s*(?:' . self::MODEL_WRITES . ')\(/', $statement) === 1 || preg_match('/' . preg_quote($variable, '/') . '\s*->\s*\w+\s*=[^=]/', $statement) === 1) {
+            if (preg_match('/' . preg_quote($variable, '/') . '\s*->\s*(?:' . $verbs . ')\(/', $statement) === 1 || preg_match('/' . preg_quote($variable, '/') . '\s*->\s*\w+\s*=[^=]/', $statement) === 1) {
                 $written[] = 'model ' . $model;
             }
         }
 
         return $written;
+    }
+
+    /** `'wallet_' . 'transactions'` is one name, not two: adjacent string literals are joined before a table is looked for. */
+    private function literalsFolded(string $statement): string
+    {
+        do {
+            $statement = (string) preg_replace('/([\'"])([^\'"]*)\1\s*\.\s*([\'"])([^\'"]*)\3/', '$1$2$4$1', $statement, -1, $joined);
+        } while ($joined > 0);
+
+        return $statement;
+    }
+
+    /**
+     * The variables and properties that hold one of the platform's models because their TYPE says so: a promoted constructor property, a
+     * declared property or a parameter. Both ledger repositories reach their own table through `$this->walletTransaction` and
+     * `$this->loyaltyPointTransaction`, where no statement ever names the model and nothing above can see it.
+     *
+     * @param list<string> $statements the code without its comments
+     * @return array<string, string> the holder as the code writes it => the model it holds
+     */
+    private function modelHoldersIn(array $statements): array
+    {
+        $names = implode('|', $this->platformModels);
+        $code = implode(';', $statements);
+        $holders = [];
+
+        preg_match_all('/\b(?:private|protected|public)(?:\s+readonly)?\s+\??(' . $names . ')\s+(\$)(\w+)/', $code, $properties, PREG_SET_ORDER);
+        foreach ($properties as $match) {
+            $holders['$this->' . $match[3]] = $match[1];
+        }
+
+        preg_match_all('/\??(' . $names . ')\s+(\$\w+)/', $code, $parameters, PREG_SET_ORDER);
+        foreach ($parameters as $match) {
+            $holders[$match[2]] ??= $match[1];
+        }
+
+        return $holders;
+    }
+
+    /**
+     * The platform's models a statement edits through such a holder. The holder has to be followed by `->`, so that a repository whose name
+     * merely starts like the property (`$this->walletTransactionRepo`) is not read as the model itself.
+     *
+     * @param array<string, string> $holders
+     * @return list<string>
+     */
+    private function heldModelEdits(string $statement, array $holders): array
+    {
+        $edited = [];
+        foreach ($holders as $holder => $model) {
+            $held = preg_quote($holder, '/');
+            if (preg_match('/' . $held . '\s*->/', $statement) !== 1) {
+                continue;
+            }
+            if (preg_match('/->(?:' . self::MODEL_EDITS . '|' . self::BUILDER_EDITS . ')\(/', $statement) === 1 || preg_match('/' . $held . '\s*->\s*\w+\s*=[^=]/', $statement) === 1) {
+                $edited[] = 'model ' . $model;
+            }
+        }
+
+        return $edited;
+    }
+
+    /**
+     * UNKNOWN_TABLE when a statement edits rows through a name this scan cannot read: a table argument holding a variable, a call or half a
+     * string, or SQL assembled from anything but one literal. A name built at run time is the way past every rule that reads a name, so it
+     * is reported rather than skipped, and the guard's list has to account for it.
+     *
+     * @return list<string>
+     */
+    private function unreadableNamesIn(string $statement): array
+    {
+        if (preg_match('/->(?:' . self::BUILDER_EDITS . ')\(/', $statement) === 1
+            && preg_match('/(?:' . self::TABLE_ARGUMENT_CALLS . ')\(\s*([^,)]*)/', $statement, $argument) === 1
+            && preg_match('/[$(]|[\'"]\s*\.\s*$/', trim($argument[1])) === 1) {
+            return [self::UNKNOWN_TABLE];
+        }
+
+        if (preg_match('/(?:' . self::RAW_SQL_CALLS . ')\s*(?:[^\'"]|\'[^\']*\'|"[^"]*")*?\$/', $statement) === 1
+            && preg_match('/\b(?:' . self::RAW_EDITS . ')\b/i', $statement) === 1) {
+            return [self::UNKNOWN_TABLE];
+        }
+
+        return [];
     }
 }

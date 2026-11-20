@@ -13,6 +13,34 @@ use Illuminate\Support\Facades\DB;
 
 class DatabaseSettingController extends BaseController
 {
+    /**
+     * The tables this screen never offers and never empties, whoever asks. Beside the settings, roles and session tables the store cannot
+     * start without, the two money ledgers are here: a wallet or a loyalty movement is a financial record, so emptying the table would
+     * destroy the history the books are made of, and no screen may do that by a tick in a list.
+     */
+    private const TABLES_NEVER_EMPTIED = [
+        'addon_settings',
+        'admin_roles',
+        'admins',
+        'business_settings',
+        'colors',
+        'currencies',
+        'failed_jobs',
+        'loyalty_point_transactions',
+        'migrations',
+        'oauth_access_tokens',
+        'oauth_auth_codes',
+        'oauth_clients',
+        'oauth_personal_access_clients',
+        'oauth_refresh_tokens',
+        'password_resets',
+        'personal_access_tokens',
+        'phone_or_email_verifications',
+        'social_medias',
+        'soft_credentials',
+        'users',
+        'wallet_transactions',
+    ];
 
     /**
      * @param Request|null $request
@@ -27,28 +55,7 @@ class DatabaseSettingController extends BaseController
             ->pluck('TABLE_NAME')
             ->toArray();
 
-        $filterTables = array(
-            'addon_settings',
-            'admin_roles',
-            'admins',
-            'business_settings',
-            'colors',
-            'currencies',
-            'failed_jobs',
-            'migrations',
-            'oauth_access_tokens',
-            'oauth_auth_codes',
-            'oauth_clients',
-            'oauth_personal_access_clients',
-            'oauth_refresh_tokens',
-            'password_resets',
-            'personal_access_tokens',
-            'phone_or_email_verifications',
-            'social_medias',
-            'soft_credentials',
-            'users'
-        );
-        $tables = array_values(array_diff($tables, $filterTables));
+        $tables = array_values(array_diff($tables, self::TABLES_NEVER_EMPTIED));
 
         $rows = [];
         foreach ($tables as $table) {
@@ -66,7 +73,7 @@ class DatabaseSettingController extends BaseController
             return back();
         }
 
-        $tables = (array)$request['tables'];
+        $tables = array_values(array_diff((array)$request['tables'], self::TABLES_NEVER_EMPTIED));
 
         if(count($tables) == 0) {
             ToastMagic::error(translate('No_Table_Updated'));
