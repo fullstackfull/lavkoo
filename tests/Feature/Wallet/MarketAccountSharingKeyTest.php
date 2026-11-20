@@ -24,12 +24,18 @@ use Tests\TestCase;
  * ADDING IT CHANGED NOTHING is the claim the slice rests on, and a column list cannot show it: names sorted into an array see no row, no
  * default, no type, no index and no position, so a migration that backfilled every account with a group and zeroed every customer's wallet
  * on the way past would pass one. An account of each kind is opened BEFORE the migration runs and every table of the database is read whole
- * on both sides of it (`CapturesTableState`): the one difference allowed is the column itself, appended, nullable, with no default and no
- * index, declared exactly as a 64-character string is declared on whichever engine the suite is pointed at.
+ * on both sides of it (`CapturesTableState`) — WHICH tables there are, and for each the engine, the charset and the table comment, every
+ * column with its type, nullability, default, collation and comment in table order, every index and every row. The one difference allowed
+ * is the column itself, appended, nullable, with no default and no index, declared exactly as a 64-character string is declared on
+ * whichever engine the suite is pointed at. The table list is read on BOTH sides, so a table the migration created is a key the other side
+ * has not got, and `down()` leaving one behind is not a rollback to the database it found.
  *
- * IT DOES NOTHING is asserted from both sides: two markets of one customer carrying the SAME key still hold their own balances, and a
- * market with nothing of its own is still refused the money of a market it is grouped with. So a person who wants sharing has to write the
- * code that groups by it, and the scan next door then fails on that code, as it should, until it is reviewed deliberately.
+ * IT DOES NOTHING is asserted from both sides, on the read path and on the SPEND path. Two markets of one customer carrying the SAME key
+ * still read their own balances; and a market grouped with another is refused that other's money whether it has an account of its own or
+ * not. The second state is the one that matters: a market with no account is refused before any floor is read, so a refusal there would
+ * hold even with sharing switched on, while a market holding four of its own and spending fifty can only be refused by a floor that reads
+ * the one account it locked. So a person who wants sharing has to write the code that groups by it, and the scan next door then fails on
+ * that code, as it should, until it is reviewed deliberately.
  *
  * THE ROLLBACK is refused once any account of EITHER kind carries a key, which is what the migration's docblock promises, and both kinds
  * are asserted: a refusal that looked only at the wallet accounts would drop a loyalty group silently.
@@ -45,6 +51,16 @@ class MarketAccountSharingKeyTest extends TestCase
     private const SHARING_KEY_MIGRATION = '2026_12_05_140000_add_sharing_key_to_market_balance_accounts.php';
 
     private const CUSTOMER = 1;
+
+    /**
+     * What the market grouped with the spending one holds, what the spending market holds of its own, and what it spends: enough that the
+     * group could cover the debit and the one account cannot, so only a floor reading one account can refuse it.
+     */
+    private const HELD_BY_THE_OTHER_MARKET = 70.0;
+
+    private const OWN_HOLDING = 4.0;
+
+    private const SPENT = 50.0;
 
     /** A table of a name no migration of this platform uses, made and dropped to read how this engine declares the column the migration asks for. */
     private const HOW_THE_KEY_IS_DECLARED = 'sharing_key_declaration_probe';
@@ -101,34 +117,34 @@ class MarketAccountSharingKeyTest extends TestCase
         $this->openAccount(kind: MarketBalanceKind::Loyalty, market: 'BH', amount: 70.0);
         $this->recordMovement('wallet_transactions', customerId: self::CUSTOMER, market: 'KW', credit: 30);
 
-        $tables = $this->everyTableOfTheDatabase();
-        $before = $this->stateOf(tables: $tables);
+        $before = $this->databaseState();
 
         $this->runSharingKeyMigration();
 
-        $this->assertSame($this->withTheKeyAppended(before: $before), $this->stateOf(tables: $tables));
+        $expected = $this->withTheKeyAppended(before: $before);
+
+        $this->assertSame($expected, $this->databaseState());
     }
 
     public function test_running_it_again_changes_nothing(): void
     {
         $this->runSharingKeyMigration();
 
-        $before = $this->stateOf(tables: $this->everyTableOfTheDatabase());
+        $before = $this->databaseState();
 
         $this->runSharingKeyMigration();
 
-        $this->assertSame($before, $this->stateOf(tables: $this->everyTableOfTheDatabase()));
+        $this->assertSame($before, $this->databaseState());
     }
 
     public function test_it_rolls_back_while_nothing_is_grouped(): void
     {
-        $tables = $this->everyTableOfTheDatabase();
-        $before = $this->stateOf(tables: $tables);
+        $before = $this->databaseState();
 
         $this->runSharingKeyMigration();
         $this->rollBackSharingKeyMigration();
 
-        $this->assertSame($before, $this->stateOf(tables: $tables));
+        $this->assertSame($before, $this->databaseState());
     }
 
     #[DataProvider('balances')]
@@ -277,19 +293,59 @@ class MarketAccountSharingKeyTest extends TestCase
         );
     }
 
-    #[DataProvider('balances')]
-    public function test_a_market_the_key_groups_is_still_refused_the_money_of_another(MarketBalanceKind $kind): void
+    /**
+     * The market doing the spending is put in BOTH the states it can be in, because only one of them says anything about the group.
+     *
+     * A market with NO account is refused because there is no row to lock, and that refusal is reached before any floor is read: it holds
+     * whether the key groups anything or not. A market with an account OF ITS OWN, grouped with another and holding less than it is
+     * spending, can only be refused by a floor that reads the one account it locked. Sharing written into that floor passes the first case
+     * untouched and fails this one, which is the case the read path has always had and this one did not.
+     *
+     * @return array<string, array{MarketBalanceKind, float|null}>
+     */
+    public static function balancesAndWhatTheSpendingMarketHolds(): array
+    {
+        $cases = [];
+
+        foreach (self::balances() as $balance => [$kind]) {
+            $cases[$balance . ', with no account of its own'] = [$kind, null];
+            $cases[$balance . ', with an open account holding less than it spends'] = [$kind, self::OWN_HOLDING];
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('balancesAndWhatTheSpendingMarketHolds')]
+    public function test_a_market_the_key_groups_is_still_refused_the_money_of_another(MarketBalanceKind $kind, ?float $ownHolding): void
     {
         $this->withMarketAccountsOn();
         $this->runSharingKeyMigration();
-        $this->openAccount(kind: $kind, market: 'BH', amount: 70.0);
+        $this->openAccount(kind: $kind, market: 'BH', amount: self::HELD_BY_THE_OTHER_MARKET);
+
+        if ($ownHolding !== null) {
+            $this->openAccount(kind: $kind, market: 'KW', amount: $ownHolding);
+        }
+
         $this->groupEveryAccount(kind: $kind);
 
         $balances = app(CustomerMarketBalances::class);
-        $refused = $balances->debit(kind: $kind, customerId: self::CUSTOMER, market: 'KW', amount: 10.0);
+        $refused = $balances->debit(kind: $kind, customerId: self::CUSTOMER, market: 'KW', amount: self::SPENT);
 
-        $this->assertFalse($refused->applied, 'A market holding nothing was allowed to spend the money of a market carrying its key.');
-        $this->assertSame(70.0, $balances->amount(kind: $kind, customerId: self::CUSTOMER, market: 'BH'));
+        $this->assertFalse(
+            $refused->applied,
+            'KW spent ' . self::SPENT . ' while holding ' . var_export($ownHolding, true) . ' of its own, so it was given the '
+            . self::HELD_BY_THE_OTHER_MARKET . ' that BH holds under the same key. The key must do nothing until sharing is written.',
+        );
+        $this->assertSame(
+            $ownHolding ?? 0.0,
+            $balances->amount(kind: $kind, customerId: self::CUSTOMER, market: 'KW'),
+            'The refused debit still moved the spending market.',
+        );
+        $this->assertSame(
+            self::HELD_BY_THE_OTHER_MARKET,
+            $balances->amount(kind: $kind, customerId: self::CUSTOMER, market: 'BH'),
+            'The money of the market that was not spent from changed.',
+        );
     }
 
     // ---- helpers -------------------------------------------------------------------------------------------------------------
@@ -344,22 +400,38 @@ class MarketAccountSharingKeyTest extends TestCase
     }
 
     /**
+     * The whole database as it stands: every table it holds right now, and what each one is.
+     *
+     * The table LIST is read afresh on each side of the migration rather than taken once before it. A list taken once and reused is a list
+     * the migration cannot be caught adding to: a table it created would simply be outside the comparison, and `down()` could leave it
+     * behind and still read as a rollback to the database it found. Read on both sides, a table that appeared is a key the other side has
+     * not got, and `assertSame` on arrays compares keys and their order.
+     *
+     * @return array<string, mixed>
+     */
+    private function databaseState(): array
+    {
+        return $this->stateOf(tables: $this->everyTableOfTheDatabase());
+    }
+
+    /**
      * Every table THIS database holds, read from the database rather than listed here, so that the snapshot cannot fall behind a table a
      * later slice adds.
      *
-     * Each name is put back to the connection with `hasTable`, which answers for the database the connection is on, because
-     * `Schema::getTables()` does not: with no schema named it asks `information_schema` for every table of every database on the server
-     * (`MySqlGrammar::compileSchemaWhereClause` excludes only MySQL's own five), so on a shared test server this listed other runs' tables
-     * and the list changed under the test while it ran. SQLite's own bookkeeping tables are not the platform's either.
+     * The names come from `CapturesTableState::tableFactsOfTheConnection()`, which names the schema it is asking about, because
+     * `Schema::getTables()` with none asks `information_schema` for every table of every database on the server
+     * (`MySqlGrammar::compileSchemaWhereClause` excludes only MySQL's own five) — on a shared test server this listed other runs' tables and
+     * the list changed under the test while it ran. One read answers both what the tables are and what each one is. SQLite's own
+     * bookkeeping tables are not the platform's either.
      *
      * @return list<string> sorted
      */
     private function everyTableOfTheDatabase(): array
     {
-        $tables = array_values(array_unique(array_filter(
-            array_map(static fn (array $table): string => (string) $table['name'], Schema::getTables()),
-            static fn (string $table): bool => !str_starts_with($table, 'sqlite_') && Schema::hasTable($table),
-        )));
+        $tables = array_values(array_filter(
+            array_keys($this->tableFactsOfTheConnection()),
+            static fn (string $table): bool => !str_starts_with($table, 'sqlite_'),
+        ));
         sort($tables);
 
         $this->assertContains('customer_market_wallet_accounts', $tables, 'The snapshot is reading a database without the account tables.');
