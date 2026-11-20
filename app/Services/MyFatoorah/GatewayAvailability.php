@@ -4,6 +4,7 @@ namespace App\Services\MyFatoorah;
 
 use App\Enums\MyFatoorah\GatewayStatus;
 use App\Models\Currency;
+use App\Services\Storefront\StorefrontPaymentMethods;
 use Illuminate\Support\Facades\Cache;
 
 /**
@@ -71,11 +72,14 @@ class GatewayAvailability
         return $this->environmentEnabled() || (bool) config('myfatoorah.verify_when_disabled', true);
     }
 
-    /** The store-wide digital-payment switch that already gates every other gateway. */
+    /**
+     * The store-wide digital-payment switch that already gates every other gateway. It is the platform's own switch, never one storefront's: the page that starts the
+     * payment names no storefront, so it would judge a payment that Kuwait started by what the default storefront offers.
+     */
     private function digitalPaymentOn(): bool
     {
         try {
-            $value = getWebConfig(name: 'digital_payment');
+            $value = app(StorefrontPaymentMethods::class)->platformSetting(method: StorefrontPaymentMethods::DIGITAL_PAYMENT);
         } catch (\Throwable) {
             return false;
         }

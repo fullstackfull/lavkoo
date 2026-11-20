@@ -6,6 +6,7 @@ use App\Enums\Address\AddressChannel;
 use App\Events\OrderEditDuePaymentEvent;
 use App\Services\Address\OrderAddressService;
 use App\Services\Analytics\Analytics;
+use App\Services\Storefront\StorefrontPaymentMethods;
 use App\Models\AdminWallet;
 use App\Models\Cart;
 use App\Models\CustomerWallet;
@@ -576,6 +577,8 @@ class PaymentController extends Controller
         }
 
         $validated = $validator->validated();
+        app(StorefrontPaymentMethods::class)->assertChoiceIsNotSwitchedOff(choice: (string) $validated['payment_method']);
+
         $order = Order::find($validated['order_id']);
         if (!$order) {
             Toastr::error(translate('Order_not_found'));
