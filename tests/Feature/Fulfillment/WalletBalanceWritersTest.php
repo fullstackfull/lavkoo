@@ -320,6 +320,14 @@ class WalletBalanceWritersTest extends TestCase
             'raw SQL behind a comment line that is only its marker' => ['DB::statement("--\nupdate users set wallet_balance = 0, loyalty_point = 0");', 'wallet_balance', 1],
             'raw SQL behind a comment line that is only its marker and a carriage return' => ['DB::statement("--\r\nupdate users set wallet_balance = 0, loyalty_point = 0");', 'wallet_balance', 1],
             'raw SQL built in a variable and handed to the database later' => ["\$sql = \"update users set wallet_balance = 0\";\nDB::statement(\$sql);", 'wallet_balance', 1],
+            // Three forms found by probing this reader rather than by being handed them, each measured on MariaDB 10.11.14 against a decimal(40,20) seeded at
+            // 350.12345678901234567890. The first two store 0.00000000000000000000 and were read as no write by this head's three predecessors as well.
+            'raw SQL that assigns the column with the := of a SET clause, which MariaDB takes' => ['DB::statement("update users set wallet_balance := 0");', 'wallet_balance', 1],
+            'raw SQL whose column name is concatenated in out of a constant' => ["const WALLET = 'wallet_balance';\nDB::statement(\"update users set \" . self::WALLET . \" = 0\");", 'wallet_balance', 1],
+            // The third is no write, and is proved so rather than asserted: PHP interpolates a VARIABLE in `{...}`, never a constant, so the braces and the `self::WALLET`
+            // reach the engine verbatim and MariaDB refuses the statement -- the seeded balance reads back 350.12345678901234567890.
+            'raw SQL whose column name is a constant inside braces, which PHP does not interpolate' => ["const WALLET = 'wallet_balance';\nDB::statement(\"update users set {self::WALLET} = 0\");", 'wallet_balance', 0],
+            'the column read by a := outside the clause that assigns' => ['DB::statement("select @x := wallet_balance from users");', 'wallet_balance', 0],
             // `DB::select` runs an UPDATE on MySQL and MariaDB and hands back no rows; so does a PDO `exec`. Neither is on any list of write methods, which is why the reading is
             // no longer gated on one: what changes a row is the statement, and the statement is what is read.
             'raw SQL run through DB::select, which executes it' => ['DB::select("update users set wallet_balance = 0");', 'wallet_balance', 1],

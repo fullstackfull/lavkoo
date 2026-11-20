@@ -166,6 +166,10 @@ final class PlatformWriteScanner
     {
         $literals = self::withLiteralsRead($code);
         $read = self::withNamesSpelledOut($code);
+        // The SQL side reads the constants too, and the literals a substituted constant leaves adjacent are joined again: `"update users set " . self::WALLET . " = 0"` is one
+        // statement, and reading the literals alone left the column's name out of it while the array side read the same constant. One normalisation for both sides, or the
+        // spelling a writer picks decides which side sees it.
+        $sql = self::withConcatenationJoined(self::withConstantsRead($literals));
         $name = preg_quote($column, '/');
         $held = self::expressionsHolding($read, $column);
         // A group that cannot match, so that the code that binds no name to the column is read by the column's own name alone.
@@ -190,7 +194,7 @@ final class PlatformWriteScanner
         $subscript = '/\[\s*[\'"]' . $name . '[\'"]\s*\]\s*(?:' . self::COMPOUND_ASSIGNMENT . ')?=(?![=>])/';
         $writes = array_merge($writes, array_fill(0, preg_match_all($subscript, $literals), 'array access assignment'));
         $writes = array_merge($writes, array_fill(0, self::arrayKeyWrites($read, $key, $column), 'array key given a value'));
-        foreach (self::sqlStringsIn($literals) as $string) {
+        foreach (self::sqlStringsIn($sql) as $string) {
             $writes = array_merge($writes, self::sqlWritesOf($string, $column, $heldName));
         }
 
@@ -775,6 +779,9 @@ final class PlatformWriteScanner
      * with the identifier wrapped or qualified or interpolated from a variable that holds the name, or not), or which lists it among the columns it inserts. A statement that
      * changes the shape of a table names the column and writes nobody's value, so its verb is not read.
      *
+     * The assignment is read as `=` or as `:=`, because MariaDB takes both in a SET clause: `update users set wallet_balance := 0` stores 0.00000000000000000000 over a
+     * `decimal(40,20)` seeded at 350.12345678901234567890, measured on MariaDB 10.11.14, and reading only `=` let it past.
+     *
      * The verb is the first word of the statement, so the comments are stripped before it is read: a block comment or a `-- reset` line in front of the verb is not a way past this. A WHERE
      * clause filters on a column and assigns nothing, so it is cut away before the assignment is looked for: `update users set is_active = 0 where wallet_balance = 0` reads a
      * balance and writes none.
@@ -795,7 +802,7 @@ final class PlatformWriteScanner
             if (preg_match('/^\s*(?:' . self::sqlVerbsThatChangeRows() . ')\b/i', $statement) !== 1) {
                 continue;
             }
-            if (preg_match('/' . $name . '\s*=(?!=)/i', self::assigningClausesOf($statement)) === 1) {
+            if (preg_match('/' . $name . '\s*:?=(?!=)/i', self::assigningClausesOf($statement)) === 1) {
                 $writes[] = 'raw SQL set';
             } elseif (preg_match('/\b(?:insert|replace)\s+(?:ignore\s+)?into\b[^(]*\([^)]*' . $name . '/i', $statement) === 1) {
                 $writes[] = 'raw SQL insert';
