@@ -186,6 +186,25 @@ class AccountDeletionKeepsLedgerTest extends CustomerLedgerTestCase
         );
     }
 
+    /**
+     * `email` and `phone` are unique on the live store, so two closed accounts cannot carry the same placeholder. Built from the row id
+     * rather than a fixed marker, and this is the test that makes the index say so.
+     */
+    public function test_two_accounts_can_both_be_closed_without_colliding_on_the_address_or_the_number(): void
+    {
+        $sara = $this->makeCustomerWithMoneyHistory();
+        $omar = $this->makeCustomerWithMoneyHistory();
+
+        $this->deleteThroughTheApi($sara)->assertOk();
+        $this->deleteThroughTheApi($omar)->assertOk();
+
+        $this->assertSame(['users' => 1, 'wallet' => 2, 'loyalty' => 2], $this->moneyRowsOf($sara->id));
+        $this->assertSame(['users' => 1, 'wallet' => 2, 'loyalty' => 2], $this->moneyRowsOf($omar->id));
+        $closed = DB::table('users')->whereIn('id', [$sara->id, $omar->id])->orderBy('id')->get();
+        $this->assertSame(['deleted-' . $sara->id . '@deleted.invalid', 'deleted-' . $omar->id . '@deleted.invalid'], $closed->pluck('email')->all());
+        $this->assertSame(['deleted-' . $sara->id, 'deleted-' . $omar->id], $closed->pluck('phone')->all());
+    }
+
     public function test_one_customer_cannot_close_another_customers_account_through_the_api(): void
     {
         $sara = $this->makeCustomerWithMoneyHistory();
