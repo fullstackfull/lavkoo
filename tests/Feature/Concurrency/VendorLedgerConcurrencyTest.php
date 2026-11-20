@@ -5,6 +5,7 @@ namespace Tests\Feature\Concurrency;
 use App\Models\VendorLedgerEntry;
 use App\Services\Marketplace\LedgerChain;
 use App\Services\Marketplace\VendorLedger;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsWalletAndVendorLedgerSchema;
 use Tests\Support\Concurrency\ConcurrentRunner;
 use Tests\Support\WritesSellerLedger;
@@ -20,6 +21,10 @@ use Tests\TestCase;
  * What is NOT asserted here is that two chains do not wait for each other. They do: `ORDER BY id DESC LIMIT 1 FOR UPDATE` walks the primary key unless an index covers the
  * narrowing predicates, and `vendor_ledger_entries` has no migration in this repository to add one in. LedgerChain's docblock says so, and the index is the owner's to
  * approve. What IS asserted is that each chain's running balance comes out right when both are written at once, which is the behaviour the narrowing exists for.
+ *
+ * What IS now asserted, and is a defect rather than a behaviour, is what two processes delivering the SAME order line do: they both credit it. That one is older than the chain
+ * key, it is the same with the switch on and off, and its cure is a lock or a unique key over the idempotency tuple, which this table has no migration here to add. The case
+ * that measures it says so at length.
  *
  * Needs a real engine: SQLite in memory is private to one process, so the whole file skips there.
  */
@@ -63,6 +68,12 @@ class VendorLedgerConcurrencyTest extends TestCase
         return $reports;
     }
 
+    /** @return array<string, array{bool}> */
+    public static function switchPositions(): array
+    {
+        return ['the switch off, as shipped' => [false], 'chains kept apart' => [true]];
+    }
+
     /** @return list<float> the running balance of every entry of the seller, in the order they were written */
     private function runningBalances(): array
     {
@@ -102,6 +113,46 @@ class VendorLedgerConcurrencyTest extends TestCase
             'the company chain is short of one of the two credits',
         );
         $this->assertSame([10.0, 110.0, 210.0], $this->runningBalances(), 'the second entry of the chain did not read the balance the first one wrote');
+    }
+
+    /**
+     * CURRENT BEHAVIOUR, AND A DEFECT OF ITS OWN: two processes delivering the SAME order line both credit it.
+     *
+     * The writer's idempotency is a read-then-write like the running balance, and nothing holds it. Both transactions look
+     * the event up before either has committed, both miss, and the lock they then take is on the entry BEFORE them, which
+     * orders their running balances without stopping the second insert. Measured on MariaDB 10.11.14: a 100.00 line
+     * delivered by two processes at one instant leaves 3 entries and 210.0000 credited where 110.0000 is owed, and the
+     * figures are the same in both positions of the switch.
+     *
+     * It is NOT the double credit this branch closed. That one needed no concurrency at all — one process, the store's base
+     * currency setting moved in between, and the second delivery of one line was credited again
+     * (tests/Feature/Marketplace/OneEventIsCreditedOnceTest.php) — and it was introduced by keying the idempotency lookup
+     * on the chain. This one is older than the chain key and survives it: the whole file raced only DISTINCT references
+     * before, so nothing in the repository showed it. The cure is a lock or a unique key over (seller_id, seller_is,
+     * entry_type, reference_type, reference_id), and `vendor_ledger_entries` has no migration in this repository to add one
+     * in, so it is the owner's to approve, exactly as the index this class's docblock names.
+     *
+     * So this asserts what the ledger does TODAY, to put the figure on the record and keep it from moving unnoticed. It is
+     * not an endorsement of it: when the cure lands, this case becomes the invariant (one entry, 110.0000) and the
+     * assertion message says so.
+     */
+    #[DataProvider('switchPositions')]
+    public function test_current_behaviour_two_processes_delivering_one_order_line_both_credit_it(bool $chainsApart): void
+    {
+        config(['gcc.ledgers.keyed_by_entity_and_currency' => $chainsApart]);
+        $this->earning(10, 'SAR');
+
+        $this->appendAtOnce([
+            ['seller_id' => self::SELLER, 'credit' => 100, 'reference_id' => 'one-order-line', 'currency' => 'SAR', 'chains_apart' => $chainsApart],
+            ['seller_id' => self::SELLER, 'credit' => 100, 'reference_id' => 'one-order-line', 'currency' => 'SAR', 'chains_apart' => $chainsApart],
+        ]);
+
+        $this->assertSame(
+            [10.0, 110.0, 210.0],
+            $this->runningBalances(),
+            'the ledger no longer credits one order line twice under two processes, so the cure has landed and this case is now the invariant it was waiting for',
+        );
+        $this->assertSame(2, VendorLedgerEntry::query()->where('reference_id', 'one-order-line')->count(), 'one order line, two entries');
     }
 
     public function test_two_chains_of_one_seller_written_at_once_each_keep_their_own_running_balance(): void
