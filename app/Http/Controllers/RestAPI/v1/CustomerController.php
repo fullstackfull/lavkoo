@@ -20,6 +20,7 @@ use App\Models\SupportTicketConv;
 use App\Models\Wishlist;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\AddressSnapshot;
+use App\Services\CustomerAccountDeletionService;
 use App\Services\Fulfillment\CustomerFulfillmentPresenter;
 use App\Services\ShippingAddressService;
 use App\Traits\CommonTrait;
@@ -52,7 +53,10 @@ class CustomerController extends Controller
 
     private const LOCATION_FIELDS = ['city', 'country', 'region_id', 'city_id', 'district', 'national_address'];
 
-    public function __construct(private readonly ShippingAddressService $shippingAddressService)
+    public function __construct(
+        private readonly ShippingAddressService $shippingAddressService,
+        private readonly CustomerAccountDeletionService $customerAccountDeletionService,
+    )
     {
     }
 
@@ -133,7 +137,7 @@ class CustomerController extends Controller
             }
 
             $this->delete('/profile/' . $user['image']);
-            $user->delete();
+            $this->customerAccountDeletionService->closeAccount($user);
             return response()->json(['message' => 'Your account deleted successfully'], 200);
         } else {
             return response()->json(['message' => 'access_denied!!'], 403);
