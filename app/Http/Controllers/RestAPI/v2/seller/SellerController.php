@@ -208,7 +208,7 @@ class SellerController extends Controller
         }
 
         $wallet = SellerWallet::where('seller_id', $seller['id'])->first();
-        $amountInWalletCurrency = app(WithdrawRequestService::class)->getWithdrawAmountInWalletCurrency($request['amount']);
+        $amountInWalletCurrency = app(WithdrawRequestService::class)->getWithdrawAmountInWalletCurrency(requestedAmount: $request['amount']);
         if (!is_null($amountInWalletCurrency) && ($wallet->total_earning) >= $amountInWalletCurrency && $request['amount'] > 0) {
             DB::table('withdraw_requests')->insert([
                 'seller_id' => $seller['id'],

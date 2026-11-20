@@ -19,12 +19,17 @@ class WithdrawRequestService
      * recording a smaller amount than was actually taken.
      *
      * Returns null when the amount cannot be converted, which the callers refuse: converting at a
-     * 1:1 USD rate because the store has no usable USD row would move real money at an invented
-     * rate.
+     * 1:1 USD rate because the store has no usable USD row, or at a rate of zero, would move real
+     * money at a rate the store does not hold. An amount that is not a number is refused here too,
+     * so a malformed request gets each path's own refusal instead of reaching the conversion.
      */
-    public function getWithdrawAmountInWalletCurrency(float|int|string|null $requestedAmount): float|int|null
+    public function getWithdrawAmountInWalletCurrency(mixed $requestedAmount): float|int|null
     {
-        return $this->isCurrencyConversionAvailable() ? Convert::usd($requestedAmount) : null;
+        if (!is_numeric($requestedAmount) || !$this->isCurrencyConversionAvailable()) {
+            return null;
+        }
+
+        return Convert::usd(amount: $requestedAmount);
     }
 
     private function isCurrencyConversionAvailable(): bool
@@ -34,6 +39,10 @@ class WithdrawRequestService
         }
 
         $defaultCurrencyRate = Currency::where('id', getWebConfig(name: 'system_default_currency'))->value('exchange_rate');
+        // The same 'USD' lookup Convert::usd itself makes. A guard that resolved the USD row differently
+        // from the conversion it guards would reintroduce the divergence this method exists to remove:
+        // it would pass an amount Convert::usd then converts at its invented 1:1 fallback, or refuse one
+        // Convert::usd can convert perfectly well.
         $usdRate = Currency::where('code', 'USD')->value('exchange_rate');
 
         return (float) $defaultCurrencyRate > 0 && (float) $usdRate > 0;
