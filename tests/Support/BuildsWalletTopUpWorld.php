@@ -131,6 +131,12 @@ trait BuildsWalletTopUpWorld
         (require database_path('migrations/2026_11_23_100000_create_wallet_top_ups_table.php'))->up();
     }
 
+    /** The register of gateway confirmations, from its real migration. */
+    protected function installTheConfirmationRegister(): void
+    {
+        (require database_path('migrations/2026_11_23_100001_create_gateway_confirmations_table.php'))->up();
+    }
+
     protected function walletIs(bool $on): void
     {
         $this->setting(type: 'wallet_status', value: $on ? '1' : '0');
@@ -190,7 +196,7 @@ trait BuildsWalletTopUpWorld
         }
 
         Schema::disableForeignKeyConstraints();
-        foreach (['payment_requests', 'addon_settings', 'currencies', 'business_settings', 'orders', 'users', 'wallet_transactions', 'add_fund_bonus_categories', 'wallet_top_ups'] as $table) {
+        foreach (['payment_requests', 'addon_settings', 'currencies', 'business_settings', 'orders', 'users', 'wallet_transactions', 'add_fund_bonus_categories', 'wallet_top_ups', 'gateway_confirmations'] as $table) {
             Schema::dropIfExists($table);
         }
         Schema::enableForeignKeyConstraints();
