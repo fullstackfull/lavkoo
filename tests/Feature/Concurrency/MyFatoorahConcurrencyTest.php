@@ -64,7 +64,7 @@ class MyFatoorahConcurrencyTest extends TestCase
 
         $this->assertCount(6, $reports);
         $this->assertCount(6, array_unique(array_column($reports, 'pid')), 'six different processes');
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes ran at the same time');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the processes ran at the same time');
 
         foreach ($reports as $index => $report) {
             $this->assertTrue($report['ok'], "process {$index} failed: " . ($report['message'] ?? ''));
@@ -307,7 +307,7 @@ class MyFatoorahConcurrencyTest extends TestCase
             'amount' => '150.00',
         ]));
 
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes ran at the same time');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the processes ran at the same time');
 
         $settled = array_filter(array_column($reports, 'result'), static fn (array $r): bool => $r['settled'] === true);
         $this->assertCount(1, $settled, 'exactly one process applied the payment');

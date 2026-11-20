@@ -43,7 +43,32 @@ class ConcurrencyHarnessTest extends TestCase
         $this->assertSame(5, count(array_keys($results, 'duplicate', true)));
         $this->assertSame(1, DB::table('concurrency_probe')->count());
         $this->assertCount(6, array_unique(array_column($reports, 'pid')), 'six different processes');
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes ran at the same time');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the processes ran at the same time');
+    }
+
+    /**
+     * The meeting point really holds a process, which is what every test that arranges an interleaving rather than racing one rests on.
+     *
+     * The proof is the ORDER of the two writes and not a timing: the waiting process is given no delay at all and the other is made to sit for 300ms before it writes, so
+     * released from the barrier and left alone the waiter would write first every time. It writes second, which only the hold can do.
+     */
+    public function test_a_process_is_held_at_a_meeting_point_until_another_marks_it(): void
+    {
+        $reports = ConcurrentRunner::run('probe_rendezvous', [
+            ['key' => 'the waiter', 'wait_for' => 'the other one has written'],
+            ['key' => 'the slow one', 'hold_microseconds' => 300000, 'mark' => 'the other one has written'],
+        ]);
+
+        foreach ($reports as $index => $report) {
+            $this->assertTrue($report['ok'], "process {$index} failed: " . ($report['error'] ?? '') . ' ' . ($report['message'] ?? ''));
+        }
+        $this->assertSame(
+            ['the slow one', 'the waiter'],
+            DB::table('concurrency_probe')->orderBy('id')->pluck('k')->all(),
+            'the process that was told to wait wrote first, so the meeting point did not hold it',
+        );
+        $this->assertGreaterThanOrEqual(0.3, $reports[0]['result']['held_for'], 'the waiter reported a hold shorter than the 300ms the other one spent before marking');
+        $this->assertSame(0.0, (float) $reports[1]['result']['held_for'], 'the process that waits for nothing reported a hold');
     }
 
     public function test_an_operation_that_fails_is_reported_and_does_not_hide_the_others(): void
