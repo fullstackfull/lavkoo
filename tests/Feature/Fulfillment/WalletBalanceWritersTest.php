@@ -377,10 +377,13 @@ class WalletBalanceWritersTest extends TestCase
             'a plain array subscripted by a constant that holds the name' => ["class X { private const WALLET = 'wallet_balance';\npublic function z(array \$row): array { \$row[self::WALLET] = 0; return \$row; } }", 'wallet_balance', 0],
             'a plain array subscripted by a variable that holds the name' => ["\$column = 'wallet_balance';\n\$totals[\$column] = 0;", 'wallet_balance', 0],
             'a message that quotes a statement which writes the column' => ['Log::info("update users set wallet_balance = 0 was refused");', 'wallet_balance', 1],
-            // What the receiver requirement still earns: a plain function's array is no RESOLVED write, so a value that is a word rather than an amount stays quiet in it,
-            // while the same array handed to a method is reported whatever its value.
+            // What the receiver requirement still earns, and where the failing open stops. A word is taken for no amount, so a word-valued array whose handing cannot be
+            // followed is quiet -- which is a declared limit and not a proof, because this application runs MySQL non-strict (config/database.php, 'strict' => false) and
+            // `set wallet_balance = 'float'` stores 0.00000000000000000000 there: measured on MariaDB 10.11.14, refused under STRICT_TRANS_TABLES, writing 0 under ''.
+            // It takes BOTH a word and an unfollowable handing: the next two cases are the same word reported by each of the other two readings.
             'the array of a plain function whose value is a word rather than an amount' => ["\$x = create(['wallet_balance' => 'float']);", 'wallet_balance', 0],
-            'the same array handed to a method, which writes it' => ["\$user->update(['wallet_balance' => 'float']);", 'wallet_balance', 1],
+            'the same word handed to a method, which writes it whatever the value' => ["\$user->update(['wallet_balance' => 'float']);", 'wallet_balance', 1],
+            'the same word in a SET clause, where the reader never looks at the value' => ['DB::statement("update users set wallet_balance = \'float\'");', 'wallet_balance', 1],
         ];
     }
 

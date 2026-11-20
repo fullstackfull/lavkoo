@@ -32,6 +32,13 @@ namespace Tests\Support;
  * The column side's limits are declared where they are taken: an array reaches a resolvable write in one hop and no more (arraysHandedToAWrite) -- which now only ever ADDS
  * reports, so a hop it cannot follow costs nothing -- and a model attribute written through array access is read under the column's own name and not under a name a variable
  * or a constant holds (columnWritesIn).
+ *
+ * ONE PLACE WHERE THE FAILING OPEN STOPS, measured and declared rather than left to be found: a value that is a WORD is taken for no amount, and this application runs MySQL
+ * non-strict (`config/database.php`, `'strict' => false`), where `update users set wallet_balance = 'float'` stores 0.00000000000000000000 rather than being refused -- proved
+ * on MariaDB 10.11.14 both ways, refused under this server's own STRICT_TRANS_TABLES and writing 0 under `sql_mode=''`. So an array whose value is a word AND whose handing
+ * this reader cannot follow is a money write it does not report. It needs both: the same word in a SET clause is reported (sqlWritesOf looks at where the column is, never at
+ * the value), and the same array handed to a write it CAN follow is reported whatever the value. Closing it means reporting every word-valued key wherever it stands, which is
+ * the fifteen non-writes of this project -- four cast lines, two name maps, two Blade tone maps, seven translation lines -- so it is a limit and not an oversight.
  */
 final class PlatformWriteScanner
 {
