@@ -46,6 +46,7 @@ use App\Http\Controllers\Web\WebController;
 use App\Http\Middleware\VerifyCsrfToken;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
+use App\Http\Middleware\EnsureGatewayTakesThisPayment;
 
 /*
 |--------------------------------------------------------------------------
@@ -479,7 +480,7 @@ try {
 }
 
 if (!$isGatewayPublished) {
-    Route::group(['prefix' => 'payment'], function () {
+    Route::group(['prefix' => 'payment', 'middleware' => [EnsureGatewayTakesThisPayment::class]], function () {
 
         //SSLCOMMERZ
         Route::group(['prefix' => 'sslcommerz', 'as' => 'sslcommerz.'], function () {
