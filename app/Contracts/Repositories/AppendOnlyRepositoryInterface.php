@@ -40,7 +40,7 @@ interface AppendOnlyRepositoryInterface
     /**
      * @param array $orderBy
      * @param string|null $searchValue
-     * @param array $filters Filters value must be in key and value pair structure, support one level nested array, ex: Filters = ['category'=>[1,2,5,8], 'email'=>['x@x.com','test@test.com']]
+     * @param array $filters Filters value must be in key and value pair structure, support one level nested array, ex: Filters = ['category'=>[1,2,5,8], 'email'=>['<an address>','<another address>']]
      * @param array $relations
      * @param int|string $dataLimit If you need all data without pagination, you need to set dataLimit = 'all'
      * @param int|null $offset
