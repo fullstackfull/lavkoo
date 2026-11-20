@@ -404,6 +404,21 @@ class StorefrontCheckoutSingleCompanyTest extends ApiAddressTestCase
         $this->assertSame(1, OrderManager::checkValidationForCheckoutPages(request())['status']);
     }
 
+    /**
+     * The state the day the company migration runs and before the backfill writes its first row: the column exists and every product's
+     * company is null. Neither half's nulls excuse the other half, so two countries are still refused.
+     */
+    public function test_a_company_column_nobody_has_filled_yet_refuses_two_countries_as_before(): void
+    {
+        $customer = $this->customerWithOneMixedGroup();
+        $this->addTheSellingCompanyColumn();
+
+        $this->asCustomer($customer)->getJson(self::COD)->assertStatus(422);
+
+        $this->assertSame([], $this->ordersWithTheirRows());
+        $this->assertSame([1, 2], $this->productsInTheCart(), 'and the cart is left as it was');
+    }
+
     /** The two halves are judged against their own, so a disagreement in either one is still refused while the other agrees. */
     public function test_a_disagreement_in_either_half_is_still_refused(): void
     {

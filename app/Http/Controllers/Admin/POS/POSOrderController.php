@@ -112,6 +112,7 @@ class POSOrderController extends BaseController
         if ($userId == 0 && $checkProductTypeDigital) {
             return response()->json(['checkProductTypeForWalkingCustomer' => true, 'message' => translate('To_order_digital_product') . ',' . translate('_kindly_fill_up_the_“Add_New_Customer”_form') . '.']);
         }
+
         $taxConfig = self::getTaxSystemType();
         $cart = session($cartId);
 
