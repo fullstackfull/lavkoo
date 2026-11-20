@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Customer;
 
+use App\Http\Controllers\Admin\Customer\CustomerController;
 use App\Http\Middleware\ApplySeoRedirects;
 use App\Http\Middleware\DetectMobile;
 use App\Http\Middleware\Localization;
@@ -12,6 +13,7 @@ use App\Http\Middleware\RecordHttpTelemetry;
 use App\Models\LoyaltyPointTransaction;
 use App\Models\User;
 use App\Models\WalletTransaction;
+use App\Services\CustomerService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -22,7 +24,7 @@ use Tests\TestCase;
 
 /**
  * Base for the tests of the customer's two money ledgers: the ledgers built by their OWN migrations, the store tables around them, and
- * both ways a customer closes an account — the mobile app's REST v1 route and the website's.
+ * every way an account is closed — the mobile app's REST v1 route, the website's and the admin panel's.
  */
 abstract class CustomerLedgerTestCase extends TestCase
 {
@@ -102,6 +104,15 @@ abstract class CustomerLedgerTestCase extends TestCase
         $this->actingAs($customer, 'customer');
 
         return $this->get(route('account-delete', $id ?? $customer->id));
+    }
+
+    /**
+     * The panel's own way of closing an account. The controller is driven rather than the route, because what is being proved is what the
+     * action does to the money; full admin authentication needs the admins, roles and permission tables and would prove nothing more here.
+     */
+    protected function deleteThroughTheAdminPanel(User $customer): void
+    {
+        app(CustomerController::class)->deleteCustomer($customer->id, app(CustomerService::class));
     }
 
     /** @var array{private: string, public: string}|null generated once per run: making a key pair is the slowest step of a test */

@@ -15,6 +15,10 @@ use RuntimeException;
  * The database an account-deletion test needs: the two money ledgers built by their OWN migrations (so what the test measures is the
  * live shape of the tables, foreign keys and all), and an INFERRED copy of the store tables around them — the installation dump that
  * owns `users` and `orders` is not in the repository, so these hold the columns the deletion path touches and no more.
+ *
+ * `email` and `phone` carry a unique index here because the live store registers against both: closing an account rewrites them, and the
+ * rewrite has to survive the index rather than merely happen to. What this schema CANNOT say is whether a column the scrub sets to null is
+ * NOT NULL on the live server; that needs the live schema, which is not in this repository either.
  */
 trait BuildsCustomerLedgerSchema
 {
@@ -62,8 +66,8 @@ trait BuildsCustomerLedgerSchema
             $table->string('name')->nullable();
             $table->string('f_name')->nullable();
             $table->string('l_name')->nullable();
-            $table->string('email')->nullable();
-            $table->string('phone')->nullable();
+            $table->string('email')->nullable()->unique();
+            $table->string('phone')->nullable()->unique();
             $table->string('password')->nullable();
             $table->string('image')->nullable();
             $table->string('street_address')->nullable();
@@ -155,11 +159,19 @@ trait BuildsCustomerLedgerSchema
         }
     }
 
+    /** The password every customer this trait makes is given, so a test can try to sign in as one. */
+    protected const CUSTOMER_PASSWORD = 'secret-password';
+
+    /** Counted rather than drawn at random: a fixture that differs between runs cannot be reasoned about when it fails on one of them. */
+    private int $customersMade = 0;
+
     protected function makeCustomer(array $overrides = []): User
     {
+        $number = ++$this->customersMade;
+
         return User::unguarded(static fn (): User => User::create($overrides + [
-            'f_name' => 'Sara', 'l_name' => 'Alharbi', 'email' => 'sara' . random_int(1000, 9999) . '@example.test',
-            'phone' => '+96655' . random_int(1000000, 9999999), 'password' => bcrypt('secret-password'), 'is_active' => true,
+            'f_name' => 'Sara', 'l_name' => 'Alharbi', 'email' => 'sara' . $number . '@example.test',
+            'phone' => '+96655000' . str_pad((string) $number, 4, '0', STR_PAD_LEFT), 'password' => bcrypt(self::CUSTOMER_PASSWORD), 'is_active' => true,
         ]));
     }
 }

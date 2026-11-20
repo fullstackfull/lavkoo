@@ -3,6 +3,7 @@
 namespace Tests\Feature\Customer;
 
 use App\Models\User;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -11,7 +12,8 @@ use Illuminate\Support\Str;
  * two ledgers have, so an account that holds money, or has ever moved any, keeps its row with the personal details scrubbed out of it;
  * an account that holds nothing is removed, as it always was.
  *
- * Measured through both ways in: the mobile app's REST v1 route and the website's.
+ * Measured through every way in: the mobile app's REST v1 route, the website's, and the admin panel's — which deleted the row outright
+ * and stranded the ledger rows on a parent that no longer existed.
  */
 class AccountDeletionKeepsLedgerTest extends CustomerLedgerTestCase
 {
@@ -40,6 +42,28 @@ class AccountDeletionKeepsLedgerTest extends CustomerLedgerTestCase
         $closed = DB::table('users')->where('id', $customer->id)->first();
         $this->assertSame(77.5, (float) $closed->wallet_balance);
         $this->assertSame(12.0, (float) $closed->loyalty_point);
+    }
+
+    public function test_the_admin_panel_keeps_the_ledger_rows_and_the_balance_record_of_a_customer_who_held_money(): void
+    {
+        $customer = $this->makeCustomerWithMoneyHistory(walletBalance: 150.25, loyaltyPoints: 400.0);
+
+        $this->deleteThroughTheAdminPanel($customer);
+
+        $this->assertSame(['users' => 1, 'wallet' => 2, 'loyalty' => 2], $this->moneyRowsOf($customer->id), 'Deleting a customer from the panel is the same act with the same consequence: the balance record and the history stay.');
+        $closed = DB::table('users')->where('id', $customer->id)->first();
+        $this->assertSame(150.25, (float) $closed->wallet_balance);
+        $this->assertSame(400.0, (float) $closed->loyalty_point);
+        $this->assertSame('deleted', $closed->f_name, 'The panel closes the account the same way the customer\'s own routes do.');
+    }
+
+    public function test_the_admin_panel_removes_an_account_that_never_held_money_as_it_always_did(): void
+    {
+        $customer = $this->makeCustomer();
+
+        $this->deleteThroughTheAdminPanel($customer);
+
+        $this->assertSame(['users' => 0, 'wallet' => 0, 'loyalty' => 0], $this->moneyRowsOf($customer->id), 'Saudi behaviour for a customer with nothing to keep is what it was: the row goes.');
     }
 
     public function test_the_closed_account_carries_none_of_the_customers_details_any_more(): void
@@ -72,16 +96,24 @@ class AccountDeletionKeepsLedgerTest extends CustomerLedgerTestCase
     public function test_the_closed_account_cannot_be_signed_in_to_again(): void
     {
         $customer = $this->makeCustomerWithMoneyHistory();
+        $addressTheCustomerKnew = $customer->email;
         DB::table('oauth_access_tokens')->insert([
             'id' => (string) Str::uuid(), 'user_id' => $customer->id, 'client_id' => 1, 'revoked' => false, 'created_at' => now(), 'updated_at' => now(),
         ]);
 
         $this->deleteThroughTheApi($customer)->assertOk();
 
+        $this->assertFalse(
+            Auth::guard('customer')->attempt(['email' => $addressTheCustomerKnew, 'password' => self::CUSTOMER_PASSWORD]),
+            'The address and password the customer signed in with still open a session.',
+        );
+        $this->assertFalse(
+            Auth::guard('customer')->attempt(['email' => 'deleted-' . $customer->id . '@deleted.invalid', 'password' => self::CUSTOMER_PASSWORD]),
+            'The row that is left opens with the password the customer knew.',
+        );
+        $this->assertFalse(Auth::guard('customer')->check());
         $this->assertSame(0, DB::table('oauth_access_tokens')->where('user_id', $customer->id)->where('revoked', false)->count(), 'A token issued before the account was closed still opens every customer route while it is unrevoked.');
-        $closed = User::find($customer->id);
-        $this->assertFalse((bool) $closed->is_active);
-        $this->assertFalse(password_verify('secret-password', (string) $closed->password), 'The password the customer knew must not open the row that is left.');
+        $this->assertFalse((bool) User::find($customer->id)->is_active);
     }
 
     public function test_an_account_that_never_held_money_is_removed_as_it_always_was(): void

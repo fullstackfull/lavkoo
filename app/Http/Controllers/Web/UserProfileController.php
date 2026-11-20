@@ -141,7 +141,7 @@ class UserProfileController extends Controller
             ImageManager::delete('/profile/' . $user['image']);
             session()->forget('wish_list');
 
-            $this->customerAccountDeletionService->closeAccount($user);
+            $this->customerAccountDeletionService->closeAccount(customer: $user);
             Toastr::info(translate('Your_account_deleted_successfully!!'));
             return redirect()->route('home');
         }

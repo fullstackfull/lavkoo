@@ -11,7 +11,12 @@ namespace Tests\Support;
  * `rowsEditedIn()` asks the narrower question an append-only ledger needs: not what the code WRITES but what it goes back and CHANGES or
  * REMOVES. An insert is not an edit, so the six writers that append a money movement stay off its answer while an update or a delete of
  * one does not, however it is spelled — including through a model the code holds in a property, which is how both ledger repositories
- * reach their own table.
+ * reach their own table, through a model handed on from such a property into a variable, and with the call's arguments named, which is
+ * this repository's own house style.
+ *
+ * `schemaDestroyedIn()` asks the third question, about SHAPE rather than rows: a table can keep every row it was ever given and still lose
+ * them to a migration that drops the table or one of its columns. The two are deliberately separate, because the ledgers' own migrations
+ * legitimately drop them in their `down()` and a row guard that flagged those would need them excused.
  */
 final class PlatformWriteScanner
 {
@@ -41,6 +46,12 @@ final class PlatformWriteScanner
     /** The calls whose first argument names the table a query starts from. A join is not one: its other arguments hold columns, not tables. */
     private const TABLE_ARGUMENT_CALLS = 'DB::table|->table|->from';
 
+    /** The schema calls that destroy a whole table. */
+    private const SCHEMA_DESTROYS_TABLE = 'drop|dropIfExists|rename';
+
+    /** The blueprint calls that take data off a table that stays: a dropped or renamed column loses every value in it. */
+    private const COLUMN_DESTROYERS = 'dropColumn|dropColumns|renameColumn|dropMorphs|dropSoftDeletes|dropTimestamps|dropRememberToken';
+
     /** @param list<string> $platformModels the platform's models whose save, create, update or delete would write one of its tables */
     public function __construct(private readonly array $platformModels)
     {
@@ -69,6 +80,58 @@ final class PlatformWriteScanner
     }
 
     /**
+     * Every table whose SHAPE the code destroys: dropped or renamed outright, or named to `Schema::table()` where a column of it is dropped
+     * or renamed. Dropping a table takes every row with it without editing one, so a row guard cannot see it; and the ledgers' own create
+     * migrations drop them in their `down()`, which is why this is asked separately and answered against a list of the files allowed to.
+     *
+     * A column-destroying call is attributed to the last table named to the schema builder, so a closure spread over several statements is
+     * read as being about the table its `Schema::table()` opened.
+     *
+     * @return list<string> sorted
+     */
+    public function schemaDestroyedIn(string $code): array
+    {
+        $constants = $this->constantsIn($code);
+        $destroyed = [];
+        $openTables = [];
+
+        foreach ($this->statementsOf($code) as $statement) {
+            $statement = $this->literalsFolded($this->argumentLabelsStripped($statement));
+            if (preg_match('/Schema::(?:' . self::SCHEMA_DESTROYS_TABLE . ')\s*\(/', $statement) === 1) {
+                array_push($destroyed, ...$this->schemaTablesNamedIn($statement, $constants));
+            }
+            if (preg_match('/Schema::table\s*\(/', $statement) === 1) {
+                $openTables = $this->schemaTablesNamedIn($statement, $constants);
+            }
+            if ($openTables !== [] && preg_match('/->\s*(?:' . self::COLUMN_DESTROYERS . ')\s*\(/', $statement) === 1) {
+                array_push($destroyed, ...$openTables);
+            }
+        }
+
+        $destroyed = array_values(array_unique($destroyed));
+        sort($destroyed);
+
+        return $destroyed;
+    }
+
+    /**
+     * The tables a statement names to the schema builder, by a string, by a constant, or unreadably.
+     *
+     * @param array<string, string> $constants
+     * @return list<string>
+     */
+    private function schemaTablesNamedIn(string $statement, array $constants): array
+    {
+        preg_match_all('/Schema::(?:' . self::SCHEMA_WRITES . ')\s*\(\s*(?:([\'"])([a-z0-9_]+)\\1|(?:self|static|[A-Z]\w*)::([A-Z][A-Z0-9_]*)|(\$))/', $statement, $found, PREG_SET_ORDER);
+
+        return array_map(static fn (array $match): string => match (true) {
+            ($match[2] ?? '') !== '' => strtolower($match[2]),
+            ($match[3] ?? '') !== '' => $constants[$match[3]] ?? self::UNKNOWN_TABLE,
+            default => self::UNKNOWN_TABLE,
+        }, $found);
+    }
+
+    /**
      * @param bool $editsOnly true to count only what changes or removes a row that is already there, false to count every write
      * @return list<string> sorted
      */
@@ -83,9 +146,9 @@ final class PlatformWriteScanner
         $models = [];
 
         foreach ($statements as $statement) {
-            // Folding, the holders and the report of a name that cannot be read are on the edit path only: the write question's guards
-            // assert an exact list of what they find, and widening what they see belongs in a change of its own, not in this one.
-            $statement = $editsOnly ? $this->literalsFolded($statement) : $statement;
+            // Folding, the argument labels, the holders and the report of a name that cannot be read are on the edit path only: the write
+            // question's guards assert an exact list of what they find, and widening what they see belongs in a change of its own.
+            $statement = $editsOnly ? $this->literalsFolded($this->argumentLabelsStripped($statement)) : $statement;
             $tables = $this->tablesNamedIn($statement, $constants);
             $writes = preg_match('/->(?:' . $builderVerbs . ')\(/', $statement) === 1;
 
@@ -106,6 +169,7 @@ final class PlatformWriteScanner
             array_push($touched, ...$this->modelWrites($statement, $models, editsOnly: $editsOnly));
             if ($editsOnly) {
                 array_push($touched, ...$this->heldModelEdits($statement, $holders), ...$this->unreadableNamesIn($statement));
+                $this->followHolders($statement, $holders);
             }
         }
 
@@ -254,6 +318,48 @@ final class PlatformWriteScanner
         }
 
         return $written;
+    }
+
+    /**
+     * The same statement with the labels off its named arguments: `DB::table(table: 'wallet_transactions', as: 'w')` reads as
+     * `DB::table('wallet_transactions', 'w')`.
+     *
+     * This repository's own standards MANDATE named arguments, so the house style was the way past every rule here that reads a table name.
+     * Taking the label off once, before anything looks at the statement, is why none of those rules had to learn about it. `::` is left
+     * alone, or `Foo::class` inside a call would lose its class.
+     */
+    private function argumentLabelsStripped(string $statement): string
+    {
+        return (string) preg_replace('/([(,])\s*\w+\s*:(?!:)\s*/', '$1', $statement);
+    }
+
+    /**
+     * Whatever a statement assigns out of a ledger model holds it too: `$movement = $this->walletTransaction->find($id)` hands the model to
+     * `$movement`, so `$movement->credit = 0; $movement->save();` two statements later is an edit of a money row. Without this the oldest
+     * trick in Eloquent -- fetch the row, change it, save it -- was invisible while the one-line `->where(...)->update(...)` was not.
+     *
+     * The assignment is looked for anywhere in the statement rather than at its start, because the first statement of a class file carries
+     * the class and method headers in front of it: `modelWrites()` anchors at the start, so what it tracks depends on where in the file the
+     * code sits, and a guard must not.
+     *
+     * @param array<string, string> $holders the holder as the code writes it => the model it holds; added to in place
+     */
+    private function followHolders(string $statement, array &$holders): void
+    {
+        foreach ($this->platformModels as $model) {
+            $this->rememberWhatHoldsTheModel($statement, '\b' . $model . '\s*::', $model, $holders);
+        }
+        foreach (array_keys($holders) as $holder) {
+            $this->rememberWhatHoldsTheModel($statement, preg_quote($holder, '/') . '\s*->', $holders[$holder], $holders);
+        }
+    }
+
+    /** @param array<string, string> $holders added to in place, and never overwritten: a holder keeps the model it was first seen to hold */
+    private function rememberWhatHoldsTheModel(string $statement, string $source, string $model, array &$holders): void
+    {
+        if (preg_match('/(\$\w+)\s*=(?!=)\s*[^=]*?' . $source . '/s', $statement, $assigned) === 1) {
+            $holders[$assigned[1]] ??= $model;
+        }
     }
 
     /** `'wallet_' . 'transactions'` is one name, not two: adjacent string literals are joined before a table is looked for. */

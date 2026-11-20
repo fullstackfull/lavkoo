@@ -137,7 +137,7 @@ class CustomerController extends Controller
             }
 
             $this->delete('/profile/' . $user['image']);
-            $this->customerAccountDeletionService->closeAccount($user);
+            $this->customerAccountDeletionService->closeAccount(customer: $user);
             return response()->json(['message' => 'Your account deleted successfully'], 200);
         } else {
             return response()->json(['message' => 'access_denied!!'], 403);

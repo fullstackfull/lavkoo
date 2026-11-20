@@ -29,6 +29,11 @@ use Tests\TestCase;
  *
  * Reading text is not watching behaviour, so the two means that used to exist are pinned by reflection as well: neither ledger repository,
  * and neither of their interfaces, carries a method that could edit a row.
+ *
+ * One check here belongs to E-08.1 rather than E-08.0, and is here because it is the same question asked of the same files: the customer
+ * row IS the balance record and the only parent the two ledgers have, so the code that removes one is the code that destroys a balance.
+ * Three ways in were tested and a fourth, in the admin panel, was missed; a list of the files allowed to remove a customer row is what
+ * would have found it.
  */
 class LedgerRowsAreAppendOnlyTest extends TestCase
 {
@@ -39,6 +44,24 @@ class LedgerRowsAreAppendOnlyTest extends TestCase
     private const LEDGERS = ['wallet_transactions', 'loyalty_point_transactions', 'model WalletTransaction', 'model LoyaltyPointTransaction'];
 
     private const LEDGER_MODELS = ['WalletTransaction', 'LoyaltyPointTransaction'];
+
+    /** The ledgers as tables alone, for the question about their shape: a model has no shape to drop. */
+    private const LEDGER_TABLES = ['wallet_transactions', 'loyalty_point_transactions'];
+
+    /**
+     * Every way the source removes a customer row, and the one file allowed to. The row carries `wallet_balance` and `loyalty_point` and is
+     * the only parent the two ledgers have, so removing it destroys a balance record and orphans its history whatever the ledger tables
+     * themselves are protected against.
+     *
+     * @var array<string, string>
+     */
+    private const REMOVES_A_CUSTOMER_ROW = [
+        'a customer model deleted' => '/\$(?:customer|user)\w*\s*->\s*(?:delete|forceDelete)\s*\(/',
+        'a customer repository asked to delete' => '/(?:customerRepo|customerRepository|userRepo)\s*->\s*delete\s*\(/',
+    ];
+
+    /** The only file that may remove a customer row, because it is the one that decides whether the account holds money first. */
+    private const MAY_REMOVE_A_CUSTOMER_ROW = 'app/Services/CustomerAccountDeletionService.php';
 
     /**
      * The files that change or remove rows in a table they name at run time, and why each one cannot reach a ledger. The scan cannot read
@@ -51,6 +74,33 @@ class LedgerRowsAreAppendOnlyTest extends TestCase
         'app/Console/Commands/AnalyticsRollup.php' => 'prunes rows past their retention from the four analytics_* tables its own callers name as literals',
         'app/Http/Controllers/Admin/Settings/DatabaseSettingController.php' => 'empties the tables an admin ticks, and both ledgers are in TABLES_NEVER_EMPTIED, which LedgerTablesAreNeverEmptiedTest proves it honours',
         'app/Services/SalesChannels/Dispatch/BuyerEchoScrubber.php' => 'scrubs the buyer\'s words out of the three provider_* tables its own callers name as literals',
+    ];
+
+    /**
+     * Every public method each ledger repository and its interface is allowed to have, in order. A name list of the editing verbs was not
+     * enough: `zeroOut()` is none of them and rewrites a money row just the same, so what is allowed is written down instead of what is
+     * forbidden. Each entry here reads the ledger, appends to it, or works a figure out and touches no row.
+     *
+     * @var array<class-string, list<string>>
+     */
+    private const EVERY_PUBLIC_METHOD = [
+        WalletTransactionRepository::class => ['__construct', 'add', 'addFundToWalletBonus', 'addWalletTransaction', 'getFirstWhere', 'getList', 'getListWhere', 'getListWhereSelect'],
+        LoyaltyPointTransactionRepository::class => ['__construct', 'add', 'addLoyaltyPointTransaction', 'getFirstWhere', 'getList', 'getListWhere', 'getListWhereSelect'],
+        WalletTransactionRepositoryInterface::class => ['add', 'addFundToWalletBonus', 'addWalletTransaction', 'getFirstWhere', 'getList', 'getListWhere', 'getListWhereSelect'],
+        LoyaltyPointTransactionRepositoryInterface::class => ['add', 'addLoyaltyPointTransaction', 'getFirstWhere', 'getList', 'getListWhere', 'getListWhereSelect'],
+    ];
+
+    /**
+     * The files allowed to destroy the shape of a ledger, and why each is. A table keeps every row it was given and still loses them to a
+     * migration that drops it or one of its columns, which no guard over row edits can see; so the shape is asked about separately, and
+     * against this list.
+     *
+     * @var array<string, string>
+     */
+    private const MAY_DESTROY_THE_SHAPE_OF_A_LEDGER = [
+        'database/migrations/2022_05_12_104247_create_wallet_transactions_table.php' => 'the wallet ledger\'s own create migration: its down() drops the table it made',
+        'database/migrations/2022_05_14_063309_create_loyalty_point_transactions_table.php' => 'the loyalty ledger\'s own create migration: its down() drops the table it made',
+        'database/migrations/2023_08_26_173523_add_payment_method_column_to_wallet_transactions_table.php' => 'its down() drops the one column its up() added, and payment_method holds no money',
     ];
 
     /** The six files that append a movement: the check has to be reading them, or its silence means nothing. */
@@ -93,6 +143,35 @@ class LedgerRowsAreAppendOnlyTest extends TestCase
         $this->assertSame(array_keys(self::EDITS_A_TABLE_NAMED_AT_RUN_TIME), $found, 'A table named at run time is a name this check cannot read: each one is accounted for above, or a ledger could be emptied through it unseen.');
     }
 
+    public function test_the_only_files_that_drop_a_ledger_or_a_column_of_one_are_the_ones_allowed_to(): void
+    {
+        $found = [];
+        foreach (self::code() as $path => $code) {
+            $destroyed = array_values(array_intersect((new PlatformWriteScanner(self::LEDGER_MODELS))->schemaDestroyedIn($code), self::LEDGER_TABLES));
+            if ($destroyed !== []) {
+                $found[$path] = $destroyed;
+            }
+        }
+        ksort($found);
+
+        $this->assertSame(array_keys(self::MAY_DESTROY_THE_SHAPE_OF_A_LEDGER), array_keys($found), 'A migration that drops a money ledger, or a column of one, destroys every movement in it without editing a single row. Only the files named above may, and each one says why.');
+    }
+
+    public function test_the_only_code_that_removes_a_customer_row_is_the_service_that_keeps_the_money_first(): void
+    {
+        $offenders = [];
+        foreach (self::code() as $path => $code) {
+            foreach (self::REMOVES_A_CUSTOMER_ROW as $description => $pattern) {
+                if (preg_match($pattern, $code) === 1 && $path !== self::MAY_REMOVE_A_CUSTOMER_ROW) {
+                    $offenders[$path] = $description;
+                }
+            }
+        }
+        ksort($offenders);
+
+        $this->assertSame([], $offenders, 'The customer row is the balance record and the only parent the two ledgers have. Every way of closing an account goes through CustomerAccountDeletionService, which keeps the row when it holds money; a path that removes it directly destroys a balance and orphans its history.');
+    }
+
     public function test_the_check_reads_every_root_it_claims_to_and_the_six_writers_still_name_a_ledger(): void
     {
         $paths = array_keys(self::code());
@@ -114,13 +193,13 @@ class LedgerRowsAreAppendOnlyTest extends TestCase
         }
     }
 
-    public function test_neither_ledger_repository_carries_a_method_that_could_edit_a_row(): void
+    public function test_neither_ledger_repository_offers_anything_but_the_methods_named_here(): void
     {
-        foreach ([WalletTransactionRepository::class, LoyaltyPointTransactionRepository::class, WalletTransactionRepositoryInterface::class, LoyaltyPointTransactionRepositoryInterface::class] as $class) {
-            $methods = array_map(static fn (ReflectionMethod $method): string => $method->getName(), (new ReflectionClass($class))->getMethods());
-            $editing = array_values(array_intersect($methods, ['update', 'delete', 'destroy', 'forceDelete', 'truncate', 'upsert', 'updateOrCreate', 'save']));
+        foreach (self::EVERY_PUBLIC_METHOD as $class => $allowed) {
+            $methods = array_map(static fn (ReflectionMethod $method): string => $method->getName(), (new ReflectionClass($class))->getMethods(ReflectionMethod::IS_PUBLIC));
+            sort($methods);
 
-            $this->assertSame([], $editing, $class . ' offers a way to edit a money row; an unused one is an accident waiting for a caller.');
+            $this->assertSame($allowed, $methods, $class . ' has gained or lost a public method. Each one here reads the ledger, appends to it, or works a figure out; a method that is not on this list has to be put on it deliberately, because the container hands callers the concrete class and an undeclared public method on it is callable.');
         }
     }
 
@@ -162,6 +241,12 @@ class LedgerRowsAreAppendOnlyTest extends TestCase
             'a builder kept in a variable and written later' => ["\$query = DB::table('wallet_transactions')->where('id', 1);\n\$query->update(['credit' => 0]);", ['wallet_transactions']],
             'the ledger model through a static call' => ["WalletTransaction::where('id', 1)->update(['credit' => 0]);", ['model WalletTransaction']],
             'the ledger model fetched and saved again' => ["\$row = WalletTransaction::find(1);\n\$row->credit = 0;\n\$row->save();", ['model WalletTransaction']],
+            'the table named by a named argument, which is the house style' => ["DB::table(table: 'wallet_transactions')->where('id', 1)->delete();", ['wallet_transactions']],
+            'a named argument with an alias beside it' => ["DB::table(table: 'wallet_transactions', as: 'w')->where('id', 1)->delete();", ['wallet_transactions']],
+            'a named argument to from()' => ["DB::query()->from(table: 'loyalty_point_transactions')->update(['credit' => 0]);", ['loyalty_point_transactions']],
+            'a class name inside a call is not an argument label' => ["app(WalletTransaction::class)->where('id', 1)->delete();", ['model WalletTransaction']],
+            'the ledger model fetched through a held property and saved again' => ["class R {\npublic function __construct(private readonly WalletTransaction \$walletTransaction)\n{\n}\n\npublic function zeroOut(string \$id): bool\n{\n\$movement = \$this->walletTransaction->find(\$id);\n\$movement->credit = 0;\n\$movement->save();\n\nreturn true;\n} }", ['model WalletTransaction']],
+            'the ledger model fetched through a held property and updated' => ["class R {\npublic function __construct(private readonly LoyaltyPointTransaction \$loyaltyPointTransaction)\n{\n}\n\npublic function z(string \$id): void\n{\n\$row = \$this->loyaltyPointTransaction->find(\$id);\n\$row->update(['balance' => 0]);\n} }", ['model LoyaltyPointTransaction']],
             'the ledger model held in a property' => ["class R { public function __construct(private readonly WalletTransaction \$walletTransaction) {}\npublic function wipe(array \$params): bool { \$this->walletTransaction->where(\$params)->delete(); return true; } }", ['model WalletTransaction']],
             'the ledger model handed in as a parameter' => ["function reset(LoyaltyPointTransaction \$row): void { \$row->update(['balance' => 0]); }", ['model LoyaltyPointTransaction']],
             'the ledger through a relation' => ["\$user->walletTransaction()->update(['credit' => 0]);", ['model WalletTransaction']],
@@ -184,6 +269,33 @@ class LedgerRowsAreAppendOnlyTest extends TestCase
     public function test_the_check_sees_an_edit_in_each_of_the_ways_a_ledger_row_could_be_changed(string $code, array $expected): void
     {
         $this->assertSame($expected, $this->rowsEditedIn($code));
+    }
+
+    /** @return array<string, array{0: string, 1: list<string>}> */
+    public static function shapeChanges(): array
+    {
+        return [
+            'the table dropped if it is there' => ["Schema::dropIfExists('wallet_transactions');", ['wallet_transactions']],
+            'the table dropped' => ["Schema::drop('loyalty_point_transactions');", ['loyalty_point_transactions']],
+            'the table renamed out of the way, which is the name that loses its rows' => ["Schema::rename('wallet_transactions', 'wallet_transactions_old');", ['wallet_transactions']],
+            'a money column dropped by an arrow function' => ["Schema::table('wallet_transactions', fn (Blueprint \$table) => \$table->dropColumn('credit'));", ['wallet_transactions']],
+            'a money column dropped further down a closure' => ["Schema::table('wallet_transactions', function (Blueprint \$table) {\n\$table->string('note')->nullable();\n\$table->dropColumn('credit');\n});", ['wallet_transactions']],
+            'a money column renamed' => ["Schema::table('loyalty_point_transactions', function (Blueprint \$table) { \$table->renameColumn('credit', 'cr'); });", ['loyalty_point_transactions']],
+            'the table named by a named argument' => ["Schema::dropIfExists(table: 'wallet_transactions');", ['wallet_transactions']],
+            'adding a column is not destroying one' => ["Schema::table('wallet_transactions', function (Blueprint \$table) { \$table->string('payment_method')->nullable(); });", []],
+            'changing a column is not destroying it' => ["Schema::table('wallet_transactions', function (Blueprint \$table) { \$table->decimal('credit', 40, 20)->change(); });", []],
+            'making the table is not destroying it' => ["Schema::create('wallet_transactions', function (Blueprint \$table) { \$table->id(); });", []],
+            'an index dropped is not a row lost' => ["Schema::table('wallet_transactions', function (Blueprint \$table) { \$table->dropIndex('wallet_transactions_user_id_index'); });", []],
+            'a table whose name only starts like a ledger' => ["Schema::dropIfExists('wallet_transaction_exports');", ['wallet_transaction_exports']],
+            'a comment that names a drop is not one' => ["// Schema::dropIfExists('wallet_transactions');\n\$x = 1;", []],
+        ];
+    }
+
+    /** @param list<string> $expected */
+    #[DataProvider('shapeChanges')]
+    public function test_the_check_sees_each_way_the_shape_of_a_ledger_could_be_destroyed(string $code, array $expected): void
+    {
+        $this->assertSame($expected, (new PlatformWriteScanner(self::LEDGER_MODELS))->schemaDestroyedIn($code));
     }
 
     /** @return list<string> */

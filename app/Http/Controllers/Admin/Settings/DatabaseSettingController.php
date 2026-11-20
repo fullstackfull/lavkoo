@@ -9,6 +9,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 
 class DatabaseSettingController extends BaseController
@@ -50,12 +51,7 @@ class DatabaseSettingController extends BaseController
      */
     public function index(Request|null $request, ?string $type = null): View
     {
-        $tables = DB::table('information_schema.tables')
-            ->where('table_schema', DB::getDatabaseName())
-            ->pluck('TABLE_NAME')
-            ->toArray();
-
-        $tables = array_values(array_diff($tables, self::TABLES_NEVER_EMPTIED));
+        $tables = $this->emptiableTables();
 
         $rows = [];
         foreach ($tables as $table) {
@@ -73,7 +69,7 @@ class DatabaseSettingController extends BaseController
             return back();
         }
 
-        $tables = array_values(array_diff((array)$request['tables'], self::TABLES_NEVER_EMPTIED));
+        $tables = array_values(array_intersect((array)$request['tables'], $this->emptiableTables()));
 
         if(count($tables) == 0) {
             ToastMagic::error(translate('No_Table_Updated'));
@@ -93,5 +89,22 @@ class DatabaseSettingController extends BaseController
 
         ToastMagic::success(translate('Updated_successfully'));
         return back();
+    }
+
+    /**
+     * The tables this screen offers, and the only ones it will act on: the current schema's own tables, less the ones it never empties.
+     *
+     * Both the screen and the action read this one list, so what is offered and what is accepted cannot drift apart. It is an ALLOWLIST on
+     * purpose: subtracting the protected names from whatever the request asked for compares strings, and a protected table has more than
+     * one spelling -- `<schema>.wallet_transactions` and `wallet_transactions as w` both reach the ledger while matching no protected name.
+     * Keeping only the names that are in the offered list leaves a tampered form nothing to reach.
+     *
+     * @return list<string>
+     */
+    private function emptiableTables(): array
+    {
+        $tables = Schema::getTableListing(schema: Schema::getCurrentSchemaName(), schemaQualified: false);
+
+        return array_values(array_diff($tables, self::TABLES_NEVER_EMPTIED));
     }
 }
