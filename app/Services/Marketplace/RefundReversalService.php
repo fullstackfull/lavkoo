@@ -4,6 +4,7 @@ namespace App\Services\Marketplace;
 
 use App\Models\OrderItemCommission;
 use App\Models\VendorLedgerEntry;
+use App\Services\Storefront\OrderLegalEntitySnapshot;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
@@ -37,8 +38,10 @@ use Illuminate\Support\Facades\Schema;
  */
 class RefundReversalService
 {
-    public function __construct(private readonly VendorLedger $ledger)
-    {
+    public function __construct(
+        private readonly VendorLedger $ledger,
+        private readonly OrderLegalEntitySnapshot $orderCompany,
+    ) {
     }
 
     /**
@@ -96,6 +99,14 @@ class RefundReversalService
                     return ['refund_debit' => 0.0, 'commission_credit' => 0.0];
                 }
 
+                // Whose money comes back: the company of the EARNING being reversed, not whatever the
+                // registry answers today. A reversal that landed in another company would take that
+                // company's balance negative by the amount and leave the earning's over-credited by
+                // it, so a company is never resolved afresh here: the earning's own entry is read,
+                // and an earning that names none gives back a reversal that names none too. Only when
+                // this line has no earning on the ledger at all is the order's frozen stamp read.
+                $legalEntityId = $this->companyOfTheEarningOf(snapshot: $snapshot, orderDetailsId: $orderDetailsId);
+
                 // The seller gives back the earning on the returned portion (ex-tax, capped at base)...
                 $this->ledger->record(
                     sellerId: $snapshot->seller_id,
@@ -106,6 +117,7 @@ class RefundReversalService
                     referenceId: $refundReference ?? $orderDetailsId,
                     description: 'Refund on order line #' . $orderDetailsId,
                     currency: $snapshot->currency,
+                    legalEntityId: $legalEntityId,
                 );
 
                 // ...and the marketplace gives back its cut of it.
@@ -119,6 +131,7 @@ class RefundReversalService
                         referenceId: $refundReference ?? $orderDetailsId,
                         description: 'Commission reversed on refund of line #' . $orderDetailsId,
                         currency: $snapshot->currency,
+                        legalEntityId: $legalEntityId,
                     );
 
                     $snapshot->forceFill([
@@ -133,5 +146,30 @@ class RefundReversalService
 
             return null;
         }
+    }
+
+    /**
+     * The company a reversal of this line belongs to (GCC-13, D1-03): the company of the earning it reverses.
+     *
+     * Read off the earning entry itself, so an earning that names no company is reversed by entries that name none either. The order's own frozen
+     * stamp is read only when the line has no earning on the ledger, which is the one case where there is no earning to agree with.
+     */
+    private function companyOfTheEarningOf(OrderItemCommission $snapshot, int|string $orderDetailsId): ?int
+    {
+        if (!$this->ledger->recordsCompanies()) {
+            return null;
+        }
+
+        $earning = $this->ledger->entryOfEvent(
+            sellerId: $snapshot->seller_id,
+            entryType: VendorLedgerEntry::TYPE_ORDER_EARNING,
+            referenceType: 'order_details',
+            referenceId: $orderDetailsId,
+            sellerIs: $snapshot->seller_is,
+        );
+
+        return $earning === null
+            ? $this->orderCompany->companyOf(orderId: $snapshot->order_id)
+            : $earning->legal_entity_id;
     }
 }

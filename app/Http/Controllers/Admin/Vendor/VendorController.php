@@ -785,7 +785,8 @@ class VendorController extends BaseController
             // amount is stored in USD; the ledger is in base currency, so convert. Idempotent on the
             // withdraw-request id (VendorLedger::record dedupes on entry+reference). This can only lower
             // ledger withdrawable, never raise it, so it can never enable an over-payment.
-            app(\App\Services\Marketplace\VendorLedger::class)->record(
+            $ledger = app(\App\Services\Marketplace\VendorLedger::class);
+            $ledger->record(
                 sellerId: $withdraw['seller_id'],
                 entryType: \App\Models\VendorLedgerEntry::TYPE_PAYOUT,
                 debit: (float) usdToDefaultCurrency($withdraw['amount']),
@@ -793,6 +794,9 @@ class VendorController extends BaseController
                 referenceType: 'legacy_withdraw',
                 referenceId: $id,
                 description: 'Legacy withdraw request #' . $id . ' paid',
+                // A legacy withdraw names no order either, so it carries the company of the ledger rows it is mirrored against, and none
+                // while they name more than one.
+                legalEntityId: $ledger->companyOfSeller(sellerId: $withdraw['seller_id']),
             );
 
             $this->withdrawRequestRepo->update(id: $id, data: $withdrawData);

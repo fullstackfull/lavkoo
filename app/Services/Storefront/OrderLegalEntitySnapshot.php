@@ -49,6 +49,25 @@ final class OrderLegalEntitySnapshot
         ]);
     }
 
+    /**
+     * The company an order was stamped with, for a writer whose money belongs to the same company as the order it came from: the seller's earning,
+     * the commission charged on it, and a correction of either.
+     *
+     * The order's own frozen stamp, never a fresh look at the registry: an order's company is decided once, when it is placed, and a later change of
+     * the registry must not reach money already recorded. Null while legal entities are off, before the migration has run, and for every order that
+     * carries no stamp, which is every order placed before the switch was thrown.
+     */
+    public function companyOf(int|string|null $orderId): ?int
+    {
+        if (!$orderId || !$this->recordsOrders()) {
+            return null;
+        }
+
+        $company = DB::table('orders')->where('id', $orderId)->value(self::ENTITY_COLUMN);
+
+        return $company === null ? null : (int) $company;
+    }
+
     private function columnsReady(): bool
     {
         $answer = $this->columnsAnswer;

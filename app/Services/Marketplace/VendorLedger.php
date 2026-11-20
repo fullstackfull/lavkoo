@@ -3,6 +3,7 @@
 namespace App\Services\Marketplace;
 
 use App\Models\VendorLedgerEntry;
+use App\Services\Storefront\LegalEntityRegistry;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -32,6 +33,10 @@ class VendorLedger
      * Append one entry and return it. Idempotent on (seller, type, reference): calling it twice for
      * the same order line credits once, which is what makes it safe inside a retried transaction or
      * a webhook delivered more than once.
+     *
+     * `$legalEntityId` is the company whose money this is (GCC-13, D1-03). It is recorded only while
+     * legal entities are switched on and the ledger has a column for it; otherwise the entry carries
+     * no company, which is the one ledger the platform has always kept.
      */
     public function record(
         int|string $sellerId,
@@ -45,6 +50,7 @@ class VendorLedger
         ?string $currency = null,
         string $sellerIs = 'seller',
         ?\DateTimeInterface $availableAt = null,
+        ?int $legalEntityId = null,
     ): ?VendorLedgerEntry {
         if (!Schema::hasTable('vendor_ledger_entries') || !$sellerId) {
             return null;
@@ -52,10 +58,11 @@ class VendorLedger
 
         $credit = round(max(0, $credit), 4);
         $debit = round(max(0, $debit), 4);
+        $company = $this->companyForWriting($legalEntityId);
 
         return DB::transaction(function () use (
             $sellerId, $sellerIs, $entryType, $credit, $debit, $status,
-            $referenceType, $referenceId, $description, $currency, $availableAt
+            $referenceType, $referenceId, $description, $currency, $availableAt, $company
         ) {
             // Idempotency first: if this exact event is already on the ledger, return it unchanged
             // rather than appending a second one.
@@ -79,7 +86,7 @@ class VendorLedger
 
             $balanceAfter = round(((float) ($previous->balance_after ?? 0)) + $credit - $debit, 4);
 
-            return VendorLedgerEntry::create([
+            return VendorLedgerEntry::create($company + [
                 'seller_id' => $sellerId,
                 'seller_is' => $sellerIs,
                 'entry_type' => $entryType,
@@ -94,6 +101,91 @@ class VendorLedger
                 'description' => $description,
             ]);
         }, attempts: 3);
+    }
+
+    /**
+     * The entry that already records one event, for a writer that has to correct that event in the
+     * company it was recorded in rather than in whatever the registry says today.
+     *
+     * Read on (seller, type, reference), the same three fields `record()` is idempotent on, so what
+     * this returns is exactly the entry a second `record()` of the same event would return.
+     */
+    public function entryOfEvent(
+        int|string $sellerId,
+        string $entryType,
+        ?string $referenceType = null,
+        int|string|null $referenceId = null,
+        string $sellerIs = 'seller',
+    ): ?VendorLedgerEntry {
+        if (!Schema::hasTable('vendor_ledger_entries') || !$sellerId) {
+            return null;
+        }
+
+        return VendorLedgerEntry::query()
+            ->forSeller($sellerId, $sellerIs)
+            ->where('entry_type', $entryType)
+            ->where('reference_type', $referenceType)
+            ->where('reference_id', $referenceId)
+            ->first();
+    }
+
+    /** The company of one entry, for a writer that puts money back where it came from: a released reservation, a failed transfer. */
+    public function companyOfEntry(int|string|null $entryId): ?int
+    {
+        if (!$entryId || !$this->recordsCompanies()) {
+            return null;
+        }
+
+        $company = VendorLedgerEntry::query()->whereKey($entryId)->value(LegalEntityRegistry::COLUMN);
+
+        return $company === null ? null : (int) $company;
+    }
+
+    /**
+     * The one company the entries of this seller's ledger belong to, for a writer that has neither an
+     * order nor an earlier entry to read: a payout reserve drawn on the seller's balance as a whole,
+     * and the legacy withdraw mirror.
+     *
+     * Null when they name none and null when they name more than one: a writer drawing on a balance
+     * made of two companies cannot choose between them, and a missing company must never block a
+     * money write. Whether a payout should instead be drawn per company is the owner's to decide.
+     */
+    public function companyOfSeller(int|string $sellerId, string $sellerIs = 'seller'): ?int
+    {
+        if (!$sellerId || !$this->recordsCompanies()) {
+            return null;
+        }
+
+        $companies = VendorLedgerEntry::query()
+            ->forSeller($sellerId, $sellerIs)
+            ->whereNotNull(LegalEntityRegistry::COLUMN)
+            ->distinct()
+            ->limit(2)
+            ->pluck(LegalEntityRegistry::COLUMN);
+
+        return $companies->count() === 1 ? (int) $companies->first() : null;
+    }
+
+    /** What an entry carries in its company column: nothing at all while legal entities are off or the ledger has no such column. */
+    private function companyForWriting(?int $legalEntityId): array
+    {
+        return $this->recordsCompanies() ? [LegalEntityRegistry::COLUMN => $legalEntityId] : [];
+    }
+
+    /**
+     * Whether a seller's money is labelled with the company it belongs to. The config switch is asked
+     * first, and it is off by default, so the live platform reads no schema and makes no extra query
+     * on the order, refund or payout paths: `vendor_ledger_entries` has no migration in this
+     * repository and the column is absent from the installation dump the live table came from.
+     *
+     * Public so a caller about to work out which company its write belongs to can stop before it
+     * reads anything, rather than paying for a question whose answer cannot be recorded.
+     */
+    public function recordsCompanies(): bool
+    {
+        return app(LegalEntityRegistry::class)->isEnabled()
+            && Schema::hasTable('vendor_ledger_entries')
+            && Schema::hasColumn('vendor_ledger_entries', LegalEntityRegistry::COLUMN);
     }
 
     /**

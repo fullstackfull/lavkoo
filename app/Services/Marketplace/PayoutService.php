@@ -87,6 +87,9 @@ class PayoutService
                 referenceId: 'pending-' . uniqid(),
                 description: 'Reserved for payout request',
                 sellerIs: $sellerIs,
+                // A reserve has no order to read, so it carries the company of the entries it draws on: the one company of this seller's
+                // ledger, and none while the ledger holds more than one, because a reserve made of two companies' money names neither.
+                legalEntityId: $this->ledger->companyOfSeller(sellerId: $sellerId, sellerIs: $sellerIs),
             );
 
             // Multi-currency: the reserve stays in the ledger base currency (the unit of account); we
@@ -289,6 +292,8 @@ class PayoutService
                     referenceId: $locked->id,
                     description: 'Transfer failed for payout ' . $locked->reference,
                     sellerIs: $locked->seller_is,
+                    // Money that never left comes back to the company it was held out of: the reservation's own company, not a fresh lookup.
+                    legalEntityId: $this->ledger->companyOfEntry(entryId: $locked->reserve_entry_id),
                 );
             }
 
@@ -382,6 +387,8 @@ class PayoutService
                     referenceId: $locked->id,
                     description: 'Released reservation for ' . $toStatus . ' payout ' . $locked->reference,
                     sellerIs: $locked->seller_is,
+                    // A released reservation goes back to the company it was held out of: the reservation's own company.
+                    legalEntityId: $this->ledger->companyOfEntry(entryId: $locked->reserve_entry_id),
                 );
             }
 

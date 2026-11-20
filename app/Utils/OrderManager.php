@@ -1178,6 +1178,11 @@ class OrderManager
                 // commission and the seller could draw the gross. Same timestamp => both mature as one.
                 $availableAt = now()->addDays(max(0, $returnWindowDays));
 
+                // Whose money this is: the company the ORDER was stamped with when it was placed, read once for both entries. The order's own
+                // frozen copy, never a fresh lookup of the registry, so a company that changes later never reaches money already recorded, and
+                // the earning and its commission can never land in two different companies. Null while legal entities are off.
+                $legalEntityId = app(\App\Services\Storefront\OrderLegalEntitySnapshot::class)->companyOf(orderId: $orderId);
+
                 $ledger->record(
                     sellerId: $sellerId,
                     entryType: \App\Models\VendorLedgerEntry::TYPE_ORDER_EARNING,
@@ -1186,6 +1191,7 @@ class OrderManager
                     referenceId: $orderDetailsId,
                     description: 'Order #' . $orderId,
                     availableAt: $availableAt,
+                    legalEntityId: $legalEntityId,
                 );
 
                 if ((float) $calculated['commission_amount'] > 0) {
@@ -1197,6 +1203,7 @@ class OrderManager
                         referenceId: $orderDetailsId,
                         description: $calculated['rule_label'] ?? 'Marketplace commission',
                         availableAt: $availableAt,
+                        legalEntityId: $legalEntityId,
                     );
                 }
             }
