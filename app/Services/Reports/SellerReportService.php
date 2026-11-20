@@ -89,7 +89,8 @@ class SellerReportService
             ->withSum('details', 'tax')
             ->withSum('details', 'discount')
             ->when($search, fn (Builder $query, string $term) => $query->where('id', 'like', "%{$term}%"))
-            ->latest('created_at');
+            ->latest('created_at')
+            ->latest('id');
     }
 
     /**
@@ -142,7 +143,8 @@ class SellerReportService
                     ->groupBy('product_id');
             }])
             ->when($search, fn (Builder $query, string $term) => $query->where('name', 'like', "%{$term}%"))
-            ->latest('created_at');
+            ->latest('created_at')
+            ->latest('id');
     }
 
     /**
@@ -163,7 +165,8 @@ class SellerReportService
             ->when($categoryId && $categoryId !== 'all',
                 fn (Builder $query) => $query->whereJsonContains('category_ids', ['id' => (string) $categoryId]))
             ->when($search, fn (Builder $query, string $term) => $query->where('name', 'like', "%{$term}%"))
-            ->orderBy('current_stock', $sort);
+            ->orderBy('current_stock', $sort)
+            ->latest('id');
     }
 
     /**

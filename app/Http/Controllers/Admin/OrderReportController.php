@@ -40,7 +40,7 @@ class OrderReportController extends Controller
         $chart_data = self::order_report_chart_filter($request);
 
         $orders = self::all_order_table_data_filter($request);
-        $orders = $orders->latest('created_at')->paginate(Helpers::pagination_limit())->appends($query_param);
+        $orders = $orders->latest('created_at')->latest('id')->paginate(Helpers::pagination_limit())->appends($query_param);
 
         $ongoing_order_query = Order::whereIn('order_status', ['out_for_delivery', 'processing', 'confirmed', 'pending']);
         $ongoing_order = self::order_count($request, $ongoing_order_query);

@@ -77,7 +77,8 @@ class ProductWishlistReportController extends Controller
             })
             ->when($sort, function ($query) use ($sort) {
                 $query->withCount('wishList')
-                    ->orderBy('wish_list_count', $sort);
+                    ->orderBy('wish_list_count', $sort)
+                    ->orderByDesc('id');
             });
     }
 }

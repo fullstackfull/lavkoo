@@ -49,6 +49,7 @@ class ProductReportController extends Controller
             });
         $products = self::create_date_wise_common_filter($product_query, $date_type, $from, $to)
             ->latest('created_at')
+            ->latest('id')
             ->paginate(Helpers::pagination_limit())
             ->appends($query_param);
 
