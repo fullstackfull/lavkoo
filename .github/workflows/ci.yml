@@ -105,7 +105,9 @@ jobs:
           - group: Address tests
             paths: tests/Feature/Address
           - group: Storefront tests
-            paths: tests/Unit/Storefront tests/Feature/Storefront
+            # tests/Feature/Marketplace rides with the storefront set rather than in a group of its own: it is the seller ledger's side of the
+            # same selling company, it is small, and the group's name is a required check that must not be renamed to add a path to it.
+            paths: tests/Unit/Storefront tests/Feature/Storefront tests/Feature/Marketplace
     services:
       mysql:
         image: ${{ matrix.image }}
