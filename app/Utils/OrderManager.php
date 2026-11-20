@@ -2821,7 +2821,7 @@ Log::warning('Delivery Syria: parcel saved successfully', [
 
         $isPhysicalProductExist = false;
         $productStockStatus = true;
-        $checkedRows = [];
+        $checkedCartLists = [];
         foreach ($cartItemGroupIDs as $groupId) {
             $isPhysicalProductExist = false;
             $cartList = Cart::whereHas('product', function ($query) {
@@ -2829,7 +2829,7 @@ Log::warning('Delivery Syria: parcel saved successfully', [
             })->with(['product' => function ($query) {
                 return $query->active();
             }])->where(['cart_group_id' => $groupId, 'is_checked' => 1])->get();
-            $checkedRows = [...$checkedRows, ...$cartList->all()];
+            $checkedCartLists[] = $cartList;
             foreach ($cartList as $cart) {
                 if ($cart->product_type == 'physical') {
                     $isPhysicalProductExist = true;
@@ -2939,7 +2939,7 @@ Log::warning('Delivery Syria: parcel saved successfully', [
 
         // One order may name one country and one selling company (D1-02). The rows already read above are judged, so the page refuses
         // the checkout here instead of letting generateOrder() throw at the customer; each country's rows can still be bought on their own.
-        if (OneSellingCompanyPerOrder::spansMoreThanOne(cartRows: $checkedRows)) {
+        if (OneSellingCompanyPerOrder::spansMoreThanOne(cartRows: collect($checkedCartLists)->flatten(1))) {
             $message[] = translate('Product_is_unavailable');
             $response['status'] = 0;
             $response['redirect'] = route('shop-cart');
