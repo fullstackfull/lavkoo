@@ -287,6 +287,21 @@ class SettlementScreensTest extends TestCase
         $this->assertSame(['—'], $this->shown($page, self::BALANCE_AFTER_EACH_ENTRY));
     }
 
+    /**
+     * The operator's screen never adds two currencies, and that is not the settlement switch's decision alone.
+     *
+     * With the ledger kept apart per chain (E-17.2) the button already draws a settlement per currency, so a screen that printed one figure over all of them would show the
+     * operator a number the run will never settle — the riyals and the dirhams added. Both switches now answer one question (SettlementCurrency::areToldApart).
+     */
+    public function test_with_the_ledger_kept_apart_what_waits_is_printed_for_each_currency_even_with_the_settlement_switch_off(): void
+    {
+        config(['gcc.settlements.one_currency' => false, 'gcc.ledgers.keyed_by_entity_and_currency' => true]);
+        $this->earning(100, 'SAR');
+        $this->earning(40, 'AED');
+
+        $this->assertSame(['1', '40.00 AED · 100.00SAR-symbol'], $this->shown($this->listPage(), self::WAITING));
+    }
+
     public function test_with_the_switch_on_the_button_draws_a_settlement_for_each_currency_of_each_vendor(): void
     {
         config(['gcc.settlements.one_currency' => true]);

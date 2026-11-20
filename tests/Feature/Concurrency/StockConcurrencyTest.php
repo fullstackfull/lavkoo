@@ -93,7 +93,7 @@ class StockConcurrencyTest extends TestCase
         $reports = ConcurrentRunner::run('stock.allocate', array_fill(0, 6, $this->pool()));
 
         $this->assertAllWorkersSucceeded($reports);
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes ran at the same time');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the processes ran at the same time');
         $results = array_column($reports, 'result');
         $this->assertCount(1, array_unique(array_map('json_encode', $results)), 'every process was given the same division');
         $this->assertSame(17, $results[0]['net']);
@@ -124,7 +124,7 @@ class StockConcurrencyTest extends TestCase
         $reports = $this->runTogether([['stock.reserve_repeatedly', $writer], ['stock.allocate_repeatedly', $reader], ['stock.allocate_repeatedly', $reader], ['stock.allocate_repeatedly', $reader]]);
 
         $this->assertAllWorkersSucceeded($reports);
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the writer and the readers ran at the same time');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the writer and the readers ran at the same time');
         foreach (array_slice($reports, 1) as $index => $report) {
             $nets = array_column($report['result'], 'net');
             $versions = array_column($report['result'], 'version');
@@ -192,7 +192,7 @@ class StockConcurrencyTest extends TestCase
         $reports = $this->runTogether([['stock.publish', ['account' => $this->first->id]], ['stock.publish', ['account' => $this->second->id]]]);
 
         $this->assertAllWorkersSucceeded($reports);
-        $this->assertTrue(ConcurrentRunner::overlapped($reports));
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports));
         $this->assertSame(['ok', 'ok'], array_column(array_column($reports, 'result'), 'result'));
         $sent = array_merge(...array_column(array_column($reports, 'result'), 'sent'));
         $this->assertSame(2, count($sent));
@@ -231,7 +231,7 @@ class StockConcurrencyTest extends TestCase
         $reports = ConcurrentRunner::run('stock.ingest', array_fill(0, 2, $order));
 
         $this->assertAllWorkersSucceeded($reports);
-        $this->assertTrue(ConcurrentRunner::overlapped($reports));
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports));
         $outcomes = array_count_values(array_column($reports, 'result'));
         $this->assertSame(1, $outcomes['created'] ?? 0, 'exactly one process created the order: ' . json_encode($outcomes));
         $this->assertSame([1, 1], [ExternalOrderMapping::count(), ExternalOrderLine::count()]);
@@ -281,7 +281,7 @@ class StockConcurrencyTest extends TestCase
         $reports = $this->runTogether([['stock.checkout', $checkout], ['stock.checkout', $checkout], ['stock.allocate_repeatedly', $allocate(101)], ['stock.allocate_repeatedly', $allocate(102)], ['stock.allocate_repeatedly', $allocate(101)]]);
 
         $this->assertAllWorkersSucceeded($reports);
-        $this->assertTrue(ConcurrentRunner::overlapped($reports));
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports));
         $this->assertSame([420, 420], [(int) DB::table('products')->where('id', 101)->value('current_stock'), (int) DB::table('products')->where('id', 102)->value('current_stock')], '80 checkouts took a unit each: none was lost or refused');
 
         $listing = ConcurrentRunner::run('stock.allocate_and_list_locks', [$this->pool(101)]);
@@ -327,7 +327,7 @@ class StockConcurrencyTest extends TestCase
         $reports = ConcurrentRunner::run('stock.claim_events', array_fill(0, 6, ['limit' => 10]));
 
         $this->assertAllWorkersSucceeded($reports);
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes ran at the same time');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the processes ran at the same time');
         $claimed = array_merge(...array_column($reports, 'result'));
         $this->assertSame(count($claimed), count(array_unique($claimed)), 'two workers were given the same event: it would be worked twice');
         $this->assertLessThanOrEqual(30, count($claimed));
@@ -371,7 +371,7 @@ class StockConcurrencyTest extends TestCase
         ], range(1, 6)));
 
         $this->assertAllWorkersSucceeded($reports);
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes ran at the same time');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the processes ran at the same time');
         $this->assertSame(0, array_sum(array_column(array_column($reports, 'result'), 'deadlocks')), 'a deadlock got through: ' . json_encode(array_column($reports, 'result')));
         $held = (int) InventoryReservation::where('product_id', self::PRODUCT)->where('state', InventoryReservation::RESERVED)->sum('quantity');
         $this->assertSame(12, $held, 'six orders of two units each are twelve units held');

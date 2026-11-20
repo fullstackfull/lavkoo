@@ -4,6 +4,9 @@ namespace Tests\Feature\Storefront;
 
 use App\Models\VendorLedgerEntry;
 use App\Services\Marketplace\VendorLedger;
+use RecursiveDirectoryIterator;
+use RecursiveIteratorIterator;
+use Tests\Support\PlatformWriteScanner;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -37,7 +40,7 @@ class VendorLedgerEntryTest extends TestCase
         parent::setUp();
 
         $this->buildVendorLedgerTables();
-        $this->ledger = new VendorLedger();
+        $this->ledger = app(VendorLedger::class);
     }
 
     /** The store's default currency is the row of `currencies` that the `system_default_currency` setting points at. */
@@ -229,5 +232,51 @@ class VendorLedgerEntryTest extends TestCase
         $this->assertGreaterThanOrEqual($release->getStartLine(), $edits[0]['line']);
         $this->assertLessThanOrEqual($release->getEndLine(), $edits[0]['line']);
         $this->assertStringContainsString("'status' => VendorLedgerEntry::STATUS_AVAILABLE, 'updated_at' => now()", $edits[0]['statement']);
+    }
+
+    /**
+     * The three files that write a seller-ledger row, so that a fourth cannot appear unnoticed.
+     *
+     * A balance is only worth something while every row that carries one was written by something that read the balance before it and took the lock, and since E-17.2 that
+     * means wrote it into the right chain. `VendorLedger` is that something. A second class appending its own rows would be invisible to every test in the repository: it
+     * would read the last row of the whole seller, add to it and store a running balance belonging to no chain, and nothing would be red. This is the list, by file and by
+     * what each one does.
+     *
+     * IT IS A PIN, NOT AN ENDORSEMENT. Two of the three are not the ledger's own writer: SettlementEngine stamps `settlement_id` on the rows a settlement claims and
+     * relabels them `paid`, and PayoutService relabels a reserve `paid`. Neither appends a row and neither touches an amount, so neither can put a running balance wrong —
+     * but the ledger's "nothing is ever edited" is their business too, and the class that owns the ledger is not the only one editing it. That is a finding of the reading
+     * this test came from, recorded here rather than acted on (an application change the owner has not been asked for).
+     *
+     * @see LedgerRowsAreNeverEditedTest for the same shape of pin over the customer's wallet and loyalty ledgers
+     */
+    public function test_only_three_files_write_a_seller_ledger_row_and_only_the_ledger_appends_one(): void
+    {
+        $scanner = new PlatformWriteScanner(['VendorLedgerEntry']);
+        $writers = [];
+
+        foreach (['app', 'Modules', 'routes'] as $directory) {
+            $root = dirname(__DIR__, 3) . '/' . $directory;
+            if (!is_dir($root)) {
+                continue;
+            }
+
+            foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, RecursiveDirectoryIterator::SKIP_DOTS)) as $file) {
+                if ($file->getExtension() !== 'php') {
+                    continue;
+                }
+
+                $written = $scanner->writesIn(code: (string) file_get_contents($file->getPathname()));
+                if (array_intersect(['vendor_ledger_entries', 'model VendorLedgerEntry'], $written) !== []) {
+                    $writers[] = substr($file->getPathname(), strlen(dirname(__DIR__, 3)) + 1);
+                }
+            }
+        }
+        sort($writers);
+
+        $this->assertSame([
+            'app/Services/Marketplace/PayoutService.php',
+            'app/Services/Marketplace/SettlementEngine.php',
+            'app/Services/Marketplace/VendorLedger.php',
+        ], $writers, 'a file writes a seller-ledger row and is not on the list: either it appends through VendorLedger::record(), or say here what it does and why');
     }
 }

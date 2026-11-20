@@ -66,6 +66,13 @@ class SettlementCommandTest extends TestCase
         $this->earning(amount: 30.0, currency: 'SAR', changes: ['sellerId' => 8]);
     }
 
+    /** Seller 7 with money waiting in two currencies and nobody else, for the runs that are about a ledger kept apart per chain rather than about the settlement switch. */
+    private function oneVendorWithTwoCurrenciesWaiting(): void
+    {
+        $this->earning(amount: 100.0, currency: 'SAR');
+        $this->earning(amount: 40.0, currency: 'AED');
+    }
+
     /** @return list<list<string>> the rows without their reference, which is random */
     private function withoutReference(array $rows): array
     {
@@ -223,5 +230,41 @@ class SettlementCommandTest extends TestCase
 
         $this->assertSame([['8', 'SAR', '1', '30.00', '0.00', '30.00']], $printed['rows']);
         $this->assertSame(['Dry run: 1 settlement(s) would be created. Nothing was written.'], $printed['lines']);
+    }
+
+    /**
+     * A ledger kept apart per chain (`gcc.ledgers.keyed_by_entity_and_currency`, E-17.2) is itself a reason the command cannot add two currencies, whatever the settlement
+     * switch says: a run draws one settlement per chain, so a report that added them would describe a run that never happens.
+     *
+     * Asked of the settlement switch alone, both reports of this command said one settlement of net 140.00 — riyals plus dirhams in one number — for a run that actually
+     * draws two, of 100 and of 40.
+     */
+    public function test_with_the_ledger_kept_apart_the_dry_run_names_each_currency_although_the_settlement_switch_is_off(): void
+    {
+        config(['gcc.ledgers.keyed_by_entity_and_currency' => true, 'gcc.settlements.one_currency' => false]);
+        $this->oneVendorWithTwoCurrenciesWaiting();
+
+        $printed = $this->settle(options: ['--dry-run' => true]);
+
+        $this->assertSame(['vendor', 'currency', 'entries', 'credits', 'debits', 'net'], $printed['header']);
+        $this->assertSame([['7', 'AED', '1', '40.00', '0.00', '40.00'], ['7', 'SAR', '1', '100.00', '0.00', '100.00']], $printed['rows']);
+        $this->assertSame(['Dry run: 2 settlement(s) would be created. Nothing was written.'], $printed['lines']);
+        $this->assertSame(0, VendorSettlement::count());
+        $this->assertSame(2, count($this->settle()['rows']), 'the run draws what the dry run said it would');
+    }
+
+    /** And the table of what a run drew names the currency of each settlement, for the same reason: two rows of one seller with no currency on them leave an operator no way to tell which money each is. */
+    public function test_with_the_ledger_kept_apart_a_run_names_the_currency_of_each_settlement_although_the_settlement_switch_is_off(): void
+    {
+        config(['gcc.ledgers.keyed_by_entity_and_currency' => true, 'gcc.settlements.one_currency' => false]);
+        $this->oneVendorWithTwoCurrenciesWaiting();
+
+        $printed = $this->settle();
+
+        $this->assertSame(['reference', 'vendor', 'currency', 'entries', 'net', 'status'], $printed['header']);
+        $this->assertSame([['7', 'AED', '1', '40.00', 'calculated'], ['7', 'SAR', '1', '100.00', 'calculated']], $this->withoutReference($printed['rows']));
+        $this->assertSame(['2 settlement(s) calculated. None is paid — each needs approval.'], $printed['lines']);
+        $this->assertSame(['AED' => 40.0, 'SAR' => 100.0], VendorSettlement::query()->orderBy('currency')->pluck('net_amount', 'currency')->all());
+        $this->assertSame([], $this->unclaimedEntries());
     }
 }

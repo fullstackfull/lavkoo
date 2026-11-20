@@ -26,12 +26,13 @@ class VendorSettlement extends Model
     protected $fillable = [
         'reference', 'seller_id', 'seller_is', 'period_start', 'period_end',
         'opening_balance', 'total_credits', 'total_debits', 'net_amount', 'closing_balance',
-        'entry_count', 'currency', 'status', 'calculated_at',
+        'entry_count', 'currency', 'legal_entity_id', 'status', 'calculated_at',
         'approved_by', 'approved_at', 'paid_at', 'payout_reference', 'note',
     ];
 
     protected $casts = [
         'seller_id' => 'integer',
+        'legal_entity_id' => 'integer',
         'period_start' => 'datetime',
         'period_end' => 'datetime',
         'opening_balance' => 'float',

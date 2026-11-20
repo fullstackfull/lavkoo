@@ -231,7 +231,7 @@ class SettlementController extends BaseController
             return ['vendors' => 0, 'net' => [SettlementCurrency::NOT_TOLD_APART => 0.0]];
         }
 
-        if ($this->currency->isOnePerSettlement()) {
+        if ($this->currency->areToldApart()) {
             return $this->waitingInEachCurrency();
         }
 

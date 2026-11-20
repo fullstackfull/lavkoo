@@ -121,7 +121,7 @@ class PackageSplitConcurrencyTest extends TestCase
         // that WON together with the reason this caller lost -- so every worker gets a row, and the one that recorded the
         // split is the one with no refusal. Asserting on the row was my own mistake and it failed while the code was right.
         $this->assertSame(1, $this->workersWhere($reports, static fn (array $r): bool => ($r['refusal'] ?? null) === null), 'exactly one process recorded it');
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes really ran at the same time');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the processes really ran at the same time');
     }
 
     public function test_two_different_cuts_of_one_package_asked_at_once_send_only_the_first(): void

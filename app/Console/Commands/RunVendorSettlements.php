@@ -44,7 +44,7 @@ class RunVendorSettlements extends Command
                 : sprintf('Released %d matured entr%s to available.', $released, $released === 1 ? 'y' : 'ies'));
         }
 
-        if ($dryRun && $currency->isOnePerSettlement()) {
+        if ($dryRun && $currency->areToldApart()) {
             return $this->reportWhatEachCurrencyWouldSettle(engine: $engine, currency: $currency);
         }
 
@@ -90,7 +90,7 @@ class RunVendorSettlements extends Command
             return self::SUCCESS;
         }
 
-        if ($currency->isOnePerSettlement()) {
+        if ($currency->areToldApart()) {
             $this->table(
                 ['reference', 'vendor', 'currency', 'entries', 'net', 'status'],
                 array_map(fn ($s) => [$s->reference, $s->seller_id, $currency->of(label: $s->currency), $s->entry_count, $currency->amount(amount: $s->net_amount), $s->status], $settlements)

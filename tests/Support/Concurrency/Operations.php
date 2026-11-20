@@ -20,6 +20,7 @@ final class Operations
     {
         return match ($name) {
             'probe_insert' => self::probeInsert($args),
+            'probe_rendezvous' => self::probeRendezvous($args),
             'dispatch_channel_order' => DispatchOperations::dispatchChannelOrder($args),
             'mirror_managed_shipment' => DispatchOperations::mirrorManagedShipment($args),
             'layers_from_purchase_orders' => PurchaseOrderOperations::layersFromPurchaseOrders($args),
@@ -27,6 +28,25 @@ final class Operations
             'stock.ingest_many' => StockOperations::ingestMany($args),
             default => (self::$registered[$name] ?? throw new InvalidArgumentException("Unknown concurrent operation: {$name}"))($args, $index),
         };
+    }
+
+    /**
+     * Writes one row of the scratch table of the harness self-test, waiting at a meeting point first and/or marking one after, so that the ORDER of two processes can be
+     * arranged rather than left to the scheduler. The self-test above it gives the marking process a head start and still expects it to write first.
+     *
+     * @param array{key: string, wait_for?: string, mark?: string, hold_microseconds?: int} $args
+     * @return array{key: string, held_for: float}
+     */
+    private static function probeRendezvous(array $args): array
+    {
+        $heldFor = isset($args['wait_for']) ? Rendezvous::waitFor((string) $args['wait_for']) : 0.0;
+        usleep((int) ($args['hold_microseconds'] ?? 0));
+        DB::table('concurrency_probe')->insert(['k' => (string) $args['key'], 'writer' => getmypid()]);
+        if (isset($args['mark'])) {
+            Rendezvous::mark((string) $args['mark']);
+        }
+
+        return ['key' => (string) $args['key'], 'held_for' => $heldFor];
     }
 
     /** Inserts a row with a unique key into the scratch table of the harness self-test; reports whether this process won. */

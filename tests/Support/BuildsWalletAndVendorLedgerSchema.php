@@ -119,6 +119,7 @@ trait BuildsWalletAndVendorLedgerSchema
             $table->unsignedBigInteger('created_by')->nullable();
             $table->string('created_by_type', 20)->nullable();
             $table->unsignedBigInteger('settlement_id')->nullable();
+            $table->unsignedBigInteger('legal_entity_id')->nullable();
             $table->timestamps();
         });
     }
@@ -145,6 +146,7 @@ trait BuildsWalletAndVendorLedgerSchema
             $table->decimal('closing_balance', 24, 4)->nullable($balancesAcceptNull);
             $table->unsignedInteger('entry_count')->default(0);
             $table->string('currency', 20)->nullable();
+            $table->unsignedBigInteger('legal_entity_id')->nullable();
             $table->string('status', 20)->default('draft');
             $table->timestamp('calculated_at')->nullable();
             $table->unsignedBigInteger('approved_by')->nullable();
@@ -153,6 +155,30 @@ trait BuildsWalletAndVendorLedgerSchema
             $table->unsignedBigInteger('paid_by')->nullable();
             $table->string('payout_reference')->nullable();
             $table->string('note')->nullable();
+            $table->timestamps();
+        });
+    }
+
+    /**
+     * The seller ledger, the settlements drawn from it, and the frozen commission snapshot a refund is reversed against. `order_item_commissions` has no migration in this
+     * repository either, so its columns here are the ones `OrderItemCommission` makes fillable and `RefundReversalService` reads and writes.
+     */
+    protected function buildRefundReversalTables(): void
+    {
+        $this->buildVendorSettlementTables();
+
+        Schema::create('order_item_commissions', static function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('order_id')->nullable();
+            $table->unsignedBigInteger('order_details_id');
+            $table->unsignedBigInteger('product_id')->nullable();
+            $table->unsignedBigInteger('seller_id')->nullable();
+            $table->string('seller_is', 20)->default('seller');
+            $table->decimal('commissionable_amount', 24, 4)->default(0);
+            $table->decimal('commission_amount', 24, 4)->default(0);
+            $table->decimal('seller_net_amount', 24, 4)->default(0);
+            $table->decimal('reversed_amount', 24, 4)->default(0);
+            $table->string('currency', 20)->nullable();
             $table->timestamps();
         });
     }

@@ -83,7 +83,7 @@ class ReturnDecisionConcurrencyTest extends TestCase
         $this->assertSame(1, ChannelReturnDecision::count(), 'and one decision was recorded');
         $this->assertSame(ChannelReturnDecision::DONE, ChannelReturnDecision::firstOrFail()->state);
         $this->assertSame(1, $this->workersWhere($reports, static fn (array $r): bool => ($r['decided'] ?? 0) === 1), 'exactly one process recorded the decision');
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes really ran at the same time');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the processes really ran at the same time');
     }
 
     public function test_an_approval_and_a_rejection_of_the_same_item_at_once_send_only_the_first(): void
