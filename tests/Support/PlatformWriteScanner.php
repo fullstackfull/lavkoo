@@ -17,9 +17,21 @@ namespace Tests\Support;
  * Both sides read text, not behaviour, and a name the file never spells -- one that arrives as an argument, out of config() or off a database row -- is past them. What the file
  * does spell they read however it is spelled: through a constant, a list a constant holds, a concatenation, an escape sequence, a property, or the variable a loop binds.
  *
- * The column side's limits are declared, each of them where it is taken: an array or a string of SQL reaches its write in one hop and no more (arraysHandedToAWrite,
- * sqlHandedToTheDatabase), and a model attribute written through array access is read under the column's own name and not under a name a variable or a constant holds
- * (columnWritesIn). A write that takes a second hop, or crosses into another file, is one of these limits and not an oversight.
+ * THE COLUMN SIDE FAILS OPEN, and that is the one rule of it. A string of SQL or an array that names the column is REPORTED unless this class can prove it moves no money,
+ * because the proof is what it can check and the absence of one is not. Gating it the other way round -- reporting only what could be followed into a write -- is how this
+ * class lost 21 money writes in one change: the SQL side was gated on a whitelist of receiver methods (statement, unprepared, insert, update, delete, affectingStatement),
+ * and `DB::select` and a PDO `exec` run arbitrary SQL on MySQL and MariaDB and are not on it, nor is any list of names ever complete. So the gate is gone: every string the
+ * file holds is read as SQL (sqlStringsIn) and every array key is read where it stands (arrayKeyWrites), and what tells a write from a read is the STATEMENT -- is the column
+ * in the clause that assigns, or only in a WHERE, a CTE, a JOIN condition, an ORDER BY or a window expression (sqlWritesOf) -- and the VALUE -- is it a cast name, a name map,
+ * a translation, a setting, a class or a list rather than an amount (isProvablyNotAnAmount). Where the column appears in a statement and what the statement is handed to are
+ * two questions, and answering the first is what buys the quiet on the second.
+ *
+ * The price of failing open is a false alarm a person can read: a message that quotes a money write (`Log::info("update users set wallet_balance = 0 was refused")`) and an
+ * array of amounts built and handed on to a name this file never spells are both reported. That is the cheaper mistake, and the guards' lists name what is reported.
+ *
+ * The column side's limits are declared where they are taken: an array reaches a resolvable write in one hop and no more (arraysHandedToAWrite) -- which now only ever ADDS
+ * reports, so a hop it cannot follow costs nothing -- and a model attribute written through array access is read under the column's own name and not under a name a variable
+ * or a constant holds (columnWritesIn).
  */
 final class PlatformWriteScanner
 {
@@ -52,9 +64,6 @@ final class PlatformWriteScanner
         'rename' => ['table' => '\s+table', 'rows' => false],
     ];
 
-    /** The methods that hand a whole statement of SQL to the database, which is what tells the SQL a file runs from the SQL it quotes in a message. */
-    private const RAW_SQL_WRITES = 'statement|unprepared|insert|update|delete|affectingStatement';
-
     /** The keywords that open a clause giving a column a value: `SET`, and the clause MySQL appends to an upsert. */
     private const SQL_ASSIGNING_CLAUSES = '\bset\b|\bon\s+duplicate\s+key\s+update\b';
 
@@ -72,6 +81,15 @@ final class PlatformWriteScanner
 
     /** A parameter passed by name, which this project's own coding standard asks for: `increment(column: 'wallet_balance')` names the column as plainly as `increment('wallet_balance')`. */
     private const NAMED_ARGUMENT = '(?:\w+\s*:\s*)?';
+
+    /**
+     * What an array value may begin with and be no amount: a class, a list (validation rules, a nested map), a translation, or a setting. None of the four is a number a
+     * database could store in a money column, whatever the array is handed to.
+     */
+    private const VALUE_THAT_IS_NO_AMOUNT = '[A-Za-z_\\\\][\w\\\\]*::class\b|\[|(?:translate|__|trans|trans_choice|env|config)\s*\(';
+
+    /** How far past the arrow a value is read to be classified. A value is told by what it begins with, and the first token of one is never this long. */
+    private const VALUE_LENGTH = 120;
 
     private const CONSTANT_NAME = '[A-Z][A-Z0-9_]*';
 
@@ -129,8 +147,8 @@ final class PlatformWriteScanner
      * users MODIFY wallet_balance DECIMAL(40,20)`, `$table->decimal('wallet_balance')->change()` and `dropColumn('wallet_balance')` are none of the forms above, and the SQL side
      * reads only the statements whose verb changes rows, and only the part of them that assigns.
      *
-     * A cast and a name map also give the column to an array key (`'wallet_balance' => 'float'`), and are told from a write by what the array is handed to and not by whether the
-     * value is quoted: `['wallet_balance' => '0']` is an ordinary update, and a database writes 0 for it. See arrayKeyWrites().
+     * A cast and a name map also give the column to an array key (`'wallet_balance' => 'float'`), and are told from a write by the VALUE and not by what the array is handed to:
+     * `['wallet_balance' => '0']` is an ordinary update, and a database writes 0 for it. See arrayKeyWrites().
      *
      * The names the code spells indirectly are written out before the forms are looked for, so that a write cannot hide behind the spelling of its column: a constant, a list a
      * constant holds read at one of its keys, a concatenation, an escape sequence, a property, and the variable a loop binds walking a list of column names.
@@ -164,8 +182,8 @@ final class PlatformWriteScanner
         // carries no attributes. A model written under a held name goes through `->{$column} =`, which the assignment above reads.
         $subscript = '/\[\s*[\'"]' . $name . '[\'"]\s*\]\s*(?:' . self::COMPOUND_ASSIGNMENT . ')?=(?![=>])/';
         $writes = array_merge($writes, array_fill(0, preg_match_all($subscript, $literals), 'array access assignment'));
-        $writes = array_merge($writes, array_fill(0, self::arrayKeyWrites($read, $key), 'array key given a value'));
-        foreach (self::sqlHandedToTheDatabase($literals) as $string) {
+        $writes = array_merge($writes, array_fill(0, self::arrayKeyWrites($read, $key, $column), 'array key given a value'));
+        foreach (self::sqlStringsIn($literals) as $string) {
             $writes = array_merge($writes, self::sqlWritesOf($string, $column, $heldName));
         }
 
@@ -173,20 +191,75 @@ final class PlatformWriteScanner
     }
 
     /**
-     * How many places the code gives the column as an array key that is written. The array has to reach a write, whatever its value: that is what tells `['wallet_balance' => '0']`
-     * and `['wallet_balance' => 0]`, both updates, from `['wallet_balance' => 'float']`, a cast, from `['loyalty_point' => 'loyalty_point']`, a name map, and from the rest of what
-     * this project writes the column as a key of -- four cast lines in two files (app/Models/User.php and app/User.php), two name maps, two Blade tone maps and seven translation
-     * lines, fifteen places that write nothing.
+     * How many places the code gives the column as an array key that is written. Two readings, and their union, because an array is a write for either of two reasons and a
+     * guard that asked for both at once let one of them through:
      *
-     * Reading a key whose value is not a string wherever it stood counted the array that reaches no write at all: `['wallet_balance' => X::class]`, `=> ['required','numeric']`,
-     * `=> $this->wallet_balance` in a toArray(), `=> env(...)` and `=> translate('Wallet')` were each reported as a write, so a real one could be planted in any file that already
-     * had one of those and the count would not move. What that reading was for -- an array built before its write -- is answered by following the array into the write instead.
+     * - WHEREVER IT STANDS, if its value could be an amount. This is the reading that fails open, and the one a round that kept only the other lost ten money writes to: a
+     *   ternary-valued array, an array merged in with array_merge, a row appended with `$rows[] = [...]` and an arm of a match are each handed on to a write the reader cannot
+     *   follow -- into a method of another file, through a second variable, past a name this file never spells -- and each moved money on MariaDB 10.11.14.
+     * - WHATEVER ITS VALUE, if the array reaches a write this reader CAN follow. This is what tells `['wallet_balance' => '0']`, an ordinary update a database writes 0 for,
+     *   from `['wallet_balance' => 'float']`, a cast, and from `['loyalty_point' => 'loyalty_point']`, a name map -- of which this project has fifteen, nine in its translation
+     *   files. A string that is a word rather than a number is quiet on its own and reported as soon as something hands it to an update.
+     *
+     * The two sets overlap wherever a resolvable write is given an amount, so the count is their union and not their sum.
+     *
+     * @param string $key the column as an array key, as a regular expression
+     * @param string $column the column itself, for the value that reads it straight back out
+     */
+    private static function arrayKeyWrites(string $code, string $key, string $column): int
+    {
+        $handedToAWrite = self::arraysHandedToAWrite($code);
+
+        return preg_match_all('/' . $key . '\s*=>/', $handedToAWrite)
+            + self::keysWhoseValueCouldBeAnAmount($code, $key, $column)
+            - self::keysWhoseValueCouldBeAnAmount($handedToAWrite, $key, $column);
+    }
+
+    /**
+     * How many places the code gives the column as an array key whose value this class cannot prove is no amount. The default is that it could be one: a number, a variable, a
+     * property, a call, an arithmetic expression, a `DB::raw`, an arm of a ternary or a match, and a string that is empty, numeric or interpolated are all amounts a database
+     * stores, and so is anything else this reader does not recognise.
      *
      * @param string $key the column as an array key, as a regular expression
      */
-    private static function arrayKeyWrites(string $code, string $key): int
+    private static function keysWhoseValueCouldBeAnAmount(string $code, string $key, string $column): int
     {
-        return preg_match_all('/' . $key . '\s*=>/', self::arraysHandedToAWrite($code));
+        preg_match_all('/' . $key . '\s*=>\s*/', $code, $found, PREG_OFFSET_CAPTURE);
+        $amounts = 0;
+
+        foreach ($found[0] as [$arrow, $offset]) {
+            $value = substr($code, $offset + strlen($arrow), self::VALUE_LENGTH);
+            if (!self::isProvablyNotAnAmount($value, $column)) {
+                $amounts++;
+            }
+        }
+
+        return $amounts;
+    }
+
+    /**
+     * Whether a value written against the column is provably no amount, which is the only reason this class stays quiet about one: a class rather than a number
+     * (`'wallet_balance' => Wallet::class`), a list (`=> ['required', 'numeric']`), a translation (`=> translate('Wallet')`), a setting (`=> env('WALLET_BALANCE', 0)`), a word
+     * rather than a number (`=> 'float'`, a cast; `=> 'loyalty_point'`, a name map; `=> 'warning'`, a tone), or the column read straight back off the object whose column it is
+     * (`=> $this->wallet_balance`, a toArray), which writes what is already there and moves nothing.
+     *
+     * A number spelled as a string is NOT one of them: `=> '0'`, `=> '9999'`, `=> ''` and `=> "{$amount}"` are amounts, and a database writes each of them as a number.
+     */
+    private static function isProvablyNotAnAmount(string $value, string $column): bool
+    {
+        return preg_match('/^(?:' . self::VALUE_THAT_IS_NO_AMOUNT . ')/', $value) === 1
+            || preg_match('/^\$this->' . preg_quote($column, '/') . '\b/', $value) === 1
+            || self::isAWordRatherThanANumber($value);
+    }
+
+    /** Whether a value begins with a string literal that holds no interpolation and reads as a word: not empty, and not a number a money column could take. */
+    private static function isAWordRatherThanANumber(string $value): bool
+    {
+        if (preg_match('/^\'([^\'\\\\]*)\'/', $value, $literal) !== 1 && preg_match('/^"([^"\\\\${]*)"/', $value, $literal) !== 1) {
+            return false;
+        }
+
+        return $literal[1] !== '' && !is_numeric($literal[1]);
     }
 
     /**
@@ -246,52 +319,49 @@ final class PlatformWriteScanner
     }
 
     /**
-     * The SQL the code hands to the database: the strings written out in the call, and the strings of the statement that built the variable or the property the call is handed,
-     * which is the same one hop as an array built before its update -- `$sql = "update users set wallet_balance = 0"; DB::statement($sql);` runs, so it is read.
+     * EVERY string the code holds, read as SQL, plus the statement each variable or property is built out of across more than one statement.
      *
-     * Gating the SQL side on the call is what the array side was already gated on. Read everywhere instead, a string that spells a row-changing statement was reported wherever it
-     * stood, so a message quoting one (`Log::info("update users set wallet_balance = 0 was refused")`) was reported as a write of the balance. The cost of the gate is the same one
-     * hop: SQL handed to a method of another file, which runs it there, is past this.
+     * No gate on what the string is handed to, deliberately, and this is the design the regression taught. Gating the SQL side on a whitelist of receiver methods
+     * (`statement|unprepared|insert|update|delete|affectingStatement`) read `DB::select("update users set wallet_balance = 0")` as no write, and `DB::select` runs that statement
+     * on MySQL and MariaDB and sets the balance to zero; so does `DB::getPdo()->exec(...)`, `DB::selectOne`, `DB::scalar`, `DB::cursor`, a prepared statement executed, and any
+     * method of any other file the SQL is handed to. No list of names answers "does this string change a row" -- the string does, and sqlWritesOf() reads it.
+     *
+     * A variable is joined only when MORE THAN ONE statement puts a piece of SQL in it, because a single piece is already read as the string it is. That is what reads a
+     * statement assembled by appending as the one statement the database gets: `$sql = "update users"; $sql .= " set wallet_balance = 0";` is a verb in one piece and an
+     * assignment in the other, each harmless alone. Joining is the safe direction: pieces that never meet at run time read as one statement and are reported.
      *
      * @return list<string>
      */
-    private static function sqlHandedToTheDatabase(string $code): array
+    private static function sqlStringsIn(string $code): array
     {
-        $statements = self::statementsOf($code);
-        $sql = [];
-
-        foreach (self::argumentsOf($code, self::RAW_SQL_WRITES) as $call) {
-            array_push($sql, ...self::stringsIn($call));
-            preg_match_all('/\$(?:this->)?(\w+)/', $call, $named);
-            foreach (array_unique($named[1]) as $name) {
-                $sql[] = self::sqlBuiltIn($statements, $name);
-            }
-        }
-
-        return $sql;
+        return array_merge(self::stringsIn($code), self::sqlAssembledInAVariable(self::statementsOf($code)));
     }
 
     /**
-     * The SQL the code builds in one variable or property, its pieces joined in the order the statements build them. A statement assembled
-     * by appending is one statement by the time the database reads it, and reading the pieces apart left the verb in one piece and the
-     * assignment in another, each harmless alone: `$sql = "update users"; $sql .= " set wallet_balance = 0"; DB::statement($sql);` was read
-     * as no write by this head's predecessors as well. Joining is the safe direction: pieces that never meet at run time read as one
-     * statement and are reported, which is a false alarm a person can see.
+     * The SQL each variable or property is assembled out of across several statements, its pieces joined in the order the statements build them, for the variables that take
+     * more than one piece.
      *
      * @param list<string> $statements the code split at its semicolons, the comments left out
+     * @return list<string>
      */
-    private static function sqlBuiltIn(array $statements, string $name): string
+    private static function sqlAssembledInAVariable(array $statements): array
     {
-        $built = '/\$(?:this->)?' . preg_quote($name, '/') . '\s*\.?=(?!=)/';
         $pieces = [];
 
         foreach ($statements as $statement) {
-            if (preg_match($built, $statement) === 1) {
-                array_push($pieces, ...self::stringsIn($statement));
+            if (preg_match('/\$(?:this->)?(\w+)\s*\.?=(?!=)/', $statement, $built) !== 1) {
+                continue;
+            }
+            $strings = self::stringsIn($statement);
+            if ($strings !== []) {
+                $pieces[$built[1]][] = implode('', $strings);
             }
         }
 
-        return implode('', $pieces);
+        return array_values(array_map(
+            static fn (array $parts): string => implode('', $parts),
+            array_filter($pieces, static fn (array $parts): bool => count($parts) > 1),
+        ));
     }
 
     /**

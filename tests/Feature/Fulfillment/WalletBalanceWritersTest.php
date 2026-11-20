@@ -26,6 +26,10 @@ use Tests\Support\PlatformWriteScanner;
  * What this test says is that nobody outside the list writes these columns in a form the scanner can read. It does not say the listed writers are right -- that they
  * take the lock and write the ledger row is other tests' subject -- and it does not say a name the file never spells is caught: a column arriving as an argument, out
  * of config() or off a database row needs a static analyser and not a reader of text.
+ *
+ * The scanner fails open, which is what being on this list costs: a form it cannot prove harmless is reported, in a listed writer as readily as anywhere else, so a
+ * money write added to one of the four files below changes the kinds named against it and fails this test. Every form the scanner has ever been shown to miss, and the
+ * round that lost it, is asserted in NoRoundMayLoseABalanceWriteFormTest: a round that widens one reading by narrowing another goes red there.
  */
 class WalletBalanceWritersTest extends TestCase
 {
@@ -145,7 +149,8 @@ class WalletBalanceWritersTest extends TestCase
      * A file the scan can read past without reading it: to write a balance a file has to name its column, and to name it the file has to spell `wallet` or `loyalty`, or escape a
      * character of one. Nothing else the scanner resolves -- a constant, a list a constant holds, a concatenation, a property, the variable a loop binds -- can produce the name
      * out of a file that holds none of those three. It is an optimisation and nothing more, and it is pinned as one: the whole scan was measured with it and without it over all
-     * 4511 files, byte-identical both ways, 18.2s down to 5.5s with 4219 files skipped. The roots stay as they are; reading less is not how this test is made affordable.
+     * 4511 files, byte-identical both ways (md5 094e7856fb41f03533b0606ebdec8038), 24.3s down to 7.8s with 4219 files skipped. The roots stay as they are; reading less is
+     * not how this test is made affordable.
      */
     private const NAMES_OR_ESCAPES_A_BALANCE_COLUMN = '/wallet|loyalty|\\\\x[0-9a-fA-F]|\\\\[0-7]{2}/i';
 
@@ -245,7 +250,11 @@ class WalletBalanceWritersTest extends TestCase
 
     /**
      * A source line, the column and how many writes of it the scan must find. The cases expecting 0 are not all reads: a cast, a name map, a change to the shape of the table, a
-     * clause that only reads the column, an array that reaches no write, and a plain array subscripted by a name -- each of them writes no balance, and each is pinned here.
+     * clause that only reads the column, a value that is no amount, and a plain array subscripted by a name -- each of them writes no balance, and each is pinned here.
+     *
+     * The guard fails open, so a case expecting 0 is a case where the scanner can PROVE no money moves, and nothing else. The three cases marked as the price of that are
+     * reported although nothing writes there, and they are the shape of what the alternative cost: gating them quiet is what read `DB::select("update users set wallet_balance
+     * = 0")` as no write at all. Every form that must be reported, and the round that lost it, is in NoRoundMayLoseABalanceWriteFormTest; this provider is what the reports mean.
      *
      * @return array<string, array{string, string, int}>
      */
@@ -311,6 +320,11 @@ class WalletBalanceWritersTest extends TestCase
             'raw SQL behind a comment line that is only its marker' => ['DB::statement("--\nupdate users set wallet_balance = 0, loyalty_point = 0");', 'wallet_balance', 1],
             'raw SQL behind a comment line that is only its marker and a carriage return' => ['DB::statement("--\r\nupdate users set wallet_balance = 0, loyalty_point = 0");', 'wallet_balance', 1],
             'raw SQL built in a variable and handed to the database later' => ["\$sql = \"update users set wallet_balance = 0\";\nDB::statement(\$sql);", 'wallet_balance', 1],
+            // `DB::select` runs an UPDATE on MySQL and MariaDB and hands back no rows; so does a PDO `exec`. Neither is on any list of write methods, which is why the reading is
+            // no longer gated on one: what changes a row is the statement, and the statement is what is read.
+            'raw SQL run through DB::select, which executes it' => ['DB::select("update users set wallet_balance = 0");', 'wallet_balance', 1],
+            'raw SQL run through a PDO exec' => ['DB::connection()->getPdo()->exec("update users set loyalty_point = 0");', 'loyalty_point', 1],
+            'an update array whose value is an arm of a ternary, handed on to a writer of another file' => ["\$values = ['wallet_balance' => \$refund ? 0 : \$credit];\n\$this->writer->persist(\$values);", 'wallet_balance', 1],
             // One statement by the time the database reads it, and read as two harmless halves -- a verb with no assignment, an assignment with no verb -- by every head before this one.
             'raw SQL whose set clause is appended to the verb' => ["\$sql = \"update users\";\n\$sql .= \" set wallet_balance = 0\";\nDB::statement(\$sql);", 'wallet_balance', 1],
             'raw SQL whose column is appended to its set clause' => ["\$sql = \"update users set \";\n\$sql .= \"wallet_balance = 0\";\nDB::statement(\$sql);", 'wallet_balance', 1],
@@ -355,11 +369,18 @@ class WalletBalanceWritersTest extends TestCase
             'a key whose value is the attribute itself, in a toArray' => ["class X { public function toArray(): array { return ['wallet_balance' => \$this->wallet_balance]; } }", 'wallet_balance', 0],
             'a key whose value comes out of the environment' => ["\$config = ['wallet_balance' => env('WALLET_BALANCE', 0)];", 'wallet_balance', 0],
             'a key whose value is a translated heading' => ["\$headings = ['wallet_balance' => translate('Wallet')];", 'wallet_balance', 0],
-            'an update array built in a variable and handed to nothing' => ["\$values = ['wallet_balance' => 0];\nreturn \$values;", 'wallet_balance', 0],
-            'the array of a plain function that shares the name of a write' => ["\$x = create(['wallet_balance' => 0]);", 'wallet_balance', 0],
+            // The three below are the price of a guard that fails open, and they are cases of it and not oversights: an array of amounts handed on to a name this reader cannot
+            // follow, and a string that spells a money write, are reported because nothing here proves they move no money. A false alarm a person can read is the cheaper
+            // mistake: gating these quiet is what read `DB::select("update users set wallet_balance = 0")` as no write at all.
+            'an update array of amounts handed on to a caller, which may hand it to an update' => ["\$values = ['wallet_balance' => 0];\nreturn \$values;", 'wallet_balance', 1],
+            'an update array of amounts handed to a plain function, which may write it' => ["\$x = create(['wallet_balance' => 0]);", 'wallet_balance', 1],
             'a plain array subscripted by a constant that holds the name' => ["class X { private const WALLET = 'wallet_balance';\npublic function z(array \$row): array { \$row[self::WALLET] = 0; return \$row; } }", 'wallet_balance', 0],
             'a plain array subscripted by a variable that holds the name' => ["\$column = 'wallet_balance';\n\$totals[\$column] = 0;", 'wallet_balance', 0],
-            'a message that quotes a statement which writes the column and hands it to nothing' => ['Log::info("update users set wallet_balance = 0 was refused");', 'wallet_balance', 0],
+            'a message that quotes a statement which writes the column' => ['Log::info("update users set wallet_balance = 0 was refused");', 'wallet_balance', 1],
+            // What the receiver requirement still earns: a plain function's array is no RESOLVED write, so a value that is a word rather than an amount stays quiet in it,
+            // while the same array handed to a method is reported whatever its value.
+            'the array of a plain function whose value is a word rather than an amount' => ["\$x = create(['wallet_balance' => 'float']);", 'wallet_balance', 0],
+            'the same array handed to a method, which writes it' => ["\$user->update(['wallet_balance' => 'float']);", 'wallet_balance', 1],
         ];
     }
 
