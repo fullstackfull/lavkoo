@@ -194,12 +194,13 @@ final class PlatformWriteScanner
      * How many places the code gives the column as an array key that is written. Two readings, and their union, because an array is a write for either of two reasons and a
      * guard that asked for both at once let one of them through:
      *
-     * - WHEREVER IT STANDS, if its value could be an amount. This is the reading that fails open, and the one a round that kept only the other lost ten money writes to: a
-     *   ternary-valued array, an array merged in with array_merge, a row appended with `$rows[] = [...]` and an arm of a match are each handed on to a write the reader cannot
-     *   follow -- into a method of another file, through a second variable, past a name this file never spells -- and each moved money on MariaDB 10.11.14.
+     * - WHEREVER IT STANDS, if its value could be an amount. This is the reading that fails open, and the one a round that kept only the other lost six money writes to: a
+     *   ternary-valued array, an array merged in with array_merge, a row appended with `$rows[] = [...]`, an arm of a match, an array that reaches its write through a second
+     *   variable and one handed to a method of another file are each handed on to a write the reader cannot follow, and each moved money on MariaDB 10.11.14.
      * - WHATEVER ITS VALUE, if the array reaches a write this reader CAN follow. This is what tells `['wallet_balance' => '0']`, an ordinary update a database writes 0 for,
-     *   from `['wallet_balance' => 'float']`, a cast, and from `['loyalty_point' => 'loyalty_point']`, a name map -- of which this project has fifteen, nine in its translation
-     *   files. A string that is a word rather than a number is quiet on its own and reported as soon as something hands it to an update.
+     *   from `['wallet_balance' => 'float']`, a cast, and from `['loyalty_point' => 'loyalty_point']`, a name map -- of which this project has fifteen: four cast lines in two
+     *   files, two name maps, two Blade tone maps and seven translation lines. A string that is a word rather than a number is quiet on its own and reported as soon as
+     *   something hands it to an update.
      *
      * The two sets overlap wherever a resolvable write is given an amount, so the count is their union and not their sum.
      *
