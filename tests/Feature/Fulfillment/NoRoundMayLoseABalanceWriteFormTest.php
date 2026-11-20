@@ -166,12 +166,18 @@ final class NoRoundMayLoseABalanceWriteFormTest extends TestCase
         ];
     }
 
+    /** @return list<string> the kind of each write the scanner reads in a form, the form given as the body of a PHP file */
+    private static function writesReportedIn(string $form, string $column): array
+    {
+        return PlatformWriteScanner::columnWritesIn(code: "<?php\n" . $form . "\n", column: $column);
+    }
+
     #[DataProvider('everyFormARoundHasLost')]
     public function test_a_form_a_round_once_lost_is_reported_again(string $round, string $form, string $column): void
     {
         $this->assertNotSame(
             [],
-            PlatformWriteScanner::columnWritesIn("<?php\n" . $form . "\n", $column),
+            self::writesReportedIn($form, $column),
             "This form of writing users.{$column} was missed at {$round} and closed afterwards. It moves money and is reported again only if the scanner still reads it: "
             . 'whatever this round changed, it has narrowed the reading that caught this one. Widen it back rather than taking this case out.',
         );
@@ -182,7 +188,7 @@ final class NoRoundMayLoseABalanceWriteFormTest extends TestCase
         $byRound = [];
         foreach (self::everyFormARoundHasLost() as [$round, $form, $column]) {
             $byRound[$round]['cases'] = ($byRound[$round]['cases'] ?? 0) + 1;
-            $byRound[$round]['writes'] = ($byRound[$round]['writes'] ?? 0) + count(PlatformWriteScanner::columnWritesIn("<?php\n" . $form . "\n", $column));
+            $byRound[$round]['writes'] = ($byRound[$round]['writes'] ?? 0) + count(self::writesReportedIn($form, $column));
         }
 
         $this->assertSame(
