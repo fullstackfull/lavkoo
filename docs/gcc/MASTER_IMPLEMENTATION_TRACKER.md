@@ -18,7 +18,7 @@ As of 2026-11-20. Generated from the independent assessment of every requirement
 | [B. Catalogue and products](tracker/axis-b-catalogue-and-products.md) | 18 | 91 | 34 | 17 | 40 | 56% | 37% | 0% | all |
 | [C. Inventory and fulfillment](tracker/axis-c-inventory-and-fulfillment.md) | 18 | 94 | 65 | 9 | 20 | 79% | 69% | 30% | all |
 | [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 179 | 88 | 31 | 60 | 66% | 49% | 8% | all |
-| [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 88 | 38 | 6 | 44 | 50% | 43% | 7% | all |
+| [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 88 | 39 | 6 | 43 | 51% | 44% | 7% | all |
 | [F. Themes and brand](tracker/axis-f-themes-and-brand.md) | 16 | 77 | 42 | 13 | 22 | 71% | 55% | 4% | all |
 | [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 102 | 59 | 13 | 30 | 71% | 58% | 15% | all |
 | [H. Shipping and integrations](tracker/axis-h-shipping-and-integrations.md) | 34 | 157 | 79 | 13 | 65 | 59% | 50% | 16% | all |
@@ -27,7 +27,7 @@ As of 2026-11-20. Generated from the independent assessment of every requirement
 | [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 104 | 40 | 26 | 38 | 63% | 38% | 3% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 45 | 18 | 31 | 67% | 48% | 7% | all |
 | [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 311 | 105 | 119 | 87 | 72% | 34% | 3% | all |
-| **All axes (pooled)** | **359** | **1753** | **814** | **359** | **580** | **67%** | **46%** | **8%** | |
+| **All axes (pooled)** | **359** | **1753** | **815** | **359** | **579** | **67%** | **46%** | **8%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -269,7 +269,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [E-09](tracker/axis-e-wallets-loyalty-and-financial-records.md) | INTEGRATED AND TESTED | 4/0/0 | Balance writes serialised per customer (row lock), wallet and loyalty |
 | [E-10](tracker/axis-e-wallets-loyalty-and-financial-records.md) | INTEGRATED AND TESTED | 5/0/0 | Overdraft floor inside the lock; callers honour a refused debit or credit |
 | [E-11](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 5/0/1 | POS wallet sales: atomic, server total, guarded amount, idempotent |
-| [E-12](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 5/0/1 | Seller wallet and withdrawals: scoped, locked, POST with CSRF, one conversion |
+| [E-12](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 6/0/0 | Seller wallet and withdrawals: scoped, locked, POST with CSRF, one conversion |
 | [E-13](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/0/5 | Refunds, return amounts and cancellations paid to the wallet |
 | [E-14](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/0/4 | Loyalty redeem and earn: atomic conversion, one formula, one rule |
 | [E-15](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 2/0/4 | Referral rewards: once, to the referrer, one amount |

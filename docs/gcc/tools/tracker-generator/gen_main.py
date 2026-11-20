@@ -2503,6 +2503,34 @@ CRITERIA.setdefault('D1-02', {})[4] = ('MET', "PR 143 (draft, branch gcc/p1-orde
     "when E-17.2's company half becomes provable: the two share the same missing column, and neither branch can see that from the other. "
     "THE RUNBOOK WAS CORRECTED TOO: docs/gcc/STOREFRONT_FLAG_RUNBOOK.md recorded a flag-off order of 'paid 275, order 375' which can no longer be written.")
 
+# E-12.5 was the one MISSING criterion of E-12's six, and it was a live money defect rather than a missing test: total_earning could go negative. PR 141 fixes it and adds a CI job for it.
+CRITERIA.setdefault('E-12', {})[5] = ('MET', "PR 141 (draft, branch gcc/p0-wallet-withdraw-one-conversion, base main at c5c04b7b, head 9242fce7, 8 files, +769/-26). THIS WAS A LIVE MONEY "
+    "DEFECT, not a missing test. The check deciding whether a seller may withdraw an amount and the debit that took the money converted currency through DIFFERENT helpers. The guard and the "
+    "amount stored on the request row used Convert::usd, which reads the default currency through getWebConfig — the CACHED business_settings table. The wallet debit used "
+    "BackEndHelper::currency_to_usd, which reads the system_default_currency row STRAIGHT FROM THE DATABASE. The vendor panel used currencyConverter, a third route to the same answer. While "
+    "the cached and the stored default disagree the two numbers differ, and the difference is the exchange rate. "
+    "THE WORKED CASE: wallet at 100 USD of earnings, a store selling in SAR at 3.75, the default currency just moved to USD. A 375 SAR request converts to 100 for the guard, PASSES it, and is "
+    "debited as 375 — total_earning goes to -275 and pending_withdraw to 395, while the request row records 100, so closing it credits back only 100 and the rest is simply gone. "
+    "AND THE PLATFORM REACHES THAT STATE BY ITSELF, which is what makes it more than a theoretical window: BusinessSettingsController::updateSystemCurrency writes system_default_currency and "
+    "forgets only session keys, never clearWebConfigCacheKeys(), so with CACHE_DRIVER=file the business-settings cache holds the old default for three hours while the database holds the new "
+    "one. An administrator saving General Settings opens the window. "
+    "THE FIX: the guard, the stored amount and the debit all take the single value WithdrawRequestService::getWithdrawAmountInWalletCurrency returns, on the v3 seller API (create and update), "
+    "the legacy v2 create, and the vendor panel (create and update). Convert::usd is the conversion kept, and the reason is not taste: it is the one that already wrote the stored request "
+    "amount, and every path that credits the money back — v3 close, v3 update, the vendor close, admin approval — reads that row, so the debit must equal it or the money can never be restored. "
+    "IT REFUSES RATHER THAN INVENTING A RATE: under multi_currency with no usable USD row, or no usable default-currency rate, it returns null and each route answers with the refusal it "
+    "already had (403 on v3, 400 on v2, the invalid_request toast on the panel). Convert::usd alone would have fallen back to a 1:1 USD rate and moved real money at a rate the store does not "
+    "hold. That is a second defect closed on the way past. "
+    "EVIDENCE: tests/Feature/Wallet/WithdrawBoundaryCharacterizationTest, 33 tests / 156 assertions, OK locally on SQLite. The names are the criterion: 'debits exactly what the guard approved "
+    "when the cached and stored default currency disagree' on v3, on v2, on the vendor panel and on v3 update; 'stores the exact amount it debits when the conversion does not divide evenly' on "
+    "all four; and the no-USD-row and negative-rate refusals on each. Nine of the 33 are characterisation tests written before the fix. "
+    "CI ON 9242fce7, run 44763292492: the branch ADDS A REAL-ENGINE JOB FOR THIS CODE, because the wallet money paths build their schema by hand and SQLite in memory gives a fresh database per "
+    "test, so it cannot tell whether they hold on an engine that keeps the previous test's tables — and decimal columns, collation and row order are the live engine's decisions. "
+    "'Wallet tests, MySQL 8' (tests/Feature/Wallet, MySQL 8.0.46) is SUCCESS on this head, which is the named green job this criterion is recorded on. Also success when read: both PHP syntax "
+    "jobs, the secret scan, and sales-channel costs on MariaDB. 'Wallet tests, MariaDB 11.4.2' and the whole-suite jobs were still queued or running, none failed. "
+    "The branch also carries 00b99740, the Torod fixture repair, so its whole-suite jobs are not expected to inherit main's calendar failure. "
+    "LEFT TO THE OWNER DELIBERATELY, and not quietly: the v2 CLOSE path still credits the converted stored amount and debits the converted posted amount. That is the D18 decision pinned on "
+    "PR 32 and is not this branch's to settle. Unchanged otherwise: the amounts under every working configuration, the schema, the response shapes and the other close paths.")
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
