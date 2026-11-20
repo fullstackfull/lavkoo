@@ -358,6 +358,39 @@ class VendorLedgerLegalEntityTest extends TestCase
         $this->assertNull($this->ledger()->companyOfSeller(sellerId: self::SELLER));
     }
 
+    public function test_a_seller_whose_ledger_is_part_one_company_and_part_none_names_none(): void
+    {
+        $this->runCompanyMigrations();
+        $this->turnSellingCompaniesOn();
+        $this->ledger()->record(sellerId: self::SELLER, entryType: VendorLedgerEntry::TYPE_BONUS, credit: 100, referenceId: 'older');
+        $this->availableEarning(amount: 400, company: self::COMPANY_AE);
+
+        $this->assertNull(
+            $this->ledger()->companyOfSeller(sellerId: self::SELLER),
+            'money earned before the column existed is not that company money, so a debit drawn on both names neither',
+        );
+    }
+
+    public function test_a_payout_reserve_of_a_part_labelled_ledger_names_no_company_and_is_still_made(): void
+    {
+        $this->runCompanyMigrations();
+        $this->turnSellingCompaniesOn();
+        $this->ledger()->record(
+            sellerId: self::SELLER,
+            entryType: VendorLedgerEntry::TYPE_ORDER_EARNING,
+            credit: 100,
+            status: VendorLedgerEntry::STATUS_AVAILABLE,
+            referenceType: 'order_details',
+            referenceId: 'older',
+        );
+        $this->availableEarning(amount: 400, company: self::COMPANY_AE);
+
+        $result = app(PayoutService::class)->requestPayout(sellerId: self::SELLER, amount: 300);
+
+        $this->assertTrue($result['ok'], json_encode($result));
+        $this->assertNull($this->ledger()->companyOfEntry(entryId: $result['request']->reserve_entry_id));
+    }
+
     public function test_the_company_of_a_seller_ignores_another_sellers_rows(): void
     {
         $this->runCompanyMigrations();

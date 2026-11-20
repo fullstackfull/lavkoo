@@ -146,9 +146,14 @@ class VendorLedger
      * order nor an earlier entry to read: a payout reserve drawn on the seller's balance as a whole,
      * and the legacy withdraw mirror.
      *
-     * Null when they name none and null when they name more than one: a writer drawing on a balance
-     * made of two companies cannot choose between them, and a missing company must never block a
-     * money write. Whether a payout should instead be drawn per company is the owner's to decide.
+     * One company only when EVERY row of that seller's ledger names that same one. Null when the rows
+     * name none, when they name more than one, and — the case worth spelling out — when some name a
+     * company and others name none, which is every seller whose ledger started before the column
+     * existed. A debit drawn on a pool of money that is not all one company's would otherwise be
+     * labelled with one of them, and the day a reader keeps a running balance per company that label
+     * would take that company's balance down by money it never held while leaving the unlabelled rows
+     * over-credited. Naming no company is the answer that cannot be wrong, and it never blocks the
+     * write: whether a payout should instead be drawn per company is the owner's to decide.
      */
     public function companyOfSeller(int|string $sellerId, string $sellerIs = 'seller'): ?int
     {
@@ -158,12 +163,13 @@ class VendorLedger
 
         $companies = VendorLedgerEntry::query()
             ->forSeller($sellerId, $sellerIs)
-            ->whereNotNull(LegalEntityRegistry::COLUMN)
             ->distinct()
             ->limit(2)
             ->pluck(LegalEntityRegistry::COLUMN);
 
-        return $companies->count() === 1 ? (int) $companies->first() : null;
+        $only = $companies->count() === 1 ? $companies->first() : null;
+
+        return $only === null ? null : (int) $only;
     }
 
     /** What an entry carries in its company column: nothing at all while legal entities are off or the ledger has no such column. */

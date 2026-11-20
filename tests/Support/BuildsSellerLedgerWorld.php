@@ -21,12 +21,22 @@ trait BuildsSellerLedgerWorld
 {
     /** @var list<string> */
     private array $sellerLedgerWorldTables = [
-        'vendor_ledger_entries', 'vendor_payout_requests', 'order_item_commissions', 'orders', 'currencies', 'business_settings',
+        'vendor_ledger_entries', 'vendor_payout_requests', 'order_item_commissions', 'orders', 'sellers', 'currencies', 'business_settings',
     ];
+
+    /**
+     * Tables the writers under test look for with Schema::hasTable() and read when they find one. They are dropped so that what the code
+     * does here does not depend on whether another test file of the same job left one behind with columns of its own: without rules the
+     * commission is the store's own legacy percentage, and without a bank-change log no payout is in a cooling period, which is the state
+     * of an installation that has configured neither.
+     *
+     * @var list<string>
+     */
+    private array $sellerLedgerWorldAbsentTables = ['commission_rules', 'vendor_bank_change_logs', 'category_governance'];
 
     protected function buildSellerLedgerWorld(): void
     {
-        foreach ($this->sellerLedgerWorldTables as $table) {
+        foreach ([...$this->sellerLedgerWorldTables, ...$this->sellerLedgerWorldAbsentTables] as $table) {
             Schema::dropIfExists($table);
         }
 
@@ -48,6 +58,16 @@ trait BuildsSellerLedgerWorld
         });
         DB::table('currencies')->insert(['id' => 1, 'name' => 'Saudi riyal', 'symbol' => 'SAR', 'code' => 'SAR', 'exchange_rate' => 1]);
         DB::table('business_settings')->insert(['type' => 'system_default_currency', 'value' => '1']);
+
+        // CommissionEngine reads the seller's own legacy percentage before it falls back to the store's. Left null here, so the figure is the
+        // store's setting and the real fallback path runs rather than being skipped for want of a table.
+        Schema::create('sellers', static function (Blueprint $table): void {
+            $table->id();
+            $table->decimal('sales_commission_percentage', 12, 4)->nullable();
+            $table->string('status')->nullable();
+            $table->softDeletes();
+            $table->timestamps();
+        });
 
         Schema::create('orders', static function (Blueprint $table): void {
             $table->unsignedBigInteger('id')->primary();
@@ -126,6 +146,7 @@ trait BuildsSellerLedgerWorld
         foreach ($this->sellerLedgerWorldTables as $table) {
             Schema::dropIfExists($table);
         }
+
 
         $this->flushCompanyAnswers();
     }
