@@ -2434,6 +2434,47 @@ CRITERIA['E-03'][3] = ('CODED', "CORRECTED TWICE ON 2026-11-20. First from MET t
     "variablesHolding() to a property and an indexed constant; add resources and bootstrap as roots with a sentinel each; run the migration regex over the scanner's joined literals "
     "instead of the raw source so concatenation cannot hide a name; and re-measure the whole table at one named head.")
 
+# E-08.0's blocker was named in its own record: "must not be read as met until the owner removes them or makes them throw". PR 142 removes them, and not by throwing — it splits the interface,
+# so the type system carries the contract. It also closes the two misses the PR 118 audit proved by experiment, and the ninth edit form PR 118 deliberately left out because main broke it.
+CRITERIA.setdefault('E-08', {})[0] = ('CODED', "ADVANCED 2026-11-20. The blocker this record itself named is gone. It read: E-08.0 must not be read as met until the owner removes or blocks "
+    "the four statements in WalletTransactionRepository (update at :96, delete at :101) and LoyaltyPointTransactionRepository (:103, :108) that update and delete ledger rows with no caller "
+    "anywhere in app/, Modules/ or routes/. PR 142 (draft, branch gcc/p1-ledger-append-only-and-account-deletion, base main at c5c04b7b, lane head 3755677e, head now 37ac6845, 17 files, "
+    "+1132/-114) deletes all four, eleven lines from each repository. "
+    "IT DOES IT BY SPLITTING THE CONTRACT RATHER THAN BY THROWING, which is the better answer and was not the one this programme had planned. RepositoryInterface declared update(string $id, "
+    "array $data): bool and delete(array $params): bool, and 94 interfaces extend it, so the methods could not simply be deleted and the plan was to make them refuse at run time. Instead a "
+    "new App\\Contracts\\Repositories\\AppendOnlyRepositoryInterface holds add, getFirstWhere, getList and getListWhere; RepositoryInterface now EXTENDS it and adds update and delete; and "
+    "WalletTransactionRepositoryInterface and LoyaltyPointTransactionRepositoryInterface extend the append-only one instead. The 94 are untouched (one line changed in each of the two ledger "
+    "interfaces), and a ledger repository can no longer declare an edit without breaking its own contract. A compile-time answer, not a run-time refusal, and no exception path to test. "
+    "BOTH MISSES THE PR 118 AUDIT PROVED BY EXPERIMENT ARE CLOSED, each with a named case in the new scan's provider: 'the table name held in a variable' "
+    "($table = 'wallet_transactions'; DB::table($table)->where('id', 1)->delete()) is now reported as PlatformWriteScanner::UNKNOWN_TABLE, and 'the ledger model held in a property' "
+    "($this->walletTransaction->where($params)->delete() inside a class holding the model) is reported as 'model WalletTransaction'. That second one is the NINTH edit form PR 118 left out of "
+    "its rule on purpose, because main broke it — it is enforceable now precisely because the four statements are gone. A near-miss is pinned the other way too: a property whose name merely "
+    "STARTS like the model ($this->walletTransactionRepo->update(...)) must report nothing. "
+    "NEW TESTS, run locally on SQLite: tests/Unit/Customer/LedgerRowsAreAppendOnlyTest 33 tests / 66 assertions; tests/Feature/Customer/AccountDeletionKeepsLedgerTest 13 / 69; "
+    "tests/Feature/Customer/LedgerTablesAreNeverEmptiedTest 4 / 5. Fifty tests, 140 assertions, all OK. The scan's eight tests cover: no file changes or removes a ledger row; the only files "
+    "editing a table named at run time are accounted for; the roots are really read and the six writers still name a ledger; appending a movement is not an edit, so the writers are not in the "
+    "check's way; neither ledger repository carries a method that could edit a row; the append-only contract has no update or delete while every other repository still does; the admin screen "
+    "that empties tables protects both ledgers; and the check sees an edit in each of the ways a ledger row could be changed. "
+    "THE ADMIN SCREEN THAT EMPTIES TABLES was also closed (app/Http/Controllers/Admin/Settings/DatabaseSettingController, 53 lines rewritten), which is a route that could have emptied both "
+    "ledgers outright and which no earlier branch covered. "
+    "CI ON THE LANE'S HEAD 3755677e, run 44753689562, read job by job from the downloaded archive: the branch moved tests/Feature/Customer INTO the real-engine job and into the strict-mode "
+    "job, and 'Fulfillment, security and customer tests' is SUCCESS on MySQL 8 AND on MariaDB 11.4.2 — so the account-deletion behaviour is now proved on two real engines rather than on "
+    "SQLite alone. Also green: Address on both, costs on both, concurrency on both, myfatoorah on both, sales channels A-M on MariaDB, both PHP syntax jobs. "
+    "WHY CODED AND NOT MET, and it is no longer about the code. tests/Unit/Customer, the 33-test scan that actually carries THIS criterion, is deliberately NOT in the real-engine job (it reads "
+    "text and touches no database, and the workflow says so in a comment), so the only named job covering it is the whole-suite SQLite job — and that job is RED. It is red on ONE failure in "
+    "6250 tests / 792464 assertions, and the failure is TorodShipmentDiscoveryTest, inherited from main and fixed by PR 140. The same single failure is the whole of the redness in all five red "
+    "test jobs here (strict-mode 4038 / 35542, sales channels N-Z 748 / 4606 on both engines). MET follows a green whole-suite job on a head of this branch that carries PR 140's repair. "
+    "ONE RED JOB WAS THIS BRANCH'S OWN AND IS FIXED: 'No secret or personal data added' failed on app/Contracts/Repositories/AppendOnlyRepositoryInterface.php:43, a documentation example of "
+    "the filters array carrying two placeholder addresses. The line is a pure MOVE — it sits unchanged at RepositoryInterface.php:37 on main and at OrderRepositoryInterface.php:13 on the "
+    "branch — and the guard reads added lines, so a move looks like someone typing addresses in today. e7b71e6b rewords the example to spell no address; the guard reads the whole range's "
+    "history, not its tip, so 37ac6845 adds an entry to scripts/ci/leak-guard-allow.json pinned to rule, path and line 43, with the reason written out. leak-guard --base=c5c04b7b exits 0. "
+    "A COLLISION TO SETTLE BEFORE EITHER LANDS: this branch and PR 95 both extend tests/Support/PlatformWriteScanner.php — this one by 184 lines for ledger-row edits, PR 95 by a larger "
+    "rewrite for balance-column writes. They will conflict, and whichever goes second must merge both extensions rather than take one side. Nothing about that is visible from either pull "
+    "request on its own. "
+    "STILL NOT COVERED: the scan reads text, not behaviour, so an edit a model observer, event or vendor package performs on the code's behalf is outside it; and the roots are app/, Modules/ "
+    "and routes/, so resources/views, config/, database/ and tests/ are unread by THIS scan, which matters because the sibling branch has just had to add database/ and resources/ to the "
+    "balance-column scan for exactly that reason.")
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
