@@ -12,10 +12,12 @@ use App\Services\Storefront\StorefrontCatalog;
 use App\Utils\OrderManager;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use Tests\Feature\Address\ApiAddressTestCase;
 use Tests\Support\BuildsStorefrontCart;
@@ -161,7 +163,7 @@ class StorefrontCheckoutSingleCompanyTest extends ApiAddressTestCase
         $this->assertSame(route('shop-cart'), $response['redirect']);
     }
 
-    /** Before the transaction, not inside it: an order that would mix is never written and rolled back, so no id is burnt and no stock moves. */
+    /** Before the transaction, not inside it: an order that would mix is never written and rolled back, so no stock moves. */
     public function test_a_mixing_order_is_refused_before_any_write_is_attempted(): void
     {
         $customer = $this->customerWithOneMixedGroup();
@@ -177,6 +179,27 @@ class StorefrontCheckoutSingleCompanyTest extends ApiAddressTestCase
         $this->asCustomer($customer)->getJson(self::COD)->assertStatus(422);
 
         $this->assertSame([], $attempted, 'not one order or detail row is even attempted');
+    }
+
+    /**
+     * And refused without opening one. This is what the assertion before the transaction is worth, measured: the one inside it refuses
+     * this order too, and a customer could not tell the two apart — both answer 422, both write nothing, and both leave `orders.max(id)`
+     * null, because generateNewOrderID() derives an id from the rows that exist rather than from a sequence, so a rolled-back attempt
+     * consumes no number. What the earlier assertion saves is the attempt itself: 0 transactions begun against 1 begun and 1 rolled back,
+     * and 147 queries against 150. Without this pin, deleting it leaves every other test in this branch green.
+     */
+    public function test_a_mixing_order_is_refused_without_opening_a_transaction(): void
+    {
+        $customer = $this->customerWithOneMixedGroup();
+
+        $transactionsBegun = 0;
+        Event::listen(TransactionBeginning::class, function () use (&$transactionsBegun) {
+            $transactionsBegun++;
+        });
+
+        $this->asCustomer($customer)->getJson(self::COD)->assertStatus(422);
+
+        $this->assertSame(0, $transactionsBegun, 'refused before a transaction was opened, not inside one that then rolled back');
     }
 
     /**
