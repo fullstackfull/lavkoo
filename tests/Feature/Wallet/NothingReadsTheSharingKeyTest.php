@@ -19,7 +19,8 @@ use Tests\TestCase;
  * ignores is ignored here too. The first version of this guard was beaten eight ways by a reviewer, every one of them from inside the tree
  * it scans, and each is now a case of `waysOfNamingTheKeyThatHidBehindTheFirstScan` or of the directories and kinds of file this one reads:
  * `'sharing' . '_group'`, a constant joined to a literal, `whereRaw('SHARING_GROUP = ?')` against a case-insensitive engine, a `.ts` and a
- * `.json` file under `resources/js`, and plain readers in `bootstrap/`, `public/` and `scripts/`.
+ * `.json` file under `resources/js`, and plain readers in `bootstrap/`, `public/` and `scripts/`. `artisan`, which is PHP at the root with no
+ * extension at all, was a ninth of the same family and is read too.
  *
  * A name the scan CANNOT read is not allowed to pass quietly either: a file that reaches an account table and hands a variable, a call or a
  * dynamic array key to a column position is reported, and the list below has to name it. That is how the four market-account files that
@@ -73,7 +74,11 @@ class NothingReadsTheSharingKeyTest extends TestCase
         'app', 'bootstrap', 'config', 'database', 'installation', 'Modules', 'public', 'resources', 'routes', 'scripts', 'tests',
     ];
 
-    private const SOURCE_FILES_AT_THE_ROOT = ['index.php', 'server.php'];
+    /**
+     * PHP at the repository root, which is read as well: the two front controllers come in by their extension, and `artisan` carries none
+     * at all though it runs every console command. `composer.phar` is somebody else's code, like `vendor`.
+     */
+    private const SOURCE_SCRIPTS_AT_THE_ROOT = ['artisan'];
 
     /**
      * Every kind of file that could carry a column name to the database or to a screen. `php` covers Blade, whose extension is `.php`; `ts`
@@ -116,7 +121,7 @@ class NothingReadsTheSharingKeyTest extends TestCase
     {
         $read = $this->filesRead();
 
-        foreach ([...self::SOURCE_FILES_AT_THE_ROOT, 'bootstrap/app.php', 'public/index.php', 'scripts/ci/leak-guard.php', 'scripts/deploy/deploy.php', 'app/Services/Wallet/CustomerMarketBalances.php', 'config/gcc.php', self::SHARING_KEY_MIGRATION, 'routes/web/routes.php'] as $file) {
+        foreach (['index.php', 'server.php', 'artisan', 'webpack.mix.js', 'bootstrap/app.php', 'public/index.php', 'scripts/ci/leak-guard.php', 'scripts/deploy/deploy.php', 'app/Services/Wallet/CustomerMarketBalances.php', 'config/gcc.php', self::SHARING_KEY_MIGRATION, 'routes/web/routes.php'] as $file) {
             $this->assertContains($file, $read, "{$file} is not read by the scan, so a reader in it would be invisible.");
         }
 
@@ -255,9 +260,15 @@ class NothingReadsTheSharingKeyTest extends TestCase
             }
         }
 
-        foreach (self::SOURCE_FILES_AT_THE_ROOT as $file) {
-            if (is_file($root . '/' . $file)) {
-                $files[] = $root . '/' . $file;
+        foreach (new FilesystemIterator($root, FilesystemIterator::SKIP_DOTS) as $file) {
+            if ($file->isFile() && in_array($file->getExtension(), self::EXTENSIONS, true)) {
+                $files[] = $file->getPathname();
+            }
+        }
+
+        foreach (self::SOURCE_SCRIPTS_AT_THE_ROOT as $script) {
+            if (is_file($root . '/' . $script)) {
+                $files[] = $root . '/' . $script;
             }
         }
 
