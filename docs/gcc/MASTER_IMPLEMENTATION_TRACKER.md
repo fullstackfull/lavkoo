@@ -17,7 +17,7 @@ As of 2026-11-20. Generated from the independent assessment of every requirement
 | [A. Six-country base and customer identity](tracker/axis-a-six-country-base-and-customer-identity.md) | 37 | 173 | 89 | 26 | 58 | 66% | 51% | 9% | all |
 | [B. Catalogue and products](tracker/axis-b-catalogue-and-products.md) | 18 | 91 | 34 | 17 | 40 | 56% | 37% | 0% | all |
 | [C. Inventory and fulfillment](tracker/axis-c-inventory-and-fulfillment.md) | 18 | 94 | 65 | 9 | 20 | 79% | 69% | 30% | all |
-| [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 179 | 84 | 31 | 64 | 64% | 47% | 8% | all |
+| [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 179 | 87 | 31 | 61 | 66% | 49% | 8% | all |
 | [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 88 | 38 | 5 | 45 | 49% | 43% | 7% | all |
 | [F. Themes and brand](tracker/axis-f-themes-and-brand.md) | 16 | 77 | 42 | 13 | 22 | 71% | 55% | 4% | all |
 | [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 102 | 59 | 13 | 30 | 71% | 58% | 15% | all |
@@ -27,7 +27,7 @@ As of 2026-11-20. Generated from the independent assessment of every requirement
 | [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 104 | 40 | 26 | 38 | 63% | 38% | 3% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 45 | 18 | 31 | 67% | 48% | 7% | all |
 | [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 311 | 105 | 119 | 87 | 72% | 34% | 3% | all |
-| **All axes (pooled)** | **359** | **1753** | **808** | **360** | **585** | **67%** | **46%** | **8%** | |
+| **All axes (pooled)** | **359** | **1753** | **811** | **360** | **582** | **67%** | **46%** | **8%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -117,8 +117,8 @@ Executable on an isolated branch without production access, ordered by the prior
 | P1 | [D1-10](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 4 | Historical refunds in the original currency and merchant account | Read the CI of PR 101 and PR 103; with the owner's rule on refunds across currency movements, wire RefundFromOriginalPayment into the refund flow behind its own default-off switch, and route a refund through the merchant account o |
 | P1 | [D2-03](tracker/axis-d-orders-checkout-and-payments.md) | NOT STARTED | 4 | Tabby and Tamara reviewed; BNPL gateways only after owner approval and provider confirmati | After D2-05: list Tabby and Tamara in the gateway capability registry with confirmed=false for all six markets, and test that an unconfirmed gateway is never listed or accepted; build no adapter until Q-09 is answered. |
 | P1 | [D2-07](tracker/axis-d-orders-checkout-and-payments.md) | NOT STARTED | 4 | Per-company gateway accounts bound to each payment | Branch gcc/core-payment-accounts from the PR 83 tree: additive migration payment_gateway_accounts guarded like the other GCC tables, GatewayAccountResolver reading the existing addon_settings row as the SA account, flag GCC_PAYMEN |
-| P1 | [D2-V2](tracker/axis-d-orders-checkout-and-payments.md) | NOT STARTED | 4 | Per-storefront on/off of payment methods that are not gateways (cash on delivery, offline  | See the criteria: the unmet ones name the file and the line that has to change. |
 | P1 | [E-14](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 4 | Loyalty redeem and earn: atomic conversion, one formula, one rule | Branch on PR 10: add one canonical points-to-USD helper (LF-1) used by CustomerManager, CustomerTrait and the web preview, one earn-rule service for admin, vendor, seller API and delivery-man deliveries, and a refund_order floor p |
+| P1 | [E-15](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 4 | Referral rewards: once, to the referrer, one amount | On a branch from main merge PR 29 with PR 55 (both change OrderManager.php) and run the Referral, Address and Concurrency groups; once D15, D16 and D19 are decided, implement them with one test per path; credit through the market  |
 
 ## 7. Index of all requirements
 
@@ -252,7 +252,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [D2-17](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 4/0/1 | Payment security constraints: logs, hosts, rate limits, ownership |
 | [D2-18](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 0/1/2 | Payment lifecycle (axis F) pinned end to end per market |
 | [D2-V1](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 1/1/2 | Payment currency is the storefront's currency: no automatic conversion and no silent fallback to the... |
-| [D2-V2](tracker/axis-d-orders-checkout-and-payments.md) | NOT STARTED | 0/0/4 | Per-storefront on/off of payment methods that are not gateways (cash on delivery, offline payment, d... |
+| [D2-V2](tracker/axis-d-orders-checkout-and-payments.md) | NOT STARTED | 3/0/1 | Per-storefront on/off of payment methods that are not gateways (cash on delivery, offline payment, d... |
 
 ### E. Wallets, loyalty and financial records
 
