@@ -2830,6 +2830,48 @@ CRITERIA['E-17'][2] = ('MISSING', "THE MONEY DEFECT IS CLOSED AND INDEPENDENTLY 
     "from a feature branch is evidence of nothing.")
 
 
+CRITERIA['D1-02'][4] = ('CODED', "BOTH DEFECTS CLOSED AND INDEPENDENTLY VERIFIED, 2026-11-20, WITH NO REGRESSION — and the criterion stays CODED for a reason I had "
+    "stated WRONGLY and now correct. PR 144 (draft, gcc/p1-pos-one-selling-company onto gcc/p1-order-one-selling-company), head 9192e337, previous heads 20032ba0 and "
+    "base a7f58989. THREE separate lanes have now agreed this criterion is not MET. "
+    "WHAT IS CLOSED AND MEASURED BY A VERIFIER THAT BUILT ITS OWN FIXTURES. (1) The over-refusal: StorefrontCatalog::sellingScopeOf no longer JOINS the country and the "
+    "company into one string but returns them keyed apart, and OneSellingCompanyPerOrder compares each half's distinct values on its own, so a NULL is no value and "
+    "neither agrees nor disagrees. On a 16-case refuse/allow matrix run on both heads, every shape that must be refused is still refused with the same or richer scope "
+    "reporting, and the only base-to-head relaxations are the three cases where one row leaves a half null — which IS the defect being fixed. The half-backfilled state "
+    "(both products Saudi, one carrying legal_entity_id) is now ALLOWED and pinned at all three tills and at the customer checkout, and so is the state between 'column "
+    "absent' and 'one row filled' (every company null, two countries still refused). (2) The wallet: the debit moved behind every refusal at all three tills, so a mixed "
+    "sale goes from 650.00 with one transaction row of 350.00 to 1000.00 with ZERO rows, the seller till's PRE-EXISTING out-of-stock path goes from 900.00/tx 1 to "
+    "1000.00/tx 0 — so the fix covers a loss that did not need this branch to be reachable — and a LAWFUL sale is byte-for-byte unchanged at 900.00, tx 1, debit 100.00, "
+    "exactly once and not double-debited. A move was chosen over a transaction with the reason given: the two panel tills refuse with response()->json(), which inside "
+    "DB::transaction COMMITS rather than rolls back. One deliberate precedence change is disclosed: a mixed cart paid from a wallet holding 5 now answers 'Product is "
+    "unavailable' where it answered 'need sufficient amount balance', and both refuse with nothing moved. (3) generateOrder now asserts the rule on the LOCKED rows "
+    "inside the transaction, so the rows judged are the rows written, at zero extra queries. Query costs are identical on both heads: 15/15/19 at the tills, 218 through "
+    "generateOrder, 106 for the channel pin. "
+    "NAMED GREEN JOBS ON THE NAMED HEAD that COVER the criterion's wording: 'Storefront tests, MySQL 8' (job 136495438059) and 'MariaDB 11.4.2' (136495438253), which run "
+    "tests/Unit/Storefront plus tests/Feature/Storefront and therefore run the switch-off and unbound-request tests named in the criterion; the A-M sales-channel shards "
+    "on both engines (136495438622, 136495437970), which run the channel pin; and 'Tests, SQLite' on PHP 8.2 (136495437968) and 8.3 (136495437959). All success, zero "
+    "failures or errors in every log. "
+    "WHY STILL CODED — AND THE REASON I PUBLISHED BEFORE WAS NOT PROVABLE. I had recorded the country half as inert because the column is absent on the platform. That "
+    "is wrong and cannot be sourced from this repository: storefront_country HAS a shipped migration, database/migrations/2026_11_25_100000_add_storefront_country_to_" 
+    "products.php, additive with default 'SA', and the branch's own tests exercise the real migration object. THE SOUND REASON, verified by grep: NOTHING in app/ or "
+    "Modules/ WRITES products.storefront_country — the only writes of a column by that name target storefront_legal_acceptances, and Product.php:186 merely hides it. "
+    "With an 'SA' default and no writer, no in-tree path can bring a second country's products into existence, so the refusal cannot be OBSERVED on the running platform "
+    "however many migrations have run. And the company half cannot be observed on any schema this repository can build: legal_entity_id appears in ZERO files under "
+    "database/migrations/ and in exactly ONE non-test file in the whole tree, so every test of that half creates the column with Schema::table() inside the test. "
+    "Implemented and tested is not met. Also: installation/backup/ is not in this repository, so NO claim about the live schema can be sourced from here — including mine. "
+    "WHAT MET WOULD TAKE: a legal_entity_id migration existing and having run, the storefront_country migration having run, a code path in app/ that can set a product's "
+    "country, and the refusal observed on that schema rather than on a column a test created. "
+    "TWO LOOSE ENDS, COVERAGE NOT BEHAVIOUR, repair in flight. Deleting the PRE-transaction guard at app/Utils/OrderManager.php:1566 was 5 RED at 20032ba0 and is 0 RED "
+    "at 9192e337: the new in-transaction assertion subsumed it and took its mutation coverage, while a comment was added asserting the old guard has its own purpose. What "
+    "it is worth, measured: 0 transactions begun against 1 begun and rolled back, and 147 queries against 150 — so 'refuses without opening a transaction' is true, but "
+    "'burns no order id' distinguishes NOTHING, because orders.max(id) is NULL either way. And the seller till's two-if split, whose whole stated purpose is that a "
+    "payload with no lines is charged exactly as before, is held by no test — and that preserved behaviour is a preserved DEFECT: the path writes a LINELESS ORDER and "
+    "charges 100.00 for it on both heads. One report number is also wrong: the M1 mutation row says 5 red and it is NINE. "
+    "AND A PRE-EXISTING DEFECT FOUND ON THE WAY, ITS OWN ITEM, NOT THIS BRANCH'S: the ADMIN AND VENDOR TILLS DO NOT REFUSE AN OVER-QUANTITY LINE AT ALL. Measured "
+    "identically on both heads, quantity 99 against stock 10: the order is written, current_stock is FLOORED 10 to 0, wallet 900.00, one transaction row, debit 100.00. "
+    "They oversell and take the money. Only the seller app till refuses. So 'no stock taken, no wallet debit' in the writer table must not be read as all three tills "
+    "refusing an unfillable line.")
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
