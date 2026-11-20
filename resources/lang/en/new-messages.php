@@ -11242,4 +11242,6 @@ return [
 	'section_types_will_not_appear_in_the_mobile_app' => 'Section types will not appear in the mobile app',
 	'theme_activated_successfully' => 'Theme activated successfully',
 	'tax_registration_number' => 'Tax registration number',
+	'selling_company' => 'Selling company',
+	'the_registered_company_that_sells_this_product_it_follows_from_the_country_and_is_not_typed' => 'The registered company that sells this product. It follows from the product\'s country and is not typed.',
 ];

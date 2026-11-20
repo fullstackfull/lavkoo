@@ -17741,4 +17741,6 @@ return [
 	'attention_outcome_still_unknown' => 'نظرتُ والقناة لا تقول',
 	'attention_outcome_no_longer_relevant' => 'لم يبقَ ذا صلة',
 	'tax_registration_number' => 'رقم التسجيل الضريبي',
+	'selling_company' => 'الشركة البائعة',
+	'the_registered_company_that_sells_this_product_it_follows_from_the_country_and_is_not_typed' => 'الشركة المسجلة التي تبيع هذا المنتج. تتبع دولة المنتج ولا تُكتب يدويًا.',
 ];

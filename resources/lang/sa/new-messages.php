@@ -4859,4 +4859,6 @@ ____________________________________________________on_search_engines_and_see_th
 	'page_title_is_required' => 'Page title is required',
 	'page_description_is_required' => 'Page description is required',
 	'tax_registration_number' => 'رقم التسجيل الضريبي',
+	'selling_company' => 'الشركة البائعة',
+	'the_registered_company_that_sells_this_product_it_follows_from_the_country_and_is_not_typed' => 'الشركة المسجلة التي تبيع هذا المنتج. تتبع دولة المنتج ولا تُكتب يدويًا.',
 ];

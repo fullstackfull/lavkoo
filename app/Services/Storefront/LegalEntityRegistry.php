@@ -16,6 +16,9 @@ use Illuminate\Support\Facades\Schema;
 #[Singleton]
 final class LegalEntityRegistry
 {
+    /** How a row of another table names the company it belongs to. The same name on products, on orders and on the seller ledger, so one company reads one way everywhere. */
+    public const COLUMN = 'legal_entity_id';
+
     /** The fields of an entity that an order freezes, and the keys the frozen copy carries. */
     private const IDENTITY_FIELDS = ['country', 'legal_name', 'trade_name', 'tax_registration_number', 'commercial_registration_number', 'invoice_series_key', 'address'];
 
@@ -27,6 +30,12 @@ final class LegalEntityRegistry
 
     /** @var array<string, array{entity: ?LegalEntity, at: int}> */
     private array $entities = [];
+
+    /** @var array<string, array{entity: ?LegalEntity, at: int}> */
+    private array $entitiesById = [];
+
+    /** @var array{value: bool, at: int}|null */
+    private ?array $productColumnAnswer = null;
 
     public function isEnabled(): bool
     {
@@ -57,6 +66,85 @@ final class LegalEntityRegistry
         $this->entities[$code] = ['entity' => $entity, 'at' => time()];
 
         return $entity;
+    }
+
+    /** The active entity of this id, or null while the registry is off, not migrated, or holds no active row with it. */
+    public function byId(int|string $id): ?LegalEntity
+    {
+        if (!$this->isEnabled() || !$this->tableReady()) {
+            return null;
+        }
+
+        $key = (string) $id;
+        $remembered = $this->entitiesById[$key] ?? null;
+
+        if ($remembered !== null && time() - $remembered['at'] < self::ANSWER_SECONDS) {
+            return $remembered['entity'];
+        }
+
+        $entity = LegalEntity::query()->whereKey($id)->where('status', true)->first();
+        $this->entitiesById[$key] = ['entity' => $entity, 'at' => time()];
+
+        return $entity;
+    }
+
+    /**
+     * The company that sells this product in this storefront: the one the product itself names, and the country's own company for a product that names
+     * none — which is every product before anybody registers a company, and half of them while a backfill runs.
+     *
+     * The row is whatever the caller already holds: a Product the admin screens or the checkout loaded, or the plain products row the channel
+     * materializer reads with the query builder. Both are asked for the column by name and neither is asked for a column it does not carry, so a row
+     * loaded without it says nothing rather than failing (the same way StorefrontCatalog reads a product's selling scope).
+     *
+     * Null, never an exception, while legal entities are off, before the migrations have run, when the registry is empty, when the country has no active
+     * company, and when the company a product names is not an active row of the registry: a missing company must not stop a sale, and the default Saudi
+     * storefront keeps selling with an empty registry. A product whose company is gone answers nothing rather than the country's, because selling it
+     * under a company it does not name would be a worse answer than none.
+     */
+    public function forProduct(?object $product, string $country): ?LegalEntity
+    {
+        if (!$this->isEnabled()) {
+            return null;
+        }
+
+        $named = $product === null ? null : ($product->{self::COLUMN} ?? null);
+
+        return $named === null ? $this->forCountry($country) : $this->byId($named);
+    }
+
+    /** Whether a product carries the company that sells it: the registry is on and the products migration has run. */
+    public function tracksProducts(): bool
+    {
+        if (!$this->isEnabled()) {
+            return false;
+        }
+
+        $answer = $this->productColumnAnswer;
+
+        if ($answer !== null && ($answer['value'] || time() - $answer['at'] < self::ANSWER_SECONDS)) {
+            return $answer['value'];
+        }
+
+        $this->productColumnAnswer = ['value' => Schema::hasColumn('products', self::COLUMN), 'at' => time()];
+
+        return $this->productColumnAnswer['value'];
+    }
+
+    /**
+     * What a new product of this country is saved with: the company registered for it, so an operator who chose the country does not type the company
+     * too. Nothing while the registry is off, before the migration has run, or while the country has no active company.
+     *
+     * @return array<string, int>
+     */
+    public function newProductAttributes(?string $country): array
+    {
+        if (!$this->tracksProducts() || $country === null) {
+            return [];
+        }
+
+        $entity = $this->forCountry($country);
+
+        return $entity === null ? [] : [self::COLUMN => (int) $entity->id];
     }
 
     /**
@@ -123,7 +211,9 @@ final class LegalEntityRegistry
     public function flush(): void
     {
         $this->entities = [];
+        $this->entitiesById = [];
         $this->tableAnswer = null;
+        $this->productColumnAnswer = null;
     }
 
     private function tableReady(): bool
