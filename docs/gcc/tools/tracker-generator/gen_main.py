@@ -2732,6 +2732,46 @@ CRITERIA['D1-02'][4] = ('CODED', "CI NOW READ, 2026-11-20, and this record's sta
     "cannot be MET while the rule that enforces it would reject lawful orders as soon as the second half of its key exists.")
 
 
+CRITERIA['D1-02'][4] = ('CODED', "CI READ ON BOTH HEADS, 2026-11-20, and the criterion STAYS CODED on two measured defects rather than on any gap in evidence. Two "
+    "independent verifications of PR 144 (draft, head 20032ba0a5b1676a243f3046e82afe22dceae5af, gcc/p1-pos-one-selling-company onto gcc/p1-order-one-selling-company) "
+    "DISAGREED on the ruling — one said MET was available with the CI cited, the other said it was not while the company half over-refuses — and the lower state is taken. "
+    "Both agreed D1-02 AS A REQUIREMENT must stay open. "
+    "WHAT IS NOW PROVED AND GREEN. The forbidden end state WAS reachable in one call at a7f58989 through FOUR order writers that bypass generateOrder, not the two the "
+    "pull request listed: one order carrying a Saudi product and an Emirati product, order_amount 350.00, order id 100001, countries ['SA','AE'], through "
+    "Admin/POS/POSOrderController::placeOrder, Vendor/POS/POSOrderController::placeOrder, RestAPI/v3/seller/POSController::place_order and ChannelOrderMaterializer — all "
+    "four reproduced on the pristine base with every test green. Point of sale IS checkout. At 20032ba0 all four refuse in their own shape with nothing written and no "
+    "stock taken, and an independent census of every path that can create an orders row found FIVE writers and FIVE guards, zero raw-SQL order inserts anywhere in app/, "
+    "Modules/ or database/, no new Order(, no Order::create, no orders()->create(, and order_details reachable only from generateOrder after its assertion — so NO SIXTH "
+    "WRITER EXISTS and PR 143's half-scoped 'still not covered' list is closed. CI on 20032ba0, run 44778863239: 22 of 23 checks SUCCESS, the only failure the by-design "
+    "'Deployment overlay (artifact, deploys nothing)', which fails identically on the pristine base. Eight mutations were applied one at a time and all eight went red, "
+    "including one that pins the guard's POSITION and not merely its presence (moving the seller assertion after the write loop reddens only 'nothing was sold'). "
+    "WHY STILL CODED, defect 1 — THE RULE REFUSES LAWFUL ORDERS THE MOMENT ITS COMPANY HALF ARRIVES. StorefrontCatalog::sellingScopeOf JOINS country and company into ONE "
+    "STRING, so a PARTIAL scope DISAGREES with a BARE one, which contradicts the rule's own docblock ('a product that names no scope can neither agree nor disagree with "
+    "another'). Measured with both products Saudi, product 1 given legal_entity_id = 1 and product 2 not yet reached — the only way a backfill can ever look mid-run: the "
+    "seller till throws, the admin till shows an error toast with 0 orders, the CUSTOMER CHECKOUT at POST /api/v1/customer/order/place returns HTTP 422 "
+    "order_mixes_selling_companies with 0 orders, and the channel dispatcher refuses with next_attempt_at = null so every such order waits for a person. Control, both "
+    "products on company 1: HTTP 200, one order, two lines. The branch's dormancy tests cover only 'column absent' and 'both products carry a company', so the state the "
+    "migration MUST PASS THROUGH is untested and broken. This also ties the criterion to E-17.2 and D1-02's own company half: neither can be wired until the two halves of "
+    "the scope are compared independently. "
+    "WHY STILL CODED, defect 2 — A REFUSED WALLET SALE KEEPS THE CUSTOMER'S MONEY, proved independently by both lanes. Seller till, customer holding 1000, payment_method "
+    "wallet, a mixed set of 350: the refusal is thrown and wallet_balance is 650 with one wallet_transactions row of debit 350 and ZERO orders and ZERO lines. The admin "
+    "till with type=wallet is the same, 1000.00 to 650.00. At the base a7f58989 the identical probe writes order 100001 with two lines and the debit MATCHED an order, so "
+    "'charged 350, no order' is a state this branch created for a mixed sale. The ORDERING is the tills' own and PRE-DATES the rule — the existing out-of-stock refusal "
+    "sits after the same debit at all three tills, so the same loss was already reachable — which means fixing the ordering closes both. The branch disclosed the ordering "
+    "in its own runbook and pull request body; it did not say the end state was new. PR 144's title now carries DO NOT MERGE. "
+    "A THIRD, LATENT AND HONESTLY SCOPED: the seller till and generateOrder JUDGE ONE READ AND WRITE ANOTHER. Flipping product 2 from SA to AE at a chosen instant landed "
+    "order 100001 with line 2's product_details snapshot naming the moved row, so the write used a row the guard never saw; generateOrder does the same because its "
+    "assertion runs OUTSIDE the transaction while addOrderDetailsData re-reads each product under lockForUpdate. The admin till and the materializer are structurally "
+    "immune because they read once. NOT REACHABLE TODAY: nothing in app/ ever writes products.storefront_country, so it needs an operator's direct SQL or a future "
+    "move-product-between-countries feature. A structural residual, recorded not inflated. "
+    "ALSO FOUND, NOT A DEFECT OF THIS CRITERION: OrderRepository::add's comment claimed the storefront 'and both APIs' go through generateOrder. False — the seller app's "
+    "till and the materializer insert with the query builder and reach NEITHER analytics counter, so a seller-app sale is counted nowhere. The comment was corrected and "
+    "the gap named; it was not instrumented. "
+    "FOUR REPORT NUMBERS TO CARRY: the M6 mutation row reads '4 of 35' and is 4 red of 48; sales channels A-M is 1222 green AND 3 skipped; 'All four guarded, none left "
+    "open' must read 'no WRITER left open', because in a wallet-funded sale money has already moved; and the ci.yml partition comment this branch edited was ALREADY STALE "
+    "at the base (1214 + 748 = 1962 real against the committed 1169 + 736), so the diff reads as a +8 refresh while it also silently corrects a 45-test inherited error.")
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
