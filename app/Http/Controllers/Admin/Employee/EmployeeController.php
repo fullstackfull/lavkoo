@@ -57,16 +57,16 @@ class EmployeeController extends BaseController
 
     public function add(AdminAddRequest $request, AdminService $adminService): RedirectResponse
     {
-        if ($request['role_id'] == 1) {
-            ToastMagic::warning(translate('access_denied'));
-            return back();
+        $roleId = $adminService->assignableRoleId(roleId: $request['role_id']);
+        if ($roleId === null) {
+            return $this->refuse(request: $request);
         }
 
         $data = [
             'name' => $request['name'],
             'phone' => $request['phone'],
             'email' => $request['email'],
-            'admin_role_id' => $request['role_id'],
+            'admin_role_id' => $roleId,
             'identify_type' => $request['identify_type'],
             'identify_number' => $request['identify_number'],
             'identify_image' => $adminService->getIdentityImages(request: $request),
@@ -108,26 +108,32 @@ class EmployeeController extends BaseController
         return Excel::download(new EmployeeListExport($data), 'Employees.xlsx');
     }
 
-    public function getView(Request $request): View
+    public function getView(Request $request, AdminService $adminService): View|RedirectResponse|JsonResponse
     {
         $employee = $this->adminRepo->getFirstWhere(params:['id' => $request['id']], relations:['role']);
+        if ($this->isOutOfReach(employee: $employee, adminService: $adminService)) {
+            return $this->refuse(request: $request);
+        }
         return view('admin-views.employee.view', compact('employee'));
     }
 
-    public function getUpdateView($id): View
+    public function getUpdateView(Request $request, $id, AdminService $adminService): View|RedirectResponse|JsonResponse
     {
         $employee = $this->adminRepo->getFirstWhere(params:['id' => $id]);
+        if ($this->isOutOfReach(employee: $employee, adminService: $adminService)) {
+            return $this->refuse(request: $request);
+        }
         $adminRoles = $this->adminRoleRepo->getEmployeeRoleList(dataLimit: 'all');
         return view('admin-views.employee.edit', compact('adminRoles', 'employee'));
     }
 
     public function update(AdminUpdateRequest $request, AdminService $adminService): RedirectResponse
     {
-        if ($request['role_id'] == 1) {
-            ToastMagic::warning(translate('access_denied'));
-            return back();
-        }
+        $roleId = $adminService->assignableRoleId(roleId: $request['role_id']);
         $employee = $this->adminRepo->getFirstWhere(params:['id' => $request['id']]);
+        if ($roleId === null || $this->isOutOfReach(employee: $employee, adminService: $adminService)) {
+            return $this->refuse(request: $request);
+        }
         $identity_image = [];
         if ($request->file('identity_image')) {
             $identity_image = $adminService->getIdentityImages(request: $request, oldImages: $employee);
@@ -137,7 +143,7 @@ class EmployeeController extends BaseController
             'name' => $request['name'],
             'phone' => $request['phone'],
             'email' => $request['email'],
-            'admin_role_id' => $request['role_id'],
+            'admin_role_id' => $roleId,
             'password' => $request['password'] ? bcrypt($request['password']) : $employee['password'],
             'image' => $request->file('image') ? $adminService->getProceedImage(request:$request, oldImage:$employee['image']) : $employee['image'],
             'identify_image' => $request->file('identity_image') ? $identity_image : $employee['identify_image'],
@@ -151,8 +157,11 @@ class EmployeeController extends BaseController
         return redirect()->route('admin.employee.list');
     }
 
-    public function updateStatus(Request $request): RedirectResponse|JsonResponse
+    public function updateStatus(Request $request, AdminService $adminService): RedirectResponse|JsonResponse
     {
+        if ($this->isOutOfReach(employee: $this->adminRepo->getFirstWhere(params: ['id' => $request['id']]), adminService: $adminService)) {
+            return $this->refuse(request: $request);
+        }
         $this->adminRepo->update(id:$request['id'], data:['status'=> $request->get('status', 0)]);
         if($request->ajax()) {
             return response()->json([
@@ -162,5 +171,20 @@ class EmployeeController extends BaseController
         }
         ToastMagic::success(translate('Employee_Status_Updated_Successfully'));
         return back();
+    }
+
+    private function isOutOfReach(?object $employee, AdminService $adminService): bool
+    {
+        return $adminService->isOutOfReachOfStaffManagement(target: $employee, asker: auth('admin')->user());
+    }
+
+    private function refuse(Request $request): RedirectResponse|JsonResponse
+    {
+        if ($request->ajax()) {
+            return response()->json(data: ['status' => 'error', 'message' => translate('access_denied')], status: 403);
+        }
+        ToastMagic::warning(translate('access_denied'));
+
+        return redirect()->route('admin.employee.list');
     }
 }
