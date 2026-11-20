@@ -109,7 +109,7 @@ final class PlatformWriteScanner
             $writes = array_merge($writes, array_fill(0, preg_match_all($pattern, $read), $kind));
         }
         foreach (self::stringsIn($literals) as $string) {
-            $writes = array_merge($writes, self::sqlWritesOf($string, $column));
+            $writes = array_merge($writes, self::sqlWritesOf($string, $column, $heldName));
         }
 
         return $writes;
@@ -347,19 +347,31 @@ final class PlatformWriteScanner
         return array_values(array_unique($holders));
     }
 
-    /** @return list<string> the text of every string literal in the code, the heredocs among them */
+    /**
+     * The text of every string in the code: a plain literal, a heredoc, and a double-quoted string put back together with the variables it interpolates where they stand, so that
+     * the SQL of `"update users set {$column} = 0"` is read as the one statement it is and not as the two pieces around the variable.
+     *
+     * @return list<string>
+     */
     private static function stringsIn(string $code): array
     {
         $strings = [];
+        $interpolated = null;
+
         foreach (self::tokensOf($code) as $token) {
-            if (!is_array($token)) {
-                continue;
-            }
-            if ($token[0] === T_CONSTANT_ENCAPSED_STRING) {
-                $strings[] = substr($token[1], 1, -1);
-            }
-            if ($token[0] === T_ENCAPSED_AND_WHITESPACE) {
-                $strings[] = $token[1];
+            $text = is_array($token) ? $token[1] : $token;
+            $opens = $token === '"' || (is_array($token) && $token[0] === T_START_HEREDOC);
+            $closes = $token === '"' || (is_array($token) && $token[0] === T_END_HEREDOC);
+
+            if ($interpolated === null && $opens) {
+                $interpolated = '';
+            } elseif ($interpolated !== null && $closes) {
+                $strings[] = $interpolated;
+                $interpolated = null;
+            } elseif ($interpolated !== null) {
+                $interpolated .= $text;
+            } elseif (is_array($token) && $token[0] === T_CONSTANT_ENCAPSED_STRING) {
+                $strings[] = substr($text, 1, -1);
             }
         }
 
@@ -368,14 +380,15 @@ final class PlatformWriteScanner
 
     /**
      * The writes of a column in a piece of SQL, one for each statement that makes one: a statement whose verb changes rows and which assigns the column (`SET wallet_balance = 0`,
-     * with the identifier wrapped or qualified or not), or which lists it among the columns it inserts. A statement that changes the shape of a table names the column and writes
-     * nobody's value, so its verb is not read.
+     * with the identifier wrapped or qualified or interpolated from a variable that holds the name, or not), or which lists it among the columns it inserts. A statement that
+     * changes the shape of a table names the column and writes nobody's value, so its verb is not read.
      *
+     * @param string $heldName the variables that hold the column's name, as a regular expression
      * @return list<string>
      */
-    private static function sqlWritesOf(string $sql, string $column): array
+    private static function sqlWritesOf(string $sql, string $column, string $heldName): array
     {
-        $name = '(?<!\w)' . self::SQL_IDENTIFIER . preg_quote($column, '/') . self::SQL_IDENTIFIER;
+        $name = '(?<!\w)(?:' . self::SQL_IDENTIFIER . preg_quote($column, '/') . self::SQL_IDENTIFIER . '|\{?(?:' . $heldName . ')\}?)';
         $writes = [];
 
         foreach (explode(';', $sql) as $statement) {

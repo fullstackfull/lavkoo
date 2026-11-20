@@ -211,6 +211,7 @@ class WalletBalanceWritersTest extends TestCase
             'raw SQL that names the column of a joined table' => ['DB::statement("UPDATE `users` u JOIN tops t ON t.user_id = u.id SET u.`wallet_balance` = t.amount");', 'wallet_balance', 1],
             'raw SQL that inserts the column' => ['DB::statement("INSERT INTO users (id, wallet_balance) VALUES (1, 500)");', 'wallet_balance', 1],
             'raw SQL that upserts the column' => ['DB::statement("INSERT INTO users (id) VALUES (1) ON DUPLICATE KEY UPDATE loyalty_point = 5");', 'loyalty_point', 1],
+            'raw SQL with the column interpolated from a variable that holds it' => ["\$column = 'wallet_balance';\nDB::statement(\"update users set {\$column} = 0\");", 'wallet_balance', 1],
             'raw SQL in a heredoc' => ["DB::unprepared(<<<SQL\nUPDATE `users` SET `wallet_balance` = 0 WHERE id > 0\nSQL);", 'wallet_balance', 1],
             'the column named by a constant' => ["const WALLET = 'wallet_balance';\nDB::table('users')->update([self::WALLET => 0]);", 'wallet_balance', 1],
             'the column built by concatenation' => ["DB::table('users')->update(['wallet' . '_balance' => 0]);", 'wallet_balance', 1],
