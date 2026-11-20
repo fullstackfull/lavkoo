@@ -149,7 +149,7 @@ class MarketAccountSharingKeyTest extends TestCase
         $this->assertSame(
             'gulf',
             DB::table($kind->accountsTable())->value(self::SHARING_KEY),
-            'The refusal came after the column was dropped somewhere, so the group it refused to forget is gone anyway.',
+            'The column was dropped before the refusal, so the group it refused to forget is gone anyway.',
         );
     }
 

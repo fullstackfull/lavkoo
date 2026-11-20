@@ -26,6 +26,7 @@ trait CapturesTableState
                 'type' => $column['type'],
                 'nullable' => $column['nullable'],
                 'default' => $column['default'],
+                'collation' => $column['collation'] ?? null,
                 'auto_increment' => $column['auto_increment'] ?? false,
             ];
         }
