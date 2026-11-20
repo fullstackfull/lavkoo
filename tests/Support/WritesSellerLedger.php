@@ -15,6 +15,9 @@ trait WritesSellerLedger
 {
     protected const SELLER = 7;
 
+    /** A second seller, so that what a run over every seller does to one of them can be told from what it does to the others. */
+    protected const ANOTHER_SELLER = 8;
+
     private int $lastEntryReference = 0;
 
     /** The store's default currency is the row of `currencies` that the `system_default_currency` setting points at. */
@@ -35,9 +38,9 @@ trait WritesSellerLedger
     }
 
     /** What the seller earned. The changes are parameters of VendorLedger::record(). */
-    protected function earning(float $amount, ?string $currency = 'SAR', array $changes = []): VendorLedgerEntry
+    protected function earning(float $amount, ?string $currency = 'SAR', array $changes = [], int $sellerId = self::SELLER): VendorLedgerEntry
     {
-        return $this->ledgerEntry(changes: $changes + ['credit' => $amount, 'currency' => $currency]);
+        return $this->ledgerEntry(changes: $changes + ['credit' => $amount, 'currency' => $currency, 'sellerId' => $sellerId]);
     }
 
     /** What the marketplace took from the seller. The changes are parameters of VendorLedger::record(). */
@@ -73,8 +76,13 @@ trait WritesSellerLedger
     }
 
     /** @return list<int> the ids of the entries no settlement has claimed, in the order they were written */
-    protected function unclaimedEntries(): array
+    protected function unclaimedEntries(?int $sellerId = null): array
     {
-        return VendorLedgerEntry::query()->whereNull('settlement_id')->orderBy('id')->pluck('id')->all();
+        return VendorLedgerEntry::query()
+            ->whereNull('settlement_id')
+            ->when($sellerId, fn ($entries) => $entries->where('seller_id', $sellerId))
+            ->orderBy('id')
+            ->pluck('id')
+            ->all();
     }
 }

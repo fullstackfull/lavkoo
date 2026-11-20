@@ -29,7 +29,11 @@ use Tests\TestCase;
  * The platform's currency is SAR, printed as the amount to two decimals followed by the symbol "SAR-symbol", which is what setCurrencySymbol() makes of the settings written in setUp.
  *
  * With `gcc.settlements.one_currency` off the screens print and the button draws exactly what they did before the switch existed (the tests named "current behaviour" were written and run green against the
- * screens as they were, and are not an endorsement: every amount is printed as the platform's money, whatever currency it is in).
+ * screens as they were, and are not an endorsement: every amount is printed as the platform's money, whatever currency it is in). With the switch on, a settlement and each of its entries is printed in its
+ * own currency (the platform's as before; another as the amount the ledger holds, followed by its code), what waits is printed for each currency and never added, a balance the settlement does not record is a
+ * dash and not a zero, and the button draws a settlement for each currency (E-17.1).
+ *
+ * NOT COVERED: the ledger screen of a vendor (`ledger.blade.php`), which still prints every entry and the four balances as the platform's money in both positions.
  */
 class SettlementScreensTest extends TestCase
 {
@@ -184,5 +188,133 @@ class SettlementScreensTest extends TestCase
 
         $this->assertSame(['Nothing is waiting to be settled'], $this->toasts());
         $this->assertSame(0, VendorSettlement::count());
+    }
+
+    public function test_with_the_switch_on_the_list_prints_each_settlement_in_its_own_currency_and_what_waits_for_each(): void
+    {
+        config(['gcc.settlements.one_currency' => true]);
+        $this->earning(amount: 100.5, currency: 'SAR');
+        $this->earning(amount: 12.345, currency: 'KWD');
+        $this->charge(amount: 10.1235, currency: 'SAR');
+        app(SettlementEngine::class)->calculateEachCurrency(sellerId: self::SELLER);
+        $this->earning(amount: 5.5, currency: 'KWD');
+        $this->earning(amount: 30.0, currency: 'SAR', changes: ['sellerId' => 8]);
+        $this->earning(amount: 1.005, currency: 'KWD', changes: ['sellerId' => 8]);
+        $this->ledgerEntry(changes: ['entryType' => VendorLedgerEntry::TYPE_MANUAL_ADJUSTMENT, 'credit' => 50.0, 'referenceType' => 'payout_release', 'currency' => 'SAR', 'sellerId' => 9]);
+
+        $list = $this->listPage();
+
+        $this->assertSame(['2', '6.505 KWD · 30.00SAR-symbol'], $this->shown($list, self::WAITING));
+        $this->assertSame(['12.345 KWD', '90.38SAR-symbol'], $this->shown($list, self::NET_OF_EACH_SETTLEMENT));
+    }
+
+    public function test_with_the_switch_on_a_settlement_is_printed_in_its_own_currency_and_a_balance_it_does_not_record_is_not_a_zero(): void
+    {
+        config(['gcc.settlements.one_currency' => true]);
+        $this->earning(amount: 100.5, currency: 'SAR');
+        $this->earning(amount: 12.345, currency: 'KWD');
+        $this->charge(amount: 10.1235, currency: 'SAR');
+        $this->charge(amount: 1.5, currency: 'KWD');
+        [$inRiyals, $inDinars] = app(SettlementEngine::class)->calculateEachCurrency(sellerId: self::SELLER);
+
+        $dinars = $this->pageOf($inDinars);
+        $riyals = $this->pageOf($inRiyals);
+
+        $this->assertSame(['—', '12.345 KWD', '1.50 KWD', '10.845 KWD', '—'], $this->shown($dinars, self::FIGURES_OF_THE_SETTLEMENT));
+        $this->assertSame(['12.345 KWD', '—'], $this->shown($dinars, self::CREDIT_OF_EACH_ENTRY));
+        $this->assertSame(['—', '1.50 KWD'], $this->shown($dinars, self::DEBIT_OF_EACH_ENTRY));
+        $this->assertSame(['—', '—'], $this->shown($dinars, self::BALANCE_AFTER_EACH_ENTRY));
+        $this->assertSame(['—', '100.50SAR-symbol', '10.12SAR-symbol', '90.38SAR-symbol', '—'], $this->shown($riyals, self::FIGURES_OF_THE_SETTLEMENT));
+        $this->assertSame(['100.50SAR-symbol', '—'], $this->shown($riyals, self::CREDIT_OF_EACH_ENTRY));
+        $this->assertSame(['—', '10.12SAR-symbol'], $this->shown($riyals, self::DEBIT_OF_EACH_ENTRY));
+        $this->assertSame(['—', '—'], $this->shown($riyals, self::BALANCE_AFTER_EACH_ENTRY));
+    }
+
+    public function test_with_the_switch_on_a_settlement_in_another_currency_that_records_its_balances_prints_them_in_that_currency(): void
+    {
+        config(['gcc.settlements.one_currency' => true]);
+        $this->earning(amount: 12.345, currency: 'KWD');
+        $this->charge(amount: 1.5, currency: 'KWD');
+        $first = app(SettlementEngine::class)->calculate(sellerId: self::SELLER);
+        $this->earning(amount: 1000.0, currency: 'KWD');
+        $second = app(SettlementEngine::class)->calculate(sellerId: self::SELLER);
+
+        $page = $this->pageOf($second);
+
+        $this->assertSame(['10.845 KWD', '1,000.00 KWD', '0.00 KWD', '1,000.00 KWD', '1,010.845 KWD'], $this->shown($page, self::FIGURES_OF_THE_SETTLEMENT));
+        $this->assertSame(['1,010.845 KWD'], $this->shown($page, self::BALANCE_AFTER_EACH_ENTRY));
+        $this->assertSame(['0.00 KWD', '12.345 KWD', '1.50 KWD', '10.845 KWD', '10.845 KWD'], $this->shown($this->pageOf($first), self::FIGURES_OF_THE_SETTLEMENT));
+    }
+
+    public function test_with_the_switch_on_an_entry_that_names_no_currency_is_printed_as_the_platform_currency_it_is_settled_in(): void
+    {
+        config(['gcc.settlements.one_currency' => true]);
+        $this->withoutACurrency($this->earning(amount: 5.0));
+        $this->earning(amount: 10.0, currency: 'SAR');
+        $settlement = app(SettlementEngine::class)->calculate(sellerId: self::SELLER);
+
+        $page = $this->pageOf($settlement);
+
+        $this->assertSame(['0.00SAR-symbol', '15.00SAR-symbol', '0.00SAR-symbol', '15.00SAR-symbol', '15.00SAR-symbol'], $this->shown($page, self::FIGURES_OF_THE_SETTLEMENT));
+        $this->assertSame(['5.00SAR-symbol', '10.00SAR-symbol'], $this->shown($page, self::CREDIT_OF_EACH_ENTRY));
+        $this->assertSame(['5.00SAR-symbol', '15.00SAR-symbol'], $this->shown($page, self::BALANCE_AFTER_EACH_ENTRY));
+    }
+
+    public function test_a_settlement_that_added_two_currencies_before_the_switch_was_turned_on_shows_each_entry_in_its_own_currency_afterwards(): void
+    {
+        $this->earning(amount: 100.5, currency: 'SAR');
+        $this->earning(amount: 12.25, currency: 'KWD');
+        $drawnWhileOff = app(SettlementEngine::class)->calculate(sellerId: self::SELLER);
+        config(['gcc.settlements.one_currency' => true]);
+
+        $page = $this->pageOf($drawnWhileOff);
+
+        $this->assertSame(['0.00SAR-symbol', '112.75SAR-symbol', '0.00SAR-symbol', '112.75SAR-symbol', '112.75SAR-symbol'], $this->shown($page, self::FIGURES_OF_THE_SETTLEMENT));
+        $this->assertSame(['100.50SAR-symbol', '12.25 KWD'], $this->shown($page, self::CREDIT_OF_EACH_ENTRY));
+    }
+
+    public function test_a_balance_a_settlement_does_not_record_is_a_dash_after_the_switch_is_turned_off_again(): void
+    {
+        config(['gcc.settlements.one_currency' => true]);
+        $this->earning(amount: 100.5, currency: 'SAR');
+        $this->earning(amount: 12.25, currency: 'KWD');
+        [, $inDinars] = app(SettlementEngine::class)->calculateEachCurrency(sellerId: self::SELLER);
+        config(['gcc.settlements.one_currency' => false]);
+
+        $page = $this->pageOf($inDinars);
+
+        $this->assertSame(['—', '12.25SAR-symbol', '0.00SAR-symbol', '12.25SAR-symbol', '—'], $this->shown($page, self::FIGURES_OF_THE_SETTLEMENT));
+        $this->assertSame(['—'], $this->shown($page, self::BALANCE_AFTER_EACH_ENTRY));
+    }
+
+    public function test_with_the_switch_on_the_button_draws_a_settlement_for_each_currency_of_each_vendor(): void
+    {
+        config(['gcc.settlements.one_currency' => true]);
+        $this->earning(amount: 100.5, currency: 'SAR');
+        $this->earning(amount: 12.345, currency: 'KWD');
+        $this->earning(amount: 30.0, currency: 'SAR', changes: ['sellerId' => 8]);
+
+        $this->post(route('admin.marketplace.settlements.calculate'))->assertRedirect();
+
+        $this->assertSame(
+            ['7 KWD' => 12.345, '7 SAR' => 100.5, '8 SAR' => 30.0],
+            VendorSettlement::query()->get()->mapWithKeys(static fn (VendorSettlement $settlement): array => [$settlement->seller_id . ' ' . $settlement->currency => $settlement->net_amount])->sortKeys()->all(),
+        );
+        $this->assertSame(['3 Settlement(s) calculated and awaiting approval'], $this->toasts());
+        $this->assertSame([], $this->unclaimedEntries());
+    }
+
+    public function test_with_the_switch_on_the_button_for_one_vendor_draws_every_currency_of_that_vendor_and_leaves_the_others(): void
+    {
+        config(['gcc.settlements.one_currency' => true]);
+        $this->earning(amount: 100.5, currency: 'SAR');
+        $this->earning(amount: 12.345, currency: 'KWD');
+        $this->earning(amount: 30.0, currency: 'SAR', changes: ['sellerId' => 8]);
+
+        $this->post(route('admin.marketplace.settlements.calculate'), ['seller_id' => 7])->assertRedirect();
+
+        $this->assertSame(['KWD' => 12.345, 'SAR' => 100.5], VendorSettlement::query()->orderBy('currency')->pluck('net_amount', 'currency')->all());
+        $this->assertSame(['2 Settlement(s) calculated and awaiting approval'], $this->toasts());
+        $this->assertSame([8], VendorLedgerEntry::query()->whereNull('settlement_id')->pluck('seller_id')->all());
     }
 }

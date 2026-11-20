@@ -75,7 +75,7 @@
                     </div>
                     <div>
                         <p class="mb-0 fs-12 text-muted">{{ translate('net_waiting_to_be_settled') }}</p>
-                        <h3 class="mb-0">{{ setCurrencySymbol($waiting['net']) }}</h3>
+                        <h3 class="mb-0">{{ $settlementCurrency->formatEach(amounts: $waiting['net']) }}</h3>
                     </div>
                 </div>
                 <form action="{{ route('admin.marketplace.settlements.calculate') }}" method="post"
@@ -133,7 +133,7 @@
                                         &ndash;
                                         {{ optional($settlement->period_end)->format('d M Y') }}
                                     </td>
-                                    <td class="text-end fw-semibold">{{ setCurrencySymbol($settlement->net_amount) }}</td>
+                                    <td class="text-end fw-semibold">{{ $settlementCurrency->format(amount: $settlement->net_amount, currency: $settlement->currency) }}</td>
                                     <td>{{ $settlement->entry_count }}</td>
                                     <td>
                                         <span class="k-badge k-badge--{{ $statusColours[$settlement->status] ?? 'secondary' }}">
