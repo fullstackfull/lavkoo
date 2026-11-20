@@ -2700,6 +2700,38 @@ CRITERIA['E-03'][3] = ('CODED', "STAYS CODED, 2026-11-20, after a THIRD round, a
     "A CROSS-PULL-REQUEST COLLISION NO SINGLE PULL REQUEST CAN SEE: PR 95 and PR 142 (gcc/p1-ledger-no-edit-contract) both extend tests/Support/PlatformWriteScanner.php.")
 
 
+CRITERIA['E-12'][5] = ('CODED', "CI NOW READ IN FULL, 2026-11-20, and the reason this stays CODED has changed: it is coverage, not evidence of a run. Head 9242fce7 on "
+    "gcc/p1-withdraw-one-conversion (PR 141, draft), run 44763292492: 22 of 23 checks SUCCESS, the ONLY failure the by-design 'Deployment overlay (artifact, deploys "
+    "nothing)', and NO 'FAILURES!' or 'ERRORS!' string in ANY of the 23 job logs. The new real-engine group this branch added is green on BOTH its legs — 'Wallet tests, "
+    "MySQL 8' (job 136381176687) and 'Wallet tests, MariaDB 11.4.2' (job 136381177097), each Tests: 33, Assertions: 156, OK with one PHPUnit deprecation. The whole suite "
+    "is green on both PHP versions: 'Tests, SQLite (PHP 8.3)' (job 136381176754) and '(PHP 8.2)' (job 136381176375), each Tests: 6233, Assertions: 792482, 9 deprecations, "
+    "97 skipped. So the earlier record's blocker — 'the new Wallet tests group has never run on MySQL 8 or MariaDB 11.4.2 anywhere' — IS CLOSED, on both engines named. "
+    "WHY STILL CODED. The independent review returned fix_incomplete and the reason is the criterion's own words: the guard, the row and the debit must take ONE value, and "
+    "the tests did not pin that. Four single-line mutations broke exactly that covenant and 20 tests stayed green; one was driven to a repeated cast of 0.1666666665 USD "
+    "over 50 open-and-close cycles. The cause is structural, not an omission: every amount in the group is turned into an exact decimal, so the group is STRUCTURALLY BLIND "
+    "to the thing it forbids. The fix round closed 13 of 16 mutations; three remain. The branch's own test file had also NEVER run on a real engine before this group "
+    "existed — on MariaDB 8 of 9 failed with 1050 Table 'business_settings' already exists, which is why the group was added. The review also caught a false Saudi claim: "
+    "v2 and v3 began returning 500 where the base returns 200, and the fix round put them back to 403/400. MET needs the three surviving mutations killed, or the criterion "
+    "rewritten to claim only what an exact-decimal fixture can prove.")
+
+CRITERIA['D1-02'][4] = ('CODED', "CI NOW READ, 2026-11-20, and this record's stated blocker is closed while the criterion stays CODED for a different and better-measured "
+    "reason. Head a7f58989 on gcc/p1-order-one-selling-company (PR 143, draft), run 44770547792: 21 of 23 checks SUCCESS with the ONLY failure the by-design Deployment "
+    "overlay and one sales-channel shard still running. Green on both engines for Fulfillment + security and Storefront; green on PHP 8.2 and 8.3 for the whole SQLite "
+    "suite; Strict-mode MariaDB 11.4.2 green. The earlier record said 'CI HAS NOT BEEN READ ON a7f58989' — it has now, and it is clean. "
+    "WHY STILL CODED, on three measurements. (1) COVERAGE IS THIN: the review killed 19 of 52 mutations on this head, and the fix round added NO line of product code. "
+    "(2) THE REQUIREMENT'S FORBIDDEN END STATE WAS STILL REACHABLE IN ONE CALL at this head, through FOUR order writers that bypass generateOrder, not the two the pull "
+    "request listed: one order carrying a Saudi product and an Emirati product, order_amount 350.00, order id 100001, countries ['SA','AE'], written through "
+    "Admin/POS/POSOrderController::placeOrder, Vendor/POS/POSOrderController::placeOrder, RestAPI/v3/seller/POSController::place_order and "
+    "ChannelOrderMaterializer — each reproduced on the pristine head with every test on the branch green. Point of sale IS checkout. "
+    "(3) THAT IS NOW GUARDED on a separate branch, gcc/p1-pos-one-selling-company, head 20032ba0a5b1676a243f3046e82afe22dceae5af, draft PR 144 onto this one: all four "
+    "refuse in their own shape (admin and vendor tills an error toast with no stock taken, the seller till OrderMixesSellingCompaniesException then 422, the materializer "
+    "DispatchRefused then state=blocked), and the verification confirmed there is no fifth order writer in the tree. "
+    "BUT THE GUARD CARRIES ITS OWN LATENT DEFECT, measured: the one shared scope reader CONCATENATES country and company into a single string, so on the day "
+    "legal_entity_id is backfilled product by product, a LAWFUL two-Saudi-product order is REFUSED at the seller till, the admin till and the customer checkout with 422 "
+    "order_mixes_selling_companies. That makes D1-02's company half unusable the moment it arrives, and it must be fixed before the company half is wired. The criterion "
+    "cannot be MET while the rule that enforces it would reject lawful orders as soon as the second half of its key exists.")
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
