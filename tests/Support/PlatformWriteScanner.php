@@ -182,6 +182,9 @@ final class PlatformWriteScanner
             'assignment' => '/->\s*\{?[\'"]?(?:' . $name . '|' . $heldName . ')[\'"]?\}?\s*(?:' . self::COMPOUND_ASSIGNMENT . ')?=(?![=>])/',
             'increment or decrement' => '/(?:increment|decrement)(?:Quietly)?\(\s*' . self::NAMED_ARGUMENT . $named . '/',
             'setAttribute' => '/(?:setAttribute|offsetSet)\(\s*' . self::NAMED_ARGUMENT . $named . '/',
+            // The helpers that set an array key by name, where the name is the SECOND argument: `data_set($values, 'wallet_balance', 0)`. `data_get` and `Arr::get` read and are
+            // not here. The array does not have to be followed into its write, as nothing above does either.
+            'a key set by name through a helper' => '/(?:data_set|data_fill|Arr::set|Arr::add)\(\s*[^,()]+,\s*' . self::NAMED_ARGUMENT . $named . '/',
         ];
 
         $writes = [];
@@ -194,6 +197,7 @@ final class PlatformWriteScanner
         $subscript = '/\[\s*[\'"]' . $name . '[\'"]\s*\]\s*(?:' . self::COMPOUND_ASSIGNMENT . ')?=(?![=>])/';
         $writes = array_merge($writes, array_fill(0, preg_match_all($subscript, $literals), 'array access assignment'));
         $writes = array_merge($writes, array_fill(0, self::arrayKeyWrites($read, $key, $column), 'array key given a value'));
+        $writes = array_merge($writes, array_fill(0, self::upsertUpdateColumnWrites($read, $key), "the column among an upsert's update columns"));
         foreach (self::sqlStringsIn($sql) as $string) {
             $writes = array_merge($writes, self::sqlWritesOf($string, $column, $heldName));
         }
@@ -225,6 +229,27 @@ final class PlatformWriteScanner
         return preg_match_all('/' . $key . '\s*=>/', $handedToAWrite)
             + self::keysWhoseValueCouldBeAnAmount($code, $key, $column)
             - self::keysWhoseValueCouldBeAnAmount($handedToAWrite, $key, $column);
+    }
+
+    /**
+     * How many upsert calls name the column ONLY among the columns to update, which is its third argument and a list of names rather than a map. MySQL compiles that to
+     * `on duplicate key update wallet_balance = values(wallet_balance)`, and when the rows inserted do not carry the column, `values()` hands back its default:
+     * `DB::table('users')->upsert([['id' => 1]], ['id'], ['wallet_balance'])` took a `decimal(40,20)` balance of 350.12345678901234567890 to NULL on MariaDB 10.11.14.
+     *
+     * Only where the column is not also a key of the call, because then the array reading above has already counted the one write.
+     *
+     * @param string $key the column as an array key, as a regular expression
+     */
+    private static function upsertUpdateColumnWrites(string $code, string $key): int
+    {
+        $named = 0;
+        foreach (self::argumentsOf($code, 'upsert') as $call) {
+            if (preg_match('/' . $key . '\s*=>/', $call) !== 1 && preg_match('/' . $key . '/', $call) === 1) {
+                $named++;
+            }
+        }
+
+        return $named;
     }
 
     /**

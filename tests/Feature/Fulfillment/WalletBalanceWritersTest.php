@@ -288,6 +288,13 @@ class WalletBalanceWritersTest extends TestCase
             'update array built in a variable whose value is a string' => ["\$values = ['wallet_balance' => '0'];\nDB::table('users')->update(\$values);", 'wallet_balance', 1],
             'update array built in a property whose value is a string' => ["class X { private \$values = ['loyalty_point' => '0'];\npublic function z() { DB::table('users')->update(\$this->values); } }", 'loyalty_point', 1],
             'upsert whose value is a string' => ["DB::table('users')->upsert([['id' => 1, 'wallet_balance' => '9999']], ['id'], ['wallet_balance']);", 'wallet_balance', 1],
+            // The column named ONLY among an upsert's update columns, which is a list of names and no map. MySQL compiles it to `on duplicate key update wallet_balance =
+            // values(wallet_balance)`, and with the column absent from the rows inserted `values()` hands back its default: measured on MariaDB 10.11.14, this took a
+            // decimal(40,20) balance of 350.12345678901234567890 to NULL. One write, not two, when it is also a key.
+            'upsert naming the column only among the columns to update' => ["DB::table('users')->upsert([['id' => 1]], ['id'], ['wallet_balance']);", 'wallet_balance', 1],
+            // A helper that sets an array key by name, where the name is the second argument. `data_get` and `Arr::get` read, and are pinned at 0 below.
+            'a key set by name through data_set' => ["data_set(\$values, 'wallet_balance', 0);", 'wallet_balance', 1],
+            'a key set by name through Arr::set' => ["Arr::set(\$values, 'loyalty_point', 0);", 'loyalty_point', 1],
             'updateOrInsert whose value is a string' => ["DB::table('users')->updateOrInsert(['id' => 1], ['wallet_balance' => '9999']);", 'wallet_balance', 1],
             'fill whose value is a string' => ["\$user->fill(['wallet_balance' => '9999'])->save();", 'wallet_balance', 1],
             'setRawAttributes' => ["\$user->setRawAttributes(['loyalty_point' => '5'], true);", 'loyalty_point', 1],
@@ -328,6 +335,10 @@ class WalletBalanceWritersTest extends TestCase
             // reach the engine verbatim and MariaDB refuses the statement -- the seeded balance reads back 350.12345678901234567890.
             'raw SQL whose column name is a constant inside braces, which PHP does not interpolate' => ["const WALLET = 'wallet_balance';\nDB::statement(\"update users set {self::WALLET} = 0\");", 'wallet_balance', 0],
             'the column read by a := outside the clause that assigns' => ['DB::statement("select @x := wallet_balance from users");', 'wallet_balance', 0],
+            'the column read by name through data_get' => ["\$x = data_get(\$values, 'wallet_balance');", 'wallet_balance', 0],
+            'the column read by name through Arr::get' => ["\$x = Arr::get(\$values, 'loyalty_point');", 'loyalty_point', 0],
+            // No write, and proved so rather than asserted: PHP refuses an object as an array key, so this line never reaches a database at all.
+            'a DB::raw used as the array key, which PHP refuses' => ["DB::table('users')->update([DB::raw('wallet_balance') => 0]);", 'wallet_balance', 0],
             // `DB::select` runs an UPDATE on MySQL and MariaDB and hands back no rows; so does a PDO `exec`. Neither is on any list of write methods, which is why the reading is
             // no longer gated on one: what changes a row is the statement, and the statement is what is read.
             'raw SQL run through DB::select, which executes it' => ['DB::select("update users set wallet_balance = 0");', 'wallet_balance', 1],
