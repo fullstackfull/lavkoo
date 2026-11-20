@@ -67,7 +67,7 @@ class WalletBalanceWritersTest extends TestCase
         'database/migrations/2025_04_16_154104_modify_loyalty_point_column_in_users_table.php' => 'widens loyalty_point and places it after wallet_balance',
         'database/migrations/2025_07_13_021823_modify_wallet_balance_column_in_users_table.php' => 'widens wallet_balance',
         'database/migrations/2025_07_24_104352_create_order_details_rewards_table.php' => 'names loyalty_point in the comment of a reward_type column',
-        'database/migrations/2026_05_07_000001_update_all_decimal_columns_to_40_20.php' => '91 ALTER statements that widen the money columns of users, orders, order_details and carts',
+        'database/migrations/2026_05_07_000001_update_all_decimal_columns_to_40_20.php' => '90 ALTER statements up and 90 down, widening the money columns of users, orders, order_details and carts',
     ];
 
     /** The column of the users table, not a table whose name begins with it: `loyalty_point_transactions` is the ledger. */
