@@ -119,6 +119,7 @@ trait BuildsWalletAndVendorLedgerSchema
             $table->unsignedBigInteger('created_by')->nullable();
             $table->string('created_by_type', 20)->nullable();
             $table->unsignedBigInteger('settlement_id')->nullable();
+            $table->unsignedBigInteger('legal_entity_id')->nullable();
             $table->timestamps();
         });
     }
@@ -145,6 +146,7 @@ trait BuildsWalletAndVendorLedgerSchema
             $table->decimal('closing_balance', 24, 4)->nullable($balancesAcceptNull);
             $table->unsignedInteger('entry_count')->default(0);
             $table->string('currency', 20)->nullable();
+            $table->unsignedBigInteger('legal_entity_id')->nullable();
             $table->string('status', 20)->default('draft');
             $table->timestamp('calculated_at')->nullable();
             $table->unsignedBigInteger('approved_by')->nullable();

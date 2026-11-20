@@ -3,6 +3,7 @@
 namespace App\Services\Marketplace;
 
 use App\Models\VendorLedgerEntry;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -45,6 +46,7 @@ class VendorLedger
         ?string $currency = null,
         string $sellerIs = 'seller',
         ?\DateTimeInterface $availableAt = null,
+        ?int $legalEntityId = null,
     ): ?VendorLedgerEntry {
         if (!Schema::hasTable('vendor_ledger_entries') || !$sellerId) {
             return null;
@@ -52,10 +54,12 @@ class VendorLedger
 
         $credit = round(max(0, $credit), 4);
         $debit = round(max(0, $debit), 4);
+        $currency ??= $this->baseCurrency();
+        $chain = $this->chain(sellerId: $sellerId, sellerIs: $sellerIs, legalEntityId: $legalEntityId, currency: $currency);
 
         return DB::transaction(function () use (
             $sellerId, $sellerIs, $entryType, $credit, $debit, $status,
-            $referenceType, $referenceId, $description, $currency, $availableAt
+            $referenceType, $referenceId, $description, $currency, $availableAt, $chain
         ) {
             // Idempotency first: if this exact event is already on the ledger, return it unchanged
             // rather than appending a second one.
@@ -70,16 +74,17 @@ class VendorLedger
                 return $existing;
             }
 
-            // Lock the seller's last entry so a concurrent event cannot read the same balance.
-            $previous = VendorLedgerEntry::query()
-                ->forSeller($sellerId, $sellerIs)
+            // Lock the last entry OF THIS CHAIN so a concurrent event cannot read the same balance. Two
+            // events in different chains are different money and do not wait for each other; two in the
+            // same chain still do, which is the whole reason the lock is here.
+            $previous = $chain->narrow(VendorLedgerEntry::query())
                 ->orderByDesc('id')
                 ->lockForUpdate()
                 ->first();
 
             $balanceAfter = round(((float) ($previous->balance_after ?? 0)) + $credit - $debit, 4);
 
-            return VendorLedgerEntry::create([
+            return VendorLedgerEntry::create($chain->entityForWriting() + [
                 'seller_id' => $sellerId,
                 'seller_is' => $sellerIs,
                 'entry_type' => $entryType,
@@ -88,7 +93,7 @@ class VendorLedger
                 'balance_after' => $balanceAfter,
                 'status' => $status,
                 'available_at' => $availableAt,
-                'currency' => $currency ?? $this->baseCurrency(),
+                'currency' => $currency,
                 'reference_type' => $referenceType,
                 'reference_id' => $referenceId,
                 'description' => $description,
@@ -101,7 +106,7 @@ class VendorLedger
      *
      * @return array{pending: float, available: float, reserved: float, paid: float, balance: float}
      */
-    public function balances(int|string $sellerId, string $sellerIs = 'seller'): array
+    public function balances(int|string $sellerId, string $sellerIs = 'seller', ?LedgerChain $chain = null): array
     {
         $empty = ['pending' => 0.0, 'available' => 0.0, 'reserved' => 0.0, 'paid' => 0.0, 'balance' => 0.0];
 
@@ -109,8 +114,7 @@ class VendorLedger
             return $empty;
         }
 
-        $rows = VendorLedgerEntry::query()
-            ->forSeller($sellerId, $sellerIs)
+        $rows = $this->entriesOf(sellerId: $sellerId, sellerIs: $sellerIs, chain: $chain)
             ->selectRaw('status, SUM(credit) as credits, SUM(debit) as debits')
             ->groupBy('status')
             ->get();
@@ -144,9 +148,9 @@ class VendorLedger
      *
      * Without this, a second payout request would see the full earning again and double-spend it.
      */
-    public function withdrawable(int|string $sellerId, string $sellerIs = 'seller'): float
+    public function withdrawable(int|string $sellerId, string $sellerIs = 'seller', ?LedgerChain $chain = null): float
     {
-        $balances = $this->balances($sellerId, $sellerIs);
+        $balances = $this->balances(sellerId: $sellerId, sellerIs: $sellerIs, chain: $chain);
 
         // Also exclude money already claimed by a settlement. SettlementEngine pays earnings through the
         // settlement channel by stamping `settlement_id` on them (and, on markPaid, relabelling them
@@ -154,21 +158,23 @@ class VendorLedger
         // here would let the same earning be withdrawn a second time through a payout request — the two
         // payout channels drawing on one pool. Netting out the settlement-claimed amount keeps them
         // mutually exclusive on the same money.
-        return round($balances['balance'] - $balances['pending'] - $this->settlementClaimedNet($sellerId, $sellerIs), 4);
+        return round(
+            $balances['balance'] - $balances['pending'] - $this->settlementClaimedNet(sellerId: $sellerId, sellerIs: $sellerIs, chain: $chain),
+            4,
+        );
     }
 
     /**
      * The net amount (credits − debits) of this seller's ledger entries that a settlement has claimed
      * (`settlement_id` set). Guarded on the column existing so ledger-only unit tests are unaffected.
      */
-    private function settlementClaimedNet(int|string $sellerId, string $sellerIs = 'seller'): float
+    private function settlementClaimedNet(int|string $sellerId, string $sellerIs = 'seller', ?LedgerChain $chain = null): float
     {
         if (!Schema::hasTable('vendor_ledger_entries') || !Schema::hasColumn('vendor_ledger_entries', 'settlement_id')) {
             return 0.0;
         }
 
-        $row = VendorLedgerEntry::query()
-            ->forSeller($sellerId, $sellerIs)
+        $row = $this->entriesOf(sellerId: $sellerId, sellerIs: $sellerIs, chain: $chain)
             ->whereNotNull('settlement_id')
             ->selectRaw('SUM(credit) as credits, SUM(debit) as debits')
             ->first();
@@ -215,6 +221,50 @@ class VendorLedger
         }
 
         return $query->update(['status' => VendorLedgerEntry::STATUS_AVAILABLE, 'updated_at' => now()]);
+    }
+
+    /**
+     * The chain an entry of this seller, selling company and currency belongs to (E-17).
+     *
+     * Public because a caller that wants one chain's position rather than the seller's whole ledger
+     * has to name the same chain the writer used, and this is where a currency label becomes the code
+     * the chain is keyed by.
+     */
+    public function chain(
+        int|string $sellerId,
+        string $sellerIs = 'seller',
+        ?int $legalEntityId = null,
+        ?string $currency = null,
+    ): LedgerChain {
+        $base = $this->currencyCode(label: $this->baseCurrency());
+        $code = $this->currencyCode(label: $currency);
+        $code = $code !== '' ? $code : $base;
+
+        return LedgerChain::of(
+            sellerId: $sellerId,
+            sellerIs: $sellerIs,
+            legalEntityId: $legalEntityId,
+            currency: $code,
+            currencyIsTheBaseOne: $code === $base,
+        );
+    }
+
+    /**
+     * The entries a reader is asking about: one chain's, when it named one, or the seller's whole
+     * ledger, which is what every reader asked for before chains were told apart and still is for a
+     * screen that shows a seller their whole position.
+     */
+    private function entriesOf(int|string $sellerId, string $sellerIs, ?LedgerChain $chain): Builder
+    {
+        return $chain === null
+            ? VendorLedgerEntry::query()->forSeller($sellerId, $sellerIs)
+            : $chain->narrow(VendorLedgerEntry::query());
+    }
+
+    /** A currency label as the chain key spells it: upper case and trimmed, empty when the label names nothing. */
+    private function currencyCode(?string $label): string
+    {
+        return mb_strtoupper(trim((string) $label));
     }
 
     /**

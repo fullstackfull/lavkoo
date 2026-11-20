@@ -30,11 +30,12 @@ class VendorLedgerEntry extends Model
     protected $fillable = [
         'seller_id', 'seller_is', 'entry_type', 'debit', 'credit', 'balance_after',
         'status', 'available_at', 'currency', 'reference_type', 'reference_id',
-        'description', 'created_by', 'created_by_type', 'settlement_id',
+        'description', 'created_by', 'created_by_type', 'settlement_id', 'legal_entity_id',
     ];
 
     protected $casts = [
         'seller_id' => 'integer',
+        'legal_entity_id' => 'integer',
         'debit' => 'float',
         'credit' => 'float',
         'balance_after' => 'float',

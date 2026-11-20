@@ -253,7 +253,7 @@ class SettlementEngine
      * What a run would draw, without drawing it: a line for each settlement, in no particular order.
      * It claims nothing, so it is what a dry run and the operator's screen report from.
      *
-     * @return list<array{seller_id: int, seller_is: string, currency: string, entries: int, credits: float, debits: float, net: float}>
+     * @return list<array{seller_id: int, seller_is: string, currency: string, legal_entity_id: int|null, entries: int, credits: float, debits: float, net: float}>
      */
     public function waiting(int|string|null $sellerId = null, string $sellerIs = 'seller'): array
     {
@@ -261,13 +261,19 @@ class SettlementEngine
             return [];
         }
 
+        $byCompany = $this->companyIsPartOfTheKey() ? [LedgerChain::ENTITY_COLUMN] : [];
+
         return $this->settleable()
             ->when($sellerId, fn ($q) => $q->forSeller($sellerId, $sellerIs))
-            ->selectRaw('seller_id, seller_is, currency, COUNT(*) as entries, SUM(credit) as credits, SUM(debit) as debits')
-            ->groupBy('seller_id', 'seller_is', 'currency')
+            ->selectRaw(implode(', ', array_merge(
+                ['seller_id', 'seller_is', 'currency'],
+                $byCompany,
+                ['COUNT(*) as entries', 'SUM(credit) as credits', 'SUM(debit) as debits'],
+            )))
+            ->groupBy(...array_merge(['seller_id', 'seller_is', 'currency'], $byCompany))
             ->get()
             ->toBase()
-            ->groupBy(fn (VendorLedgerEntry $labelled): string => $labelled->seller_id . '/' . $labelled->seller_is . '/' . $this->currency->of(label: $labelled->currency))
+            ->groupBy(fn (VendorLedgerEntry $labelled): string => $labelled->seller_id . '/' . $labelled->seller_is . '/' . $this->settlementKeyOf(entry: $labelled))
             ->map(fn (Collection $ofOneSettlement): array => $this->lineOf(ofOneSettlement: $ofOneSettlement))
             ->values()
             ->all();
@@ -323,7 +329,7 @@ class SettlementEngine
     private function entriesOfEachSettlement(Collection $waiting): Collection
     {
         return $waiting->toBase()
-            ->groupBy(fn (VendorLedgerEntry $entry): string => $this->currency->of(label: $entry->currency))
+            ->groupBy(fn (VendorLedgerEntry $entry): string => $this->settlementKeyOf(entry: $entry))
             ->values();
     }
 
@@ -335,7 +341,7 @@ class SettlementEngine
         $net = round($credits - $debits, 4);
         $balances = $this->balancesAround(entries: $entries, sellerId: $sellerId, sellerIs: $sellerIs);
 
-        $settlement = VendorSettlement::create([
+        $settlement = VendorSettlement::create($this->companyRecordedFor(entries: $entries) + [
             'reference' => $this->nextReference(),
             'seller_id' => $sellerId,
             'seller_is' => $sellerIs,
@@ -373,7 +379,7 @@ class SettlementEngine
         $first = $entries->first();
         $last = $entries->last();
 
-        if ($this->currency->isOnePerSettlement() && !$this->ledgerIsInOneCurrencyUpTo(entry: $last, sellerId: $sellerId, sellerIs: $sellerIs)) {
+        if ($this->currency->isOnePerSettlement() && !$this->ledgerIsOneChainUpTo(entry: $last, sellerId: $sellerId, sellerIs: $sellerIs)) {
             if (!$this->canLeaveABalanceUnknown()) {
                 throw new ABalanceCannotBeLeftUnknown(sellerId: $sellerId, sellerIs: $sellerIs);
             }
@@ -387,16 +393,67 @@ class SettlementEngine
         ];
     }
 
-    private function ledgerIsInOneCurrencyUpTo(VendorLedgerEntry $entry, int|string $sellerId, string $sellerIs): bool
+    /**
+     * Whether everything on this seller's ledger up to this entry belongs to ONE chain, which is what
+     * makes `balance_after` an opening and a closing balance of the settlement rather than a number
+     * running over money of several kinds.
+     *
+     * History decides this, not the switch. Entries written before chains were told apart carry a
+     * `balance_after` that ran over every company and currency the seller had, so a ledger that mixed
+     * them once cannot report balances for a settlement drawn out of it however it is keyed now.
+     */
+    private function ledgerIsOneChainUpTo(VendorLedgerEntry $entry, int|string $sellerId, string $sellerIs): bool
     {
         return VendorLedgerEntry::query()
             ->forSeller($sellerId, $sellerIs)
             ->where('id', '<=', $entry->id)
-            ->distinct()
-            ->pluck('currency')
-            ->map(fn (?string $label): string => $this->currency->of(label: $label))
+            ->get(array_merge(['currency'], $this->companyIsPartOfTheKey() ? [LedgerChain::ENTITY_COLUMN] : []))
+            ->map(fn (VendorLedgerEntry $earlier): string => $this->settlementKeyOf(entry: $earlier))
             ->unique()
             ->count() === 1;
+    }
+
+    /**
+     * What tells one settlement of a seller from another: the currency, and the selling company where
+     * the ledger records one. Two entries with the same key belong in the same settlement.
+     */
+    private function settlementKeyOf(VendorLedgerEntry $entry): string
+    {
+        $key = $this->currency->of(label: $entry->currency);
+
+        return $this->companyIsPartOfTheKey()
+            ? $key . '/' . (string) $entry->getAttribute(LedgerChain::ENTITY_COLUMN)
+            : $key;
+    }
+
+    /**
+     * The selling company a settlement records, where `vendor_settlements` has a column for it. That
+     * table has no migration in this repository either, so an installation whose settlements cannot
+     * name a company still draws them; it just does not say whose they are.
+     *
+     * @param Collection<int, VendorLedgerEntry> $entries
+     */
+    private function companyRecordedFor(Collection $entries): array
+    {
+        if (!$this->companyIsPartOfTheKey() || !Schema::hasColumn('vendor_settlements', LedgerChain::ENTITY_COLUMN)) {
+            return [];
+        }
+
+        return [LedgerChain::ENTITY_COLUMN => $this->companyOf(entry: $entries->first())];
+    }
+
+    /** The selling company of an entry, or null where this installation's ledger does not record one. */
+    private function companyOf(VendorLedgerEntry $entry): ?int
+    {
+        $company = LedgerChain::entityIsRecorded() ? $entry->getAttribute(LedgerChain::ENTITY_COLUMN) : null;
+
+        return $company === null ? null : (int) $company;
+    }
+
+    /** Whether the selling company tells one settlement from another: only once chains are kept apart and the ledger has a column to record it in. */
+    private function companyIsPartOfTheKey(): bool
+    {
+        return LedgerChain::areKeptApart() && LedgerChain::entityIsRecorded();
     }
 
     /** While currencies are not kept apart a settlement takes the label of its first entry, whatever the others carry. */
@@ -422,6 +479,7 @@ class SettlementEngine
             'seller_id' => $ofOneSettlement->first()->seller_id,
             'seller_is' => $ofOneSettlement->first()->seller_is,
             'currency' => $this->currency->of(label: $ofOneSettlement->first()->currency),
+            'legal_entity_id' => $this->companyOf(entry: $ofOneSettlement->first()),
             'entries' => (int) $ofOneSettlement->sum('entries'),
             'credits' => $credits,
             'debits' => $debits,

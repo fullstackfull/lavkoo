@@ -25,4 +25,25 @@ return [
         'one_currency' => filter_var(env('GCC_SETTLEMENT_ONE_CURRENCY', false), FILTER_VALIDATE_BOOLEAN),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Seller ledgers
+    |--------------------------------------------------------------------------
+    |
+    | What a running balance on the seller ledger belongs to (E-17).
+    |
+    */
+
+    'ledgers' => [
+        // Off by default, and off means the platform of today: one chain per seller, so one `balance_after` running over everything the seller earned, whatever company sold
+        // it and whatever currency it was in. That is right while a seller sells in one market, which is every seller on the live Saudi platform. When it is on, a chain is
+        // named by the seller, the selling company and the currency: an entry reads the balance of its own chain, the row lock is taken on its own chain, and a reader can
+        // ask for one chain's position instead of the sum of all of them (App\Services\Marketplace\LedgerChain). It has to be on before a seller earns in a second company or
+        // a second currency, because until it is, those amounts are added together. Turning it on changes no figure on a ledger that holds one company and one currency, which
+        // is what makes it safe to throw before the second market opens. Entries that name no currency belong to the base-currency chain, so years of unlabelled history stay
+        // in one piece. The selling company is part of the key only where `vendor_ledger_entries` has a `legal_entity_id` column; that table has no migration in this
+        // repository (the live one came from the installation dump), so an installation without the column keys its chains by seller and currency alone.
+        'keyed_by_entity_and_currency' => filter_var(env('GCC_LEDGER_KEYED_BY_ENTITY_AND_CURRENCY', false), FILTER_VALIDATE_BOOLEAN),
+    ],
+
 ];
