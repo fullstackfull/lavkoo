@@ -76,6 +76,57 @@ always on), because no company may invoice another company's sale. The customer 
 which is why this is still not a kill switch. The catalogue behaviour is pinned by `StorefrontKillSwitchTest` and the order-time rule by
 `StorefrontCheckoutSingleCompanyTest`.
 
+The rule holds at every writer, not only at the checkout, because four of them never call `OrderManager::generateOrder()`:
+
+| writer | what its lines come from | how it refuses |
+| --- | --- | --- |
+| `Admin\POS\POSOrderController::placeOrder` | a session cart | the screen's own error toast, nothing written |
+| `Vendor\POS\POSOrderController::placeOrder` | a session cart | the screen's own error toast, nothing written |
+| `RestAPI\v3\seller\POSController::place_order` | a request payload | `422 order_mixes_selling_companies` |
+| `SalesChannels\Dispatch\ChannelOrderMaterializer` | a channel order's lines | the dispatch is blocked with `reason_code = order_mixes_selling_companies` and is **not** retried |
+
+A point-of-sale sale is a sale, so a till holding two countries' products sells neither of them on one receipt; each country's products can
+still be rung up on a receipt of their own. A channel order that mixes two countries is not retried, because it will never stop mixing them:
+the dispatch row carries the reason and waits for a person. Pinned by `PosSingleCompanyTest` and `ChannelOrderSingleCompanyTest`.
+
+No writer is left open, and no money is either. A sale paid from the customer's wallet used to be debited before the products were read, so
+every refusal that follows took the money and wrote no order: a wallet balance of 1,000 became 650 with zero orders and zero lines. That
+ordering was the tills' own and predates this rule — the seller app's out-of-stock refusal sat behind the same debit, and lost 100 the same
+way — so the debit now runs after every refusal and before the first write at all three tills. A refused sale leaves the balance where it was
+and writes no wallet transaction; a lawful one debits exactly once. Pinned by `PosSingleCompanyTest`.
+
+**What "a refusal costs nothing" covers, and what it does not.** It covers the refusals in the table above and the seller app's own
+out-of-stock refusal: each leaves the balance where it was, writes no order and takes no stock. It does **not** mean the panel tills refuse a
+line they cannot fill — **they do not refuse one at all.** A line for 99 units of a product holding 10 is sold at both the admin and the
+vendor till: the order and its line are written, `current_stock` is **floored** 10 → 0 rather than going negative, and a wallet-funded sale is
+debited in full. Measured at both tills, identically on this head and on `20032ba0`: toast `success`, 1 order, 1 line, stock 10 → 0, balance
+1,000.00 → 900.00, one wallet transaction, debit 100.00. Only the seller app's till compares the quantity with the stock. This oversell path
+is **named here, not fixed**: it predates this rule and is untouched by it, and changing it decides what an operator at a counter sees when
+the shelf disagrees with the screen — a reviewable change with its own inventory consequences.
+
+**A wallet payload with no lines writes a lineless order and is charged for it.** At the seller app's till the debit's condition reads the
+payment method and the customer, not the payload, so a payload whose `modified_cart` is empty is still charged: an order row with **no
+lines**, balance 1,000.00 → 900.00, one wallet transaction, debit 100.00 — measured identically on this head and on `20032ba0`. That is a
+**preserved defect, not a feature.** The debit was moved to sit after every refusal, and this path charging exactly as it did before is what
+makes the move behaviour-preserving rather than a change of what a lineless payload costs. It is pinned by `PosSingleCompanyTest`, so
+collapsing the two conditions back into one is caught. What a lineless payload *should* answer is a separate change.
+
+The rule reads the two halves of the selling scope apart — country against country, company against company — because a row says nothing
+about a half it leaves null. That is the only state a backfill filling `legal_entity_id` row by row can be observed in: one product carrying
+a company, the next not yet reached. Reading the halves as one joined string refused those two Saudi products as if they were two selling
+companies', which would have refused live Saudi orders at every till, at the customer's checkout and at the channel dispatcher (where a
+blocked dispatch is never retried) for the whole length of the migration. The half-backfilled state is pinned as allowed at all three tills,
+at the customer API, on the checkout page and at the materializer.
+
+The rows judged are the rows written, at four of the five writers: both panel tills and the materializer read each product once, and
+`generateOrder()` asks the rule again inside its transaction, on the rows it locked, because `addOrderDetailsData()` re-reads each product
+under that lock and writes the line from what it finds. The seller app's till still re-reads each product in its write loop, so a product
+moved between the two reads would be judged on the old row and invoiced from the new one. That is left as it is on purpose: its write loop
+does a read-modify-write of the `variation` JSON column per line, so two lines of one product rely on the second read seeing the first line's
+write, and handing it one shared row would lose a variant's stock. Nothing in `app/` writes `products.storefront_country`, so no in-tree path
+can move a product's country mid-call; it needs an operator's own SQL or a future "move product between countries" feature, and that feature
+must fix this loop.
+
 Rolling the products migration back is refused while a product of another country exists, because dropping the column would merge the
 catalogues for good.
 

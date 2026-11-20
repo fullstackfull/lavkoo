@@ -12,10 +12,12 @@ use App\Services\Storefront\StorefrontCatalog;
 use App\Utils\OrderManager;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use Tests\Feature\Address\ApiAddressTestCase;
 use Tests\Support\BuildsStorefrontCart;
@@ -161,7 +163,7 @@ class StorefrontCheckoutSingleCompanyTest extends ApiAddressTestCase
         $this->assertSame(route('shop-cart'), $response['redirect']);
     }
 
-    /** Before the transaction, not inside it: an order that would mix is never written and rolled back, so no id is burnt and no stock moves. */
+    /** Before the transaction, not inside it: an order that would mix is never written and rolled back, so no stock moves. */
     public function test_a_mixing_order_is_refused_before_any_write_is_attempted(): void
     {
         $customer = $this->customerWithOneMixedGroup();
@@ -177,6 +179,27 @@ class StorefrontCheckoutSingleCompanyTest extends ApiAddressTestCase
         $this->asCustomer($customer)->getJson(self::COD)->assertStatus(422);
 
         $this->assertSame([], $attempted, 'not one order or detail row is even attempted');
+    }
+
+    /**
+     * And refused without opening one. This is what the assertion before the transaction is worth, measured: the one inside it refuses
+     * this order too, and a customer could not tell the two apart — both answer 422, both write nothing, and both leave `orders.max(id)`
+     * null, because generateNewOrderID() derives an id from the rows that exist rather than from a sequence, so a rolled-back attempt
+     * consumes no number. What the earlier assertion saves is the attempt itself: 0 transactions begun against 1 begun and 1 rolled back,
+     * and 147 queries against 150. Without this pin, deleting it leaves every other test in this branch green.
+     */
+    public function test_a_mixing_order_is_refused_without_opening_a_transaction(): void
+    {
+        $customer = $this->customerWithOneMixedGroup();
+
+        $transactionsBegun = 0;
+        Event::listen(TransactionBeginning::class, function () use (&$transactionsBegun) {
+            $transactionsBegun++;
+        });
+
+        $this->asCustomer($customer)->getJson(self::COD)->assertStatus(422);
+
+        $this->assertSame(0, $transactionsBegun, 'refused before a transaction was opened, not inside one that then rolled back');
     }
 
     /**
@@ -319,16 +342,16 @@ class StorefrontCheckoutSingleCompanyTest extends ApiAddressTestCase
     public function test_a_country_code_is_read_exactly_as_stored_and_only_a_null_names_nothing(): void
     {
         $product = Product::find(1);
-        $this->assertSame('storefront_country=SA', StorefrontCatalog::sellingScopeOf(product: $product));
+        $this->assertSame(['storefront_country' => 'SA'], StorefrontCatalog::sellingScopeOf(product: $product));
 
         $product->setAttribute(StorefrontCatalog::COLUMN, 'sa');
-        $this->assertSame('storefront_country=sa', StorefrontCatalog::sellingScopeOf(product: $product));
+        $this->assertSame(['storefront_country' => 'sa'], StorefrontCatalog::sellingScopeOf(product: $product));
 
         $product->setAttribute(StorefrontCatalog::COLUMN, '');
-        $this->assertSame('storefront_country=', StorefrontCatalog::sellingScopeOf(product: $product));
+        $this->assertSame(['storefront_country' => ''], StorefrontCatalog::sellingScopeOf(product: $product));
 
         $product->setAttribute(StorefrontCatalog::COLUMN, null);
-        $this->assertNull(StorefrontCatalog::sellingScopeOf(product: $product));
+        $this->assertSame([], StorefrontCatalog::sellingScopeOf(product: $product), 'and a null names nothing at all');
     }
 
     public function test_two_companies_of_one_country_are_refused_once_products_carry_a_company(): void
@@ -358,15 +381,122 @@ class StorefrontCheckoutSingleCompanyTest extends ApiAddressTestCase
 
     public function test_a_selling_scope_names_the_company_only_once_products_carry_one(): void
     {
-        $this->assertSame('storefront_country=SA', StorefrontCatalog::sellingScopeOf(product: Product::find(1)));
+        $this->assertSame(['storefront_country' => 'SA'], StorefrontCatalog::sellingScopeOf(product: Product::find(1)));
 
         $this->addTheSellingCompanyColumn();
         DB::table('products')->where('id', 1)->update([StorefrontCatalog::ENTITY_COLUMN => 7]);
 
-        $this->assertSame('storefront_country=SA/legal_entity_id=7', StorefrontCatalog::sellingScopeOf(product: Product::find(1)));
-        $this->assertNull(StorefrontCatalog::sellingScopeOf(product: null), 'a row whose product is gone says nothing');
+        $this->assertSame(
+            ['storefront_country' => 'SA', 'legal_entity_id' => '7'],
+            StorefrontCatalog::sellingScopeOf(product: Product::find(1)),
+            'the two halves are kept apart, because they are compared apart',
+        );
+        $this->assertSame([], StorefrontCatalog::sellingScopeOf(product: null), 'a row whose product is gone says nothing');
 
         $this->removeStorefrontCountryColumn();
-        $this->assertSame('legal_entity_id=7', StorefrontCatalog::sellingScopeOf(product: Product::find(1)));
+        $this->assertSame(['legal_entity_id' => '7'], StorefrontCatalog::sellingScopeOf(product: Product::find(1)));
+    }
+
+    /**
+     * The state the company backfill is in from its first row to its last: one product carrying a company, the next not yet reached. The
+     * halves are compared apart, so the row that names only the country neither agrees nor disagrees about the company and the two are one
+     * selling company's rows. Reading the scope as one joined string refused this, which would have refused every Saudi order for the
+     * length of the migration.
+     */
+    public function test_a_half_backfilled_company_column_does_not_refuse_one_countrys_order(): void
+    {
+        $customer = $this->customerWithOneMixedGroup();
+        DB::table('products')->update(['storefront_country' => 'SA']);
+        $this->addTheSellingCompanyColumn();
+        DB::table('products')->where('id', 1)->update([StorefrontCatalog::ENTITY_COLUMN => 1]);
+
+        $this->asCustomer($customer)->getJson(self::COD)->assertOk();
+
+        $this->assertSame([[1, 2]], array_values($this->ordersWithTheirRows()), 'both lines on one order, as before the column existed');
+        $this->assertSame(350.0, (float) DB::table('orders')->value('order_amount'));
+    }
+
+    /** The same half-backfilled state on the checkout page, which is where the customer would have been sent back to the cart. */
+    public function test_the_checkout_page_says_yes_while_the_company_column_is_half_backfilled(): void
+    {
+        DB::table('products')->update(['storefront_country' => 'SA']);
+        $this->addTheSellingCompanyColumn();
+        DB::table('products')->where('id', 2)->update([StorefrontCatalog::ENTITY_COLUMN => 4]);
+        auth('customer')->setUser($this->customerWithOneMixedGroup());
+
+        $this->assertSame(1, OrderManager::checkValidationForCheckoutPages(request())['status']);
+    }
+
+    /**
+     * The state the day the company migration runs and before the backfill writes its first row: the column exists and every product's
+     * company is null. Neither half's nulls excuse the other half, so two countries are still refused.
+     */
+    public function test_a_company_column_nobody_has_filled_yet_refuses_two_countries_as_before(): void
+    {
+        $customer = $this->customerWithOneMixedGroup();
+        $this->addTheSellingCompanyColumn();
+
+        $this->asCustomer($customer)->getJson(self::COD)->assertStatus(422);
+
+        $this->assertSame([], $this->ordersWithTheirRows());
+        $this->assertSame([1, 2], $this->productsInTheCart(), 'and the cart is left as it was');
+    }
+
+    /** The two halves are judged against their own, so a disagreement in either one is still refused while the other agrees. */
+    public function test_a_disagreement_in_either_half_is_still_refused(): void
+    {
+        $this->addTheSellingCompanyColumn();
+        DB::table('products')->update([StorefrontCatalog::ENTITY_COLUMN => 1]);
+        $this->assertTrue(
+            OneSellingCompanyPerOrder::productsSpanMoreThanOne(products: Product::whereIn('id', [1, 2])->get()),
+            'one company, two countries',
+        );
+
+        DB::table('products')->update(['storefront_country' => 'SA']);
+        DB::table('products')->where('id', 2)->update([StorefrontCatalog::ENTITY_COLUMN => 2]);
+        $this->assertTrue(
+            OneSellingCompanyPerOrder::productsSpanMoreThanOne(products: Product::whereIn('id', [1, 2])->get()),
+            'one country, two companies',
+        );
+    }
+
+    /** A refusal names the half that disagreed and the values it was given, which is all an operator has after a payment. */
+    public function test_a_refusal_names_only_the_half_the_rows_disagreed_on(): void
+    {
+        $this->addTheSellingCompanyColumn();
+        DB::table('products')->update([StorefrontCatalog::ENTITY_COLUMN => 1]);
+
+        try {
+            OneSellingCompanyPerOrder::assertProductsBelongToOne(products: Product::whereIn('id', [1, 2])->get());
+            $this->fail('the rows were not refused');
+        } catch (OrderMixesSellingCompaniesException $refusal) {
+            $this->assertSame(['storefront_country=SA', 'storefront_country=AE'], $refusal->sellingScopes);
+            $this->assertStringNotContainsString('legal_entity_id', $refusal->getMessage(), 'the company the rows agree on is not named');
+        }
+    }
+
+    /**
+     * The rows the lines are written from are the ones judged. generateOrder asserts before the transaction on the copies the cart loaded
+     * and again inside it on the locked rows, so a product moved between the two reads is refused rather than invoiced from a row the rule
+     * never saw. Nothing in app/ writes storefront_country, so this models an operator's own SQL or a future move-between-countries feature.
+     */
+    public function test_a_product_moved_after_the_cart_was_read_is_refused_inside_the_transaction(): void
+    {
+        $customer = $this->customerWithOneMixedGroup();
+        DB::table('products')->update(['storefront_country' => 'SA']);
+
+        // The last read generateOrder makes before it opens its transaction, and the one query of this shape in the whole checkout: the
+        // move lands after the cart's copies were loaded and judged, and before the products are locked. `for update` is no use as a
+        // marker, because SQLite compiles no lock clause and a listener fires only once a query has already read its rows.
+        DB::listen(function (QueryExecuted $query): void {
+            if (str_contains($query->sql, 'from "cart_shippings" where ("cart_group_id"') || str_contains($query->sql, 'from `cart_shippings` where (`cart_group_id`')) {
+                DB::table('products')->where('id', 2)->update(['storefront_country' => 'AE', 'name' => 'MOVED-TO-AE']);
+            }
+        });
+
+        $this->asCustomer($customer)->getJson(self::COD)->assertStatus(422);
+
+        $this->assertSame([], $this->ordersWithTheirRows(), 'the moved row is never invoiced');
+        $this->assertSame(0, DB::table('orders')->count());
     }
 }

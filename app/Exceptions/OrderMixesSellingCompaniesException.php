@@ -16,7 +16,7 @@ use RuntimeException;
  */
 class OrderMixesSellingCompaniesException extends RuntimeException
 {
-    /** @param list<string> $sellingScopes the distinct selling scopes the checked rows named */
+    /** @param list<string> $sellingScopes every value of every half of the selling scope the checked rows disagreed on, as `column=value` */
     public function __construct(public readonly array $sellingScopes)
     {
         parent::__construct('An order may name one selling company only; its rows named ' . implode(', ', $sellingScopes) . '.');
@@ -26,7 +26,9 @@ class OrderMixesSellingCompaniesException extends RuntimeException
     {
         $message = translate('Product_is_unavailable');
 
-        if ($request->expectsJson()) {
+        // An API client is answered in JSON whether or not it asked for it: the apps place orders on `api/*`, and a redirect carrying a
+        // flash message is no answer to one. Only a browser is sent back to the page it came from.
+        if ($request->expectsJson() || $request->is('api/*')) {
             return response()->json(['code' => 'order_mixes_selling_companies', 'message' => $message], 422);
         }
 

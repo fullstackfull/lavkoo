@@ -234,8 +234,14 @@ jobs:
           #    list tries to load each as a test and dies on the first abstract one -- "Class ... is abstract", 45 seconds in.
           #    Handing it the DIRECTORY lets its own discovery skip them, which is why the path stays.
           #
-          # The partition is exact and measured: 1,169 + 736 = 1,905, which is the whole directory.
-          # `CiSalesChannelSplitCoversEveryTestTest` asserts it from the class names, so a class cannot fall between.
+          # That the two halves cover the whole directory is asserted by `CiSalesChannelSplitCoversEveryTestTest`, from the class
+          # names, so a class cannot fall between them and cannot land in both.
+          #
+          # This comment used to carry the two halves' test counts as well, and they are gone on purpose: they drifted every
+          # time anyone added a test to the directory, they were already stale at the base of the branch that last refreshed
+          # them, and a diff that bumps them reads as "+N for the tests I just added" while it is in fact also correcting a
+          # much larger inherited error. The counts proved nothing the guard above does not prove. Measure a half when you
+          # need its size; do not trust a number written here.
           - group: sales channels A-M
             paths: tests/Feature/SalesChannels --filter '/^Tests.Feature.SalesChannels.[A-M]/'
           - group: sales channels N-Z

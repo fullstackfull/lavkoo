@@ -16,6 +16,7 @@ use App\Services\CartService;
 use App\Services\OrderDetailsService;
 use App\Services\OrderService;
 use App\Services\POSService;
+use App\Services\Storefront\OneSellingCompanyPerOrder;
 use App\Traits\CalculatorTrait;
 use App\Traits\CustomerTrait;
 use App\Utils\CartManager;
@@ -111,15 +112,6 @@ class POSOrderController extends BaseController
         if ($userId == 0 && $checkProductTypeDigital) {
             return response()->json(['checkProductTypeForWalkingCustomer' => true, 'message' => translate('To_order_digital_product') . ',' . translate('_kindly_fill_up_the_“Add_New_Customer”_form') . '.']);
         }
-        if ($request['type'] == 'wallet' && $userId != 0) {
-            $customerBalance = $this->customerRepo->getFirstWhere(params: ['id' => $userId]) ?? 0;
-            if ($customerBalance['wallet_balance'] >= currencyConverter(amount: $amount)) {
-                $this->createWalletTransaction(user_id: $userId, amount: floatval($amount), transaction_type: 'order_place', reference: 'order_place_in_pos');
-            } else {
-                ToastMagic::error(translate('need_Sufficient_Amount_Balance'));
-                return response()->json();
-            }
-        }
 
         $taxConfig = self::getTaxSystemType();
         $cart = session($cartId);
@@ -130,6 +122,28 @@ class POSOrderController extends BaseController
             $products = $this->productRepo->getListWithScope(whereIn: ['id' => $cartListSession->pluck('id')->toArray()], relations: ['clearanceSale' => function ($query) {
                 return $query->active();
             }], dataLimit: 'all');
+
+            // A counter sale is a sale: one order may name one country and one selling company (D1-02). The products the till has
+            // already loaded to price the cart are judged here, before the stock is taken and before the order and its lines are
+            // written, so a till that holds two countries' products sells neither of them on one receipt.
+            if (OneSellingCompanyPerOrder::productsSpanMoreThanOne(products: $products)) {
+                ToastMagic::error(translate('Product_is_unavailable'));
+                return response()->json();
+            }
+
+            // The customer's wallet is charged only once the sale can no longer be refused. It used to be debited before the cart was
+            // even read, so every refusal below it — a receipt that mixes two selling companies, and any the till grows later — took the
+            // money and wrote no order. Nothing above this point writes anything, so a refusal now leaves the balance where it was.
+            if ($request['type'] == 'wallet' && $userId != 0) {
+                $customerBalance = $this->customerRepo->getFirstWhere(params: ['id' => $userId]) ?? 0;
+                if ($customerBalance['wallet_balance'] >= currencyConverter(amount: $amount)) {
+                    $this->createWalletTransaction(user_id: $userId, amount: floatval($amount), transaction_type: 'order_place', reference: 'order_place_in_pos');
+                } else {
+                    ToastMagic::error(translate('need_Sufficient_Amount_Balance'));
+                    return response()->json();
+                }
+            }
+
             $totalDiscountedPrice = $this->cartService->getCartTotalDiscountPrice(session($cartId), $products, $userId);
 
             $orderId = 100000 + $this->orderRepo->getList()->count() + 1;

@@ -18,6 +18,7 @@ use App\Models\Product;
 use App\Services\Address\CheckoutAddressGuard;
 use App\Services\Address\OrderAddressService;
 use App\Services\PasswordResetService;
+use App\Services\Storefront\OneSellingCompanyPerOrder;
 use App\Models\User;
 use App\Traits\API\v3\VendorPOSManagement;
 use App\Traits\CustomerTrait;
@@ -317,6 +318,36 @@ class POSController extends Controller
             }
         }
 
+        $cartsTotalAmount = 0;
+        $generateOrderID = self::getOrderNewId();
+
+        if ($request['modified_cart']) {
+            $products = [];
+            foreach ($request['modified_cart'] as $cartItem) {
+                if (is_array($cartItem)) {
+                    $product = Product::where(['id' => $cartItem['id']])->with(['digitalVariation', 'clearanceSale' => function ($query) {
+                        return $query->active();
+                    }])->withCount('reviews')->first();
+                    if (!$product || $cartItem['quantity'] > $product['current_stock']) {
+                        return response()->json([
+                            'product_not_available' => true,
+                            'message' => $product['name'] . ' ' . translate('not_available_for_order_place')
+                        ]);
+                    }
+                    $products[] = $product;
+                }
+            }
+
+            // A counter sale is a sale: one order may name one country and one selling company (D1-02). This is the loop that already
+            // reads every line's product and refuses the sale before anything is written, so the rule is asked here, before the stock
+            // is taken and before the lines and the order are inserted; nothing new is read.
+            OneSellingCompanyPerOrder::assertProductsBelongToOne(products: $products);
+        }
+
+        // The customer's wallet is charged only once the sale can no longer be refused. It used to be debited above the loop that reads
+        // the products, so both refusals below it took the money and wrote no order: the out-of-stock line this till has always refused,
+        // and a receipt that mixes two selling companies. Nothing before this point writes anything, so a refusal now leaves the balance
+        // where it was. A payload with no lines is charged exactly as it was, because it is refused by neither.
         if ($paymentMethod == 'wallet' && $customerId != 0) {
             $customerBalance = $this->customerRepo->getFirstWhere(params: ['id' => $customerId]) ?? 0;
             if ($customerBalance['wallet_balance'] >= $paidAmount) {
@@ -329,24 +360,7 @@ class POSController extends Controller
             }
         }
 
-        $cartsTotalAmount = 0;
-        $generateOrderID = self::getOrderNewId();
-
         if ($request['modified_cart']) {
-            foreach ($request['modified_cart'] as $cartItem) {
-                if (is_array($cartItem)) {
-                    $product = Product::where(['id' => $cartItem['id']])->with(['digitalVariation', 'clearanceSale' => function ($query) {
-                        return $query->active();
-                    }])->withCount('reviews')->first();
-                    if (!$product || $cartItem['quantity'] > $product['current_stock']) {
-                        return response()->json([
-                            'product_not_available' => true,
-                            'message' => $product['name'] . ' ' . translate('not_available_for_order_place')
-                        ]);
-                    }
-                }
-            }
-
             foreach ($request['modified_cart'] as $cartItem) {
                 if (is_array($cartItem)) {
                     $product = Product::where(['id' => $cartItem['id']])->with(['digitalVariation', 'clearanceSale' => function ($query) {
