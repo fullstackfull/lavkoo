@@ -70,8 +70,11 @@ owns can still be told from a typo (the query under "What to watch" lists the co
 
 **Do not turn the flag off once another country has products.** Without the flag nothing is narrowed, so every country's products appear in
 every list, the cart accepts them and they are priced in the wrong currency. A payment started in another country and finished after the flag
-is off is built from every checked cart row, and its order can exceed what was paid (reproduced: paid 275, order 375). Both behaviours are
-pinned by `StorefrontKillSwitchTest`.
+is off is built from every checked cart row, so before the order-time rule its order could exceed what was paid (reproduced: paid 275, order
+375). It no longer can: an order whose checked rows belong to two countries is refused before anything is written (`OneSellingCompanyPerOrder`,
+always on), because no company may invoice another company's sale. The customer is then left paid with no order, which a refund settles and
+which is why this is still not a kill switch. The catalogue behaviour is pinned by `StorefrontKillSwitchTest` and the order-time rule by
+`StorefrontCheckoutSingleCompanyTest`.
 
 Rolling the products migration back is refused while a product of another country exists, because dropping the column would merge the
 catalogues for good.

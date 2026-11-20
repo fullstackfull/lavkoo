@@ -51,6 +51,7 @@ use App\Services\Fulfillment\OrderItemOwnershipSnapshotter;
 use App\Services\SalesChannels\Dispatch\ChannelOrderMarker;
 use App\Enums\Address\AddressChannel;
 use App\Services\Address\OrderAddressService;
+use App\Services\Storefront\OneSellingCompanyPerOrder;
 
 
 use App\Services\DeliverySyria\DeliverySyriaConfigService;
@@ -1557,6 +1558,14 @@ class OrderManager
         ]);
         $vendorWiseCartList = OrderManager::scopeOrderAddresses(vendorWiseCartList: $vendorWiseCartList, data: $data, customerInfo: $getCustomerInfo);
 
+        // No company may invoice another company's sale, so an order never carries two countries' or two selling companies' rows
+        // (D1-02). The cart keeps a storefront's rows apart, but only for a request a storefront was resolved for and only while
+        // storefronts are on; this reads the rows that are about to be written, so the rule holds for every caller. Before the
+        // transaction, so an order that would mix is never partly written.
+        OneSellingCompanyPerOrder::assertRowsBelongToOne(
+            cartRows: collect($vendorWiseCartList)->pluck('cart_list')->flatten(1),
+        );
+
         // Everything that writes an order is one transaction; everything with a side effect the
         // database cannot undo — notifications, emails, clearing the cart, the session — stays
         // outside it and runs only after the commit. The loop below was already written that way:
@@ -2812,6 +2821,7 @@ Log::warning('Delivery Syria: parcel saved successfully', [
 
         $isPhysicalProductExist = false;
         $productStockStatus = true;
+        $checkedRows = [];
         foreach ($cartItemGroupIDs as $groupId) {
             $isPhysicalProductExist = false;
             $cartList = Cart::whereHas('product', function ($query) {
@@ -2819,6 +2829,7 @@ Log::warning('Delivery Syria: parcel saved successfully', [
             })->with(['product' => function ($query) {
                 return $query->active();
             }])->where(['cart_group_id' => $groupId, 'is_checked' => 1])->get();
+            $checkedRows = [...$checkedRows, ...$cartList->all()];
             foreach ($cartList as $cart) {
                 if ($cart->product_type == 'physical') {
                     $isPhysicalProductExist = true;
@@ -2922,6 +2933,14 @@ Log::warning('Delivery Syria: parcel saved successfully', [
 
         if (!$productStockStatus) {
             $message[] = translate('Please_remove_this_unavailable_product_for_continue');
+            $response['status'] = 0;
+            $response['redirect'] = route('shop-cart');
+        }
+
+        // One order may name one country and one selling company (D1-02). The rows already read above are judged, so the page refuses
+        // the checkout here instead of letting generateOrder() throw at the customer; each country's rows can still be bought on their own.
+        if (OneSellingCompanyPerOrder::spansMoreThanOne(cartRows: $checkedRows)) {
+            $message[] = translate('Product_is_unavailable');
             $response['status'] = 0;
             $response['redirect'] = route('shop-cart');
         }
