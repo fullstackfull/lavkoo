@@ -14,11 +14,11 @@ As of 2026-11-20. Generated from the independent assessment of every requirement
 
 | Axis | Requirements | Criteria | MET | CODED | MISSING | Code completion | Proven by tests | Release readiness | Verified |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| [A. Six-country base and customer identity](tracker/axis-a-six-country-base-and-customer-identity.md) | 37 | 173 | 89 | 26 | 58 | 66% | 51% | 9% | all |
+| [A. Six-country base and customer identity](tracker/axis-a-six-country-base-and-customer-identity.md) | 37 | 173 | 91 | 24 | 58 | 66% | 53% | 9% | all |
 | [B. Catalogue and products](tracker/axis-b-catalogue-and-products.md) | 18 | 91 | 34 | 17 | 40 | 56% | 37% | 0% | all |
 | [C. Inventory and fulfillment](tracker/axis-c-inventory-and-fulfillment.md) | 18 | 94 | 65 | 9 | 20 | 79% | 69% | 30% | all |
 | [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 179 | 87 | 31 | 61 | 66% | 49% | 8% | all |
-| [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 88 | 38 | 5 | 45 | 49% | 43% | 7% | all |
+| [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 88 | 39 | 5 | 44 | 50% | 44% | 7% | all |
 | [F. Themes and brand](tracker/axis-f-themes-and-brand.md) | 16 | 77 | 42 | 13 | 22 | 71% | 55% | 4% | all |
 | [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 102 | 59 | 13 | 30 | 71% | 58% | 15% | all |
 | [H. Shipping and integrations](tracker/axis-h-shipping-and-integrations.md) | 34 | 157 | 79 | 13 | 65 | 59% | 50% | 16% | all |
@@ -27,7 +27,7 @@ As of 2026-11-20. Generated from the independent assessment of every requirement
 | [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 104 | 40 | 26 | 38 | 63% | 38% | 3% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 45 | 18 | 31 | 67% | 48% | 7% | all |
 | [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 311 | 105 | 119 | 87 | 72% | 34% | 3% | all |
-| **All axes (pooled)** | **359** | **1753** | **811** | **360** | **582** | **67%** | **46%** | **8%** | |
+| **All axes (pooled)** | **359** | **1753** | **814** | **358** | **581** | **67%** | **46%** | **8%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -65,7 +65,7 @@ Chosen from the table of requirements, not from the pull request list: each one 
 
 - **Blocks:** orders with the right legal company; reports and money by company; per-company gateway accounts and accounting.
 - **Where it stands:** The platform keys data by storefront country, shop and seller. A registry of selling companies (one for each country, empty until the owner supplies them) and an order stamp now exist in a draft (PR 90, behind GCC_LEGAL_ENTITIES), so an order can name its company and keep a frozen copy of its identity, and the three invoices print that company instead of the shop's settings. Still missing: the invoice currency and a number for each company, a company on the payment row, gateway accounts, ledger and settlement by company, an Odoo company per entity, staff scope by company, and the Super Admin money view grouped by company. The owner has not decided the entities (open question Q-11).
-- **Measured:** 15 requirements (4 not started), 68 criteria of which 34 MISSING (50%). Requirements: D1-03, D1-04, D2-07, D2-08, D2-09, D2-16, E-17, F-14, G-12, H2-06, H2-10, H2-11, L-08, A2-09, A2-13.
+- **Measured:** 15 requirements (4 not started), 68 criteria of which 33 MISSING (49%). Requirements: D1-03, D1-04, D2-07, D2-08, D2-09, D2-16, E-17, F-14, G-12, H2-06, H2-10, H2-11, L-08, A2-09, A2-13.
 - **First executable step:** The owner's rule for the invoice number of each company and the series on top of the registered key, then the company on the payment request and the accounts that follow it (D2, E, H2); the entities themselves are an owner decision.
 
 Next in line (not in the top three because they depend on these, or are optional until the owner opens them):
@@ -135,7 +135,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [A1-05](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 1/0/3 | Website paths /sa /ae /kw /qa /bh /om serve their market |
 | [A1-06](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 3/0/3 | Manual store choice outranks IP and is kept |
 | [A1-07](tracker/axis-a-six-country-base-and-customer-identity.md) | INTEGRATED AND TESTED | 3/0/0 | A visitor for an inactive market sees the default store |
-| [A1-08](tracker/axis-a-six-country-base-and-customer-identity.md) | IMPLEMENTED IN DRAFT | 4/1/0 | Old Saudi URLs and API contracts keep working unchanged |
+| [A1-08](tracker/axis-a-six-country-base-and-customer-identity.md) | IMPLEMENTED IN DRAFT | 5/0/0 | Old Saudi URLs and API contracts keep working unchanged |
 | [A1-09](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 1/2/2 | Nine concepts kept apart; shop_id and seller_id are never a storefront key |
 | [A1-10](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 3/1/2 | Data-ownership model: an owner scope for every table, no blanket country_id |
 | [A1-11](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 3/1/2 | Store context in HTTP: web, API v1, panels, seller APIs, headers |
@@ -161,7 +161,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [A2-11](tracker/axis-a-six-country-base-and-customer-identity.md) | MERGED | 3/0/0 | Saved addresses belong to the account, and an order keeps an immutable copy |
 | [A2-12](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 1/0/2 | Address eligibility checked per storefront |
 | [A2-13](tracker/axis-a-six-country-base-and-customer-identity.md) | NOT STARTED | 0/0/4 | Marketing consents scoped by storefront, company and channel |
-| [A2-14](tracker/axis-a-six-country-base-and-customer-identity.md) | IMPLEMENTED IN DRAFT | 3/1/0 | Existing accounts, ids and history are preserved |
+| [A2-14](tracker/axis-a-six-country-base-and-customer-identity.md) | IMPLEMENTED IN DRAFT | 4/0/0 | Existing accounts, ids and history are preserved |
 | [A2-15](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 3/0/2 | Privacy of customer data: logs, payloads, retention and deletion |
 | [A2-V1](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 2/0/2 | A local admin or employee of one market cannot see the customer's transactions of other markets with... |
 | [A2-V2](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 0/3/1 | Policy consents are stored in the right scope: the explicit acceptance of a legal text is recorded a... |
@@ -259,7 +259,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | Id | State | M/C/X | Requirement |
 |---|---|---|---|
 | [E-01](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/0/3 | Customer wallet separate per market (storefront, company, currency) |
-| [E-02](tracker/axis-e-wallets-loyalty-and-financial-records.md) | NOT STARTED | 0/1/3 | Loyalty points independent per market, sharing structure off |
+| [E-02](tracker/axis-e-wallets-loyalty-and-financial-records.md) | NOT STARTED | 1/0/3 | Loyalty points independent per market, sharing structure off |
 | [E-03](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/0/3 | No automatic transfer or conversion of balances between markets |
 | [E-04](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 2/0/3 | Wallet and loyalty readers show one market's balance, API keys keep meaning |
 | [E-05](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 2/2/2 | Ledger rows reconcilable: attribution, reference, actor, idempotency |
@@ -274,7 +274,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [E-14](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/0/4 | Loyalty redeem and earn: atomic conversion, one formula, one rule |
 | [E-15](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 2/0/4 | Referral rewards: once, to the referrer, one amount |
 | [E-16](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/0/3 | One currency unit and rounding for wallet debits and credits |
-| [E-17](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/1/3 | Financial records by legal entity and currency (ledgers, settlements, summaries) |
+| [E-17](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/2/2 | Financial records by legal entity and currency (ledgers, settlements, summaries) |
 | [E-V1](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/0/4 | Wallet top-up (add fund) by gateway and by admin, the 'add' sites of the plan line 368 review: one c... |
 
 ### F. Themes and brand

@@ -2184,6 +2184,96 @@ CRITERIA['E-02'] = {3: ('CODED', "CORRECTED 2026-11-20, from MET: PR 130 (draft,
     "Measured by the reviewer: the file 14 tests / 43 assertions, tests/Feature/Wallet 114 / 365, green on SQLite and on MariaDB 10.11. CI on this head: run 44565065667, 24 of 25 jobs success, the "
     "deployment overlay red by design. The fixes are in hand on the same branch; this criterion does not return to MET until they have a named green job of their own.")}
 
+# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# 2026-11-20, second pass. Four records read from CI job by job on the heads named. Three criteria move; one deliberately does not, and says why.
+# ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+# E-02.3 returns to MET. The downgrade above was right at the time: the criterion had been recorded on a head with no independent review, and the review found real holes. Three rounds
+# of review and fix later every one of them is closed on a head whose whole suite is green in CI, so the record goes back up — on the new head, not the old one.
+CRITERIA['E-02'][3] = ('MET', "RESTORED 2026-11-20 after three rounds of review and fix, on a NEW head. Recorded MET on 3152b0de without a review, corrected to CODED when the review "
+    "found the pull request proved one of its three halves; now MET on PR 130 head c53ac2c3 (gcc/p1-market-account-sharing-key onto gcc/p1-market-wallet-loyalty-accounts). "
+    "WHAT CLOSED THE THREE HALVES. (1) Enabling sharing needs a code change: held from the start by behaviour, not by the scan. A reviewer implemented sharing twice with a column name "
+    "built at runtime that fully evaded the source scan, and the behavioural tests killed it both times. A third reviewer then implemented it a third way — a pooled-balance overdraft "
+    "guard in CustomerMarketBalances::change() with the column name built by implode('_', ['sharing','group']) — and PROVED the money moved (KW credited 30, BH credited 70, both grouped "
+    "'gulf', a debit of 100 against KW applied, leaving KW at -70.0), with all 140 of tests/Feature/Wallet green on both engines. That survivor existed because the test that looked like "
+    "it covered the spend path opened an account only in BH and debited KW, so the refusal it observed came from there being no KW account at all. A provider now crosses each balance "
+    "kind with the two states the SPENDING market can be in; the case that matters holds 4.0 in a grouped KW account and debits 50.0 while BH holds 70.0 — a debit the group could cover "
+    "and the account cannot. (2) The column exists and no existing row changes: the schema capture was Schema::getColumnListing() put through sort(), which sees names and nothing else. "
+    "It now snapshots every table the database holds — columns with type, nullable, default, collation, comment and table order, indexes, table engine, charset and comment, and every "
+    "row — read afresh on each side, so a table the migration CREATES is inside the comparison. The two mutations that had passed 114 of 114 (backfilling the key onto every account; "
+    "zeroing every users.wallet_balance and loyalty_point) now fail, as do a new table created and filled, both money tables switched to MyISAM, a column comment, an added index, a "
+    "widened column and ->after('market'). (3) Nothing reads the key: the scan was beatable eight ways; a verifier then found 16 of 18 builder positions invisible to it. One "
+    "RAW_SQL_STATEMENTS constant is now read by both the table question and the column question — the duplication that caused the hole — the position list covers the read and write "
+    "entry points, and PHP escape sequences inside double-quoted strings and heredocs are folded before literals are joined. 18 of 18 positions are now seen. "
+    "ALSO CLOSED: the migration no longer skips silently when the base migration has not run (it refuses, naming the migration it needs, and both orders are tested); the rollback "
+    "refusal is on a data provider so both account kinds are covered; both models hide the key and a test reads the model to prove the row carries it while the JSON does not. "
+    "COUNTS on c53ac2c3: MarketAccountSharingKeyTest 21/94, NothingReadsTheSharingKeyTest 48/87, tests/Feature/Wallet 169/503, MarketAccountExpandMigrationTest 19/48 unchanged through "
+    "the trait extraction, tests/Unit 1160/751007 — identical on SQLite and MariaDB 10.11. "
+    "CI: run 44730706483 on c53ac2c3, read job by job. 24 of 25 success. 'Tests, SQLite' on PHP 8.2 and 8.3 are BOTH green at 7406 tests / 797934 assertions, 107 skipped — the whole "
+    "suite, which is 7377 plus exactly the 29 tests added. 'Wallet tests, MariaDB 11.4.2' and 'Wallet tests, MySQL 8' are 169/503 each, matching local. The one failure is "
+    "'Deployment overlay (artifact, deploys nothing)', which is also the only non-success check on the base 2629b9f1 and is skipped on main, so it is pre-existing and not this work. "
+    "STILL NOT COVERED, written into the test docblock and GCC-15 rather than left implicit: a column name built by means no text scan can evaluate, in a file naming neither account "
+    "table nor either account model, is outside the scan. The gate cannot be dropped without listing every file that indexes an array by a variable. Three other defences cover it: the "
+    "behaviour tests, the models' $hidden, and review.")
+
+# A1-08.4: the route surface of main is a committed fixture compared on the integration tree, so a Saudi URL or route name cannot change silently. The 191-to-192 count in PR 28's body
+# was a one-off scratch dump that nothing ran; this is a test, and it went through an independent review that planted 22 evasions before it was accepted.
+CRITERIA.setdefault('A1-08', {})[4] = ('MET', "PR 138 (draft, head fe588e44, gcc/p1-route-parity-guard onto gcc/release/gcc-integration-ci). "
+    "tests/Feature/Storefront/SaudiRouteSurfaceTest.php compares the whole route surface against tests/Fixtures/routes-on-main.txt — 2312 lines of 'METHOD uri | name', sorted, HEAD left "
+    "out because Laravel registers it beside every GET, and an unnamed route written '(none)' so no line can end in whitespace a diff tool could eat. The comparison is by method, URI "
+    "AND name together, because a route that keeps its URI and loses its name breaks every route() call that names it, while one that keeps its name and changes its URI breaks every "
+    "bookmark. Five tests: the fixture is the route set it says it is; no route main serves has disappeared; everything added is one of the two DECLARED additions "
+    "(GET api/v1/storefronts and the api/platform-admin/v1 namespace); the storefront list is in fact added; and the platform-admin prefix shares no address with main. "
+    "CI: run 44732449613 on fe588e44, read job by job — 'Storefront tests, MySQL 8' (job 136275377147) and 'Storefront tests, MariaDB 11.4.2' (job 136275377189) both success, each "
+    "running tests/Unit/Storefront, tests/Feature/Storefront and tests/Feature/PlatformAdmin against a real engine. Also green on this head: both 'Tests, SQLite' whole-suite jobs, both "
+    "Address, both Fulfillment+security, both Catalog, both Staff scope, Strict-mode MariaDB 11.4.2, both PHP syntax and the secret guard. The only failure is the deployment overlay, "
+    "red by design on every run. "
+    "NOT covered: the fixture speaks for origin/main at c5c04b7b. When main moves it has to be rebuilt from main in a commit of its own, which the test's docblock states along with the "
+    "command; editing a line of it to make the test pass is the one change the test exists to catch.")
+
+# A2-14.0: the chain's migrations are held to leaving the customer and money tables as they were, by TWO gates — the text of every migration, and running all of them against a seeded
+# database and reading what the engine was actually asked to do. The second gate exists because an independent review beat the first one 21 ways out of 22.
+CRITERIA.setdefault('A2-14', {})[0] = ('MET', "PR 138 (draft, head fe588e44, gcc/p1-route-parity-guard onto gcc/release/gcc-integration-ci). "
+    "tests/Feature/Storefront/CustomerTablesAreNotRewrittenTest.php guards users, carts, orders, order_details, shipping_addresses and guest_users across database/migrations AND "
+    "Modules/*/database/migrations (350 migrations on main, a committed fixture of paths). TWO GATES, because one was not enough: an independent review wrote 22 evasions of the text "
+    "gate and 21 of them passed — a table named through (new User)->getTable(), through config(), through trim(), through a class constant; up() calling down(); a write in a class "
+    "declared above the migration; $customer->orders()->delete() on a relation; a builder copied to a second variable; a table name concatenated inside DB::statement; LOAD DATA INFILE; "
+    "a semicolon inside an SQL comment; the DB facade imported under another name; a migration in a module directory the guard did not read. All 22 are now refused BY BOTH GATES. "
+    "The text gate adopted the house rule from StockNeverWritesPlatformTablesTest: an expression that is not a quoted literal or Name::CONSTANT yields UNKNOWN_TABLE rather than nothing "
+    "— a table the guard cannot name is reported, not passed. Its blueprint method lists are now derived from the installed framework by transitive closure over Blueprint method bodies "
+    "(71 add-a-column methods against the 21 that had been listed by hand, 10 drop-a-column against 1). The second gate RUNS every migration of the chain against a seeded database and "
+    "reads every statement DB::listen sees, so a write reached by calling out of the file — into a trait, a seeder, a command — is caught however it is spelled. "
+    "COUNTS: the guard file 87 tests / 122 assertions on SQLite and on MariaDB 10.11 (it was 51/62 before the review). The CI group that runs it, 1272 tests / 22440 assertions on "
+    "SQLite and 1272 / 22488 on MariaDB. The shared scanner's two other consumers are unchanged at 45/226, so the stricter scanner broke nothing. "
+    "CI: run 44732449613 on fe588e44 — 'Storefront tests, MySQL 8' and 'Storefront tests, MariaDB 11.4.2' both success. "
+    "THE PRICE, measured and kept deliberately: the strict rule refuses 3 of main's own 350 migrations if their idiom (Schema::table($table, $define) with the name in a variable) were "
+    "copied into this chain. Resolving a table out of a variable can only ever be a guess, and that guess is what let four of the 22 evasions through, so the rule stands and the failure "
+    "message says what to do instead. NOT covered: the six tables the second gate builds are INFERRED — installation/backup/database.sql is not in the repository, and a separate audit "
+    "confirmed users, orders, order_details and shipping_addresses are created by NO migration anywhere in the project, so proving this against the live Saudi schema needs a staging "
+    "database restored from the dump.")
+
+# E-17.2 stays where it is ON PURPOSE. The code is written and a named CI job covers it on both production-grade engines, which by the letter of the MET rule would be enough. It is not
+# recorded MET because it has had no independent review, and E-02.3 three records above is what that costs: a criterion recorded on my own tests, where a reviewer then implemented the
+# very thing the criterion forbids and the tests stayed green. The review is running; this record moves when it reports.
+CRITERIA['E-17'][2] = ('CODED', "CODED, NOT MET, and the reason is the point. PR 137 (draft, head a7c8760e, gcc/p1-ledger-chain-per-entity onto gcc/p1-settlement-one-currency). "
+    "WHAT IS WRITTEN: app/Services/Marketplace/LedgerChain.php is the one place that says what a chain is — seller, selling company, currency — and the writer and every reader narrow "
+    "their query through it, which is what stops them disagreeing about which entries belong together. An entry reads and writes its own chain's balance and the lock is taken on its own "
+    "chain, so two markets no longer wait for each other. A reader that names no chain still gets the seller's whole position, so no call site changed and every screen shows what it "
+    "showed before. A settlement is keyed the same way, so one is never drawn across two companies. An entry naming NO currency belongs to the base-currency chain, so years of "
+    "unlabelled history stay in one piece, and a label differing only in case or spacing is the same currency. Off by default "
+    "(gcc.ledgers.keyed_by_entity_and_currency); the company is written to the entry even while the switch is off, or there would be no history to split when it is thrown. "
+    "TESTS: tests/Feature/Marketplace/LedgerChainTest.php, 17 tests. Eight mutations of the application code were tried and all eight killed. "
+    "CI, read job by job: run 44706900119 on a7c8760e. 'Marketplace and ledger tests, MySQL 8' (job 136188660584) and 'Marketplace and ledger tests, MariaDB 11.4.2' (job 136188660651) "
+    "are BOTH success, and they run tests/Feature/Marketplace against a real engine, so the job does cover this criterion. Five other jobs are red and NONE of them is this work: the "
+    "deployment overlay, red by design, and four jobs red on one and the same pre-existing failure, "
+    "TorodShipmentDiscoveryTest::test_the_scheduled_run_links_what_appeared_later_and_keeps_the_status_of_a_linked_shipment_current — read in the logs of all four, 'unlinked' against "
+    "'needs_review' at line 198. That failure is a fixture dated by the calendar, not a defect of this branch; it is being fixed separately on main. "
+    "WHY NOT MET: no independent review. The tests above are mine and so are the mutations they killed, and E-02.3 in this same tracker is what that is worth on its own — recorded MET "
+    "on my own tests, then a reviewer implemented the very sharing the criterion forbids, three different ways, with the whole lane green. The review of this branch is running. "
+    "ALSO NOT COVERED, stated in the pull request: a payout. PayoutService still draws on the seller's whole withdrawable amount, so a seller with money in two chains can be paid out of "
+    "the sum of them — a payout has no currency to be drawn in yet. And vendor_ledger_entries has no migration in this repository, so the company column is read through "
+    "Schema::hasColumn and an installation whose ledger lacks it keys chains by seller and currency alone.")
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
