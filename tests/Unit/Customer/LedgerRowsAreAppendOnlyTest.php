@@ -14,6 +14,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use ReflectionClass;
+use ReflectionMethod;
 use Tests\Support\PlatformWriteScanner;
 use Tests\TestCase;
 
@@ -116,7 +117,7 @@ class LedgerRowsAreAppendOnlyTest extends TestCase
     public function test_neither_ledger_repository_carries_a_method_that_could_edit_a_row(): void
     {
         foreach ([WalletTransactionRepository::class, LoyaltyPointTransactionRepository::class, WalletTransactionRepositoryInterface::class, LoyaltyPointTransactionRepositoryInterface::class] as $class) {
-            $methods = array_map(static fn (\ReflectionMethod $method): string => $method->getName(), (new ReflectionClass($class))->getMethods());
+            $methods = array_map(static fn (ReflectionMethod $method): string => $method->getName(), (new ReflectionClass($class))->getMethods());
             $editing = array_values(array_intersect($methods, ['update', 'delete', 'destroy', 'forceDelete', 'truncate', 'upsert', 'updateOrCreate', 'save']));
 
             $this->assertSame([], $editing, $class . ' offers a way to edit a money row; an unused one is an accident waiting for a caller.');
@@ -125,7 +126,7 @@ class LedgerRowsAreAppendOnlyTest extends TestCase
 
     public function test_the_append_only_contract_has_no_update_or_delete_and_every_other_repository_still_does(): void
     {
-        $appendOnly = array_map(static fn (\ReflectionMethod $method): string => $method->getName(), (new ReflectionClass(AppendOnlyRepositoryInterface::class))->getMethods());
+        $appendOnly = array_map(static fn (ReflectionMethod $method): string => $method->getName(), (new ReflectionClass(AppendOnlyRepositoryInterface::class))->getMethods());
         sort($appendOnly);
 
         $this->assertSame(['add', 'getFirstWhere', 'getList', 'getListWhere'], $appendOnly);

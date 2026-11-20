@@ -15,6 +15,7 @@ use App\Models\WalletTransaction;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use Illuminate\Testing\TestResponse;
 use Tests\Support\BuildsCustomerLedgerSchema;
 use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
@@ -89,14 +90,14 @@ abstract class CustomerLedgerTestCase extends TestCase
         ];
     }
 
-    protected function deleteThroughTheApi(User $customer, ?int $id = null): \Illuminate\Testing\TestResponse
+    protected function deleteThroughTheApi(User $customer, ?int $id = null): TestResponse
     {
         $this->actingAs($customer, 'api');
 
         return $this->withHeader('Authorization', 'Bearer test-token')->getJson('api/v1/customer/account-delete/' . ($id ?? $customer->id));
     }
 
-    protected function deleteThroughTheWebsite(User $customer, ?int $id = null): \Illuminate\Testing\TestResponse
+    protected function deleteThroughTheWebsite(User $customer, ?int $id = null): TestResponse
     {
         $this->actingAs($customer, 'customer');
 
