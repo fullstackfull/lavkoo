@@ -2274,6 +2274,44 @@ CRITERIA['E-17'][2] = ('CODED', "CODED, NOT MET, and the reason is the point. PR
     "the sum of them — a payout has no currency to be drawn in yet. And vendor_ledger_entries has no migration in this repository, so the company column is read through "
     "Schema::hasColumn and an installation whose ledger lacks it keys chains by seller and currency alone.")
 
+# E-08.1 had the evidence "account_delete hard-deletes the user (REST v1, web); no test" while pull request 131 had been carrying 34 tests for it since 2026-11-19, read by two independent
+# adversarial reviewers, with CI green on its head. The record was simply never updated. It becomes CODED rather than MET, and the reason is not the quality of the work: the criterion is
+# true only in a configuration that does not ship, and the switch cannot responsibly be turned on until the owner has a legal reading and a customer has some way to clear a small residue.
+CRITERIA.setdefault('E-08', {})[1] = ('CODED', "PR 131 (draft, head cf0228b8, gcc/p1-account-deletion-keeps-money onto gcc/p1-wallet-contract-tests at 533e4cbf, 6 commits, 9 files). "
+    "WHAT THE PLATFORM DOES TODAY, now written down rather than assumed: a customer deletes their account through the app (RestAPI\\v1\\CustomerController::account_delete) or the website "
+    "(Web\\UserProfileController::account_delete) while the wallet still holds money or the loyalty points still stand, and BOTH routes answer that the account was deleted. The ledger rows "
+    "stay in the database with nobody left to name them, and the balance itself goes with the users row. So the criterion's FIRST branch — keeps the ledger rows AND the balance record — is "
+    "not true today, because the balance record is a column of the row being deleted. "
+    "WHAT THE BRANCH ADDS: CustomerAccountDeletionGuardService::blockingReason() answers the translation key of a refusal or null, the customer's own two routes ask it, and each answers in "
+    "the shape it already uses for its ongoing-order refusal — 403 with a message for the app, a warning and a redirect for the website. That satisfies the criterion's SECOND branch. "
+    "A REAL DEFECT WAS FOUND BY REVIEW AND FIXED. The first head weighed a STALE COPY of the customer: both routes hydrate the customer at the top of the method, and between that and the "
+    "delete each counts orders, asks the Auction add-on and deletes a profile image, while the website route also signs the customer out. A refund credited inside that window was money the "
+    "guard never saw, so with the switch ON the deletion still went through and the credit was left naming an id that names nobody — the exact failure E-08 exists to prevent. The guard now "
+    "re-reads wallet_balance and loyalty_point under the customer's own key before weighing them, and two tests credit 500.00 from a DB::listen hook that fires on the orders count, one per "
+    "route; restoring the old behaviour fails exactly those two and no others. The reviews also found FOUR claims that nothing pinned, each now a test that fails when the claim is broken: "
+    "that the money guard runs after every refusal that already exists; that the customer reads the refusal SENTENCE (the assertions had compared translate(key) with translate(key), so "
+    "deleting both English lines lost no test); that a refused website customer stays signed in; and that the switch ships off (CI copies .env.example to .env, which names the variable, so "
+    "flipping the default inside config/gcc.php had been invisible in every CI job). "
+    "SAUDI UNCHANGED: GCC_REFUSE_ACCOUNT_DELETE_WITH_BALANCE ships false, and while it is off the guard returns null BEFORE it reads anything, so both routes behave exactly as today. The "
+    "twelve characterisation tests written before the guard existed still pass with no assertion altered. "
+    "EVIDENCE: AccountDeletionKeepsLedgerTest, 34 tests / 156 assertions, OK on SQLite and on MariaDB 10.11 (26/115 at the first head). CI run 44598217405 on cf0228b8, read job by job: "
+    "20 of 21 success, the one failure the deployment overlay, red by design. Both whole-suite jobs 'Tests, SQLite' (PHP 8.2 and 8.3) are SUCCESS on this head, which is also what shows the "
+    "branch's cherry-pick of the TorodShipmentDiscoveryTest fixture repair worked — the first head's run had five jobs red on that one pre-existing failure alone. "
+    "WHY CODED AND NOT MET. Three reasons, none of them about the testing. (1) The criterion is satisfied only with the switch ON, and the switch ships OFF; with it off the balance record is "
+    "still destroyed. (2) Turning it on TAKES AWAY something a Saudi customer can do today, which is the owner's decision, not a pull request's. (3) With it on, a customer cannot clear a "
+    "small residue themselves — wallet payment at checkout is all or nothing, there is no customer withdrawal, points below the conversion minimum cannot be converted, and the only admin "
+    "wallet action ADDS funds — so 2.50 SAR would make an account its owner can never delete. The branch says so itself and leaves the administrator's route DELETE admin/customer/delete/{id} "
+    "deliberately unguarded as the last resort, characterising what it does instead (it deletes a customer holding 125.50 and 340 points and leaves both ledgers readable). "
+    "WHAT MUST HAPPEN BEFORE THE SWITCH GOES ON ANYWHERE, from the branch's own reading: exactly one way out has to exist — partial wallet payment at checkout, an admin deduct-to-zero that "
+    "writes a ledger row naming the deletion, or a customer-facing forfeit-and-delete confirmation. None is implemented and each is its own decision. The platform already has the shape an "
+    "anonymisation would copy rather than invent: BuyerDataPurger wipes buyer details in place on a retention clock, keeps the non-personal columns and writes an audit row. "
+    "NOT COVERED: atomicity — the guard's read is not held across the delete, so a credit landing AFTER the read is still lost; that needs E-09's lock, and SELECT ... FOR UPDATE is a no-op on "
+    "SQLite so a test here would prove nothing. The threshold 0.01 is SAR-SHAPED: it is one halala, and one fils in AED and QAR, but KWD, BHD and OMR are 1/1000 currencies, so up to NINE of "
+    "their smallest units would be treated as rounding dust — and no minor-unit field exists anywhere in the codebase, so a currency-aware threshold needs that field first. This is a "
+    "pre-condition for three of the six markets. Neither resources/lang/sa nor resources/lang/ae carries the two refusal keys, so an Arabic refusal takes translate()'s fallback path, as the "
+    "existing ongoing-order refusal already does. tests/Feature/Storefront is in no MySQL or MariaDB CI job on this base, so in CI these 34 tests run on SQLite only; the MariaDB figures are "
+    "local. The Auction-guard branch between the two refusals is never exercised, because Modules/Auction is not in this repository.")
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
