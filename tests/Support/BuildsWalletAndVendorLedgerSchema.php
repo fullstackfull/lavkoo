@@ -159,6 +159,30 @@ trait BuildsWalletAndVendorLedgerSchema
         });
     }
 
+    /**
+     * The seller ledger, the settlements drawn from it, and the frozen commission snapshot a refund is reversed against. `order_item_commissions` has no migration in this
+     * repository either, so its columns here are the ones `OrderItemCommission` makes fillable and `RefundReversalService` reads and writes.
+     */
+    protected function buildRefundReversalTables(): void
+    {
+        $this->buildVendorSettlementTables();
+
+        Schema::create('order_item_commissions', static function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('order_id')->nullable();
+            $table->unsignedBigInteger('order_details_id');
+            $table->unsignedBigInteger('product_id')->nullable();
+            $table->unsignedBigInteger('seller_id')->nullable();
+            $table->string('seller_is', 20)->default('seller');
+            $table->decimal('commissionable_amount', 24, 4)->default(0);
+            $table->decimal('commission_amount', 24, 4)->default(0);
+            $table->decimal('seller_net_amount', 24, 4)->default(0);
+            $table->decimal('reversed_amount', 24, 4)->default(0);
+            $table->string('currency', 20)->nullable();
+            $table->timestamps();
+        });
+    }
+
     private function createBusinessSettingsTable(): void
     {
         Schema::create('business_settings', static function (Blueprint $table): void {

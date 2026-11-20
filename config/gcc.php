@@ -49,6 +49,14 @@ return [
         // no currency, so on a two-currency ledger the reserve lands in the base-currency chain and takes that chain's running balance negative by the amount paid out of the
         // other, which still advertises money that has gone. A payout drawn per chain, or one that refuses while a seller holds more than one, is the owner's decision and the
         // gate on throwing this where a second currency is already on the ledger (docs/gcc: E-17.2).
+        //
+        // AND THE REVERSALS ALREADY ON THE LEDGER HAVE TO BE CHECKED BEFORE IT IS THROWN, which needs only the switch and not two currencies: a refund and the commission
+        // reversed with it were labelled with the currency of the ORDER's commission snapshot, which is stamped when the order is placed and falls back to the currency the
+        // customer was browsing in (OrderManager::recordOrderItemCommission), while the earning they reverse is labelled with the store's base currency. Where the two
+        // disagree, the switch puts the reversal in a chain the earning was never in: the earning settles as payable while the refund waits in a settlement nobody can be
+        // paid, so a line refunded IN FULL leaves the marketplace owing for a sale it gave back. A reversal written from now on takes the label of the entry it reverses
+        // (RefundReversalService), so this is about the rows that are already there: the `refund` and `return_adjustment` entries of each `refund_order_details` reference
+        // have to carry the currency of the `order_details` earning of the same line, and be relabelled where they do not.
         'keyed_by_entity_and_currency' => filter_var(env('GCC_LEDGER_KEYED_BY_ENTITY_AND_CURRENCY', false), FILTER_VALIDATE_BOOLEAN),
     ],
 
