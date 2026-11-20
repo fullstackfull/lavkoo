@@ -234,7 +234,7 @@ jobs:
           #    list tries to load each as a test and dies on the first abstract one -- "Class ... is abstract", 45 seconds in.
           #    Handing it the DIRECTORY lets its own discovery skip them, which is why the path stays.
           #
-          # The partition is exact and measured: 1,169 + 736 = 1,905, which is the whole directory.
+          # The partition is exact and measured: 1,222 + 748 = 1,970, which is the whole directory.
           # `CiSalesChannelSplitCoversEveryTestTest` asserts it from the class names, so a class cannot fall between.
           - group: sales channels A-M
             paths: tests/Feature/SalesChannels --filter '/^Tests.Feature.SalesChannels.[A-M]/'

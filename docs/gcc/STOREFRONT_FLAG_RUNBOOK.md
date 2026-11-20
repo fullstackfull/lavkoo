@@ -76,6 +76,23 @@ always on), because no company may invoice another company's sale. The customer 
 which is why this is still not a kill switch. The catalogue behaviour is pinned by `StorefrontKillSwitchTest` and the order-time rule by
 `StorefrontCheckoutSingleCompanyTest`.
 
+The rule holds at every writer, not only at the checkout, because four of them never call `OrderManager::generateOrder()`:
+
+| writer | what its lines come from | how it refuses |
+| --- | --- | --- |
+| `Admin\POS\POSOrderController::placeOrder` | a session cart | the screen's own error toast, nothing written |
+| `Vendor\POS\POSOrderController::placeOrder` | a session cart | the screen's own error toast, nothing written |
+| `RestAPI\v3\seller\POSController::place_order` | a request payload | `422 order_mixes_selling_companies` |
+| `SalesChannels\Dispatch\ChannelOrderMaterializer` | a channel order's lines | the dispatch is blocked with `reason_code = order_mixes_selling_companies` and is **not** retried |
+
+A point-of-sale sale is a sale, so a till holding two countries' products sells neither of them on one receipt; each country's products can
+still be rung up on a receipt of their own. A channel order that mixes two countries is not retried, because it will never stop mixing them:
+the dispatch row carries the reason and waits for a person. Pinned by `PosSingleCompanyTest` and `ChannelOrderSingleCompanyTest`.
+
+Still open at the three tills: a sale paid from the customer's wallet is debited before the products are read, so a refused mixed sale leaves
+the wallet debited with no order. That ordering is the tills' own and predates the rule — their existing out-of-stock refusal sits after the
+same debit — and moving a payment debit is not part of the rule.
+
 Rolling the products migration back is refused while a product of another country exists, because dropping the column would merge the
 catalogues for good.
 

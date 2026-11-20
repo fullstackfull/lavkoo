@@ -26,7 +26,9 @@ class OrderMixesSellingCompaniesException extends RuntimeException
     {
         $message = translate('Product_is_unavailable');
 
-        if ($request->expectsJson()) {
+        // An API client is answered in JSON whether or not it asked for it: the apps place orders on `api/*`, and a redirect carrying a
+        // flash message is no answer to one. Only a browser is sent back to the page it came from.
+        if ($request->expectsJson() || $request->is('api/*')) {
             return response()->json(['code' => 'order_mixes_selling_companies', 'message' => $message], 422);
         }
 

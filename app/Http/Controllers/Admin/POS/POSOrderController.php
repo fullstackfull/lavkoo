@@ -16,6 +16,7 @@ use App\Services\CartService;
 use App\Services\OrderDetailsService;
 use App\Services\OrderService;
 use App\Services\POSService;
+use App\Services\Storefront\OneSellingCompanyPerOrder;
 use App\Traits\CalculatorTrait;
 use App\Traits\CustomerTrait;
 use App\Utils\CartManager;
@@ -130,6 +131,15 @@ class POSOrderController extends BaseController
             $products = $this->productRepo->getListWithScope(whereIn: ['id' => $cartListSession->pluck('id')->toArray()], relations: ['clearanceSale' => function ($query) {
                 return $query->active();
             }], dataLimit: 'all');
+
+            // A counter sale is a sale: one order may name one country and one selling company (D1-02). The products the till has
+            // already loaded to price the cart are judged here, before the stock is taken and before the order and its lines are
+            // written, so a till that holds two countries' products sells neither of them on one receipt.
+            if (OneSellingCompanyPerOrder::productsSpanMoreThanOne(products: $products)) {
+                ToastMagic::error(translate('Product_is_unavailable'));
+                return response()->json();
+            }
+
             $totalDiscountedPrice = $this->cartService->getCartTotalDiscountPrice(session($cartId), $products, $userId);
 
             $orderId = 100000 + $this->orderRepo->getList()->count() + 1;

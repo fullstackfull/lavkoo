@@ -116,8 +116,12 @@ final class StorefrontCatalog
      * adds the column and costs nothing until then — no schema is read and no query is made, which is what keeps it off the Saudi checkout's
      * query count. A product loaded without these columns therefore says nothing about who sells it, which is also the answer before the
      * country migration has run: the database the platform has today.
+     *
+     * The row is whatever the caller already holds: a Product the checkout or the point of sale loaded, or the plain products row the
+     * channel materializer reads with the query builder. Both are asked for the column by name and neither is asked for a column it does
+     * not carry, so a row loaded without these columns says nothing rather than failing.
      */
-    public static function sellingScopeOf(?Model $product): ?string
+    public static function sellingScopeOf(?object $product): ?string
     {
         if ($product === null) {
             return null;
@@ -125,7 +129,7 @@ final class StorefrontCatalog
 
         $scope = [];
         foreach ([self::COLUMN, self::ENTITY_COLUMN] as $column) {
-            $value = $product->getAttribute($column);
+            $value = $product->{$column} ?? null;
 
             if ($value !== null) {
                 $scope[] = $column . '=' . $value;
