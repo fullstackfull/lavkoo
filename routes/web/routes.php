@@ -46,6 +46,7 @@ use App\Http\Controllers\Web\WebController;
 use App\Http\Middleware\VerifyCsrfToken;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
+use App\Http\Middleware\EnsureGatewayTakesThisPayment;
 
 /*
 |--------------------------------------------------------------------------
@@ -501,7 +502,11 @@ if (!$isGatewayPublished) {
     // carried a limit, so the whole group is throttled per source address here rather than route by
     // route, where the next gateway added would be forgotten. The limiter and its reasoning are in
     // RouteServiceProvider::configureRateLimiting().
-    Route::group(['prefix' => 'payment', 'middleware' => 'throttle:public-payment-endpoints'], function () {
+    //
+    // The two guards are independent and both apply: the throttle bounds how often an unknown caller
+    // may knock, and EnsureGatewayTakesThisPayment refuses a gateway's address for a gateway this shop
+    // has not switched on, and for a payment that is not that gateway's own.
+    Route::group(['prefix' => 'payment', 'middleware' => ['throttle:public-payment-endpoints', EnsureGatewayTakesThisPayment::class]], function () {
 
         //SSLCOMMERZ
         Route::group(['prefix' => 'sslcommerz', 'as' => 'sslcommerz.'], function () {
