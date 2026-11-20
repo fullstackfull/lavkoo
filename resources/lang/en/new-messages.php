@@ -11244,4 +11244,8 @@ return [
 	'tax_registration_number' => 'Tax registration number',
 	'selling_company' => 'Selling company',
 	'the_registered_company_that_sells_this_product_it_follows_from_the_country_and_is_not_typed' => 'The registered company that sells this product. It follows from the product\'s country and is not typed.',
+	'the_currency_of_this_storefront_is_not_active_so_a_coupon_cannot_be_typed_for_it' => 'The currency of this storefront is not active, so a coupon cannot be typed for it',
+	'coupon_storefront' => 'Storefront',
+	'the_amounts_of_a_coupon_are_in_the_currency_of_its_storefront_it_cannot_be_changed_after_the_coupon_is_added' => 'The amounts of a coupon are in the currency of its storefront. It cannot be changed after the coupon is added.',
+	'the_wallet_is_not_available_in_the_currency_of_this_storefront' => 'The wallet is not available in the currency of this storefront.',
 ];

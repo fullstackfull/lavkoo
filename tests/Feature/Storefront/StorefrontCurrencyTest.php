@@ -321,6 +321,8 @@ class StorefrontCurrencyTest extends TestCase
 
     public function test_the_readiness_command_lists_each_storefront_and_succeeds_when_those_switched_on_have_their_currency(): void
     {
+        Schema::dropIfExists('shipping_types');
+
         $this->artisan('gcc:storefront:currency-readiness')
             ->expectsOutputToContain('Storefront currencies: on')
             ->expectsOutputToContain('default storefront')
@@ -343,6 +345,7 @@ class StorefrontCurrencyTest extends TestCase
     public function test_the_readiness_command_ignores_a_storefront_that_is_not_switched_on(): void
     {
         config(['gcc.storefronts.countries.QA.active' => false]);
+        Schema::dropIfExists('shipping_types');
         $this->removeCurrency('QAR');
 
         $this->artisan('gcc:storefront:currency-readiness')->assertExitCode(0);

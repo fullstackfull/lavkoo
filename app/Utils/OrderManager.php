@@ -2,6 +2,7 @@
 
 namespace App\Utils;
 
+use App\Services\Storefront\StorefrontCurrency;
 use App\Services\Analytics\Analytics;
 use App\Events\OrderEditDuePaymentEvent;
 use App\Models\OrderDetailsRewards;
@@ -513,6 +514,7 @@ class OrderManager
             ->groupBy('order_group_id')->get()->count();
 
         $firstCoupon = Coupon::where(['code' => $couponCode])
+            ->forStorefront()
             ->where('status', 1)
             ->whereDate('start_date', '<=', date('Y-m-d'))
             ->whereDate('expire_date', '>=', date('Y-m-d'))->first();
@@ -671,6 +673,7 @@ class OrderManager
             ->groupBy('order_group_id')->get()->count();
 
         $firstCoupon = Coupon::where(['code' => $couponCode])
+            ->forStorefront()
             ->where('status', 1)
             ->whereDate('start_date', '<=', date('Y-m-d'))
             ->whereDate('expire_date', '>=', date('Y-m-d'))->first();
@@ -858,6 +861,9 @@ class OrderManager
 
             if ($referralCustomer->customer_discount_amount_type === 'percentage') {
                 return ($groupAmount * $discountAmount) / 100;
+            }
+            if (app(StorefrontCurrency::class)->currencyCodeInForce() !== null) {
+                return 0;
             }
             return ($discountAmount * $groupAmount) / $totalAmount;
         }
