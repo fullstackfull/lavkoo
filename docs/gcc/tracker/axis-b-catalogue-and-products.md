@@ -1,6 +1,6 @@
 # Axis B: Catalogue and products
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 18. Acceptance criteria: 91 (MET 34, CODED 17, MISSING 40). Code completion 56%, proven by a passing test 37%, release readiness 0%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-20. Requirements: 18. Acceptance criteria: 91 (MET 34, CODED 17, MISSING 40). Code completion 56%, proven by a passing test 37%, release readiness 0%.
 
 Independent verification: done for unit(s) B.
 

@@ -2127,6 +2127,20 @@ CRITERIA.setdefault('E-02', {})[3] = ('MET', "PR 130 (draft, base gcc/p1-market-
 
 
 
+# The second pass over the 106 acceptance criteria written for the 28 requirements the verifiers added (2026-11-19 night, one
+# skeptical verifier per axis, then a judge on every state it would raise to MET). What it found: 21 criteria right as written,
+# 50 right in their state with evidence that was wrong or unsourced, 26 wrong in the state itself, and 9 it would raise to MET,
+# which are judged one by one and applied with the rest of the wave rather than from this file. The data file holds what the
+# second pass concluded; this applies it over the criteria the first pass wrote.
+_V_RULINGS = json.load(open(T.MASTER + 'v-rulings-2026-11-20.json'))
+
+for _req, _by_index in _V_RULINGS.items():
+    for _index, _ruling in _by_index.items():
+        _parts = CRITERIA_SPLIT[_req][0]
+        _text, _state, _evidence = _parts[int(_index)]
+        _parts[int(_index)] = (_text, _ruling.get('state', _state), _ruling.get('evidence', _evidence))
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]

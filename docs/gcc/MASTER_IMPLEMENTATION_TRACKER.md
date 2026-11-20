@@ -1,6 +1,6 @@
 # LAVKOO GCC: master implementation tracker
 
-As of 2026-11-19. Generated from the independent assessment of every requirement of the original multi-country plan (13 axes, A to M) against the state of GitHub, then checked by independent verifiers. It replaces any reading of the pull request list as progress: **a pull request that is open is not a requirement that is done.**
+As of 2026-11-20. Generated from the independent assessment of every requirement of the original multi-country plan (13 axes, A to M) against the state of GitHub, then checked by independent verifiers. It replaces any reading of the pull request list as progress: **a pull request that is open is not a requirement that is done.**
 
 ## 1. Read this first
 
@@ -14,20 +14,20 @@ As of 2026-11-19. Generated from the independent assessment of every requirement
 
 | Axis | Requirements | Criteria | MET | CODED | MISSING | Code completion | Proven by tests | Release readiness | Verified |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| [A. Six-country base and customer identity](tracker/axis-a-six-country-base-and-customer-identity.md) | 37 | 173 | 88 | 26 | 59 | 66% | 51% | 9% | all |
+| [A. Six-country base and customer identity](tracker/axis-a-six-country-base-and-customer-identity.md) | 37 | 173 | 87 | 28 | 58 | 66% | 50% | 9% | all |
 | [B. Catalogue and products](tracker/axis-b-catalogue-and-products.md) | 18 | 91 | 34 | 17 | 40 | 56% | 37% | 0% | all |
 | [C. Inventory and fulfillment](tracker/axis-c-inventory-and-fulfillment.md) | 18 | 94 | 65 | 9 | 20 | 79% | 69% | 30% | all |
 | [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 179 | 83 | 31 | 65 | 64% | 46% | 8% | all |
 | [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 88 | 37 | 5 | 46 | 48% | 42% | 7% | all |
-| [F. Themes and brand](tracker/axis-f-themes-and-brand.md) | 16 | 77 | 43 | 11 | 23 | 70% | 56% | 4% | all |
-| [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 102 | 59 | 8 | 35 | 66% | 58% | 15% | all |
-| [H. Shipping and integrations](tracker/axis-h-shipping-and-integrations.md) | 34 | 157 | 81 | 11 | 65 | 59% | 52% | 16% | all |
+| [F. Themes and brand](tracker/axis-f-themes-and-brand.md) | 16 | 77 | 42 | 13 | 22 | 71% | 55% | 4% | all |
+| [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 102 | 59 | 12 | 31 | 70% | 58% | 15% | all |
+| [H. Shipping and integrations](tracker/axis-h-shipping-and-integrations.md) | 34 | 157 | 79 | 13 | 65 | 59% | 50% | 16% | all |
 | [I. Marketing, policies and operations](tracker/axis-i-marketing-policies-and-operations.md) | 37 | 185 | 84 | 41 | 60 | 68% | 45% | 3% | all |
-| [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 98 | 42 | 30 | 26 | 73% | 43% | 5% | all |
-| [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 104 | 43 | 20 | 41 | 61% | 41% | 3% | all |
+| [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 98 | 42 | 31 | 25 | 74% | 43% | 5% | all |
+| [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 104 | 40 | 26 | 38 | 63% | 38% | 3% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 45 | 18 | 31 | 67% | 48% | 7% | all |
-| [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 311 | 104 | 113 | 94 | 70% | 33% | 3% | all |
-| **All axes (pooled)** | **359** | **1753** | **808** | **340** | **605** | **65%** | **46%** | **8%** | |
+| [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 311 | 104 | 120 | 87 | 72% | 33% | 3% | all |
+| **All axes (pooled)** | **359** | **1753** | **801** | **364** | **588** | **66%** | **46%** | **8%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -98,8 +98,8 @@ Executable on an isolated branch without production access, ordered by the prior
 | P0 | [M1-V1](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 4 | Every P0 finding of the Discovery-02 security triage (23 explicit P0 plus 4 conditional P0 | See the criteria: the unmet ones name the file and the line that has to change. |
 | P0 | [M1-13](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 3 | Review and approval gates: finance, security of GCC-20, native Arabic reader | On the docs branch add docs/gcc/REVIEW_GATES.md: per review (finance #52; security of stages 1 and 4 and of GCC-20 #71, #79, #80, #84 and seller #4, #6; native Arabic keys of seller #6, customer #7, #72, #74 and the added lines of |
 | P0 | [M1-14](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 3 | Staging environment with fake data for six countries | Branch gcc/staging-fake-data: add database/seeders/GccStagingSeeder (six storefronts, invented sellers, customers, products per country, orders, wallets, reusing the test world builders), a guard that refuses to seed unless APP_EN |
-| P0 | [M1-V2](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 3 | A secret and personal-data scan gates every repository's pull requests: the triage's urgen | See the criteria: the unmet ones name the file and the line that has to change. |
 | P0 | [M1-01](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 2 | Branch and PR ledger, CI read-only, truthful production claims | On claude/exciting-shannon-4mh2ok: commit docs/gcc/PR_LEDGER.md generated by a read-only script from the PR index and CI table (99 PRs), replace the stale STATUS.md section, and add a script that compares the ledger heads with git |
+| P0 | [M1-V2](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 2 | A secret and personal-data scan gates every repository's pull requests: the triage's urgen | See the criteria: the unmet ones name the file and the line that has to change. |
 | P0 | [M1-03](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1 | Combined integration of the security set and the GCC chain, tested on three engines | Read the CI of run 288 (all-integration-ci, 515d5bfa) per job; fix any red job on the integration branch only, or on the pull request that owns the defect; add the result to docs/gcc/audits/2026-11-18-all-in-one-integration/README |
 | P0 | [M1-07](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1 | Ownership, payment-identity and withdraw fixes that have no release path (PRs 7, 16, 20-23 | Read the CI of the all-in-one run 288; then decide with the owner which of these fixes join the staged hotfix as net changes (the method of the hotfix plan) and which wait for the merge of the main-based set. |
 | P0 | [M1-09](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1 | Stage 4: uploads and files cannot store or serve code or other people's files | Add flag-guarded calls to the authenticated digital-file routes in both Flutter apps (unit tests with hand-written server answers) so DIGITAL_FILES_PRIVATE can be turned on; on PR 63 add a read-only command that counts stored scri |
@@ -146,8 +146,8 @@ Executable on an isolated branch without production access, ordered by the prior
 | [A1-16](tracker/axis-a-six-country-base-and-customer-identity.md) | IMPLEMENTED IN DRAFT | 4/0/0 | App-local caches in the Flutter apps are market-scoped |
 | [A1-17](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 2/0/3 | Notifications are market-scoped (push topics, queued mail) |
 | [A1-18](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 2/1/2 | Inventory is market-scoped: no shared stock between countries |
-| [A1-V1](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 0/1/3 | One platform: one website, one customer Flutter app and one central control panel serve all six mark... |
-| [A1-V2](tracker/axis-a-six-country-base-and-customer-identity.md) | NOT STARTED | 1/0/3 | SEO surfaces (canonical URL, hreflang, sitemap, robots, SEO redirects) are market-scoped. |
+| [A1-V1](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 0/3/1 | One platform: one website, one customer Flutter app and one central control panel serve all six mark... |
+| [A1-V2](tracker/axis-a-six-country-base-and-customer-identity.md) | NOT STARTED | 0/1/3 | SEO surfaces (canonical URL, hreflang, sitemap, robots, SEO redirects) are market-scoped. |
 | [A2-01](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 1/2/2 | One customer record serves all six markets |
 | [A2-02](tracker/axis-a-six-country-base-and-customer-identity.md) | IMPLEMENTED IN DRAFT | 2/2/0 | One login on the website and in the app |
 | [A2-03](tracker/axis-a-six-country-base-and-customer-identity.md) | INTEGRATED AND TESTED | 5/0/0 | Code sign-in and password reset act only for the phone or account that proved itself |
@@ -164,7 +164,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [A2-14](tracker/axis-a-six-country-base-and-customer-identity.md) | IMPLEMENTED IN DRAFT | 3/1/0 | Existing accounts, ids and history are preserved |
 | [A2-15](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 3/0/2 | Privacy of customer data: logs, payloads, retention and deletion |
 | [A2-V1](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 0/2/2 | A local admin or employee of one market cannot see the customer's transactions of other markets with... |
-| [A2-V2](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 0/4/0 | Policy consents are stored in the right scope: the explicit acceptance of a legal text is recorded a... |
+| [A2-V2](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 0/3/1 | Policy consents are stored in the right scope: the explicit acceptance of a legal text is recorded a... |
 
 ### B. Catalogue and products
 
@@ -296,7 +296,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [F-13](tracker/axis-f-themes-and-brand.md) | NOT STARTED | 0/0/4 | Brand name, logo and identity: global default, country override |
 | [F-14](tracker/axis-f-themes-and-brand.md) | IN PROGRESS | 3/0/1 | Visible brand separate from the legal company name on invoices and contracts |
 | [F-15](tracker/axis-f-themes-and-brand.md) | IN PROGRESS | 0/1/3 | Existing Theme Editor extended with a storefront selector, not rebuilt |
-| [F-V1](tracker/axis-f-themes-and-brand.md) | IN PROGRESS | 1/0/3 | Builder draft mutations (ThemeBuilderService: add, update, duplicate, delete and reorder sections an... |
+| [F-V1](tracker/axis-f-themes-and-brand.md) | IN PROGRESS | 0/2/2 | Builder draft mutations (ThemeBuilderService: add, update, duplicate, delete and reorder sections an... |
 
 ### G. Admin panel and staff permissions
 
@@ -320,8 +320,8 @@ Executable on an isolated branch without production access, ordered by the prior
 | [G-16](tracker/axis-g-admin-panel-and-staff-permissions.md) | IN PROGRESS | 3/1/2 | Provider secrets in the admin panel: who may read or change them and what is shown |
 | [G-17](tracker/axis-g-admin-panel-and-staff-permissions.md) | IN PROGRESS | 2/1/3 | Super admin rules and the management of employees and roles |
 | [G-18](tracker/axis-g-admin-panel-and-staff-permissions.md) | INTEGRATED AND TESTED | 5/0/0 | Every admin route asks for the permission of its menu, or is listed with a reason |
-| [G-V1](tracker/axis-g-admin-panel-and-staff-permissions.md) | IN PROGRESS | 0/1/3 | A written data-isolation design (the concept the plan asks for) with a rule for each of the eight la... |
-| [G-V2](tracker/axis-g-admin-panel-and-staff-permissions.md) | IN PROGRESS | 2/0/2 | The current security systems around staff stay in force, in the same order, when scope code is added... |
+| [G-V1](tracker/axis-g-admin-panel-and-staff-permissions.md) | IN PROGRESS | 0/4/0 | A written data-isolation design (the concept the plan asks for) with a rule for each of the eight la... |
+| [G-V2](tracker/axis-g-admin-panel-and-staff-permissions.md) | IN PROGRESS | 2/1/1 | The current security systems around staff stay in force, in the same order, when scope code is added... |
 
 ### H. Shipping and integrations
 
@@ -359,7 +359,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [H2-16](tracker/axis-h-shipping-and-integrations.md) | IN PROGRESS | 4/0/1 | No unintended publishing or sending to a channel, provider or ledger |
 | [H2-17](tracker/axis-h-shipping-and-integrations.md) | IN PROGRESS | 4/0/1 | One product on several marketplaces, its stock from the same fulfillment source |
 | [H2-18](tracker/axis-h-shipping-and-integrations.md) | IN PROGRESS | 0/2/2 | Integration and pull-request dependency map (Report 07) |
-| [H2-V1](tracker/axis-h-shipping-and-integrations.md) | MERGED | 3/0/0 | A fulfilment provider (Torod Point, M5AZN, own warehouse) and a sales channel are separate concepts:... |
+| [H2-V1](tracker/axis-h-shipping-and-integrations.md) | MERGED | 1/2/0 | A fulfilment provider (Torod Point, M5AZN, own warehouse) and a sales channel are separate concepts:... |
 | [H2-V2](tracker/axis-h-shipping-and-integrations.md) | IN PROGRESS | 0/1/3 | Listing content follows each marketplace's own requirements per market: the store's central categori... |
 
 ### I. Marketing, policies and operations
@@ -426,7 +426,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [J-16](tracker/axis-j-flutter-customer-app.md) | IMPLEMENTED IN DRAFT | 3/2/0 | Language, RTL and strings |
 | [J-17](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 1/3/1 | Version gate and update flow (never bypassed) |
 | [J-18](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 4/0/2 | App tests, CI and device verification |
-| [J-V1](tracker/axis-j-flutter-customer-app.md) | NOT STARTED | 0/1/2 | Draft theme preview in the customer app: the app renders an unpublished draft of a storefront's home... |
+| [J-V1](tracker/axis-j-flutter-customer-app.md) | NOT STARTED | 0/2/1 | Draft theme preview in the customer app: the app renders an unpublished draft of a storefront's home... |
 | [J-V2](tracker/axis-j-flutter-customer-app.md) | NOT STARTED | 0/1/3 | Loyalty points in the customer app (points ledger, earn rules, point-to-wallet conversion) belong to... |
 
 ### K. Flutter seller app
@@ -452,10 +452,10 @@ Executable on an isolated branch without production access, ordered by the prior
 | [K-17](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 1/1/4 | Backend contracts and decisions the seller app depends on |
 | [K-18](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 1/2/0 | Seller-app theme and API impact of per-country themes (GCC-09 audit) |
 | [K-V1](tracker/axis-k-flutter-seller-app.md) | NOT STARTED | 0/0/3 | Seller app compatibility with the open backend PRs that change seller v3 answers but were not read i... |
-| [K-V2](tracker/axis-k-flutter-seller-app.md) | NOT STARTED | 2/0/2 | Sensitive actions of a seller or seller staff (payout and bank details, staff management, account de... |
+| [K-V2](tracker/axis-k-flutter-seller-app.md) | NOT STARTED | 0/2/2 | Sensitive actions of a seller or seller staff (payout and bank details, staff management, account de... |
 | [K-V3](tracker/axis-k-flutter-seller-app.md) | IMPLEMENTED IN DRAFT | 1/0/2 | A queued POS sale that has failed ten replays is never dropped silently: it stays visible with its l... |
-| [K-V4](tracker/axis-k-flutter-seller-app.md) | NOT STARTED | 0/0/4 | Seller app behaviour when a market is paused: maintenance or pause of one market keeps order handlin... |
-| [K-V5](tracker/axis-k-flutter-seller-app.md) | NOT STARTED | 1/0/3 | The seller version gate can be switched off per platform without a release (the published status hon... |
+| [K-V4](tracker/axis-k-flutter-seller-app.md) | NOT STARTED | 0/3/1 | Seller app behaviour when a market is paused: maintenance or pause of one market keeps order handlin... |
+| [K-V5](tracker/axis-k-flutter-seller-app.md) | NOT STARTED | 0/1/3 | The seller version gate can be switched off per platform without a release (the published status hon... |
 
 ### L. GCC-20 Super Admin
 
@@ -503,7 +503,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [M1-17](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 4/1/1 | Saudi behaviour is unchanged while the GCC switches are off |
 | [M1-18](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1/4/1 | Engineering safety rules: classify, preserve, extend, isolate, verify; no direct SQL; no weakened protection |
 | [M1-V1](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/0/4 | Every P0 finding of the Discovery-02 security triage (23 explicit P0 plus 4 conditional P0 of 222 SE... |
-| [M1-V2](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1/0/3 | A secret and personal-data scan gates every repository's pull requests: the triage's urgent item SEC... |
+| [M1-V2](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1/1/2 | A secret and personal-data scan gates every repository's pull requests: the triage's urgent item SEC... |
 | [M2-01](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 4/0/1 | Saudi continuity: the Saudi baseline stays as it was (test plan 1) |
 | [M2-02](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 4/0/1 | Isolation of the six countries (test plan 2) |
 | [M2-03](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 4/1/1 | Staff permissions and country scopes (test plan 3) |
@@ -523,12 +523,12 @@ Executable on an isolated branch without production access, ordered by the prior
 | [M2-17](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1/3/2 | Historical Saudi data: ids preserved, backfill, reconciliation, staged upgrade, rollback |
 | [M2-18](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 4/0/2 | Operational services: logs, queues, scheduler, caches, search, storage, metrics, sync, rollback |
 | [M2-19](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/3/2 | Saudi assumptions, old links and integrations (axis L) |
-| [M2-V1](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/1/3 | Every existing Laravel and Flutter feature is classified as Reuse As-Is, Extend Existing, Refactor C... |
-| [M2-V2](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/2/1 | No quick production change and no direct SQL is used to settle an architectural problem: changes shi... |
-| [M2-V3](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/1/2 | Global data and per-market data are told apart in the migration plan and in code: every table the pl... |
+| [M2-V1](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/2/2 | Every existing Laravel and Flutter feature is classified as Reuse As-Is, Extend Existing, Refactor C... |
+| [M2-V2](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/3/0 | No quick production change and no direct SQL is used to settle an architectural problem: changes shi... |
+| [M2-V3](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/2/1 | Global data and per-market data are told apart in the migration plan and in code: every table the pl... |
 | [M2-V4](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/1/3 | The staged upgrade needs no downtime and no migration is created-and-run on live data: each step is ... |
-| [M2-V5](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/2/2 | Storage and rollback capabilities (axis K bullets) are audited and tested for six markets: private d... |
-| [M2-V6](tracker/axis-m-security-tests-and-deployment.md) | NOT STARTED | 0/0/4 | Stock balances (current_stock, holds, outbox, provider stock) and prices of existing products reconc... |
+| [M2-V5](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/3/1 | Storage and rollback capabilities (axis K bullets) are audited and tested for six markets: private d... |
+| [M2-V6](tracker/axis-m-security-tests-and-deployment.md) | NOT STARTED | 0/2/2 | Stock balances (current_stock, holds, outbox, provider stock) and prices of existing products reconc... |
 | [M3-01](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/3/1 | Report 01 Executive Assessment: state of the project and readiness for GCC, tagged Verified / Inferred / Unknown |
 | [M3-02](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/3/1 | Report 02 Current Architecture Map: browser and Flutter to Laravel APIs, services, storage, integrations |
 | [M3-03](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/2/1 | Report 03 Reuse Matrix: what exists, what to keep, what to extend, with file and SHA evidence |

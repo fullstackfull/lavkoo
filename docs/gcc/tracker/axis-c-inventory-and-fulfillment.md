@@ -1,6 +1,6 @@
 # Axis C: Inventory and fulfillment
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-19. Requirements: 18. Acceptance criteria: 94 (MET 65, CODED 9, MISSING 20). Code completion 79%, proven by a passing test 69%, release readiness 30%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-20. Requirements: 18. Acceptance criteria: 94 (MET 65, CODED 9, MISSING 20). Code completion 79%, proven by a passing test 69%, release readiness 30%.
 
 Independent verification: done for unit(s) C.
 
