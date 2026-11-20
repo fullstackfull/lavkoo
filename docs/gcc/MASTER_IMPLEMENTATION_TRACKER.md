@@ -18,7 +18,7 @@ As of 2026-11-20. Generated from the independent assessment of every requirement
 | [B. Catalogue and products](tracker/axis-b-catalogue-and-products.md) | 18 | 91 | 34 | 17 | 40 | 56% | 37% | 0% | all |
 | [C. Inventory and fulfillment](tracker/axis-c-inventory-and-fulfillment.md) | 18 | 94 | 65 | 9 | 20 | 79% | 69% | 30% | all |
 | [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 179 | 87 | 31 | 61 | 66% | 49% | 8% | all |
-| [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 88 | 39 | 6 | 43 | 51% | 44% | 7% | all |
+| [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 88 | 39 | 5 | 44 | 50% | 44% | 7% | all |
 | [F. Themes and brand](tracker/axis-f-themes-and-brand.md) | 16 | 77 | 42 | 13 | 22 | 71% | 55% | 4% | all |
 | [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 102 | 59 | 13 | 30 | 71% | 58% | 15% | all |
 | [H. Shipping and integrations](tracker/axis-h-shipping-and-integrations.md) | 34 | 157 | 79 | 13 | 65 | 59% | 50% | 16% | all |
@@ -27,7 +27,7 @@ As of 2026-11-20. Generated from the independent assessment of every requirement
 | [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 104 | 40 | 26 | 38 | 63% | 38% | 3% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 45 | 18 | 31 | 67% | 48% | 7% | all |
 | [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 311 | 105 | 119 | 87 | 72% | 34% | 3% | all |
-| **All axes (pooled)** | **359** | **1753** | **814** | **359** | **580** | **67%** | **46%** | **8%** | |
+| **All axes (pooled)** | **359** | **1753** | **814** | **358** | **581** | **67%** | **46%** | **8%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -65,7 +65,7 @@ Chosen from the table of requirements, not from the pull request list: each one 
 
 - **Blocks:** orders with the right legal company; reports and money by company; per-company gateway accounts and accounting.
 - **Where it stands:** The platform keys data by storefront country, shop and seller. A registry of selling companies (one for each country, empty until the owner supplies them) and an order stamp now exist in a draft (PR 90, behind GCC_LEGAL_ENTITIES), so an order can name its company and keep a frozen copy of its identity, and the three invoices print that company instead of the shop's settings. Still missing: the invoice currency and a number for each company, a company on the payment row, gateway accounts, ledger and settlement by company, an Odoo company per entity, staff scope by company, and the Super Admin money view grouped by company. The owner has not decided the entities (open question Q-11).
-- **Measured:** 15 requirements (4 not started), 68 criteria of which 33 MISSING (49%). Requirements: D1-03, D1-04, D2-07, D2-08, D2-09, D2-16, E-17, F-14, G-12, H2-06, H2-10, H2-11, L-08, A2-09, A2-13.
+- **Measured:** 15 requirements (4 not started), 68 criteria of which 34 MISSING (50%). Requirements: D1-03, D1-04, D2-07, D2-08, D2-09, D2-16, E-17, F-14, G-12, H2-06, H2-10, H2-11, L-08, A2-09, A2-13.
 - **First executable step:** The owner's rule for the invoice number of each company and the series on top of the registered key, then the company on the payment request and the accounts that follow it (D2, E, H2); the entities themselves are an owner decision.
 
 Next in line (not in the top three because they depend on these, or are optional until the owner opens them):
@@ -274,7 +274,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [E-14](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/0/4 | Loyalty redeem and earn: atomic conversion, one formula, one rule |
 | [E-15](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 2/0/4 | Referral rewards: once, to the referrer, one amount |
 | [E-16](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/0/3 | One currency unit and rounding for wallet debits and credits |
-| [E-17](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/2/2 | Financial records by legal entity and currency (ledgers, settlements, summaries) |
+| [E-17](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/1/3 | Financial records by legal entity and currency (ledgers, settlements, summaries) |
 | [E-V1](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/0/4 | Wallet top-up (add fund) by gateway and by admin, the 'add' sites of the plan line 368 review: one c... |
 
 ### F. Themes and brand

@@ -2312,6 +2312,52 @@ CRITERIA.setdefault('E-08', {})[1] = ('CODED', "PR 131 (draft, head cf0228b8, gc
     "existing ongoing-order refusal already does. tests/Feature/Storefront is in no MySQL or MariaDB CI job on this base, so in CI these 34 tests run on SQLite only; the MariaDB figures are "
     "local. The Auction-guard branch between the two refusals is never exercised, because Modules/Auction is not in this repository.")
 
+# E-17.2 goes DOWN, from CODED to MISSING, on an independent review of the branch. I held it at CODED earlier today for want of a review although a named green CI job covered it, and the
+# review has now shown that was not caution but accuracy: the criterion's own words are not true of the running system, and three of the claims in the record above were mine and are wrong.
+CRITERIA['E-17'][2] = ('MISSING', "DOWNGRADED 2026-11-20 from CODED, on an independent review of PR 137 at head a7c8760e. It was never MET. The review ran 15 mutations (12 killed), "
+    "compared the branch against its base ebbce05a figure by figure, measured the lock with two real PDO connections, and planted four probe tests. "
+    "WHY THE CRITERION IS NOT MET: THE LEGAL ENTITY IS WIRED TO NOTHING. app/Utils/OrderManager.php:1180 (order earning) and :1191 (commission charge) are the ONLY VendorLedger::record() "
+    "call sites in app/ and Modules/, and neither passes legalEntityId; PayoutService.php:81 does not either; VendorLedger.php:87 is the only writer of a vendor_ledger_entries row in the "
+    "whole application. legal_entity_id and LegalEntity appear NOWHERE in app/, Modules/, database/, config/ or routes/ outside the four files the branch touches. There is no legal-entities "
+    "table, model, migration, resolver or storefront-to-company mapping, and nothing that decides which company sold an order. So every live entry carries legal_entity_id = NULL, the "
+    "selling company is a constant, and the chain is keyed by seller and currency alone. The one test that shows a company on an entry supplies the value itself through a support trait. "
+    "That is the SAME SHAPE as the E-02.3 failure this programme already had to correct publicly: a key only the test populates. "
+    "THREE CLAIMS IN THE PREVIOUS RECORD WERE MINE AND ARE WRONG. (1) 'the lock is taken on its own chain, so two markets no longer wait for each other' is FALSE. Measured on MariaDB "
+    "10.11.14, InnoDB, REPEATABLE-READ, innodb_lock_wait_timeout=2, running the exact SQL narrow() builds: with no index, with (seller_id), with (seller_id, seller_is) and with "
+    "(seller_id, seller_is, currency), the Dubai writer is BLOCKED by the Riyadh writer and fails with error 1205 after 2.00s. Only (seller_id, seller_is, legal_entity_id, id) frees it, and "
+    "the branch adds no index and no migration. Because the narrowing predicates are not index-backed, InnoDB's ORDER BY id DESC LIMIT 1 FOR UPDATE walks the primary key and locks rows of "
+    "other chains it passes. So Dubai still waits for Riyadh and now ERRORS where the shipped single-chain version merely waited briefly on the row it actually wanted. Nothing tests this: "
+    "tests/Feature/Concurrency holds nine files and not one references VendorLedger or vendor_ledger_entries, and deleting lockForUpdate() outright leaves the lane green. "
+    "(2) 'off is one chain per seller exactly as shipped' is true of every FIGURE and false of the work. Switch OFF, live table shape, same fixture, base ebbce05a against head a7c8760e, "
+    "counted from DB::listen: 28 statements become 38 (+36%), information_schema.tables 8 to 11, information_schema.columns 2 to 5 (a full column listing each time), currencies 0 to 3, "
+    "business_settings 0 to 1. Cause: LedgerChain::entityForWriting() calls Schema::hasTable and Schema::hasColumn unconditionally on EVERY record() even while the switch is off, and "
+    "VendorLedger::chain() calls baseCurrency() unconditionally even when the caller named a currency, which the base branch skipped. That is +3 round trips per ledger write, two of them "
+    "schema introspection, on the live Saudi money path with the feature off — and every order line writes two entries, so +6 per line. "
+    "(3) 'a payout is the next slice, not a defect introduced here' is wrong, and this is the most serious finding. With the switch ON and a seller holding 100 SAR and 40 AED: "
+    "withdrawable() returns 140, and the reserve PayoutService writes names no currency, so it defaults to the base currency and lands in the SAR chain as debit 140 with "
+    "balance_after = -40. After it, the SAR chain reads -40 while the AED chain still advertises 40 dirhams that are gone. BEFORE this branch there was one chain and its single "
+    "balance_after of 0 was CORRECT. The switch is what makes the per-chain figure wrong, on both chains, and it does so under exactly the condition the switch was built for. All 11 readers "
+    "name no chain (PayoutService:73, SellerLedgerStatementService:88 and :107, SellerCenterService:47 and :57, DailyBriefingService:171 and :176, Vendor PayoutController:42-43, Seller "
+    "HomeController:49-50, v3 SellerPayoutController:61 and :63, Admin SettlementController:108 and :197), and SellerLedgerStatementService::summary() returns the store's base currency "
+    "beside that sum, so with the switch on a seller's statement reads 'currency: SAR, balance: 140.00' — literally the '200 of nothing' the branch's own prose calls the problem. "
+    "THREE MUTATIONS SURVIVED the whole 279-test lane. The incoming currency label is never normalised by any test (the case/whitespace test dirties the STORED row and records a clean "
+    "label, so currencyCode() can be gutted and an entry recorded as ' sar ' opens a chain of one and resets the running balance). The row lock can be deleted. And the settlement-netting "
+    "half of withdrawable() is never checked for narrowing, because the per-chain withdrawable test has zero settlement rows in its fixture — the refusal comes from a missing row, not from "
+    "the rule, which is the identical flaw the E-02.3 review found. "
+    "WHAT THE REVIEW CONFIRMED, so the record is fair: the orWhere currency group IS correctly parenthesised, proved with the real SQL and two leak probes; the OFF-path FIGURES are "
+    "byte-identical to the base branch (balance_after 100/70/110, settlement SAR net 110, opening 0 closing 110, the lock statement verbatim the shipped one); settlements really are never "
+    "drawn across two companies; ordering is deterministic so the keyed-array assertions are not order-fragile; the author's counts are honest and reproduce exactly (17/35 for the file, "
+    "279/752 for the claimed scope, on SQLite and MariaDB); and 12 of 15 mutations die, with the switch's off-state pinned 7 ways rather than the 1 the branch claimed. "
+    "CI, for the record: run 44706900119 on a7c8760e, 'Marketplace and ledger tests' SUCCESS on MySQL 8 (job 136188660584) and MariaDB 11.4.2 (job 136188660651), 279 tests / 752 assertions "
+    "each. A green named job on two production engines, and the criterion is still not met — which is the whole argument for the review step. "
+    "WHAT IT WOULD TAKE: something that decides which company sold an order and passes it to record(); a payout drawn per chain or refused while a seller holds more than one; an index that "
+    "makes the narrowing index-backed, which needs a migration on a table that has none in this repository; tests for the three survivors; and a concurrency test using the existing "
+    "tests/Support/Concurrency/worker.php harness that two chains of one seller do not block each other. "
+    "ALSO NOT COVERED, found by the review: if the store's base currency setting is ever changed, VendorLedger::chain() resolves the base at call time, so every unlabelled row migrates from "
+    "the old base chain to the new one and the old chain loses them — retroactively changing what a chain means, with no test and no decided answer. And with the switch on and the company "
+    "column present on vendor_ledger_entries but not on vendor_settlements, two settlements are drawn for the same seller and currency with no column to tell them apart; only the "
+    "both-present and both-absent shapes are tested.")
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
