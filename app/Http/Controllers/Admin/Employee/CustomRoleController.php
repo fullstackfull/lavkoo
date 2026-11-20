@@ -9,6 +9,7 @@ use App\Enums\GlobalConstant;
 use App\Exports\EmployeeRoleListExport;
 use App\Http\Controllers\BaseController;
 use App\Http\Requests\Admin\CustomRoleRequest;
+use App\Services\AdminService;
 use App\Traits\PaginatorTrait;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Contracts\View\View;
@@ -61,8 +62,12 @@ class CustomRoleController extends BaseController
         return back();
     }
 
-    public function getUpdateView($id): View
+    public function getUpdateView($id): View|RedirectResponse
     {
+        if ($this->isMasterRole(id: $id)) {
+            ToastMagic::warning(translate('access_denied'));
+            return back();
+        }
         $employeeRolePermission = GlobalConstant::EMPLOYEE_ROLE_MODULE_PERMISSION;
         $role = $this->adminRoleRepo->getFirstWhere(params: ['id' => $id]);
         return view('admin-views.custom-role.edit', compact('role', 'employeeRolePermission'));
@@ -70,6 +75,10 @@ class CustomRoleController extends BaseController
 
     public function update(CustomRoleRequest $request): RedirectResponse
     {
+        if ($this->isMasterRole(id: $request['id'])) {
+            ToastMagic::warning(translate('access_denied'));
+            return back();
+        }
         $data = [
             'name' => $request['name'],
             'module_access' => json_encode($request['modules']),
@@ -81,6 +90,9 @@ class CustomRoleController extends BaseController
 
     public function updateStatus(Request $request): JsonResponse
     {
+        if ($this->isMasterRole(id: $request['id'])) {
+            return $this->refuseTheMasterRole();
+        }
         $this->adminRoleRepo->update(id: $request['id'], data: ['status' => $request->get('status', 0)]);
         return response()->json([
             'success' => 1,
@@ -107,6 +119,9 @@ class CustomRoleController extends BaseController
 
     public function delete(Request $request): JsonResponse
     {
+        if ($this->isMasterRole(id: $request['id'])) {
+            return $this->refuseTheMasterRole();
+        }
         $this->adminRoleRepo->delete(params: ['id' => $request['id']]);
         return response()->json([
             'success' => 1,
@@ -114,4 +129,14 @@ class CustomRoleController extends BaseController
         ], 200);
     }
 
+    /** The role list these screens show leaves the master role out (AdminRoleRepository), so no screen offers it; a request that names it anyway is refused. */
+    private function isMasterRole(mixed $id): bool
+    {
+        return (int) $id === AdminService::MASTER_ROLE_ID;
+    }
+
+    private function refuseTheMasterRole(): JsonResponse
+    {
+        return response()->json(['success' => 0, 'message' => translate('access_denied')], 403);
+    }
 }
