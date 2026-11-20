@@ -8,12 +8,14 @@ use App\Services\Platform\Policy;
 use App\Models\BusinessSetting;
 use App\Models\VendorLedgerEntry;
 use App\Models\VendorSettlement;
+use App\Services\Marketplace\SettlementCurrency;
 use App\Services\Marketplace\SettlementEngine;
 use App\Services\Marketplace\VendorLedger;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -33,6 +35,7 @@ class SettlementController extends BaseController
     public function __construct(
         private readonly SettlementEngine $engine,
         private readonly VendorLedger $ledger,
+        private readonly SettlementCurrency $currency,
     ) {
     }
 
@@ -52,6 +55,7 @@ class SettlementController extends BaseController
             'status' => $status,
             'counts' => $this->statusCounts(),
             'waiting' => $this->waitingToSettle(),
+            'settlementCurrency' => $this->currency,
             'makerChecker' => (bool) getWebConfig(name: 'settlement_maker_checker'),
             // The marketplace's payment terms, on the page that owns settlement. They sat as a
             // constant, a settings key nothing wrote and two values with no home at all, so
@@ -100,6 +104,7 @@ class SettlementController extends BaseController
         return view('admin-views.marketplace.settlements.show', [
             'settlement' => $settlement,
             'entries' => $settlement->entries()->orderBy('id')->get(),
+            'settlementCurrency' => $this->currency,
             'balances' => $this->ledger->balances($settlement->seller_id, $settlement->seller_is),
         ]);
     }
@@ -108,7 +113,7 @@ class SettlementController extends BaseController
     public function calculate(Request $request): RedirectResponse
     {
         $settlements = $request->get('seller_id')
-            ? array_filter([$this->engine->calculate($request->get('seller_id'))])
+            ? $this->engine->calculateEachCurrency(sellerId: $request->get('seller_id'))
             : $this->engine->calculateForAll();
 
         if (!$settlements) {
@@ -215,12 +220,19 @@ class SettlementController extends BaseController
      * What is eligible right now but not yet drawn into a settlement — the number that tells the
      * operator whether pressing Calculate will do anything.
      *
-     * @return array{vendors: int, net: float}
+     * The net is kept by currency so the page never adds two. While settlements are not drawn in one
+     * currency there is the single figure the page always printed, under no currency.
+     *
+     * @return array{vendors: int, net: array<string, float>}
      */
     private function waitingToSettle(): array
     {
         if (!Schema::hasTable('vendor_ledger_entries')) {
-            return ['vendors' => 0, 'net' => 0.0];
+            return ['vendors' => 0, 'net' => [SettlementCurrency::NOT_TOLD_APART => 0.0]];
+        }
+
+        if ($this->currency->isOnePerSettlement()) {
+            return $this->waitingInEachCurrency();
         }
 
         $rows = VendorLedgerEntry::query()
@@ -230,6 +242,21 @@ class SettlementController extends BaseController
             ->groupBy('seller_id')
             ->get();
 
-        return ['vendors' => $rows->count(), 'net' => round((float) $rows->sum('net'), 2)];
+        return ['vendors' => $rows->count(), 'net' => [SettlementCurrency::NOT_TOLD_APART => round((float) $rows->sum('net'), 2)]];
+    }
+
+    /** @return array{vendors: int, net: array<string, float>} what the engine would draw, which is what pressing Calculate does */
+    private function waitingInEachCurrency(): array
+    {
+        $settlementsWaiting = collect($this->engine->waiting());
+
+        return [
+            'vendors' => $settlementsWaiting->unique('seller_id')->count(),
+            'net' => $settlementsWaiting
+                ->groupBy('currency')
+                ->map(fn (Collection $ofOneCurrency): float => round((float) $ofOneCurrency->sum('net'), 4))
+                ->sortKeys()
+                ->all() ?: [SettlementCurrency::NOT_TOLD_APART => 0.0],
+        ];
     }
 }

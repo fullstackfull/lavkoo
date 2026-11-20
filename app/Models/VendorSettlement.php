@@ -54,4 +54,14 @@ class VendorSettlement extends Model
     {
         return in_array($this->status, self::LOCKED_STATUSES, true);
     }
+
+    /**
+     * A settlement drawn in one currency from a ledger that mixes currencies records no opening and
+     * no closing balance (SettlementEngine): the running balance of its entries is then not a
+     * balance of its currency either.
+     */
+    public function hasBalances(): bool
+    {
+        return $this->opening_balance !== null && $this->closing_balance !== null;
+    }
 }

@@ -13,7 +13,8 @@ use RuntimeException;
  *
  * The customer's wallet and loyalty ledgers have migrations (2022_05_12_104247, 2023_08_26_173523, 2022_05_14_063309, widened to DECIMAL(40,20) by 2026_05_07_000001); the tables are built here from the columns
  * they leave, because the older migrations are named classes, which PHP cannot load again for the next test of the same process. The seller ledger, `vendor_ledger_entries`, has no migration at all: its columns
- * are the ones `VendorLedgerEntry` makes fillable and `VendorLedger` writes, with the widths the values need; its real column types, defaults and indexes are not known here.
+ * are the ones `VendorLedgerEntry` makes fillable and `VendorLedger` writes, with the widths the values need; its real column types, defaults and indexes are not known here. The same holds for
+ * `vendor_settlements`, whose columns are the ones `VendorSettlement` makes fillable and `SettlementEngine` writes: whether its two balance columns accept NULL in a real installation is not known here either.
  */
 trait BuildsWalletAndVendorLedgerSchema
 {
@@ -118,6 +119,40 @@ trait BuildsWalletAndVendorLedgerSchema
             $table->unsignedBigInteger('created_by')->nullable();
             $table->string('created_by_type', 20)->nullable();
             $table->unsignedBigInteger('settlement_id')->nullable();
+            $table->timestamps();
+        });
+    }
+
+    /**
+     * The seller ledger and the settlements drawn from it. A settlement of a ledger that mixes currencies records no opening and no closing balance, so the two columns
+     * accept NULL here; `$balancesAcceptNull: false` builds the table that refuses it, for the test of what the engine does about such a table.
+     */
+    protected function buildVendorSettlementTables(bool $balancesAcceptNull = true): void
+    {
+        $this->buildVendorLedgerTables();
+
+        Schema::create('vendor_settlements', static function (Blueprint $table) use ($balancesAcceptNull): void {
+            $table->id();
+            $table->string('reference', 40)->unique();
+            $table->unsignedBigInteger('seller_id');
+            $table->string('seller_is', 20)->default('seller');
+            $table->timestamp('period_start')->nullable();
+            $table->timestamp('period_end')->nullable();
+            $table->decimal('opening_balance', 24, 4)->nullable($balancesAcceptNull);
+            $table->decimal('total_credits', 24, 4)->default(0);
+            $table->decimal('total_debits', 24, 4)->default(0);
+            $table->decimal('net_amount', 24, 4)->default(0);
+            $table->decimal('closing_balance', 24, 4)->nullable($balancesAcceptNull);
+            $table->unsignedInteger('entry_count')->default(0);
+            $table->string('currency', 20)->nullable();
+            $table->string('status', 20)->default('draft');
+            $table->timestamp('calculated_at')->nullable();
+            $table->unsignedBigInteger('approved_by')->nullable();
+            $table->timestamp('approved_at')->nullable();
+            $table->timestamp('paid_at')->nullable();
+            $table->unsignedBigInteger('paid_by')->nullable();
+            $table->string('payout_reference')->nullable();
+            $table->string('note')->nullable();
             $table->timestamps();
         });
     }
