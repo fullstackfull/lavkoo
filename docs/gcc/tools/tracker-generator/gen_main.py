@@ -2386,6 +2386,54 @@ CRITERIA.setdefault('E-03', {})[3] = ('CODED', "CORRECTED 2026-11-20, from MET. 
     "own install path imports before migrating. tests/ is deliberately not scanned, with the reason in the code, because a test sets a balance up on purpose. "
     "ONE CORRECTION TO THE AUDIT ITSELF, for the record: it said 2026_05_07_000001 issues 91 raw ALTERs. Counted, it is 90 in up() and 90 in down().")
 
+# E-03.3 again, on the independent adversarial verification of the fix. Verdict: fix_incomplete. The record above said the fix closed the hole and that the false alarm measured at exactly
+# zero. Both sentences were mine and both are too wide. The fix closes ONE SPELLING of the hole. Eighteen mutations were proved green against the fixed guard, one of them the audit's own
+# mutation with a single character changed. E-03.3 therefore stays CODED, and no longer for the reason given above: CI on 9f6bc526 IS readable and IS green. The blocker is the open class.
+CRITERIA['E-03'][3] = ('CODED', "CORRECTED TWICE ON 2026-11-20. First from MET to CODED, when a real "
+    "DB::table('users')->update(['wallet_balance' => 0, 'loyalty_point' => 0]) appended to the up() of a real migration "
+    "(database/migrations/2025_07_13_021823_modify_wallet_balance_column_in_users_table.php) left ALL EIGHTEEN tests of tests/Feature/Fulfillment/WalletBalanceWritersTest green at "
+    "ce4d2950, the self-check included: the root list was private const ROOTS = ['app', 'Modules', 'routes', 'config'] and database/ was absent, so the scan never opened the file. "
+    "That defect is real and was reproduced independently, twice, by running it. "
+    "SECOND CORRECTION, ON AN INDEPENDENT ADVERSARIAL VERIFICATION OF THE FIX, VERDICT fix_incomplete: the fix on PR 95 (draft, gcc/p1-wallet-balance-writers-guard, base main at "
+    "c5c04b7b, head 9f6bc526) closes ONE SPELLING of the hole, not the class, and two sentences in the previous record were too wide to stand. "
+    "EIGHTEEN MUTATIONS ARE GREEN AGAINST THE FIXED GUARD, each planted, grepped in place, run, and restored from a pristine copy. The headline is the audit's own mutation with ONE "
+    "CHARACTER CHANGED: ['wallet_balance' => '0'] in the same real migration leaves 41 tests / 74 assertions green, and UPDATE ... SET wallet_balance = '0' was run on MariaDB 10.11.14 to "
+    "prove it really zeroes the decimal(40,20) column. The cause is a single lookahead: the write detector at tests/Support/PlatformWriteScanner.php:102 is "
+    "/<name>\\s*=>\\s*(?![\\s'\"])/ , written to skip casts and name maps ('wallet_balance' => 'float'), and it skips every real write whose value is a string literal. "
+    "A WHOLE NEW MIGRATION THAT ZEROES EVERY WALLET IS INVISIBLE TO BOTH GUARDS: update(['wallet' . '_balance' => '0', 'loyalty' . '_point' => '0']) passes the writer guards because the "
+    "value is a string, and passes the migration-names-a-balance-column test because that regex is applied to the RAW source, where \\bwallet_balance\\b never appears. "
+    "THE ROOT LIST IS STILL INCOMPLETE, one directory over: resources/ holds 1523 PHP files (getExtension() of x.blade.php is 'php'), public/ 5, bootstrap/ 9, and none is a root. The "
+    "audit's unmodified mutation planted in resources/views/verifier/wipe.blade.php as @php(...) and in public/verifier-wipe.php left all 41 tests green. Latent rather than live today: "
+    "grep -rln 'DB::' resources returns 0. "
+    "THE HOUSE CODING STANDARD WALKS PAST THE GUARD: .claude/rules/coding-standards.md mandates named arguments, and increment/decrement/setAttribute are matched as the bare method name "
+    "followed by the quoted column, so $user->increment(column: 'wallet_balance', amount: $x) is invisible. A writer written in this repository's own required style evades its own guard. "
+    "THE LIST IS AN ALLOW-LIST AFTER ALL, which the previous record denied: a second lock-free, ledger-free write added INSIDE app/Utils/CustomerManager.php one line below the existing "
+    "loyalty write left all 41 tests green and the per-file count for that file still 1. The zero-write assertion on a listed file uses the same blind scanner, so it grants permission "
+    "for every form the scanner misses. "
+    "THE FALSE ALARM IS NOT ZERO AS A PROPERTY, only as a snapshot of the five migrations in the tree today. The guard reports a READ as a write whenever the column appears in the WHERE "
+    "of a row-changing statement: DB::statement(\"update users set is_active = 0 where wallet_balance = 0\") goes RED on both writer guards, with advice ('go through one of the "
+    "writers, which take the row lock and write the ledger row') that is nonsense for a read. A Log::info string naming an update does too, because the scanner reads every string in the "
+    "file rather than only the ones handed to a database method. The test named 'ignores reads, casts and schema changes' has a SELECT case and no WHERE case, so its name promises more "
+    "than its body checks. "
+    "THE REUSE FAILURE IS THE DIRECT CAUSE OF THREE SURVIVORS: the class now holds two readers for the same concept (constantsIn, instance and scalar, versus withConstantsRead, static "
+    "and textual) and two SQL verb vocabularies — the existing rawSqlWrites() matcher is UNANCHORED while the new sqlWritesOf() invented an ANCHORED /^\\s*(?:update|insert|replace|with)/ "
+    "— so a leading /* comment */, a -- line, and explode(';') cutting inside a quoted literal all walk past the narrower new one. Extending the existing matcher would have closed them. "
+    "CORRECTIONS TO THE PREVIOUS RECORD'S OWN NUMBERS: every Tests: count in its mutation table was one low, because the table was measured at 272b9e8d and presented as the branch's "
+    "(M1 is 41/69 not 40/68, M2 41/41, M3 41/62, S1 red on 5 not 4, S9 red on 22 not 21). Its seventh survivor does not exist: git ls-files '*.sql' returns 0 files at 9f6bc526, so there "
+    "is no committed .sql file for a money write to hide in, and the CLAUDE.md install note refers to an artefact outside the repository. '4 files in tests/' is 3 files. "
+    "WHAT IS NOT IN DOUBT, all re-measured independently: the fix is real, non-vacuous and regression-free. 18/24 to 41/74. M1 at head is red on 3 tests, M2 on 2, M3 on 1; the scanner "
+    "mutations S1 red on 5, S2 on 1, S7 on 3, S9 on 22 with both writer guards among them. The other consumer of the shared scanner, "
+    "tests/Unit/OperationalCosts/PlatformTablesStayThePlatformsTest, is 41 / 214 at the head AND at the branch point, so the refactor changed nothing for it. tests/Unit whole 1108 / "
+    "750936 green; tests/Feature/Fulfillment whole 1269 / 7273 green. The scan reach is exactly 2974 PHP files (app 2341, database 342, Modules 229, routes 22, config 40). "
+    "CI IS NO LONGER THE BLOCKER, and the previous record was too conservative in saying it was unread: on 9f6bc526 both legs of the job that runs tests/Feature/Fulfillment are GREEN — "
+    "'Fulfillment + security tests, MariaDB 11.4.2' and 'Fulfillment + security tests, MySQL 8' (.github/workflows/ci.yml:103-104) — as are both Address jobs, both PHP syntax jobs, the "
+    "secret scan, all four MariaDB sales-channel shards and the MySQL concurrency and myfatoorah shards. 'Deployment overlay' is red by design on every run. "
+    "WHAT MET NOW REQUIRES, and it is no longer a job name: an adversary cannot evade the guard. The nine-item specification is the verification's own: judge an array write by what the "
+    "array is handed to (BUILDER_WRITES and MODEL_WRITES are already in the class) rather than by whether the value is quoted; accept the qualified key with the regex tablesWritten() "
+    "already uses; collapse the two SQL verb vocabularies onto the unanchored one and separate SET from WHERE; allow an optional named-argument prefix before every column name; extend "
+    "variablesHolding() to a property and an indexed constant; add resources and bootstrap as roots with a sentinel each; run the migration regex over the scanner's joined literals "
+    "instead of the raw source so concatenation cannot hide a name; and re-measure the whole table at one named head.")
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
