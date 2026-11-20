@@ -41,6 +41,17 @@ return [
             'verified_three_decimal_gateways' => [],
         ],
 
+        'payment_methods' => [
+            // Off by default: every storefront offers the ways to pay that the platform's payment settings offer (cash_on_delivery, digital_payment, offline_payment), as before.
+            // When it is on, a country may switch any of the three off for its own storefront: the checkout, the account pages and the answer to the apps (GET /api/v1/config)
+            // of that storefront read the method as switched off, and an order or a payment that asks for it there is refused before anything is written. A storefront can
+            // only switch off: a method the platform has off stays off in every storefront, whatever is listed here. Read docs/gcc/STOREFRONT-PAYMENT-METHODS.md before turning it on.
+            'enabled' => filter_var(env('GCC_STOREFRONT_PAYMENT_METHODS', false), FILTER_VALIDATE_BOOLEAN),
+            // Country code => the methods that country has switched off, for example 'KW' => ['offline_payment']. A country that lists nothing offers what the platform offers.
+            // Configuration, not a statement of what the law allows: a qualified reviewer confirms the list per country before release.
+            'switched_off' => [],
+        ],
+
         'legal' => [
             // Configuration, not a statement of what the law requires. A qualified reviewer confirms the list per country before release.
             'required_documents' => ['terms', 'privacy', 'refund', 'return', 'cancellation', 'shipping'],

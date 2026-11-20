@@ -11,6 +11,7 @@ use App\Models\Admin;
 use App\Services\ProductService;
 use App\Services\RecaptchaService;
 use App\Services\ShopService;
+use App\Services\Storefront\StorefrontPaymentMethods;
 use App\Traits\CacheManagerTrait;
 use App\Traits\InHouseTrait;
 use App\Models\User;
@@ -85,6 +86,7 @@ class WebController extends Controller
         private readonly ProductService                       $productService,
         private readonly ShopService                              $shopService,
         private readonly StorefrontAddressService                 $storefrontAddresses,
+        private readonly StorefrontPaymentMethods                 $storefrontPaymentMethods,
     )
     {
 
@@ -459,7 +461,7 @@ class WebController extends Controller
             $availablePaymentMethod = ['cash_on_delivery'];
         }
 
-        if (getWebConfig(name: 'digital_payment') && count($paymentGatewaysList) > 0) {
+        if (getWebConfig(name: 'digital_payment') && !$this->storefrontPaymentMethods->isSwitchedOff(method: StorefrontPaymentMethods::DIGITAL_PAYMENT) && count($paymentGatewaysList) > 0) {
             $availablePaymentMethod = ['payment_gateways'];
         }
 

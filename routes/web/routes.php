@@ -183,8 +183,8 @@ Route::group(['namespace' => 'Web', 'middleware' => ['maintenance_mode', 'guestC
         Route::get('checkout-payment', 'checkout_payment')->name('checkout-payment');
         // POST, not GET: these two place orders. As GETs they were CSRF-exposed
         // and a link prefetch could create an order.
-        Route::post('checkout-complete', 'getCashOnDeliveryCheckoutComplete')->name('checkout-complete')->middleware('storefront.sellable');
-        Route::post('offline-payment-checkout-complete', 'getOfflinePaymentCheckoutComplete')->name('offline-payment-checkout-complete')->middleware('storefront.sellable');
+        Route::post('checkout-complete', 'getCashOnDeliveryCheckoutComplete')->name('checkout-complete')->middleware(['storefront.sellable', 'storefront.method:cash_on_delivery']);
+        Route::post('offline-payment-checkout-complete', 'getOfflinePaymentCheckoutComplete')->name('offline-payment-checkout-complete')->middleware(['storefront.sellable', 'storefront.method:offline_payment']);
         Route::get('order-placed', 'order_placed')->name('order-placed');
         Route::get('order-placed-success', 'getOrderPlaceView')->name('order-placed-success');
         Route::get('shop-cart', 'shop_cart')->name('shop-cart');
@@ -457,8 +457,8 @@ Route::group(['namespace' => 'Customer', 'prefix' => 'customer', 'as' => 'custom
 
 Route::group(['namespace' => 'Customer', 'prefix' => 'customer', 'as' => 'customer.'], function () {
     Route::controller(PaymentController::class)->group(function () {
-        Route::post('web-payment-request', 'payment')->name('web-payment-request')->middleware('storefront.sellable');
-        Route::post('customer-add-fund-request', 'customer_add_to_fund_request')->name('add-fund-request')->middleware('storefront.sellable');
+        Route::post('web-payment-request', 'payment')->name('web-payment-request')->middleware(['storefront.sellable', 'storefront.method:digital_payment']);
+        Route::post('customer-add-fund-request', 'customer_add_to_fund_request')->name('add-fund-request')->middleware(['storefront.sellable', 'storefront.method:digital_payment']);
         Route::post('customer-order-edit-pay-amount', 'customerOrderEditPayDueAmount')->name('customer-order-edit-pay-amount');
     });
 });

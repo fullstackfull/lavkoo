@@ -1,3 +1,4 @@
+@use('App\Services\Storefront\StorefrontPaymentMethods')
 @php($customer_balance = auth('customer')->user()?->wallet_balance ?? 0)
 @php($couponAmount = session()->has('coupon_discount') ? session('coupon_discount') : 0)
 @php($totalAmount = $order['order_amount'] - $couponAmount)
@@ -19,7 +20,7 @@
         </div>
 
         <div class="d-flex flex-sm-nowrap flex-wrap w-100 gap-3 mb-3">
-            @if($isPhysicalProduct && $cashOnDeliveryStatus)
+            @if($isPhysicalProduct && $cashOnDeliveryStatus && !app(StorefrontPaymentMethods::class)->isSwitchedOff(method: StorefrontPaymentMethods::CASH_ON_DELIVERY))
                 <div class="w-100 h-100">
                     <div type="button" id="cod-for-cart"
                          class="card cursor-pointer payment-method-active cod-for-cart">
