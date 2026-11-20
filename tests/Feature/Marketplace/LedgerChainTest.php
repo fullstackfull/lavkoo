@@ -304,6 +304,30 @@ class LedgerChainTest extends TestCase
     }
 
     /**
+     * And a settlement of a chain records WHICH money it is, even where the entry it starts from names none.
+     *
+     * The years before the ledger recorded a currency left entries labelled with nothing, and those belong to the base-currency chain. A settlement that took its label from
+     * its first entry therefore recorded no currency at all for such a chain, while another chain of the same seller was settled beside it: two settlements of one seller,
+     * one of them saying nothing about which money it holds. A settlement's label is the first currency its entries name, or the store's base currency where none of them
+     * names one (SettlementCurrency::labelOf), and that is asked of both switches for the same reason the rest of the engine is.
+     */
+    public function test_a_settlement_starting_from_an_unlabelled_entry_still_records_the_currency_of_its_chain(): void
+    {
+        config(['gcc.settlements.one_currency' => false]);
+        $this->withoutACurrency($this->earning(100, 'SAR'));
+        $this->earning(30, 'SAR');
+        $this->earning(40, 'AED');
+
+        $settlements = app(SettlementEngine::class)->calculateEachCurrency(sellerId: self::SELLER);
+
+        $this->assertSame(
+            ['SAR' => 130.0, 'AED' => 40.0],
+            collect($settlements)->mapWithKeys(fn (VendorSettlement $drawn): array => [(string) $drawn->currency => (float) $drawn->net_amount])->all(),
+            'a settlement of the base-currency chain recorded no currency at all',
+        );
+    }
+
+    /**
      * And a settlement's closing balance is its own opening balance plus its own net, or it records none at all.
      *
      * `balance_after` runs per chain once chains are kept apart, so a settlement that read it off a chain holding only part of its money reported 0 + 140 = 40. The riyal
