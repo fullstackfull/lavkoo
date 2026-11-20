@@ -93,6 +93,11 @@ The column is compared byte for byte on MySQL and MariaDB (`sa` is not `SA`), as
 value outside the six codes can only come from a direct write or from the future copy-to-country tool, which has to validate against
 `gcc.storefronts.countries`.
 
+The order-time rule reads the same column the same way, so a hand-written `sa` or an empty string makes **two** selling scopes out of one
+catalogue, and a checkout holding both is refused — a live Saudi checkout among them. Keep the column NOT NULL as the migration creates it
+(`char(2)` default `SA`): a row whose code is null names no scope and is not judged at all, so making it nullable would quietly stop the rule
+judging those rows. Both readings are pinned by `StorefrontCheckoutSingleCompanyTest`.
+
 ## How a request is served
 
 The storefront comes from, in order: an explicit `?storefront=`, the `X-Storefront` header (exactly one value), the first path segment, the
