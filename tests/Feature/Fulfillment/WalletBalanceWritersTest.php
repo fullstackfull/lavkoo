@@ -227,7 +227,12 @@ class WalletBalanceWritersTest extends TestCase
         $this->assertFalse(self::namesABalanceColumn("<?php Schema::create('loyalty_point_transactions', function () {});"));
     }
 
-    /** @return array<string, array{string, string, int}> a source line, the column and how many writes of it the scan must find */
+    /**
+     * A source line, the column and how many writes of it the scan must find. The cases expecting 0 are not all reads: a cast, a name map, a change to the shape of the table, a
+     * clause that only reads the column, an array that reaches no write, and a plain array subscripted by a name -- each of them writes no balance, and each is pinned here.
+     *
+     * @return array<string, array{string, string, int}>
+     */
     public static function writesAndNonWrites(): array
     {
         return [
@@ -276,6 +281,23 @@ class WalletBalanceWritersTest extends TestCase
             'raw SQL behind a block comment' => ['DB::statement("/* nightly reset */ update users set wallet_balance = 0");', 'wallet_balance', 1],
             'raw SQL behind a comment line' => ['DB::unprepared("-- reset\nupdate users set wallet_balance = 0");', 'wallet_balance', 1],
             'raw SQL with a semicolon inside one of its literals' => ['DB::statement("update users set remark = \'cleared; see ticket\', wallet_balance = 0");', 'wallet_balance', 1],
+            // The eight below set the balance to zero on MariaDB 10.11.14 and were each read as no write at all while the reader cut the statement at its first `where` instead of
+            // isolating the clause that assigns: in every one of them a `where` stands in front of the SET clause, inside a join subquery, inside a subselect, or inside a literal.
+            'raw SQL whose set clause follows the where of a join subquery' => ['DB::statement("update users u join (select id from tops where paid = 1) t on t.id = u.id set u.wallet_balance = 0");', 'wallet_balance', 1],
+            'raw SQL whose set clause follows a literal that spells where' => ['DB::statement("update users set remark = \'where it went\', wallet_balance = 0, loyalty_point = 1");', 'wallet_balance', 1],
+            'raw SQL whose set clause holds a subselect with a where' => ['DB::statement("update users set is_active = (select 1 from users where id > 0 limit 1), wallet_balance = 0");', 'wallet_balance', 1],
+            'raw SQL whose set clause counts rows in a subselect with a where' => ['DB::statement("update users set loyalty_point = (select count(*) from logs where ok = 1), wallet_balance = 0");', 'wallet_balance', 1],
+            'raw SQL whose join condition holds a subquery with a where' => ['DB::statement("UPDATE users u JOIN tops t ON t.id = u.id AND t.id IN (SELECT id FROM z WHERE ok = 1) SET u.wallet_balance = 0");', 'wallet_balance', 1],
+            'raw SQL that upserts from a select with a where' => ['DB::statement("insert into users (id) select id from z where ok = 1 on duplicate key update wallet_balance = 0");', 'wallet_balance', 1],
+            'raw SQL in a nowdoc whose set clause follows the where of a join subquery' => ["DB::unprepared(<<<'SQL'\nupdate users u join (select id from tops where paid = 1) t on t.id = u.id set u.wallet_balance = 0\nSQL);", 'wallet_balance', 1],
+            'raw SQL whose set clause reads a note out of a subselect with a where' => ['DB::statement("update users set remark = (select note from audit_notes where audit_notes.user_id = users.id), wallet_balance = 0, loyalty_point = 0");', 'wallet_balance', 1],
+            // A `--` that ends a line is a comment to the engine with no space after it, and asking for one left the statement behind it unread: proved writing on MariaDB 10.11.14.
+            'raw SQL behind a comment line that is only its marker' => ['DB::statement("--\nupdate users set wallet_balance = 0, loyalty_point = 0");', 'wallet_balance', 1],
+            'raw SQL behind a comment line that is only its marker and a carriage return' => ['DB::statement("--\r\nupdate users set wallet_balance = 0, loyalty_point = 0");', 'wallet_balance', 1],
+            'raw SQL built in a variable and handed to the database later' => ["\$sql = \"update users set wallet_balance = 0\";\nDB::statement(\$sql);", 'wallet_balance', 1],
+            'an update array a method of the file hands back' => ["class X { private function values(): array { return ['wallet_balance' => '0']; }\npublic function z() { DB::table('users')->update(\$this->values()); } }", 'wallet_balance', 1],
+            'an update array written out inside a call that is itself handed to the write' => ["DB::table('users')->update(array_merge(\$base, ['wallet_balance' => '0']));", 'wallet_balance', 1],
+            'an update array added to a variable with the compound operator' => ["\$values = [];\n\$values += ['loyalty_point' => '0'];\nDB::table('users')->update(\$values);", 'loyalty_point', 1],
             'a read' => ['$balance = $user->wallet_balance; if ($user->wallet_balance == 0) { echo $user->wallet_balance; }', 'wallet_balance', 0],
             'a comparison' => ['if ($user->loyalty_point === 5 || $user->loyalty_point >= 3) {}', 'loyalty_point', 0],
             'a cast' => ["protected \$casts = ['wallet_balance' => 'float', 'loyalty_point' => 'float'];", 'wallet_balance', 0],
@@ -295,15 +317,30 @@ class WalletBalanceWritersTest extends TestCase
             'the column read by raw SQL' => ['DB::statement("SELECT wallet_balance = 0 FROM users");', 'wallet_balance', 0],
             'the column filtered on by the WHERE clause of a statement that writes another' => ['DB::statement("update users set is_active = 0 where wallet_balance = 0 and loyalty_point = 0");', 'wallet_balance', 0],
             'the column filtered on by a read-only common table expression' => ['DB::select("with poor as (select id from users where wallet_balance = 0) select * from poor");', 'wallet_balance', 0],
+            // Isolating the clause that assigns, rather than cutting the clause that reads away, is what tells these four from a write: each of them names the column with an `=`
+            // in a statement that changes rows, and none of them assigns to it.
+            'the column read by the join condition of a statement that writes another' => ['DB::statement("update users u join tops t on t.wallet_balance = u.id set u.remark = 1");', 'wallet_balance', 0],
+            'the column read by an ORDER BY' => ['DB::statement("update users set remark = 1 order by wallet_balance = 0 desc limit 5");', 'wallet_balance', 0],
+            'the column read by a window expression' => ['DB::statement("insert into z (a) select sum(wallet_balance = 0) over (partition by id) from users");', 'wallet_balance', 0],
+            'the column read by the join of an INSERT .. SELECT' => ['DB::statement("insert into z (a) select t.id from z t join users u on u.wallet_balance = 0");', 'wallet_balance', 0],
             'a cast whose array is handed to nothing' => ["protected \$casts = ['wallet_balance' => 'float'];\n\$user->save();", 'wallet_balance', 0],
-            // Deliberate, and pinned so that it is not changed by accident: a string that spells a row-changing statement assigning the column is reported wherever it stands,
-            // because SQL reaches the database in a variable as often as in the call. A message that quotes such a statement is the price, and a person can read a false alarm.
-            'a message that quotes a statement which writes the column' => ['Log::info("update users set wallet_balance = 0 was refused");', 'wallet_balance', 1],
+            // The array has to reach a write whatever its value. Reading a key whose value was not a string wherever it stood counted all five of these, so a real write could be
+            // planted in any file that already held one and no count moved.
+            'a key whose value is a class' => ["\$map = ['wallet_balance' => Wallet::class];", 'wallet_balance', 0],
+            'a key whose value is a list of validation rules' => ["\$rules = ['wallet_balance' => ['required', 'numeric']];", 'wallet_balance', 0],
+            'a key whose value is the attribute itself, in a toArray' => ["class X { public function toArray(): array { return ['wallet_balance' => \$this->wallet_balance]; } }", 'wallet_balance', 0],
+            'a key whose value comes out of the environment' => ["\$config = ['wallet_balance' => env('WALLET_BALANCE', 0)];", 'wallet_balance', 0],
+            'a key whose value is a translated heading' => ["\$headings = ['wallet_balance' => translate('Wallet')];", 'wallet_balance', 0],
+            'an update array built in a variable and handed to nothing' => ["\$values = ['wallet_balance' => 0];\nreturn \$values;", 'wallet_balance', 0],
+            'the array of a plain function that shares the name of a write' => ["\$x = create(['wallet_balance' => 0]);", 'wallet_balance', 0],
+            'a plain array subscripted by a constant that holds the name' => ["class X { private const WALLET = 'wallet_balance';\npublic function z(array \$row): array { \$row[self::WALLET] = 0; return \$row; } }", 'wallet_balance', 0],
+            'a plain array subscripted by a variable that holds the name' => ["\$column = 'wallet_balance';\n\$totals[\$column] = 0;", 'wallet_balance', 0],
+            'a message that quotes a statement which writes the column and hands it to nothing' => ['Log::info("update users set wallet_balance = 0 was refused");', 'wallet_balance', 0],
         ];
     }
 
     #[DataProvider('writesAndNonWrites')]
-    public function test_the_scan_finds_every_kind_of_write_and_ignores_reads_casts_and_schema_changes(string $line, string $column, int $expected): void
+    public function test_the_scan_finds_every_kind_of_write_and_reports_nothing_that_writes_no_balance(string $line, string $column, int $expected): void
     {
         $this->assertCount($expected, self::writesOf($column, "<?php\n" . $line . "\n"));
     }

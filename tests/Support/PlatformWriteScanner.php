@@ -16,6 +16,10 @@ namespace Tests\Support;
  *
  * Both sides read text, not behaviour, and a name the file never spells -- one that arrives as an argument, out of config() or off a database row -- is past them. What the file
  * does spell they read however it is spelled: through a constant, a list a constant holds, a concatenation, an escape sequence, a property, or the variable a loop binds.
+ *
+ * The column side's limits are declared, each of them where it is taken: an array or a string of SQL reaches its write in one hop and no more (arraysHandedToAWrite,
+ * sqlHandedToTheDatabase), and a model attribute written through array access is read under the column's own name and not under a name a variable or a constant holds
+ * (columnWritesIn). A write that takes a second hop, or crosses into another file, is one of these limits and not an oversight.
  */
 final class PlatformWriteScanner
 {
@@ -27,8 +31,35 @@ final class PlatformWriteScanner
 
     private const SCHEMA_WRITES = 'table|create|drop|dropIfExists|dropColumns|rename';
 
-    /** The first word of a SQL statement that changes rows. A statement that changes the shape of a table (ALTER, CREATE, DROP, RENAME, TRUNCATE) names a column without writing anybody's value. */
-    private const SQL_ROW_VERBS = 'update|insert|replace|with';
+    /**
+     * Every verb this scanner reads a SQL statement by: its first word, the words between that and the table it names, and whether it changes rows rather than the shape of a
+     * table. One vocabulary, read two ways by the two sides -- the table side wants the verb and what follows it, so that the next word is the table it writes; the column side
+     * wants the first word alone, and only of the verbs that change rows, because a statement that changes the shape of a table (ALTER, CREATE, DROP, RENAME, TRUNCATE) names a
+     * column without writing anybody's value. Read twice out of two lists is how the two drifted apart.
+     *
+     * @var array<string, array{table: string|null, rows: bool}> the first word => the words before the table it names (null when none follows), and whether it changes rows
+     */
+    private const SQL_VERBS = [
+        'insert' => ['table' => '\s+(?:ignore\s+)?into', 'rows' => true],
+        'replace' => ['table' => '\s+into', 'rows' => true],
+        'update' => ['table' => '', 'rows' => true],
+        'delete' => ['table' => '\s+from', 'rows' => true],
+        'with' => ['table' => null, 'rows' => true],
+        'truncate' => ['table' => '\s+table', 'rows' => false],
+        'alter' => ['table' => '\s+table', 'rows' => false],
+        'drop' => ['table' => '\s+table', 'rows' => false],
+        'create' => ['table' => '\s+table', 'rows' => false],
+        'rename' => ['table' => '\s+table', 'rows' => false],
+    ];
+
+    /** The methods that hand a whole statement of SQL to the database, which is what tells the SQL a file runs from the SQL it quotes in a message. */
+    private const RAW_SQL_WRITES = 'statement|unprepared|insert|update|delete|affectingStatement';
+
+    /** The keywords that open a clause giving a column a value: `SET`, and the clause MySQL appends to an upsert. */
+    private const SQL_ASSIGNING_CLAUSES = '\bset\b|\bon\s+duplicate\s+key\s+update\b';
+
+    /** The keywords that close it. What follows one of them filters, orders or limits the rows the statement writes, and assigns to nothing. */
+    private const SQL_READING_CLAUSES = '\bwhere\b|\border\s+by\b|\blimit\b|\breturning\b';
 
     /**
      * Everything that takes an array of column => value and writes it. The two vocabularies above answer "does this statement write the table"; this one answers "is this array
@@ -120,7 +151,6 @@ final class PlatformWriteScanner
 
         $patterns = [
             'assignment' => '/->\s*\{?[\'"]?(?:' . $name . '|' . $heldName . ')[\'"]?\}?\s*(?:' . self::COMPOUND_ASSIGNMENT . ')?=(?![=>])/',
-            'array access assignment' => '/\[\s*' . $named . '\s*\]\s*(?:' . self::COMPOUND_ASSIGNMENT . ')?=(?![=>])/',
             'increment or decrement' => '/(?:increment|decrement)(?:Quietly)?\(\s*' . self::NAMED_ARGUMENT . $named . '/',
             'setAttribute' => '/(?:setAttribute|offsetSet)\(\s*' . self::NAMED_ARGUMENT . $named . '/',
         ];
@@ -129,8 +159,13 @@ final class PlatformWriteScanner
         foreach ($patterns as $kind => $pattern) {
             $writes = array_merge($writes, array_fill(0, preg_match_all($pattern, $read), $kind));
         }
+        // The subscript is read before the names are spelled out, so that the column's own name is what is written through the array access and a name merely HELD by a variable or a
+        // constant is not: `$user['wallet_balance'] = 5` writes an attribute of a model, while `$totals[$column] = 0` and `$row[self::WALLET] = 0` subscript a plain array, which
+        // carries no attributes. A model written under a held name goes through `->{$column} =`, which the assignment above reads.
+        $subscript = '/\[\s*[\'"]' . $name . '[\'"]\s*\]\s*(?:' . self::COMPOUND_ASSIGNMENT . ')?=(?![=>])/';
+        $writes = array_merge($writes, array_fill(0, preg_match_all($subscript, $literals), 'array access assignment'));
         $writes = array_merge($writes, array_fill(0, self::arrayKeyWrites($read, $key), 'array key given a value'));
-        foreach (self::stringsIn($literals) as $string) {
+        foreach (self::sqlHandedToTheDatabase($literals) as $string) {
             $writes = array_merge($writes, self::sqlWritesOf($string, $column, $heldName));
         }
 
@@ -138,43 +173,48 @@ final class PlatformWriteScanner
     }
 
     /**
-     * How many places the code gives the column as an array key that is written.
+     * How many places the code gives the column as an array key that is written. The array has to reach a write, whatever its value: that is what tells `['wallet_balance' => '0']`
+     * and `['wallet_balance' => 0]`, both updates, from `['wallet_balance' => 'float']`, a cast, from `['loyalty_point' => 'loyalty_point']`, a name map, and from the rest of what
+     * this project writes the column as a key of -- four cast lines in two files (app/Models/User.php and app/User.php), two name maps, two Blade tone maps and seven translation
+     * lines, fifteen places that write nothing.
      *
-     * A key whose value is a string is counted only where the array is handed to something that writes it, because that is what tells `['wallet_balance' => '0']`, an update, from
-     * `['wallet_balance' => 'float']`, a cast, and from `['loyalty_point' => 'loyalty_point']`, a name map -- of which this project has fifteen, nine of them in its translation
-     * files, so the distinction has to hold. A key whose value is anything else is counted wherever it is written, because the array reaches the write in a variable as readily as
-     * in the call itself. The two sets overlap, so the count is their union.
+     * Reading a key whose value is not a string wherever it stood counted the array that reaches no write at all: `['wallet_balance' => X::class]`, `=> ['required','numeric']`,
+     * `=> $this->wallet_balance` in a toArray(), `=> env(...)` and `=> translate('Wallet')` were each reported as a write, so a real one could be planted in any file that already
+     * had one of those and the count would not move. What that reading was for -- an array built before its write -- is answered by following the array into the write instead.
      *
      * @param string $key the column as an array key, as a regular expression
      */
     private static function arrayKeyWrites(string $code, string $key): int
     {
-        $handedToAWrite = self::arraysHandedToAWrite($code);
-        $anyValue = '/' . $key . '\s*=>/';
-        // The whitespace is in the class as well as in the quantifier: a quantifier that can give its spaces back would let `=> 'float'` match at the space in front of the quote.
-        $valueThatIsNoCast = '/' . $key . '\s*=>\s*(?![\s\'"])/';
-
-        return preg_match_all($anyValue, $handedToAWrite)
-            + preg_match_all($valueThatIsNoCast, $code)
-            - preg_match_all($valueThatIsNoCast, $handedToAWrite);
+        return preg_match_all('/' . $key . '\s*=>/', self::arraysHandedToAWrite($code));
     }
 
     /**
-     * The text of every array the code hands to a write: the ones written out in the call, and the ones it builds in a variable or a property first and hands over on a later
-     * statement, which is as much a write and which gating on the call alone would have let through.
+     * The text of every array the code hands to a write: the ones written out in the call, the ones it builds in a variable or a property first and hands over on a later statement,
+     * the ones a method of the file hands back to one, and the ones written out inside another call that is itself an argument to the write (`array_merge($base, [...])`), all of
+     * which are as much a write and which gating on the call alone would have let through.
+     *
+     * One hop, and one only, which is a declared limit and not an oversight: an array that reaches its write through a second variable, through a method of another file or through
+     * a name this file never spells is past this, and a column written that way needs a static analyser rather than a reader of text.
      */
     private static function arraysHandedToAWrite(string $code): string
     {
+        $statements = self::statementsOf($code);
+        $returned = self::arraysReturnedIn($statements);
         $calls = self::argumentsOf($code, self::ARRAY_WRITES);
         $arrays = $calls;
 
         foreach ($calls as $call) {
             preg_match_all('/\$(?:this->)?(\w+)/', $call, $handed);
             foreach (array_unique($handed[1]) as $name) {
-                preg_match_all('/\$' . preg_quote($name, '/') . '\s*=\s*(\[[^;]*\])\s*;/', $code, $built, PREG_SET_ORDER);
+                preg_match_all('/\$(?:this->)?' . preg_quote($name, '/') . '\s*\+?=\s*(\[[^;]*\])\s*;/', $code, $built, PREG_SET_ORDER);
                 foreach ($built as $assignment) {
                     $arrays[] = $assignment[1];
                 }
+            }
+            preg_match_all('/(?:->|::)?(\w+)\s*\(/', $call, $called);
+            foreach (array_unique($called[1]) as $method) {
+                array_push($arrays, ...$returned[$method] ?? []);
             }
         }
 
@@ -182,8 +222,67 @@ final class PlatformWriteScanner
     }
 
     /**
-     * The text of the arguments of every call to one of the named methods, the outermost ones only so that no call is read twice. It is taken from the tokens, so that a
-     * parenthesis inside a string or a closure does not end the call early.
+     * The arrays the code's methods hand back, by the name of the method that hands one back: `return ['wallet_balance' => '0'];` is an update as soon as something hands that
+     * method to one. The method a return belongs to is the last one the statements opened, which is one pass over them and no second reading of the braces.
+     *
+     * @param list<string> $statements the code split at its semicolons, the comments left out
+     * @return array<string, list<string>>
+     */
+    private static function arraysReturnedIn(array $statements): array
+    {
+        $returned = [];
+        $method = null;
+
+        foreach ($statements as $statement) {
+            if (preg_match('/\bfunction\s+(\w+)\s*\(/', $statement, $opened) === 1) {
+                $method = $opened[1];
+            }
+            if ($method !== null && preg_match('/\breturn\s*(\[.*\])\s*$/s', $statement, $array) === 1) {
+                $returned[$method][] = $array[1];
+            }
+        }
+
+        return $returned;
+    }
+
+    /**
+     * The SQL the code hands to the database: the strings written out in the call, and the strings of the statement that built the variable or the property the call is handed,
+     * which is the same one hop as an array built before its update -- `$sql = "update users set wallet_balance = 0"; DB::statement($sql);` runs, so it is read.
+     *
+     * Gating the SQL side on the call is what the array side was already gated on. Read everywhere instead, a string that spells a row-changing statement was reported wherever it
+     * stood, so a message quoting one (`Log::info("update users set wallet_balance = 0 was refused")`) was reported as a write of the balance. The cost of the gate is the same one
+     * hop: SQL handed to a method of another file, which runs it there, is past this.
+     *
+     * @return list<string>
+     */
+    private static function sqlHandedToTheDatabase(string $code): array
+    {
+        $statements = self::statementsOf($code);
+        $handed = [];
+
+        foreach (self::argumentsOf($code, self::RAW_SQL_WRITES) as $call) {
+            $handed[] = $call;
+            preg_match_all('/\$(?:this->)?(\w+)/', $call, $named);
+            foreach (array_unique($named[1]) as $name) {
+                $built = '/\$(?:this->)?' . preg_quote($name, '/') . '\s*\.?=(?!=)/';
+                $handed = array_merge($handed, array_filter($statements, static fn (string $statement): bool => preg_match($built, $statement) === 1));
+            }
+        }
+
+        $strings = [];
+        foreach ($handed as $text) {
+            array_push($strings, ...self::stringsIn($text));
+        }
+
+        return $strings;
+    }
+
+    /**
+     * The text of the arguments of every call to one of the named methods ON A RECEIVER -- `$user->update(...)`, `DB::update(...)` -- the outermost ones only so that no call is
+     * read twice. It is taken from the tokens, so that a parenthesis inside a string or a closure does not end the call early.
+     *
+     * The receiver is required because every method named here is a method: a plain function that happens to share one of their names (`create([...])`, `update([...])`, a view
+     * helper named `push`) writes no column, and reading its argument as a write made the array of anything so named count.
      *
      * @param string $methods the method names, as a regular expression alternation
      * @return list<string>
@@ -197,7 +296,7 @@ final class PlatformWriteScanner
 
         for ($position = 0; $position < $count; $position++) {
             $token = $tokens[$position];
-            if (!is_array($token) || $token[0] !== T_STRING || preg_match($called, $token[1]) !== 1) {
+            if (!is_array($token) || $token[0] !== T_STRING || preg_match($called, $token[1]) !== 1 || !self::isCalledOnAReceiver($tokens, $position)) {
                 continue;
             }
             $open = $position + 1;
@@ -213,6 +312,25 @@ final class PlatformWriteScanner
         }
 
         return $arguments;
+    }
+
+    /**
+     * Whether the name at this position is called on something: `->name(`, `?->name(` or `::name(`.
+     *
+     * @param list<array{int, string, int}|string> $tokens
+     */
+    private static function isCalledOnAReceiver(array $tokens, int $position): bool
+    {
+        for ($before = $position - 1; $before >= 0; $before--) {
+            if (is_array($tokens[$before]) && $tokens[$before][0] === T_WHITESPACE) {
+                continue;
+            }
+
+            return is_array($tokens[$before])
+                && in_array($tokens[$before][0], [T_OBJECT_OPERATOR, T_NULLSAFE_OBJECT_OPERATOR, T_DOUBLE_COLON], true);
+        }
+
+        return false;
     }
 
     /**
@@ -248,7 +366,7 @@ final class PlatformWriteScanner
      *
      * @return list<string>
      */
-    private function statementsOf(string $code): array
+    private static function statementsOf(string $code): array
     {
         $statements = [];
         $current = '';
@@ -360,7 +478,7 @@ final class PlatformWriteScanner
         if (preg_match('/DB::(?:statement|unprepared|insert|update|delete|affectingStatement)\(|->(?:statement|unprepared|affectingStatement)\(/', $statement) !== 1) {
             return [];
         }
-        preg_match_all('/\b(?:insert\s+(?:ignore\s+)?into|replace\s+into|update|delete\s+from|truncate\s+table|alter\s+table|drop\s+table|create\s+table|rename\s+table)\s+[`"\']?(\{?\$\w+\}?|[a-z0-9_]+)/i', $statement, $found);
+        preg_match_all('/\b(?:' . self::sqlVerbsBeforeATable() . ')\s+[`"\']?(\{?\$\w+\}?|[a-z0-9_]+)/i', $statement, $found);
 
         return array_map(static fn (string $table): string => str_contains($table, '$') ? self::UNKNOWN_TABLE : strtolower($table), $found[1]);
     }
@@ -579,13 +697,12 @@ final class PlatformWriteScanner
         $writes = [];
 
         foreach (self::sqlStatementsOf(self::withSqlCommentsStripped($sql)) as $statement) {
-            if (preg_match('/^\s*(?:' . self::SQL_ROW_VERBS . ')\b/i', $statement) !== 1) {
+            if (preg_match('/^\s*(?:' . self::sqlVerbsThatChangeRows() . ')\b/i', $statement) !== 1) {
                 continue;
             }
-            $assigning = (string) preg_replace('/\bwhere\b.*$/is', '', $statement);
-            if (preg_match('/' . $name . '\s*=(?!=)/i', $assigning) === 1) {
+            if (preg_match('/' . $name . '\s*=(?!=)/i', self::assigningClausesOf($statement)) === 1) {
                 $writes[] = 'raw SQL set';
-            } elseif (preg_match('/\b(?:insert|replace)\s+(?:ignore\s+)?into\b[^(]*\([^)]*' . $name . '/i', $assigning) === 1) {
+            } elseif (preg_match('/\b(?:insert|replace)\s+(?:ignore\s+)?into\b[^(]*\([^)]*' . $name . '/i', $statement) === 1) {
                 $writes[] = 'raw SQL insert';
             }
         }
@@ -593,10 +710,54 @@ final class PlatformWriteScanner
         return $writes;
     }
 
-    /** SQL without its comments, so that the verb a statement starts with is the verb and not a comment in front of it. */
+    /** The first word of every verb that changes rows, for the side that reads a statement by the verb it starts with. */
+    private static function sqlVerbsThatChangeRows(): string
+    {
+        return implode('|', array_keys(array_filter(self::SQL_VERBS, static fn (array $verb): bool => $verb['rows'])));
+    }
+
+    /** Every verb the table it names follows, for the side that reads which table a statement writes. `WITH` is not one: what follows it is the name of a result, not of a table. */
+    private static function sqlVerbsBeforeATable(): string
+    {
+        $verbs = array_filter(self::SQL_VERBS, static fn (array $verb): bool => $verb['table'] !== null);
+
+        return implode('|', array_map(static fn (string $word, array $verb): string => $word . $verb['table'], array_keys($verbs), $verbs));
+    }
+
+    /**
+     * The clauses of a row-changing statement that ASSIGN: each `SET` (or the `ON DUPLICATE KEY UPDATE` of an upsert) up to the first clause keyword after it that belongs to the
+     * statement itself.
+     *
+     * Cutting the read clause away instead -- everything from the first `where` -- took the assignment with it whenever a `where` came first: inside a join subquery, inside a
+     * subselect of the SET clause, or inside a quoted literal that spells the word. Seven money writes read as none that way. Isolating the assignment also tells a write from the
+     * clauses that only READ the column, which subtracting never did: a JOIN condition, an `ORDER BY`, a window expression and the join of an `INSERT .. SELECT` assign nothing.
+     *
+     * Belonging to the statement itself means outside quotes and outside parentheses: the `where` of `set x = (select 1 from t where ok = 1), wallet_balance = 0` is the
+     * subselect's, and the clause runs on past it.
+     */
+    private static function assigningClausesOf(string $statement): string
+    {
+        $assigning = '';
+        $from = null;
+
+        foreach (self::topLevelMatchesIn($statement, self::SQL_ASSIGNING_CLAUSES . '|' . self::SQL_READING_CLAUSES) as [$offset, $keyword]) {
+            $opens = preg_match('/^(?:' . self::SQL_ASSIGNING_CLAUSES . ')$/i', $keyword) === 1;
+
+            if ($opens && $from === null) {
+                $from = $offset;
+            } elseif (!$opens && $from !== null) {
+                $assigning .= substr($statement, $from, $offset - $from);
+                $from = null;
+            }
+        }
+
+        return $from === null ? $assigning : $assigning . substr($statement, $from);
+    }
+
+    /** SQL without its comments, so that the verb a statement starts with is the verb and not a comment in front of it. A `--` that ends a line is a comment to the engine, and the space the pattern used to ask for after it let `"--\nupdate users set wallet_balance = 0"` read as a statement with no verb at all. */
     private static function withSqlCommentsStripped(string $sql): string
     {
-        return (string) preg_replace(['/\/\*.*?\*\//s', '/(?:--[ \t]|#)[^\n]*/'], '', $sql);
+        return (string) preg_replace(['/\/\*.*?\*\//s', '/(?:--(?=\s|$)|#)[^\n]*/'], '', $sql);
     }
 
     /**
@@ -608,34 +769,68 @@ final class PlatformWriteScanner
     private static function sqlStatementsOf(string $sql): array
     {
         $statements = [];
-        $current = '';
+        $start = 0;
+
+        foreach (self::topLevelMatchesIn($sql, ';') as [$offset]) {
+            $statements[] = substr($sql, $start, $offset - $start);
+            $start = $offset + 1;
+        }
+        $statements[] = substr($sql, $start);
+
+        return $statements;
+    }
+
+    /**
+     * Where a pattern matches the SQL outside every quoted literal and outside every parenthesis, in the order it matches.
+     *
+     * @param string $pattern as a regular expression, read without regard to case
+     * @return list<array{int, string}> the offset of each match, and the text it matched
+     */
+    private static function topLevelMatchesIn(string $sql, string $pattern): array
+    {
+        preg_match_all('/' . $pattern . '/i', self::sqlWithNestingBlanked($sql), $found, PREG_OFFSET_CAPTURE);
+
+        return array_map(static fn (array $match): array => [$match[1], $match[0]], $found[0]);
+    }
+
+    /**
+     * The SQL with everything a quoted literal or a parenthesis holds replaced by spaces and the offsets kept, so that the pieces of a statement that belong to the statement
+     * itself can be found by where they are in it. One walk over the text, and the only place this class tracks a quote: both the semicolon that ends a statement rather than a
+     * literal, and the keyword that ends the clause that assigns rather than a subselect of it, are read off this.
+     */
+    private static function sqlWithNestingBlanked(string $sql): string
+    {
+        $blanked = '';
         $quote = null;
+        $depth = 0;
         $length = strlen($sql);
 
         for ($position = 0; $position < $length; $position++) {
             $character = $sql[$position];
 
             if ($quote !== null) {
-                $current .= $character;
-                if ($character === '\\') {
-                    $current .= $sql[++$position] ?? '';
+                $blanked .= ' ';
+                if ($character === '\\' && $position + 1 < $length) {
+                    $blanked .= ' ';
+                    $position++;
                 } elseif ($character === $quote) {
                     $quote = null;
                 }
                 continue;
             }
-            if ($character === ';') {
-                $statements[] = $current;
-                $current = '';
-                continue;
-            }
             if ($character === "'" || $character === '"' || $character === '`') {
                 $quote = $character;
+                $blanked .= ' ';
+                continue;
             }
-            $current .= $character;
+            if ($character === '(' || $character === ')') {
+                $depth = $character === '(' ? $depth + 1 : max($depth - 1, 0);
+                $blanked .= ' ';
+                continue;
+            }
+            $blanked .= $depth > 0 ? ' ' : $character;
         }
-        $statements[] = $current;
 
-        return $statements;
+        return $blanked;
     }
 }
