@@ -318,18 +318,6 @@ class POSController extends Controller
             }
         }
 
-        if ($paymentMethod == 'wallet' && $customerId != 0) {
-            $customerBalance = $this->customerRepo->getFirstWhere(params: ['id' => $customerId]) ?? 0;
-            if ($customerBalance['wallet_balance'] >= $paidAmount) {
-                $this->createWalletTransaction(user_id: $customerId, amount: floatval($paidAmount), transaction_type: 'order_place', reference: 'order_place_in_pos');
-            } else {
-                return response()->json([
-                    'need_balance' => true,
-                    'message' => translate('need_Sufficient_Amount_Balance')
-                ]);
-            }
-        }
-
         $cartsTotalAmount = 0;
         $generateOrderID = self::getOrderNewId();
 
@@ -354,7 +342,25 @@ class POSController extends Controller
             // reads every line's product and refuses the sale before anything is written, so the rule is asked here, before the stock
             // is taken and before the lines and the order are inserted; nothing new is read.
             OneSellingCompanyPerOrder::assertProductsBelongToOne(products: $products);
+        }
 
+        // The customer's wallet is charged only once the sale can no longer be refused. It used to be debited above the loop that reads
+        // the products, so both refusals below it took the money and wrote no order: the out-of-stock line this till has always refused,
+        // and a receipt that mixes two selling companies. Nothing before this point writes anything, so a refusal now leaves the balance
+        // where it was. A payload with no lines is charged exactly as it was, because it is refused by neither.
+        if ($paymentMethod == 'wallet' && $customerId != 0) {
+            $customerBalance = $this->customerRepo->getFirstWhere(params: ['id' => $customerId]) ?? 0;
+            if ($customerBalance['wallet_balance'] >= $paidAmount) {
+                $this->createWalletTransaction(user_id: $customerId, amount: floatval($paidAmount), transaction_type: 'order_place', reference: 'order_place_in_pos');
+            } else {
+                return response()->json([
+                    'need_balance' => true,
+                    'message' => translate('need_Sufficient_Amount_Balance')
+                ]);
+            }
+        }
+
+        if ($request['modified_cart']) {
             foreach ($request['modified_cart'] as $cartItem) {
                 if (is_array($cartItem)) {
                     $product = Product::where(['id' => $cartItem['id']])->with(['digitalVariation', 'clearanceSale' => function ($query) {

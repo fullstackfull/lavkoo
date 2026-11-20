@@ -33,6 +33,8 @@ class PosSingleCompanyTest extends ApiAddressTestCase
 
     private const SELLER_ID = 5;
 
+    private const WALLET_BALANCE = 1000;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -147,6 +149,49 @@ class PosSingleCompanyTest extends ApiAddressTestCase
     {
         Schema::table('products', fn (Blueprint $table) => $table->unsignedBigInteger(StorefrontCatalog::ENTITY_COLUMN)->nullable());
         StorefrontCatalog::flush();
+    }
+
+    // ---- a sale paid from the customer's wallet ----------------------------------------------------------
+
+    /** A saved customer with money in their wallet, and the ledger the debit is written to. @return int their id */
+    private function customerWithAFullWallet(): int
+    {
+        if (!Schema::hasTable('wallet_transactions')) {
+            Schema::create('wallet_transactions', function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('user_id');
+                $table->string('transaction_id')->nullable();
+                $table->string('reference')->nullable();
+                $table->string('transaction_type')->nullable();
+                $table->string('payment_method')->nullable();
+                $table->decimal('credit', 24, 2)->default(0);
+                $table->decimal('debit', 24, 2)->default(0);
+                $table->decimal('balance', 24, 2)->default(0);
+                $table->decimal('admin_bonus', 24, 2)->default(0);
+                $table->timestamps();
+            });
+        }
+        DB::table('business_settings')->insert(['type' => 'wallet_status', 'value' => '1']);
+
+        return (int) $this->makeCustomer(['wallet_balance' => self::WALLET_BALANCE])->id;
+    }
+
+    /** @return array{balance: string, debits: int} what the customer's wallet says after the sale */
+    private function wallet(int $customerId): array
+    {
+        return [
+            'balance' => number_format((float) DB::table('users')->where('id', $customerId)->value('wallet_balance'), 2, '.', ''),
+            'debits' => DB::table('wallet_transactions')->where('user_id', $customerId)->count(),
+        ];
+    }
+
+    private function walletIsUntouched(int $customerId): void
+    {
+        $this->assertSame(
+            ['balance' => '1000.00', 'debits' => 0],
+            $this->wallet($customerId),
+            'a refused sale takes no money and writes no wallet transaction',
+        );
     }
 
     // ---- a till holding two countries sells neither ------------------------------------------------------
@@ -302,4 +347,78 @@ class PosSingleCompanyTest extends ApiAddressTestCase
         $this->assertSame([100001 => [1, 2]], $this->ordersWithTheirLines());
     }
 
+    // ---- a refused sale keeps nobody's money -------------------------------------------------------------
+
+    public function test_the_admin_till_refusing_a_mixed_wallet_sale_leaves_the_wallet_alone(): void
+    {
+        $customerId = $this->customerWithAFullWallet();
+
+        $this->sellAtTheAdminTill(
+            [$this->sessionLine(1, 'Paracetamol SA', 100, $customerId), $this->sessionLine(2, 'Paracetamol AE', 250, $customerId)],
+            350, 'wallet', 'saved-customer-' . $customerId,
+        );
+
+        $this->assertSame(['error'], $this->toastTypes());
+        $this->nothingWasSold();
+        $this->walletIsUntouched($customerId);
+    }
+
+    public function test_the_vendor_till_refusing_a_mixed_wallet_sale_leaves_the_wallet_alone(): void
+    {
+        $customerId = $this->customerWithAFullWallet();
+
+        $this->sellAtTheVendorTill(
+            [$this->sessionLine(1, 'Paracetamol SA', 100, $customerId), $this->sessionLine(2, 'Paracetamol AE', 250, $customerId)],
+            350, 'wallet', 'saved-customer-' . $customerId,
+        );
+
+        $this->assertSame(['error'], $this->toastTypes());
+        $this->nothingWasSold();
+        $this->walletIsUntouched($customerId);
+    }
+
+    public function test_the_seller_app_till_refusing_a_mixed_wallet_sale_leaves_the_wallet_alone(): void
+    {
+        $customerId = $this->customerWithAFullWallet();
+
+        try {
+            $this->sellAtTheSellerAppTill([$this->payloadLine(1, 100), $this->payloadLine(2, 250)], 350, 'wallet', $customerId);
+            $this->fail('the sale was not refused');
+        } catch (OrderMixesSellingCompaniesException) {
+            $this->nothingWasSold();
+            $this->walletIsUntouched($customerId);
+        }
+    }
+
+    /**
+     * The refusal this till has always had, and the reason the debit was moved rather than wrapped in a transaction: the out-of-stock line
+     * sat behind the same debit, so the same money was lost without this rule being involved at all. One move closes both.
+     */
+    public function test_the_seller_app_till_refusing_an_out_of_stock_wallet_sale_leaves_the_wallet_alone(): void
+    {
+        $customerId = $this->customerWithAFullWallet();
+
+        $response = $this->sellAtTheSellerAppTill([$this->payloadLine(1, 100, quantity: 99)], 100, 'wallet', $customerId);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertTrue($response->getData()->product_not_available, 'the till refused the line it cannot fill');
+        $this->nothingWasSold();
+        $this->walletIsUntouched($customerId);
+    }
+
+    public function test_a_lawful_wallet_sale_still_debits_the_customer_exactly_once(): void
+    {
+        $customerId = $this->customerWithAFullWallet();
+
+        $this->sellAtTheAdminTill([$this->sessionLine(1, 'Paracetamol SA', 100, $customerId)], 100, 'wallet', 'saved-customer-' . $customerId);
+
+        $this->assertSame(['success'], $this->toastTypes());
+        $this->assertSame([100001 => [1]], $this->ordersWithTheirLines());
+        $this->assertSame(['balance' => '900.00', 'debits' => 1], $this->wallet($customerId));
+        $this->assertSame(
+            '100.00',
+            number_format((float) DB::table('wallet_transactions')->where('user_id', $customerId)->value('debit'), 2, '.', ''),
+            'debited the money the sale was rung up for, once',
+        );
+    }
 }

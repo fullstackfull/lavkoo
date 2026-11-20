@@ -118,15 +118,6 @@ class POSOrderController extends BaseController
         if ($userId == 0 && $fulfillment == 'delivery') {
             return response()->json(['checkProductTypeForWalkingCustomer' => true, 'message' => translate('To_place_a_delivery_order') . ',' . translate('_kindly_select_a_customer_or_fill_up_the_“Add_New_Customer”_form') . '.']);
         }
-        if ($request['type'] == 'wallet' && $userId != 0) {
-            $customerBalance = $this->customerRepo->getFirstWhere(params: ['id' => $userId]) ?? 0;
-            if ($customerBalance['wallet_balance'] >= currencyConverter(amount: $amount)) {
-                $this->createWalletTransaction(user_id: $userId, amount: floatval($amount), transaction_type: 'order_place', reference: 'order_place_in_pos');
-            } else {
-                ToastMagic::error(translate('need_Sufficient_Amount_Balance'));
-                return response()->json();
-            }
-        }
         $checkProductTypeDigital = $this->cartService->checkProductTypeDigital(cartId: $cartId);
         if ($userId == 0 && $checkProductTypeDigital) {
             return response()->json(['checkProductTypeForWalkingCustomer' => true, 'message' => translate('To_order_digital_product') . ',' . translate('_kindly_fill_up_the_“Add_New_Customer”_form') . '.']);
@@ -148,6 +139,19 @@ class POSOrderController extends BaseController
             if (OneSellingCompanyPerOrder::productsSpanMoreThanOne(products: $products)) {
                 ToastMagic::error(translate('Product_is_unavailable'));
                 return response()->json();
+            }
+
+            // The customer's wallet is charged only once the sale can no longer be refused. It used to be debited before the cart was
+            // even read, so every refusal below it — a receipt that mixes two selling companies, and any the till grows later — took the
+            // money and wrote no order. Nothing above this point writes anything, so a refusal now leaves the balance where it was.
+            if ($request['type'] == 'wallet' && $userId != 0) {
+                $customerBalance = $this->customerRepo->getFirstWhere(params: ['id' => $userId]) ?? 0;
+                if ($customerBalance['wallet_balance'] >= currencyConverter(amount: $amount)) {
+                    $this->createWalletTransaction(user_id: $userId, amount: floatval($amount), transaction_type: 'order_place', reference: 'order_place_in_pos');
+                } else {
+                    ToastMagic::error(translate('need_Sufficient_Amount_Balance'));
+                    return response()->json();
+                }
             }
 
             $totalDiscountedPrice = $this->cartService->getCartTotalDiscountPrice(session($cartId), $products, $userId);

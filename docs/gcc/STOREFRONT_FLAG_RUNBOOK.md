@@ -89,9 +89,11 @@ A point-of-sale sale is a sale, so a till holding two countries' products sells 
 still be rung up on a receipt of their own. A channel order that mixes two countries is not retried, because it will never stop mixing them:
 the dispatch row carries the reason and waits for a person. Pinned by `PosSingleCompanyTest` and `ChannelOrderSingleCompanyTest`.
 
-Still open at the three tills: a sale paid from the customer's wallet is debited before the products are read, so a refused mixed sale leaves
-the wallet debited with no order. That ordering is the tills' own and predates the rule — their existing out-of-stock refusal sits after the
-same debit — and moving a payment debit is not part of the rule.
+No writer is left open, and no money is either. A sale paid from the customer's wallet used to be debited before the products were read, so
+every refusal that follows took the money and wrote no order: a wallet balance of 1,000 became 650 with zero orders and zero lines. That
+ordering was the tills' own and predates this rule — the seller app's out-of-stock refusal sat behind the same debit, and lost 100 the same
+way — so the debit now runs after every refusal and before the first write at all three tills. A refused sale leaves the balance where it was
+and writes no wallet transaction; a lawful one debits exactly once. Pinned by `PosSingleCompanyTest`.
 
 The rule reads the two halves of the selling scope apart — country against country, company against company — because a row says nothing
 about a half it leaves null. That is the only state a backfill filling `legal_entity_id` row by row can be observed in: one product carrying
