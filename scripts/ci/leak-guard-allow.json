@@ -107,6 +107,12 @@
             "path": "tests/Feature/SalesChannels/SecretRedactorCoversEveryStoredSecretTest.php",
             "line": 102,
             "reason": "Two made-up AWS key ids, one per prefix AWS documents (AKIA and ASIA), in the test that the shape is masked whatever the field is called, in commit d958ac8; the next commit (8db9a92) builds both at run time. Neither was ever a real credential."
+        },
+        {
+            "rule": "email-address",
+            "path": "app/Contracts/Repositories/AppendOnlyRepositoryInterface.php",
+            "line": 43,
+            "reason": "Two placeholder addresses in a documentation example of the filters array, carried verbatim into a new file when RepositoryInterface was split, in commit 9bc6a5ad. The same line sits at RepositoryInterface.php:37 on main and at OrderRepositoryInterface.php:13 on this branch, both untouched and both older than this guard, so the guard is reading a move as an addition. The next commit (e7b71e6b) writes the example without any address at all. Neither was ever anyone's address."
         }
     ]
 }
