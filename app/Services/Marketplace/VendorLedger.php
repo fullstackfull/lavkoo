@@ -90,9 +90,11 @@ class VendorLedger
                 return $existing;
             }
 
-            // Lock the last entry OF THIS CHAIN so a concurrent event cannot read the same balance. Two
-            // events in different chains are different money and do not wait for each other; two in the
-            // same chain still do, which is the whole reason the lock is here.
+            // Lock the last entry OF THIS CHAIN so a concurrent event cannot read the same balance. The
+            // lock is narrowed because a chain's balance is its own, NOT because two chains stop waiting
+            // for each other: measured on MariaDB 10.11, a writer of another chain waits exactly as it
+            // does for the single-chain query that shipped, and only an index that includes the company
+            // column frees it. LedgerChain's docblock has the measurements.
             $previous = $chain->narrow(VendorLedgerEntry::query())
                 ->orderByDesc('id')
                 ->lockForUpdate()
