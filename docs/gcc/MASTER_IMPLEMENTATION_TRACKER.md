@@ -14,20 +14,20 @@ As of 2026-11-20. Generated from the independent assessment of every requirement
 
 | Axis | Requirements | Criteria | MET | CODED | MISSING | Code completion | Proven by tests | Release readiness | Verified |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| [A. Six-country base and customer identity](tracker/axis-a-six-country-base-and-customer-identity.md) | 37 | 173 | 87 | 28 | 58 | 66% | 50% | 9% | all |
+| [A. Six-country base and customer identity](tracker/axis-a-six-country-base-and-customer-identity.md) | 37 | 173 | 89 | 26 | 58 | 66% | 51% | 9% | all |
 | [B. Catalogue and products](tracker/axis-b-catalogue-and-products.md) | 18 | 91 | 34 | 17 | 40 | 56% | 37% | 0% | all |
 | [C. Inventory and fulfillment](tracker/axis-c-inventory-and-fulfillment.md) | 18 | 94 | 65 | 9 | 20 | 79% | 69% | 30% | all |
-| [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 179 | 83 | 31 | 65 | 64% | 46% | 8% | all |
-| [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 88 | 37 | 5 | 46 | 48% | 42% | 7% | all |
+| [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 179 | 84 | 31 | 64 | 64% | 47% | 8% | all |
+| [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 88 | 38 | 4 | 46 | 48% | 43% | 7% | all |
 | [F. Themes and brand](tracker/axis-f-themes-and-brand.md) | 16 | 77 | 42 | 13 | 22 | 71% | 55% | 4% | all |
-| [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 102 | 59 | 12 | 31 | 70% | 58% | 15% | all |
+| [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 102 | 59 | 13 | 30 | 71% | 58% | 15% | all |
 | [H. Shipping and integrations](tracker/axis-h-shipping-and-integrations.md) | 34 | 157 | 79 | 13 | 65 | 59% | 50% | 16% | all |
 | [I. Marketing, policies and operations](tracker/axis-i-marketing-policies-and-operations.md) | 37 | 185 | 84 | 41 | 60 | 68% | 45% | 3% | all |
-| [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 98 | 42 | 31 | 25 | 74% | 43% | 5% | all |
+| [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 98 | 44 | 29 | 25 | 74% | 45% | 5% | all |
 | [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 104 | 40 | 26 | 38 | 63% | 38% | 3% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 45 | 18 | 31 | 67% | 48% | 7% | all |
-| [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 311 | 104 | 120 | 87 | 72% | 33% | 3% | all |
-| **All axes (pooled)** | **359** | **1753** | **801** | **364** | **588** | **66%** | **46%** | **8%** | |
+| [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 311 | 105 | 119 | 87 | 72% | 34% | 3% | all |
+| **All axes (pooled)** | **359** | **1753** | **808** | **359** | **586** | **67%** | **46%** | **8%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -163,7 +163,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [A2-13](tracker/axis-a-six-country-base-and-customer-identity.md) | NOT STARTED | 0/0/4 | Marketing consents scoped by storefront, company and channel |
 | [A2-14](tracker/axis-a-six-country-base-and-customer-identity.md) | IMPLEMENTED IN DRAFT | 3/1/0 | Existing accounts, ids and history are preserved |
 | [A2-15](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 3/0/2 | Privacy of customer data: logs, payloads, retention and deletion |
-| [A2-V1](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 0/2/2 | A local admin or employee of one market cannot see the customer's transactions of other markets with... |
+| [A2-V1](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 2/0/2 | A local admin or employee of one market cannot see the customer's transactions of other markets with... |
 | [A2-V2](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 0/3/1 | Policy consents are stored in the right scope: the explicit acceptance of a legal text is recorded a... |
 
 ### B. Catalogue and products
@@ -251,7 +251,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [D2-16](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 2/1/2 | Payment reconciliation per market and company |
 | [D2-17](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 4/0/1 | Payment security constraints: logs, hosts, rate limits, ownership |
 | [D2-18](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 0/1/2 | Payment lifecycle (axis F) pinned end to end per market |
-| [D2-V1](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 0/1/3 | Payment currency is the storefront's currency: no automatic conversion and no silent fallback to the... |
+| [D2-V1](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 1/1/2 | Payment currency is the storefront's currency: no automatic conversion and no silent fallback to the... |
 | [D2-V2](tracker/axis-d-orders-checkout-and-payments.md) | NOT STARTED | 0/0/4 | Per-storefront on/off of payment methods that are not gateways (cash on delivery, offline payment, d... |
 
 ### E. Wallets, loyalty and financial records
@@ -275,7 +275,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [E-15](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 2/0/4 | Referral rewards: once, to the referrer, one amount |
 | [E-16](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/0/3 | One currency unit and rounding for wallet debits and credits |
 | [E-17](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 0/1/4 | Financial records by legal entity and currency (ledgers, settlements, summaries) |
-| [E-V1](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 0/1/4 | Wallet top-up (add fund) by gateway and by admin, the 'add' sites of the plan line 368 review: one c... |
+| [E-V1](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/0/4 | Wallet top-up (add fund) by gateway and by admin, the 'add' sites of the plan line 368 review: one c... |
 
 ### F. Themes and brand
 
@@ -321,7 +321,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [G-17](tracker/axis-g-admin-panel-and-staff-permissions.md) | IN PROGRESS | 2/1/3 | Super admin rules and the management of employees and roles |
 | [G-18](tracker/axis-g-admin-panel-and-staff-permissions.md) | INTEGRATED AND TESTED | 5/0/0 | Every admin route asks for the permission of its menu, or is listed with a reason |
 | [G-V1](tracker/axis-g-admin-panel-and-staff-permissions.md) | IN PROGRESS | 0/4/0 | A written data-isolation design (the concept the plan asks for) with a rule for each of the eight la... |
-| [G-V2](tracker/axis-g-admin-panel-and-staff-permissions.md) | IN PROGRESS | 2/1/1 | The current security systems around staff stay in force, in the same order, when scope code is added... |
+| [G-V2](tracker/axis-g-admin-panel-and-staff-permissions.md) | IN PROGRESS | 2/2/0 | The current security systems around staff stay in force, in the same order, when scope code is added... |
 
 ### H. Shipping and integrations
 
@@ -426,8 +426,8 @@ Executable on an isolated branch without production access, ordered by the prior
 | [J-16](tracker/axis-j-flutter-customer-app.md) | IMPLEMENTED IN DRAFT | 3/2/0 | Language, RTL and strings |
 | [J-17](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 1/3/1 | Version gate and update flow (never bypassed) |
 | [J-18](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 4/0/2 | App tests, CI and device verification |
-| [J-V1](tracker/axis-j-flutter-customer-app.md) | NOT STARTED | 0/2/1 | Draft theme preview in the customer app: the app renders an unpublished draft of a storefront's home... |
-| [J-V2](tracker/axis-j-flutter-customer-app.md) | NOT STARTED | 0/1/3 | Loyalty points in the customer app (points ledger, earn rules, point-to-wallet conversion) belong to... |
+| [J-V1](tracker/axis-j-flutter-customer-app.md) | NOT STARTED | 1/1/1 | Draft theme preview in the customer app: the app renders an unpublished draft of a storefront's home... |
+| [J-V2](tracker/axis-j-flutter-customer-app.md) | NOT STARTED | 1/0/3 | Loyalty points in the customer app (points ledger, earn rules, point-to-wallet conversion) belong to... |
 
 ### K. Flutter seller app
 
@@ -527,7 +527,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [M2-V2](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/3/0 | No quick production change and no direct SQL is used to settle an architectural problem: changes shi... |
 | [M2-V3](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/2/1 | Global data and per-market data are told apart in the migration plan and in code: every table the pl... |
 | [M2-V4](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/1/3 | The staged upgrade needs no downtime and no migration is created-and-run on live data: each step is ... |
-| [M2-V5](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/3/1 | Storage and rollback capabilities (axis K bullets) are audited and tested for six markets: private d... |
+| [M2-V5](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1/2/1 | Storage and rollback capabilities (axis K bullets) are audited and tested for six markets: private d... |
 | [M2-V6](tracker/axis-m-security-tests-and-deployment.md) | NOT STARTED | 0/2/2 | Stock balances (current_stock, holds, outbox, provider stock) and prices of existing products reconc... |
 | [M3-01](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/3/1 | Report 01 Executive Assessment: state of the project and readiness for GCC, tagged Verified / Inferred / Unknown |
 | [M3-02](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 0/3/1 | Report 02 Current Architecture Map: browser and Flutter to Laravel APIs, services, storage, integrations |
