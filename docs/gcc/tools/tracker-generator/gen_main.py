@@ -2141,6 +2141,24 @@ for _req, _by_index in _V_RULINGS.items():
         _parts[int(_index)] = (_text, _ruling.get('state', _state), _ruling.get('evidence', _evidence))
 
 
+# E-17.1 on pull request 135 (draft, head ebbce05a, branch gcc/p1-settlement-one-currency, base gcc/p1-wallet-contract-tests). The engine groups a seller's waiting entries by the currency
+# SettlementCurrency reads off each entry's label and draws one settlement per currency, leaving the others for a settlement of their own; a mixed chain records no opening or closing balance
+# rather than a wrong one, and refuses to draw at all on a vendor_settlements whose balance columns cannot hold NULL. Off by default (gcc.settlements.one_currency).
+CRITERIA['E-17'] = {1: ('MET', "PR 135 (draft, head ebbce05a, gcc/p1-settlement-one-currency onto gcc/p1-wallet-contract-tests): SettlementEngine draws ONE settlement per currency. "
+    "SettlementCurrency::of reads an entry's label, reading an unlabelled entry as the store's base currency, and the engine groups a seller's waiting entries by it (entriesOfEachSettlement), "
+    "takes the label of the settlement from its own entries (currencyRecordedFor), and reports a line per seller and currency (waiting). A chain that has mixed currencies up to the settlement's "
+    "last entry records NO opening and NO closing balance instead of a number that ran over two currencies (balancesAround, ledgerIsOneChainUpTo), and the engine refuses to draw on a "
+    "vendor_settlements whose balance columns cannot hold NULL (ABalanceCannotBeLeftUnknown, canLeaveABalanceUnknown); the command reports the sellers it skipped and exits FAILURE. Off by default "
+    "(gcc.settlements.one_currency); off is the shipped behaviour, one settlement over everything with the first entry's label. "
+    "CI: run 44704151434 on ebbce05a, read job by job on 2026-11-20. The group that proves it is NEW on this head: 'Marketplace and ledger tests' (added because tests/Feature/Marketplace and "
+    "tests/Feature/Storefront had run only under SQLite, so no named job on any head had run them against a real engine and nothing on this stack could be recorded however green it was locally). "
+    "Both engine jobs are success and ran 'phpunit -c phpunit.mysql.xml tests/Feature/Marketplace tests/Feature/Storefront --display-skipped': MySQL 8 (job 136179558393) and MariaDB 11.4.2 "
+    "(job 136179558444), each 262 tests and 717 assertions, OK, nothing skipped. The run's overall conclusion is failure on three jobs, none of them this one: the deployment overlay, red by design, "
+    "and the two whole-suite jobs 'Tests, SQLite' on PHP 8.2 and 8.3 plus the 'sales channels N-Z' shard, each red on the single known pre-existing failure "
+    "TorodShipmentDiscoveryTest::test_the_scheduled_run_links_what_appeared_later_and_keeps_the_status_of_a_linked_shipment_current ('unlinked' against 'needs_review'), which fails on every branch "
+    "and which this change does not touch; that SQLite job read 6462 tests with Failures: 1. "
+    "NOT covered: a payout. PayoutService still draws on the seller's whole withdrawable amount, so money of two currencies can still be paid out of one sum.")}
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
