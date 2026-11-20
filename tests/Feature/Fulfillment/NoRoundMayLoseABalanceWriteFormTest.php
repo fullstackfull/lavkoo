@@ -27,8 +27,10 @@ use Tests\Support\PlatformWriteScanner;
  * form that must stay QUIET. This file pins only that the form is reported at all, because that is the property that cannot be satisfied by weakening the scanner: the
  * expected value here is "not nothing", so there is no number to adjust and no kind to rename. Deleting a case is the only way past it, and the count below makes that red too.
  *
- * Every form in it moves money. The 21 of the third round were each proved on MariaDB 10.11.14 by the verifier that found them and again here (see the run recorded on the
- * pull request): seed a `decimal(40,20)` column at 350.12345678901234567890, run the statement, read back 0.00000000000000000000. None of them is a read.
+ * Every form in it moves money, and the third round's twenty-one were measured rather than assumed: every distinct statement they reduce to was run on MariaDB 10.11.14 against
+ * a `decimal(40,20)` column seeded at 350.12345678901234567890 and read back 0.00000000000000000000 -- the plain update, the decrement, the insert, the upsert and the
+ * `on duplicate key update`, whichever of `DB::select`, a PDO `exec`, `selectOne`, `scalar`, `cursor`, a prepared statement or another file's method carries them to the engine.
+ * None of them is a read. Where a form in this list turns out NOT to move money, the thing to do is to prove that on the engine and say so, not to assert it here.
  */
 final class NoRoundMayLoseABalanceWriteFormTest extends TestCase
 {
@@ -51,9 +53,8 @@ final class NoRoundMayLoseABalanceWriteFormTest extends TestCase
     ];
 
     /**
-     * Every form, with the head that lost it. The sources are the forms as they were planted, not as they were paraphrased: the third round's twenty-one are the ten the
-     * verifier named at the lines it planted them on, and eleven more of the same two shapes -- a row-changing statement handed to something other than the six whitelisted
-     * methods, and an array of amounts whose handing the reader cannot follow.
+     * Every form, with the head that lost it. The third round's twenty-one are the ten the verifier named, in the files it named them in, and eleven more of the same two
+     * shapes -- a row-changing statement handed to something other than the six whitelisted methods, and an array of amounts whose handing the reader cannot follow.
      *
      * @return array<string, array{string, string, string}> name => [the head that lost it, the source, the column]
      */
