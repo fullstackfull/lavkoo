@@ -32,6 +32,18 @@ class CustomerMarketWalletAccount extends Model
         'balance',
     ];
 
+    /**
+     * An account answers with exactly the keys its own columns are. The sharing key E-02 leaves room for is hidden the way
+     * `WalletTransaction` and `LoyaltyPointTransaction` hide what the E-05 ledger columns added, so a key a later slice begins to fill
+     * cannot appear in an API answer the moment a migration runs, switch or no switch: `$hidden` is read by `toArray()` and `toJson()`,
+     * which is how a model reaches an answer. Naming it here is not a read of it — it is the one declaration that says it is never served —
+     * and `MarketAccountSharingKeyTest` holds both halves: the keys this model serialises, and the short list of files allowed to name the
+     * column at all.
+     */
+    protected $hidden = [
+        'sharing_group',
+    ];
+
     protected $casts = [
         'id' => 'integer',
         'customer_id' => 'integer',
