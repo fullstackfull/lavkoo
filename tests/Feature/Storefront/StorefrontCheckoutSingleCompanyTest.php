@@ -437,4 +437,28 @@ class StorefrontCheckoutSingleCompanyTest extends ApiAddressTestCase
         }
     }
 
+    /**
+     * The rows the lines are written from are the ones judged. generateOrder asserts before the transaction on the copies the cart loaded
+     * and again inside it on the locked rows, so a product moved between the two reads is refused rather than invoiced from a row the rule
+     * never saw. Nothing in app/ writes storefront_country, so this models an operator's own SQL or a future move-between-countries feature.
+     */
+    public function test_a_product_moved_after_the_cart_was_read_is_refused_inside_the_transaction(): void
+    {
+        $customer = $this->customerWithOneMixedGroup();
+        DB::table('products')->update(['storefront_country' => 'SA']);
+
+        // The last read generateOrder makes before it opens its transaction, and the one query of this shape in the whole checkout: the
+        // move lands after the cart's copies were loaded and judged, and before the products are locked. `for update` is no use as a
+        // marker, because SQLite compiles no lock clause and a listener fires only once a query has already read its rows.
+        DB::listen(function (QueryExecuted $query): void {
+            if (str_contains($query->sql, 'from "cart_shippings" where ("cart_group_id"') || str_contains($query->sql, 'from `cart_shippings` where (`cart_group_id`')) {
+                DB::table('products')->where('id', 2)->update(['storefront_country' => 'AE', 'name' => 'MOVED-TO-AE']);
+            }
+        });
+
+        $this->asCustomer($customer)->getJson(self::COD)->assertStatus(422);
+
+        $this->assertSame([], $this->ordersWithTheirRows(), 'the moved row is never invoiced');
+        $this->assertSame(0, DB::table('orders')->count());
+    }
 }

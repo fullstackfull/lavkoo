@@ -101,6 +101,16 @@ a company, the next not yet reached. Reading the halves as one joined string ref
 companies', which would have refused live Saudi orders at every till, at the customer's checkout and at the channel dispatcher (where a
 blocked dispatch is never retried) for the whole length of the migration. The half-backfilled state is pinned as allowed at all three tills,
 at the customer API, on the checkout page and at the materializer.
+
+The rows judged are the rows written, at four of the five writers: both panel tills and the materializer read each product once, and
+`generateOrder()` asks the rule again inside its transaction, on the rows it locked, because `addOrderDetailsData()` re-reads each product
+under that lock and writes the line from what it finds. The seller app's till still re-reads each product in its write loop, so a product
+moved between the two reads would be judged on the old row and invoiced from the new one. That is left as it is on purpose: its write loop
+does a read-modify-write of the `variation` JSON column per line, so two lines of one product rely on the second read seeing the first line's
+write, and handing it one shared row would lose a variant's stock. Nothing in `app/` writes `products.storefront_country`, so no in-tree path
+can move a product's country mid-call; it needs an operator's own SQL or a future "move product between countries" feature, and that feature
+must fix this loop.
+
 Rolling the products migration back is refused while a product of another country exists, because dropping the column would merge the
 catalogues for good.
 
