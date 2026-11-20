@@ -15,8 +15,8 @@ It adds the structure and the one seam, dormant:
 | | |
 |---|---|
 | `config/gcc.php` → `storefronts.market_accounts.enabled` | the switch, from `GCC_MARKET_ACCOUNTS`, off by default |
-| `customer_market_wallet_accounts` | one row per (customer, market): `currency_code`, `legal_entity`, `balance` |
-| `customer_market_loyalty_accounts` | one row per (customer, market): `currency_code`, `legal_entity`, `points` |
+| `customer_market_wallet_accounts` | one row per (customer, market): `currency_code`, `legal_entity`, `balance`, `sharing_group` |
+| `customer_market_loyalty_accounts` | one row per (customer, market): `currency_code`, `legal_entity`, `points`, `sharing_group` |
 | `wallet_transactions`, `loyalty_point_transactions` | one nullable column: `storefront_country` (hidden on both models, so a statement keeps its keys) |
 | `App\Services\Wallet\CustomerMarketBalances` | the one way to read a market balance and the one way to change it |
 | `App\Services\Wallet\Reconciliation\MarketAccountReconciler` | per market, what its accounts hold against what its ledger moved |
@@ -49,6 +49,16 @@ The full attribution of a ledger row — what it was for, who made it, its store
 
 This stream adds **only `storefront_country`**, which its reconciliation cannot do without, and it is timestamped `2026_12_05_120000` so that where both are pending E-05 runs first and this one finds the column already there. It adds no `currency_code` and no selling company to either ledger, so one concept never has two columns (E-05's `legal_entity_id` is the one). Its `down()` drops a ledger column **only when E-05 is not recorded in the `migrations` table**, so rolling this migration back on a database that has E-05 never takes away a column that stream's writers are filling, and never forgets a recorded currency. `MarketAccountExpandMigrationTest` pins both halves.
 
+## The sharing key, which nothing reads (E-02, fourth criterion)
+
+`sharing_group` is on both account tables, added by `2026_12_05_140000_add_sharing_key_to_market_balance_accounts`: one nullable 64-character string, no default, no index, appended, and **no code path reads or writes it**. Accounts that would one day share a balance would carry the same value in it; until a reader is written every account carries null and every market's balance is its own.
+
+Turning sharing on is deliberately **not a setting**. A column alone shares nothing — `CustomerMarketBalances` reads and writes one account found by (customer, market) and would have to be changed to read a group — so it takes a code change a person writes and another reviews, which is what the criterion asks for. It is a free string and not a foreign key because the shape of a group is exactly what is undecided: the legal entity, a currency union, or a list written by hand. An empty column is cheap to replace once the shape is known.
+
+Three things hold it there. `MarketAccountSharingKeyTest` reads every table of its database whole on both sides of the migration, so adding the column is shown to change no row, no default, no type, no index and no position, and asserts that two markets carrying the SAME key still hold their own balances. `NothingReadsTheSharingKeyTest` reads every PHP, JavaScript, Vue, TypeScript, JSON and SQL file of `app`, `bootstrap`, `config`, `database`, `installation`, `Modules`, `public`, `resources`, `routes`, `scripts`, `tests` and the two files at the repository root, through the platform's own `PlatformWriteScanner`, which resolves a constant, reads a name written in pieces whole, ignores the case the database ignores, and reports a name it cannot read so that the guard's list has to name the file. And the key is **hidden on both account models**, as `storefront_country` is on the two ledger models, so a key a later slice begins to fill can never appear in an API answer.
+
+The migration **refuses to run before `2026_12_05_120000` has created the tables** rather than skipping: Laravel records a migration that returns quietly as run and never offers it again, so a skip would leave the column permanently absent on a database where this one ran first. Its rollback drops the column while nothing carries one and refuses once any account of **either** kind carries a group.
+
 ## Rolling the migration back
 
 It is expand-only: two empty tables and one nullable column per ledger, and `down()` drops exactly those that are its own. While it is still dormant it rolls back to the database it found, byte for byte (`MarketAccountExpandMigrationTest`). Once a customer holds a market account, or a ledger row carries a column this rollback would drop, the rollback is **refused**: dropping it would forget money that cannot be worked out again. That is the same discipline as `orders.storefront_country`.
@@ -60,7 +70,6 @@ It is expand-only: two empty tables and one nullable column per ledger, and `dow
 3. A read switch per market, so one market at a time answers from its account.
 4. A rollback that restores the exact old balances, rehearsed on a disposable copy.
 5. Per-market settings: the wallet switch, the top-up limits and bonus tiers, and the loyalty earn rate, exchange rate and minimum (E-01, E-02).
-6. The disabled sharing key of E-02, which no code path reads.
 
 None of that may touch real data without separate owner approval (charter section 4).
 

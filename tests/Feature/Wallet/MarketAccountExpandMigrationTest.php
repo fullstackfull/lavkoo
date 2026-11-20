@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 use Tests\Support\BuildsMarketAccountSchema;
+use Tests\Support\CapturesTableState;
 use Tests\TestCase;
 
 /**
@@ -21,6 +22,7 @@ use Tests\TestCase;
 class MarketAccountExpandMigrationTest extends TestCase
 {
     use BuildsMarketAccountSchema;
+    use CapturesTableState;
 
     private const LEDGERS = ['wallet_transactions', 'loyalty_point_transactions'];
 
@@ -54,29 +56,6 @@ class MarketAccountExpandMigrationTest extends TestCase
         ];
     }
 
-    /** @return array<string, array<string, mixed>> every column of a table by name, with the facts a change of shape would alter */
-    private function columns(string $table): array
-    {
-        $facts = [];
-
-        foreach (Schema::getColumns($table) as $column) {
-            $facts[$column['name']] = [
-                'type' => $column['type'],
-                'nullable' => $column['nullable'],
-                'default' => $column['default'],
-                'auto_increment' => $column['auto_increment'] ?? false,
-            ];
-        }
-
-        return $facts;
-    }
-
-    /** @return list<array<string, mixed>> */
-    private function rowsOf(string $table): array
-    {
-        return array_map(static fn (object $row): array => (array) $row, DB::table($table)->orderBy('id')->get()->all());
-    }
-
     private function seedTheStoreAsItIsToday(): void
     {
         $this->seedCustomer(1, walletBalance: 250.5, loyaltyPoints: 80);
@@ -95,11 +74,11 @@ class MarketAccountExpandMigrationTest extends TestCase
     #[DataProvider('ledgers')]
     public function test_every_column_the_migration_adds_to_a_ledger_is_nullable_with_no_default(string $ledger): void
     {
-        $before = $this->columns($ledger);
+        $before = $this->columnsOf($ledger);
 
         $this->runMarketAccountMigration();
 
-        $after = $this->columns($ledger);
+        $after = $this->columnsOf($ledger);
         $added = array_diff(array_keys($after), array_keys($before));
 
         $this->assertSame(self::ADDED_COLUMNS, array_values($added), 'the market column and nothing else');
@@ -258,11 +237,11 @@ class MarketAccountExpandMigrationTest extends TestCase
     public function test_it_adds_nothing_to_a_ledger_the_attribution_migration_has_already_attributed(): void
     {
         $this->recordTheAttributionMigration();
-        $before = array_map($this->columns(...), array_combine(self::LEDGERS, self::LEDGERS));
+        $before = array_map($this->columnsOf(...), array_combine(self::LEDGERS, self::LEDGERS));
 
         $this->runMarketAccountMigration();
 
-        $this->assertSame($before, array_map($this->columns(...), array_combine(self::LEDGERS, self::LEDGERS)), 'the ledgers are left exactly as that migration left them');
+        $this->assertSame($before, array_map($this->columnsOf(...), array_combine(self::LEDGERS, self::LEDGERS)), 'the ledgers are left exactly as that migration left them');
     }
 
     public function test_rolling_back_leaves_every_ledger_column_the_attribution_migration_owns(): void
@@ -326,15 +305,9 @@ class MarketAccountExpandMigrationTest extends TestCase
         }
     }
 
-    /** @return array<string, mixed> the shape of every table the migration touches, and every row in it */
+    /** @return array<string, mixed> the shape of every table the migration touches, the indexes on it and every row in it */
     private function schemaAndRows(): array
     {
-        $state = [];
-
-        foreach (['users', ...self::LEDGERS, ...self::ACCOUNTS] as $table) {
-            $state[$table] = Schema::hasTable($table) ? ['columns' => $this->columns($table), 'rows' => $this->rowsOf($table)] : null;
-        }
-
-        return $state;
+        return $this->stateOf(tables: ['users', ...self::LEDGERS, ...self::ACCOUNTS]);
     }
 }

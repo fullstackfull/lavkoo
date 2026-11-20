@@ -7,10 +7,21 @@ namespace Tests\Support;
  * variable, an alias, `from()`, a builder kept in a variable and written on a later statement, a join update), raw SQL (a table named, or interpolated), the schema builder, and the
  * platform's models (made, bound, fetched and saved on another statement, or written through a relation). It reads text, not behaviour: what it cannot resolve it reports as "(a table named in a variable)", which
  * the guard's list has to name.
+ *
+ * `namesColumnIn()` asks the same question of one column name instead of a table, with the same resolution and the same report of what it cannot read, for a guard that has to show
+ * that nothing in the application reads a column.
  */
 final class PlatformWriteScanner
 {
     public const UNKNOWN_TABLE = '(a table named in a variable)';
+
+    public const UNKNOWN_COLUMN = '(a column named where this scan cannot read it)';
+
+    /** Where a query builder is handed one column name. A name arriving at any of these as a variable or a call is a name this scan cannot read. */
+    private const COLUMN_POSITIONS = 'value|select|addSelect|selectRaw|pluck|where|whereNot|whereNull|whereNotNull|whereIn|whereNotIn|whereRaw|orderBy|orderByDesc|groupBy|groupByRaw|having|sum|avg|min|max|increment|decrement|incrementEach|decrementEach';
+
+    /** Where a column name is a key of an array. The array itself may be a variable — then the keys are in the variable, not here. */
+    private const COLUMN_KEY_POSITIONS = 'update|updateOrInsert|insert|insertGetId|insertOrIgnore|upsert';
 
     private const BUILDER_WRITES = 'insert|insertGetId|insertOrIgnore|insertUsing|update|updateOrInsert|upsert|delete|truncate|increment|decrement|incrementEach|decrementEach';
 
@@ -57,6 +68,97 @@ final class PlatformWriteScanner
         sort($written);
 
         return $written;
+    }
+
+    /**
+     * Every way a piece of code names one column.
+     *
+     * The name is resolved the way a table name is: a string constant of the file stands for its value, a string written in pieces
+     * (`'sharing' . '_group'`) is read whole, and the case the database ignores in a column name is ignored here too. Comments are not code,
+     * so prose that explains the column does not count, while a quoted string, an identifier (`->sharing_group`), raw SQL and the markup of a
+     * Blade file all do, each being a way to read or write it.
+     *
+     * A name this scan CANNOT read is reported as UNKNOWN_COLUMN rather than passing silently, so the guard's list has to name the file and a
+     * person has to read it: a file that reaches one of `$tables` and puts a variable, a call, a dynamic array key or a property read by name
+     * where a column name goes. An array handed to `insert()` whole is not that — its keys are in the array, and the file spells them there.
+     *
+     * @param bool $asPhp false for a file that is not PHP (JavaScript, JSON, SQL, a template): it is read as text, since there are no tokens to read
+     * @param list<string> $tables the tables, and the models of them, whose column names matter
+     * @return list<string> the column where the code names it, UNKNOWN_COLUMN where this scan cannot read the name, sorted
+     */
+    public function namesColumnIn(string $code, string $column, bool $asPhp, array $tables = []): array
+    {
+        $resolved = $this->withPiecesReadWhole($code);
+        $named = [];
+
+        if (stripos($resolved, $column) !== false && (!$asPhp || $this->namesItOutsideAComment($resolved, $column))) {
+            $named[] = $column;
+        }
+
+        if ($asPhp && $this->reaches($resolved, $tables) && $this->aColumnNameIsBuilt($resolved)) {
+            $named[] = self::UNKNOWN_COLUMN;
+        }
+
+        sort($named);
+
+        return $named;
+    }
+
+    /** The code with its string constants standing for their values and its concatenated string literals joined, which a column name may be written as. */
+    private function withPiecesReadWhole(string $code): string
+    {
+        $read = $code;
+
+        foreach ($this->constantsIn($code) as $name => $value) {
+            $read = (string) preg_replace('/(?:self|static|[A-Z]\w*)::' . preg_quote($name, '/') . '\b/', "'" . $value . "'", $read);
+        }
+
+        do {
+            $read = (string) preg_replace('/([\'"])([^\'"\\\\]*)\1\s*\.\s*([\'"])([^\'"\\\\]*)\3/', '$1$2$4$1', $read, -1, $joined);
+        } while ($joined > 0);
+
+        return $read;
+    }
+
+    /** Whether PHP code names the column as code rather than in a comment. Only asked of a file that names it, so the tokens are read for a handful of files. */
+    private function namesItOutsideAComment(string $code, string $column): bool
+    {
+        foreach (token_get_all($code) as $token) {
+            if (is_array($token) && !in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true) && stripos($token[1], $column) !== false) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @param list<string> $tables */
+    private function reaches(string $code, array $tables): bool
+    {
+        foreach ($tables as $table) {
+            if (stripos($code, $table) !== false) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Whether the code puts something other than a written-out name where a column name goes: a variable, a call, a dynamic array key or a property read by name. */
+    private function aColumnNameIsBuilt(string $code): bool
+    {
+        foreach ($this->statementsOf($code) as $statement) {
+            $built = preg_match('/->(?:' . self::COLUMN_POSITIONS . ')\(\s*(?:\$|\[\s*\$|[A-Za-z_]\w*(?:::|\s*\())/', $statement) === 1
+                || preg_match('/->(?:' . self::COLUMN_KEY_POSITIONS . ')\(\s*\[(?:[^\]]*?,)?\s*\$[^\s=]*\s*=>/', $statement) === 1
+                || preg_match('/->\{/', $statement) === 1
+                || preg_match('/(?:DB::raw|DB::statement|DB::unprepared|->raw|Raw)\([^;]*\$/', $statement) === 1;
+
+            if ($built) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

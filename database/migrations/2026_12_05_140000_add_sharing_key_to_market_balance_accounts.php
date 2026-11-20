@@ -25,22 +25,33 @@ use Illuminate\Support\Facades\Schema;
  * it may turn out to be the legal entity, a currency union, or a list the owner writes by hand. A nullable free string decides none of
  * that and is cheap to replace once the shape is known, which an empty column always is.
  *
- * EXPAND ONLY, AND NO INDEX. The column is nullable with no default, so adding it reads and writes no existing row and changes no answer
- * any customer is served; both tables are empty while the feature is dormant. It carries no index, because an index pays for a read and
+ * EXPAND ONLY, AND NO INDEX. The column is nullable with no default and is appended, so adding it reads and writes no existing row,
+ * changes no answer any customer is served, and asks for no table rebuild on MySQL 8 or MariaDB 11.4 (an instant add before MySQL 8.0.29
+ * has to be the last column); both tables are empty while the feature is dormant. It carries no index, because an index pays for a read and
  * there is no reader: the index goes on in the same change as the first query that groups by it, when the plans of that query on real data
  * can be read. The rollback drops the column while nothing carries one, and refuses once a row does, so a key a later slice has begun to
  * fill is never silently forgotten.
+ *
+ * IT REFUSES TO RUN BEFORE THE TABLES EXIST. A missing accounts table is not a reason to do nothing: Laravel records a migration that
+ * returns quietly as run and never offers it again, so skipping would leave the column permanently absent on a database where this ran
+ * before 2026_12_05_120000 — which a branch retargeted off that one, or a rollback of it, is enough to produce. It throws instead, naming
+ * the migration that has to run first, and `MarketAccountSharingKeyTest` runs the two orders against each other.
  */
 return new class extends Migration {
-    /** The accounts of E-01 and E-02, created by 2026_12_05_120000_create_customer_market_balance_accounts. */
+    /** The accounts of E-01 and E-02. */
     private const ACCOUNTS = ['customer_market_wallet_accounts', 'customer_market_loyalty_accounts'];
+
+    /** The migration that creates both account tables, and so the one that has to have run before this one can add anything to them. */
+    private const ACCOUNTS_MIGRATION = '2026_12_05_120000_create_customer_market_balance_accounts';
 
     private const SHARING_KEY = 'sharing_group';
 
     public function up(): void
     {
         foreach (self::ACCOUNTS as $accounts) {
-            if (!Schema::hasTable($accounts) || Schema::hasColumn($accounts, self::SHARING_KEY)) {
+            $this->refuseWithoutTheAccounts(accounts: $accounts);
+
+            if (Schema::hasColumn($accounts, self::SHARING_KEY)) {
                 continue;
             }
 
@@ -58,6 +69,16 @@ return new class extends Migration {
             if (Schema::hasTable($accounts) && Schema::hasColumn($accounts, self::SHARING_KEY)) {
                 Schema::table($accounts, fn (Blueprint $table) => $table->dropColumn(self::SHARING_KEY));
             }
+        }
+    }
+
+    /** A migration that does nothing is recorded as run and never offered again, so there is no second chance to add the column later. */
+    private function refuseWithoutTheAccounts(string $accounts): void
+    {
+        if (!Schema::hasTable($accounts)) {
+            throw new RuntimeException(
+                "There is no {$accounts} table to leave room for a sharing key in. Run " . self::ACCOUNTS_MIGRATION . ' first.',
+            );
         }
     }
 
