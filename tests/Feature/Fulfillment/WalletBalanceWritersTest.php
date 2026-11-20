@@ -311,6 +311,13 @@ class WalletBalanceWritersTest extends TestCase
             'raw SQL behind a comment line that is only its marker' => ['DB::statement("--\nupdate users set wallet_balance = 0, loyalty_point = 0");', 'wallet_balance', 1],
             'raw SQL behind a comment line that is only its marker and a carriage return' => ['DB::statement("--\r\nupdate users set wallet_balance = 0, loyalty_point = 0");', 'wallet_balance', 1],
             'raw SQL built in a variable and handed to the database later' => ["\$sql = \"update users set wallet_balance = 0\";\nDB::statement(\$sql);", 'wallet_balance', 1],
+            // One statement by the time the database reads it, and read as two harmless halves -- a verb with no assignment, an assignment with no verb -- by every head before this one.
+            'raw SQL whose set clause is appended to the verb' => ["\$sql = \"update users\";\n\$sql .= \" set wallet_balance = 0\";\nDB::statement(\$sql);", 'wallet_balance', 1],
+            'raw SQL whose column is appended to its set clause' => ["\$sql = \"update users set \";\n\$sql .= \"wallet_balance = 0\";\nDB::statement(\$sql);", 'wallet_balance', 1],
+            'raw SQL that sets the column with INSERT .. SET' => ['DB::statement("insert into users set wallet_balance = 0");', 'wallet_balance', 1],
+            'raw SQL that replaces the row naming the column' => ['DB::statement("replace into users (id, wallet_balance) values (1, 0)");', 'wallet_balance', 1],
+            'raw SQL whose set clause is followed by an order and a limit' => ['DB::statement("update users set wallet_balance = 0 order by id limit 1");', 'wallet_balance', 1],
+            'raw SQL that updates the column after a read-only common table expression' => ['DB::statement("with poor as (select id from users where loyalty_point = 0) update users set wallet_balance = 0 where id in (select id from poor)");', 'wallet_balance', 1],
             'an update array a method of the file hands back' => ["class X { private function values(): array { return ['wallet_balance' => '0']; }\npublic function z() { DB::table('users')->update(\$this->values()); } }", 'wallet_balance', 1],
             'an update array written out inside a call that is itself handed to the write' => ["DB::table('users')->update(array_merge(\$base, ['wallet_balance' => '0']));", 'wallet_balance', 1],
             'an update array added to a variable with the compound operator' => ["\$values = [];\n\$values += ['loyalty_point' => '0'];\nDB::table('users')->update(\$values);", 'loyalty_point', 1],
@@ -339,6 +346,7 @@ class WalletBalanceWritersTest extends TestCase
             'the column read by an ORDER BY' => ['DB::statement("update users set remark = 1 order by wallet_balance = 0 desc limit 5");', 'wallet_balance', 0],
             'the column read by a window expression' => ['DB::statement("insert into z (a) select sum(wallet_balance = 0) over (partition by id) from users");', 'wallet_balance', 0],
             'the column read by the join of an INSERT .. SELECT' => ['DB::statement("insert into z (a) select t.id from z t join users u on u.wallet_balance = 0");', 'wallet_balance', 0],
+            'the column filtered on by a delete, which removes a row and assigns nothing' => ['DB::statement("delete from users where wallet_balance = 0");', 'wallet_balance', 0],
             'a cast whose array is handed to nothing' => ["protected \$casts = ['wallet_balance' => 'float'];\n\$user->save();", 'wallet_balance', 0],
             // The array has to reach a write whatever its value. Reading a key whose value was not a string wherever it stood counted all five of these, so a real write could be
             // planted in any file that already held one and no count moved.

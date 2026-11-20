@@ -258,23 +258,40 @@ final class PlatformWriteScanner
     private static function sqlHandedToTheDatabase(string $code): array
     {
         $statements = self::statementsOf($code);
-        $handed = [];
+        $sql = [];
 
         foreach (self::argumentsOf($code, self::RAW_SQL_WRITES) as $call) {
-            $handed[] = $call;
+            array_push($sql, ...self::stringsIn($call));
             preg_match_all('/\$(?:this->)?(\w+)/', $call, $named);
             foreach (array_unique($named[1]) as $name) {
-                $built = '/\$(?:this->)?' . preg_quote($name, '/') . '\s*\.?=(?!=)/';
-                $handed = array_merge($handed, array_filter($statements, static fn (string $statement): bool => preg_match($built, $statement) === 1));
+                $sql[] = self::sqlBuiltIn($statements, $name);
             }
         }
 
-        $strings = [];
-        foreach ($handed as $text) {
-            array_push($strings, ...self::stringsIn($text));
+        return $sql;
+    }
+
+    /**
+     * The SQL the code builds in one variable or property, its pieces joined in the order the statements build them. A statement assembled
+     * by appending is one statement by the time the database reads it, and reading the pieces apart left the verb in one piece and the
+     * assignment in another, each harmless alone: `$sql = "update users"; $sql .= " set wallet_balance = 0"; DB::statement($sql);` was read
+     * as no write by this head's predecessors as well. Joining is the safe direction: pieces that never meet at run time read as one
+     * statement and are reported, which is a false alarm a person can see.
+     *
+     * @param list<string> $statements the code split at its semicolons, the comments left out
+     */
+    private static function sqlBuiltIn(array $statements, string $name): string
+    {
+        $built = '/\$(?:this->)?' . preg_quote($name, '/') . '\s*\.?=(?!=)/';
+        $pieces = [];
+
+        foreach ($statements as $statement) {
+            if (preg_match($built, $statement) === 1) {
+                array_push($pieces, ...self::stringsIn($statement));
+            }
         }
 
-        return $strings;
+        return implode('', $pieces);
     }
 
     /**
