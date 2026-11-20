@@ -176,7 +176,7 @@ class TransactionReportController extends Controller
         $customers = User::whereNotIn('id', [0])->get();
 
         $transactions = self::order_transaction_table_data_filter($request);
-        $transactions = $transactions->latest('created_at')->paginate(Helpers::pagination_limit())->appends($query_param);
+        $transactions = $transactions->latest('created_at')->latest('id')->paginate(Helpers::pagination_limit())->appends($query_param);
 
         $order_transaction_chart = self::order_transaction_chart_filter($request);
 
@@ -936,7 +936,7 @@ class TransactionReportController extends Controller
             });
 
         $expense_transactions_table = self::date_wise_common_filter($expense_transaction_query, $date_type, $from, $to);
-        $expense_transactions_table = $expense_transactions_table->latest('created_at')->paginate(Helpers::pagination_limit())->appends($query_param);
+        $expense_transactions_table = $expense_transactions_table->latest('created_at')->latest('id')->paginate(Helpers::pagination_limit())->appends($query_param);
 
         $chartDataExpenseTransactionLabel = array_values(collect(array_keys($expense_transaction_chart['discount_amount']))->map(function ($item) use ($request) {
             if ($request['date_type'] == 'this_month') {
