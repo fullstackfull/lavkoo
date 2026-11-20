@@ -421,4 +421,28 @@ class PosSingleCompanyTest extends ApiAddressTestCase
             'debited the money the sale was rung up for, once',
         );
     }
+
+    /**
+     * The debit's condition no longer reads the payload, so a payload with no lines is charged exactly as it was. That is the whole
+     * purpose of splitting the one `if` into two, and this is the pin on it: collapsing them back leaves the suite green otherwise.
+     *
+     * What it preserves is a defect, not a feature. The till writes an **order row with no lines** and takes the money for it, measured
+     * identically on 20032ba0 and on this head. It is preserved here because correcting it is a separate, reviewable change — it decides
+     * what a lineless payload should answer — and recorded in docs/gcc/STOREFRONT_FLAG_RUNBOOK.md so it is not read as intended.
+     */
+    public function test_a_wallet_payload_with_no_lines_is_still_charged_for_the_lineless_order_it_writes(): void
+    {
+        $customerId = $this->customerWithAFullWallet();
+
+        $this->sellAtTheSellerAppTill([], 100, 'wallet', $customerId);
+
+        $this->assertSame(['balance' => '900.00', 'debits' => 1], $this->wallet($customerId), 'charged as it was before the split');
+        $this->assertSame(
+            '100.00',
+            number_format((float) DB::table('wallet_transactions')->where('user_id', $customerId)->value('debit'), 2, '.', ''),
+            'for the amount the payload named',
+        );
+        $this->assertSame(1, DB::table('orders')->count(), 'and the order it is charged for is written');
+        $this->assertSame([], $this->ordersWithTheirLines(), 'with no lines on it');
+    }
 }

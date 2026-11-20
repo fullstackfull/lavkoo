@@ -95,6 +95,22 @@ ordering was the tills' own and predates this rule — the seller app's out-of-s
 way — so the debit now runs after every refusal and before the first write at all three tills. A refused sale leaves the balance where it was
 and writes no wallet transaction; a lawful one debits exactly once. Pinned by `PosSingleCompanyTest`.
 
+**What "a refusal costs nothing" covers, and what it does not.** It covers the refusals in the table above and the seller app's own
+out-of-stock refusal: each leaves the balance where it was, writes no order and takes no stock. It does **not** mean the panel tills refuse a
+line they cannot fill — **they do not refuse one at all.** A line for 99 units of a product holding 10 is sold at both the admin and the
+vendor till: the order and its line are written, `current_stock` is **floored** 10 → 0 rather than going negative, and a wallet-funded sale is
+debited in full. Measured at both tills, identically on this head and on `20032ba0`: toast `success`, 1 order, 1 line, stock 10 → 0, balance
+1,000.00 → 900.00, one wallet transaction, debit 100.00. Only the seller app's till compares the quantity with the stock. This oversell path
+is **named here, not fixed**: it predates this rule and is untouched by it, and changing it decides what an operator at a counter sees when
+the shelf disagrees with the screen — a reviewable change with its own inventory consequences.
+
+**A wallet payload with no lines writes a lineless order and is charged for it.** At the seller app's till the debit's condition reads the
+payment method and the customer, not the payload, so a payload whose `modified_cart` is empty is still charged: an order row with **no
+lines**, balance 1,000.00 → 900.00, one wallet transaction, debit 100.00 — measured identically on this head and on `20032ba0`. That is a
+**preserved defect, not a feature.** The debit was moved to sit after every refusal, and this path charging exactly as it did before is what
+makes the move behaviour-preserving rather than a change of what a lineless payload costs. It is pinned by `PosSingleCompanyTest`, so
+collapsing the two conditions back into one is caught. What a lineless payload *should* answer is a separate change.
+
 The rule reads the two halves of the selling scope apart — country against country, company against company — because a row says nothing
 about a half it leaves null. That is the only state a backfill filling `legal_entity_id` row by row can be observed in: one product carrying
 a company, the next not yet reached. Reading the halves as one joined string refused those two Saudi products as if they were two selling
