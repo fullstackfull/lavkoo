@@ -2159,6 +2159,31 @@ CRITERIA['E-17'] = {1: ('MET', "PR 135 (draft, head ebbce05a, gcc/p1-settlement-
     "and which this change does not touch; that SQLite job read 6462 tests with Failures: 1. "
     "NOT covered: a payout. PayoutService still draws on the seller's whole withdrawable amount, so money of two currencies can still be paid out of one sum.")}
 
+# E-02.3 was recorded MET on pull request 130 without an independent review. One was then run, and the criterion does not hold on the strict rule: a named test has to COVER the criterion,
+# and the half the pull request leads with ("not one existing row read or written") has no test behind it at all. Downgraded to CODED until the fixes have a green named job of their own.
+CRITERIA['E-02'] = {3: ('CODED', "CORRECTED 2026-11-20, from MET: PR 130 (draft, head 3152b0de, gcc/p1-market-account-sharing-key onto gcc/p1-market-wallet-loyalty-accounts) was recorded MET "
+    "without an independent review. One was then run, and the criterion holds in one of its three halves only. "
+    "WHAT IS PROVEN, and proven well: enabling sharing needs a code change. No non-code route exists because no reader exists for data to feed; MarketAccountRepository::amountOf and ::locked both "
+    "key on (customer_id, market) and ::open and ::writeAmount each touch one row, so grouping means a PHP edit. The reviewer implemented sharing TWICE with a runtime-built column name that fully "
+    "evaded the source scan, and the two behavioural tests killed it both times (test_two_markets_given_the_same_key_still_hold_their_own_money; "
+    "test_a_market_the_key_groups_is_still_refused_the_money_of_another), plus a third for an account opened carrying a key and a fourth for the key reaching $fillable. Those behavioural tests, not "
+    "the scan, are what hold this criterion. "
+    "WHAT IS NOT PROVEN. First, the column exists and no existing row changes: TRUE of the code as shipped (verified on a real engine with a row inserted before up(): byte-identical after, "
+    "sharing_group NULL) but UNTESTED BY THE PULL REQUEST. Its only schema capture is Schema::getColumnListing() put through sort(), so it sees names and nothing else. Two mutations of up() passed "
+    "14 of 14 in the file AND 114 of 114 in tests/Feature/Wallet: one backfilling sharing_group onto every existing account, and one zeroing every users.wallet_balance and users.loyalty_point. "
+    "Three schema promises of the docblock survived as well (an added index, which the docblock expressly forbids; the column widened from varchar(64); the column moved with ->after('market')). "
+    "Second, nothing reads the key: true at this head (a case-insensitive grep over every extension finds exactly the migration and the test) but the scan meant to keep it true is beatable from "
+    "inside the tree it scans, eight ways, with the scan green: a concatenated name; a constant plus concatenation held in a variable; whereRaw('SHARING_GROUP = ?'), which is a WORKING read because "
+    "the scan's str_contains is case-sensitive and the engines' column names are not; a .ts and a .json file under resources/js, since only php, js and vue are read; and plain readers in bootstrap/, "
+    "public/ and scripts/, none of which is in the scanned directory list although this repository has real PHP in all three. installation/ is unscanned too, which matters because production imports "
+    "installation/backup/database.sql BEFORE migrating. "
+    "ALSO FOUND, not part of the criterion but of the same change: the migration SKIPS silently when the base migration has not run (if (!Schema::hasTable(...)) { continue; }), so Laravel records it "
+    "as run and the column is never added at all — the reviewer executed that sequence on a real engine and Schema::hasColumn stayed false on both tables permanently; and the rollback refusal is "
+    "tested for the wallet table only (it is the one test in the file without the data provider), so narrowing the refusal loop to that table survived 14 of 14 while loyalty keys would be silently "
+    "dropped on a rollback. Neither account model sets $hidden, so a key would reach any future serialisation of these models. "
+    "Measured by the reviewer: the file 14 tests / 43 assertions, tests/Feature/Wallet 114 / 365, green on SQLite and on MariaDB 10.11. CI on this head: run 44565065667, 24 of 25 jobs success, the "
+    "deployment overlay red by design. The fixes are in hand on the same branch; this criterion does not return to MET until they have a named green job of their own.")}
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
