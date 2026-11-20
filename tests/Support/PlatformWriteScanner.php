@@ -746,8 +746,9 @@ final class PlatformWriteScanner
      * statement itself.
      *
      * Cutting the read clause away instead -- everything from the first `where` -- took the assignment with it whenever a `where` came first: inside a join subquery, inside a
-     * subselect of the SET clause, or inside a quoted literal that spells the word. Seven money writes read as none that way. Isolating the assignment also tells a write from the
-     * clauses that only READ the column, which subtracting never did: a JOIN condition, an `ORDER BY`, a window expression and the join of an `INSERT .. SELECT` assign nothing.
+     * subselect of the SET clause, or inside a quoted literal that spells the word. Eight money writes read as none that way, each of them proved to write on MariaDB 10.11.14.
+     * Isolating the assignment also tells a write from the clauses that only READ the column, which subtracting never did: a JOIN condition, an `ORDER BY`, a window expression
+     * and the join of an `INSERT .. SELECT` assign nothing.
      *
      * Belonging to the statement itself means outside quotes and outside parentheses: the `where` of `set x = (select 1 from t where ok = 1), wallet_balance = 0` is the
      * subselect's, and the clause runs on past it.
