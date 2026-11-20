@@ -2358,6 +2358,34 @@ CRITERIA['E-17'][2] = ('MISSING', "DOWNGRADED 2026-11-20 from CODED, on an indep
     "column present on vendor_ledger_entries but not on vendor_settlements, two settlements are drawn for the same seller and currency with no column to tell them apart; only the "
     "both-present and both-absent shapes are tested.")
 
+# E-03.3 was MET on a guard that could not see the one place the mutation was planted. Corrected to CODED by the same rule E-02.3 was corrected by: the fix is in hand and measured, and the
+# criterion returns to MET when a named green job on the fixed head exists. This is the third record this session where a criterion rested on a test that did not cover what it claimed.
+CRITERIA.setdefault('E-03', {})[3] = ('CODED', "CORRECTED 2026-11-20, from MET. The criterion says a source-scan test FAILS when code assigns wallet_balance or loyalty_point outside the "
+    "single writer. For any code under database/ that was FALSE, and it was proved false by running it rather than by reading: a real "
+    "DB::table('users')->update(['wallet_balance' => 0, 'loyalty_point' => 0]) appended to the up() of a real migration "
+    "(database/migrations/2025_07_13_021823_modify_wallet_balance_column_in_users_table.php) left ALL EIGHTEEN tests of "
+    "tests/Feature/Fulfillment/WalletBalanceWritersTest green — the three behaviour tests green, and the self-check "
+    "test_the_scan_reads_the_source_it_is_meant_to_so_a_wrong_root_cannot_make_it_pass green on its own. That is the green that should have been red. "
+    "THE CAUSE WAS ONE LINE, AND IT WAS NOT THE DETECTOR. The detector is good: it strips comments by token and matches five write forms, one of which matches that exact array. The root "
+    "list was private const ROOTS = ['app', 'Modules', 'routes', 'config'] — 'database' absent — so writersOf() never opened the file. Measured rather than assumed: the unmodified detector "
+    "run over all 342 PHP files of database/ reports 0 files, and over the whole repository reports exactly the 6 known writers in app/ plus 4 files in tests/. And the guard's own "
+    "self-check could not catch it, because it asserted only that more than 500 files were scanned and that the listed writers exist on disk — both true with database/ absent. "
+    "Found by a read-only audit of all 378 migrations across all 147 refs of this repository, which reported it honestly as a READ finding it had not executed. It has now been executed. "
+    "THE FIX, on PR 95 (draft, branch gcc/p1-wallet-balance-writers-guard, base main at c5c04b7b, head 9f6bc526, three commits): database/ is a scanned root, and the root list is pinned "
+    "twice over so narrowing it again fails a test. THE FEARED FALSE ALARM MEASURED AT EXACTLY ZERO: five real migrations name a money column and none of them WRITES one, so no file is "
+    "allow-listed and the schema-versus-data distinction is carried by the write forms plus 17 synthetic DDL cases. Nine further evasion forms are closed in the shared scanner: backticked "
+    "SQL, INSERT column lists, heredocs, interpolation of a variable bound in the same file, class constants, concatenation, escape sequences, loop variables and seeders. "
+    "The guard went from 18 tests / 24 assertions to 41 / 74, identical on SQLite and MariaDB 10.11; the scan now reads 2974 PHP files (app 2341, database 342, Modules 229, config 40, "
+    "routes 22) and takes 4.5s instead of 1.2s. tests/Unit stays green at 1108 / 750936, and tests/Feature/Fulfillment whole at 1269 / 7273. "
+    "WHY CODED AND NOT MET: CI has not been read on 9f6bc526. The run on it was still in progress when this was written. The criterion returns to MET on a named green job on that head, "
+    "which is the rule E-02.3 was corrected by earlier today. "
+    "SEVEN WAYS PAST THE GUARD REMAIN, each measured against the NEW reader and each reported rather than hidden. Five are one class — a column name the file does not spell: interpolated "
+    "from a variable the file does not bind, arriving as a method argument, read from config(), read from a database row, or split across a concatenation. Closing those needs resolution "
+    "across call sites, which is a real static analyser and not a text reader. One needs behaviour rather than text: a write a model observer, event or vendor package performs on the "
+    "code's behalf. And one needs a non-PHP reader: SQL inside installation/backup/database.sql, which is not PHP, is never read, is in no ref of this repository, and is what the project's "
+    "own install path imports before migrating. tests/ is deliberately not scanned, with the reason in the code, because a test sets a balance up on purpose. "
+    "ONE CORRECTION TO THE AUDIT ITSELF, for the record: it said 2026_05_07_000001 issues 91 raw ALTERs. Counted, it is 90 in up() and 90 in down().")
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
