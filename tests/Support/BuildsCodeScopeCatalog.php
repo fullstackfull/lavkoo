@@ -33,6 +33,7 @@ trait BuildsCodeScopeCatalog
             $table->decimal('unit_price', 24, 2)->default(10);
             $table->text('variation')->nullable();
             $table->string('fulfillment_provider')->nullable();
+            $table->text('bought_together_ids')->nullable();
             $table->unsignedBigInteger('shop_id')->nullable();
             $table->text('category_ids')->nullable();
             $table->unsignedBigInteger('category_id')->nullable();

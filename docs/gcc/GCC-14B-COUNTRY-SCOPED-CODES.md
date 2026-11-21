@@ -182,6 +182,10 @@ while the markets are off (`ProductCopyControlTest`), so the card is byte for by
 | Audited | one `catalog.product.copied_to_country` line through `AuditLogger::recordOrFail`, naming the source product, both countries, whether the code and the barcode were kept, that no stock or price was carried, and any image whose file could not be read. **The row and the line are written in one transaction**: a copy nobody can see a record of must not exist. |
 | Its own image files | every image — thumbnail, gallery list, colour images, meta image, preview file, digital file — is copied byte for byte to a new name through `FileManagerTrait::copyStoredFile`, which finds the source wherever it is (the public disk, then s3: the stored `*_storage_type` is a hint, not the answer) and writes the copy to whichever disk this installation stores on now. Two records must never point at one file: deleting the source's image would otherwise break the copy, and one country's catalogue would depend on another's storage. A source file that cannot be read leaves the copy's field empty and is named in the audit line — never shared. |
 
+A copy also carries **nothing that points at something of the source's country**: its `fulfillment_provider` and its `bought_together_ids` are
+cleared. A warehouse holds the boxes of one country, and the products a shopper is offered beside this one are that country's rows; carried over, a
+Kuwaiti copy would be fulfilled from the Saudi warehouse and would point its shoppers at products no Kuwaiti storefront shows.
+
 What a copy never carries, because catalogue products stay independent per country (GCC-08, GCC-18): **stock** (the product's and every variant's
 quantity start at zero), **price** (the unit price, the purchase price, the discount and every variant's price start at zero, because the source's
 price is in the source country's currency and carrying it would read as "this is the price here"), the published state (the copy is created

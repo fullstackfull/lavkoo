@@ -43,8 +43,17 @@ final class ProductCopyToCountry
         'digital_file_ready' => ['product/digital-product/', 'digital_file_ready_storage_type'],
     ];
 
-    /** The columns that are the source's own history or the source's own numbers, and are never carried into another country. */
+    /**
+     * The columns that are the source's own history, the source's own numbers, or a pointer at something that belongs to the source's country,
+     * and are never carried into another country.
+     *
+     * `fulfillment_provider` and `bought_together_ids` are the second kind and matter most: a warehouse holds the boxes of one country, and the
+     * products a shopper is offered beside this one are that country's rows. Carried over, a Kuwaiti copy would be fulfilled from the Saudi
+     * warehouse and would point its shoppers at products no Kuwaiti storefront shows.
+     */
     private const NOT_CARRIED = [
+        'fulfillment_provider' => null,
+        'bought_together_ids' => null,
         'current_stock' => 0,
         'unit_price' => 0,
         'purchase_price' => 0,

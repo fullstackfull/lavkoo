@@ -207,6 +207,17 @@ class ProductCopyToCountryTest extends TestCase
         $this->assertSame(0.0, (float) $copy->unit_price);
     }
 
+    public function test_the_copy_points_at_nothing_that_belongs_to_the_source_country(): void
+    {
+        $this->trackCountries();
+        $source = $this->sourceProduct(extra: ['fulfillment_provider' => 'torod_point', 'bought_together_ids' => '[4,5]']);
+
+        $copy = $this->copier->copy(source: $source, targetCountry: 'KW');
+
+        $this->assertNull($copy->getAttributes()['fulfillment_provider'], 'a warehouse holds the boxes of one country');
+        $this->assertNull($copy->getAttributes()['bought_together_ids'], 'the products offered beside it are the source country\'s rows');
+    }
+
     // ---- the copy's image files are its own --------------------------------------------------------------------------------------
 
     public function test_the_copy_does_not_share_an_image_file_with_its_source(): void
