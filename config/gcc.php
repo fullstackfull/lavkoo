@@ -57,9 +57,14 @@ return [
             // settlement, verification and refund use the stamped account and never a fresh look at the settings. The table ships empty; while a country
             // has no account the platform row answers for it, so Saudi Arabia keeps working with an empty table (GCC-19).
             'enabled' => filter_var(env('GCC_PAYMENT_ACCOUNTS', false), FILTER_VALIDATE_BOOLEAN),
-            // Which gateway keys may be configured per company. Only the gateways somebody has read the multi-account documentation for belong here;
-            // a gateway not listed is always read from the platform row, whatever the table holds.
-            'gateways' => ['paymob_accept', 'fatoorah'],
+            // Which gateway keys may be configured per company. A gateway not listed is always read from the platform row, whatever the table holds, and has
+            // no per-company notification address either.
+            //
+            // Paymob only, for now, because it is the one gateway wired end to end: the account's credentials are what its payment starts with and its
+            // return is verified against the account's own secret. MyFatoorah's notification address IS per account (the mechanism is the same), but its
+            // outbound calls still read the one platform settings row through GatewayConfigRepository, so listing it would stamp a payment with an account
+            // whose credentials nothing reads. It joins this list in the same change that makes MyFatoorah read its api_key from the account.
+            'gateways' => ['paymob_accept'],
             // A customer's return from a gateway proves nothing by itself. Off by default: the return is read exactly as it is today. When it is on, a
             // return settles only after the server has confirmed the payment with the gateway itself, and a return it cannot confirm settles nothing.
             'confirm_returns' => filter_var(env('GCC_PAYMENT_CONFIRM_RETURNS', false), FILTER_VALIDATE_BOOLEAN),
