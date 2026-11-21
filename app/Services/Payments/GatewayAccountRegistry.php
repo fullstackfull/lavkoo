@@ -20,9 +20,6 @@ use Illuminate\Support\Facades\Schema;
 #[Singleton]
 final class GatewayAccountRegistry
 {
-    /** How a payment names the account it was taken through. */
-    public const COLUMN = 'gateway_account_id';
-
     public const ENVIRONMENT_LIVE = 'live';
     public const ENVIRONMENT_TEST = 'test';
 

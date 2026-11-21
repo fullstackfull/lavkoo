@@ -15,6 +15,8 @@ use App\Services\Payments\PaymentAccountBinding;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
+use RuntimeException;
 use Tests\Support\BuildsCompanyGatewayAccounts;
 use Tests\TestCase;
 
@@ -101,7 +103,12 @@ class PaymentBelongsToACompanyAccountTest extends TestCase
         $this->assertCount(2, array_unique($references), 'and two payments of one second are two references');
     }
 
-    /** D2-07: 'An attempt keeps its account after the account is edited or disabled; verification, settlement and refund use that account'. */
+    /**
+     * D2-07: 'An attempt keeps its account after the account is edited or disabled; verification, settlement and refund use that account'.
+     *
+     * The freeze, and the two readers that exist: verification and settlement both go to the stamped account. The gateway refund path does not read it
+     * yet (D2-16), so that third of the criterion is not proved here and is not claimed.
+     */
     public function test_an_attempt_keeps_its_account_after_the_account_is_edited_or_disabled(): void
     {
         $kuwait = $this->aCompanyIn('KW');
@@ -160,6 +167,28 @@ class PaymentBelongsToACompanyAccountTest extends TestCase
         $this->anAccountFor(country: 'KW', secrets: ['secret_key' => 'kuwait-sandbox-key'], environment: 'test');
 
         $this->assertSame(2, PaymentGatewayAccount::query()->where('storefront_country', 'KW')->count());
+    }
+
+    /** The table payments point at is not dropped while it holds an account, the way the registry of companies is not (legal_entities). */
+    public function test_the_migration_refuses_to_roll_back_while_an_account_is_registered(): void
+    {
+        $migration = require database_path('migrations/2026_11_28_100000_create_payment_gateway_accounts_table.php');
+        $this->anAccountFor(country: 'KW', secrets: ['secret_key' => self::KUWAIT_SECRET_KEY]);
+
+        try {
+            $migration->down();
+            $this->fail('Rolling back while an account is registered would forget whose account each payment was taken through.');
+        } catch (RuntimeException $refusal) {
+            $this->assertStringContainsString('holds accounts', $refusal->getMessage());
+        }
+
+        $this->assertTrue(Schema::hasTable('payment_gateway_accounts'));
+
+        PaymentGatewayAccount::query()->delete();
+        app(GatewayAccountRegistry::class)->flush();
+        $migration->down();
+
+        $this->assertFalse(Schema::hasTable('payment_gateway_accounts'), 'an empty table rolls back');
     }
 
     /** D2-10: 'A payment names its selling company and gateway account', with the market and the rate in force beside them. */

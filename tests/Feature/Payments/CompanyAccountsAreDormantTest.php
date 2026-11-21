@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsCompanyGatewayAccounts;
+use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
 
 /**
@@ -36,6 +37,9 @@ use Tests\TestCase;
 class CompanyAccountsAreDormantTest extends TestCase
 {
     use BuildsCompanyGatewayAccounts;
+    // This file renders Blade, and translate() writes a key it does not find. The dormant block renders nothing today, but a key written by a later
+    // change to it would be left in resources/lang for somebody else to find in their diff.
+    use RestoresLanguageFiles;
 
     private const OPENING_BALANCE = 10.0;
 
@@ -58,11 +62,13 @@ class CompanyAccountsAreDormantTest extends TestCase
         ]);
         Event::fake([AddFundToWalletEvent::class]);
         Http::preventStrayRequests();
+        $this->rememberLanguageFiles();
     }
 
     protected function tearDown(): void
     {
         $this->dropTheCompanyAndAccountTables();
+        $this->restoreLanguageFiles();
 
         parent::tearDown();
     }

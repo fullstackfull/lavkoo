@@ -21,8 +21,11 @@ use Illuminate\Container\Attributes\Singleton;
  * active account — which is every payment today, including every Saudi one, so a payment starts, settles and refunds exactly as it does now.
  *
  * What a payment is read as is what it was stamped with, never a fresh resolution: `accountOf()` goes to the stamped id. A payment stamped with the
- * Kuwait account is verified, settled and refunded through the Kuwait account after that account has been edited, after it has been disabled, and
- * after another market's account has become the only active one.
+ * Kuwait account is started, verified and settled through the Kuwait account after that account has been edited, after it has been disabled, and after
+ * another market's account has become the only active one.
+ *
+ * The gateway refund path does NOT read this yet (D2-16): it still goes to the one platform settings row, so a refund of a company's payment is not
+ * drawn on that company's account. This is the single reader of the stamp that is missing, and it is named here rather than implied.
  */
 #[Singleton]
 final class PaymentAccountBinding
@@ -84,14 +87,6 @@ final class PaymentAccountBinding
         $record = $this->of(payment: $payment);
 
         return $record?->accountId === null ? null : $this->registry->byId(id: $record->accountId);
-    }
-
-    /** Whether this payment may be settled through that account: a payment stamped with one company's account is settled through no other. */
-    public function isTakenThrough(PaymentRequest|array|null $payment, PaymentGatewayAccount $account): bool
-    {
-        $record = $this->of(payment: $payment);
-
-        return $record?->accountId === null || $record->accountId === (int) $account->id;
     }
 
     /** The record a payment of this market through this account carries. */
