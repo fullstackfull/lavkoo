@@ -637,8 +637,10 @@ class WebController extends Controller
             'address_id' => session('address_id'),
             'billing_address_id' => session('billing_address_id'),
             'bring_change_amount' => $request['bring_change_amount'] ?? 0,
-            // The currency of this purchase, not a pick a visitor may have left on another market: this field names what the
-            // bring-change amount is in, and the two v1 order endpoints already answer the storefront's own money here.
+            // This field names the currency the bring-change amount is in. The two v1 endpoints that write the same column
+            // read it behind the currency-model guard; this one read the session raw, so it was right only because
+            // AppServiceProvider::boot() normalises the session to the currency in force, which it does inside a try/catch
+            // that logs and swallows. A stored money label asks the question itself now.
             'bring_change_amount_currency' => $this->storefrontCurrency->purchaseCurrencyCode(picked: session('currency_code')),
         ]);
 

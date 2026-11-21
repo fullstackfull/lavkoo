@@ -2,7 +2,9 @@
 
 namespace Tests\Feature\Storefront;
 
+use App\Models\Currency;
 use App\Services\Storefront\StorefrontCurrency;
+use App\Utils\Helpers;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -13,14 +15,24 @@ use Tests\Support\BuildsStorefrontCatalog;
 use Tests\Support\BuildsStorefrontMoneyWorld;
 
 /**
- * What currency a purchase is in (GCC-05). A visitor's currency pick is kept in the session and outlives the storefront it was made on, so a
- * shopper who picked riyals on the Saudi market and then shops the Kuwaiti one carries "SAR" with them. The two v1 order endpoints read that
- * pick behind the currency-model guard, which a storefront trading in its own currency turns into the single-currency model, so they already
- * answered the market's own money; the website's own cash-on-delivery checkout read the pick raw and wrote it onto the order, so a Kuwaiti
- * order of 30 dinars was stored as 30 with "SAR" beside the change the courier has to bring. All three now ask one question.
+ * What currency a purchase is in (GCC-05): one named question, {@see StorefrontCurrency::purchaseCurrencyCode()}, asked by the three writers of
+ * orders.bring_change_amount_currency and by the auction claim page that posts the currency into the payment path.
+ *
+ * Two of the three writers (the v1 order and order-edit endpoints) read the visitor's pick behind the currency-model guard, which a storefront
+ * trading in its own currency turns into the single-currency model, so they already answered the market's own money: their tests here pass on
+ * the previous head and are kept as a pin, not counted as a fix. The website's own cash-on-delivery checkout had no guard of its own at all.
+ *
+ * This is a hardening, not a live-defect fix, and the difference is measured rather than argued:
+ * test_a_carried_pick_is_normalised_by_the_boot_hook_which_is_why_this_is_a_hardening shows that Helpers::currency_load(), which
+ * AppServiceProvider::boot() runs on every web request, rewrites a session carried off the Saudi market to the storefront's own currency before
+ * any controller reads it. So on a healthy request the raw session already held the right code. What it hangs on is a side effect performed
+ * inside that boot method's try { ... } catch (\Throwable) { Log::error } block, behind `if (!App::runningInConsole())` and
+ * `if ($hasBusinessSettings)`, after some 140 lines of settings reads and queries: anything above it that throws is logged and swallowed, and
+ * the pick then survives into the order. A stored money label should not rest on that, and now it does not.
  *
  * Every figure here comes from a real route: POST /checkout-complete, GET /api/v1/customer/order/place and POST
- * /api/v1/edit-order/due-payment-by-cod, each with its own guards running. Nothing is extracted from a file and evaluated on its own.
+ * /api/v1/edit-order/due-payment-by-cod, each with its own guards running. Nothing is extracted from a file and evaluated on its own. Because
+ * PHPUnit runs in console mode, the boot hook does not run in any of them, which is the state this change makes safe.
  */
 class StorefrontPurchaseCurrencyTest extends ApiAddressTestCase
 {
@@ -188,6 +200,33 @@ class StorefrontPurchaseCurrencyTest extends ApiAddressTestCase
             'discount_amount' => 0.0,
             'line_price' => 100.0,
         ], $this->storedMoneyOfTheOrder());
+    }
+
+    // ---- why this is a hardening and not a live-defect fix ---------------------------------------------------------------------------
+
+    /**
+     * The session a shopper carries off the Saudi market: the switcher's pick and the system_default_currency_info row that
+     * Helpers::currency_load() itself wrote there. On the Kuwaiti storefront that method, which AppServiceProvider::boot() runs on every web
+     * request that is not a console command, finds the currency in force is no longer the one the row names and rewrites all four keys. So the
+     * raw session a controller reads on a healthy request already holds the market's own money, and the measured difference this change makes
+     * appears where that hook has not run: a console or queue context, and any request on which something above it in boot threw.
+     */
+    public function test_a_carried_pick_is_normalised_by_the_boot_hook_which_is_why_this_is_a_hardening(): void
+    {
+        DB::table('currencies')->where('code', 'SAR')->update(['exchange_rate' => 3.75]);
+        cache()->forget('active_currency_list');
+
+        session()->put(self::STALE_PICK + ['system_default_currency_info' => Currency::where('code', 'SAR')->first()]);
+
+        $this->assertSame('SAR', session('currency_code'), 'the pick as it is carried');
+
+        $normalised = $this->inStorefront('KW', function (): array {
+            Helpers::currency_load();
+
+            return ['code' => session('currency_code'), 'rate' => (float) session('currency_exchange_rate')];
+        });
+
+        $this->assertSame(['code' => 'KWD', 'rate' => 1.0], $normalised, 'the boot hook had already answered the market before any controller read the session');
     }
 
     // ---- the payment --------------------------------------------------------------------------------------------------------------
