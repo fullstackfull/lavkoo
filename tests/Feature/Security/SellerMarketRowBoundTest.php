@@ -426,6 +426,32 @@ class SellerMarketRowBoundTest extends TestCase
         $this->assertStringNotContainsString('111110', $answer->getContent(), 'nor the sum of them');
     }
 
+    /**
+     * One delivery man's orders. Found by survey rather than named in the defect list: this returns order rows, and it was bound
+     * to the shop's own courier and not to a market, so a Saudi-only token read the Kuwaiti orders its own courier had carried —
+     * past the list that refuses them.
+     *
+     * `delivery-man/earning/{id}` reads the same finder; it is not exercised here because it also reads the deliveryman wallet
+     * and transaction tables, which this world does not build, and a screen that answers 500 proves nothing either way.
+     */
+    public function test_a_delivery_mans_orders_hold_only_the_granted_markets(): void
+    {
+        $shape = 'order-list';
+
+        $this->grantSaudiAlone();
+        DB::table('delivery_men')->insert(['id' => 9, 'f_name' => 'Courier', 'l_name' => 'Nine', 'seller_id' => self::SELLER]);
+        DB::table('orders')->whereIn('id', [101, 102, 103])->update(['delivery_man_id' => 9]);
+
+        $answer = $this->sellerApi('get', "delivery-man/{$shape}/9?limit=50&offset=1")->assertStatus(200);
+        $listed = array_column((array) $answer->json('orders'), 'id');
+        sort($listed);
+
+        $this->assertSame([101], $listed, "delivery-man/{$shape} holds the granted market and nothing else");
+        foreach (self::ORDERS_OUTSIDE as $orderId) {
+            $this->assertStringNotContainsString("\"id\":{$orderId}", $answer->getContent(), "and carries no order {$orderId}");
+        }
+    }
+
     /** A delivered sale in riyals and another in dirhams, which is the smallest world in which the money rule has to decide. */
     private function sellInTwoCurrencies(): void
     {
@@ -780,7 +806,7 @@ class SellerMarketRowBoundTest extends TestCase
     public function test_a_write_to_an_order_of_another_market_changes_nothing(string $method, string $uri, array $payload, string $column): void
     {
         $this->grantSaudiAlone();
-        DB::table('delivery_men')->insert(['id' => 9, 'f_name' => 'Delivery', 'l_name' => 'Man']);
+        DB::table('delivery_men')->insert(['id' => 9, 'f_name' => 'Delivery', 'l_name' => 'Man', 'seller_id' => self::SELLER]);
         // Delivered and not cash-pending, so that the only thing standing between this request and the write is the market
         // bound: a precondition that refuses it anyway would make the mutation below pass with the bound removed.
         DB::table('orders')->where('id', 102)->update(['order_status' => self::DELIVERED_SO_THE_WRITE_IS_OTHERWISE_ALLOWED]);

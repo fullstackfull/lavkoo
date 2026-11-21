@@ -66,6 +66,7 @@ where an employee of the platform has no shop above them; here there is one.
 | The till — its product list, a product scanned by its barcode, and a receipt read by its order id | `SellerMarketScope::narrowQuery()` on the two catalogue reads and `narrowOrders()` on the receipt. `pos/product-list` served the ungranted market's product in full, price and stock included, and `pos/products?code=` is a product id by another name. |
 | Bulk jobs — the receipt, its failure file, the list, and queueing one | The products the job names: a receipt's input is a list of product ids and its failure list their names, so `anyProductOutsideTheGrant()` decides it. Queueing is refused **before** the job exists, because the work runs in a queue where the caller's grant is no longer readable. |
 | What an automation rule may touch — its preview, and the catalogue a rule is written against | `SellerMarketScope::narrowQuery()` inside `SelectsSimpleProducts::sellerProducts()`, the one place every trigger builds its product query. |
+| One delivery man's orders — their order list and their earning history | `SellerMarketScope::narrowOrders()` through one finder, `DeliveryManController::ordersOfTheShopsDeliveryMan()`. Found by survey rather than by a defect report: both return order rows and were held to the shop's own courier and not to a market, so a Saudi-only token read the Kuwaiti orders its own courier had carried, past the list that refuses them. |
 | The seller's own reconciliation — the delivered lines it walks, the commission rows and the gap samples | `SellerMarketScope::grantedOrderIds()`, the order list's bound as a subquery, because this reads `order_details` joined to `orders` through the query builder. `gross: 111111` was once composed **entirely** of two markets the token had been refused. The ledger side carries no market and is not narrowed, as the statement is not. |
 | Payout and bank details, staff management, the audit trail, account deletion | `seller_all_markets`, declared **beside** `seller_owner` and not instead of it: these cover every market at once, so a principal granted some of the platform's markets holds authority in those markets and not over the shop. Only the platform owner sees every market, and they do not come through this API. |
 
@@ -199,6 +200,10 @@ a market the grant does not hold is moved to one it does and the screens are rel
 - **Coupons** are not bound to a market; the shape of the fix is in section 3.
 - **A payout request** carries no market, and reading or cancelling one is open to any principal holding `finance.view` /
   `payouts.request` however few markets they hold — see section 3.
+- **`seller-center/analytics` counts the shop's orders without a market bound** (`Order::where(seller_is, seller_id, checked)`).
+  It is a count of the shop's own unread orders rather than a set of rows, in the same class as the scorecard and the audit
+  trail; no order id, amount or customer travels in it. Named rather than bound, because a count per market is a different
+  answer shape and the screens that read it ask about the shop.
 - **The payout *guard* still compares a request against `VendorLedger::withdrawable()`**, which is the mixed-currency sum the payout
   *screen* now refuses to print. The screen is fixed because that figure is read and acted on; the guard is `PayoutService`'s own
   arithmetic, with its own currency snapshot and conversion (E-12.5), and changing what a payout may draw against is a decision
@@ -218,7 +223,7 @@ a market the grant does not hold is moved to one it does and the screens are rel
 
 ## 9. Tests
 
-`tests/Feature/Security/SellerMarketScopeTest.php` (38), `tests/Feature/Security/SellerMarketRowBoundTest.php` (50),
+`tests/Feature/Security/SellerMarketScopeTest.php` (38), `tests/Feature/Security/SellerMarketRowBoundTest.php` (51),
 `tests/Feature/Storefront/SellerAppProductMarketTest.php` (6), `tests/Feature/Storefront/VendorPanelProductMarketTest.php` (4) and
 `tests/Feature/Storefront/SellerMarketDormancyTest.php` (14). Every request is made against `/api/v3/seller` with a bearer token,
 so `api_lang`, `seller_api_auth`, `seller_market`, `seller_can` and `seller_all_markets` all run in the order the routing table

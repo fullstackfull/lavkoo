@@ -111,6 +111,12 @@ trait BuildsSellerMarketWorld
             $table->unsignedTinyInteger('refund_request')->default(0);
             $table->text('digital_file_after_sell')->nullable();
         });
+
+        // Whose courier this is. The two reads of one delivery man's orders scope on it, so without it they can reach nothing
+        // and a bound over them cannot be told from no bound at all.
+        Schema::table('delivery_men', function (Blueprint $table) {
+            $table->unsignedBigInteger('seller_id')->nullable();
+        });
     }
 
     /** @param array<string, mixed> $data */
