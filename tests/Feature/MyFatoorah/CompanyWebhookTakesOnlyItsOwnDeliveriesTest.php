@@ -24,15 +24,18 @@ use Tests\Support\RestoresLanguageFiles;
 /**
  * A notification belongs to the company whose account it names (D2-09), and is processed once (D2-12).
  *
- * The webhook URL, the signing secret and the event scope are the account's, not the platform's. Two refusals carry the whole unit, and a delivery has
- * to clear both:
+ * The webhook URL, the signing secret and the event scope are the account's, not the platform's. Three refusals carry the whole unit, and a delivery
+ * has to clear all three:
+ *
+ *   WHOSE GATEWAY THE ACCOUNT IS FOR — a webhook secret authenticates a body whatever gateway the account holding it is registered for, so an account
+ *   of another gateway is refused before the body is read.
  *
  *   WHOSE SECRET SIGNED IT — a delivery signed with company A's secret, posted to company B's address, computes a different signature against B's
  *   secret and is refused.
  *
  *   WHOSE PAYMENT IT NAMES — a delivery signed with company A's OWN secret, at company A's OWN address, naming a payment that was taken through
  *   company B's account, is refused too. Authentication says who sent it, not what it may move, and the attempt it names is found by an identifier
- *   that carries no company: without this second refusal one company's address settles another company's payment.
+ *   that carries no company: without this third refusal one company's address settles another company's payment.
  *
  * The payment under test is taken through the Kuwait account, stamped by the production writer, so "another company's payment" is a fact of the
  * fixture and not an assumption. Every delivery here is a real POST to the real route; the signatures are computed by the production verifier.
@@ -104,7 +107,7 @@ class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends MyFatoorahTestCase
 
         $this->assertSame(0, MyFatoorahWebhookEvent::count(), 'nothing of the other company was even recorded');
         $this->assertSame(0, $this->successHookCalls());
-        $this->assertSame(0, (int) DB::table('payment_requests')->where('is_paid', 1)->count());
+        $this->assertSame([], $this->paidPayments());
     }
 
     /** The same delivery at its own company's address is accepted and settles that company's payment, so the refusal above is about whose secret it is. */
