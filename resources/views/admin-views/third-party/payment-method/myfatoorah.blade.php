@@ -293,38 +293,7 @@
                             {{ translate('the_same_url_is_also_sent_with_every_invoice_so_notifications_work_before_it_is_registered') }}.
                             {{ translate('deliveries_without_a_valid_signature_are_refused') }}.
                         </p>
-                        @if(!empty($gatewayAccounts))
-                            <hr>
-                            <p class="mb-2">{{ translate('each_company_account_has_its_own_webhook_url_and_its_own_secret') }}:</p>
-                            <div class="table-responsive">
-                                <table class="table table-sm mb-0">
-                                    <thead>
-                                        <tr>
-                                            <th>{{ translate('market') }}</th>
-                                            <th>{{ translate('company') }}</th>
-                                            <th>{{ translate('mode') }}</th>
-                                            <th>{{ translate('webhook') }}</th>
-                                            <th>{{ translate('webhook_secret') }}</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        @foreach($gatewayAccounts as $gatewayAccount)
-                                            <tr>
-                                                <td>{{ $gatewayAccount['market'] }}</td>
-                                                <td>{{ $gatewayAccount['company'] ?? translate('not_registered') }}</td>
-                                                <td>{{ translate($gatewayAccount['environment']) }}</td>
-                                                <td>
-                                                    <input type="text" class="form-control form-control-sm" readonly
-                                                           id="mf-webhook-url-{{ $gatewayAccount['id'] }}"
-                                                           value="{{ $gatewayAccount['webhook_url'] ?? translate('no_webhook_address_yet') }}">
-                                                </td>
-                                                <td>{!! $gatewayAccount['has_webhook_secret'] ? '<span class="text-success">'.translate('saved').'</span>' : '<span class="text-danger">'.translate('missing').'</span>' !!}</td>
-                                            </tr>
-                                        @endforeach
-                                    </tbody>
-                                </table>
-                            </div>
-                        @endif
+                        @include('admin-views.third-party.payment-method.partials._company-gateway-accounts', ['gatewayAccounts' => $gatewayAccounts])
                     </div>
                 </div>
             </div>
