@@ -23,7 +23,8 @@ use Tests\Support\BuildsSellerLedgerWorld;
  * lines are being saved sees nothing, and every row of the seller's ledger was written without a company however the registry was set up.
  *
  * These tests place a real order through OrderManager::generateOrder, in the order the checkout does it, and look at what is on the ledger
- * afterwards.
+ * afterwards. The last two drive OrderManager::addOrderDetailsData itself, for the two shapes the checkout world will not place: a digital line,
+ * which it drops before an order is written at all, and a commission engine that cannot answer.
  */
 class OrderCompanyOnTheLivePathTest extends ApiAddressTestCase
 {
