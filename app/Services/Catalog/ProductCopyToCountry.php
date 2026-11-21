@@ -21,8 +21,9 @@ use Illuminate\Support\Str;
  * - **Price.** The copy starts at zero — the unit price, the purchase price, the discount and every variant's price — because the source's
  *   price is in the source country's currency, and carrying it would read as "this is the price here" when nobody has said so. The copy is
  *   created **unpublished** so a product priced at zero cannot be sold before an admin prices it, and the admin lands on its edit form.
- * - **Its source's image files.** Every image is copied byte for byte to a file of its own (see `FileManagerTrait::copyStoredFile`). Sharing
- *   one file between two countries' products means deleting the source's image breaks the copy.
+ * - **Its source's image files.** Every image is copied byte for byte to a file of its own (see `FileManagerTrait::copyStoredFile`), from the
+ *   disk the source record says it is on. Sharing one file between two countries' products means deleting the source's image breaks the copy,
+ *   and a file that cannot be read is reported as not copied, never shared.
  * - **Anything a person did.** Reviews, wishlists, carts and order history belong to the row they were made against, and channel listings,
  *   routing rules and provider mappings are keyed by the product id. None of them is copied, and no link between the twins is written.
  *
@@ -202,7 +203,11 @@ final class ProductCopyToCountry
         $notCopied = [];
 
         foreach (self::IMAGE_FILES as $column => [$directory, $storageColumn]) {
-            $copied = $this->copyStoredFile(dir: $directory, fileName: $source->getAttributes()[$column] ?? null);
+            $copied = $this->copyStoredFile(
+                dir: $directory,
+                fileName: $source->getAttributes()[$column] ?? null,
+                storageType: $storageColumn === null ? null : self::storedDisk($source->getAttributes()[$storageColumn] ?? null),
+            );
             $hadOne = ($source->getAttributes()[$column] ?? null) !== null && ($source->getAttributes()[$column] ?? '') !== '';
             $columns[$column] = $copied['name'] ?? null;
             if ($storageColumn !== null) {
@@ -235,7 +240,11 @@ final class ProductCopyToCountry
         $copies = [];
         foreach ($entries as $entry) {
             $name = is_array($entry) ? ($entry['image_name'] ?? null) : $entry;
-            $copied = $this->copyStoredFile(dir: 'product/', fileName: is_string($name) ? $name : null);
+            $copied = $this->copyStoredFile(
+                dir: 'product/',
+                fileName: is_string($name) ? $name : null,
+                storageType: is_array($entry) ? self::storedDisk($entry['storage'] ?? null) : null,
+            );
             if ($copied === null) {
                 $missing++;
 
@@ -282,6 +291,12 @@ final class ProductCopyToCountry
         );
 
         return [(string) json_encode($free), array_keys($taken)];
+    }
+
+    /** The disk a record says one of its files was written to, when it says anything at all. */
+    private static function storedDisk(mixed $storage): ?string
+    {
+        return is_string($storage) && trim($storage) !== '' ? trim($storage) : null;
     }
 
     /** A slug names one product; the copy is another product, so it gets one of its own, built the way the add form builds it. */
