@@ -3055,6 +3055,38 @@ CRITERIA.setdefault('E-09', {})[0] = ('MET', "STAYS MET, and its WORDING IS NOW 
     "record on its own evidence because the record is mine, and it was right to.")
 
 
+CRITERIA.setdefault('B-12', {})[2] = ('CODED', "A local attribute never appears in another storefront's filters or product pages — CODED 2026-11-21, confirmed FOUR independent "
+    "ways by a reviewer that built its own probes. PR 146 (draft, gcc/p1-catalogue-visible-per-storefront, head 81b3ac68) adds the attribute as the NINTH entity type of "
+    "the visibility mechanism, and the design claim held: ONE line of ENTITY_MODES plus the trait on the model — no new table, no new scope, no new query logic, and the "
+    "operator command needed no change at all because its types come from the registry. The four confirmations: a four-corner mapping matrix with a THIRD market "
+    "configured so 'several' is distinguishable from 'all'; cross-serve in both directions with the memos warm AND again after a cache flush; a REAL HTTP request to the "
+    "endpoint both Flutter apps call; and the finding that neither the filters nor the product page read the attributes table at all. The one surface not narrowed "
+    "(Modules\\AI's ProductResourceService) is panel-side, named by the slice, and DEGRADES rather than leaks. "
+    "DORMANCY IS CLEAN AND WAS MEASURED, not read off the diff: two worktrees, one byte-identical probe, nine narrowed models, and the diff of generated SQL, bindings, "
+    "row ids, eight cache keys and the API body is EMPTY across 114 lines in three scenarios (switch off unbound, switch off served as Saudi, switch on with only Saudi "
+    "configured and the mapping table empty). The probe is NOT vacuous: inserting one category and one attribute mapping grows the predicate and moves the ids. With the "
+    "switch OFF the head costs exactly the same ONE statement as the base — isTracked() short-circuits on the config before it asks the schema — so dormancy costs "
+    "literally nothing. "
+    "A MECHANICAL SCAN of every Cache::remember whose closure reaches one of the nine models found EVERY one storefront-keyed, and the one that looked like a leak was "
+    "run down and cleared (BusinessPage::banner() is a morphOne to Attachment, not the Banner model). Three separate unscopings were each caught.")
+
+CRITERIA.setdefault('B-12', {})[1] = ('MISSING', "STAYS MISSING, 2026-11-21, on a measurement the slice did not take — and the reason is worth the record. The criterion says "
+    "an attribute is offered on THAT COUNTRY'S PRODUCT FORMS. PR 146 wired FOUR of them (the admin and vendor add and update screens) to a new offeredIn() that asks "
+    "'what does the country THIS PRODUCT belongs to offer' rather than 'what does my storefront show' — which is the right question for a form, and it is correct: the "
+    "reviewer measured all four corners with a third market, proved the behaviour with a REAL Eloquent Product rather than the array stand-ins the branch's own tests "
+    "use, and confirmed a mistyped country code shows the whole list rather than an empty one. "
+    "**BUT THERE IS A FIFTH PRODUCT FORM AND NOBODY GREPPED THE APPS.** The SELLER app's Add Product screen fetches the same GET /api/v1/attributes the slice narrowed "
+    "(lavkooappseller lib/utill/app_constants.dart:41 and lib/features/addProduct/domain/repository/add_product_repository.dart:30), and api/v1 carries no storefront "
+    "middleware and is not in PANEL_PATHS, so a real request falls through and IS bound to a storefront. Measured for real — the reviewer forced the app out of console "
+    "mode, which is why no existing test reaches that path — with attribute 2 assigned to Kuwait: GET api/v1/attributes answers [1], ?storefront=KW answers [1,2], "
+    "?storefront=SA answers [1]. So the seller's product form is narrowed by the storefront of the REQUEST, not by the country of the product being authored: precisely "
+    "the asymmetry offeredIn() exists to remove, left in place on the fifth form. The customer app's COMPARE screen calls the same endpoint. "
+    "The project's own rule is that web and API logic stay in sync, and for this unit it does not. The backend half is small — one controller method calling the "
+    "existing repository method, no new service and no new table — and a fix is in flight. The criterion flips to CODED the moment that form names its country, or if "
+    "the owner restates the criterion as web and panel forms only. "
+    "THE 'FILTERS' HALF IS VACUOUSLY SATISFIED and the slice said so honestly: there is no attribute facet in any storefront filter in this tree.")
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
