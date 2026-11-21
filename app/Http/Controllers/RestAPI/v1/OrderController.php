@@ -10,6 +10,7 @@ use App\Services\Address\OrderAddressService;
 use App\Services\Address\StorefrontAddressService;
 use App\Services\Fulfillment\CheckoutCodGuard;
 use App\Services\Fulfillment\CustomerFulfillmentPresenter;
+use App\Services\Storefront\OrderStorefrontSnapshot;
 use App\Services\Storefront\StorefrontCurrency;
 use App\Http\Requests\API\v1\RefundStoreRequest;
 use App\Models\Cart;
@@ -610,6 +611,7 @@ class OrderController extends Controller
         }
 
         $refund_request->save();
+        app(OrderStorefrontSnapshot::class)->stampMoneyRows(table: 'refund_requests', orderId: $orderDetails->order_id);
         $orderDetails->update(['refund_request' => 1]);
         $order = Order::find($orderDetails->order_id);
 

@@ -16,6 +16,7 @@ use App\Models\Shop;
 use App\Models\Transaction;
 use App\Services\Fulfillment\FulfillmentHooks;
 use App\Services\SalesChannels\Dispatch\ChannelOrderMarker;
+use App\Services\Storefront\OrderStorefrontSnapshot;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Database\Eloquent\Collection;
@@ -894,6 +895,7 @@ class OrderRepository implements OrderRepositoryInterface
                 'updated_at' => now(),
             ];
             $this->orderTransaction->create($transaction);
+            app(OrderStorefrontSnapshot::class)->stampMoneyRows(table: 'order_transactions', orderId: $order['id']);
 
             $wallet = $this->adminWallet->where('admin_id', 1)->first();
             $wallet->commission_earned += $commission;

@@ -418,7 +418,13 @@ class POSController extends Controller
             'updated_at' => now(),
         ];
         DB::table('orders')->insertGetId($orderData);
-        app(OrderStorefrontSnapshot::class)->record(orderId: $generateOrderID);
+
+        // The till writes its lines before the order row exists, so the order is stamped from them here
+        // and the lines take that currency afterwards. Asked any earlier, a line would read an order
+        // that is not there yet and record nothing.
+        $storefrontSnapshot = app(OrderStorefrontSnapshot::class);
+        $storefrontSnapshot->record(orderId: $generateOrderID);
+        $storefrontSnapshot->stampMoneyRows(table: 'order_details', orderId: $generateOrderID);
 
         if ($isDigitalProduct) {
             $order = Order::with(['details.productAllStatus', 'customer'])->find($generateOrderID);
