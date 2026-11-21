@@ -119,7 +119,8 @@ class ProductCodeReadinessTest extends TestCase
 
         $this->assertNotSame([], $open);
         $this->assertSame([], array_diff($open, [ProductCodeSites::PARTIAL, ProductCodeSites::NOT_COVERED, ProductCodeSites::DEFERRED]));
-        $this->assertContains(ProductCodeSites::DEFERRED, $open, 'the copy-to-country tool waits for the owner and is listed with the open sites');
+        $this->assertContains(ProductCodeSites::PARTIAL, $open, 'the channel product matcher is narrowed only where an account names a country');
+        $this->assertNotContains(ProductCodeSites::DEFERRED, $open, 'slice 3 made the copy to another country, so nothing waits for the owner any more');
     }
 
     public function test_a_product_without_a_country_makes_the_catalog_not_ready(): void

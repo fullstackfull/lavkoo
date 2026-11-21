@@ -444,6 +444,7 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
             Route::post('deny', 'deny')->name('deny');
             Route::post('approve-status', 'approveStatus')->name('approve-status');
             Route::get('product-gallery', 'getProductGalleryView')->name('product-gallery');
+            Route::post('copy-to-country/{id}', 'copyToCountry')->name('copy-to-country');
             Route::get('stock-limit-status/{type}', 'getStockLimitStatus')->name('stock-limit-status');
             Route::post('delete-preview-file', 'deletePreviewFile')->name('delete-preview-file');
             Route::get('request-restock-list', 'getRequestRestockListView')->name('request-restock-list');

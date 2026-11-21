@@ -90,6 +90,41 @@ trait FileManagerTrait
     }
 
     /**
+     * A second, independent copy of a stored file: a new name on the default disk, holding the same bytes.
+     *
+     * Two records must never point at one file. A product copied into another country whose image is the source's file loses that image the
+     * day the source is edited or deleted, and one country's catalogue then depends on another country's storage. The source is looked for
+     * wherever it is (`checkFileExists` probes the public disk and then s3, which is why the stored `*_storage_type` is a hint and not the
+     * answer), and the copy is written to whichever disk this installation stores on now.
+     *
+     * @return array{name: string, storage: string}|null null when the source file cannot be read, so a caller can record that rather than share it
+     */
+    protected function copyStoredFile(string $dir, ?string $fileName, ?string $format = null): ?array
+    {
+        if ($fileName === null || $fileName === '' || $fileName === 'def.png') {
+            return null;
+        }
+
+        $source = $this->checkFileExists(filePath: $dir . $fileName);
+        if (!$source['status']) {
+            return null;
+        }
+
+        $storage = config('filesystems.disks.default') ?? 'public';
+        $extension = $format ?? (pathinfo($fileName, PATHINFO_EXTENSION) ?: 'webp');
+        $copyName = Carbon::now()->toDateString() . '-' . uniqid() . '.' . $extension;
+
+        if (!$this->checkFileExists(filePath: $dir)['status']) {
+            Storage::disk($storage)->makeDirectory($dir);
+        }
+        Storage::disk($storage)->put($dir . $copyName, Storage::disk($source['disk'])->get($dir . $fileName));
+        Cache::forget('cache_all_files_for_public_storage');
+        cacheRemoveByType(type: 'file_manager');
+
+        return ['name' => $copyName, 'storage' => $storage];
+    }
+
+    /**
      * @param string $filePath
      * @return array
      */

@@ -162,6 +162,7 @@
                                            href="{{ route('admin.products.update', ['id' => $product['id'], 'product-gallery' => 1]) }}">
                                             {{ translate('use_this_product_info') }}
                                         </a>
+                                        @include('admin-views.product.partials._copy-to-country', ['product' => $product])
                                     </div>
                                 </div>
                             </div>

@@ -43,6 +43,9 @@ use App\Services\Storefront\ProductCountry;
 use App\Traits\FileManagerTrait;
 use App\Traits\ProductTrait;
 use App\Services\Catalog\ProductCodeScope;
+use App\Services\Catalog\ProductCopyRefused;
+use App\Services\Catalog\ProductCopyToCountry;
+use App\Services\Storefront\StorefrontCatalog;
 use App\Utils\CartManager;
 use App\Utils\ProductManager;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
@@ -97,6 +100,7 @@ class ProductController extends BaseController
         private readonly BannerRepositoryInterface                  $bannerRepo,
         private readonly ShopRepositoryInterface                    $shopRepo,
         private readonly ProductService                             $productService,
+        private readonly ProductCopyToCountry                       $productCopyToCountry,
     )
     {
     }
@@ -265,6 +269,33 @@ class ProductController extends BaseController
             $this->digitalProductAuthorRepo->delete(params: ['product_id' => $product->id]);
             $this->digitalProductPublishingHouseRepo->delete(params: ['product_id' => $product->id]);
         }
+    }
+
+    /**
+     * Puts the same product in a second country, deliberately: an explicit target that is never the source's own country, the code kept only
+     * where it is free, image files of the copy's own, no stock and no price carried, and an audit line. The admin lands on the copy's edit
+     * form, because the copy still needs its price.
+     */
+    public function copyToCountry(Request $request, string|int $id): RedirectResponse
+    {
+        $product = $this->productRepo->getFirstWhereWithoutGlobalScope(params: ['id' => $id]);
+        if (!$product) {
+            ToastMagic::error(translate('product_not_found') . '!');
+
+            return redirect()->route('admin.products.product-gallery');
+        }
+
+        try {
+            $copy = $this->productCopyToCountry->copy(source: $product, targetCountry: $request->input(StorefrontCatalog::COLUMN));
+        } catch (ProductCopyRefused $refused) {
+            ToastMagic::error($refused->getMessage());
+
+            return back();
+        }
+
+        ToastMagic::success(translate('the_copy_was_made_without_the_stock_or_the_price_of_the_original_set_them_here'));
+
+        return redirect()->route('admin.products.update', ['id' => $copy->id]);
     }
 
     public function getUpdateView(string|int $id): View|RedirectResponse

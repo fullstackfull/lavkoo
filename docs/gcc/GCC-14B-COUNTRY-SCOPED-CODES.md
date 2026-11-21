@@ -66,7 +66,7 @@ Status of every site of the survey.
   covered site still treats a code as if it named one product, wholly or in part; a deferred one is safe as it is and waits for a feature the owner has
   not approved.
 
-Totals after slice 2 (a test keeps this line equal to the registry): **17 covered, 7 labelled, 18 not needed (id-keyed), 2 open** (D1 partial, G9 deferred).
+Totals after slice 3 (a test keeps this line equal to the registry): **18 covered, 7 labelled, 18 not needed (id-keyed), 1 open** (D1 partial).
 
 | # | Where | Status | What it does now |
 |---|---|---|---|
@@ -113,7 +113,7 @@ Totals after slice 2 (a test keeps this line equal to the registry): **17 covere
 | G6 | `Stock rows` | not needed (id-keyed) | Display only. |
 | G7 | `Outbound attributes (Torod externalId, M5AZN)` | not needed (id-keyed) | The product id is the external id; SKU and barcode are only attributes. |
 | G8 | `CatalogIntegrityProducer` | not needed (id-keyed) | A diagnostic that flags the same barcode inside one seller: a false positive for twins once sellers have markets. |
-| G9 | `Product gallery copy` | deferred (owner) | Kept as it is: the copy blanks the code and the barcode and is saved by the add action, so the new ones are checked in the country the copy is saved in. A copy-to-country tool that keeps them is a later, owner-approved slice; "What a copy-to-country tool needs" below lists what it needs. |
+| G9 | `Product gallery copy` | covered | The gallery's "use this product info" is unchanged (it opens the add form with the code and the barcode blank). Beside it, a copy-to-country action makes the copy itself: an explicit target that is never the source's country, the code and the barcode kept only when free there, image files of the copy's own, no stock and no price carried, created unpublished, and an audit line written with the row or neither. See "The copy to another country (slice 3)". |
 
 `php artisan gcc:catalog:code-readiness` prints the count of every status and the open rows (partial, NOT covered, deferred) from the same list
 (`App\Services\Catalog\ProductCodeSites`), and a test keeps this table and that list in step.
@@ -142,24 +142,35 @@ in a seller's list. `SellerSurfacesCountryTest` pins both the reason and the res
 names the views that need the label. Lists of products already chosen (the products of a deal, the lines of a clearance sale) are display and are not
 labelled either: only the rows and chips of a picker are.
 
-### What a copy-to-country tool needs (G9, a later and owner-approved slice)
+### The copy to another country (slice 3, G9)
 
-Today the gallery's "use this product info" opens the add form with the product's data and the code and barcode blank; the country selector defaults to the
-source's country. An admin can already make the product for another country by choosing the country and typing the code and the barcode (they are
-checked in the chosen country). A tool that makes the copy keeping them needs, at least:
+The gallery's "use this product info" is unchanged: it opens the add form with the product's data and the code and the barcode blank, and the
+admin types new ones. Beside it the gallery card now carries a **copy-to-country** control, and that control is the whole of the "copy form" —
+which is the point, because it holds no stock field and no price field, so neither can be carried across unflagged. It renders **zero bytes**
+while the markets are off (`ProductCopyControlTest`), so the card is byte for byte the card of today.
 
-1. **An explicit target country**, one of the configured countries, never the source's by default; and a refusal when the target is the source's country.
-2. **The check in the target country**: `uniqueRuleForCode` and `uniqueRuleForBarcode` (or `isCodeTaken`) with the **target** country, the same refusal
-   messages as the form; `ProductCodeScopeTest` already pins that a move into a country that holds the value is refused.
-3. **A rule when the target already holds the code**: keep the code only when it is free there, else blank it for the admin to type, as the form does.
-4. **What is copied and what is not**: images and details yes; stock, reviews, wishlists, carts and order history no; the tax set-up and the price (the
-   source country's) are the owner's decision, as are the variations' own SKUs (they are not checked by any gate today).
-5. **No link between the twins** unless the owner decides one (GCC-08 and GCC-18 keep catalogue products independent per country); channel listings,
-   routing rules and provider mappings are keyed by the product id and are not copied.
-6. **Who may copy** (the permission) and an audit record of the copy.
-7. **The six-country matrix extended** with the copy path for every ordered pair, and the readiness command's "shared by countries" list is where the
-   owner sees the result.
-8. **The seller side**: a seller with markets would also need the labels of the seller surfaces above.
+`App\Services\Catalog\ProductCopyToCountry` makes the copy. What it does:
+
+| Behaviour | What happens |
+|---|---|
+| An explicit target | the select offers every configured country **except the product's own**, and the service refuses a target that is missing, empty, not a configured code, or of the wrong case. |
+| Refuses the source country | a copy into the product's own country is refused by name, and nothing is created. |
+| The code only when free there | the code and the barcode are carried only when `isCodeTaken` / `isBarcodeTaken` say the target country holds neither; when one is taken the copy is created without it, for the admin to type, exactly as the add form behaves. |
+| Audited | one `catalog.product.copied_to_country` line through `AuditLogger::recordOrFail`, naming the source product, both countries, whether the code and the barcode were kept, that no stock or price was carried, and any image whose file could not be read. **The row and the line are written in one transaction**: a copy nobody can see a record of must not exist. |
+| Its own image files | every image — thumbnail, gallery list, colour images, meta image, preview file, digital file — is copied byte for byte to a new name through `FileManagerTrait::copyStoredFile`, which finds the source wherever it is (the public disk, then s3: the stored `*_storage_type` is a hint, not the answer) and writes the copy to whichever disk this installation stores on now. Two records must never point at one file: deleting the source's image would otherwise break the copy, and one country's catalogue would depend on another's storage. A source file that cannot be read leaves the copy's field empty and is named in the audit line — never shared. |
+
+What a copy never carries, because catalogue products stay independent per country (GCC-08, GCC-18): **stock** (the product's and every variant's
+quantity start at zero), **price** (the unit price, the purchase price, the discount and every variant's price start at zero, because the source's
+price is in the source country's currency and carrying it would read as "this is the price here"), the published state (the copy is created
+**unpublished**, so a product priced at zero cannot be sold before an admin prices it, and the admin lands on its edit form), and anything a person
+did — reviews, wishlists, carts and order history belong to the row they were made against. Channel listings, routing rules and provider mappings
+are keyed by the product id and are not copied, and **no link between the twins is written**: there is nothing to sync, now or later.
+
+The variants keep their shapes and their SKUs. A variant SKU is checked by the B-06 gate in the country the copy is saved in, so a SKU the target
+country already holds is caught the moment the admin saves the copy's form.
+
+Only a column the source row already has is ever written, so an installation whose products table is older than one of these columns is not given
+a column by a copy.
 
 ### The site guard
 
@@ -338,9 +349,10 @@ product's country while off. The vendor import is unchanged except for the gener
    knows no marketplace of Kuwait, Qatar, Bahrain or Oman, and an account of two marketplaces sells in two countries, so neither is narrowed.
 5. Whether a promotion (flash deal, deal of the day, clearance sale) belongs to a country (GCC-17): C4 (clearance sale), C5 and C6 are **labelled**, not
    narrowed, until it does. Until then an admin can put the products of two countries in one promotion and sees which is which.
-6. The copy-to-country tool (G9, a later slice): the gallery copy blanks the code and barcode today and is checked in the country it is saved in; a copy that
-   keeps them in another country needs the eight points listed under "What a copy-to-country tool needs", the owner's decision on the tax set-up, the price
-   and the variations' SKUs among them.
-7. The composite unique index and the clean-up of any duplicate the readiness command finds first.
+6. **Who may copy a product into another country.** The action is behind the admin product module as the rest of the product screens are; whether it needs a
+   permission of its own is the owner's call. The tax set-up of a copy is carried as the source's and is the owner's call too (the copy is created unpublished,
+   so nothing is sold on it before an admin has looked).
+7. **Whether the live data can take the unique index**, and if it cannot, which of each pair of duplicates to keep. `php artisan gcc:catalog:code-readiness`
+   answers the first question and lists the pairs; nothing in this branch deletes or merges a row, and the migration refuses rather than force one through.
 8. Whether the routing-rule reading in assumption 8 is the one the owner wants (the alternative is a product-id key or a country column on the rule, which
    needs a migration).

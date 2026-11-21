@@ -52,6 +52,7 @@ trait BuildsCodeScopeCatalog
             $table->string('video_url')->nullable();
             $table->text('images')->nullable();
             $table->string('thumbnail')->nullable();
+            $table->string('thumbnail_storage_type')->nullable();
             $table->text('colors')->nullable();
             $table->text('attributes')->nullable();
             $table->text('choice_options')->nullable();
