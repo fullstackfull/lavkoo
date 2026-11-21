@@ -42,7 +42,6 @@ class SellerReconciliationService
 
     public function __construct(
         private readonly SellerMarketScope $markets,
-        private readonly SellerMarketTotals $totals,
         private readonly VendorLedger $ledger,
     ) {
     }
