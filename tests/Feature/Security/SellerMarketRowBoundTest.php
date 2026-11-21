@@ -60,6 +60,7 @@ class SellerMarketRowBoundTest extends TestCase
         parent::setUp();
 
         $this->buildSellerMarketWorld();
+        $this->giveOrdersTheColumnsItsWritersWrite();
         $this->createTheMarketGrantTable();
         $this->giveProductsTheirStockColumns();
         $this->createTheSellerLedger();

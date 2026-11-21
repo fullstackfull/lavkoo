@@ -80,6 +80,39 @@ trait BuildsSellerMarketWorld
         }
     }
 
+    /**
+     * The columns the eight order writers of the seller app write, and the two refund columns of an order line.
+     *
+     * Opt-in rather than part of the world, because the order answers of this world are compared against recorded golden files:
+     * a column added to the table appears in the serialised order and moves an answer no test here is about. A strict engine
+     * refuses an UPDATE of a column that is not there, so without these every writer answered 500 — and a surface that 500s
+     * before it reaches its query proves nothing about whether a market bound holds on it. SQLite reads an unresolvable quoted
+     * identifier as a string literal rather than failing, so a missing column also made an assertion about what was stored pass
+     * against the column's own name.
+     */
+    protected function giveOrdersTheColumnsItsWritersWrite(): void
+    {
+        Schema::table('orders', function (Blueprint $table) {
+            $table->string('delivery_type')->nullable();
+            $table->string('delivery_service_name')->nullable();
+            $table->string('third_party_delivery_tracking_id')->nullable();
+            $table->decimal('deliveryman_charge', 16, 2)->default(0);
+            $table->timestamp('deliveryman_assigned_at')->nullable();
+            $table->date('expected_delivery_date')->nullable();
+            $table->longText('shipping_address_data')->nullable();
+            $table->longText('billing_address_data')->nullable();
+            $table->unsignedBigInteger('shipping_address')->nullable();
+            $table->unsignedBigInteger('billing_address')->nullable();
+            $table->decimal('discount_amount', 16, 2)->default(0);
+            $table->decimal('admin_commission', 16, 2)->default(0);
+        });
+
+        Schema::table('order_details', function (Blueprint $table) {
+            $table->unsignedTinyInteger('refund_request')->default(0);
+            $table->text('digital_file_after_sell')->nullable();
+        });
+    }
+
     /** @param array<string, mixed> $data */
     protected function sellerApi(string $method, string $uri, array $data = [], string $token = self::SELLER_TOKEN): TestResponse
     {
@@ -313,21 +346,6 @@ trait BuildsSellerMarketWorld
             $table->integer('edited_status')->default(0);
             $table->integer('edit_due_amount')->default(0);
             $table->integer('edit_return_amount')->default(0);
-            // What the eight order writers of the seller app actually write. A strict engine refuses an UPDATE of a column that
-            // is not there, so leaving them out made every one of those writers answer 500 — and a surface that 500s before it
-            // reaches its query proves nothing about whether a market bound holds on it.
-            $table->string('delivery_type')->nullable();
-            $table->string('delivery_service_name')->nullable();
-            $table->string('third_party_delivery_tracking_id')->nullable();
-            $table->decimal('deliveryman_charge', 16, 2)->default(0);
-            $table->timestamp('deliveryman_assigned_at')->nullable();
-            $table->date('expected_delivery_date')->nullable();
-            $table->longText('shipping_address_data')->nullable();
-            $table->longText('billing_address_data')->nullable();
-            $table->unsignedBigInteger('shipping_address')->nullable();
-            $table->unsignedBigInteger('billing_address')->nullable();
-            $table->decimal('discount_amount', 16, 2)->default(0);
-            $table->decimal('admin_commission', 16, 2)->default(0);
             $table->timestamps();
         });
 
@@ -347,11 +365,6 @@ trait BuildsSellerMarketWorld
             $table->string('delivery_status')->default('pending');
             $table->string('payment_status')->default('unpaid');
             $table->boolean('is_stock_decreased')->default(false);
-            // Which stage of a refund this line is at, which the refund decision writes, and the file the seller attaches to a
-            // digital line after the sale. SQLite reads an unresolvable quoted identifier as a string literal rather than
-            // failing, so a missing column here made an assertion about what was stored pass against the column's own name.
-            $table->unsignedTinyInteger('refund_request')->default(0);
-            $table->text('digital_file_after_sell')->nullable();
             $table->timestamps();
         });
 
