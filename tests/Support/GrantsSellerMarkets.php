@@ -133,10 +133,40 @@ trait GrantsSellerMarkets
                 $blueprint->decimal('discount_amount', 24, 3)->default(0);
                 $blueprint->string('discount_type')->nullable();
                 $blueprint->unsignedBigInteger('customer_id')->nullable();
+                $blueprint->unsignedBigInteger('delivery_man_id')->nullable();
                 $blueprint->unsignedTinyInteger('rating')->default(0);
                 $blueprint->decimal('amount', 24, 3)->default(0);
                 $blueprint->string('status')->nullable();
                 $blueprint->string('reference')->nullable();
+                // A payout request as the seller-facing screens read it, and a clearance sale's window. These are the columns a
+                // strict engine refuses a SELECT without: on SQLite the screens answered, on MySQL and MariaDB they did not.
+                $blueprint->string('seller_is')->nullable();
+                $blueprint->unsignedBigInteger('reserve_entry_id')->nullable();
+                $blueprint->unsignedBigInteger('payout_entry_id')->nullable();
+                $blueprint->string('currency')->nullable();
+                $blueprint->string('method')->nullable();
+                $blueprint->text('method_details')->nullable();
+                $blueprint->unsignedBigInteger('reviewed_by')->nullable();
+                $blueprint->timestamp('reviewed_at')->nullable();
+                $blueprint->text('review_note')->nullable();
+                $blueprint->timestamp('paid_at')->nullable();
+                $blueprint->string('payment_reference')->nullable();
+                $blueprint->string('payout_currency')->nullable();
+                $blueprint->decimal('payout_amount', 24, 3)->nullable();
+                $blueprint->decimal('exchange_rate', 24, 6)->nullable();
+                // A clearance sale's window, every column StockClearanceProduct::scopeCheckConfig() asks of its setup. The
+                // product list eager-loads the active clearance sale, so a missing one of these answered a 500 on a strict engine.
+                $blueprint->timestamp('duration_start_date')->nullable();
+                $blueprint->timestamp('duration_end_date')->nullable();
+                $blueprint->string('offer_active_time')->nullable();
+                $blueprint->time('offer_active_range_start')->nullable();
+                $blueprint->time('offer_active_range_end')->nullable();
+                $blueprint->string('setup_by')->nullable();
+                $blueprint->unsignedBigInteger('user_id')->nullable();
+                $blueprint->unsignedBigInteger('shop_id')->nullable();
+                $blueprint->unsignedTinyInteger('show_in_homepage')->default(0);
+                $blueprint->unsignedTinyInteger('show_in_homepage_once')->default(0);
+                $blueprint->unsignedTinyInteger('show_in_shop')->default(0);
                 $blueprint->unsignedTinyInteger('is_active')->default(0);
                 $blueprint->unsignedTinyInteger('is_default')->default(0);
                 $blueprint->unsignedBigInteger('tax_id')->nullable();

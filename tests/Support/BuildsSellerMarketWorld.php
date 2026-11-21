@@ -214,6 +214,11 @@ trait BuildsSellerMarketWorld
             $table->string('l_name')->nullable();
             $table->string('status')->default('approved');
             $table->string('auth_token')->nullable();
+            // The tax number an invoice prints and the shelf level the stock screens read. A strict engine refuses a SELECT of a
+            // column that is not there, so leaving them out made the invoice and the stock report 500 on MySQL and MariaDB while
+            // they answered on SQLite — the engine, not the code, was the difference.
+            $table->string('gst')->nullable();
+            $table->integer('stock_limit')->default(0);
             $table->timestamps();
             $table->softDeletes();
         });
