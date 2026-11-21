@@ -9,8 +9,8 @@ use Illuminate\Container\Attributes\Singleton;
  * docs/gcc/DECISIONS.md — `/sa`, `/ae`, `/kw`, `/qa`, `/bh`, `/om` — and the path of each is the `path` of its entry in
  * config('gcc.storefronts.countries'), never a literal written anywhere else.
  *
- * Every surface that has to name a storefront's page asks this one service: the canonical link, the hreflang alternates, the
- * sitemap and the storefront switcher. Nothing else builds such a URL, so the day the prefix changes, one method changes.
+ * Every surface that has to name a storefront's page asks this one service: the canonical link, the hreflang alternates and the
+ * sitemap. Nothing else builds such a URL, so the day the prefix changes, one method changes.
  *
  * The default storefront keeps the bare address it has today, here as everywhere else in the storefront code, and while
  * storefronts are switched off every URL is returned exactly as it was given.
@@ -49,24 +49,6 @@ final class StorefrontUrl
         $code = strtoupper(trim($country));
 
         return (string) ($countries[$code]['path'] ?? strtolower($code));
-    }
-
-    /**
-     * The same page in each of the given storefronts.
-     *
-     * @param list<string> $countries
-     *
-     * @return array<string, string> country code => that storefront's address for the page
-     */
-    public function inEach(string $url, array $countries): array
-    {
-        $addresses = [];
-
-        foreach ($countries as $country) {
-            $addresses[strtoupper($country)] = $this->of(url: $url, country: $country);
-        }
-
-        return $addresses;
     }
 
     /**
