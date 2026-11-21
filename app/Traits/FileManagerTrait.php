@@ -134,17 +134,21 @@ trait FileManagerTrait
      * `disks.default` entry at all, so that test is never true and a file on s3 reads as missing. Asked here, in order: the disk the record
      * itself remembers, the public disk, and the one this installation stores on now.
      *
-     * A disk that cannot answer -- credentials that no longer exist for a disk a row still names -- is not the disk holding the file, so the
-     * next candidate is asked instead and a file none of them holds comes back as "not copied", which is what the caller reports.
+     * Each disk is asked once, and a disk that cannot answer -- credentials that no longer exist for a disk a row still names -- is not the
+     * disk holding the file, so the next candidate is asked instead and a file none of them holds comes back as "not copied", which is what
+     * the caller reports.
      */
     private function diskHolding(string $filePath, ?string $storageType): ?string
     {
+        $candidates = [];
         foreach ([$storageType, 'public', config('filesystems.default')] as $candidate) {
             $disk = is_string($candidate) ? trim($candidate) : '';
-            if ($disk === '' || config('filesystems.disks.' . $disk) === null) {
-                continue;
+            if ($disk !== '' && !in_array($disk, $candidates, true) && config('filesystems.disks.' . $disk) !== null) {
+                $candidates[] = $disk;
             }
+        }
 
+        foreach ($candidates as $disk) {
             try {
                 if (Storage::disk($disk)->exists($filePath)) {
                     return $disk;
