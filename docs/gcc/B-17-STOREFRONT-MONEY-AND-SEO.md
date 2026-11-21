@@ -48,6 +48,89 @@ everywhere else the field prints exactly the bytes it prints today, in either se
 **Not changed, and an owner decision:** `products.unit_price` is `DECIMAL(40,20)`, so a thousandths price is stored as it
 was typed. Nothing here rounds or re-scales a stored amount; a rounding change on money is a separate piece of work.
 
+### What the rendered price filter proves, and what it cannot (B-14.5)
+
+The field carries **the sign and the ceiling**. It does **not** carry the floor, and no assertion written against it could
+prove one: the partial prints `placeholder="{{ $priceFilterSign }}{{ '0' }}"` — a template literal — and never calls
+`getProductMinUnitPriceRange()` at all. The slider beside it is a literal `data-min-value="0"` too. Measured on the Saudi
+market: the helper's floor is **350** converted for the web (**100** as stored) while the rendered field offers **`SAR0`**.
+
+So the floor is proved where it is observable, which is the helper, and the ceiling is proved on the rendered field:
+
+| Bound | Surface it is proved on | Proof |
+| --- | --- | --- |
+| ceiling | the rendered field | Kuwait's own `KD500`, not the whole catalogue's 1000, in both session states |
+| sign | the rendered field | `KD` on Kuwait, and the exact bytes the Saudi field prints today in both session states |
+| floor | the helper | Saudi 100 and Kuwaiti 0, each a different number from the whole catalogue's. Strip `inCurrentStorefront()` out of `getProductMinUnitPriceRange()` and the Saudi assertion goes red (`0 is not identical to 100`) |
+
+**Why the field was not wired to the helper instead.** It was the other option, and it was declined on the merits. It would
+change what a Saudi shopper sees today — the field would offer 350 instead of 0 — and it would leave the placeholder
+disagreeing with the slider's own hardcoded minimum unless that moved too, which is a redesign of the control. That is a
+behaviour change to a live Saudi surface that nothing in the plan asks for, against a rule that says to inject logic and
+never alter layout or design. And the floor is not unread: `api/v1/config` publishes it as `product_min_unit_price_range`,
+straight from this helper, so a wrong floor already reaches a client there.
+
+The claim "the field carries the sign only" is itself pinned, so it cannot go quietly out of date: the test asserts the
+Saudi field prints neither `SAR100` nor `SAR350`, and that the partial's source does not mention the minimum helper. Wire
+the helper into the field and that assertion goes red, which is the signal to come back and prove the floor on the field.
+
+### The theme header's currency switcher: a reported defect the page cannot have (B-16)
+
+A review reported that a Kuwaiti storefront prints **"SAR SAR"** in the header. **It does not, and the change made for it
+has been reverted.** Both themes' headers wrap the switcher in `@if($currency_model == 'multi_currency')`, and
+`StorefrontCurrency::override()` forces `currency_model` to `single_currency` whenever a storefront currency is in force.
+The two states are mutually exclusive.
+
+Measured over all 16 cells of markets off/on × SA/KW × both currency models, on both headers, rendering each header's own
+guarded region verbatim — its `@php` assignment, its `@if`, down to the matching `@endif`:
+
+* in each of the 4 cells where a storefront currency is in force, the region renders the **empty string**
+  (`effective_model=single_currency`, `in_force=KWD`): a market trading in its own money offers **no switcher at all**;
+* in all 16 cells the reverted expression and the proposed one render **identical** output, because wherever the region
+  renders, `currencyCodeInForce()` is null and the fallback is the session — exactly what the header printed before.
+
+The "SAR SAR" existed only inside a string the test's own helper had built: it grepped the single line mentioning
+`currency_symbol` and rendered that alone, **discarding the two lines of guard above it**. The helper now renders the whole
+guarded region, so it pins the page. The change also cost 33 bytes of whitespace on a live Saudi surface — a Blade comment
+inside the rendered region — which the revert removes: front header 2733 → 2700, auction 2471 → 2438, non-space character
+counts unchanged at 1072 and 812.
+
+What stands in its place is the structural fact, asserted rather than assumed: with the operator's model set to
+`multi_currency` (the only setting under which the switcher could appear) and the whole stale pick in the session, a
+Kuwaiti storefront renders no switcher, and the model those headers read is `single_currency`. Removing a header's `@if`,
+or making `override()` stop forcing the model, each turns that test red.
+
+### The same guard decides the currency a payment is taken in
+
+This matters beyond the header, because the money paths read the visitor's pick in the same shape. Four places do:
+
+| Where | Line | What it reads |
+| --- | --- | --- |
+| `Customer\PaymentController` | 417 | `$request['current_currency_code'] ?? session('currency_code')` |
+| `Customer\PaymentController` | 486 | the same, for a wallet top-up |
+| `Customer\PaymentController` | 634 | the same, for a cash-on-delivery change amount |
+| `OrderEditManager` | 829 | the same, on an order edit |
+
+**Every one of them sits inside `if (getWebConfig(name: 'currency_model') == 'multi_currency')`**, and that is the setting
+`override()` forces to `single_currency`. Measured in the real market context, through the same `getWebConfig()` calls
+those branches make, with the operator's model set to `multi_currency` and the whole stale pick (`SAR`, its symbol and a
+3.75 rate) in the session:
+
+| Market | Model the branch reads | Pick-reading branch entered | Currency the other branch resolves |
+| --- | --- | --- | --- |
+| KW (trades in its own money) | `single_currency` | **no** | **KWD** |
+| SA (the default storefront) | `multi_currency` | yes | SAR |
+
+So on a market that trades in its own money the pick is never read, and the currency comes from
+`getWebConfig('system_default_currency')` — which the same override points at that market's own currency. The Saudi
+storefront keeps the operator's own currency model and the platform's own currency, exactly as before.
+
+A test pins both halves, because they are what keeps those four reads unreachable on a money path: make `override()` stop
+forcing the model, or stop pointing the default currency at the market, and it goes red. **Driving the controller end to
+end — a cart, a customer, a gateway — is the remaining confirmation and has not been done here.** Whether a client-supplied
+`current_currency_code` should be trusted at all on the default storefront is a pre-existing platform question, older than
+the markets and untouched by them.
+
 ### The published offer on the default storefront is dormant, and it is dormant on a known defect
 
 `StorefrontSeo::offer()` answers the storefront's money only while a storefront trades in its own currency. Wherever the

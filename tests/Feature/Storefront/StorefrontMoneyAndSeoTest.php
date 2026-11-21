@@ -3,6 +3,7 @@
 namespace Tests\Feature\Storefront;
 
 use App\Http\Middleware\NoIndexUnlaunchedStorefront;
+use App\Models\Currency;
 use App\Models\Product;
 use App\Services\Seo\StorefrontSeo;
 use App\Services\Seo\StorefrontSitemap;
@@ -58,6 +59,12 @@ class StorefrontMoneyAndSeoTest extends TestCase
         'resources/themes/default/layouts/front-end/partials/_header.blade.php',
         'resources/themes/default/auction/layouts/partials/_header.blade.php',
     ];
+
+    /**
+     * The currencies the switcher's own dropdown offers in this suite's world. It is part of the rendered region because the region is
+     * the page's, `@if` and all, rather than the one line that names the pick; nothing in this feature decides the list.
+     */
+    private const SWITCHER_DROPDOWN_CURRENCIES = 'USD SAR AED KWD QAR BHD OMR';
 
     /** A key no storefront scopes, for the vacuity check: what one market writes under it, another reads. */
     private const UNSCOPED_PROBE_KEY = 'gcc_test_unscoped_cache_probe';
@@ -121,11 +128,19 @@ class StorefrontMoneyAndSeoTest extends TestCase
         $this->assertStringContainsString('placeholder="SAR500"', $snapshot['rendered_price_filter']['warm']);
 
         // The currency switcher each theme header prints, pinned absolutely for the same reason: these too are live Saudi fields, and
-        // they still show the visitor their own pick, which is the whole of what the header has ever said about money.
-        $this->assertSame([
-            self::CURRENCY_SWITCHER_HEADERS[0] => '<span>SAR SAR</span>',
-            self::CURRENCY_SWITCHER_HEADERS[1] => 'SAR SAR',
-        ], $snapshot['rendered_currency_switchers']);
+        // they still show the visitor their own pick, which is the whole of what the header has ever said about money. The whole
+        // guarded region is rendered, so the operator's currency model decides whether it is there at all -- under the single-currency
+        // model the header offers no switcher, and that is as true today as it was before the markets existed.
+        $this->assertSame($currencyModel === 'multi_currency' ? [
+            self::CURRENCY_SWITCHER_HEADERS[0] => '<span>SAR SAR</span> ' . self::SWITCHER_DROPDOWN_CURRENCIES,
+            self::CURRENCY_SWITCHER_HEADERS[1] => 'SAR SAR ' . self::SWITCHER_DROPDOWN_CURRENCIES,
+        ] : [
+            self::CURRENCY_SWITCHER_HEADERS[0] => '',
+            self::CURRENCY_SWITCHER_HEADERS[1] => '',
+        ], array_map(
+            static fn (string $switcher): string => trim(preg_replace('/\s+/', ' ', strip_tags($switcher, '<span>'))),
+            $snapshot['rendered_currency_switchers'],
+        ));
 
         // No storefront address, no storefront alternates, no robots header, and the one sitemap the panel writes today.
         $this->assertSame('https://lavkoo.test/product/saudi-serum', $snapshot['canonical']);
@@ -262,19 +277,76 @@ class StorefrontMoneyAndSeoTest extends TestCase
         $this->assertStringContainsString('placeholder="KD0"', $filter);
         $this->assertStringNotContainsString('SAR', $filter);
 
-        // And the surface the pick is shown back to the visitor on, with the whole of the stale pick in the session as a visitor carries
-        // it. The theme headers printed that pick raw, so a Kuwaiti storefront read "SAR SAR" over a page of dinars; they name the
-        // market's money now, and a test called never may not sit beside a field that does.
+        // The other surface a stale pick could reach is the header's currency switcher, and the reason it cannot is structural rather
+        // than a matter of what the switcher prints: the override that puts a storefront currency in force forces `currency_model` to
+        // `single_currency`, and both headers wrap the switcher in `@if($currency_model == 'multi_currency')`. The two states are
+        // mutually exclusive, so a market trading in its own money offers no switcher at all.
+        //
+        // This renders the whole guarded region with the operator's model set to multi_currency -- the only setting under which the
+        // switcher could appear -- and with the entire stale pick in the session. It goes red the moment either half of that structure
+        // changes: if the override stops forcing the model, or if a header's guard is removed, the region renders and the session's
+        // 'SAR SAR' is back on a page of dinars.
+        $this->setBusinessSettings(['currency_model' => 'multi_currency']);
         session()->put('currency_code', 'SAR');
         session()->put('currency_symbol', 'SAR');
 
         $switchers = $this->inStorefrontKeepingTheVisitorsPick('KW', fn (): array => $this->renderedCurrencySwitchers());
 
         foreach ($switchers as $header => $switcher) {
-            $this->assertStringContainsString('KWD', $switcher, $header);
-            $this->assertStringContainsString('KD', $switcher, $header);
-            $this->assertStringNotContainsString('SAR', $switcher, $header);
+            $this->assertSame('', $switcher, $header . ' offers no currency switcher while this market trades in its own money');
         }
+
+        $this->assertSame(
+            'single_currency',
+            $this->inStorefrontKeepingTheVisitorsPick('KW', static fn (): string => (string) getWebConfig(name: 'currency_model')),
+            'the model the headers read is forced by the storefront currency, which is what empties the region above',
+        );
+    }
+
+    /**
+     * **The currency a payment is taken in, on a market that trades in its own money.** Four places on the money paths read the
+     * visitor's session pick: `Customer\PaymentController` lines 417, 486 and 634 (`$request['current_currency_code'] ??
+     * session('currency_code')`) and `OrderEditManager` line 829. Every one of them sits inside
+     * `if (getWebConfig(name: 'currency_model') == 'multi_currency')`, and `StorefrontCurrency::override()` forces that setting to
+     * `single_currency` whenever a storefront currency is in force — so on such a market the branch is not taken at all, and the `else`
+     * branch reads `getWebConfig('system_default_currency')`, which the same override points at the market's own currency.
+     *
+     * This measures both settings in the real market context, through the same `getWebConfig()` calls those branches make, with the
+     * operator's model set to `multi_currency` (the only setting under which the session pick could be read) and the whole stale pick
+     * in the session. It goes red the moment the override stops forcing the model — which is the one change that would make those four
+     * session reads live on a money path — so it is the guard that keeps them unreachable rather than an assumption that they are.
+     *
+     * Driving the controller end to end (a cart, a customer, a gateway) is the remaining confirmation and is not done here.
+     */
+    public function test_a_payment_on_a_market_with_its_own_money_cannot_be_taken_in_a_pick_left_on_another(): void
+    {
+        $this->openSixMarkets();
+        $this->setBusinessSettings(['currency_model' => 'multi_currency']);
+
+        $kuwait = $this->inStorefrontKeepingTheVisitorsPick('KW', function (): array {
+            session()->put('currency_code', 'SAR');
+            session()->put('currency_symbol', 'SAR');
+            session()->put('currency_exchange_rate', 3.75);
+
+            return [
+                'model' => (string) getWebConfig(name: 'currency_model'),
+                'currency' => (string) Currency::find(getWebConfig(name: 'system_default_currency'))?->code,
+                'pick' => (string) session('currency_code'),
+            ];
+        });
+
+        $this->assertSame('single_currency', $kuwait['model'], 'the branch that reads the session pick is not entered');
+        $this->assertSame('KWD', $kuwait['currency'], 'the branch that is entered reads this market own money');
+        $this->assertSame('SAR', $kuwait['pick'], 'the stale pick really was in the session, and really was not read');
+
+        // And the default storefront is untouched: the operator's own currency model stands, and so does the platform's own currency.
+        $saudi = $this->inStorefrontKeepingTheVisitorsPick('SA', static fn (): array => [
+            'model' => (string) getWebConfig(name: 'currency_model'),
+            'currency' => (string) Currency::find(getWebConfig(name: 'system_default_currency'))?->code,
+        ]);
+
+        $this->assertSame('multi_currency', $saudi['model']);
+        $this->assertSame('SAR', $saudi['currency']);
     }
 
     public function test_the_money_a_storefront_gives_its_app_is_the_money_its_pages_print(): void
@@ -357,12 +429,51 @@ class StorefrontMoneyAndSeoTest extends TestCase
         // The field a visitor actually reads, not only the helper behind it: the Kuwaiti filter is signed in dinars on a first request
         // as well as a later one, and the maximum it offers is Kuwait's own 500 and not the catalogue's 1000. That number is written out
         // rather than interpolated from the helper, so the rendered field is read against Kuwait's catalogue instead of following the
-        // helper wherever it goes. The minimum the field prints is the template's own literal zero, so only the maximum is a bound here.
+        // helper wherever it goes.
         $kuwaitiFilter = $this->inStorefront('KW', fn (): array => $this->renderedPriceFilter());
         foreach (['cold', 'warm'] as $state) {
             $this->assertStringContainsString('placeholder="KD0"', $kuwaitiFilter[$state], $state);
             $this->assertStringContainsString('placeholder="KD500"', $kuwaitiFilter[$state], $state);
         }
+
+        $this->assertRenderedMinimumCarriesTheSignAndNotTheFloor();
+    }
+
+    /**
+     * **The rendered price filter carries the SIGN and the CEILING. It does not carry the floor, and no assertion against it can prove
+     * one.** The partial prints `placeholder="{{ $priceFilterSign }}{{ '0' }}"` -- a template literal -- and never calls the minimum
+     * helper at all; the slider beside it is a literal `data-min-value="0"` too. The floor is therefore proved at the surface where it
+     * IS observable, which is the helper, and this is what keeps that claim honest: it is the assertion that goes red the day the field
+     * starts carrying the floor, so the record cannot quietly fall out of date.
+     *
+     * **Why the field was not wired to the helper instead.** Doing so would change what a Saudi shopper sees today -- measured on this
+     * head, the Saudi floor is 350 converted (100 as stored) while the field offers 0 -- and it would leave the placeholder disagreeing
+     * with the slider's own hardcoded minimum unless that moved too. That is a behaviour change to a live Saudi surface that nothing in
+     * the plan asks for, against a rule that says to inject logic and not alter the design. The floor already has a reader that a wrong
+     * value would reach: `api/v1/config` publishes it as `product_min_unit_price_range`, straight from this helper.
+     *
+     * The Saudi market is the one to measure it on, because its floor is a non-zero number there: `KD0` on the Kuwaiti field could be
+     * the literal zero or a floor that happens to be zero, and would prove nothing either way.
+     */
+    private function assertRenderedMinimumCarriesTheSignAndNotTheFloor(): void
+    {
+        [$floorAsStored, $floorConverted, $filter] = $this->inStorefront('SA', fn (): array => [
+            getProductMinUnitPriceRange(),
+            getProductMinUnitPriceRange(type: 'web'),
+            $this->renderedPriceFilter()['warm'],
+        ]);
+
+        $this->assertSame(100, $floorAsStored, 'the Saudi floor as stored, which the field would print if it carried the floor');
+        $this->assertSame(350, $floorConverted, 'and converted for the web, which it would print under the web conversion');
+
+        $this->assertStringContainsString('placeholder="SAR0"', $filter, 'the minimum is the sign and the template\'s own literal zero');
+        $this->assertStringNotContainsString('placeholder="SAR' . $floorAsStored . '"', $filter);
+        $this->assertStringNotContainsString('placeholder="SAR' . $floorConverted . '"', $filter);
+        $this->assertStringNotContainsString(
+            'getProductMinUnitPriceRange',
+            file_get_contents(resource_path('themes/default/web-views/products/partials/_filter-product-price.blade.php')),
+            'if the field ever calls the minimum helper, the floor becomes a rendered bound and this test must be rewritten to prove it',
+        );
     }
 
     /**
@@ -888,8 +999,15 @@ class StorefrontMoneyAndSeoTest extends TestCase
     }
 
     /**
-     * The currency switcher each theme header prints, rendered from the header file itself along with that file's own imports. The rest
-     * of a header needs a whole request's worth of shared view data; the switcher is the one line of it this feature decides.
+     * The currency switcher each theme header prints — **its whole guarded region, verbatim**: the header's own
+     * `@php($currency_model = getWebConfig(...))`, its own `@if($currency_model == 'multi_currency')`, everything down to the matching
+     * `@endif`, with the file's own `@use` lines in front. The rest of a header needs a whole request's worth of shared view data.
+     *
+     * Nothing is reconstructed and no line is lifted out. An earlier version of this helper grepped the one line that mentions
+     * `currency_symbol` and rendered that alone, which **dropped the two lines of guard above it** — and a review then read "SAR SAR"
+     * off a Kuwaiti storefront from a string this helper had built. The page never emits it: the override that puts a storefront
+     * currency in force forces `currency_model` to `single_currency`, so the `@if` is false and the region renders nothing at all.
+     * Measured over all 16 cells of markets off/on x SA/KW x both currency models, on both headers.
      *
      * @return array<string, string>
      */
@@ -899,14 +1017,42 @@ class StorefrontMoneyAndSeoTest extends TestCase
 
         foreach (self::CURRENCY_SWITCHER_HEADERS as $header) {
             $lines = explode("\n", file_get_contents(base_path($header)));
-            $switcher = preg_grep('/currency_symbol/', $lines);
-
-            $this->assertCount(1, $switcher, $header . ' prints its currency switcher on one line');
-
-            $switchers[$header] = trim(Blade::render(implode("\n", [...preg_grep('/^@use\(/', $lines), ...$switcher])));
+            $switchers[$header] = trim(Blade::render(implode("\n", [
+                ...preg_grep('/^@use\(/', $lines),
+                ...$this->guardedCurrencyRegionOf($header, $lines),
+            ])));
         }
 
         return $switchers;
+    }
+
+    /**
+     * The lines of one header from its currency-model assignment down to the matching `@endif`, inclusive.
+     *
+     * @param list<string> $lines
+     * @return list<string>
+     */
+    private function guardedCurrencyRegionOf(string $header, array $lines): array
+    {
+        $start = null;
+        foreach ($lines as $index => $line) {
+            if (str_contains($line, '@php($currency_model')) {
+                $start = $index;
+
+                continue;
+            }
+
+            if ($start !== null && trim($line) === '@endif') {
+                $region = array_slice($lines, $start, $index - $start + 1);
+
+                $this->assertCount(1, preg_grep('/@if\(\$currency_model/', $region), $header . ' guards its switcher on the currency model');
+                $this->assertCount(1, preg_grep('/currency_symbol/', $region), $header . ' prints its currency switcher inside that guard');
+
+                return $region;
+            }
+        }
+
+        $this->fail($header . ' has no guarded currency region');
     }
 
     /** The partial the product page includes, rendered through the real composer for the Saudi product. */
