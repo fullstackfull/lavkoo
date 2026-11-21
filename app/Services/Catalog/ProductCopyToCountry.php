@@ -26,8 +26,9 @@ use Illuminate\Support\Str;
  * - **Anything a person did.** Reviews, wishlists, carts and order history belong to the row they were made against, and channel listings,
  *   routing rules and provider mappings are keyed by the product id. None of them is copied, and no link between the twins is written.
  *
- * The code and the barcode are kept **only when they are free in the target country**, which is the rule the forms use; when they are taken
- * there the copy is created without them, for the admin to type, exactly as the gallery's "use this product info" does today.
+ * The code, the barcode **and every variant SKU** are kept only when they are free in the target country, which is the rule the forms use; when
+ * one is taken there the copy is created without it, for the admin to type, exactly as the gallery's "use this product info" does today. A SKU
+ * carried across unconditionally would make two Kuwaiti products the form refuses to save again and a Kuwaiti till scan that names both.
  *
  * Dormant with the country-scoped codes switch: with it off the action is not offered and refuses if it is called.
  */
@@ -68,6 +69,7 @@ final class ProductCopyToCountry
 
     public function __construct(
         private readonly ProductCodeScope $codeScope,
+        private readonly ProductVariantSku $variantSku,
         private readonly AuditLogger $auditLogger,
     ) {
     }
@@ -96,11 +98,11 @@ final class ProductCopyToCountry
     }
 
     /**
-     * Copies the product into the target country and answers the new product.
+     * Copies the product into the target country and answers the new product with the list of what it could not carry.
      *
      * @throws ProductCopyRefused the action is not available, the target is not a configured country, or it is the source's own country
      */
-    public function copy(Product $source, mixed $targetCountry): Product
+    public function copy(Product $source, mixed $targetCountry): ProductCopy
     {
         $target = $this->targetOrRefuse(source: $source, targetCountry: $targetCountry);
 
@@ -110,6 +112,7 @@ final class ProductCopyToCountry
         [$images, $imagesNotCopied] = $this->copiedImages($source);
         $code = $this->keptWhenFree(value: $source->code, column: 'code', target: $target);
         $barcode = $this->keptWhenFree(value: $source->barcode, column: 'barcode', target: $target);
+        [$variation, $skusNotKept] = $this->variantsFreeInTheTarget(stored: $attributes['variation'] ?? null, target: $target);
 
         $copy = new Product();
         $copy->forceFill($attributes);
@@ -120,30 +123,39 @@ final class ProductCopyToCountry
             'code' => $code,
             'barcode' => $barcode,
             'slug' => $this->slugFor($source, $target),
-            'variation' => $this->variationsWithoutStockOrPrice($source->getAttributes()['variation'] ?? null),
+            'variation' => $variation,
         ], $attributes));
+
+        $made = new ProductCopy(
+            product: $copy,
+            codeKept: $code !== null && $code === $source->code,
+            barcodeKept: $barcode !== null && $barcode === $source->barcode,
+            variantSkusNotKept: $skusNotKept,
+            imagesNotCopied: $imagesNotCopied,
+        );
 
         // A copy nobody can see a record of is the thing this criterion forbids, so the row and its audit line are written together or not at all.
         // The files are already copied: doing that inside the transaction would hold it open across network writes to s3, so a failed audit leaves
         // files on disk with no row pointing at them. Storage to tidy, not a wrong answer.
-        return DB::transaction(function () use ($copy, $source, $target, $code, $barcode, $imagesNotCopied): Product {
-            $copy->save();
+        return DB::transaction(function () use ($made, $source, $target): ProductCopy {
+            $made->product->save();
 
             $this->auditLogger->recordOrFail(
                 action: 'catalog.product.copied_to_country',
-                subject: $copy,
+                subject: $made->product,
                 context: [
                     'source_product_id' => (int) $source->id,
                     'source_country' => $this->codeScope->countryOfProduct($source),
                     'target_country' => $target,
-                    'code_kept' => $code !== null && $code === $source->code,
-                    'barcode_kept' => $barcode !== null && $barcode === $source->barcode,
+                    'code_kept' => $made->codeKept,
+                    'barcode_kept' => $made->barcodeKept,
                     'stock_and_price_carried' => false,
-                    'images_not_copied' => $imagesNotCopied,
+                    'variant_skus_not_kept' => $made->variantSkusNotKept,
+                    'images_not_copied' => $made->imagesNotCopied,
                 ],
             );
 
-            return $copy;
+            return $made;
         });
     }
 
@@ -237,18 +249,39 @@ final class ProductCopyToCountry
         return [(string) json_encode($copies), $missing];
     }
 
-    /** The variants of the copy: the same shapes and the same SKUs, with no quantity and no price, because neither crosses a border. */
-    private function variationsWithoutStockOrPrice(mixed $stored): string
+    /**
+     * The variants of the copy: the same shapes, no quantity and no price because neither crosses a border, and only the SKUs that are **free in
+     * the target country**. A SKU a product of the target already holds is blanked, exactly as a taken code is: carried over it would leave two
+     * live products of that country that the form refuses to save again, and a till scan of the printed label there would name both of them.
+     *
+     * @return array{0: string, 1: list<string>} the variation list to store, and the SKUs it could not keep
+     */
+    private function variantsFreeInTheTarget(mixed $stored, string $target): array
     {
         $variants = json_decode(is_string($stored) ? $stored : '', true);
         if (!is_array($variants)) {
-            return (string) json_encode([]);
+            return [(string) json_encode([]), []];
         }
 
-        return (string) json_encode(array_map(
-            static fn ($variant) => is_array($variant) ? ['price' => 0, 'qty' => 0] + $variant : $variant,
+        $taken = $this->variantSku->holdersOf(
+            skus: array_values(array_unique($this->variantSku->skusOf($stored)->all())),
+            country: $target,
+        );
+
+        $free = array_map(
+            static function ($variant) use ($taken) {
+                if (!is_array($variant)) {
+                    return $variant;
+                }
+
+                $sku = isset($variant['sku']) && is_scalar($variant['sku']) ? trim((string) $variant['sku']) : '';
+
+                return ['price' => 0, 'qty' => 0] + (isset($taken[$sku]) ? ['sku' => ''] + $variant : $variant);
+            },
             $variants,
-        ));
+        );
+
+        return [(string) json_encode($free), array_keys($taken)];
     }
 
     /** A slug names one product; the copy is another product, so it gets one of its own, built the way the add form builds it. */

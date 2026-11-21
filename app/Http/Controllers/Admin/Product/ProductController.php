@@ -43,6 +43,7 @@ use App\Services\Storefront\ProductCountry;
 use App\Traits\FileManagerTrait;
 use App\Traits\ProductTrait;
 use App\Services\Catalog\ProductCodeScope;
+use App\Services\Catalog\ProductCopy;
 use App\Services\Catalog\ProductCopyRefused;
 use App\Services\Catalog\ProductCopyToCountry;
 use App\Services\Storefront\StorefrontCatalog;
@@ -272,9 +273,9 @@ class ProductController extends BaseController
     }
 
     /**
-     * Puts the same product in a second country, deliberately: an explicit target that is never the source's own country, the code kept only
-     * where it is free, image files of the copy's own, no stock and no price carried, and an audit line. The admin lands on the copy's edit
-     * form, because the copy still needs its price.
+     * Puts the same product in a second country, deliberately: an explicit target that is never the source's own country, the code, the barcode
+     * and the variant SKUs kept only where they are free, image files of the copy's own, no stock and no price carried, and an audit line. The
+     * admin lands on the copy's edit form, because the copy still needs its price, and is told there what the copy could not carry.
      */
     public function copyToCountry(Request $request, string|int $id): RedirectResponse
     {
@@ -286,7 +287,7 @@ class ProductController extends BaseController
         }
 
         try {
-            $copy = $this->productCopyToCountry->copy(source: $product, targetCountry: $request->input(StorefrontCatalog::COLUMN));
+            $made = $this->productCopyToCountry->copy(source: $product, targetCountry: $request->input(StorefrontCatalog::COLUMN));
         } catch (ProductCopyRefused $refused) {
             ToastMagic::error($refused->getMessage());
 
@@ -294,8 +295,25 @@ class ProductController extends BaseController
         }
 
         ToastMagic::success(translate('the_copy_was_made_without_the_stock_or_the_price_of_the_original_set_them_here'));
+        if (!$made->carriedEverythingItCould()) {
+            ToastMagic::warning($this->whatTheCopyCouldNotCarry(made: $made));
+        }
 
-        return redirect()->route('admin.products.update', ['id' => $copy->id]);
+        return redirect()->route('admin.products.update', ['id' => $made->product->id]);
+    }
+
+    /** What the admin has to put back by hand: a variant SKU the target country already uses, and an image file that could not be read. */
+    private function whatTheCopyCouldNotCarry(ProductCopy $made): string
+    {
+        $notices = [];
+        if ($made->variantSkusNotKept !== []) {
+            $notices[] = translate('a_variation_sku_the_target_country_already_uses_was_cleared_on_the_copy') . ': ' . implode(', ', $made->variantSkusNotKept);
+        }
+        if ($made->imagesNotCopied !== []) {
+            $notices[] = translate('an_image_file_could_not_be_read_and_was_not_copied') . ': ' . implode(', ', $made->imagesNotCopied);
+        }
+
+        return implode(' ', $notices);
     }
 
     public function getUpdateView(string|int $id): View|RedirectResponse

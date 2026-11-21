@@ -111,6 +111,6 @@ final class ProductCodeSites
         ['G6', 'Stock rows', self::ID_KEYED, 'Display only.'],
         ['G7', 'Outbound attributes (Torod externalId, M5AZN)', self::ID_KEYED, 'The product id is the external id; SKU and barcode are only attributes.'],
         ['G8', 'CatalogIntegrityProducer', self::ID_KEYED, 'A diagnostic that flags the same barcode inside one seller: a false positive for twins once sellers have markets.'],
-        ['G9', 'Product gallery copy', self::COVERED, 'The gallery copy that opens the add form is unchanged; beside it a copy-to-country action makes the copy itself: an explicit target that is never the source country, the code and the barcode kept only when free there, image files of its own, no stock and no price carried, created unpublished, and an audit line written with the row or neither.'],
+        ['G9', 'Product gallery copy', self::COVERED, 'The gallery copy that opens the add form is unchanged; beside it a copy-to-country action makes the copy itself: an explicit target that is never the source country, the code, the barcode and every variant SKU kept only when free there, image files of its own, no stock and no price carried, created unpublished, and an audit line written with the row or neither.'],
     ];
 }

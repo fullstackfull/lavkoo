@@ -120,6 +120,8 @@ class ProductCopyControlTest extends TestCase
             'choose_the_country_to_copy_this_product_into',
             'this_product_is_already_in_that_country',
             'copying_a_product_to_another_country_is_not_available_yet',
+            'a_variation_sku_the_target_country_already_uses_was_cleared_on_the_copy',
+            'an_image_file_could_not_be_read_and_was_not_copied',
         ];
 
         foreach (['en', 'sa', 'ae'] as $locale) {

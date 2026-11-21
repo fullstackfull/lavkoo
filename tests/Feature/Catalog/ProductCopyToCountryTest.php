@@ -5,8 +5,10 @@ namespace Tests\Feature\Catalog;
 use App\Models\Product;
 use App\Services\Catalog\ProductCopyRefused;
 use App\Services\Catalog\ProductCopyToCountry;
+use App\Services\Catalog\ProductVariantSku;
 use App\Services\Storefront\StorefrontCatalog;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
@@ -113,7 +115,7 @@ class ProductCopyToCountryTest extends TestCase
         $this->trackCountries();
         $source = $this->sourceProduct(code: 'SKU100', barcode: '6291234567890');
 
-        $copy = $this->copier->copy(source: $source, targetCountry: 'KW');
+        $copy = $this->copier->copy(source: $source, targetCountry: 'KW')->product;
 
         $this->assertSame('SKU100', $copy->code);
         $this->assertSame('6291234567890', $copy->barcode);
@@ -126,7 +128,7 @@ class ProductCopyToCountryTest extends TestCase
         $source = $this->sourceProduct(code: 'SKU100');
         $this->insertCodedProduct(code: 'SKU100', country: 'KW');
 
-        $copy = $this->copier->copy(source: $source, targetCountry: 'KW');
+        $copy = $this->copier->copy(source: $source, targetCountry: 'KW')->product;
 
         $this->assertNull($copy->code, 'the code is kept only when it is free in the target country');
     }
@@ -137,7 +139,7 @@ class ProductCopyToCountryTest extends TestCase
         $source = $this->sourceProduct(code: 'SKU100', barcode: '6291234567890');
         $this->insertCodedProduct(code: 'OTHER', country: 'KW', barcode: '6291234567890');
 
-        $copy = $this->copier->copy(source: $source, targetCountry: 'KW');
+        $copy = $this->copier->copy(source: $source, targetCountry: 'KW')->product;
 
         $this->assertSame('SKU100', $copy->code);
         $this->assertNull($copy->barcode);
@@ -148,7 +150,7 @@ class ProductCopyToCountryTest extends TestCase
         $this->trackCountries();
         $source = $this->sourceProduct(code: 'SKU100');
 
-        $copy = $this->copier->copy(source: $source, targetCountry: 'KW');
+        $copy = $this->copier->copy(source: $source, targetCountry: 'KW')->product;
 
         $this->assertNotSame($source->slug, $copy->slug, 'a slug names one product');
         $this->assertSame(2, Product::query()->where('code', 'SKU100')->count());
@@ -161,7 +163,7 @@ class ProductCopyToCountryTest extends TestCase
         $this->trackCountries();
         $source = $this->sourceProduct(extra: ['current_stock' => 42, 'unit_price' => 199, 'purchase_price' => 120, 'discount' => 15]);
 
-        $copy = $this->copier->copy(source: $source, targetCountry: 'KW');
+        $copy = $this->copier->copy(source: $source, targetCountry: 'KW')->product;
 
         $this->assertSame(0, (int) $copy->current_stock);
         $this->assertSame(0.0, (float) $copy->unit_price);
@@ -174,7 +176,7 @@ class ProductCopyToCountryTest extends TestCase
         $this->trackCountries();
         $source = $this->sourceProduct(extra: ['status' => 1, 'featured_status' => 1]);
 
-        $copy = $this->copier->copy(source: $source, targetCountry: 'KW');
+        $copy = $this->copier->copy(source: $source, targetCountry: 'KW')->product;
 
         $this->assertSame(0, (int) $copy->status);
         $this->assertSame(0, (int) $copy->featured_status);
@@ -186,7 +188,7 @@ class ProductCopyToCountryTest extends TestCase
         $variation = json_encode([['type' => 'Red', 'price' => 199, 'sku' => 'V-RED', 'qty' => 12]]);
         $source = $this->sourceProduct(extra: ['variation' => $variation]);
 
-        $copy = $this->copier->copy(source: $source, targetCountry: 'KW');
+        $copy = $this->copier->copy(source: $source, targetCountry: 'KW')->product;
 
         $this->assertSame(
             [['type' => 'Red', 'price' => 0, 'sku' => 'V-RED', 'qty' => 0]],
@@ -194,11 +196,95 @@ class ProductCopyToCountryTest extends TestCase
         );
     }
 
+    /**
+     * The defect this pins: the code and the barcode were dropped when the target country held them, and every variant SKU was carried across
+     * all the same. One admin click then left two live Kuwaiti products the form refuses to save again, and a Kuwaiti till scan of the printed
+     * label named both of them.
+     */
+    public function test_a_variant_sku_the_target_country_already_holds_is_left_for_the_admin_to_type(): void
+    {
+        $this->trackCountries();
+        $source = $this->sourceProduct(extra: ['variation' => json_encode([['type' => 'Red', 'price' => 199, 'sku' => 'V-1', 'qty' => 12]])]);
+        $this->insertCodedProduct(code: 'KW-OTHER', country: 'KW', extra: [
+            'name' => 'Serum KW',
+            'variation' => json_encode([['type' => 'Blue', 'price' => 10, 'sku' => 'V-1', 'qty' => 3]]),
+        ]);
+
+        $made = $this->copier->copy(source: $source, targetCountry: 'KW');
+
+        $this->assertSame('', json_decode($made->product->getAttributes()['variation'], true)[0]['sku']);
+        $this->assertSame(['V-1'], $made->variantSkusNotKept);
+    }
+
+    public function test_a_copy_never_leaves_the_target_country_holding_one_variant_sku_twice(): void
+    {
+        $this->trackCountries();
+        $source = $this->sourceProduct(extra: ['variation' => json_encode([
+            ['type' => 'Red', 'price' => 199, 'sku' => 'V-1', 'qty' => 12],
+            ['type' => 'Blue', 'price' => 199, 'sku' => 'V-FREE', 'qty' => 7],
+        ])]);
+        $kuwaiti = $this->insertCodedProduct(code: 'KW-OTHER', country: 'KW', extra: [
+            'name' => 'Serum KW',
+            'variation' => json_encode([['type' => 'Blue', 'price' => 10, 'sku' => 'V-1', 'qty' => 3]]),
+        ]);
+
+        $copy = $this->copier->copy(source: $source, targetCountry: 'KW')->product;
+
+        $variantSku = app(ProductVariantSku::class);
+        $this->assertSame([], $variantSku->refusals(request: $this->skuForm(['V-1']), country: 'KW', ignoreProductId: $kuwaiti), 'the Kuwaiti product must still save');
+        $this->assertSame(['V-FREE'], $variantSku->skusOf($copy->getAttributes()['variation'])->all(), 'only the free SKU crosses the border');
+        $this->assertSame([], $variantSku->refusals(request: $this->skuForm(['V-FREE']), country: 'KW', ignoreProductId: (int) $copy->id));
+    }
+
+    public function test_a_till_scan_in_the_target_country_still_names_one_product_after_a_copy(): void
+    {
+        $this->trackCountries();
+        $source = $this->sourceProduct(extra: ['variation' => json_encode([['type' => 'Red', 'price' => 199, 'sku' => 'V-1', 'qty' => 12]])]);
+        $this->insertCodedProduct(code: 'KW-OTHER', country: 'KW', extra: [
+            'name' => 'Serum KW',
+            'variation' => json_encode([['type' => 'Blue', 'price' => 10, 'sku' => 'V-1', 'qty' => 3]]),
+        ]);
+
+        $this->copier->copy(source: $source, targetCountry: 'KW');
+
+        $scanned = app(ProductVariantSku::class)->scan(ownedProducts: Product::query(), code: 'V-1', country: 'KW');
+        $this->assertCount(1, $scanned, 'two products of one country answering one scan is the 409 the till shows');
+    }
+
+    public function test_a_variant_sku_free_in_the_target_country_crosses_the_border(): void
+    {
+        $this->trackCountries();
+        $source = $this->sourceProduct(extra: ['variation' => json_encode([['type' => 'Red', 'price' => 199, 'sku' => 'V-1', 'qty' => 12]])]);
+        $this->insertCodedProduct(code: 'SA-OTHER', country: 'SA', extra: [
+            'name' => 'Another Saudi serum',
+            'variation' => json_encode([['type' => 'Blue', 'price' => 10, 'sku' => 'V-1', 'qty' => 3]]),
+        ]);
+
+        $made = $this->copier->copy(source: $source, targetCountry: 'KW');
+
+        $this->assertSame('V-1', json_decode($made->product->getAttributes()['variation'], true)[0]['sku'], 'the SKU is held in another country, which is what the switch allows');
+        $this->assertSame([], $made->variantSkusNotKept);
+    }
+
+    public function test_the_audit_line_says_which_variant_skus_could_not_be_kept(): void
+    {
+        $this->trackCountries();
+        $source = $this->sourceProduct(extra: ['variation' => json_encode([['type' => 'Red', 'price' => 199, 'sku' => 'V-1', 'qty' => 12]])]);
+        $this->insertCodedProduct(code: 'KW-OTHER', country: 'KW', extra: [
+            'name' => 'Serum KW',
+            'variation' => json_encode([['type' => 'Blue', 'price' => 10, 'sku' => 'V-1', 'qty' => 3]]),
+        ]);
+
+        $this->copier->copy(source: $source, targetCountry: 'KW');
+
+        $this->assertSame(['V-1'], $this->auditContext()['variant_skus_not_kept']);
+    }
+
     public function test_editing_the_source_after_the_copy_does_not_touch_the_copy(): void
     {
         $this->trackCountries();
         $source = $this->sourceProduct(extra: ['current_stock' => 10, 'unit_price' => 50]);
-        $copy = $this->copier->copy(source: $source, targetCountry: 'KW');
+        $copy = $this->copier->copy(source: $source, targetCountry: 'KW')->product;
 
         DB::table('products')->where('id', $source->id)->update(['current_stock' => 999, 'unit_price' => 777]);
 
@@ -212,7 +298,7 @@ class ProductCopyToCountryTest extends TestCase
         $this->trackCountries();
         $source = $this->sourceProduct(extra: ['fulfillment_provider' => 'torod_point', 'bought_together_ids' => '[4,5]']);
 
-        $copy = $this->copier->copy(source: $source, targetCountry: 'KW');
+        $copy = $this->copier->copy(source: $source, targetCountry: 'KW')->product;
 
         $this->assertNull($copy->getAttributes()['fulfillment_provider'], 'a warehouse holds the boxes of one country');
         $this->assertNull($copy->getAttributes()['bought_together_ids'], 'the products offered beside it are the source country\'s rows');
@@ -230,7 +316,7 @@ class ProductCopyToCountryTest extends TestCase
             'images' => json_encode([['image_name' => 'gallery-one.webp', 'storage' => 'public']]),
         ]);
 
-        $copy = $this->copier->copy(source: $source, targetCountry: 'KW');
+        $copy = $this->copier->copy(source: $source, targetCountry: 'KW')->product;
 
         $this->assertNotSame('source-thumb.webp', $copy->getAttributes()['thumbnail']);
         $this->assertTrue(Storage::disk('public')->exists('product/thumbnail/' . $copy->getAttributes()['thumbnail']));
@@ -246,7 +332,7 @@ class ProductCopyToCountryTest extends TestCase
         $this->trackCountries();
         Storage::disk('public')->put('product/thumbnail/source-thumb.webp', 'the bytes');
         $source = $this->sourceProduct(extra: ['thumbnail' => 'source-thumb.webp']);
-        $copy = $this->copier->copy(source: $source, targetCountry: 'KW');
+        $copy = $this->copier->copy(source: $source, targetCountry: 'KW')->product;
 
         Storage::disk('public')->delete('product/thumbnail/source-thumb.webp');
 
@@ -259,7 +345,7 @@ class ProductCopyToCountryTest extends TestCase
         Storage::disk('public')->put('product/thumbnail/source-thumb.webp', 'the bytes');
         $source = $this->sourceProduct(extra: ['thumbnail' => 'source-thumb.webp', 'thumbnail_storage_type' => 'public']);
 
-        $copy = $this->copier->copy(source: $source, targetCountry: 'KW');
+        $copy = $this->copier->copy(source: $source, targetCountry: 'KW')->product;
 
         $this->assertSame('public', $copy->getAttributes()['thumbnail_storage_type']);
     }
@@ -269,7 +355,7 @@ class ProductCopyToCountryTest extends TestCase
         $this->trackCountries();
         $source = $this->sourceProduct(extra: ['thumbnail' => 'gone.webp']);
 
-        $copy = $this->copier->copy(source: $source, targetCountry: 'KW');
+        $copy = $this->copier->copy(source: $source, targetCountry: 'KW')->product;
 
         $this->assertNull($copy->getAttributes()['thumbnail'], 'a copy never points at a file it could not copy');
         $this->assertContains('thumbnail', $this->auditContext()['images_not_copied']);
@@ -282,7 +368,7 @@ class ProductCopyToCountryTest extends TestCase
         $this->trackCountries();
         $source = $this->sourceProduct(code: 'SKU100', country: 'SA');
 
-        $copy = $this->copier->copy(source: $source, targetCountry: 'KW');
+        $copy = $this->copier->copy(source: $source, targetCountry: 'KW')->product;
 
         $line = DB::table('audit_logs')->where('action', 'catalog.product.copied_to_country')->first();
         $this->assertNotNull($line);
@@ -322,6 +408,21 @@ class ProductCopyToCountryTest extends TestCase
     }
 
     // ---- helpers -----------------------------------------------------------------------------------------------------------------
+
+    /**
+     * The form a product save posts its variant SKUs on: one `sku_<variant>` field each, which is what the gate reads.
+     *
+     * @param list<string> $skus
+     */
+    private function skuForm(array $skus): Request
+    {
+        $fields = [];
+        foreach ($skus as $index => $sku) {
+            $fields['sku_' . $index] = $sku;
+        }
+
+        return Request::create('/', 'POST', $fields);
+    }
 
     /** @return array<string, mixed> */
     private function auditContext(): array

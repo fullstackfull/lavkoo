@@ -6373,6 +6373,8 @@ return [
 	'copy_this_product_to_another_country' => 'Copy this product to another country',
 	'the_copy_starts_with_no_stock_and_no_price_and_is_not_published_until_you_set_them' => 'The copy starts with no stock and no price, and stays unpublished until you set them. Its images are files of its own.',
 	'the_copy_was_made_without_the_stock_or_the_price_of_the_original_set_them_here' => 'The copy was made without the stock or the price of the original. Set them here and publish it.',
+	'a_variation_sku_the_target_country_already_uses_was_cleared_on_the_copy' => 'A variation SKU the target country already uses was cleared on the copy. Type a new one.',
+	'an_image_file_could_not_be_read_and_was_not_copied' => 'An image file could not be read, so it was not copied. Upload it again.',
 	'storefront_country_of_this_connection' => 'Storefront country of this connection',
 	'the_default_storefronts_country' => 'The default storefront\'s country',
 	'the_cache_the_whole_server_depends_on_a_falling_hit_ratio_turns_every_query_into_disk_io' => 'The cache the whole server depends on a falling hit ratio turns every query into disk io',

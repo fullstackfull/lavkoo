@@ -1657,6 +1657,8 @@ ____________________________________________________on_search_engines_and_see_th
 	'copy_this_product_to_another_country' => 'نسخ هذا المنتج إلى دولة أخرى',
 	'the_copy_starts_with_no_stock_and_no_price_and_is_not_published_until_you_set_them' => 'تبدأ النسخة بلا مخزون ولا سعر، وتبقى غير منشورة حتى تحددهما. وصورها ملفات خاصة بها.',
 	'the_copy_was_made_without_the_stock_or_the_price_of_the_original_set_them_here' => 'أُنشئت النسخة دون مخزون الأصل أو سعره. حدّدهما هنا ثم انشرها.',
+	'a_variation_sku_the_target_country_already_uses_was_cleared_on_the_copy' => 'رمز SKU لأحد المتغيّرات مستخدم بالفعل في الدولة الهدف، لذلك أُفرِغ في النسخة. أدخل رمزًا جديدًا.',
+	'an_image_file_could_not_be_read_and_was_not_copied' => 'تعذّرت قراءة أحد ملفات الصور، فلم يُنسخ. ارفعه من جديد.',
 	'storefront_country_of_this_connection' => 'دولة المتجر لهذا الاتصال',
 	'the_default_storefronts_country' => 'دولة المتجر الافتراضي',
 	'the_constant_it_is_declared_in_has_been_renamed_or_removed' => 'الثابت المُعلَن فيه أُعيدت تسميته أو حُذف',
