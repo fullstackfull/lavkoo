@@ -274,6 +274,66 @@ class PosScanCodeScopeTest extends TestCase
         $this->assertSame(1, $this->scannedId(['code' => 'SKU100', 'country' => 'KW']));
     }
 
+    // ---- B-06: the label on the box carries the variant's SKU, not the product's -----------------------------------------------
+
+    public function test_with_the_switch_off_a_variant_sku_finds_nothing(): void
+    {
+        $this->sellerProduct(1, 'SKU100', 'SA', extra: ['variation' => $this->variation('V-RED')]);
+
+        $this->assertNull($this->scannedId(['code' => 'V-RED']), 'today only the product code is looked at');
+    }
+
+    public function test_a_scan_finds_the_product_by_its_variant_sku(): void
+    {
+        $this->scopeCodesByCountry();
+        $this->sellerProduct(1, 'SKU100', 'SA', extra: ['variation' => $this->variation('V-RED')]);
+
+        $this->assertSame(1, $this->scannedId(['code' => 'V-RED']));
+    }
+
+    public function test_a_variant_sku_scan_is_narrowed_to_the_country(): void
+    {
+        $this->scopeCodesByCountry();
+        $this->sellerProduct(1, 'SKU100', 'SA', extra: ['variation' => $this->variation('V-RED')]);
+        $this->sellerProduct(2, 'SKU200', 'KW', extra: ['variation' => $this->variation('V-RED')]);
+
+        $this->assertSame(1, $this->scannedId(['code' => 'V-RED']), 'no country named: the default storefront is Saudi');
+        $this->assertSame(2, $this->scannedId(['code' => 'V-RED', 'country' => 'KW']));
+    }
+
+    public function test_a_variant_sku_two_products_of_one_country_hold_is_an_ambiguity_not_a_choice(): void
+    {
+        $this->scopeCodesByCountry();
+        $this->sellerProduct(1, 'SKU100', 'SA', extra: ['variation' => $this->variation('V-RED')]);
+        $this->sellerProduct(2, 'SKU200', 'SA', extra: ['variation' => $this->variation('V-RED')]);
+
+        $answer = $this->scan(['code' => 'V-RED']);
+
+        $this->assertSame(409, $answer->getStatusCode());
+        $this->assertSame('ambiguous_code', $answer->getData(true)['errors'][0]['code']);
+    }
+
+    public function test_a_product_whose_code_and_whose_variant_sku_are_the_scanned_value_answers_once(): void
+    {
+        $this->scopeCodesByCountry();
+        $this->sellerProduct(1, 'SKU100', 'SA', extra: ['variation' => $this->variation('SKU100')]);
+
+        $this->assertSame(1, $this->scannedId(['code' => 'SKU100']), 'one product, found by two of its own values, is not an ambiguity');
+    }
+
+    public function test_a_variant_sku_scan_sees_only_the_sellers_own_products(): void
+    {
+        $this->scopeCodesByCountry();
+        $this->sellerProduct(1, 'SKU100', 'SA', seller: 9, extra: ['variation' => $this->variation('V-RED')]);
+
+        $this->assertNull($this->scannedId(['code' => 'V-RED']));
+    }
+
+    private function variation(string $sku): string
+    {
+        return (string) json_encode([['type' => 'Red', 'price' => 10, 'sku' => $sku, 'qty' => 3]]);
+    }
+
     public function test_the_messages_of_the_two_refusals_exist_in_every_language_file(): void
     {
         foreach (['en', 'sa', 'ae'] as $locale) {

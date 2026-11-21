@@ -1648,6 +1648,8 @@ ____________________________________________________on_search_engines_and_see_th
 	'the_console_may_send_writes' => 'يمكن للوحدة إرسال طلبات كتابة',
 	'the_scanned_code_matches_more_than_one_product' => 'الرمز الممسوح يطابق أكثر من منتج. اختر أحد المنتجات المعروضة أو أرسل الدولة.',
 	'the_country_must_be_one_of_the_configured_storefront_countries' => 'يجب أن تكون الدولة إحدى دول المتاجر المُعدّة.',
+	'two_variations_of_this_product_have_the_same_sku' => 'يوجد متغيّران لهذا المنتج يحملان نفس رمز SKU. لكل متغيّر رمزه الخاص.',
+	'this_variation_sku_belongs_to_another_product_of_the_same_country' => 'رمز SKU لهذا المتغيّر يخص منتجًا آخر في الدولة نفسها.',
 	'the_constant_it_is_declared_in_has_been_renamed_or_removed' => 'الثابت المُعلَن فيه أُعيدت تسميته أو حُذف',
 	'the_currency_model_was_updated' => 'تم تحديث نموذج العملة.',
 	'the_dashboard_cannot_see_the_shop_right_now_so_nothing_below_can_be_trusted_as_current' => 'لوحة المراقبة لا ترى المتجر الآن، لذا لا يمكن اعتبار ما تحت هذا السطر حديثًا',

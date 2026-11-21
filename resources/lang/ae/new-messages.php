@@ -5493,6 +5493,8 @@ return [
 	'the_coupon_discount_bearer_is_admin' => 'The coupon discount bearer is admin',
 	'the_scanned_code_matches_more_than_one_product' => 'الرمز الممسوح يطابق أكثر من منتج. اختر أحد المنتجات المعروضة أو أرسل الدولة.',
 	'the_country_must_be_one_of_the_configured_storefront_countries' => 'يجب أن تكون الدولة إحدى دول المتاجر المُعدّة.',
+	'two_variations_of_this_product_have_the_same_sku' => 'يوجد متغيّران لهذا المنتج يحملان نفس رمز SKU. لكل متغيّر رمزه الخاص.',
+	'this_variation_sku_belongs_to_another_product_of_the_same_country' => 'رمز SKU لهذا المتغيّر يخص منتجًا آخر في الدولة نفسها.',
 	'some_actions_are_disabled_because_the_admin_added_coupons' => 'Some actions are disabled because the admin added coupons',
 	'some_status_buttons_are_disabled_because_the_admin_added_coupons' => 'Some status buttons are disabled because the admin added coupons',
 	'location_data' => 'Location data',

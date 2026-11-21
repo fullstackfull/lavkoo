@@ -6364,6 +6364,8 @@ return [
 	'the_cache_queue_and_session_drivers_could_not_be_read' => 'The cache queue and session drivers could not be read',
 	'the_scanned_code_matches_more_than_one_product' => 'The scanned code matches more than one product. Choose one of the listed products, or send the country.',
 	'the_country_must_be_one_of_the_configured_storefront_countries' => 'The country must be one of the configured storefront countries.',
+	'two_variations_of_this_product_have_the_same_sku' => 'Two variations of this product have the same SKU. Every variation needs its own.',
+	'this_variation_sku_belongs_to_another_product_of_the_same_country' => 'This variation SKU already belongs to another product of the same country.',
 	'the_cache_the_whole_server_depends_on_a_falling_hit_ratio_turns_every_query_into_disk_io' => 'The cache the whole server depends on a falling hit ratio turns every query into disk io',
 	'the_caller_was_identified_and_still_not_allowed_a_guard_a_policy_or_a_missing_permission' => 'The caller was identified and still not allowed a guard a policy or a missing permission',
 	'the_cards_in_this_section_have_no_content_yet' => 'The cards in this section have no content yet',
