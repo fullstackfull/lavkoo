@@ -143,22 +143,30 @@ final class StorefrontResolver
     }
 
     /**
-     * While storefronts are switched off only the default storefront is listed, because it is the only one a request can reach.
+     * The countries a request can actually be served from: the active storefronts, or the default one alone while storefronts are off,
+     * because it is the only one a request can reach then. A configured country that is not active is not one of them, so a caller that
+     * names a country can reach no catalogue it could not reach by asking for that storefront.
      *
+     * @return list<string>
+     */
+    public function reachableCountries(): array
+    {
+        return $this->enabled
+            ? array_values(array_keys(array_filter($this->countries, fn (string $code) => $this->isActive($code), ARRAY_FILTER_USE_KEY)))
+            : [$this->defaultCountry];
+    }
+
+    /**
      * @return list<array{country: string, path: string, currency: string, is_default: bool}>
      */
     public function activeStorefronts(): array
     {
-        $listedCountries = $this->enabled
-            ? array_keys(array_filter($this->countries, fn (string $code) => $this->isActive($code), ARRAY_FILTER_USE_KEY))
-            : [$this->defaultCountry];
-
         return array_map(fn (string $code) => [
             'country' => $code,
             'path' => $this->countries[$code]['path'],
             'currency' => $this->countries[$code]['currency'],
             'is_default' => $code === $this->defaultCountry,
-        ], $listedCountries);
+        ], $this->reachableCountries());
     }
 
     public function currencyOf(string $countryCode): string

@@ -50,6 +50,7 @@
                                            class="form-control" id="code"
                                            placeholder="{{translate('ex')}}: EID100" required  data-required-msg="{{ translate('coupon_code_is_required') }}">
                                 </div>
+                                @include('admin-views.coupon.partials._storefront-country')
                                 <div class="col-md-6 col-lg-4 first_order">
                                     <label for="name"
                                            class="form-label d-flex">{{translate('coupon_bearer')}} <span class="text-danger">*</span></label>
@@ -106,7 +107,7 @@
                                 <div class="col-md-6 col-lg-4 free_delivery">
                                     <label for="name"
                                            class="form-label d-flex">{{translate('discount_Amount')}}<span class="text-danger">*</span>
-                                        <span id="discount_currency">({{ getCurrencySymbol(currencyCode: getCurrencyCode()) }})</span>
+                                        <span id="discount_currency">(<span class="coupon-currency">{{ getCurrencySymbol(currencyCode: getCurrencyCode()) }}</span>)</span>
                                         <span id="discount_percent"> (%)</span></label>
                                     <input type="number" min="1" max="1000000" name="discount"
                                            value="{{ old('discount') }}" class="form-control"
@@ -118,7 +119,7 @@
                                            class="form-label d-flex">
                                         {{ translate('minimum_purchase') }}
                                         <span class="text-danger">*</span>
-                                        ({{ getCurrencySymbol(currencyCode: getCurrencyCode()) }})
+                                        (<span class="coupon-currency">{{ getCurrencySymbol(currencyCode: getCurrencyCode()) }}</span>)
                                     </label>
                                     <input type="number" min="1" max="1000000" name="min_purchase"  data-required-msg="{{ translate('Minimum_purchase_field_is_required') }}"
                                            value="{{ old('min_purchase') }}" class="form-control"
@@ -129,7 +130,7 @@
                                     <label for="name"
                                            class="form-label d-flex">
                                         {{translate('maximum_discount')}}
-                                        ({{ getCurrencySymbol(currencyCode: getCurrencyCode()) }})
+                                        (<span class="coupon-currency">{{ getCurrencySymbol(currencyCode: getCurrencyCode()) }}</span>)
                                     </label>
                                     <input type="number" min="1" max="1000000" name="max_discount"
                                            value="{{ old('max_discount') }}"

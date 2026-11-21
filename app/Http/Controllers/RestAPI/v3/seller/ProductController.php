@@ -53,6 +53,7 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
 use App\Services\Catalog\ProductCodeScope;
+use App\Services\Catalog\ProductVariantSku;
 
 class ProductController extends Controller
 {
@@ -811,6 +812,8 @@ class ProductController extends Controller
             'minimum_order_qty.min' => translate('The minimum order quantity must be positive!'),
         ]);
 
+        app(ProductVariantSku::class)->guard(validator: $validator, request: $request, country: $codeScope->countryOfNewProduct(addedBy: 'seller'));
+
         $validator->after($this->brandClaimGuard($request, $seller));
 
         $taxData = $this->getTaxSystemType();
@@ -1244,6 +1247,8 @@ class ProductController extends Controller
             'minimum_order_qty.required' => 'The minimum order quantity is required!',
             'minimum_order_qty.min' => 'The minimum order quantity must be positive!',
         ]);
+
+        app(ProductVariantSku::class)->guard(validator: $validator, request: $request, country: $codeScope->countryOfProduct($product), ignoreProductId: (int) $product->id);
 
         $validator->after($this->brandClaimGuard($request, $seller));
 

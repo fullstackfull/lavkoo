@@ -49,6 +49,25 @@ final class ProductCountry
         return $country . ' · ' . StorefrontResolver::fromConfig()->currencyOf($country);
     }
 
+    /**
+     * The country a product form is filled in for, so the lists it offers are that country's (B-12).
+     *
+     * A saved product's own country never changes, so the form that edits it is that country's form. A new product takes the country
+     * the form carries — the default storefront's until the operator picks another — and a seller's product takes the table default,
+     * because sellers do not choose a country yet. While nothing is tracked every form is the default storefront's, which is the one
+     * answer the platform has today.
+     */
+    public static function countryOfForm(mixed $product = null, mixed $requestedCountry = null): string
+    {
+        if (!self::isTracked()) {
+            return self::defaultCountry();
+        }
+
+        $country = $product === null ? $requestedCountry : ($product[StorefrontCatalog::COLUMN] ?? null);
+
+        return in_array($country, self::options(), true) ? $country : self::defaultCountry();
+    }
+
     /** @return array<string, list<mixed>> the validation of the country field of a new product */
     public static function newProductRules(): array
     {

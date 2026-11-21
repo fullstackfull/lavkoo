@@ -12,6 +12,7 @@ use Modules\TaxModule\app\Traits\VatTaxManagement;
 
 use App\Http\Requests\Concerns\ChecksBrandEntitlement;
 use App\Services\Catalog\ProductCodeScope;
+use App\Services\Catalog\ProductVariantSku;
 
 class ProductUpdateRequest extends FormRequest
 {
@@ -95,11 +96,28 @@ class ProductUpdateRequest extends FormRequest
         ];
     }
 
+    /**
+     * A variant's SKU names one variant inside the product's own country: it may not be repeated among this product's variants, and it may not
+     * be one another product of that country holds. The product itself is ignored, so an edit that changes nothing is never refused.
+     */
+    private function refuseVariantSkusAlreadyInUse(Validator $validator): void
+    {
+        $product = $this->productRepo->getFirstWhere(['id' => $this->route('id')]);
+
+        app(ProductVariantSku::class)->guard(
+            validator: $validator,
+            request: $this,
+            country: app(ProductCodeScope::class)->countryOfProduct($product),
+            ignoreProductId: $product === null ? null : (int) $product['id'],
+        );
+    }
+
     public function after(): array
     {
         return [
             function (Validator $validator) {
                 $this->validateBrandEntitlement($validator);
+                $this->refuseVariantSkusAlreadyInUse($validator);
 
 
                 $disallowedExtensions = getDisallowedExtensionsListArray();

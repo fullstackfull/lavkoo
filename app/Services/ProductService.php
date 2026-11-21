@@ -1112,6 +1112,19 @@ class ProductService
         ];
     }
 
+    /**
+     * The attribute ids a saved product already carries. The form that edits it keeps offering them whatever the storefront mapping
+     * says (B-12), so adding a mapping later never silently strips a variation a merchant has already defined.
+     *
+     * @return list<int>
+     */
+    public function getProductAttributeIds(object|array|null $product): array
+    {
+        $attributeIds = json_decode($product['attributes'] ?? '[]', true);
+
+        return array_values(array_filter(array_map('intval', is_array($attributeIds) ? $attributeIds : [])));
+    }
+
     public function getProductAuthorsInfo(object|array $product): array
     {
         $productAuthorIds = [];

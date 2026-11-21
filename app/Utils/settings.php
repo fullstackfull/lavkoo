@@ -6,6 +6,7 @@ use App\Models\LoginSetup;
 use App\Models\Shop;
 use App\Models\User;
 use App\Services\Storefront\StorefrontCatalog;
+use App\Services\Storefront\StorefrontCurrency;
 use App\Utils\Helpers;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Storage;
@@ -18,6 +19,14 @@ if (!function_exists('getWebConfig')) {
             && function_exists('getCheckAddonPublishedStatus')
             && !getCheckAddonPublishedStatus(moduleName: 'Auction')) {
             return null;
+        }
+
+        if (in_array($name, StorefrontCurrency::OVERRIDDEN_SETTINGS, true)) {
+            $storefrontValue = app(StorefrontCurrency::class)->override(setting: $name);
+
+            if ($storefrontValue !== null) {
+                return $storefrontValue;
+            }
         }
 
         $config = null;
@@ -464,7 +473,7 @@ if (!function_exists('cacheRemoveByType')) {
         } else if ($type == 'banners') {
             cacheGroupRemoveByType(key: CACHE_BANNER_ALL_CACHE_KEYS);
 
-            Cache::forget(CACHE_BANNER_TABLE);
+            cacheForgetInEveryStorefront(key: CACHE_BANNER_TABLE);
         } else if ($type == 'currencies') {
             Cache::forget(CACHE_FOR_CURRENCY_TABLE);
         } else if ($type == 'categories') {

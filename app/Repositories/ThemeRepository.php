@@ -4,6 +4,7 @@ namespace App\Repositories;
 
 use App\Contracts\Repositories\ThemeRepositoryInterface;
 use App\Models\Theme;
+use App\Services\Theme\StorefrontThemeResolver;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -12,6 +13,7 @@ class ThemeRepository implements ThemeRepositoryInterface
 {
     public function __construct(
         private readonly Theme $theme,
+        private readonly StorefrontThemeResolver $themes,
     )
     {
     }
@@ -66,7 +68,7 @@ class ThemeRepository implements ThemeRepositoryInterface
 
     public function getActiveTheme(): ?Model
     {
-        return $this->theme->newQuery()->where('is_active', true)->first();
+        return $this->themes->activeTheme();
     }
 
     public function slugExists(string $slug, ?int $exceptId = null): bool

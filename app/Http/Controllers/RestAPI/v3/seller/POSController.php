@@ -18,6 +18,7 @@ use App\Models\Product;
 use App\Services\Address\CheckoutAddressGuard;
 use App\Services\Address\OrderAddressService;
 use App\Services\PasswordResetService;
+use App\Services\Storefront\OrderStorefrontSnapshot;
 use App\Models\User;
 use App\Traits\API\v3\VendorPOSManagement;
 use App\Traits\CustomerTrait;
@@ -31,6 +32,7 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
 use App\Services\Catalog\ProductCodeScope;
+use App\Services\Catalog\ProductVariantSku;
 use Illuminate\Support\Collection;
 
 class POSController extends Controller
@@ -212,7 +214,7 @@ class POSController extends Controller
             return response()->json(['errors' => [['code' => 'country', 'message' => translate('the_country_must_be_one_of_the_configured_storefront_countries')]]], 422);
         }
 
-        $products = $codeScope->scan(
+        $products = app(ProductVariantSku::class)->scan(
             ownedProducts: Product::withCount('reviews')->where([
                 'added_by' => 'seller',
                 'user_id' => $seller->id,
@@ -441,6 +443,7 @@ class POSController extends Controller
             'updated_at' => now(),
         ];
         DB::table('orders')->insertGetId($orderData);
+        app(OrderStorefrontSnapshot::class)->record(orderId: $generateOrderID);
 
         if ($isDigitalProduct) {
             $order = Order::with(['details.productAllStatus', 'customer'])->find($generateOrderID);

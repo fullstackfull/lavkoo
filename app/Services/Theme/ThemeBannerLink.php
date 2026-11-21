@@ -3,7 +3,6 @@
 namespace App\Services\Theme;
 
 use App\Models\Banner;
-use App\Models\Theme;
 use App\Models\ThemeBlock;
 use App\Models\ThemeSection;
 use App\Models\ThemeVersion;
@@ -351,7 +350,7 @@ class ThemeBannerLink
     /** Banner-carrying sections of the active theme, published version first, then drafts. */
     private function activeThemeSections(bool $bannerOnly = false)
     {
-        $theme = Theme::query()->where('is_active', true)->first();
+        $theme = app(StorefrontThemeResolver::class)->activeTheme();
         if (!$theme) {
             return collect();
         }

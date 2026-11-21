@@ -5,12 +5,12 @@ namespace App\Http\Controllers\Admin\Commerce;
 use App\Http\Controllers\BaseController;
 use App\Models\ExperienceCampaign;
 use App\Models\ExperiencePage;
-use App\Models\Theme;
 use App\Services\AuditLogger;
 use App\Services\Commerce\CampaignRules;
 use App\Services\Theme\Channel;
 use App\Services\Theme\ExperiencePageService;
 use App\Services\Theme\StorefrontThemeRenderer;
+use App\Services\Theme\StorefrontThemeResolver;
 use App\Services\Theme\ThemeDelivery;
 use App\Services\Theme\ThemePermissionService;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
@@ -35,13 +35,14 @@ class CampaignController extends BaseController
         private readonly AuditLogger $audit,
         private readonly ThemeDelivery $delivery,
         private readonly StorefrontThemeRenderer $renderer,
+        private readonly StorefrontThemeResolver $themes,
     ) {
     }
 
     public function index(?Request $request, ?string $type = null): View
     {
         $ready = $this->ready();
-        $theme = Theme::query()->where('is_active', true)->first();
+        $theme = $this->themes->activeTheme();
 
         return view('admin-views.commerce.campaigns', [
             'ready'     => $ready,
@@ -271,7 +272,7 @@ class CampaignController extends BaseController
     /** @return array<int, string> every slug either channel can be served */
     private function servablePageSlugs(): array
     {
-        $theme = Theme::query()->where('is_active', true)->first();
+        $theme = $this->themes->activeTheme();
 
         if ($theme === null) {
             return ExperiencePage::SYSTEM_SLUGS;

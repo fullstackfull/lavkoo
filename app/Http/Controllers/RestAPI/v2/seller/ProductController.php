@@ -18,6 +18,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use App\Services\Catalog\ProductCodeScope;
+use App\Services\Catalog\ProductVariantSku;
 
 class ProductController extends Controller
 {
@@ -167,6 +168,8 @@ class ProductController extends Controller
             'minimum_order_qty.required'        => translate('The minimum order quantity is required!'),
             'minimum_order_qty.min'             => translate('The minimum order quantity must be positive!'),
         ]);
+
+        app(ProductVariantSku::class)->guard(validator: $validator, request: $request, country: $codeScope->countryOfNewProduct(addedBy: 'seller'));
 
         $brand_setting = BusinessSetting::where('type', 'product_brand')->first()->value;
         if ($brand_setting && empty($request->brand_id)) {
@@ -406,6 +409,8 @@ class ProductController extends Controller
             'minimum_order_qty.min'             => 'The minimum order quantity must be positive!',
             'digital_product_type.required_if'  => 'Digital product type is required!',
         ]);
+
+        app(ProductVariantSku::class)->guard(validator: $validator, request: $request, country: $codeScope->countryOfProduct($product), ignoreProductId: (int) $product->id);
 
         $brand_setting = BusinessSetting::where('type', 'product_brand')->first()->value;
         if ($brand_setting && empty($request->brand_id)) {

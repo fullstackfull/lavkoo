@@ -92,6 +92,12 @@ class ListingSyncService
     /** @param array<string, int> $stats */
     private function propose(SalesChannelAccount $account, SalesChannelProductMapping $row, RemoteListing $listing, bool $autoLink, array &$stats): void
     {
+        // An account that sells in a country we have no storefront for has no product of ours to be: every proposal would be another
+        // country's product, so nothing is proposed rather than the whole catalogue offered.
+        if ($this->accountCountry->sellsWhereWeHaveNoCatalogue($account)) {
+            return;
+        }
+
         $candidates = $this->matcher->candidates($listing->sku, $listing->barcode, $this->accountCountry->of($account));
         if (count($candidates) > 1) {
             $row->forceFill(['status' => SalesChannelProductMapping::CONFLICT, 'match_method' => 'ambiguous', 'suggested_product_id' => null])->save();

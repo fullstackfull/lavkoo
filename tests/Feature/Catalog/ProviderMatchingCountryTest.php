@@ -9,6 +9,7 @@ use App\Services\Fulfillment\CatalogStagingService;
 use App\Services\Fulfillment\ProviderMappingService;
 use App\Services\Storefront\StorefrontCatalog;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Tests\Feature\Fulfillment\FulfillmentTestCase;
 use Tests\Support\BuildsCodeScopeCatalog;
 
@@ -95,6 +96,39 @@ class ProviderMatchingCountryTest extends FulfillmentTestCase
         $this->dropStorefrontCountryColumn();
 
         $this->assertSame([1, 2], $this->suggested());
+    }
+
+    /**
+     * B-05, the half that matters: a connection that serves a country we have no storefront for is offered **nothing**, whichever of its two
+     * country settings says so. Suggesting the Saudi twin to an Egyptian warehouse is the cross-country match this unit exists to prevent.
+     */
+    public function test_nothing_is_suggested_for_a_connection_that_serves_a_country_we_have_no_storefront_for(): void
+    {
+        $this->scopeCodesByCountry();
+
+        foreach ([['storefront_country' => 'EG'], ['country_code' => 'EG'], ['storefront_country' => '', 'country_code' => 'EG']] as $settings) {
+            $this->connectionSettings(provider: ProviderCode::TorodPoint->value, settings: $settings);
+
+            $this->assertSame([], $this->suggested(), json_encode($settings));
+            $this->assertSame([], $this->suggested(echo: '1'), 'not even the echoed id: ' . json_encode($settings));
+        }
+    }
+
+    public function test_a_connection_that_names_one_of_our_countries_is_suggested_that_countrys_product(): void
+    {
+        $this->scopeCodesByCountry();
+        $this->connectionSettings(provider: ProviderCode::TorodPoint->value, settings: ['country_code' => 'KW']);
+
+        $this->assertSame([2], $this->suggested());
+    }
+
+    /** @param array<string, mixed> $settings */
+    private function connectionSettings(string $provider, array $settings): void
+    {
+        DB::table('integration_settings')->updateOrInsert(
+            ['provider' => $provider],
+            ['enabled' => 1, 'settings' => json_encode($settings), 'created_at' => now(), 'updated_at' => now()],
+        );
     }
 
     // ---- E2: the picker --------------------------------------------------------------------------------------------------------

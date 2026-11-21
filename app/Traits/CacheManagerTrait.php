@@ -18,6 +18,7 @@ use App\Models\Review;
 use App\Models\RobotsMetaContent;
 use App\Models\Seller;
 use App\Models\ShippingType;
+use App\Services\Storefront\StorefrontCurrency;
 use App\Models\Shop;
 use App\Models\StockClearanceProduct;
 use App\Models\StockClearanceSetup;
@@ -39,7 +40,7 @@ trait CacheManagerTrait
 
     public function cacheBannerTable($bannerType = null, $dataLimit = null)
     {
-        $banners = Cache::remember(CACHE_BANNER_TABLE, CACHE_FOR_3_HOURS, function () {
+        $banners = Cache::remember(storefrontCacheKey(key: CACHE_BANNER_TABLE), CACHE_FOR_3_HOURS, function () {
             return Banner::with(['storage'])->where(['published' => 1, 'theme' => theme_root_path()])->orderBy('id', 'desc')->latest('created_at')->get();
         });
         if ($bannerType && $dataLimit) {
@@ -125,10 +126,12 @@ trait CacheManagerTrait
 
     public function cacheInHouseShippingType()
     {
-        return Cache::remember(CACHE_FOR_IN_HOUSE_SHIPPING_TYPE, CACHE_FOR_3_HOURS, function () {
+        $stored = Cache::remember(CACHE_FOR_IN_HOUSE_SHIPPING_TYPE, CACHE_FOR_3_HOURS, function () {
             $adminShipping = ShippingType::where(['seller_id' => 0])->first();
-            return isset($adminShipping) ? $adminShipping->shipping_type : 'order_wise';
+            return isset($adminShipping) ? $adminShipping->getRawOriginal('shipping_type') : 'order_wise';
         });
+
+        return app(StorefrontCurrency::class)->shippingTypeInForce($stored);
     }
 
     public function cacheMainCategoriesList()
@@ -216,7 +219,7 @@ trait CacheManagerTrait
     public function cacheClearanceSaleSetupTable($shopId)
     {
         $config = null;
-        $settings = Cache::remember(CACHE_CLEARANCE_SALE_SETUP_TABLE, CACHE_FOR_3_HOURS, function () {
+        $settings = Cache::remember(storefrontCacheKey(key: CACHE_CLEARANCE_SALE_SETUP_TABLE), CACHE_FOR_3_HOURS, function () {
             return StockClearanceSetup::all();
         });
         $data = $settings?->firstWhere('shop_id', $shopId);
@@ -302,6 +305,7 @@ trait CacheManagerTrait
                 });
 
             $inHouseCoupon = Coupon::where(['added_by' => 'admin', 'coupon_bearer' => 'inhouse', 'status' => 1])
+                ->forStorefront()
                 ->whereDate('start_date', '<=', date('Y-m-d'))
                 ->whereDate('expire_date', '>=', date('Y-m-d'))->get();
 
@@ -446,7 +450,7 @@ trait CacheManagerTrait
     public function cacheBannerForTypeMainBanner()
     {
         $themeName = theme_root_path() ?? 'default';
-        $cacheKey = 'cache_banner_type_main_banner_' . ($themeName);
+        $cacheKey = storefrontCacheKey(key: 'cache_banner_type_main_banner_' . ($themeName));
         $this->cacheBannerAllTypeKeys(cacheKey: $cacheKey);
 
         return Cache::remember($cacheKey, CACHE_FOR_3_HOURS, function () use ($themeName) {
@@ -457,7 +461,7 @@ trait CacheManagerTrait
     public function cacheBannerForTypeSidebarBanner()
     {
         $themeName = theme_root_path() ?? 'default';
-        $cacheKey = 'cache_banner_type_sidebar_banner_' . ($themeName);
+        $cacheKey = storefrontCacheKey(key: 'cache_banner_type_sidebar_banner_' . ($themeName));
         $this->cacheBannerAllTypeKeys(cacheKey: $cacheKey);
 
         return Cache::remember($cacheKey, CACHE_FOR_3_HOURS, function () use ($themeName) {
@@ -468,7 +472,7 @@ trait CacheManagerTrait
     public function cacheBannerForTypeTopSideBanner()
     {
         $themeName = theme_root_path() ?? 'default';
-        $cacheKey = 'cache_banner_type_top_side_banner_' . ($themeName);
+        $cacheKey = storefrontCacheKey(key: 'cache_banner_type_top_side_banner_' . ($themeName));
         $this->cacheBannerAllTypeKeys(cacheKey: $cacheKey);
 
         return Cache::remember($cacheKey, CACHE_FOR_3_HOURS, function () use ($themeName) {
@@ -479,7 +483,7 @@ trait CacheManagerTrait
     public function cacheBannerForTypePromoBannerLeft()
     {
         $themeName = theme_root_path() ?? 'default';
-        $cacheKey = 'cache_banner_type_top_side_banner_' . ($themeName);
+        $cacheKey = storefrontCacheKey(key: 'cache_banner_type_top_side_banner_' . ($themeName));
         $this->cacheBannerAllTypeKeys(cacheKey: $cacheKey);
 
         return Cache::remember($cacheKey, CACHE_FOR_3_HOURS, function () use ($themeName) {
@@ -490,7 +494,7 @@ trait CacheManagerTrait
     public function cacheBannerForTypePromoBanner($bannerType)
     {
         $themeName = theme_root_path() ?? 'default';
-        $cacheKey = 'cache_banner_type_' . strtolower(str_replace(' ', '_', $bannerType)) . '_' . ($themeName);
+        $cacheKey = storefrontCacheKey(key: 'cache_banner_type_' . strtolower(str_replace(' ', '_', $bannerType)) . '_' . ($themeName));
         $this->cacheBannerAllTypeKeys(cacheKey: $cacheKey);
 
         return Cache::remember($cacheKey, CACHE_FOR_3_HOURS, function () use ($themeName, $bannerType) {
