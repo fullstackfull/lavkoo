@@ -11265,10 +11265,4 @@ return [
 	'coupon_storefront' => 'Storefront',
 	'the_amounts_of_a_coupon_are_in_the_currency_of_its_storefront_it_cannot_be_changed_after_the_coupon_is_added' => 'The amounts of a coupon are in the currency of its storefront. It cannot be changed after the coupon is added.',
 	'the_wallet_is_not_available_in_the_currency_of_this_storefront' => 'The wallet is not available in the currency of this storefront.',
-	'shop_not_found' => 'Shop not found',
-	'Ready_product_upload_is_required!' => 'Ready product upload is required!',
-	'Code_is_required!' => 'Code is required!',
-	'The_minimum_order_quantity_is_required!' => 'The minimum order quantity is required!',
-	'The_minimum_order_quantity_must_be_positive!' => 'The minimum order quantity must be positive!',
-	'Unit_is_required!' => 'Unit is required!',
 ];

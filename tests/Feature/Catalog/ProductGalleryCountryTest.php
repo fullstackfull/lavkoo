@@ -7,6 +7,7 @@ use App\Services\Storefront\StorefrontCatalog;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\View;
@@ -102,6 +103,45 @@ class ProductGalleryCountryTest extends TestCase
         $this->dropStorefrontCountryColumn();
 
         $this->assertSame($off, $this->gallery());
+    }
+
+    /**
+     * The dormancy of the copy control at the level that matters: the whole gallery page, rendered, with the markets off.
+     *
+     * The control itself draws nothing (`ProductCopyControlTest`), but the `@include` line keeps its own indentation in the output, so the page
+     * is NOT byte for byte the page of today. What holds is the thing dormancy means: not one non-space character is added, and stripped of
+     * whitespace the two documents are identical.
+     */
+    public function test_the_gallery_page_gains_nothing_but_whitespace_while_the_markets_are_off(): void
+    {
+        $withTheControl = $this->gallery();
+        $withoutIt = $this->galleryWithoutTheCopyControl();
+
+        $this->assertSame(
+            preg_replace('/\s+/', '', $withoutIt),
+            preg_replace('/\s+/', '', $withTheControl),
+            'not one non-space character may be added to the page while the markets are off',
+        );
+        $this->assertSame(80, strlen($withTheControl) - strlen($withoutIt), 'the whole delta is the include line indentation, once per product card');
+    }
+
+    /** The page as it is without the copy control's `@include` line: the same file with that one line removed, rendered the same way. */
+    private function galleryWithoutTheCopyControl(): string
+    {
+        $source = (string) file_get_contents(resource_path('views/admin-views/product/product-gallery.blade.php'));
+        $withoutIt = preg_replace('/[^\S\r\n]*@include\(\'admin-views\.product\.partials\._copy-to-country\'[^\r\n]*\R/', '', $source, 1);
+        $this->assertNotSame($source, $withoutIt, 'the copy control is included by the gallery');
+
+        $location = storage_path('framework/testing/gallery-without-copy-control');
+        File::ensureDirectoryExists($location . '/admin-views/product');
+        File::put($location . '/admin-views/product/product-gallery.blade.php', $withoutIt);
+        View::getFinder()->prependLocation($location);
+        View::getFinder()->flush();
+
+        $rendered = $this->gallery();
+        File::deleteDirectory($location);
+
+        return $rendered;
     }
 
     // ---- G9: the copy -----------------------------------------------------------------------------------------------------------

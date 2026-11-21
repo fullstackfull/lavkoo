@@ -170,7 +170,13 @@ table each), and a test pins that.
 The gallery's "use this product info" is unchanged: it opens the add form with the product's data and the code and the barcode blank, and the
 admin types new ones. Beside it the gallery card now carries a **copy-to-country** control, and that control is the whole of the "copy form" —
 which is the point, because it holds no stock field and no price field, so neither can be carried across unflagged. It renders **zero bytes**
-while the markets are off (`ProductCopyControlTest`), so the card is byte for byte the card of today.
+while the markets are off (`ProductCopyControlTest`).
+
+The rendered **page** is not byte for byte the page of today, and the earlier claim that it was measured the partial rather than the page. The
+`@include` line keeps its own 40 spaces of indentation in the output, once per product card: measured on the real gallery render with the markets
+off, 31083 bytes become 31163 over two cards, +80. Every one of those bytes is a space — not one non-space character is added, and the two
+documents are identical once whitespace is stripped. That is what dormancy means here, and
+`ProductGalleryCountryTest::test_the_gallery_page_gains_nothing_but_whitespace_while_the_markets_are_off` measures it both ways.
 
 `App\Services\Catalog\ProductCopyToCountry` makes the copy. What it does:
 
@@ -179,8 +185,9 @@ while the markets are off (`ProductCopyControlTest`), so the card is byte for by
 | An explicit target | the select offers every configured country **except the product's own**, and the service refuses a target that is missing, empty, not a configured code, or of the wrong case. |
 | Refuses the source country | a copy into the product's own country is refused by name, and nothing is created. |
 | The code only when free there | the code and the barcode are carried only when `isCodeTaken` / `isBarcodeTaken` say the target country holds neither; when one is taken the copy is created without it, for the admin to type, exactly as the add form behaves. |
+| **Every variant SKU only when free there** | each variant's SKU goes through `ProductVariantSku::holdersOf` against the **target** country and a SKU a product there already holds is blanked, by the same rule as the code. Carried across unconditionally — which is what it did before this was fixed — one click left two live products of that country that the form refuses to save again, and a till scan of the printed label there named both. A SKU only another country holds still crosses: that is what the switch allows. |
 | Audited | one `catalog.product.copied_to_country` line through `AuditLogger::recordOrFail`, naming the source product, both countries, whether the code and the barcode were kept, that no stock or price was carried, and any image whose file could not be read. **The row and the line are written in one transaction**: a copy nobody can see a record of must not exist. |
-| Its own image files | every image — thumbnail, gallery list, colour images, meta image, preview file, digital file — is copied byte for byte to a new name through `FileManagerTrait::copyStoredFile`, which finds the source wherever it is (the public disk, then s3: the stored `*_storage_type` is a hint, not the answer) and writes the copy to whichever disk this installation stores on now. Two records must never point at one file: deleting the source's image would otherwise break the copy, and one country's catalogue would depend on another's storage. A source file that cannot be read leaves the copy's field empty and is named in the audit line — never shared. |
+| Its own image files | every image — thumbnail, gallery list, colour images, meta image, preview file, digital file — is copied byte for byte to a new name through `FileManagerTrait::copyStoredFile`. The source disk is resolved in order: the disk the record itself remembers (`*_storage_type`, or a gallery entry's `storage`), the public disk, then the disk this installation stores on (`filesystems.default`). It is **not** `checkFileExists`, which probes s3 only while `config('filesystems.disks.default') == 's3'` — a key this application never sets, so on an installation storing on s3 every source file read as missing and the copy silently lost every image. The copy is written where `upload()` writes, so it lands where a fresh upload would. Two records must never point at one file: deleting the source's image would otherwise break the copy, and one country's catalogue would depend on another's storage. A file that cannot be read leaves the copy's field empty, is named in the audit line **and is shown to the admin as a warning on the redirect** — never shared. |
 
 A copy also carries **nothing that points at something of the source's country**: its `fulfillment_provider` and its `bought_together_ids` are
 cleared. A warehouse holds the boxes of one country, and the products a shopper is offered beside this one are that country's rows; carried over, a

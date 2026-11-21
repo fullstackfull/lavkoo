@@ -13,8 +13,13 @@ use Tests\TestCase;
  * B-07, the screen half: the copy control of the admin product gallery.
  *
  * It is the whole of the copy "form", and what it does NOT hold is the point — there is no stock field and no price field, so neither can be
- * carried across unflagged; the control says what the copy starts without. While the markets are off it renders nothing at all, so the gallery
- * card is byte for byte the card of today.
+ * carried across unflagged; the control says what the copy starts without.
+ *
+ * While the markets are off the control renders zero bytes, which is what the first tests below pin. The PAGE is a byte longer than that: the
+ * `@include` line keeps its own 40 spaces of indentation in the output, once per product card, so the rendered gallery is **not** byte for byte
+ * the gallery of today — measured, 31083 bytes become 31163 over two cards. Not one non-space character changes and the two documents are
+ * identical once whitespace is stripped, which is what dormancy means here;
+ * `ProductGalleryCountryTest::test_the_gallery_page_gains_nothing_but_whitespace_while_the_markets_are_off` is the measurement.
  */
 class ProductCopyControlTest extends TestCase
 {
