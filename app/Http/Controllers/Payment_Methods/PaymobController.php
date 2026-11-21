@@ -9,11 +9,13 @@ use App\Services\Payments\GatewayConfirmations;
 use App\Services\Payments\GatewayReturnVerification;
 use App\Services\Payments\PaymentAccountBinding;
 use App\Traits\Processor;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Validator;
 
 class PaymobController extends Controller
@@ -160,23 +162,30 @@ class PaymobController extends Controller
             "redirection_url" => route('paymob.callback'),
         ];
 
-        $ch = curl_init($url);
-
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            'Authorization: Token ' . $token,
-            'Content-Type: application/json'
-        ]);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
-
-        $response = curl_exec($ch);
-        $result = json_decode($response, true);
-        if (!isset($result['client_secret'])) {
+        /*
+         * The intention call, through the HTTP client the rest of this code base uses for a gateway (App\Services\MyFatoorah\MyFatoorahClient).
+         * It was a raw curl handle with no timeout of any kind, so a Paymob that accepted the connection and never answered held the customer's
+         * request open for as long as PHP allowed; and a 3xx would have re-sent the Authorization header, and the secret key with it, to whatever
+         * host the redirect named. Both are closed here. What the customer sees is unchanged: any answer without a client secret, a refusal and a
+         * dropped connection all end in the same "information not found", exactly as `curl_exec` returning false did.
+         */
+        try {
+            $response = Http::withHeaders(['Authorization' => 'Token ' . $token, 'Content-Type' => 'application/json'])
+                ->connectTimeout((int) config('gcc.storefronts.payment_accounts.inquiry.connect_timeout', 10))
+                ->timeout((int) config('gcc.storefronts.payment_accounts.inquiry.timeout', 30))
+                ->withoutRedirecting()
+                ->post($url, $data);
+        } catch (ConnectionException) {
             return response()->json($this->response_formatter(GATEWAYS_DEFAULT_204), 200);
         }
+
+        $result = $response->json();
+
+        if (!is_array($result) || !isset($result['client_secret'])) {
+            return response()->json($this->response_formatter(GATEWAYS_DEFAULT_204), 200);
+        }
+
         $secret_key = $result['client_secret'];
-        curl_close($ch);
         $publicKey = $credentials['public_key'];
         $urlRedirect = $this->base_url . "/unifiedcheckout/?publicKey=$publicKey&clientSecret=$secret_key";
         return redirect()->to($urlRedirect);
