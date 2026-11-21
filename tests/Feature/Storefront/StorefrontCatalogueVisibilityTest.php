@@ -6,6 +6,9 @@ use App\Models\Banner;
 use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Coupon;
+use App\Models\DealOfTheDay;
+use App\Models\FlashDeal;
+use App\Models\StockClearanceSetup;
 use App\Models\StorefrontEntityVisibility;
 use App\Services\Commerce\CampaignResolver;
 use App\Services\Storefront\StorefrontVisibility;
@@ -56,6 +59,18 @@ class StorefrontCatalogueVisibilityTest extends TestCase
             ->getData(true);
 
         $ids = array_map(static fn (array $category): int => (int) $category['id'], $categories);
+        sort($ids);
+
+        return $ids;
+    }
+
+    /** @return list<int> what the customer app's brand list answers */
+    private function brandIdsOfTheApiList(): array
+    {
+        $brands = app(\App\Http\Controllers\RestAPI\v1\BrandController::class)
+            ->get_brands(Request::create('/api/v1/brands', 'GET', ['limit' => 50, 'offset' => 1]));
+
+        $ids = collect($brands['brands'])->pluck('id')->map(static fn ($id): int => (int) $id)->all();
         sort($ids);
 
         return $ids;
@@ -294,6 +309,59 @@ class StorefrontCatalogueVisibilityTest extends TestCase
 
             $this->assertNotNull($brand, "the one brand row is listed in {$country}");
             $this->assertSame($expectedCount, (int) $brand->brand_products_count, "the product count {$country} counts for itself");
+        }
+    }
+
+    public function test_a_deal_a_deal_of_the_day_and_a_clearance_sale_can_each_be_limited_to_chosen_storefronts(): void
+    {
+        $this->seedStorefrontPromotions();
+        $this->switchStorefrontsOn();
+        config(['gcc.storefronts.countries.AE.active' => true]);
+
+        StorefrontVisibility::set(entityType: StorefrontVisibility::FLASH_DEAL, entityId: 2, countries: ['SA', 'AE']);
+        StorefrontVisibility::set(entityType: StorefrontVisibility::DEAL_OF_THE_DAY, entityId: 2, countries: ['SA']);
+        StorefrontVisibility::set(entityType: StorefrontVisibility::CLEARANCE_SALE, entityId: 2, countries: ['SA']);
+
+        $readers = [
+            'deals' => static fn (): array => FlashDeal::query()->orderBy('id')->pluck('title')->all(),
+            'deals_of_the_day' => static fn (): array => DealOfTheDay::query()->orderBy('id')->pluck('title')->all(),
+            'clearance_sales' => static fn (): array => StockClearanceSetup::query()->orderBy('id')->pluck('id')->map(static fn ($id) => (int) $id)->all(),
+        ];
+
+        $this->serveStorefront('SA');
+        $this->assertSame(['Everywhere deal', 'Mapped deal'], $readers['deals']());
+        $this->assertSame(['Everywhere deal of the day', 'Mapped deal of the day'], $readers['deals_of_the_day']());
+        $this->assertSame([1, 2], $readers['clearance_sales']());
+
+        // A second storefront on the deal's row keeps it there, and nowhere else: the mapping names storefronts, not one.
+        $this->serveStorefront('AE');
+        $this->assertSame(['Everywhere deal', 'Mapped deal'], $readers['deals']());
+        $this->assertSame(['Everywhere deal of the day'], $readers['deals_of_the_day']());
+        $this->assertSame([1], $readers['clearance_sales']());
+
+        $this->serveStorefront('KW');
+        $this->assertSame(['Everywhere deal'], $readers['deals']());
+        $this->assertSame(['Everywhere deal of the day'], $readers['deals_of_the_day']());
+        $this->assertSame([1], $readers['clearance_sales']());
+
+        $this->assertSame(['AE', 'SA'], collect(StorefrontVisibility::storefrontsOf(entityType: StorefrontVisibility::FLASH_DEAL, entityId: 2))->sort()->values()->all());
+    }
+
+    public function test_the_web_reader_and_the_api_reader_answer_the_same_hidden_catalogue(): void
+    {
+        $this->switchStorefrontsOn();
+        StorefrontVisibility::set(entityType: StorefrontVisibility::CATEGORY, entityId: self::MAPPED_CATEGORY, countries: ['KW']);
+        StorefrontVisibility::set(entityType: StorefrontVisibility::BRAND, entityId: self::MAPPED_BRAND, countries: ['KW']);
+
+        foreach (['SA' => [self::SHARED_CATEGORY, self::MAPPED_CATEGORY], 'KW' => [self::SHARED_CATEGORY]] as $country => $expectedCategories) {
+            $this->serveStorefront($country);
+
+            $this->assertSame($expectedCategories, $this->categoryIdsOfTheTree(), "the web tree of {$country}");
+            $this->assertSame($expectedCategories, $this->categoryIdsOfTheApiList(), "the API category list of {$country}");
+
+            $expectedBrands = $country === 'KW' ? [self::SHARED_BRAND] : [self::SHARED_BRAND, self::MAPPED_BRAND];
+            $this->assertSame($expectedBrands, $this->brandIdsOfTheList(), "the web brand list of {$country}");
+            $this->assertSame($expectedBrands, $this->brandIdsOfTheApiList(), "the API brand list of {$country}");
         }
     }
 

@@ -156,6 +156,23 @@ class StorefrontCatalogueVisibilityCacheTest extends TestCase
         );
     }
 
+    public function test_the_clearance_sale_setup_cache_is_not_served_across_storefronts(): void
+    {
+        $this->seedStorefrontPromotions();
+        StorefrontVisibility::set(entityType: StorefrontVisibility::CLEARANCE_SALE, entityId: 2, countries: ['SA']);
+
+        $this->assertNoStorefrontIsServedAnothersCache(
+            read: static fn (): array => [
+                'shop_1' => (new Category)->cacheClearanceSaleSetupTable(shopId: 1)?->id,
+                'shop_2' => (new Category)->cacheClearanceSaleSetupTable(shopId: 2)?->id,
+            ],
+            shape: static fn (array $answer): array => $answer,
+            saudi: ['shop_1' => 1, 'shop_2' => 2],
+            kuwait: ['shop_1' => 1, 'shop_2' => null],
+            reader: 'the clearance sale setup',
+        );
+    }
+
     public function test_the_campaign_overlay_cache_is_not_served_across_storefronts(): void
     {
         StorefrontVisibility::set(entityType: StorefrontVisibility::EXPERIENCE_CAMPAIGN, entityId: 2, countries: ['SA']);

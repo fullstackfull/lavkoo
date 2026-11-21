@@ -33,6 +33,7 @@ trait BuildsStorefrontVisibilityWorld
         $this->buildCatalogTables();
         $this->buildStorefrontCouponWorld();
         $this->buildExperienceCampaignTable();
+        $this->buildPromotionTablesTheReadersNeed();
         $this->widenCategoryTableForTheStorefrontReaders();
         $this->runProductCountryMigration();
         $this->runStorefrontVisibilityMigration();
@@ -133,6 +134,46 @@ trait BuildsStorefrontVisibilityWorld
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+    }
+
+    /** The deal and clearance rows B-16 limits per storefront, with the columns their own readers select. */
+    protected function seedStorefrontPromotions(): void
+    {
+        DB::table('flash_deals')->insert([
+            ['id' => 1, 'title' => 'Everywhere deal', 'deal_type' => 'flash_deal', 'status' => 1, 'start_date' => now()->subDay(), 'end_date' => now()->addDay()],
+            ['id' => 2, 'title' => 'Mapped deal', 'deal_type' => 'flash_deal', 'status' => 1, 'start_date' => now()->subDay(), 'end_date' => now()->addDay()],
+        ]);
+        DB::table('deal_of_the_days')->insert([
+            ['id' => 1, 'title' => 'Everywhere deal of the day', 'product_id' => 1, 'status' => 1],
+            ['id' => 2, 'title' => 'Mapped deal of the day', 'product_id' => 2, 'status' => 1],
+        ]);
+        DB::table('stock_clearance_setups')->insert([
+            ['id' => 1, 'setup_by' => 'admin', 'shop_id' => 1, 'is_active' => 1, 'discount_type' => 'flat', 'discount_amount' => 1],
+            ['id' => 2, 'setup_by' => 'admin', 'shop_id' => 2, 'is_active' => 1, 'discount_type' => 'flat', 'discount_amount' => 2],
+        ]);
+    }
+
+    private function buildPromotionTablesTheReadersNeed(): void
+    {
+        Schema::dropIfExists('deal_of_the_days');
+        Schema::create('deal_of_the_days', function (Blueprint $table): void {
+            $table->id();
+            $table->string('title')->nullable();
+            $table->unsignedBigInteger('product_id')->nullable();
+            $table->decimal('discount', 24, 2)->default(0);
+            $table->string('discount_type')->default('flat');
+            $table->boolean('status')->default(true);
+            $table->timestamps();
+        });
+        Schema::table('stock_clearance_setups', function (Blueprint $table): void {
+            $table->string('setup_by')->nullable();
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->unsignedBigInteger('shop_id')->nullable();
+            $table->string('discount_type')->nullable();
+            $table->decimal('discount_amount', 24, 2)->default(0);
+            $table->boolean('show_in_homepage')->default(false);
+            $table->boolean('show_in_shop')->default(false);
+        });
     }
 
     private function buildExperienceCampaignTable(): void

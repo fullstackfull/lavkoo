@@ -219,7 +219,7 @@ trait CacheManagerTrait
     public function cacheClearanceSaleSetupTable($shopId)
     {
         $config = null;
-        $settings = Cache::remember(CACHE_CLEARANCE_SALE_SETUP_TABLE, CACHE_FOR_3_HOURS, function () {
+        $settings = Cache::remember(storefrontCacheKey(key: CACHE_CLEARANCE_SALE_SETUP_TABLE), CACHE_FOR_3_HOURS, function () {
             return StockClearanceSetup::all();
         });
         $data = $settings?->firstWhere('shop_id', $shopId);
