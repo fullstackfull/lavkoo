@@ -2,6 +2,10 @@
 
 namespace App\Services\Marketplace;
 
+use App\Models\Order;
+use App\Models\Product;
+use App\Models\Seller;
+use App\Services\Storefront\OrderStorefront;
 use App\Services\Storefront\StorefrontCatalog;
 use App\Services\Storefront\StorefrontResolver;
 use Illuminate\Database\Eloquent\Builder;
@@ -24,6 +28,12 @@ use Illuminate\Support\Facades\Schema;
  * turning the switch on changes nothing until a market is granted. A grant whose rows name no configured market grants nothing and
  * is never read as "no limit": `[]` is a scope that reaches nothing, `null` is no scope at all.
  *
+ * **The shop's own grant is the ceiling of everyone who works in it.** "No row means unrestricted" is read of the shop, never of a
+ * staff member inside a shop that is itself limited: a staff member with no row of their own is held to the shop's markets, and a
+ * staff member with rows is held to the overlap of theirs and the shop's. Reading a staff member's rows alone would make a staff
+ * member outrank the owner who created them — the owner refused a market their own grant does not name while their employee was
+ * answered it, and passed the all-markets gate on staff management, payouts and bank details that the owner was refused.
+ *
  * What a request resolved to lives on that request alone, never in the container, a static or the cache, so the next request of
  * the same worker starts unbound.
  */
@@ -45,8 +55,10 @@ final class SellerMarketScope
     /** The field a seller route reads a market from besides the header, as the order list already does. */
     public const REQUEST_FIELD = 'storefront';
 
-    public function __construct(private readonly SellerPermissionService $permissions)
-    {
+    public function __construct(
+        private readonly SellerPermissionService $permissions,
+        private readonly OrderStorefront $orderMarkets,
+    ) {
     }
 
     /** Whether the switch is on. Nothing else is asked while it is off. */
@@ -65,15 +77,21 @@ final class SellerMarketScope
      * What the rows of a principal make of their scope, whatever the switch says.
      *
      * An integration key is held to the markets of the shop that issued it, because a key is no person and cannot be granted a
-     * market of its own; a staff member to their own rows.
+     * market of its own. A staff member is held to their own rows **and never past the shop's**: with no row of their own they
+     * take the shop's grant, and with rows of their own they take the overlap. So a staff member of a shop granted Saudi Arabia
+     * alone can hold Saudi Arabia or nothing, never Kuwait, whatever rows their own id carries.
      *
      * @return list<string>|null the markets granted, or null when none are: no row is no limit
      */
     public function grantOf(SellerPrincipal $principal): ?array
     {
-        $stored = $this->storedMarketsOf($principal);
+        $ceiling = $this->storedMarketsOfShop($principal);
+        $stored = $principal->staffId() === null ? $ceiling : $this->heldUnderTheShop(
+            staffMarkets: $this->storedMarketsOf($principal),
+            shopMarkets: $ceiling,
+        );
 
-        if ($stored === []) {
+        if ($stored === null) {
             return null;
         }
 
@@ -84,6 +102,27 @@ final class SellerMarketScope
     }
 
     /**
+     * What a staff member's own rows come to once the shop's grant is applied over them.
+     *
+     * Three cases, and the middle one is the hole this closes: an unlimited shop leaves its staff their own rows, so a shop that
+     * holds every market may still give one person Dubai alone; a limited shop lends its own markets to a staff member who has
+     * none, rather than letting the absence of a row read as "every market"; and a staff member who has rows keeps only those the
+     * shop also holds, so a stale row naming a market the shop has since lost grants nothing.
+     *
+     * @param  list<string>  $staffMarkets
+     * @param  list<string>|null  $shopMarkets
+     * @return list<string>|null
+     */
+    private function heldUnderTheShop(array $staffMarkets, ?array $shopMarkets): ?array
+    {
+        if ($shopMarkets === null) {
+            return $staffMarkets === [] ? null : $staffMarkets;
+        }
+
+        return $staffMarkets === [] ? $shopMarkets : array_values(array_intersect($staffMarkets, $shopMarkets));
+    }
+
+    /**
      * Every market stored for a principal, damaged values included.
      *
      * @return list<string>
@@ -91,6 +130,24 @@ final class SellerMarketScope
     private function storedMarketsOf(SellerPrincipal $principal): array
     {
         return $this->rowsOf($principal)->pluck('country')->map(static fn ($country): string => (string) $country)->all();
+    }
+
+    /**
+     * The markets the shop's own account holds, or null when it holds no row at all.
+     *
+     * Null and `[]` are different answers and the difference is the whole of this: a shop with no row is unrestricted and lends
+     * nothing, while a shop whose rows name only markets the platform no longer serves is limited to nothing and lends nothing.
+     *
+     * @return list<string>|null
+     */
+    private function storedMarketsOfShop(SellerPrincipal $principal): ?array
+    {
+        $stored = $this->rowsOfShop($principal->sellerId())
+            ->pluck('country')
+            ->map(static fn ($country): string => (string) $country)
+            ->all();
+
+        return $stored === [] ? null : $stored;
     }
 
     /**
@@ -195,9 +252,66 @@ final class SellerMarketScope
      */
     public function newProductAttributes(): array
     {
-        $market = $this->workingMarket();
+        $market = $this->workingMarket() ?? $this->onlyMarketOfTheSignedInSeller();
 
         return $market === null || !Schema::hasColumn('products', StorefrontCatalog::COLUMN) ? [] : [StorefrontCatalog::COLUMN => $market];
+    }
+
+    /**
+     * The one market a seller signed into the vendor web panel works in, or null when there is not exactly one (K-09).
+     *
+     * The web panel carries no grant: `seller_market` is declared on the seller API group, and the middleware resolves a
+     * principal the API's token middleware put on the request, which a session request never has. So a seller granted Dubai alone
+     * added a product through the panel and it landed on the column's own default — a market they do not even hold.
+     *
+     * Asked of the shop's own rows, because the panel signs in the account holder; a staff member of the panel is the same shop.
+     * Null when the shop holds no grant, which is every seller while the switch is off, so the insert is byte-identical; null
+     * again when it holds several, because then there is no one market and `whyItMayNotCreateInAMarket()` refuses rather than
+     * choosing one.
+     */
+    private function onlyMarketOfTheSignedInSeller(): ?string
+    {
+        $grant = $this->grantOfTheSignedInSeller();
+
+        return $grant !== null && count($grant) === 1 ? $grant[0] : null;
+    }
+
+    /**
+     * The grant of the seller signed into the vendor web panel, or null when nobody is signed in there and when they hold none.
+     *
+     * @return list<string>|null
+     */
+    private function grantOfTheSignedInSeller(): ?array
+    {
+        $seller = $this->enabled() ? auth('seller')->user() : null;
+
+        return $seller instanceof Seller ? $this->grantOf(SellerPrincipal::owner($seller)) : null;
+    }
+
+    /**
+     * Whether any product named lies in a market this request was not granted (K-09).
+     *
+     * For the records that carry no market of their own and name products instead — a bulk job's receipt is the clearest: its
+     * input is a list of product ids and its failure list carries their names. Such a record belongs to the markets of the
+     * products it names, so a token that may not see one of them may not see the record.
+     *
+     * A product that no longer exists is not outside anything: only a row that is there and whose market is not granted refuses,
+     * so a job whose products were deleted stays readable to the token that queued it.
+     *
+     * @param  array<int, int|string>  $productIds
+     */
+    public function anyProductOutsideTheGrant(array $productIds): bool
+    {
+        $ids = array_values(array_unique(array_map('intval', $productIds)));
+
+        if ($this->boundGrant() === null || $ids === []) {
+            return false;
+        }
+
+        $present = Product::withoutGlobalScope('translate')->whereKey($ids)->pluck('id')->map('intval')->all();
+        $granted = $this->narrowQuery(Product::withoutGlobalScope('translate')->whereKey($ids))->pluck('id')->map('intval')->all();
+
+        return array_diff($present, $granted) !== [];
     }
 
     /**
@@ -209,10 +323,10 @@ final class SellerMarketScope
      */
     public function whyItMayNotCreateInAMarket(): ?string
     {
-        $bound = $this->boundGrant();
+        $bound = $this->boundGrant() ?? $this->grantOfTheSignedInSeller();
 
         return match (true) {
-            $bound === null, $this->workingMarket() !== null => null,
+            $bound === null, $this->workingMarket() !== null, count((array) $bound) === 1 => null,
             $bound === [] => 'your_account_does_not_work_in_any_market',
             default => 'name_the_market_this_product_belongs_to_your_account_works_in_more_than_one',
         };
@@ -259,6 +373,79 @@ final class SellerMarketScope
     }
 
     /**
+     * Keeps the orders of the markets this request was granted (K-09).
+     *
+     * The order list, the order report, their exports and every read of one order by its id go through this, so the detail of an
+     * order cannot answer what the list that leads to it refuses. The rule for an order with no recorded market is the list's
+     * rule and not a second one: OrderStorefront reads it as the default market's, as the whole platform does.
+     */
+    public function narrowOrders(Builder $orders): Builder
+    {
+        $bound = $this->boundGrant();
+
+        return $bound === null ? $orders : $this->orderMarkets->narrowToGrant(orders: $orders, grant: $bound);
+    }
+
+    /**
+     * Keeps the orders of the one market a narrowed request works in, inside the grant that bounds it (K-09).
+     *
+     * The grant is the bound and the working market is the choice inside it, which is how the order list has always read a named
+     * market: a token holding two markets that names one is answered that one, and naming nothing spans the grant. Untouched
+     * while the request is not narrowed, so the vendor panel and every seller before the switch read what they always read.
+     */
+    public function narrowOrdersToTheWorkingMarket(Builder $orders): Builder
+    {
+        $market = $this->workingMarket();
+        $orders = $this->narrowOrders($orders);
+
+        return $market === null || $this->boundGrant() === null ? $orders : $this->orderMarkets->narrow(orders: $orders, country: $market);
+    }
+
+    /**
+     * Keeps the rows of the one market a narrowed request works in, inside the grant that bounds it (K-09).
+     *
+     * The same choice-inside-a-bound for a table that keeps the market on its own row, so a report of products answers the market
+     * the token named exactly as a report of orders does.
+     */
+    public function narrowToTheWorkingMarket(Builder $query, string $column = StorefrontCatalog::COLUMN): Builder
+    {
+        $market = $this->workingMarket();
+        $query = $this->narrowQuery($query, $column);
+
+        return $market === null || $this->boundGrant() === null ? $query : $query->where($query->qualifyColumn($column), $market);
+    }
+
+    /**
+     * Keeps the rows whose order this request was granted: the market of a record that hangs off an order is the order's (K-09).
+     *
+     * A return authorisation carries no market of its own — the sale it reverses does. Asked as a subquery rather than as a list
+     * of ids, so the bound costs one query whatever the shop's size and cannot be outgrown by a long catalogue.
+     */
+    public function narrowByOrder(Builder $query, string $column = 'order_id'): Builder
+    {
+        if ($this->boundGrant() === null) {
+            return $query;
+        }
+
+        return $query->whereIn(
+            $query->qualifyColumn($column),
+            $this->narrowOrders(Order::query())->select('orders.id'),
+        );
+    }
+
+    /**
+     * Whether this request may read the one order it names (K-09).
+     *
+     * The bound of the order list, asked of one id: a request not narrowed reaches every order it always reached, and a narrowed
+     * one reaches an order only inside its grant. The caller answers not-found when this is false, as it already does for an
+     * order of another shop — a reader learns that they have no such order, not that one exists in a market they may not see.
+     */
+    public function mayReadOrder(int|string $orderId): bool
+    {
+        return $this->boundGrant() === null || $this->narrowOrders(Order::query()->whereKey($orderId))->exists();
+    }
+
+    /**
      * Whether a narrowed principal holds every market the platform serves. The shop's whole account — its bank details, its staff
      * and its own deletion — is not the work of one market, so a principal who holds only some of them may not reach it (K-V2).
      * Only the platform owner sees every market, and they do not come through this API.
@@ -280,16 +467,27 @@ final class SellerMarketScope
         return StorefrontResolver::fromConfig()->configuredCountries();
     }
 
-    /** The rows of a principal, read once per request. An owner and a key read the shop's own rows; a staff member reads theirs. */
+    /** The rows of a principal. An owner and a key read the shop's own rows; a staff member reads theirs. */
     private function rowsOf(SellerPrincipal $principal): Collection
+    {
+        return $this->rows(sellerId: $principal->sellerId(), staffId: $principal->staffId() ?? self::OWNER_STAFF_ID);
+    }
+
+    /** The rows of the shop's own account, which bound everyone who works in it. */
+    private function rowsOfShop(int $sellerId): Collection
+    {
+        return $this->rows(sellerId: $sellerId, staffId: self::OWNER_STAFF_ID);
+    }
+
+    private function rows(int $sellerId, int $staffId): Collection
     {
         if (!$this->enabled()) {
             return collect();
         }
 
         return DB::table(self::TABLE)
-            ->where('seller_id', $principal->sellerId())
-            ->where('staff_id', $principal->staffId() ?? self::OWNER_STAFF_ID)
+            ->where('seller_id', $sellerId)
+            ->where('staff_id', $staffId)
             ->orderBy('country')
             ->get(['country', 'seller_role_id']);
     }

@@ -47,6 +47,7 @@ use App\Utils\Helpers;
 use App\Utils\ProductManager;
 use Barryvdh\DomPDF\PDF;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -658,16 +659,14 @@ class ProductController extends Controller
 
     public function details(Request $request, $id): JsonResponse
     {
-        $seller = $request->seller;
-        $product = Product::withoutGlobalScopes()->with(['seoInfo', 'digitalProductAuthors', 'digitalProductPublishingHouse', 'clearanceSale' => function ($query) {
+        $product = $this->productOfThisShop($request, Product::withoutGlobalScopes()->with(['seoInfo', 'digitalProductAuthors', 'digitalProductPublishingHouse', 'clearanceSale' => function ($query) {
             return $query->active();
         }, 'taxVats' => function ($query) {
             return $query->with(['tax'])->wherehas('tax', function ($query) {
                 return $query->where('is_active', 1);
             });
         }, 'translations'])
-        ->withCount('reviews')->where(['added_by' => 'seller', 'user_id' => $seller->id])
-        ->find($id);
+        ->withCount('reviews'), $id);
 
         if (isset($product)) {
             $product = Helpers::product_data_formatting($product, false);
@@ -677,8 +676,7 @@ class ProductController extends Controller
 
     public function getProductImages(Request $request, $id):JsonResponse
     {
-        $seller = $request->seller;
-        $product = Product::where(['added_by' => 'seller', 'user_id' => $seller->id])->find($id);
+        $product = $this->productOfThisShop($request, Product::query(), $id);
         $productImage = [];
         if (isset($product)) {
             $productImage = [
@@ -1210,19 +1208,27 @@ class ProductController extends Controller
         return $result;
     }
 
-    public function edit(Request $request, $id)
+    public function edit(Request $request, $id): JsonResponse
     {
-        $product = Product::withoutGlobalScopes()->with('translations', 'tags', 'digitalVariation', 'seoInfo')->withCount('reviews')->find($id);
-        $product = Helpers::product_data_formatting($product);
+        $product = $this->productOfThisShop($request, Product::withoutGlobalScopes()->with('translations', 'tags', 'digitalVariation', 'seoInfo')->withCount('reviews'), $id);
 
-        return response()->json($product, 200);
+        if ($product === null) {
+            return $this->productNotFound();
+        }
+
+        return response()->json(Helpers::product_data_formatting($product), 200);
     }
 
     public function updateProduct(Request $request, $id): JsonResponse
     {
         $storage = config('filesystems.disks.default') ?? 'public';
         $seller = $request->seller;
-        $product = Product::with(['digitalVariation', 'seoInfo'])->withCount('reviews')->find($id);
+        $product = $this->productOfThisShop($request, Product::with(['digitalVariation', 'seoInfo'])->withCount('reviews'), $id);
+
+        if ($product === null) {
+            return $this->productNotFound();
+        }
+
         $oldProductData = $product;
         $validator = Validator::make($request->all(), [
             'name' => 'required',
@@ -1809,7 +1815,12 @@ class ProductController extends Controller
 
     public function delete(Request $request, $id):JsonResponse
     {
-        $product = Product::withCount('reviews')->find($id);
+        $product = $this->productOfThisShop($request, Product::withCount('reviews'), $id);
+
+        if ($product === null) {
+            return $this->productNotFound();
+        }
+
         foreach (json_decode($product['images'], true) as $image) {
             $imageName = is_string($image) ? $image : $image['image_name'];
             $this->deleteFile('/product/' . $imageName);
@@ -1941,7 +1952,12 @@ class ProductController extends Controller
 
     public function review_list(Request $request, $product_id):JsonResponse
     {
-        $product = Product::withCount('reviews')->find($product_id);
+        $product = $this->productOfThisShop($request, Product::withCount('reviews'), $product_id);
+
+        if ($product === null) {
+            return $this->productNotFound();
+        }
+
         $average_rating = count($product->rating) > 0 ? number_format($product->rating[0]->average, 2, '.', ' ') : 0;
         $reviews = Review::with(['customer', 'product', 'reply'])->where(['product_id' => $product_id])
             ->latest('updated_at')
@@ -2222,6 +2238,31 @@ class ProductController extends Controller
      * legitimate reseller learns they need paperwork before the day their listings stop working
      * rather than on it.
      */
+    /**
+     * The one product a request names, as this shop's and as its markets' (K-09).
+     *
+     * One finder behind every read and write of a single product, so a detail, an edit form, a review list, an image list, an
+     * update and a delete cannot disagree about which products a token reaches. It narrows what the caller has already built, so
+     * each keeps its own eager loads, and answers null for a product of another shop or of a market outside the grant alike: a
+     * reader learns that they have no such product, not that one exists somewhere they may not look.
+     *
+     * A request with no grant — every seller while the switch is off — is narrowed by the shop alone and reads what it always read.
+     */
+    private function productOfThisShop(Request $request, Builder $products, int|string $id): ?Product
+    {
+        return $this->sellerMarkets
+            ->narrowQuery($products->where(['added_by' => 'seller', 'user_id' => $request->seller->id]))
+            ->find($id);
+    }
+
+    /** The one answer for a product this token does not reach, whatever the reason. */
+    private function productNotFound(): JsonResponse
+    {
+        return response()->json(['errors' => [
+            ['code' => 'product', 'message' => translate('product_not_found')],
+        ]], 404);
+    }
+
     /**
      * A product of a narrowed seller is saved in the market they work in, so a request that leaves it unresolved is refused
      * rather than landed in the table default (K-04). It says which market is missing and nothing about the grant.
