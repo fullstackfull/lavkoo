@@ -17,7 +17,7 @@ As of 2026-11-21. Generated from the independent assessment of every requirement
 | [A. Six-country base and customer identity](tracker/axis-a-six-country-base-and-customer-identity.md) | 37 | 173 | 91 | 24 | 58 | 66% | 53% | 9% | all |
 | [B. Catalogue and products](tracker/axis-b-catalogue-and-products.md) | 18 | 91 | 44 | 32 | 15 | 84% | 48% | 0% | all |
 | [C. Inventory and fulfillment](tracker/axis-c-inventory-and-fulfillment.md) | 18 | 94 | 65 | 9 | 20 | 79% | 69% | 30% | all |
-| [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 179 | 87 | 42 | 50 | 72% | 49% | 8% | all |
+| [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 179 | 87 | 43 | 49 | 73% | 49% | 8% | all |
 | [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 88 | 37 | 9 | 42 | 52% | 42% | 7% | all |
 | [F. Themes and brand](tracker/axis-f-themes-and-brand.md) | 16 | 77 | 42 | 13 | 22 | 71% | 55% | 4% | all |
 | [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 102 | 59 | 13 | 30 | 71% | 58% | 15% | all |
@@ -27,7 +27,7 @@ As of 2026-11-21. Generated from the independent assessment of every requirement
 | [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 104 | 40 | 30 | 34 | 67% | 38% | 3% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 45 | 18 | 31 | 67% | 48% | 7% | all |
 | [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 311 | 105 | 119 | 87 | 72% | 34% | 3% | all |
-| **All axes (pooled)** | **359** | **1753** | **822** | **392** | **539** | **69%** | **47%** | **8%** | |
+| **All axes (pooled)** | **359** | **1753** | **822** | **393** | **538** | **69%** | **47%** | **8%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -65,7 +65,7 @@ Chosen from the table of requirements, not from the pull request list: each one 
 
 - **Blocks:** orders with the right legal company; reports and money by company; per-company gateway accounts and accounting.
 - **Where it stands:** The platform keys data by storefront country, shop and seller. A registry of selling companies (one for each country, empty until the owner supplies them) and an order stamp now exist in a draft (PR 90, behind GCC_LEGAL_ENTITIES), so an order can name its company and keep a frozen copy of its identity, and the three invoices print that company instead of the shop's settings. Still missing: the invoice currency and a number for each company, a company on the payment row, gateway accounts, ledger and settlement by company, an Odoo company per entity, staff scope by company, and the Super Admin money view grouped by company. The owner has not decided the entities (open question Q-11).
-- **Measured:** 15 requirements (4 not started), 68 criteria of which 26 MISSING (38%). Requirements: D1-03, D1-04, D2-07, D2-08, D2-09, D2-16, E-17, F-14, G-12, H2-06, H2-10, H2-11, L-08, A2-09, A2-13.
+- **Measured:** 15 requirements (4 not started), 68 criteria of which 25 MISSING (37%). Requirements: D1-03, D1-04, D2-07, D2-08, D2-09, D2-16, E-17, F-14, G-12, H2-06, H2-10, H2-11, L-08, A2-09, A2-13.
 - **First executable step:** The owner's rule for the invoice number of each company and the series on top of the registered key, then the company on the payment request and the accounts that follow it (D2, E, H2); the entities themselves are an owner decision.
 
 Next in line (not in the top three because they depend on these, or are optional until the owner opens them):
@@ -241,7 +241,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [D2-06](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 1/1/3 | Order-level payment-method eligibility, including cross-border orders |
 | [D2-07](tracker/axis-d-orders-checkout-and-payments.md) | NOT STARTED | 0/4/0 | Per-company gateway accounts bound to each payment |
 | [D2-08](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 3/1/1 | Per-company gateway secrets and separate test and live environments |
-| [D2-09](tracker/axis-d-orders-checkout-and-payments.md) | NOT STARTED | 0/2/1 | Per-company webhook settings and webhook scope |
+| [D2-09](tracker/axis-d-orders-checkout-and-payments.md) | NOT STARTED | 0/3/0 | Per-company webhook settings and webhook scope |
 | [D2-10](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 2/2/1 | Payment transaction records carry market, company, account and exact amount |
 | [D2-11](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 3/2/1 | Redirect verification: the customer's return is confirmed with the provider |
 | [D2-12](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 4/0/1 | Webhook verification: only authentic notifications, each processed once |
