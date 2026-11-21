@@ -3,11 +3,16 @@
 namespace Tests\Feature\Storefront;
 
 use App\Contracts\Repositories\AttributeRepositoryInterface;
+use App\Contracts\Repositories\ProductRepositoryInterface;
 use App\Http\Controllers\RestAPI\v1\AttributeController;
 use App\Models\Attribute;
 use App\Services\ProductService;
 use App\Services\Storefront\ProductCountry;
+use App\Services\Storefront\StorefrontCatalog;
+use App\Services\Storefront\StorefrontResolver;
 use App\Services\Storefront\StorefrontVisibility;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Tests\Support\BuildsStorefrontVisibilityWorld;
@@ -23,9 +28,13 @@ use Tests\TestCase;
  *
  * Two narrowings, because the surfaces are not the same:
  *
- *  - the storefront's own reads (`GET api/v1/attributes`) are narrowed by the global scope, to the storefront of the request;
+ *  - the storefront's own reads (`GET api/v1/attributes` with no country named) are narrowed by the global scope, to the storefront of
+ *    the request;
  *  - the admin and vendor product forms belong to no storefront on purpose, so they name the country of the product being authored
- *    and are narrowed by {@see StorefrontVisibility::offeredIn()}.
+ *    and are narrowed by {@see StorefrontVisibility::offeredIn()};
+ *  - the same endpoint narrows to a country the caller names (`?storefront_country=KW`), for the fifth product form — the seller
+ *    app's add-product screen, which authors a product in one country over a request served from another storefront. Only a
+ *    storefront the caller can already be served from may be named, so naming one discloses no catalogue it could not already read.
  */
 class StorefrontAttributeVisibilityTest extends TestCase
 {
@@ -39,15 +48,32 @@ class StorefrontAttributeVisibilityTest extends TestCase
         $this->seedStorefrontAttributes();
     }
 
-    /** @return list<int> what the customer app's attribute list answers */
-    private function attributeIdsOfTheApiList(): array
+    /**
+     * @param string|null $namedCountry the `storefront_country` the caller names, or null for the unnamed call the apps make today
+     * @return list<int> what the app's attribute list answers
+     */
+    private function attributeIdsOfTheApiList(?string $namedCountry = null): array
     {
-        $attributes = app(AttributeController::class)->get_attributes()->getData(true);
+        $query = $namedCountry === null ? '' : '?' . StorefrontCatalog::COLUMN . '=' . urlencode($namedCountry);
+        $attributes = app(AttributeController::class)
+            ->get_attributes(request: Request::create('http://localhost/api/v1/attributes' . $query, 'GET'))
+            ->getData(true);
 
         $ids = array_map(static fn (array $attribute): int => (int) $attribute['id'], $attributes);
         sort($ids);
 
         return $ids;
+    }
+
+    /**
+     * A product as the four panel forms hand it over: the Eloquent row `ProductRepository::getFirstWhereWithoutGlobalScope()` returns,
+     * not an array standing in for one.
+     */
+    private function productAsTheFormReadsIt(int $id, ?string $attributes, string $country = 'SA'): Model
+    {
+        $this->insertProduct(id: $id, name: 'Product ' . $id, extra: [StorefrontCatalog::COLUMN => $country, 'attributes' => $attributes]);
+
+        return app(ProductRepositoryInterface::class)->getFirstWhereWithoutGlobalScope(params: ['id' => $id]);
     }
 
     /**
@@ -174,29 +200,38 @@ class StorefrontAttributeVisibilityTest extends TestCase
         );
     }
 
+    /** Read from the Eloquent row the two update forms hand over, which is what their repository returns. */
     public function test_the_ids_a_product_already_carries_are_read_from_its_own_row(): void
     {
         $service = app(ProductService::class);
 
-        $this->assertSame([3, 7], $service->getProductAttributeIds(product: ['attributes' => '[3,7]']));
-        $this->assertSame([], $service->getProductAttributeIds(product: ['attributes' => 'null']));
-        $this->assertSame([], $service->getProductAttributeIds(product: ['attributes' => '[]']));
-        $this->assertSame([], $service->getProductAttributeIds(product: []));
+        $this->assertSame([3, 7], $service->getProductAttributeIds(product: $this->productAsTheFormReadsIt(id: 1, attributes: '[3,7]')));
+        $this->assertSame([], $service->getProductAttributeIds(product: $this->productAsTheFormReadsIt(id: 2, attributes: 'null')));
+        $this->assertSame([], $service->getProductAttributeIds(product: $this->productAsTheFormReadsIt(id: 3, attributes: '[]')));
+        $this->assertSame([], $service->getProductAttributeIds(product: $this->productAsTheFormReadsIt(id: 4, attributes: null)));
         $this->assertSame([], $service->getProductAttributeIds(product: null));
     }
 
-    /** Which country each of the four product forms is filled in for. */
+    /** Which country each of the four product forms is filled in for, from the Eloquent row the two update forms hand over. */
     public function test_a_product_form_is_filled_in_for_one_country(): void
     {
+        $saudiProduct = $this->productAsTheFormReadsIt(id: 1, attributes: '[]', country: 'SA');
+        $kuwaitiProduct = $this->productAsTheFormReadsIt(id: 2, attributes: '[]', country: 'KW');
+        // A product of a database whose country migration has not run: the column is not on the row the form reads.
+        $productWithNoCountryColumn = app(ProductRepositoryInterface::class)->getFirstWhereWithoutGlobalScope(params: ['id' => 1]);
+        $productWithNoCountryColumn->offsetUnset(StorefrontCatalog::COLUMN);
+
         $this->assertSame('SA', ProductCountry::countryOfForm(), 'nothing is tracked: every form is the default storefront’s');
+        $this->assertSame('SA', ProductCountry::countryOfForm(product: $kuwaitiProduct), 'and that holds for a product of another country too');
 
         $this->switchStorefrontsOn();
 
         $this->assertSame('KW', ProductCountry::countryOfForm(requestedCountry: 'KW'), 'the admin add form: the country the form carries');
         $this->assertSame('SA', ProductCountry::countryOfForm(), 'the vendor add form: a seller product takes the table default');
         $this->assertSame('SA', ProductCountry::countryOfForm(requestedCountry: 'ZZ'), 'a country that is not configured falls back');
-        $this->assertSame('KW', ProductCountry::countryOfForm(product: ['storefront_country' => 'KW']), 'an update form: the product’s own country');
-        $this->assertSame('SA', ProductCountry::countryOfForm(product: ['storefront_country' => null]), 'a product with no country yet');
+        $this->assertSame('KW', ProductCountry::countryOfForm(product: $kuwaitiProduct), 'an update form: the product’s own country');
+        $this->assertSame('SA', ProductCountry::countryOfForm(product: $saudiProduct), 'and the Saudi product’s form is Saudi');
+        $this->assertSame('SA', ProductCountry::countryOfForm(product: $productWithNoCountryColumn), 'a product row with no country column');
     }
 
     public function test_the_panel_and_the_seller_apis_see_every_attribute(): void
@@ -231,6 +266,77 @@ class StorefrontAttributeVisibilityTest extends TestCase
 
         $this->serveStorefront('KW');
         $this->assertSame([self::SHARED_ATTRIBUTE], $this->attributeIdsOfferedOnTheFormFor('SA'));
+    }
+
+    /**
+     * The fifth product form: the seller app's add-product screen reads this same endpoint, so it must be able to ask what the country
+     * of the product it is authoring offers, not what the storefront serving the request offers. Four mapping corners over two
+     * storefronts, with a third market open to show that an attribute assigned to one country reaches none of the others.
+     */
+    public function test_the_app_list_answers_the_named_countrys_catalogue_and_never_ands_it_with_the_requests(): void
+    {
+        $this->switchStorefrontsOn();
+        config(['gcc.storefronts.countries.QA.active' => true]);
+        $this->assignAttributeTo('KW');
+        $both = [self::SHARED_ATTRIBUTE, self::MAPPED_ATTRIBUTE];
+
+        $this->serveStorefront('SA');
+        $this->assertSame([self::SHARED_ATTRIBUTE], $this->attributeIdsOfTheApiList(), 'no country named: what this storefront offers, as today');
+        $this->assertSame([self::SHARED_ATTRIBUTE], $this->attributeIdsOfTheApiList('SA'));
+        $this->assertSame($both, $this->attributeIdsOfTheApiList('KW'), 'authoring a Kuwaiti product over the Saudi storefront');
+        $this->assertSame([self::SHARED_ATTRIBUTE], $this->attributeIdsOfTheApiList('QA'), 'a third market offers only the unassigned attribute');
+
+        $this->serveStorefront('KW');
+        $this->assertSame($both, $this->attributeIdsOfTheApiList());
+        $this->assertSame([self::SHARED_ATTRIBUTE], $this->attributeIdsOfTheApiList('SA'), 'the named country is the one answer');
+        $this->assertSame($both, $this->attributeIdsOfTheApiList('KW'));
+        $this->assertSame([self::SHARED_ATTRIBUTE], $this->attributeIdsOfTheApiList('QA'));
+    }
+
+    /**
+     * A caller may name only a storefront it could already be served from, so a named answer is exactly the answer that storefront
+     * gives it and the catalogue a market prepares before it opens stays its own. AE is configured and not active, so neither
+     * `?storefront=AE` nor `?storefront_country=AE` can reach it.
+     */
+    public function test_a_market_that_is_not_open_yet_keeps_its_catalogue_to_itself(): void
+    {
+        $this->switchStorefrontsOn();
+        StorefrontVisibility::set(entityType: StorefrontVisibility::ATTRIBUTE, entityId: self::MAPPED_ATTRIBUTE, countries: ['AE']);
+
+        $this->serveStorefront('SA');
+        $this->assertSame([self::SHARED_ATTRIBUTE], $this->attributeIdsOfTheApiList(), 'the attribute prepared for AE is not in the Saudi list');
+        $this->assertSame([self::SHARED_ATTRIBUTE], $this->attributeIdsOfTheApiList('AE'), 'and naming AE does not disclose it');
+        $this->assertNotContains('AE', StorefrontResolver::fromConfig()->reachableCountries());
+    }
+
+    /** Anything that is not a storefront the caller can be served from answers the unnamed question, so a stale code never empties the list. */
+    public function test_a_value_that_names_no_reachable_storefront_answers_the_unnamed_question(): void
+    {
+        $this->switchStorefrontsOn();
+        $this->assignAttributeTo('KW');
+
+        $this->serveStorefront('KW');
+        $both = [self::SHARED_ATTRIBUTE, self::MAPPED_ATTRIBUTE];
+
+        foreach (['', '   ', 'ZZ', 'S', 'sa-kw'] as $value) {
+            $this->assertSame($both, $this->attributeIdsOfTheApiList($value), "[{$value}] names no reachable storefront");
+        }
+
+        $this->assertSame([self::SHARED_ATTRIBUTE], $this->attributeIdsOfTheApiList(' sa '), 'but a loose spelling of an open storefront still names it');
+        $this->assertSame($both, $this->attributeIdsOfTheApiList('kw'));
+    }
+
+    /** With the switch off the endpoint answers the whole list whether or not a country is named: naming one cannot wake the mechanism. */
+    public function test_naming_a_country_changes_nothing_while_the_mechanism_is_dormant(): void
+    {
+        $both = [self::SHARED_ATTRIBUTE, self::MAPPED_ATTRIBUTE];
+
+        $this->serveStorefront('SA');
+        $this->assertSame($both, $this->attributeIdsOfTheApiList());
+        $this->assertSame($both, $this->attributeIdsOfTheApiList('SA'));
+        $this->assertSame($both, $this->attributeIdsOfTheApiList('KW'));
+        $this->assertSame(['SA'], StorefrontResolver::fromConfig()->reachableCountries(), 'only the default storefront can be reached while they are off');
+        $this->assertFalse(StorefrontVisibility::isTracked());
     }
 
     public function test_nothing_is_narrowed_before_the_mapping_migration_has_run(): void
