@@ -3,6 +3,7 @@
 namespace Tests\Feature\Storefront;
 
 use App\Http\Middleware\NoIndexUnlaunchedStorefront;
+use App\Models\Currency;
 use App\Models\Product;
 use App\Services\Seo\StorefrontSeo;
 use App\Services\Seo\StorefrontSitemap;
@@ -300,6 +301,52 @@ class StorefrontMoneyAndSeoTest extends TestCase
             $this->inStorefrontKeepingTheVisitorsPick('KW', static fn (): string => (string) getWebConfig(name: 'currency_model')),
             'the model the headers read is forced by the storefront currency, which is what empties the region above',
         );
+    }
+
+    /**
+     * **The currency a payment is taken in, on a market that trades in its own money.** Four places on the money paths read the
+     * visitor's session pick: `Customer\PaymentController` lines 417, 486 and 634 (`$request['current_currency_code'] ??
+     * session('currency_code')`) and `OrderEditManager` line 829. Every one of them sits inside
+     * `if (getWebConfig(name: 'currency_model') == 'multi_currency')`, and `StorefrontCurrency::override()` forces that setting to
+     * `single_currency` whenever a storefront currency is in force — so on such a market the branch is not taken at all, and the `else`
+     * branch reads `getWebConfig('system_default_currency')`, which the same override points at the market's own currency.
+     *
+     * This measures both settings in the real market context, through the same `getWebConfig()` calls those branches make, with the
+     * operator's model set to `multi_currency` (the only setting under which the session pick could be read) and the whole stale pick
+     * in the session. It goes red the moment the override stops forcing the model — which is the one change that would make those four
+     * session reads live on a money path — so it is the guard that keeps them unreachable rather than an assumption that they are.
+     *
+     * Driving the controller end to end (a cart, a customer, a gateway) is the remaining confirmation and is not done here.
+     */
+    public function test_a_payment_on_a_market_with_its_own_money_cannot_be_taken_in_a_pick_left_on_another(): void
+    {
+        $this->openSixMarkets();
+        $this->setBusinessSettings(['currency_model' => 'multi_currency']);
+
+        $kuwait = $this->inStorefrontKeepingTheVisitorsPick('KW', function (): array {
+            session()->put('currency_code', 'SAR');
+            session()->put('currency_symbol', 'SAR');
+            session()->put('currency_exchange_rate', 3.75);
+
+            return [
+                'model' => (string) getWebConfig(name: 'currency_model'),
+                'currency' => (string) Currency::find(getWebConfig(name: 'system_default_currency'))?->code,
+                'pick' => (string) session('currency_code'),
+            ];
+        });
+
+        $this->assertSame('single_currency', $kuwait['model'], 'the branch that reads the session pick is not entered');
+        $this->assertSame('KWD', $kuwait['currency'], 'the branch that is entered reads this market own money');
+        $this->assertSame('SAR', $kuwait['pick'], 'the stale pick really was in the session, and really was not read');
+
+        // And the default storefront is untouched: the operator's own currency model stands, and so does the platform's own currency.
+        $saudi = $this->inStorefrontKeepingTheVisitorsPick('SA', static fn (): array => [
+            'model' => (string) getWebConfig(name: 'currency_model'),
+            'currency' => (string) Currency::find(getWebConfig(name: 'system_default_currency'))?->code,
+        ]);
+
+        $this->assertSame('multi_currency', $saudi['model']);
+        $this->assertSame('SAR', $saudi['currency']);
     }
 
     public function test_the_money_a_storefront_gives_its_app_is_the_money_its_pages_print(): void

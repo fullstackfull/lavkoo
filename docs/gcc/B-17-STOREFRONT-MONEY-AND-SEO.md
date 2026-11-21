@@ -100,6 +100,37 @@ What stands in its place is the structural fact, asserted rather than assumed: w
 Kuwaiti storefront renders no switcher, and the model those headers read is `single_currency`. Removing a header's `@if`,
 or making `override()` stop forcing the model, each turns that test red.
 
+### The same guard decides the currency a payment is taken in
+
+This matters beyond the header, because the money paths read the visitor's pick in the same shape. Four places do:
+
+| Where | Line | What it reads |
+| --- | --- | --- |
+| `Customer\PaymentController` | 417 | `$request['current_currency_code'] ?? session('currency_code')` |
+| `Customer\PaymentController` | 486 | the same, for a wallet top-up |
+| `Customer\PaymentController` | 634 | the same, for a cash-on-delivery change amount |
+| `OrderEditManager` | 829 | the same, on an order edit |
+
+**Every one of them sits inside `if (getWebConfig(name: 'currency_model') == 'multi_currency')`**, and that is the setting
+`override()` forces to `single_currency`. Measured in the real market context, through the same `getWebConfig()` calls
+those branches make, with the operator's model set to `multi_currency` and the whole stale pick (`SAR`, its symbol and a
+3.75 rate) in the session:
+
+| Market | Model the branch reads | Pick-reading branch entered | Currency the other branch resolves |
+| --- | --- | --- | --- |
+| KW (trades in its own money) | `single_currency` | **no** | **KWD** |
+| SA (the default storefront) | `multi_currency` | yes | SAR |
+
+So on a market that trades in its own money the pick is never read, and the currency comes from
+`getWebConfig('system_default_currency')` — which the same override points at that market's own currency. The Saudi
+storefront keeps the operator's own currency model and the platform's own currency, exactly as before.
+
+A test pins both halves, because they are what keeps those four reads unreachable on a money path: make `override()` stop
+forcing the model, or stop pointing the default currency at the market, and it goes red. **Driving the controller end to
+end — a cart, a customer, a gateway — is the remaining confirmation and has not been done here.** Whether a client-supplied
+`current_currency_code` should be trusted at all on the default storefront is a pre-existing platform question, older than
+the markets and untouched by them.
+
 ### The published offer on the default storefront is dormant, and it is dormant on a known defect
 
 `StorefrontSeo::offer()` answers the storefront's money only while a storefront trades in its own currency. Wherever the
