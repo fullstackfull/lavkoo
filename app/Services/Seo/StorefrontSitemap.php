@@ -78,10 +78,13 @@ final class StorefrontSitemap
     public function entriesOf(string $country, CarbonInterface $at): array
     {
         $languageCodes = $this->languageCodes();
-        $entries = [$this->entry(url: route('home'), country: $country, languageCodes: $languageCodes, at: $at)];
+        // Asked once for the whole file: whether each market may sell is a database question, and a catalogue has many products.
+        $indexable = $this->seo->indexableCountries();
+
+        $entries = [$this->entry(url: route('home'), country: $country, languageCodes: $languageCodes, indexable: $indexable, at: $at)];
 
         foreach ($this->slugsOf(country: $country) as $slug) {
-            $entries[] = $this->entry(url: route('product', ['slug' => $slug]), country: $country, languageCodes: $languageCodes, at: $at);
+            $entries[] = $this->entry(url: route('product', ['slug' => $slug]), country: $country, languageCodes: $languageCodes, indexable: $indexable, at: $at);
         }
 
         return $entries;
@@ -122,14 +125,15 @@ final class StorefrontSitemap
 
     /**
      * @param list<string> $languageCodes
+     * @param list<string> $indexable
      *
      * @return array{loc: string, alternates: array<string, string>, lastmod: string, changefreq: string, priority: float}
      */
-    private function entry(string $url, string $country, array $languageCodes, CarbonInterface $at): array
+    private function entry(string $url, string $country, array $languageCodes, array $indexable, CarbonInterface $at): array
     {
         return [
             'loc' => $this->urls->of(url: $url, country: $country),
-            'alternates' => $this->seo->alternates(url: $url, languageCodes: $languageCodes),
+            'alternates' => $this->seo->alternates(url: $url, languageCodes: $languageCodes, countries: $indexable),
             'lastmod' => $at->toAtomString(),
             'changefreq' => self::CHANGE_FREQUENCY,
             'priority' => self::PRIORITY,

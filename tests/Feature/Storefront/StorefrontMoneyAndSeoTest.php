@@ -8,6 +8,8 @@ use App\Services\Seo\StorefrontSitemap;
 use App\Services\Storefront\StorefrontCurrency;
 use App\Services\Storefront\StorefrontResolver;
 use App\Utils\BrandManager;
+use App\Utils\Convert;
+use App\Utils\Helpers;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -197,6 +199,24 @@ class StorefrontMoneyAndSeoTest extends TestCase
         $this->assertSame(500, $kuwaitiBound);
         $this->assertSame('KD', $kuwaitiSign);
         $this->assertSame('SAR', $saudiSign);
+    }
+
+    /**
+     * A bound typed into the price filter is compared against the catalogue as typed on a market that trades in its own currency,
+     * because the catalogue's prices are in that currency and nothing is converted. A pick a visitor left in the session on another
+     * market must not put a rate between the two.
+     */
+    public function test_a_price_filter_bound_typed_in_this_markets_money_is_compared_as_typed(): void
+    {
+        $this->openSixMarkets();
+
+        $this->inStorefront('KW', function (): void {
+            session()->put('currency_code', 'SAR');
+            session()->put('currency_exchange_rate', 3.75);
+
+            $this->assertSame(10.0, Convert::usdPaymentModule(10, session('currency_code')), 'the web list filter');
+            $this->assertSame(10.0, Helpers::convert_currency_to_usd(10), 'the search filter');
+        });
     }
 
     /* ----------------------------------------------------------------------- B-17: canonical, hreflang, offer, sitemap, index */
@@ -406,6 +426,7 @@ class StorefrontMoneyAndSeoTest extends TestCase
             'indexable' => app(StorefrontSeo::class)->isIndexable(),
             'robots_header' => $this->robotsHeader(),
             'price_bound' => getProductMaxUnitPriceRange(type: 'web'),
+            'filter_bound_conversion' => Convert::usdPaymentModule(10, (string) session('currency_code')),
             'sign' => getCurrencySymbol(type: 'web'),
             'clearance_discount' => (string) getProductPriceByType(
                 product: ['unit_price' => self::SAUDI_PRICE, 'discount' => 0, 'discount_type' => 'flat', 'clearance_sale' => ['discount_type' => 'flat', 'discount_amount' => 2.5]],

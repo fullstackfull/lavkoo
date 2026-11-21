@@ -48,13 +48,15 @@ final class StorefrontSeo
      * keeps the language-only alternates the page carries today, down to the key and the query string.
      *
      * @param list<string> $languageCodes
+     * @param list<string>|null $countries the indexable markets when the caller already knows them: whether a market may sell is a
+     *                                     database question, so a sitemap asks once for a whole file rather than once for every URL in it
      *
      * @return array<string, string> hreflang => absolute URL
      */
-    public function alternates(string $url, array $languageCodes): array
+    public function alternates(string $url, array $languageCodes, ?array $countries = null): array
     {
         $languages = array_values(array_filter(array_map(strval(...), $languageCodes), static fn (string $code): bool => trim($code) !== ''));
-        $countries = $this->indexableCountries();
+        $countries ??= $this->indexableCountries();
 
         if (count($countries) < 2) {
             return count($languages) > 1 ? $this->languageOnly(url: $url, languages: $languages) : [];
