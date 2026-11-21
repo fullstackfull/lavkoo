@@ -335,9 +335,11 @@ class StorefrontMoneyAndSeoTest extends TestCase
     {
         $this->openSixMarkets();
 
-        $alternates = $this->inStorefront('KW', fn (): array => app(StorefrontSeo::class)->alternates(
+        $seo = app(StorefrontSeo::class);
+        $alternates = $this->inStorefront('KW', fn (): array => $seo->alternates(
             url: route('home'),
             languageCodes: ['en', 'ar'],
+            carriedBy: $seo->indexableCountries(),
         ));
 
         $this->assertSame([
@@ -370,7 +372,7 @@ class StorefrontMoneyAndSeoTest extends TestCase
         $kuwaiti = $this->inStorefront('KW', fn (): array => $seo->alternates(
             url: route('product', ['slug' => 'kuwaiti-serum']),
             languageCodes: ['en', 'ar'],
-            countries: $seo->countriesCarrying(product: Product::query()->find(2)),
+            carriedBy: $seo->countriesCarrying(product: Product::query()->find(2)),
         ));
 
         $this->assertSame([
@@ -382,7 +384,7 @@ class StorefrontMoneyAndSeoTest extends TestCase
         $saudi = $this->inStorefront('SA', fn (): array => $seo->alternates(
             url: route('product', ['slug' => 'saudi-serum']),
             languageCodes: ['en', 'ar'],
-            countries: $seo->countriesCarrying(product: Product::query()->find(1)),
+            carriedBy: $seo->countriesCarrying(product: Product::query()->find(1)),
         ));
 
         $this->assertSame([
@@ -425,7 +427,7 @@ class StorefrontMoneyAndSeoTest extends TestCase
         $this->assertSame([], $this->inStorefront('QA', fn (): array => $seo->alternates(
             url: route('product', ['slug' => 'qatari-balm']),
             languageCodes: ['en', 'ar'],
-            countries: $seo->countriesCarrying(product: Product::query()->find(4)),
+            carriedBy: $seo->countriesCarrying(product: Product::query()->find(4)),
         )));
     }
 
@@ -738,7 +740,7 @@ class StorefrontMoneyAndSeoTest extends TestCase
                 'alternates' => $seo->alternates(
                     url: route('product', ['slug' => 'saudi-serum']),
                     languageCodes: ['en', 'ar'],
-                    countries: $seo->countriesCarrying(product: Product::query()->find(1)),
+                    carriedBy: $seo->countriesCarrying(product: Product::query()->find(1)),
                 ),
                 'indexable' => $seo->isIndexable(),
                 'robots_header' => $this->robotsHeader(),

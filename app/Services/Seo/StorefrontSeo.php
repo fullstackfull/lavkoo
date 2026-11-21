@@ -50,24 +50,24 @@ final class StorefrontSeo
     /**
      * The same page in every storefront that carries it and every published language.
      *
-     * The markets are the caller's answer to *which markets carry this page*, never *which markets may be indexed*: a market whose
+     * $carriedBy is the caller's answer to *which markets carry this page*, never *which markets may be indexed*: a market whose
      * catalogue does not hold a product serves no page for it, so an hreflang naming it points a crawler at a redirect, and the
-     * x-default built from the first of them would send every unmatched language there. {@see countriesCarrying()} answers it for a
-     * product from the catalogue, and a page every market has of its own — a landing page — is carried by every indexable market.
+     * x-default built from the first of them would send every unmatched language there. It has no default, because defaulting it to
+     * the indexing gate is exactly the mistake: {@see countriesCarrying()} answers it for a product from the catalogue, and a page
+     * every market has of its own — a landing page — passes {@see indexableCountries()} deliberately.
      *
      * One market carrying the page keeps the language-only alternates the page carries today, down to the key and the query string,
      * at that market's own address: the bare address for the default storefront and while the markets are switched off.
      *
      * @param list<string> $languageCodes
-     * @param list<string>|null $countries the markets that carry the page; the indexable markets when the caller does not say, which
-     *                                     is also how a sitemap hands a whole file one answer to a database question
+     * @param list<string> $carriedBy the markets whose catalogue holds this page
      *
      * @return array<string, string> hreflang => absolute URL
      */
-    public function alternates(string $url, array $languageCodes, ?array $countries = null): array
+    public function alternates(string $url, array $languageCodes, array $carriedBy): array
     {
         $languages = array_values(array_filter(array_map(strval(...), $languageCodes), static fn (string $code): bool => trim($code) !== ''));
-        $countries = array_values($countries ?? $this->indexableCountries());
+        $countries = array_values($carriedBy);
 
         if ($countries === []) {
             return [];

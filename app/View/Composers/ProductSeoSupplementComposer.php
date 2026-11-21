@@ -172,7 +172,7 @@ class ProductSeoSupplementComposer
             return $this->storefront->alternates(
                 url: route('product', [$product->slug]),
                 languageCodes: $codes,
-                countries: $this->storefront->countriesCarrying(product: $product),
+                carriedBy: $this->storefront->countriesCarrying(product: $product),
             );
         } catch (\Throwable) {
             return [];

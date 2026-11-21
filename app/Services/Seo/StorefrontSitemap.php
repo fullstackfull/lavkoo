@@ -154,7 +154,7 @@ final class StorefrontSitemap
     {
         return [
             'loc' => $this->urls->of(url: $url, country: $country),
-            'alternates' => $this->seo->alternates(url: $url, languageCodes: $languageCodes, countries: $carriedBy),
+            'alternates' => $this->seo->alternates(url: $url, languageCodes: $languageCodes, carriedBy: $carriedBy),
             'lastmod' => $at->toAtomString(),
             'changefreq' => self::CHANGE_FREQUENCY,
             'priority' => self::PRIORITY,

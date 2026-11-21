@@ -86,7 +86,9 @@ the address a crawler falls back to for every language it cannot match, so that 
 
 `StorefrontSeo::countriesCarrying()` is the one source now. It asks the catalogue, through the same narrowing the
 storefront's own pages use (`StorefrontCatalog::offers()`), in each candidate market's context and with no query of its
-own; the page composer and the sitemap both go through it.
+own; the page composer and the sitemap both go through it. `alternates()` takes `carriedBy` as a **required** argument,
+with no default, because defaulting it to the indexing gate is exactly the mistake: a landing page passes
+`indexableCountries()` deliberately and visibly.
 
 | Page | What it declares |
 | --- | --- |
