@@ -2901,6 +2901,58 @@ CRITERIA['E-17'][2] = ('MISSING', "STAYS MISSING, 2026-11-21. Phase 1 feature wo
     "(59 against 40) on un-memoized information_schema reads, which is a cost to fix and not a behaviour change.")
 
 
+CRITERIA['E-17'][2] = ('CODED', "MOVED FROM MISSING TO CODED, 2026-11-21, on THREE independent rulings that agree, each reached by experiment rather than by reading. It is "
+    "NOT MET and the reason is a decision of yours, not a gap in the work. "
+    "WHY CODED AND NOT MISSING. All three parts of the key are real, exercised, mutation-killed code, and the third verifier checked each by hand rather than take the "
+    "table: LedgerChain takes legalEntityId in its constructor and in of(); narrow() filters on it when the entity is recorded; entityForWriting() persists it; "
+    "describe() prints it; VendorLedger::record(legalEntityId:) is a reachable public parameter threaded to chain(); SettlementEngine::companyOf() copies it onto the "
+    "settlement row. Dropping the company from narrow() kills a named test, dropping the currency kills 12, and each of the settlement engine's three gates fails alone "
+    "when reverted. By this tracker's own definitions that is CODED: dormant and unwired, not absent. I had held it at MISSING on 2026-11-20 because two reviews "
+    "disagreed and four of my records that day were corrected downward; a third independent ruling has since agreed with the second, so the lower state is no longer the "
+    "honest one. "
+    "WHY NOT MET. No producer of the value exists on this branch: all EIGHT VendorLedger::record() call sites pass no company (checked argument by argument: zero "
+    "occurrences in each), there is no legal-entity table, model, migration, factory or resolver anywhere in it, and vendor_ledger_entries has no migration in database/ "
+    "at all, so an installation may not even have the column and the code deliberately degrades to (seller, currency) through Schema::hasColumn. A criterion worded 'a "
+    "ledger chain and a settlement ARE keyed by seller, legal entity and currency' is a statement about the RUNNING SYSTEM, and in the running system it is false. "
+    "A producer now exists on a DIFFERENT branch — PR 90's legal-entity registry — but it does not yet deliver: generateOrder writes the earning before it stamps the "
+    "order, so every live row is still NULL there too. MET needs the two branches joined and the live path measured. "
+    "THE BRANCH ITSELF IS NOW CLEAN. The double credit is fixed and verified, and the nondeterministic test the previous round left on a mandatory CI gate is fixed and "
+    "verified at f708d5f5: 45 runs, 45 green (20 quiet, 10 under load, 15 under heavy load with a load average of 9.65), every run Tests: 5, Assertions: 24 — against a "
+    "CONTROL the fix round could not produce, the same harness on the same machine in the same minute at the predecessor head: 6 GREEN / 9 RED of 15, a 60% flake rate, "
+    "WORSE than the round could show. The rendezvous was also proved unable to hang: a mutation making both processes wait for a mark nobody writes fails LOUDLY in 73 "
+    "seconds with a readable message, bounded by a 30-second meeting point inside a 120-second process timeout. Both named CI gates are success at Tests: 51, Assertions: "
+    "729. The verifier's own words: nothing on this head must change. PR 137's DO NOT MERGE title has been removed. "
+    "THE RACE THE NEW TEST PINS IS REAL AND STAYS OPEN, deliberately: two processes delivering one order line credit 210.0000 where 110.0000 is owed, in both switch "
+    "positions. AND THE OBVIOUS CURE IS WRONG, which the verifier proved by mutation rather than argued: making the idempotency lookup a LOCKING read does not fix it, "
+    "because LedgerChain::holds() asks the database through narrow(), a consistent read answered from the older snapshot, so the locking lookup sees a row holds() does "
+    "not and record() then refuses a LAWFUL second delivery. A unique key over (seller_id, seller_is, entry_type, reference_type, reference_id) does close it, but it "
+    "surfaces as an uncaught 1062 out of record() that no caller handles, it cannot be added while duplicate pairs already exist, and it does not constrain a NULL "
+    "reference. That is a schema change on a live money table with a reconciliation step in front of it — YOURS TO DECIDE, not mine.")
+
+CRITERIA['E-03'][3] = ('CODED', "STAYS CODED, 2026-11-21, after a FOURTH round, and the branch is PARKED under the owner's feature-completion directive: it is a test-only "
+    "guard, not functional development, and the plan's 579 open criteria come first. What follows is written so it is resumable, not so it is re-audited. "
+    "THE SCANNER ITSELF LOST NOTHING THIS TIME — every claim the round made about it reproduced exactly, the whitelist that caused round 3's regression is deleted, the "
+    "column side now FAILS OPEN as it must, and a new file pins 54 forms across all three earlier rounds so the trade cannot be made again without a red test. CI on "
+    "61899f41 is 20 of 21 success with only the by-design overlay red, the whole suite green on both PHP versions, and the leak guard clean. "
+    "BUT THE GUARD AROUND THE SCANNER STILL LOSES MONEY WRITES, AND ONE LOSS IS THIS PULL REQUEST'S OWN. WalletBalanceWritersTest applies a file PREFILTER to the RAW "
+    "source — a file not literally containing 'wallet' or 'loyalty' is never handed to the scanner at all. The scanner reads a CONCATENATED name; the prefilter does "
+    "not. Of the 13 two-piece splits of the column name, FIVE defeat the prefilter. Proved end to end: two statements planted in database/seeds/DatabaseSeeder.php, a "
+    "file holding neither word — the scanner reports BOTH at all four heads, the prefilter SKIPS the file, the guard is GREEN at 121 tests, and both statements take a "
+    "decimal(40,20) balance from 350.12345678901234567890 to 0.00000000000000000000 on MariaDB 10.11.14 through Laravel's own facade. The two earliest heads of this "
+    "branch have NO prefilter and ARE red on that plant; it arrives in the branch's own commit 0e34c89e, which is not on main. "
+    "**THAT PREFILTER WAS MY RECOMMENDATION.** I proposed it as free — byte-identical output at about a third of the cost — on a measurement that compared the "
+    "SCANNER's output over the tree, not the GUARD's behaviour on a file the prefilter excludes. The round's own four-way harness could not have caught it either, "
+    "because it calls columnWritesIn() directly and so bypasses the prefilter. The cure is in the file already: namesABalanceColumn() runs the name-joining reader "
+    "FIRST and is what the migration test uses; writersOf() must use the same reading, or drop the prefilter (28.3s against 8.2s over 4511 files, which is nothing "
+    "beside a CI job already taking 15 minutes). Widening the substring is NOT a cure: no prefix of the column name exists that a two-piece split cannot straddle. "
+    "ALSO SILENT AT ALL FOUR HEADS, each proved to move money: MySQL EXECUTABLE COMMENTS — the engine executes the contents of /*! ... */ and /*!NNNNN ... */ while "
+    "withSqlCommentsStripped treats them as comments and removes them (/*!99999 ...*/ is correctly inert, so the version gate is honoured); and a column name "
+    "CONCATENATED rather than interpolated into SQL (plain concatenation, sprintf, vsprintf, implode, str_replace, strtr, and .= assembly) — which is NOT the declared "
+    "limit, because the file spells the name in full in a variable the machinery already registers; only the interpolated spelling is caught. "
+    "AND THE CRITERION'S OWN WORDING IS STILL FALSE ON A SECOND GROUND: it says 'the single writer', singular, and the guard licenses six file-and-column pairs across "
+    "five files. A separate lane is now collapsing the four duplicated wallet writers into one locked writer, which is what makes that wording true.")
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
