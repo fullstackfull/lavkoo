@@ -137,6 +137,19 @@ final class StorefrontCurrency
         return $this->currencyInForce()?->code;
     }
 
+    /**
+     * The currency a purchase is made in: the storefront's own while it trades in its own currency, and otherwise the code the caller would
+     * have used anyway — the visitor's pick, the field the client sent, or the platform's default, each exactly as that surface reads it today.
+     *
+     * The checkout page, the order that is written and the payment that is taken all ask this one question, so none of them can name a currency
+     * another of them is not in: a pick a visitor made on one market cannot label an order of a market that trades in different money. While no
+     * storefront trades in its own currency the answer is the caller's own value, unchanged, including when that value is nothing.
+     */
+    public function purchaseCurrencyCode(?string $picked): ?string
+    {
+        return $this->currencyCodeInForce() ?? $picked;
+    }
+
     /** The symbol of that currency, or null while the platform's own settings stand. Read by getCurrencySymbol() so no surface prints another storefront's sign. */
     public function symbolInForce(): ?string
     {

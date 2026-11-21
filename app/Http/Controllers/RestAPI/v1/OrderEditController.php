@@ -19,6 +19,7 @@ use App\Models\RefundRequest;
 use App\Models\Setting;
 use App\Models\ShippingAddress;
 use App\Services\OrderService;
+use App\Services\Storefront\StorefrontCurrency;
 use App\Traits\CommonTrait;
 use App\Traits\FileManagerTrait;
 use App\Traits\OrderEditManager;
@@ -44,6 +45,7 @@ class OrderEditController extends Controller
 
     public function __construct(
         private readonly OrderService $orderService,
+        private readonly StorefrontCurrency $storefrontCurrency,
     )
     {
     }
@@ -100,11 +102,11 @@ class OrderEditController extends Controller
             'order_due_payment_method' => 'cash_on_delivery',
         ]);
         if ($request['bring_change_amount']) {
-            if (getWebConfig(name: 'currency_model') == 'multi_currency') {
-                $currencyCode = $request->current_currency_code ?? Currency::find(getWebConfig(name: 'system_default_currency'))->code;
-            } else {
-                $currencyCode = Currency::find(getWebConfig(name: 'system_default_currency'))->code;
-            }
+            // One answer to what currency this purchase is in, shared with the website's own checkout: the money of the storefront the
+            // request is served from while it trades in its own, and otherwise the code this endpoint has always used.
+            $pickedByTheClient = getWebConfig(name: 'currency_model') == 'multi_currency' ? $request->current_currency_code : null;
+            $currencyCode = $this->storefrontCurrency->purchaseCurrencyCode(picked: $pickedByTheClient)
+                ?? Currency::find(getWebConfig(name: 'system_default_currency'))->code;
             Order::where('id', $order['id'])->update([
                 'bring_change_amount' => $request['bring_change_amount'] ?? 0,
                 'bring_change_amount_currency' => $currencyCode,
