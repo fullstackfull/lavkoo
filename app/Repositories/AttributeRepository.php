@@ -39,10 +39,14 @@ class AttributeRepository implements AttributeRepositoryInterface
         return $dataLimit == 'all' ? $query->get() : $query->paginate($dataLimit);
     }
 
+    /**
+     * The named country's attributes, whatever storefront the request itself belongs to: the panel screens this serves belong to none,
+     * and a caller that named a country has already said which one it means, so the request's own scope is dropped rather than ANDed on.
+     */
     public function getListOfferedIn(string $storefrontCountry, array $alwaysOffered = [], array $orderBy = [], int|string $dataLimit = DEFAULT_DATA_LIMIT): Collection|LengthAwarePaginator
     {
         $query = StorefrontVisibility::offeredIn(
-            query: $this->attribute->newQuery(),
+            query: $this->attribute->newQuery()->withoutGlobalScope('storefront_visibility'),
             entityType: StorefrontVisibility::ATTRIBUTE,
             country: $storefrontCountry,
             alwaysOffered: $alwaysOffered,

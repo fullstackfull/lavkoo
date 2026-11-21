@@ -216,7 +216,21 @@ class StorefrontAttributeVisibilityTest extends TestCase
         $this->assignAttributeTo('KW');
 
         $this->assertSame([self::SHARED_ATTRIBUTE, self::MAPPED_ATTRIBUTE], $this->attributeIdsOfferedOnTheFormFor('ZZ'));
-        $this->assertSame([self::SHARED_ATTRIBUTE, self::MAPPED_ATTRIBUTE], $this->attributeIdsOfferedOnTheFormFor('kw '), 'and a spelling the resolver accepts does');
+        $this->assertSame([self::SHARED_ATTRIBUTE], $this->attributeIdsOfferedOnTheFormFor(' sa '), 'but a spelling of a configured country still narrows');
+        $this->assertSame([self::SHARED_ATTRIBUTE, self::MAPPED_ATTRIBUTE], $this->attributeIdsOfferedOnTheFormFor('kw'));
+    }
+
+    /** The named country is the one answer, whatever storefront the panel request happens to look like to the resolver. */
+    public function test_naming_a_country_is_not_ANDed_with_the_storefront_of_the_request(): void
+    {
+        $this->switchStorefrontsOn();
+        $this->assignAttributeTo('KW');
+
+        $this->serveStorefront('SA');
+        $this->assertSame([self::SHARED_ATTRIBUTE, self::MAPPED_ATTRIBUTE], $this->attributeIdsOfferedOnTheFormFor('KW'));
+
+        $this->serveStorefront('KW');
+        $this->assertSame([self::SHARED_ATTRIBUTE], $this->attributeIdsOfferedOnTheFormFor('SA'));
     }
 
     public function test_nothing_is_narrowed_before_the_mapping_migration_has_run(): void
