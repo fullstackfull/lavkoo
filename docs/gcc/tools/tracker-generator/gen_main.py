@@ -2953,6 +2953,40 @@ CRITERIA['E-03'][3] = ('CODED', "STAYS CODED, 2026-11-21, after a FOURTH round, 
     "five files. A separate lane is now collapsing the four duplicated wallet writers into one locked writer, which is what makes that wording true.")
 
 
+CRITERIA['E-17'][2] = ('CODED', "THE BLOCKER IS REMOVED, 2026-11-21, and independently measured — but the criterion stays CODED, and a reviewer and the builder reached "
+    "that separately. PR 90 (draft, gcc/p1-legal-entity-registry, head 05c554a3, 7 commits on 7ab902b2, the other account's 26995055 still an ancestor, no force push). "
+    "WHAT WAS WRONG AND IS NOW RIGHT. generateOrder stamped the order AFTER addOrderDetailsData had already written the money, so every seller-ledger row a running "
+    "system wrote carried NULL however the registry was set up. addOrderDetailsData now states the sequence it always meant: save every line and take its stock, freeze "
+    "the selling company ONCE, then record the money and taxes that follow from the saved lines. The separate stamp in generateOrder is gone, because "
+    "addOrderDetailsData is its only caller and now does it in the right place. The reviewer replayed the PRODUCTION sequence on MariaDB 10.11.14 with its OWN probe, "
+    "not the slice's test, on two worktrees: order_earning, commission_charge, refund and return_adjustment go from [null,null,null,null] to [1,1,1,1] and "
+    "companyOfSeller from null to 1 — AND THE PATH COSTS 8 FEWER QUERIES than before. "
+    "ORDER INTEGRITY WAS THE REAL RISK AND IT HOLDS, across SIX shapes dumped field by field (orders, order_details, order_item_commissions, vendor_ledger_entries, "
+    "order_taxes, order_details_rewards, every product's current_stock and variation): single-line Saudi, multi-line, TWO COUNTRIES (still stamped with none, still "
+    "placed, four ledger rows null on both heads), digital plus physical, a commission engine that THROWS (both lines saved, both stocks taken, zero commissions, zero "
+    "ledger rows, no money invented), and — a case the slice did not report and the reviewer was most worried about — the CURRENCY switch also on, where record() also "
+    "writes storefront_country, currency_code and currency_rate and now runs earlier: storefront_country SA, currency SAR, rate 1, order_amount 200, admin_commission 20 "
+    "all identical. In every shape the ONLY differing fields were the three being fixed plus a random order_group_id nonce. "
+    "AND THE DORMANCY HOLDS STATEMENT FOR STATEMENT. With every switch off: a one-line Saudi order is 211 statements each side with the ORDERED statement list IDENTICAL, "
+    "bindings included — not merely the multiset. A two-line order is 267 each side, sorted multiset identical, and the ordered diff is EXACTLY ONE MOVE: a block of 15 "
+    "statements relocated inside the single order transaction, nothing added, removed or re-valued, with zero differences in any written row. "
+    "THE SECOND MONEY DEFECT IS ALSO CLOSED: a refund of a line with NO earning on the ledger used to land in the order's stamped company, holding -90 in a company that "
+    "owned no earning. It now names NO company; the figures are untouched at -100 then -90 and only the label moved. The fallback was REMOVED, not bypassed — the "
+    "service's constructor dependency and import went with it. "
+    "WHY STILL CODED, on the reviewer's four grounds: the branch is an unmerged draft on a base that is itself unmerged; FOUR of the EIGHT writers were proved end to "
+    "end, while the three payout writers carry a company only by inference from a measured companyOfSeller = 1; the legacy withdraw mirror is pinned by a source-text "
+    "assertion and a resolver test, never by a run; and the feature is dormant behind two switches that ship off. "
+    "TWO THINGS STILL TO FIX, NEITHER MONEY-CRITICAL. The committed GCC-13 document says OrderCompanyOnTheLivePathTest has 6 tests; it has 8, and the slice's claim to "
+    "have made the record accurate is therefore false for one of two counts. AND A NARROW NEW WAY FOR A SELLER TO GO SILENTLY UNCREDITED: recordsCompanies() now "
+    "remembers a 'yes' for the life of the process, companyForWriting() emits the column whenever that is true even when the id is null, and the ledger migration's "
+    "down() succeeds exactly when no entry names a company — so an operator rolling the column back while a queue worker is up leaves that worker inserting a column "
+    "that no longer exists, and recordOrderItemCommission's try/catch SWALLOWS the failure and logs a warning. On products the same policy costs a missing form field; "
+    "on the ledger it costs a credit. The pre-condition is a rollback under load, which the hard rules forbid. "
+    "ALSO MEASURED AND PRE-EXISTING, IDENTICAL ON BOTH HEADS, worth one line to whoever owns checkout: generateOrder SWALLOWS InsufficientStockException — it returns no "
+    "exception and writes no order. And $savedLines now holds every line's decoded product array for the whole order where the previous shape held one at a time, so "
+    "peak memory on checkout grows with cart size times product payload; named as a deliberate choice rather than an accident.")
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
