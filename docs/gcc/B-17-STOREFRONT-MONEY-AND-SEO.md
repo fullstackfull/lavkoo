@@ -18,7 +18,7 @@ Every surface asks it:
 | Surface | How |
 | --- | --- |
 | product page price, listing, cards | the price helpers, which `money()` composes and a test compares against it |
-| price filter bound and its sign | `getProductMaxUnitPriceRange()` (narrowed to the storefront) and `getCurrencySymbol()` |
+| price filter bound and its sign | `getProductMaxUnitPriceRange()` (narrowed to the storefront), and `StorefrontCurrency::symbolInForce()` where a storefront has money of its own |
 | JSON-LD offer | `App\Services\Seo\StorefrontSeo::offer()`, which calls `money()` where a storefront has money of its own |
 | customer API: config, product details, filter bounds | `StorefrontCurrency::apiMoney()`, which calls `money()` |
 | sitemap | `StorefrontSitemap`, which takes its URLs from `StorefrontUrl` |
@@ -37,6 +37,13 @@ Two places used to assume hundredths and no longer do:
   who picked the riyal and then opened Kuwait saw Kuwaiti amounts under a Saudi sign. `getCurrencyCode()` and
   `getCurrencySymbol()` now follow the storefront in force, and the switcher refuses on a storefront that trades in one
   currency instead of writing a pick there.
+
+The price filter's placeholders are the one field that does **not** go through `getCurrencySymbol()`, and deliberately so.
+They have always printed `session('currency_symbol')` raw, which on a visitor's first request — before any money helper has
+called `loadCurrency()` — is no sign at all. Routing them through the helper would have put the platform's default sign on
+a live Saudi field that prints nothing there today. So the partial asks `StorefrontCurrency::symbolInForce()` and falls
+through to the session where no storefront currency is in force: a market that trades in its own currency signs them, and
+everywhere else the field prints exactly the bytes it prints today, in either session state.
 
 **Not changed, and an owner decision:** `products.unit_price` is `DECIMAL(40,20)`, so a thousandths price is stored as it
 was typed. Nothing here rounds or re-scales a stored amount; a rounding change on money is a separate piece of work.
@@ -128,13 +135,18 @@ state about a Saudi page and compares the two states field by field:
 
 * **the rendered page** — the `seo.product-supplement` partial, through the real composer: the canonical, the hreflang
   set and the JSON-LD a crawler actually reads;
+* **the rendered price filter** — the theme's own `_filter-product-price` partial, in both session states a visitor can be
+  in: before a money helper has warmed their currency keys, and after. Its two placeholders are pinned absolutely, not
+  merely compared between the two states, because the sign is what moved here;
 * the offer, as `StorefrontSeo::offer()` answers it and as `StructuredDataBuilder` publishes it;
 * money, the app's money block, the canonical, the alternates, indexability, the robots header, the price filter's
   ceiling and floor and its conversion, the sign, a flat clearance discount, the storefront sitemaps and the platform
   sitemap's slugs.
 
-The rendered page is in the snapshot because a proof that compares the services and not the page they feed excuses the
-feature's headline output — which is how a converted price reached the published offer and nobody saw it.
+Those are the two rendered surfaces this slice touches, and both are in the snapshot, because a proof that compares the
+services and not the pages they feed excuses the feature's headline output: it is how a converted price reached the
+published offer, and how a currency sign reached the price filter's placeholders, with nothing in the suite rendering
+either one.
 
 Both comparisons run under **both currency models**, `multi_currency` and `single_currency`, because the model an
 operator picked decides whether the money helpers convert a stored amount or show it as it is, and a dormancy claim that

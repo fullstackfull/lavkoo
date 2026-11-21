@@ -1,3 +1,9 @@
+@use('App\Services\Storefront\StorefrontCurrency')
+@php
+    // A storefront that trades in its own currency (GCC-05) signs these bounds with its own sign, whatever a visitor picked on
+    // another market. Everywhere else this field prints what it prints today, which on a cold session is no sign at all.
+    $priceFilterSign = app(StorefrontCurrency::class)->symbolInForce() ?? session('currency_symbol');
+@endphp
 <div>
     <h6 class="font-semibold fs-13 mb-1">{{ translate('price') }}</h6>
     <div>
@@ -5,13 +11,13 @@
             <div class="form-group mb-0">
                 <label for="min_price" class="mb-1 fs-12 fw-semibold">{{ translate('Min') }}</label>
                 <input type="number" id="min_price" name="min_price" class="form-control form-control--sm bg-black-09"
-                       placeholder="{{ getCurrencySymbol(type: 'web') }}{{ '0' }}">
+                       placeholder="{{ $priceFilterSign }}{{ '0' }}">
             </div>
             <div class="mb-2">-</div>
             <div class="form-group mb-0">
                 <label for="max_price" class="mb-1 fs-12 fw-semibold">{{ translate('Max') }}</label>
                 <input type="number" id="max_price" name="max_price" class="form-control form-control--sm bg-black-09"
-                       placeholder="{{ getCurrencySymbol(type: 'web') }}{{ getProductMaxUnitPriceRange(type: 'web') }}">
+                       placeholder="{{ $priceFilterSign }}{{ getProductMaxUnitPriceRange(type: 'web') }}">
             </div>
             <button class="btn btn--primary py-1 px-2 fs-13 action-search-products-by-price" id="">
                 <i class="text-absolute-white czi-arrow-{{ session('direction') === "rtl" ? 'left' : 'right' }}"></i>
