@@ -28,11 +28,16 @@ trait BuildsStorefrontVisibilityWorld
 
     protected const MAPPED_BRAND = 2;
 
+    protected const SHARED_ATTRIBUTE = 1;
+
+    protected const MAPPED_ATTRIBUTE = 2;
+
     protected function buildStorefrontVisibilityWorld(): void
     {
         $this->buildCatalogTables();
         $this->buildStorefrontCouponWorld();
         $this->buildExperienceCampaignTable();
+        $this->buildAttributeTable();
         $this->buildPromotionTablesTheReadersNeed();
         $this->widenTheTablesTheStorefrontReadersSelectFrom();
         $this->runProductCountryMigration();
@@ -102,6 +107,25 @@ trait BuildsStorefrontVisibilityWorld
 
         $this->insertCampaign(id: 1, name: 'Everywhere campaign', slot: 'top');
         $this->insertCampaign(id: 2, name: 'Mapped campaign', slot: 'bottom');
+    }
+
+    /** The two variation attributes B-12 maps: one left alone, one a test assigns to a storefront. */
+    protected function seedStorefrontAttributes(): void
+    {
+        DB::table('attributes')->insert([
+            ['id' => self::SHARED_ATTRIBUTE, 'name' => 'Size', 'created_at' => now(), 'updated_at' => now()],
+            ['id' => self::MAPPED_ATTRIBUTE, 'name' => 'Voltage', 'created_at' => now(), 'updated_at' => now()],
+        ]);
+    }
+
+    private function buildAttributeTable(): void
+    {
+        Schema::dropIfExists('attributes');
+        Schema::create('attributes', function (Blueprint $table): void {
+            $table->id();
+            $table->string('name')->nullable();
+            $table->timestamps();
+        });
     }
 
     protected function insertBanner(int $id, string $title, string $type = 'Home Promo Banner'): void
