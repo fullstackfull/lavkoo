@@ -2872,6 +2872,35 @@ CRITERIA['D1-02'][4] = ('CODED', "BOTH DEFECTS CLOSED AND INDEPENDENTLY VERIFIED
     "refusing an unfillable line.")
 
 
+CRITERIA['E-17'][2] = ('MISSING', "STAYS MISSING, 2026-11-21. Phase 1 feature work attacked this criterion's stated blocker directly and DID NOT REMOVE IT, and that is a "
+    "measurement, not a reading. PR 90 (draft, gcc/p1-legal-entity-registry, head 7ab902b2) wired a selling company into ALL EIGHT VendorLedger::record() call sites — an "
+    "independent reviewer enumerated every caller in app/ and Modules/, found exactly eight, and confirmed all eight now pass legalEntityId, with no ninth writer of "
+    "vendor_ledger_entries anywhere. The code is wired. THE RUNNING SYSTEM STILL WRITES NULL ON EVERY ROW. app/Utils/OrderManager.php:1678 calls addOrderDetailsData, "
+    "which reaches recordOrderItemCommission and reads the order's company at :1187 — and the order is only STAMPED at :1683, FIVE LINES LATER. Measured on MariaDB "
+    "10.11.14 with the switch ON and a Saudi company registered, replaying the production sequence: the order carries legal_entity_id 1, while order_earning (credit "
+    "100.0000), commission_charge (debit 10.0000), refund (debit 100) and return_adjustment (credit 10) ALL carry NULL, and companyOfSeller() answers NULL — which makes "
+    "the payout reserve and the legacy withdraw mirror null in turn. The slice's 25 tests all stamp the order FIRST, which is the REVERSE of production, so none of them "
+    "catches it. The slice's own sentence 'that is now closed' is measured false and is recorded here as false. A fix is in flight, and the criterion may not move until "
+    "the live path actually writes a company. "
+    "A SECOND MONEY DEFECT THE SAME REVIEW MEASURED: RefundReversalService::companyOfTheEarningOf() falls back to orders.legal_entity_id when a line has NO earning on "
+    "the ledger, and that drove company 11 to -90 on a seller whose earning is in no company. The rule that cannot be wrong is the one companyOfSeller() already "
+    "applies: name NO company when there is no earning to agree with. "
+    "WHAT DID ADVANCE, AND IT IS REAL. The double credit recorded against this criterion on 2026-11-20 is fixed and independently verified at 6ce30133, and the "
+    "nondeterministic concurrency test that round left on a mandatory CI gate has been rewritten so the second delivery is HELD rather than raced (f708d5f5, two "
+    "commits); that head's verification and CI are not yet read, so PR 137 keeps its DO NOT MERGE title until both are. "
+    "AND THE LEGAL-ENTITY HALF NOW HAS SOMETHING TO READ, which it never had: products.legal_entity_id has a REAL MIGRATION for the first time "
+    "(2026_11_27_100200_add_legal_entity_to_products_table.php), additive, nullable, index-free, idempotent, with a down() that refuses while any product names a "
+    "company — and the reviewer checked DIRECTLY, not by report, that it emits exactly the shape StorefrontCatalog::ENTITY_COLUMN expects and that "
+    "StorefrontCheckoutSingleCompanyTest.php:99 creates by hand today. So the one-selling-company branches can delete their in-test column creation and depend on the "
+    "migration. vendor_ledger_entries also gained a nullable company column, guarded on the table existing because that table has no migration in this repository and its "
+    "live shape is unknown from the tree. Both migrations were exercised on MariaDB 10.11.14, including a second run (idempotent, zero ALTERs) and a refused rollback "
+    "with money intact. "
+    "AND THE DORMANCY HOLDS, which is the whole safety argument: with the switch off, the live Saudi money path is BYTE-FOR-BYTE what it is without the slice — the "
+    "reviewer ran the same probe against a tree with the slice reverse-applied and the SQL log diff was EMPTY at 45 statements, 40 queries each, every ledger row, "
+    "balance, refund figure and payout refusal identical. With the switch on and the registry EMPTY, every figure is likewise identical; only the query count rises "
+    "(59 against 40) on un-memoized information_schema reads, which is a cost to fix and not a behaviour change.")
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]

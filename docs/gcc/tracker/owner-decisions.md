@@ -1,6 +1,6 @@
 # Open owner decisions by axis
 
-Taken from the "Open owner decisions" field of each requirement card, as of 2026-11-20. Nothing in this list is decided by the code; each is a choice, a review or a fact only the owner or an outside party can supply.
+Taken from the "Open owner decisions" field of each requirement card, as of 2026-11-21. Nothing in this list is decided by the code; each is a choice, a review or a fact only the owner or an outside party can supply.
 
 ## Axis A: Six-country base and customer identity
 

@@ -1,6 +1,6 @@
 # What could not be inspected, by unit
 
-Coverage gaps stated by the assessors (section 8 of the master tracker), as of 2026-11-20. Production, provider accounts, the real numbers behind owner decisions and anything outside the three repositories are not inspected by any unit.
+Coverage gaps stated by the assessors (section 8 of the master tracker), as of 2026-11-21. Production, provider accounts, the real numbers behind owner decisions and anything outside the three repositories are not inspected by any unit.
 
 - (A1) Nothing was run: states rest on reading the trees at the stated refs and on job names and conclusions from ci-table.md and ci/*.json. Job logs were not opened, so per-class test counts rely on PR bodies; I checked that phpunit.xml runs tests/Unit and tests/Feature and that the Storefront group paths cover tests/Unit/Storefront, tests/Feature/Storefront and tests/Feature/PlatformAdmin.
 - (A1) No staging, device or production evidence. The customer and seller apps were not run; the live server baseline (698aa1e), the live flag values and the cache and queue drivers in use are UNVERIFIED.

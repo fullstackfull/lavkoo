@@ -1,6 +1,6 @@
 # Axis H: Shipping and integrations
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-20. Requirements: 34. Acceptance criteria: 157 (MET 79, CODED 13, MISSING 65). Code completion 59%, proven by a passing test 50%, release readiness 16%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-21. Requirements: 34. Acceptance criteria: 157 (MET 79, CODED 13, MISSING 65). Code completion 59%, proven by a passing test 50%, release readiness 16%.
 
 Independent verification: done for unit(s) H1, H2.
 
