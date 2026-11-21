@@ -18,6 +18,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\View;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsStorefrontCatalog;
 use Tests\Support\BuildsStorefrontLegalDocuments;
@@ -58,6 +59,9 @@ class StorefrontMoneyAndSeoTest extends TestCase
         $this->buildStorefrontSeoWorld();
         $this->buildStorefrontLegalDocumentsTable();
 
+        // The theme's own views are only registered for an HTTP request (ThemeServiceProvider), so a test that renders one says so.
+        View::addLocation(resource_path('themes/' . theme_root_path()));
+
         $this->addProduct(id: 1, name: 'Saudi serum', slug: 'saudi-serum', price: self::SAUDI_PRICE, country: 'SA');
         $this->addProduct(id: 2, name: 'Kuwaiti serum', slug: 'kuwaiti-serum', price: self::KUWAITI_PRICE, country: 'KW');
         $this->addProduct(id: 3, name: 'Kuwaiti balm', slug: 'kuwaiti-balm', price: '8.750', country: 'KW');
@@ -96,6 +100,15 @@ class StorefrontMoneyAndSeoTest extends TestCase
         $this->assertSame(['price' => self::SAUDI_PRICE, 'currency' => 'SAR', 'decimals' => 2], $snapshot['offer']);
         $this->assertSame('100', $snapshot['schema_offer']['price']);
         $this->assertSame('SAR', $snapshot['schema_offer']['priceCurrency']);
+
+        // The price filter the listing renders, in both session states, pinned absolutely rather than compared with the other state:
+        // these are live Saudi fields, and a sign appearing in the first state is exactly the drift this proof exists to catch. The
+        // ceiling is the Saudi catalogue's own under either currency model.
+        $this->assertStringContainsString('placeholder="0"', $snapshot['rendered_price_filter']['cold'], 'a first request carries no sign');
+        $this->assertStringContainsString('placeholder="500"', $snapshot['rendered_price_filter']['cold']);
+        $this->assertStringNotContainsString('SAR', $snapshot['rendered_price_filter']['cold']);
+        $this->assertStringContainsString('placeholder="SAR0"', $snapshot['rendered_price_filter']['warm'], 'once the session is warm');
+        $this->assertStringContainsString('placeholder="SAR500"', $snapshot['rendered_price_filter']['warm']);
 
         // No storefront address, no storefront alternates, no robots header, and the one sitemap the panel writes today.
         $this->assertSame('https://lavkoo.test/product/saudi-serum', $snapshot['canonical']);
@@ -223,6 +236,14 @@ class StorefrontMoneyAndSeoTest extends TestCase
         $this->assertSame('KWD', $kuwait['currency']);
         $this->assertSame('KD', $kuwait['symbol']);
         $this->assertStringNotContainsString('SAR', $kuwait['formatted']);
+
+        // The price filter reads the pick straight out of the session where no storefront currency is in force, so it is the surface
+        // the stale pick would reach first.
+        session()->put('currency_symbol', 'SAR');
+        $filter = $this->inStorefrontKeepingTheVisitorsPick('KW', fn (): string => view('web-views.products.partials._filter-product-price')->render());
+
+        $this->assertStringContainsString('placeholder="KD0"', $filter);
+        $this->assertStringNotContainsString('SAR', $filter);
     }
 
     public function test_the_money_a_storefront_gives_its_app_is_the_money_its_pages_print(): void
@@ -292,6 +313,14 @@ class StorefrontMoneyAndSeoTest extends TestCase
         $this->assertSame(0, $kuwaitiFloor);
         $this->assertSame('KD', $kuwaitiSign);
         $this->assertSame('SAR', $saudiSign);
+
+        // The field a visitor actually reads, not only the helper behind it: both bounds of the Kuwaiti filter are signed in dinars,
+        // on a first request as well as a later one, because the market's sign does not wait for the session to be warmed.
+        $kuwaitiFilter = $this->inStorefront('KW', fn (): array => $this->renderedPriceFilter());
+        foreach (['cold', 'warm'] as $state) {
+            $this->assertStringContainsString('placeholder="KD0"', $kuwaitiFilter[$state], $state);
+            $this->assertStringContainsString('placeholder="KD' . $kuwaitiBound . '"', $kuwaitiFilter[$state], $state);
+        }
     }
 
     /**
@@ -664,8 +693,9 @@ class StorefrontMoneyAndSeoTest extends TestCase
         $this->assertSame($before['alternates'], $after['alternates']);
         $this->assertSame($before['offer'], $after['offer']);
         $this->assertSame($before['schema_offer'], $after['schema_offer']);
-        // The whole page a crawler reads, byte for byte, with all six markets live.
+        // The whole page a crawler reads, and the whole price filter a visitor reads, byte for byte, with all six markets live.
         $this->assertSame($before['rendered_supplement'], $after['rendered_supplement']);
+        $this->assertSame($before['rendered_price_filter'], $after['rendered_price_filter']);
         $this->assertSame($before['robots_header'], $after['robots_header']);
         $this->assertSame($before['price_bound'], $after['price_bound']);
         $this->assertSame($before['sign'], $after['sign']);
@@ -729,6 +759,9 @@ class StorefrontMoneyAndSeoTest extends TestCase
                 // the canonical, the hreflang set and the JSON-LD offer a crawler actually reads are decided. A dormancy proof that
                 // compares the services but not the page excuses the one field a reader would check first.
                 'rendered_supplement' => $this->renderedSupplement(),
+                // The other surface this feature renders: the price filter of the listing, whose two placeholders carry the sign and the
+                // catalogue's ceiling. Nothing in the suite rendered it, which is how a sign reached a live Saudi field unseen.
+                'rendered_price_filter' => $this->renderedPriceFilter(),
                 'offer' => $offer,
                 'schema_offer' => app(StructuredDataBuilder::class)->product([
                     'name' => 'Saudi serum',
@@ -788,6 +821,26 @@ class StorefrontMoneyAndSeoTest extends TestCase
         return StorefrontResolver::fromConfig()->context(explicitChoice: $country)->serve($callback);
     }
 
+    /**
+     * The price filter the product listing, the shop page and the flash-deal page all include, rendered from the live theme, in the
+     * two session states a visitor can be in.
+     *
+     * The sign beside its bounds is read straight out of the visitor's session where no storefront currency is in force, and the
+     * session only holds one once a money helper has called loadCurrency(). So the field prints no sign at all on a first request
+     * and the platform's sign afterwards, and a dormancy claim that holds in one state and not the other is not a dormancy claim.
+     *
+     * @return array{cold: string, warm: string}
+     */
+    private function renderedPriceFilter(): array
+    {
+        session()->forget(['system_default_currency_info', 'currency_code', 'currency_symbol', 'currency_exchange_rate', 'usd', 'default']);
+        $cold = view('web-views.products.partials._filter-product-price')->render();
+
+        loadCurrency();
+
+        return ['cold' => $cold, 'warm' => view('web-views.products.partials._filter-product-price')->render()];
+    }
+
     /** The partial the product page includes, rendered through the real composer for the Saudi product. */
     private function renderedSupplement(int $productId = 1): string
     {
@@ -828,13 +881,23 @@ class StorefrontMoneyAndSeoTest extends TestCase
         return $this->inStorefront($country, fn (): ?string => $this->robotsHeader());
     }
 
-    /** Every test that reads a storefront's own money needs a fresh currency service, because it remembers the market in force. */
-    private function inStorefront(string $country, callable $callback): mixed
+    /**
+     * Serves a market without clearing the visitor's currency pick, which {@see inStorefront()} forgets. The one test that asks what a
+     * stale pick does to a page needs the pick to still be there.
+     */
+    private function inStorefrontKeepingTheVisitorsPick(string $country, callable $callback): mixed
     {
         app()->forgetInstance(StorefrontCurrency::class);
-        session()->forget(['system_default_currency_info', 'currency_code', 'currency_symbol', 'currency_exchange_rate', 'usd', 'default']);
         Cache::flush();
 
         return StorefrontResolver::fromConfig()->context(explicitChoice: $country)->serve($callback);
+    }
+
+    /** Every test that reads a storefront's own money needs a fresh currency service, because it remembers the market in force. */
+    private function inStorefront(string $country, callable $callback): mixed
+    {
+        session()->forget(['system_default_currency_info', 'currency_code', 'currency_symbol', 'currency_exchange_rate', 'usd', 'default']);
+
+        return $this->inStorefrontKeepingTheVisitorsPick($country, $callback);
     }
 }
