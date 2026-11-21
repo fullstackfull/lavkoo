@@ -5,6 +5,7 @@ namespace App\Repositories;
 use App\Contracts\Repositories\AttributeRepositoryInterface;
 use App\Models\Attribute;
 use App\Models\Translation;
+use App\Services\Storefront\StorefrontVisibility;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -35,6 +36,24 @@ class AttributeRepository implements AttributeRepositoryInterface
             ->when(!empty($orderBy), function ($query) use ($orderBy) {
                 $query->orderBy(array_key_first($orderBy), array_values($orderBy)[0]);
             });
+        return $dataLimit == 'all' ? $query->get() : $query->paginate($dataLimit);
+    }
+
+    /**
+     * The named country's attributes, whatever storefront the request itself belongs to: the panel screens this serves belong to none,
+     * and a caller that named a country has already said which one it means, so the request's own scope is dropped rather than ANDed on.
+     */
+    public function getListOfferedIn(string $storefrontCountry, array $alwaysOffered = [], array $orderBy = [], int|string $dataLimit = DEFAULT_DATA_LIMIT): Collection|LengthAwarePaginator
+    {
+        $query = StorefrontVisibility::offeredIn(
+            query: $this->attribute->newQuery()->withoutGlobalScope('storefront_visibility'),
+            entityType: StorefrontVisibility::ATTRIBUTE,
+            country: $storefrontCountry,
+            alwaysOffered: $alwaysOffered,
+        )->when(!empty($orderBy), function ($query) use ($orderBy) {
+            $query->orderBy(array_key_first($orderBy), array_values($orderBy)[0]);
+        });
+
         return $dataLimit == 'all' ? $query->get() : $query->paginate($dataLimit);
     }
 

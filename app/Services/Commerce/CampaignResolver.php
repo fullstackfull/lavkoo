@@ -3,6 +3,7 @@
 namespace App\Services\Commerce;
 
 use App\Models\ExperienceCampaign;
+use App\Services\Storefront\StorefrontCatalog;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
 
@@ -23,6 +24,9 @@ class CampaignResolver
      */
     private const OVERRIDES_TTL = 30;
 
+    /** The key one page's winning overrides are written under. A campaign may be limited to storefronts, so the key carries the one that asked. */
+    private const OVERRIDES_KEY_PREFIX = 'commerce_campaign_overrides_';
+
     /**
      * The winning override per slot for one page: live campaigns only, highest priority first,
      * older campaign breaking a tie the conflict check failed to prevent — deterministic, §36.
@@ -41,7 +45,7 @@ class CampaignResolver
         if ($at === null) {
             try {
                 return Cache::remember(
-                    'commerce_campaign_overrides_' . $page,
+                    StorefrontCatalog::cacheKey(self::OVERRIDES_KEY_PREFIX . $page),
                     self::OVERRIDES_TTL,
                     fn () => $this->resolveOverrides($page, null),
                 );
@@ -57,8 +61,11 @@ class CampaignResolver
     public static function forget(): void
     {
         try {
-            foreach (ExperienceCampaign::query()->distinct()->pluck('page') as $page) {
-                Cache::forget('commerce_campaign_overrides_' . $page);
+            // Every storefront's copy, and the one a request that belongs to none wrote: a campaign that opens or closes reaches every market.
+            foreach (ExperienceCampaign::withoutGlobalScope('storefront_visibility')->distinct()->pluck('page') as $page) {
+                foreach (StorefrontCatalog::cacheKeysForEveryStorefront(self::OVERRIDES_KEY_PREFIX . $page) as $key) {
+                    Cache::forget($key);
+                }
             }
         } catch (\Throwable) {
             // Nothing to forget is nothing to fail over.

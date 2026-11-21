@@ -4,6 +4,7 @@ namespace App\Repositories;
 
 use App\Contracts\Repositories\FlashDealRepositoryInterface;
 use App\Models\FlashDeal;
+use App\Services\Storefront\StorefrontVisibility;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -27,7 +28,9 @@ class FlashDealRepository implements FlashDealRepositoryInterface
 
     public function getFirstWhereWithoutGlobalScope(array $params, array $relations = []): ?Model
     {
-        return $this->flashDeal->withoutGlobalScopes()->where($params)->with($relations)->first();
+        $query = $this->flashDeal->withoutGlobalScopes()->where($params)->with($relations);
+
+        return StorefrontVisibility::restrict(query: $query, entityType: FlashDeal::STOREFRONT_ENTITY_TYPE)->first();
     }
 
     public function getList(array $orderBy = [], array $relations = [], int|string $dataLimit = DEFAULT_DATA_LIMIT, ?int $offset = null): Collection|LengthAwarePaginator

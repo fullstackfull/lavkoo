@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Services\Storefront\StorefrontVisibility;
+use App\Traits\HasStorefrontVisibility;
 use App\Traits\StorageTrait;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
@@ -30,7 +32,9 @@ use Illuminate\Support\Facades\DB;
  */
 class Banner extends Model
 {
-    use StorageTrait;
+    use StorageTrait, HasStorefrontVisibility;
+
+    public const STOREFRONT_ENTITY_TYPE = StorefrontVisibility::BANNER;
 
     protected $casts = [
         'id' => 'integer',

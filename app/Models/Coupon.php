@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Services\Storefront\CouponCountry;
+use App\Services\Storefront\StorefrontVisibility;
+use App\Traits\HasStorefrontVisibility;
 use DateTime;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -29,6 +31,10 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 class Coupon extends Model
 {
+    use HasStorefrontVisibility;
+
+    public const STOREFRONT_ENTITY_TYPE = StorefrontVisibility::COUPON;
+
     protected $fillable = [
         'added_by',
         'coupon_type',
