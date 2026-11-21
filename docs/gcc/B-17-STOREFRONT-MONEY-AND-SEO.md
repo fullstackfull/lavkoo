@@ -126,10 +126,29 @@ So on a market that trades in its own money the pick is never read, and the curr
 storefront keeps the operator's own currency model and the platform's own currency, exactly as before.
 
 A test pins both halves, because they are what keeps those four reads unreachable on a money path: make `override()` stop
-forcing the model, or stop pointing the default currency at the market, and it goes red. **Driving the controller end to
-end — a cart, a customer, a gateway — is the remaining confirmation and has not been done here.** Whether a client-supplied
+forcing the model, or stop pointing the default currency at the market, and it goes red.
+
+**A fifth reader, and it is not behind that guard.** `Web\WebController` line 638 writes
+`'bring_change_amount_currency' => session('currency_code')` straight into the order `generateOrder()` creates, on the
+cash-on-delivery checkout, with **no currency-model condition around it** — unlike `PaymentController` line 634, which
+writes the same field behind the guard. So for this one the session pick itself has to be right, and it is:
+`loadCurrency()` keys off `getWebConfig('system_default_currency')`, which `override()` points at the market's own
+currency, and rewrites `currency_code`, `currency_symbol` and the rate whenever that differs from what the session carries.
+
+Measured as a visitor reaches it — the whole of a Saudi pick in the session, `system_default_currency_info` included, which
+is what somebody who browsed Saudi Arabia and then opened Kuwait actually carries, then `loadCurrency()`: the session reads
+**`KWD`**, so a Kuwaiti cash-on-delivery order is stored with Kuwaiti currency on it, not the Saudi code. Pinned, and it
+goes red if `override()` stops pointing the default currency at the market.
+
+**So no live defect was found on any of the five session-currency readers on these paths, and nothing on them was changed.**
+Four are behind a guard that cannot be true while a storefront currency is in force; the fifth is correct because
+`loadCurrency()` re-syncs the session from the same overridden setting. What this round adds is the three guards that keep
+that true.
+
+**Not done:** driving the controllers end to end, with a cart, a customer and a gateway. Whether a client-supplied
 `current_currency_code` should be trusted at all on the default storefront is a pre-existing platform question, older than
-the markets and untouched by them.
+the markets and untouched by them. Two readers outside these paths were not examined: `UserLoyaltyController` lines 143–144
+(the loyalty-to-currency quote) and the exchange-rate helpers in `app/Utils/currency.php`.
 
 ### The published offer on the default storefront is dormant, and it is dormant on a known defect
 

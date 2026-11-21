@@ -349,6 +349,41 @@ class StorefrontMoneyAndSeoTest extends TestCase
         $this->assertSame('SAR', $saudi['currency']);
     }
 
+    /**
+     * **The one session-currency reader on a money path that is NOT behind that guard.** `Web\WebController` line 638 writes
+     * `'bring_change_amount_currency' => session('currency_code')` straight into the order `generateOrder()` creates, on the
+     * cash-on-delivery checkout, with no currency-model condition around it — unlike `PaymentController` line 634, which writes the
+     * same field behind the guard. So for this one the session pick itself has to be right, and what makes it right is `loadCurrency()`:
+     * it keys off `getWebConfig('system_default_currency')`, which `override()` points at the market's own currency, and rewrites the
+     * session whenever that differs from the currency the session is carrying.
+     *
+     * Measured here as a visitor reaches it: the whole of a Saudi pick in the session, `system_default_currency_info` included — which
+     * is what somebody who browsed the Saudi storefront and then opened Kuwait actually carries — then `loadCurrency()`, then the value
+     * that line would store.
+     *
+     * It goes red if `override()` stops pointing the default currency at the market, because the session would then keep the Saudi code
+     * and a Kuwaiti order would be stored with a Saudi currency on it.
+     */
+    public function test_the_order_field_written_from_the_session_carries_this_markets_currency(): void
+    {
+        $this->openSixMarkets();
+        $this->setBusinessSettings(['currency_model' => 'multi_currency']);
+
+        $stored = $this->inStorefrontKeepingTheVisitorsPick('KW', function (): string {
+            $saudiRiyal = Currency::query()->where('code', 'SAR')->first();
+            session()->put('system_default_currency_info', $saudiRiyal);
+            session()->put('currency_code', 'SAR');
+            session()->put('currency_symbol', 'SAR');
+            session()->put('currency_exchange_rate', $saudiRiyal->exchange_rate);
+
+            loadCurrency();
+
+            return (string) session('currency_code');
+        });
+
+        $this->assertSame('KWD', $stored, 'the currency a Kuwaiti cash-on-delivery order would be stored with');
+    }
+
     public function test_the_money_a_storefront_gives_its_app_is_the_money_its_pages_print(): void
     {
         $this->openSixMarkets();
