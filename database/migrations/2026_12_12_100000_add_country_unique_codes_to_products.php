@@ -19,7 +19,10 @@ use Illuminate\Support\Facades\Schema;
  *
  * - a fresh installation that migrates with the switch already on gets it here;
  * - an installation that migrated while the switch was off (this migration is recorded, so it will not run again) applies it with
- *   `php artisan gcc:catalog:code-readiness --apply`, which refuses the same duplicates this migration refuses and changes no row either.
+ *   `php artisan gcc:catalog:code-readiness --apply`, which is gated on the SAME `ProductCodeScope::enabled()` answer this `up()` is
+ *   gated on, refuses the same duplicates this migration refuses, and changes no row either.
+ *
+ * So both paths that create the index are behind the switch, and the runbook order is: readiness report clean, switch on, then `--apply`.
  *
  * Still additive and still guarded: it creates nothing unless `products.storefront_country` is there (the 2026_11_25_100000 migration), and
  * it never deletes, merges or edits a row to make an index fit -- which of a pair of duplicates to keep is the owner's decision, taken with

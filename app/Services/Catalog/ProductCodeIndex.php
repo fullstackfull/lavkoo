@@ -29,10 +29,18 @@ use Illuminate\Support\Facades\Schema;
  * read them as two. The index is therefore the stricter of the pair, never the looser; `ProductCodeReadiness` groups with the same
  * collation, so a pair the index would refuse is counted by the report before it is applied.
  *
- * **What applies it.** `blockers()` is read only. The `2026_12_12_100000` migration is gated on the country-scoped codes switch, because
- * `php artisan migrate` is this project's upgrade step and an index this refuses would otherwise abort the whole run; an installation that
- * already migrated with the switch off applies the indexes with `php artisan gcc:catalog:code-readiness --apply`. Either way `create()`
- * refuses to build an index the live data would reject rather than touch a row to make one fit.
+ * **What applies it, and the one order that does.** `blockers()` is read only. Two paths create the index, and BOTH are gated on the
+ * country-scoped codes switch, so nothing here changes the products table while the feature is dormant:
+ *
+ * - the `2026_12_12_100000` migration, whose `up()` is gated because `php artisan migrate` is this project's upgrade step and an index
+ *   this refuses would otherwise abort the whole run;
+ * - `php artisan gcc:catalog:code-readiness --apply`, which is how an installation that already migrated with the switch off applies
+ *   them. It asks `ProductCodeScope::enabled()` — the migration's own gate — and refuses while the switch is off, so the only path that
+ *   applies the index on an upgraded installation is not a way around the gate the migration carries.
+ *
+ * The runbook order is therefore: run the readiness report until it says Ready, turn the switch on, then run it again with `--apply`.
+ * Either way `create()` refuses to build an index the live data would reject rather than touch a row to make one fit, and leaves no
+ * half-built index behind when it refuses.
  */
 final class ProductCodeIndex
 {
@@ -89,6 +97,12 @@ final class ProductCodeIndex
      * anything — when the live data holds a value twice inside one country. No row is ever deleted, merged or edited to make the
      * index fit: that is the owner's decision, taken with the readiness report in hand.
      *
+     * **It leaves no half-built index behind.** On MySQL and MariaDB the index needs a generated column, and `blockers()` cannot be the
+     * whole answer: a row that arrives after it has counted — an import, a second operator — is refused by the index itself. Adding the
+     * column and the index as two statements left the column on the table when the second was refused; measured on MariaDB 10.11.14, a
+     * column added to a live catalogue by a call that reports it changed nothing. They are therefore ONE `ALTER TABLE`, which that engine
+     * applies or refuses whole, so there is no window between them to lose and nothing to compensate for afterwards.
+     *
      * @throws ProductCodeIndexBlocked
      */
     public static function create(string $kind): void
@@ -103,9 +117,7 @@ final class ProductCodeIndex
         }
 
         $connection = Schema::getConnection();
-        foreach (self::createStatements(connection: $connection, kind: $kind) as $statement) {
-            $connection->statement($statement);
-        }
+        $connection->statement(self::createStatement(connection: $connection, kind: $kind));
     }
 
     /** Drops the index, and the generated column it was laid over where one was needed. Nothing else depends on either. */
@@ -123,24 +135,27 @@ final class ProductCodeIndex
         }
     }
 
-    /** @return list<string> */
-    private static function createStatements(Connection $connection, string $kind): array
+    /**
+     * One statement, on every engine. The generated-column engines take the column and the index as two clauses of a single `ALTER TABLE`
+     * so that the pair cannot half-apply; a column left over from an older two-statement attempt is reused rather than added again.
+     */
+    private static function createStatement(Connection $connection, string $kind): string
     {
         $country = StorefrontCatalog::COLUMN;
         $index = self::indexName($kind);
 
         if (!self::usesGeneratedColumn($connection)) {
-            return ['CREATE UNIQUE INDEX ' . $index . ' ON ' . self::TABLE . ' (' . $country . ', ' . $kind . ') WHERE ' . $kind . ' IS NOT NULL AND ' . $kind . " <> ''"];
+            return 'CREATE UNIQUE INDEX ' . $index . ' ON ' . self::TABLE . ' (' . $country . ', ' . $kind . ') WHERE ' . $kind . ' IS NOT NULL AND ' . $kind . " <> ''";
         }
 
         $generated = self::generatedColumn($kind);
-        $statements = [];
+        $clauses = [];
         if (!Schema::hasColumn(self::TABLE, $generated)) {
-            $statements[] = 'ALTER TABLE ' . self::TABLE . ' ADD COLUMN ' . $generated . ' ' . self::typeOf($kind) . ' AS (NULLIF(' . $kind . ", '')) VIRTUAL";
+            $clauses[] = 'ADD COLUMN ' . $generated . ' ' . self::typeOf($kind) . ' AS (NULLIF(' . $kind . ", '')) VIRTUAL";
         }
-        $statements[] = 'ALTER TABLE ' . self::TABLE . ' ADD UNIQUE INDEX ' . $index . ' (' . $country . ', ' . $generated . ')';
+        $clauses[] = 'ADD UNIQUE INDEX ' . $index . ' (' . $country . ', ' . $generated . ')';
 
-        return $statements;
+        return 'ALTER TABLE ' . self::TABLE . ' ' . implode(', ', $clauses);
     }
 
     /**

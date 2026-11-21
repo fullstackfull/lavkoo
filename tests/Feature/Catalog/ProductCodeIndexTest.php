@@ -6,7 +6,9 @@ use App\Services\Catalog\ProductCodeIndex;
 use App\Services\Catalog\ProductCodeIndexBlocked;
 use App\Services\Catalog\ProductCodeReadiness;
 use App\Services\Storefront\StorefrontCatalog;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Tests\Support\BuildsCodeScopeCatalog;
@@ -192,15 +194,113 @@ class ProductCodeIndexTest extends TestCase
         $this->assertTrue(ProductCodeIndex::applied('barcode'));
     }
 
+    /**
+     * The exit code alone does NOT prove the refusal. Measured on this head with the command's refusal taken out (the catch kept going
+     * instead of returning false): the command still exits 1, because the readiness verdict is Not ready on its own, and this test was
+     * green. So it names the refusal itself — the message, the absent index, and the absent generated column the MySQL and MariaDB form
+     * of the index needs, which is the artifact a half-applied index leaves on a live table.
+     */
     public function test_the_command_refuses_to_apply_an_index_the_catalogue_blocks_and_changes_nothing(): void
     {
         $this->insertRow(code: 'SKU-1', country: 'SA');
         $this->insertRow(code: 'SKU-1', country: 'SA');
 
-        $this->artisan('gcc:catalog:code-readiness', ['--apply' => true])->assertExitCode(1);
+        $this->artisan('gcc:catalog:code-readiness', ['--apply' => true])
+            ->expectsOutputToContain('1 code(s) are held more than once inside one country')
+            ->doesntExpectOutputToContain('code: applied.')
+            ->assertExitCode(1);
 
-        $this->assertFalse(ProductCodeIndex::applied('code'));
+        $this->assertIndexAndItsColumnAreAbsent('code');
         $this->assertSame(2, DB::table('products')->count(), 'no row may be deleted or merged to make an index fit');
+    }
+
+    // ---- --apply is behind the same switch the migration is behind ----------------------------------------------------------------
+
+    /**
+     * `--apply` is the ONLY path that applies the index on an installation that already migrated with the switch off, so an ungated
+     * `--apply` is the hole in the migration's gate. Measured on the previous head of this branch, with the switch off and one clean
+     * product: the command exited 0 and created both `products_country_code_unique` and `products_country_barcode_unique`.
+     */
+    public function test_apply_refuses_and_creates_nothing_while_the_switch_is_off(): void
+    {
+        $this->scopeCodesByCountry(on: false);
+        $this->insertRow(code: 'SKU-1', country: 'SA');
+
+        $this->artisan('gcc:catalog:code-readiness', ['--apply' => true])
+            ->expectsOutputToContain('Refusing to apply: country-scoped codes are off')
+            ->doesntExpectOutputToContain('code: applied.')
+            ->assertExitCode(1);
+
+        $this->assertIndexAndItsColumnAreAbsent('code');
+        $this->assertIndexAndItsColumnAreAbsent('barcode');
+    }
+
+    /** The report must not send an operator to an apply the command refuses, which is where it sent them to an ungated one. */
+    public function test_the_report_does_not_invite_apply_while_the_switch_is_off(): void
+    {
+        $this->scopeCodesByCountry(on: false);
+        $this->insertRow(code: 'SKU-1', country: 'SA');
+
+        $this->artisan('gcc:catalog:code-readiness')
+            ->expectsOutputToContain('the switch is off, so --apply refuses')
+            ->doesntExpectOutputToContain('run this command again with --apply')
+            ->assertExitCode(0);
+    }
+
+    /**
+     * A product with an empty country makes the report say Not ready, and the index would accept it all the same: the rows of one empty
+     * country are compared only with each other. Measured on the previous head: the command created the index and then printed "Not
+     * ready" and exited 1 in the same run.
+     */
+    public function test_apply_refuses_while_a_product_has_an_empty_country(): void
+    {
+        $this->insertRow(code: 'SKU-1', country: '');
+
+        $this->artisan('gcc:catalog:code-readiness', ['--apply' => true])
+            ->expectsOutputToContain('Refusing to apply: 1 product(s) have an empty country')
+            ->doesntExpectOutputToContain('code: applied.')
+            ->assertExitCode(1);
+
+        $this->assertIndexAndItsColumnAreAbsent('code');
+        $this->assertSame(1, DB::table('products')->count(), 'no row may be given a country to make an index fit');
+    }
+
+    /**
+     * `blockers()` counts, and then the index is built; a row that arrives in between is refused by the index itself, not by the count.
+     * That is the only way the generated-column form of the index can half-apply, and it is a real one — an import, or a second operator.
+     * The row here is inserted by a listener on the counting query itself, so the duplicate is NOT present when `create()` checks and IS
+     * present when the engine builds the index: the refusal below is the database's own, not one this test arranged.
+     *
+     * With the column and the index as two statements the column stayed on the table when the index was refused. They are one
+     * `ALTER TABLE` for that reason, and this is what says so.
+     */
+    public function test_a_row_that_arrives_after_the_count_is_refused_and_leaves_no_generated_column_behind(): void
+    {
+        if (!in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+            $this->markTestSkipped('only the generated-column engines add a column and an index in one statement');
+        }
+
+        $this->insertRow(code: 'SKU-1', country: 'SA');
+        $concurrentWriteDone = false;
+        DB::listen(function (QueryExecuted $query) use (&$concurrentWriteDone): void {
+            if ($concurrentWriteDone || !str_contains($query->sql, 'having count(*) > 1')) {
+                return;
+            }
+
+            $concurrentWriteDone = true;
+            $this->insertRow(code: 'SKU-1', country: 'SA');
+        });
+
+        try {
+            ProductCodeIndex::create(kind: 'code');
+            $this->fail('the index was created although one country held the same code twice by the time it was built');
+        } catch (UniqueConstraintViolationException) {
+            // the engine's own refusal: create() had counted zero blockers a moment earlier
+        }
+
+        $this->assertTrue($concurrentWriteDone, 'the race never happened, so this test proved nothing');
+        $this->assertIndexAndItsColumnAreAbsent('code');
+        $this->assertSame(2, DB::table('products')->count());
     }
 
     public function test_applying_twice_is_a_no_op(): void
@@ -324,6 +424,20 @@ class ProductCodeIndexTest extends TestCase
     }
 
     // ---- helpers -----------------------------------------------------------------------------------------------------------------
+
+    /**
+     * Nothing of the index is on the table: neither the index nor, on MySQL and MariaDB, the generated column it is laid over. The second
+     * half is what separates "refused" from "half applied": the column outlives a failed index and is a real change to a live catalogue.
+     */
+    private function assertIndexAndItsColumnAreAbsent(string $kind): void
+    {
+        $this->assertFalse(Schema::hasIndex('products', ProductCodeIndex::indexName($kind)), "the {$kind} index was created");
+        $this->assertFalse(ProductCodeIndex::applied($kind), "the {$kind} index reads as applied");
+        $this->assertFalse(
+            Schema::hasColumn('products', ProductCodeIndex::generatedColumn($kind)),
+            "the generated column of the {$kind} index was left on the table",
+        );
+    }
 
     private function applyIndexes(): void
     {
