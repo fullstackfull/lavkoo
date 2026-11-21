@@ -413,7 +413,7 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
         });
     });
 
-    Route::group(['prefix' => 'products', 'as' => 'products.', 'middleware' => ['module:catalog']], function () {
+    Route::group(['prefix' => 'products', 'as' => 'products.', 'middleware' => ['module:catalog', 'money.market']], function () {
         Route::controller(ProductController::class)->group(function () {
             Route::get('list/{type}', 'index')->name('list');
             Route::get('add', 'getAddView')->name('add');
@@ -1018,7 +1018,7 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
     });
 
     // Coupon
-    Route::group(['prefix' => 'coupon', 'as' => 'coupon.', 'middleware' => ['module:marketing']], function () {
+    Route::group(['prefix' => 'coupon', 'as' => 'coupon.', 'middleware' => ['module:marketing', 'money.market:coupon']], function () {
         Route::controller(CouponController::class)->group(function () {
             Route::get('add', 'getAddListView')->name('add');
             Route::post('add', 'add');

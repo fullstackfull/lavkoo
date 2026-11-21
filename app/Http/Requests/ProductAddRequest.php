@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Services\Storefront\ProductCountry;
 use App\Traits\CalculatorTrait;
 use App\Traits\ResponseHandler;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -58,7 +59,7 @@ class ProductAddRequest extends Request
             $rules['image'] = 'required';
         }
 
-        return $rules;
+        return $rules + ProductCountry::newProductRules();
     }
 
     public function messages(): array

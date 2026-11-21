@@ -1,3 +1,4 @@
+@use('App\Services\Storefront\CouponCountry')
 <html>
 <table>
     <thead>
@@ -38,10 +39,10 @@
             <td> {{translate($item['coupon_type'])}}</td>
             <td> {{ $item['order_count'] }}    </td>
             <td> {{ $item['limit']==0 ? 'N/A' : $item['limit'] }}    </td>
-            <td> {{ setCurrencySymbol(amount: usdToDefaultCurrency(amount: $item['min_purchase'] ?? 0)) }}    </td>
-            <td> {{ $item['discount_type'] == 'percentage' ? setCurrencySymbol(amount: usdToDefaultCurrency(amount: $item['max_discount'] ?? 0)) : 'N/A'   }}    </td>
+            <td> {{ CouponCountry::inMoneyOf(coupon: $item, callback: fn () => setCurrencySymbol(amount: usdToDefaultCurrency(amount: $item['min_purchase'] ?? 0))) }}    </td>
+            <td> {{ $item['discount_type'] == 'percentage' ? CouponCountry::inMoneyOf(coupon: $item, callback: fn () => setCurrencySymbol(amount: usdToDefaultCurrency(amount: $item['max_discount'] ?? 0))) : 'N/A'   }}    </td>
             <td> {{ translate($item['discount_type']) }} </td>
-            <td> {{ $item['discount_type'] == 'percentage' ? ( $item['discount'] ."%" ):  setCurrencySymbol(amount: usdToDefaultCurrency(amount: $item['discount'] ?? 0))  }}    </td>
+            <td> {{ $item['discount_type'] == 'percentage' ? ( $item['discount'] ."%" ):  CouponCountry::inMoneyOf(coupon: $item, callback: fn () => setCurrencySymbol(amount: usdToDefaultCurrency(amount: $item['discount'] ?? 0)))  }}    </td>
             <td> {{translate($item['coupon_bearer'] == 'inhouse' ? 'admin' : ($item['coupon_bearer'] == 'seller' ? 'vendor' : $item['coupon_bearer']))}}    </td>
             <td> {{date('d M, y',strtotime($item['start_date']))}}    </td>
             <td> {{date('d M, y',strtotime($item['expire_date']))}}    </td>

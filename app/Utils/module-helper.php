@@ -9,6 +9,7 @@ use App\Models\ShippingAddress;
 use App\Models\User;
 use App\Services\Address\OrderAddressService;
 use App\Services\Payments\WalletTopUpRegister;
+use App\Services\Storefront\PaymentStorefront;
 use App\Utils\Convert;
 use App\Utils\CustomerManager;
 use App\Utils\OrderManager;
@@ -17,7 +18,20 @@ use Modules\TaxModule\app\Models\SystemTaxSetup;
 use Modules\TaxModule\app\Models\Tax;
 
 if (!function_exists('digital_payment_success')) {
+    /** The gateway reports back in a request that names no storefront, so the order is built in the storefront the payment was started in. */
     function digital_payment_success($paymentData): void
+    {
+        $additionalData = json_decode((string) ($paymentData['additional_data'] ?? ''), true);
+
+        PaymentStorefront::within(
+            additionalData: is_array($additionalData) ? $additionalData : [],
+            callback: static fn () => digital_payment_place_orders($paymentData),
+        );
+    }
+}
+
+if (!function_exists('digital_payment_place_orders')) {
+    function digital_payment_place_orders($paymentData): void
     {
         if (isset($paymentData) && $paymentData['is_paid'] == 1) {
             $additionalData = json_decode($paymentData['additional_data'], true);

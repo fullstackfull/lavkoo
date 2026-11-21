@@ -73,6 +73,14 @@ class FlashDeal extends Model
         return $this->hasMany(FlashDealProduct::class, 'flash_deal_id');
     }
 
+    /** The members of the deal a customer may see: what the deal lists, and so what it may say it holds. */
+    public function activeProducts(): HasMany
+    {
+        return $this->products()->whereHas('product', function ($query) {
+            return $query->active();
+        });
+    }
+
     public function translations(): MorphMany
     {
         return $this->morphMany(Translation::class, 'translationable');

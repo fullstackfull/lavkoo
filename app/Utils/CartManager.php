@@ -3,6 +3,7 @@
 namespace App\Utils;
 
 use App\Services\Analytics\Analytics;
+use App\Services\Storefront\StorefrontCatalog;
 use App\Models\DigitalProductVariation;
 use App\Models\ShippingMethod;
 use App\Models\Cart;
@@ -10,6 +11,7 @@ use App\Models\CartShipping;
 use App\Models\CategoryShippingCost;
 use App\Models\Color;
 use App\Models\Product;
+use App\Models\Scopes\StorefrontCartScope;
 use App\Models\ShippingType;
 use App\Models\Shop;
 use Illuminate\Database\Eloquent\Collection;
@@ -24,29 +26,41 @@ class CartManager
     {
         $user = Helpers::getCustomerInformation($request);
         if (session()->has('guest_id') || (!is_null($request) && !is_null($request->guest_id)) ) {
-            $guestId = session('guest_id') ?? $request->guest_id;
-            $cartList = Cart::where(['is_guest' => 1, 'customer_id' => $guestId])->get();
-            foreach ($cartList as $cart) {
+            self::moveGuestCartToCustomer(guestId: session('guest_id') ?? $request->guest_id, customerId: $user['id']);
+        }
+    }
+
+    /**
+     * Moves the rows of a guest's cart into the cart of a customer. Guests and customers count their ids separately, so a number alone names
+     * no owner: the customer's own rows are the ones that are not a guest's. It runs in every storefront, so the rows of each country join
+     * the cart of that country and none stays behind because the login was served from another one.
+     */
+    public static function moveGuestCartToCustomer(int|string $guestId, int|string $customerId): void
+    {
+        StorefrontCatalog::inEveryStorefront(function () use ($guestId, $customerId) {
+            foreach (Cart::where(['is_guest' => 1, 'customer_id' => $guestId])->get() as $cart) {
                 $databaseCart = Cart::where([
-                    'customer_id' => $user['id'],
+                    'customer_id' => $customerId,
+                    'is_guest' => 0,
                     'seller_id' => $cart['seller_id'],
                     'seller_is' => $cart['seller_is']
                 ])->first();
 
                 Cart::where([
-                    'customer_id' => $user['id'],
+                    'customer_id' => $customerId,
+                    'is_guest' => 0,
                     'product_id' => $cart['product_id'],
                     'variant' => $cart['variant'],
                     'seller_id' => $cart['seller_id'],
                     'seller_is' => $cart['seller_is']
                 ])->delete();
 
-                $cart->cart_group_id = isset($databaseCart) ? $databaseCart['cart_group_id'] : str_replace('guest', $user['id'], $cart['cart_group_id']);
-                $cart->customer_id = $user['id'];
+                $cart->cart_group_id = isset($databaseCart) ? $databaseCart['cart_group_id'] : str_replace('guest', $customerId, $cart['cart_group_id']);
+                $cart->customer_id = $customerId;
                 $cart->is_guest = 0;
                 $cart->save();
             }
-        }
+        });
     }
 
     public static function getCartListQuery($groupId = null, $type = null): Collection|array
@@ -366,7 +380,7 @@ class CartManager
         // into an order, and once the cart rows are deleted the link cannot be made again.
         self::markAbandonedCartsRecovered($cartGroupIDs);
 
-        CartShipping::whereIn('cart_group_id', $cartGroupIDs)->delete();
+        CartShipping::whereIn('cart_group_id', $cartGroupIDs)->whereNotIn('cart_group_id', self::cartGroupsSharedWithOtherStorefronts($cartGroupIDs))->delete();
         Cart::whereIn('cart_group_id', $cartGroupIDs)->where(['is_checked' => 1])->delete();
 
         session()->forget('coupon_code');
@@ -381,6 +395,32 @@ class CartManager
         session()->forget('order_note');
 
         cacheRemoveByType(type: 'carts');
+    }
+
+    /**
+     * A legacy cart group can hold the rows of two countries. The checkout of one storefront leaves the rows of the other, so the group keeps
+     * the shipping choice they were given.
+     *
+     * @return list<string>
+     */
+    private static function cartGroupsSharedWithOtherStorefronts(array $cartGroupIDs): array
+    {
+        if (StorefrontCatalog::country() === null) {
+            return [];
+        }
+
+        return Cart::withoutGlobalScope(StorefrontCartScope::class)
+            ->whereIn('cart_group_id', $cartGroupIDs)
+            ->whereNotIn('id', Cart::whereIn('cart_group_id', $cartGroupIDs)->select('id'))
+            ->distinct()
+            ->pluck('cart_group_id')
+            ->all();
+    }
+
+    /** Whether the caller's own cart, in the storefront of the request, holds this cart group: a group id in a request names no owner. */
+    public static function holdsCartGroup(mixed $cartGroupId, $request = null): bool
+    {
+        return in_array((string) $cartGroupId, array_map('strval', self::get_cart_group_ids(request: $request)), true);
     }
 
     /**
@@ -752,11 +792,11 @@ class CartManager
     {
         cacheRemoveByType(type: 'carts');
 
-        $product = Product::with(['digitalVariation', 'clearanceSale' => function ($query) {
+        $product = Product::active()->with(['digitalVariation', 'clearanceSale' => function ($query) {
             return $query->active();
         }])->where(['id' => $request['id']])->first();
 
-        if($product['status'] == 0){
+        if (!$product || !StorefrontCatalog::offers(product: $product)) {
             return ['status' => 0, 'message' => translate('Product_is_unavailable')];
         }
 
