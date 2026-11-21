@@ -10,6 +10,7 @@ use App\Services\Address\OrderAddressService;
 use App\Services\Address\StorefrontAddressService;
 use App\Services\Fulfillment\CheckoutCodGuard;
 use App\Services\Fulfillment\CustomerFulfillmentPresenter;
+use App\Services\Storefront\StorefrontCurrency;
 use App\Http\Requests\API\v1\RefundStoreRequest;
 use App\Models\Cart;
 use App\Models\Currency;
@@ -49,6 +50,7 @@ class OrderController extends Controller
         private readonly OrderService $orderService,
         private readonly OrderAddressService $orderAddresses,
         private readonly StorefrontAddressService $storefrontAddresses,
+        private readonly StorefrontCurrency $storefrontCurrency,
     )
     {
     }
@@ -241,12 +243,11 @@ class OrderController extends Controller
             }
         }
 
-        $currency_model = getWebConfig(name: 'currency_model');
-        if ($currency_model == 'multi_currency') {
-            $currencyCode = $request->current_currency_code ?? Currency::find(getWebConfig(name: 'system_default_currency'))->code;
-        } else {
-            $currencyCode = Currency::find(getWebConfig(name: 'system_default_currency'))->code;
-        }
+        // One answer to what currency this purchase is in, shared with the website's own checkout: the money of the storefront the
+        // request is served from while it trades in its own, and otherwise the code this endpoint has always used.
+        $pickedByTheClient = getWebConfig(name: 'currency_model') == 'multi_currency' ? $request->current_currency_code : null;
+        $currencyCode = $this->storefrontCurrency->purchaseCurrencyCode(picked: $pickedByTheClient)
+            ?? Currency::find(getWebConfig(name: 'system_default_currency'))->code;
 
         $orderIds = OrderManager::generateOrder(data: [
             'is_guest' => $user == 'offline' ? 1 : 0,
