@@ -25,6 +25,11 @@ class NoIndexUnlaunchedStorefront
     {
     }
 
+    /**
+     * The storefront is read on the way out, after $next, and that is not incidental: this is group middleware and the middleware that
+     * binds the request's storefront is on the route, so on the way in there is no storefront to read yet. Moving the check above
+     * $next would silently read the default storefront for every request.
+     */
     public function handle(Request $request, Closure $next): Response
     {
         $response = $next($request);

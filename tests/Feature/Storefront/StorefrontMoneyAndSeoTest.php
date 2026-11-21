@@ -14,6 +14,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Cache;
+use Tests\Support\BuildsStorefrontCatalog;
 use Tests\Support\BuildsStorefrontLegalDocuments;
 use Tests\Support\BuildsStorefrontSeoWorld;
 use Tests\TestCase;
@@ -32,6 +33,8 @@ class StorefrontMoneyAndSeoTest extends TestCase
 {
     use BuildsStorefrontSeoWorld;
     use BuildsStorefrontLegalDocuments;
+    /** For serveAsHttpRequest only: the configuration endpoint is reached before any storefront middleware binds a context. */
+    use BuildsStorefrontCatalog;
 
     private const SAUDI_PRICE = '100.00';
 
@@ -174,6 +177,29 @@ class StorefrontMoneyAndSeoTest extends TestCase
             $this->assertSame($money['formatted'], $forTheApp['formatted']);
             $this->assertSame(3, $forTheApp['decimals']);
         });
+    }
+
+    /**
+     * The configuration endpoint the app reads carries no storefront middleware, so it answers from the storefront header alone. The
+     * decimals it states must still be the chosen market's currency's, which is the whole of B-03's second criterion for the app.
+     */
+    public function test_the_configuration_an_app_reads_states_the_chosen_markets_decimals(): void
+    {
+        $this->openSixMarkets();
+
+        $this->serveAsHttpRequest(uri: 'api/v1/config', headers: ['X-Storefront' => 'KW']);
+        app()->forgetInstance(StorefrontCurrency::class);
+
+        $this->assertSame(3, (int) getWebConfig('decimal_point_settings'), 'the key the endpoint answers with');
+        $this->assertSame('KWD', app(StorefrontCurrency::class)->apiMoney()['storefront_money']['currency']);
+        $this->assertSame(3, app(StorefrontCurrency::class)->apiMoney()['storefront_money']['decimals']);
+
+        $this->serveAsHttpRequest(uri: 'api/v1/config', headers: ['X-Storefront' => 'SA']);
+        app()->forgetInstance(StorefrontCurrency::class);
+        clearWebConfigCacheKeys();
+
+        $this->assertSame(2, (int) getWebConfig('decimal_point_settings'));
+        $this->assertSame([], app(StorefrontCurrency::class)->apiMoney(), 'the default storefront adds nothing to the answer');
     }
 
     /* ------------------------------------------------------------------------------- B-14: search and filters per storefront */
@@ -364,6 +390,22 @@ class StorefrontMoneyAndSeoTest extends TestCase
 
         $this->assertSame('KD1.250', $this->inStorefront('KW', fn (): string => (string) getProductPriceByType(product: $product, type: 'discount', result: 'string')));
         $this->assertStringStartsWith('SAR', $this->inStorefront('SA', fn (): string => (string) getProductPriceByType(product: $product, type: 'discount', result: 'string')));
+    }
+
+    /**
+     * Characterisation, not an endorsement. getProductPriceByType() rounds a percentage with a variable it never assigns
+     * ($decimalPointSettings), so every share is rounded to whole percent on every market: twelve and a half per cent reads as
+     * thirteen. It is the same on the live Saudi storefront today, so correcting it would change that page and belongs to whoever
+     * owns that decision, not here. This pins what it does so the change is visible when somebody makes it.
+     */
+    public function test_a_percentage_discount_is_rounded_to_whole_percent_everywhere_today(): void
+    {
+        $this->openSixMarkets();
+
+        $product = ['unit_price' => self::KUWAITI_PRICE, 'discount' => 12.5, 'discount_type' => 'percent'];
+
+        $this->assertSame('13%', $this->inStorefront('KW', fn (): string => (string) getProductPriceByType(product: $product, type: 'discount', result: 'string')));
+        $this->assertSame('13%', $this->inStorefront('SA', fn (): string => (string) getProductPriceByType(product: $product, type: 'discount', result: 'string')));
     }
 
     /** A discount stated as a share of the price is not money, so it carries no currency on any market. */
