@@ -49,6 +49,9 @@ class StorefrontMoneyAndSeoTest extends TestCase
 
     private const KUWAITI_PRICE = '12.345';
 
+    /** A third market's price above the price filter's 500 step, so Kuwait's own bound and the whole catalogue's round to different numbers. */
+    private const QATARI_PRICE_ABOVE_THE_STEP = '600.00';
+
     /** A key no storefront scopes, for the vacuity check: what one market writes under it, another reads. */
     private const UNSCOPED_PROBE_KEY = 'gcc_test_unscoped_cache_probe';
 
@@ -293,33 +296,44 @@ class StorefrontMoneyAndSeoTest extends TestCase
     {
         $this->openSixMarkets();
 
+        // A third market's product above the filter's 500 step. Without it the Kuwaiti catalogue and the whole catalogue round to the
+        // same bound, and every assertion below about the bound passes just as well when the helper reads every market's products.
+        $this->addProduct(id: 4, name: 'Qatari serum', slug: 'qatari-serum', price: self::QATARI_PRICE_ABOVE_THE_STEP, country: 'QA');
+
         [$kuwaitiFacet, $kuwaitiBound, $kuwaitiFloor, $kuwaitiSign] = $this->inStorefront('KW', fn (): array => [
             BrandManager::getActiveBrandWithCountingAndPriorityWiseSorting()->first()->brand_products_count,
             getProductMaxUnitPriceRange(type: 'web'),
             getProductMinUnitPriceRange(type: 'web'),
             getCurrencySymbol(type: 'web'),
         ]);
-        [$saudiFacet, $saudiSign] = $this->inStorefront('SA', fn (): array => [
+        // The Saudi floor is read without the web conversion, so the only thing that can move it is the catalogue the helper reads.
+        [$saudiFacet, $saudiFloor, $saudiSign] = $this->inStorefront('SA', fn (): array => [
             BrandManager::getActiveBrandWithCountingAndPriorityWiseSorting()->first()->brand_products_count,
+            getProductMinUnitPriceRange(),
             getCurrencySymbol(type: 'web'),
         ]);
 
         $this->assertSame(2, $kuwaitiFacet, 'the Kuwaiti brand facet counts the two Kuwaiti products and neither Saudi one');
         $this->assertSame(1, $saudiFacet);
 
-        // The bounds are the Kuwaiti catalogue's own: a maximum of 12.345 dinars rounded up by the range step, not the Saudi 100, and a
-        // floor of zero because its cheapest product is under ten dinars.
+        // Each bound is its own market's catalogue rounded by the range step, and each is a different number from the one the whole
+        // catalogue gives: Kuwait's maximum of 12.345 dinars rounds to 500 where the catalogue's 600 rounds to 1000, and the Saudi floor
+        // of 100 riyals holds its step where the catalogue's cheapest 8.750 falls under ten and gives 0. Between them the two cover both
+        // helpers, and each turns red on its own if the helper behind it stops narrowing to the market in force.
         $this->assertSame(500, $kuwaitiBound);
-        $this->assertSame(0, $kuwaitiFloor);
+        $this->assertSame(100, $saudiFloor);
+        $this->assertSame(0, $kuwaitiFloor, 'Kuwait keeps a floor of zero of its own, its cheapest product being under ten dinars');
         $this->assertSame('KD', $kuwaitiSign);
         $this->assertSame('SAR', $saudiSign);
 
-        // The field a visitor actually reads, not only the helper behind it: both bounds of the Kuwaiti filter are signed in dinars,
-        // on a first request as well as a later one, because the market's sign does not wait for the session to be warmed.
+        // The field a visitor actually reads, not only the helper behind it: the Kuwaiti filter is signed in dinars on a first request
+        // as well as a later one, and the maximum it offers is Kuwait's own 500 and not the catalogue's 1000. That number is written out
+        // rather than interpolated from the helper, so the rendered field is read against Kuwait's catalogue instead of following the
+        // helper wherever it goes. The minimum the field prints is the template's own literal zero, so only the maximum is a bound here.
         $kuwaitiFilter = $this->inStorefront('KW', fn (): array => $this->renderedPriceFilter());
         foreach (['cold', 'warm'] as $state) {
             $this->assertStringContainsString('placeholder="KD0"', $kuwaitiFilter[$state], $state);
-            $this->assertStringContainsString('placeholder="KD' . $kuwaitiBound . '"', $kuwaitiFilter[$state], $state);
+            $this->assertStringContainsString('placeholder="KD500"', $kuwaitiFilter[$state], $state);
         }
     }
 
