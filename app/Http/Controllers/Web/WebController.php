@@ -11,6 +11,7 @@ use App\Models\Admin;
 use App\Services\ProductService;
 use App\Services\RecaptchaService;
 use App\Services\ShopService;
+use App\Services\Storefront\StorefrontCurrency;
 use App\Traits\CacheManagerTrait;
 use App\Traits\InHouseTrait;
 use App\Models\User;
@@ -85,6 +86,7 @@ class WebController extends Controller
         private readonly ProductService                       $productService,
         private readonly ShopService                              $shopService,
         private readonly StorefrontAddressService                 $storefrontAddresses,
+        private readonly StorefrontCurrency                       $storefrontCurrency,
     )
     {
 
@@ -635,7 +637,10 @@ class WebController extends Controller
             'address_id' => session('address_id'),
             'billing_address_id' => session('billing_address_id'),
             'bring_change_amount' => $request['bring_change_amount'] ?? 0,
-            'bring_change_amount_currency' => session('currency_code'),
+            // The currency this order's money is in, not whichever currency the visitor last picked. A pick outlives the storefront it was made
+            // on and nothing on this route calls loadCurrency(), so a shopper who browsed Saudi Arabia and then placed a Kuwaiti order had its
+            // dinars stored labelled SAR. The storefront's own currency wins where one is in force; everywhere else the session stands, as before.
+            'bring_change_amount_currency' => $this->storefrontCurrency->currencyCodeInForce() ?? session('currency_code'),
         ]);
 
         // generateOrder() returns an empty list when the order was refused inside its transaction —
