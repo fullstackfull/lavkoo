@@ -56,15 +56,16 @@ final class ProviderStorefrontCountry
             return false;
         }
 
-        $named = $this->namedCountry($provider, self::OWN_SETTING);
+        $named = self::namedCountry($this->settingsOf($provider), self::OWN_SETTING);
 
         return $named !== '' && !in_array($named, ProductCountry::options(), true);
     }
 
     private function configuredCountryOf(?string $provider): ?string
     {
+        $settings = $this->settingsOf($provider);
         foreach ([self::OWN_SETTING, ...self::FALLBACK_SETTINGS] as $setting) {
-            $named = $this->namedCountry($provider, $setting);
+            $named = self::namedCountry($settings, $setting);
             if (in_array($named, ProductCountry::options(), true)) {
                 return $named;
             }
@@ -73,16 +74,21 @@ final class ProviderStorefrontCountry
         return null;
     }
 
-    private function namedCountry(?string $provider, string $setting): string
+    /** @return array<string, mixed> the connection's stored settings, read once however many of them a question needs */
+    private function settingsOf(?string $provider): array
     {
         if ($provider === null || $provider === '' || !Schema::hasTable(self::TABLE)) {
-            return '';
+            return [];
         }
 
         $settings = json_decode((string) DB::table(self::TABLE)->where('provider', $provider)->value('settings'), true);
 
-        return is_array($settings) && isset($settings[$setting]) && is_scalar($settings[$setting])
-            ? strtoupper(trim((string) $settings[$setting]))
-            : '';
+        return is_array($settings) ? $settings : [];
+    }
+
+    /** @param array<string, mixed> $settings */
+    private static function namedCountry(array $settings, string $setting): string
+    {
+        return isset($settings[$setting]) && is_scalar($settings[$setting]) ? strtoupper(trim((string) $settings[$setting])) : '';
     }
 }
