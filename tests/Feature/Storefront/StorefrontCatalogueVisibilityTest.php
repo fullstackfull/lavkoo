@@ -365,6 +365,40 @@ class StorefrontCatalogueVisibilityTest extends TestCase
         }
     }
 
+    public function test_the_operator_command_sets_shows_and_removes_a_mapping_without_touching_the_central_row(): void
+    {
+        $this->switchStorefrontsOn();
+        $centralRow = (array) DB::table('categories')->where('id', self::MAPPED_CATEGORY)->first();
+
+        $this->artisan('storefront:visibility', ['entity-type' => 'category', 'entity-id' => self::MAPPED_CATEGORY, 'storefronts' => ['KW']])
+            ->expectsOutputToContain('hidden in KW')
+            ->assertExitCode(0);
+
+        $this->artisan('storefront:visibility', ['entity-type' => 'banner', 'entity-id' => 2, 'storefronts' => ['SA']])
+            ->expectsOutputToContain('assigned to SA')
+            ->assertExitCode(0);
+
+        $this->artisan('storefront:visibility', ['entity-type' => 'category', 'entity-id' => self::MAPPED_CATEGORY, '--show' => true])
+            ->expectsOutputToContain('hidden in KW')
+            ->assertExitCode(0);
+
+        $this->artisan('storefront:visibility', ['entity-type' => 'category', 'entity-id' => self::MAPPED_CATEGORY])
+            ->expectsOutputToContain('no mapping')
+            ->assertExitCode(0);
+
+        $this->artisan('storefront:visibility', ['entity-type' => 'storefront', 'entity-id' => 1])->assertExitCode(2);
+
+        $this->assertSame($centralRow, (array) DB::table('categories')->where('id', self::MAPPED_CATEGORY)->first());
+    }
+
+    public function test_the_operator_command_refuses_while_the_mechanism_is_dormant(): void
+    {
+        $this->artisan('storefront:visibility', ['entity-type' => 'category', 'entity-id' => self::MAPPED_CATEGORY, 'storefronts' => ['KW']])
+            ->assertExitCode(1);
+
+        $this->assertSame(0, DB::table(StorefrontVisibility::TABLE)->count());
+    }
+
     public function test_the_migration_can_run_twice_and_be_rolled_back(): void
     {
         $migration = $this->storefrontVisibilityMigration();

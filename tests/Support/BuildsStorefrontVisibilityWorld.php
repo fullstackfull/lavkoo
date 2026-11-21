@@ -34,7 +34,7 @@ trait BuildsStorefrontVisibilityWorld
         $this->buildStorefrontCouponWorld();
         $this->buildExperienceCampaignTable();
         $this->buildPromotionTablesTheReadersNeed();
-        $this->widenCategoryTableForTheStorefrontReaders();
+        $this->widenTheTablesTheStorefrontReadersSelectFrom();
         $this->runProductCountryMigration();
         $this->runStorefrontVisibilityMigration();
 
@@ -86,8 +86,8 @@ trait BuildsStorefrontVisibilityWorld
             ['id' => self::MAPPED_CATEGORY, 'name' => 'Mapped', 'slug' => 'mapped', 'parent_id' => 0, 'position' => 0, 'home_status' => 1, 'priority' => 2],
         ]);
         DB::table('brands')->insert([
-            ['id' => self::SHARED_BRAND, 'name' => 'Everywhere brand', 'slug' => 'everywhere-brand', 'status' => 1],
-            ['id' => self::MAPPED_BRAND, 'name' => 'Mapped brand', 'slug' => 'mapped-brand', 'status' => 1],
+            ['id' => self::SHARED_BRAND, 'name' => 'Everywhere brand', 'slug' => 'everywhere-brand', 'status' => 1, 'created_at' => now()->subDay(), 'updated_at' => now()->subDay()],
+            ['id' => self::MAPPED_BRAND, 'name' => 'Mapped brand', 'slug' => 'mapped-brand', 'status' => 1, 'created_at' => now(), 'updated_at' => now()],
         ]);
 
         $this->insertProduct(id: 1, name: 'Shared lamp', category: self::SHARED_CATEGORY, subCategory: null, extra: ['brand_id' => self::SHARED_BRAND]);
@@ -192,14 +192,17 @@ trait BuildsStorefrontVisibilityWorld
         });
     }
 
-    /** The icon columns the category readers render into JSON; the catalog builder does not need them, the storefront answers do. */
-    private function widenCategoryTableForTheStorefrontReaders(): void
+    /** The columns the storefront answers select but the catalog builder does not need: the category icons, and the brand timestamps the brand list is ordered by. */
+    private function widenTheTablesTheStorefrontReadersSelectFrom(): void
     {
         Schema::table('categories', function (Blueprint $table): void {
             $table->string('icon')->nullable();
             $table->string('mobile_icon')->nullable();
             $table->string('icon_storage_type')->nullable();
             $table->boolean('auction_home_status')->default(false);
+        });
+        Schema::table('brands', function (Blueprint $table): void {
+            $table->timestamps();
         });
     }
 }
