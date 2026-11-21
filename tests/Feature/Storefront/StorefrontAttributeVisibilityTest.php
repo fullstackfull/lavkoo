@@ -339,6 +339,28 @@ class StorefrontAttributeVisibilityTest extends TestCase
         $this->assertFalse(StorefrontVisibility::isTracked());
     }
 
+    /**
+     * Over a real request through the router, not a controller called by hand: the route dispatches with the country named, and the
+     * list it answers is that country's. (A PHPUnit HTTP request is still `runningInConsole()`, so the *unnamed* answer here is the
+     * unnarrowed one — which is why the request-bound narrowing is proved by serving a storefront instead, above.)
+     */
+    public function test_the_route_takes_the_named_country_over_a_real_request(): void
+    {
+        $this->switchStorefrontsOn();
+        $this->assignAttributeTo('KW');
+
+        $this->getJson('/api/v1/attributes?' . StorefrontCatalog::COLUMN . '=SA')
+            ->assertOk()
+            ->assertJsonCount(1)
+            ->assertJsonPath('0.id', self::SHARED_ATTRIBUTE);
+
+        $this->getJson('/api/v1/attributes?' . StorefrontCatalog::COLUMN . '=KW')
+            ->assertOk()
+            ->assertJsonCount(2);
+
+        $this->getJson('/api/v1/attributes')->assertOk()->assertJsonCount(2);
+    }
+
     public function test_nothing_is_narrowed_before_the_mapping_migration_has_run(): void
     {
         $this->switchStorefrontsOn();
