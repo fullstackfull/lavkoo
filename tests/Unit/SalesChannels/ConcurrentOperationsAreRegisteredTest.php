@@ -30,6 +30,9 @@ class ConcurrentOperationsAreRegisteredTest extends TestCase
         'layers_from_purchase_orders',
         'layer_purchase_order_tranche',
         'stock.ingest_many',
+        'wallet.credit',
+        'wallet.hold_the_row',
+        'wallet.credit_once_locked',
     ];
 
     /**
@@ -59,9 +62,11 @@ class ConcurrentOperationsAreRegisteredTest extends TestCase
         // A guard that cannot see is worse than none: it reports success for a suite it never read.
         $asked = $this->namesAskedForByTests();
 
-        $this->assertContains('noon.ingest_same_order', $asked);
-        $this->assertContains('noon.page', $asked);
-        $this->assertContains('stock.mixed', $asked);
+        $this->assertContains('noon.ingest_same_order', $asked, "the 'operation' => form");
+        $this->assertContains('noon.page', $asked, 'the direct form');
+        $this->assertContains('stock.mixed', $asked, 'the direct form');
+        $this->assertContains('attention.put_back_after_reading', $asked, "the 'op' => form, registered in a file");
+        $this->assertContains('wallet.hold_the_row', $asked, "the 'op' => form, answered by the harness");
     }
 
     public function test_every_registration_file_is_loadable_php(): void
@@ -90,7 +95,15 @@ class ConcurrentOperationsAreRegisteredTest extends TestCase
         return array_values(array_unique($names));
     }
 
-    /** @return list<string> every name a concurrency test hands to ConcurrentRunner::run() or names as a worker's operation */
+    /**
+     * @return list<string> every name a concurrency test hands to ConcurrentRunner::run() or names as a worker's operation
+     *
+     * Three forms, because there are three. `ConcurrentRunner::run('x')` names the operation for every process; a test that
+     * builds its own list of workers writes `'operation' => 'x'` and maps it; and a single process is given a DIFFERENT
+     * operation from the rest with `'op' => 'x'` in its own arguments, which is the key ConcurrentRunner::run() itself reads.
+     * That third form was not scanned, so a name reaching the harness that way was invisible to this guard — exactly the
+     * thirty-seven-minutes-into-a-MariaDB-job case it exists to prevent.
+     */
     private function namesAskedForByTests(): array
     {
         $names = [];
@@ -98,7 +111,8 @@ class ConcurrentOperationsAreRegisteredTest extends TestCase
             $source = (string) file_get_contents($file);
             preg_match_all("/ConcurrentRunner::run\(\s*'([^']+)'/", $source, $direct);
             preg_match_all("/'operation'\s*=>\s*'([^']+)'/", $source, $perWorker);
-            foreach ([...$direct[1], ...$perWorker[1]] as $name) {
+            preg_match_all("/'op'\s*=>\s*'([^']+)'/", $source, $override);
+            foreach ([...$direct[1], ...$perWorker[1], ...$override[1]] as $name) {
                 $names[] = $name;
             }
         }

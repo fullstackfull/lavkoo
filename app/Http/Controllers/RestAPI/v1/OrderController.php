@@ -40,6 +40,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
+use App\Services\Customer\CustomerWalletWriter;
 
 class OrderController extends Controller
 {
@@ -492,7 +493,7 @@ class OrderController extends Controller
                 return response()->json(['message' => translate('The_following_items_in_your_cart_are_currently_out_of_stock')], 403);
             }
 
-            CustomerManager::create_wallet_transaction($user->id, Convert::default($paymentAmount), 'order_place', 'order payment');
+            CustomerWalletWriter::record(customerId: $user->id, amount: Convert::default($paymentAmount), transactionType: 'order_place', reference: 'order payment');
             return response()->json([
                 'messages' => translate('order_placed_successfully'),
                 'order_ids' => $orderIds,

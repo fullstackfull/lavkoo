@@ -11,6 +11,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Validator;
+use App\Services\Customer\CustomerWalletWriter;
+use App\Services\Customer\WalletPosting;
 
 class UserLoyaltyController extends Controller
 {
@@ -96,7 +98,7 @@ class UserLoyaltyController extends Controller
             ], 422);
         }
 
-        $walletTransaction = CustomerManager::create_wallet_transaction($user->id, $request['point'], 'loyalty_point', 'point_to_wallet');
+        $walletTransaction = CustomerWalletWriter::write(customerId: $user->id, posting: WalletPosting::loyaltyPointsConvertedInTheApi(points: $request['point'], reference: 'point_to_wallet'));
         CustomerManager::create_loyalty_point_transaction($user->id, $walletTransaction->transaction_id, $request['point'], 'point_to_wallet');
 
         try {

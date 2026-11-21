@@ -24,6 +24,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Maatwebsite\Excel\Facades\Excel;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use App\Services\Customer\CustomerWalletWriter;
 
 class CustomerWalletController extends BaseController
 {
@@ -95,11 +96,12 @@ class CustomerWalletController extends BaseController
 
     public function addFund(AddFundRequest $request, CustomerWalletService $customerWalletService): JsonResponse
     {
-        $walletTransaction = $this->walletTransactionRepo->addWalletTransaction(
-            user_id: $request['customer_id'],
+        $walletTransaction = CustomerWalletWriter::record(
+            customerId: $request['customer_id'],
             amount: $request['amount'],
             transactionType: 'add_fund_by_admin',
-            reference: ($request['reference'] ?? 'add_fund_by_admin'));
+            reference: ($request['reference'] ?? 'add_fund_by_admin'),
+        );
 
         $customer = $this->customerRepo->getFirstWhere(params: ['id' => $request['customer_id']]);
         $customerWalletService->sendPushNotificationMessage(request: $request, customer: $customer);

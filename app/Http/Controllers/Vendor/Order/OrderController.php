@@ -43,7 +43,6 @@ use App\Traits\CustomerTrait;
 use App\Traits\FileManagerTrait;
 use App\Traits\OrderEditManager;
 use App\Traits\PdfGenerator;
-use App\Utils\CustomerManager;
 use App\Utils\Helpers;
 use App\Utils\OrderManager;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
@@ -64,6 +63,7 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use App\Services\Marketplace\SellerOrderBreakdownService;
 use App\Services\Marketplace\SellerOrderTimelineService;
+use App\Services\Customer\CustomerWalletWriter;
 
 class OrderController extends BaseController
 {
@@ -237,7 +237,7 @@ class OrderController extends BaseController
                     $sellerWallet = $this->vendorWalletRepo->getFirstWhere(params: ['seller_id' => $order['seller_id']]);
                     $this->vendorWalletRepo->updateWhere(params: ['seller_id' => $order['seller_id']], data: ['total_earning' => $sellerWallet['total_earning'] - $order['edit_return_amount']]);
                 }
-                CustomerManager::create_wallet_transaction($customer['id'], $order['edit_return_amount'], 'return_order_amount_by_admin', 'add_wallet_amount', ['payment_method' => 'wallet']);
+                CustomerWalletWriter::record(customerId: $customer['id'], amount: $order['edit_return_amount'], transactionType: 'return_order_amount_by_admin', reference: 'add_wallet_amount', paymentData: ['payment_method' => 'wallet']);
             }
 
             $data = $orderEditReturnAmountService->getReturnAmountData($validated, $order['edit_return_amount']);
@@ -658,11 +658,11 @@ class OrderController extends BaseController
             && $order['customer_id'] != 0
             && !$this->walletTransactionRepo->getFirstWhere(params: ['reference' => 'pos_order_cancel_' . $order['id'], 'transaction_type' => 'order_refund'])
         ) {
-            $this->createWalletTransaction(
-                user_id: $order['customer_id'],
+            CustomerWalletWriter::record(
+                customerId: $order['customer_id'],
                 amount: usdToDefaultCurrency(amount: $order['order_amount']),
-                transaction_type: 'order_refund',
-                reference: 'pos_order_cancel_' . $order['id']
+                transactionType: 'order_refund',
+                reference: 'pos_order_cancel_' . $order['id'],
             );
         }
         if ($request['order_status'] == 'delivered') {
@@ -696,11 +696,12 @@ class OrderController extends BaseController
             $referredByUser = $this->customerRepo->getFirstWhere(params: ['id' => $order['customer_id']]);
 
             if ($isFirstOrder == 1 && isset($customer->referred_by) && isset($referredByUser)) {
-                $this->walletTransactionRepo->addWalletTransaction(
-                    user_id: $referredByUser['id'],
+                CustomerWalletWriter::record(
+                    customerId: $referredByUser['id'],
                     amount: floatval($refEarningExchangeRate),
                     transactionType: 'add_fund_by_admin',
-                    reference: 'earned_by_referral');
+                    reference: 'earned_by_referral',
+                );
             }
         }
 

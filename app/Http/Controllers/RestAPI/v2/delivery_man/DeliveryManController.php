@@ -21,7 +21,6 @@ use App\Models\OrderEditHistory;
 use App\Models\Review;
 use App\Traits\CommonTrait;
 use App\Models\User;
-use App\Utils\CustomerManager;
 use App\Utils\Helpers;
 use App\Utils\ImageManager;
 use App\Utils\OrderManager;
@@ -32,6 +31,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Fluent;
+use App\Services\Customer\CustomerWalletWriter;
 
 class DeliveryManController extends Controller
 {
@@ -246,7 +246,7 @@ class DeliveryManController extends Controller
             $referredByUser = User::find($customer->referred_by);
 
             if ($isFirstOrder == 1 && isset($customer->referred_by) && isset($referredByUser)) {
-                CustomerManager::create_wallet_transaction($referredByUser->id, floatval($refEarningExchangeRate), 'add_fund_by_admin', 'earned_by_referral');
+                CustomerWalletWriter::record(customerId: $referredByUser->id, amount: floatval($refEarningExchangeRate), transactionType: 'add_fund_by_admin', reference: 'earned_by_referral');
             }
         }
         self::add_order_status_history($order->id, $deliveryMan['id'], $request['status'], 'delivery_man', $request['cause']);

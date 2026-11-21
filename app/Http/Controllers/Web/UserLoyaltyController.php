@@ -16,6 +16,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
+use App\Services\Customer\CustomerWalletWriter;
+use App\Services\Customer\WalletPosting;
 
 class UserLoyaltyController extends Controller
 {
@@ -125,7 +127,7 @@ class UserLoyaltyController extends Controller
             return back();
         }
 
-        $walletTransaction = $this->createWalletTransaction(user_id: $user['id'], amount: $request['point'], transaction_type: 'loyalty_point', reference: 'point_to_wallet');
+        $walletTransaction = CustomerWalletWriter::write(customerId: $user['id'], posting: WalletPosting::loyaltyPointsConvertedOnTheWeb(points: $request['point'], reference: 'point_to_wallet'));
         $this->loyaltyPointTransactionRepo->addLoyaltyPointTransaction(userId: $user['id'], reference: $walletTransaction['transaction_id'], amount: $request['point'], transactionType: 'point_to_wallet');
 
         try {

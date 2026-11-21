@@ -63,6 +63,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Session;
 use App\Services\Marketplace\PaymentRoutingService;
 use function App\Utils\payment_gateways;
+use App\Services\Customer\CustomerWalletWriter;
 
 class WebController extends Controller
 {
@@ -878,7 +879,7 @@ class WebController extends Controller
                 OrderManager::generateReferBonusForFirstOrder(orderId: $order_id);
             }
 
-            CustomerManager::create_wallet_transaction($user->id, Convert::default($paymentAmount), 'order_place', 'order payment');
+            CustomerWalletWriter::record(customerId: $user->id, amount: Convert::default($paymentAmount), transactionType: 'order_place', reference: 'order payment');
         }
 
         if (session()->has('payment_mode') && session('payment_mode') == 'app') {

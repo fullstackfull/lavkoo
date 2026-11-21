@@ -27,8 +27,14 @@ class CustomerBalanceLockTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        WalletTables::create();
+        WalletTables::reset();
         WalletTables::seedCustomer(customerId: self::CUSTOMER_ID, walletBalance: self::OPENING_BALANCE);
+    }
+
+    protected function tearDown(): void
+    {
+        WalletTables::drop();
+        parent::tearDown();
     }
 
     public function test_successful_write_commits_and_returns_its_result(): void

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Traits\CustomerTrait;
+use App\Services\Customer\CustomerWalletWriter;
 
 class RefundStatusService
 {
@@ -80,11 +81,11 @@ class RefundStatusService
 
         $walletAddRefund = getWebConfig(name: 'wallet_add_refund');
         if ($walletAddRefund == 1 && $request['payment_method'] == 'customer_wallet') {
-            $this->createWalletTransaction(
-                user_id: $refund['customer_id'],
+            CustomerWalletWriter::record(
+                customerId: $refund['customer_id'],
                 amount: usdToDefaultCurrency(amount: $refund['amount']),
-                transaction_type: 'order_refund',
-                reference: 'order_refund'
+                transactionType: 'order_refund',
+                reference: 'order_refund',
             );
         }
     }
