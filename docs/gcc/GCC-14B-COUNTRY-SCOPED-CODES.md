@@ -248,8 +248,9 @@ that the default storefront does not move them.
    block: it is what the switch allows, and none is expected before it is on.
 4. Decide the open points below, in particular which of the open sites the owner accepts (D1 partial, G9 deferred).
 5. Set `GCC_COUNTRY_SCOPED_CODES=true`, run `php artisan config:clear` and `php artisan cache:clear` (product caches).
-6. Run `php artisan gcc:catalog:code-readiness --apply` to create the two unique indexes (slice 3 below). It refuses, and changes nothing, while a
-   country still holds a value twice, so step 3 has to be clean first.
+6. Run `php artisan gcc:catalog:code-readiness --apply` to create the two unique indexes (slice 3 below). **The order of steps 3, 5 and 6 is enforced
+   by the command, not only written here:** it refuses while the switch is off (step 5 must come first), and it refuses while the report is Not ready
+   — a country holding a value twice, or a product with an empty country — so step 3 has to be clean first. It changes nothing when it refuses.
 7. Check: add a product with a code that exists in another country, once on the admin form and once through the seller app; scan a code that two countries
    hold with and without `country=`.
 
@@ -291,12 +292,33 @@ switch off: `ProductCodeIndex::create()` refuses, the exception escapes the comm
 ships dormant must not be able to stop an upgrade that way, so `up()` creates nothing while `gcc.catalog.country_scoped_codes` is off. With the
 gate, the same run exits 0, records both migrations, runs the later one and creates no index.
 
-The index is therefore applied by one of two paths:
+The index is therefore applied by one of two paths, **and both are behind the switch**:
 
 - a fresh installation that migrates with the switch already on gets it from the migration;
 - an installation that migrated while the switch was off — the migration is recorded and will not run again — applies it with
   **`php artisan gcc:catalog:code-readiness --apply`**. That is the same refusal: measured on MariaDB, with one duplicate present it exits 1, creates
   no index and leaves both rows; with the duplicate gone it creates `products_country_code_unique` and `products_country_barcode_unique` and exits 0.
+
+**Correction (B-04.5), because this was stated too widely before.** Gating `up()` gated one of the two doors. `--apply` is the only path that applies
+the index on an installation that has already migrated, and it was **not** gated. Measured on head `805c7fd3` with `GCC_COUNTRY_SCOPED_CODES` off and
+one clean product: `php artisan gcc:catalog:code-readiness --apply` exited **0** and created **both** indexes, on a feature that was meant to be
+dormant. The read-only report printed `not applied; the data would accept it (run this command again with --apply)` **while the switch was off**, so
+it told the operator to do exactly that. Two further measurements on the same head: with a product whose country was the empty string the command
+**created the index and then printed "Not ready" and exited 1 in the same run**, so it changed the structure and refused in one breath; and with the
+duplicate check removed, the MariaDB form left `products_code_key` on the table after the index was refused — a column added to a live catalogue by a
+call that reports it changed nothing.
+
+All three are closed:
+
+| What | Now |
+|---|---|
+| `--apply` while the switch is off | refused, by `ProductCodeScope::enabled()` — the same answer `up()` is gated on. Nothing is created. |
+| The report's line while the switch is off | names the next step of the runbook (`turn GCC_COUNTRY_SCOPED_CODES on first`) instead of inviting an apply that would be refused. |
+| `--apply` while a product has an empty country | refused first, naming the count. The two refusals of `--apply` plus the per-kind duplicate refusal are exactly the report's own `ready` verdict, so no path applies while that verdict is Not ready. |
+| A refused index on MySQL and MariaDB | the generated column and the index are **one `ALTER TABLE`**, which those engines apply or refuse whole, so there is no window between them and nothing is left behind. A row that arrives after `blockers()` has counted — an import, a second operator — is refused by the index itself, and that is the case `ProductCodeIndexTest` now covers. |
+
+The column is `char(2) NOT NULL DEFAULT 'SA'` on both engines, so a literal NULL country is not storable; the reachable "no country" value is the
+empty string, and the report's `empty_country` counts NULL and `''` alike.
 
 Without `--apply` the command is still read only, and it names each index, whether it is applied, how many values block it, and how many rows are
 outside it because they have no value. No row is ever deleted, merged or edited to make an index fit: which of a pair of duplicates to keep is the
