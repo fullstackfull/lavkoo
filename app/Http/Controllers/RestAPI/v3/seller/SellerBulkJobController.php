@@ -7,6 +7,7 @@ use App\Http\Middleware\SellerApiAuthMiddleware;
 use App\Models\SellerBulkJob;
 use App\Services\DeveloperPortal\ApiDoc;
 use App\Services\Marketplace\Bulk\SellerBulkJobService;
+use App\Services\Marketplace\SellerMarketScope;
 use App\Services\Marketplace\SellerPrincipal;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,8 +24,10 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class SellerBulkJobController extends Controller
 {
-    public function __construct(private readonly SellerBulkJobService $bulkJobs)
-    {
+    public function __construct(
+        private readonly SellerBulkJobService $bulkJobs,
+        private readonly SellerMarketScope $markets,
+    ) {
     }
 
     #[ApiDoc(
@@ -44,6 +47,10 @@ class SellerBulkJobController extends Controller
         $jobs = SellerBulkJob::forSeller($request->seller->id)
             ->orderByDesc('id')
             ->paginate(perPage: $this->limit($request), page: $this->page($request));
+
+        $jobs->setCollection($jobs->getCollection()->reject(
+            fn (SellerBulkJob $job): bool => $this->markets->anyProductOutsideTheGrant($job->input['product_ids'] ?? []),
+        )->values());
 
         return response()->json([
             'total_size' => $jobs->total(),
@@ -149,6 +156,14 @@ class SellerBulkJobController extends Controller
 
     private function store(Request $request, string $type): JsonResponse
     {
+        // Refused before the job exists, not inside the worker: the work runs outside the request, where the grant of the token
+        // that queued it is no longer readable, so the one place that can hold a bulk change to the markets of its caller is here.
+        if ($this->markets->anyProductOutsideTheGrant((array) $request->input('product_ids', []))) {
+            return response()->json(['errors' => [
+                ['code' => 'market_scope', 'message' => translate('your_account_does_not_work_in_that_market')],
+            ]], 403);
+        }
+
         $job = $this->bulkJobs->create(
             principal: $this->principal($request),
             type: $type,
@@ -174,9 +189,22 @@ class SellerBulkJobController extends Controller
         return $principal instanceof SellerPrincipal ? $principal : SellerPrincipal::owner($request->seller);
     }
 
+    /**
+     * The one job a request names, as this shop's and as its markets' (K-09).
+     *
+     * A job row carries no market of its own: its input is a list of product ids and its failure list their names, so the job
+     * belongs to the markets of the products it names. A token that may not see one of those products may not see the receipt
+     * that lists it, and gets the same not-found as for a job of another shop.
+     */
     private function jobFor(Request $request, $id): ?SellerBulkJob
     {
-        return SellerBulkJob::forSeller($request->seller->id)->find($id);
+        $job = SellerBulkJob::forSeller($request->seller->id)->find($id);
+
+        if ($job === null || $this->markets->anyProductOutsideTheGrant($job->input['product_ids'] ?? [])) {
+            return null;
+        }
+
+        return $job;
     }
 
     private function notFound(): JsonResponse
