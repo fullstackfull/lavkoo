@@ -20,8 +20,10 @@ use Illuminate\Support\Facades\Schema;
  * 2. the country setting the provider already had (M5AZN's `country_code`, which it sends to its own API), when that names a configured one;
  * 3. the default storefront's, which is what every connection used before.
  *
- * A connection whose `storefront_country` names a country the platform has **no storefront for** serves no catalogue of ours: nothing is
- * suggested for it, because every suggestion would be another country's product. That is `servesNoCatalogueOfOurs()`.
+ * A connection whose settings name a country the platform has **no storefront for** serves no catalogue of ours: nothing is suggested for it,
+ * because every suggestion would be another country's product. That is `servesNoCatalogueOfOurs()`, and it reads the **same chain** as the list
+ * above, `country_code` included — read only the first setting there and an Egyptian warehouse's SKU would go on being matched against the Saudi
+ * catalogue, which is the thing this class exists to prevent.
  *
  * Dormant with the country-scoped codes switch: with it off every answer is null and nothing is narrowed, exactly as before.
  */
@@ -46,26 +48,30 @@ final class ProviderStorefrontCountry
             return null;
         }
 
-        return $this->configuredCountryOf($provider) ?? $default;
+        return self::configuredCountryOf($this->settingsOf($provider)) ?? $default;
     }
 
-    /** Whether the connection says it serves a country the platform has no storefront for, so no product of ours can be its item. */
+    /**
+     * Whether the connection says it serves a country the platform has no storefront for, so no product of ours can be its item.
+     *
+     * It asks the same settings in the same order as `of()`, so the two cannot disagree about what a connection serves. A connection that
+     * names nothing serves the default storefront's country and is not cut off.
+     */
     public function servesNoCatalogueOfOurs(?string $provider): bool
     {
         if ($this->codeScope->countryOfProviderProducts() === null) {
             return false;
         }
 
-        $named = self::namedCountry($this->settingsOf($provider), self::OWN_SETTING);
+        $settings = $this->settingsOf($provider);
 
-        return $named !== '' && !in_array($named, ProductCountry::options(), true);
+        return self::namedCountries($settings) !== [] && self::configuredCountryOf($settings) === null;
     }
 
-    private function configuredCountryOf(?string $provider): ?string
+    /** @param array<string, mixed> $settings */
+    private static function configuredCountryOf(array $settings): ?string
     {
-        $settings = $this->settingsOf($provider);
-        foreach ([self::OWN_SETTING, ...self::FALLBACK_SETTINGS] as $setting) {
-            $named = self::namedCountry($settings, $setting);
+        foreach (self::namedCountries($settings) as $named) {
             if (in_array($named, ProductCountry::options(), true)) {
                 return $named;
             }
@@ -86,9 +92,23 @@ final class ProviderStorefrontCountry
         return is_array($settings) ? $settings : [];
     }
 
-    /** @param array<string, mixed> $settings */
-    private static function namedCountry(array $settings, string $setting): string
+    /**
+     * The countries the connection's settings name, in the order they are read: its own storefront country first, then the provider's own
+     * country setting. A setting that is absent or empty names nothing and is skipped, so the next one still decides.
+     *
+     * @param array<string, mixed> $settings
+     * @return list<string>
+     */
+    private static function namedCountries(array $settings): array
     {
-        return isset($settings[$setting]) && is_scalar($settings[$setting]) ? strtoupper(trim((string) $settings[$setting])) : '';
+        $named = [];
+        foreach ([self::OWN_SETTING, ...self::FALLBACK_SETTINGS] as $setting) {
+            $country = isset($settings[$setting]) && is_scalar($settings[$setting]) ? strtoupper(trim((string) $settings[$setting])) : '';
+            if ($country !== '') {
+                $named[] = $country;
+            }
+        }
+
+        return $named;
     }
 }

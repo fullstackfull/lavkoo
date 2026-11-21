@@ -94,6 +94,36 @@ class ProviderAndAccountCountryTest extends TestCase
         $this->assertTrue($this->providerCountry->servesNoCatalogueOfOurs('m5azn'));
     }
 
+    /**
+     * The cut-off reads the same chain the country does. `country_code` is M5AZN's own country field -- the very field chosen as the fallback so
+     * an operator need not retype it -- so a connection that names Egypt there is as cut off as one that names it under `storefront_country`.
+     * Read only the first setting and an Egyptian warehouse's SKU is still matched against the Saudi catalogue.
+     */
+    public function test_a_connection_whose_own_country_setting_names_a_country_we_have_no_storefront_for_matches_nothing(): void
+    {
+        $this->scopeCodesByCountry();
+        $this->connectionSettings(provider: 'm5azn', settings: ['country_code' => 'EG']);
+
+        $this->assertTrue($this->providerCountry->servesNoCatalogueOfOurs('m5azn'));
+    }
+
+    public function test_an_empty_storefront_country_does_not_hide_the_providers_own_country_setting(): void
+    {
+        $this->scopeCodesByCountry();
+        $this->connectionSettings(provider: 'm5azn', settings: ['storefront_country' => '', 'country_code' => 'EG']);
+
+        $this->assertTrue($this->providerCountry->servesNoCatalogueOfOurs('m5azn'));
+    }
+
+    public function test_a_connection_whose_own_country_setting_names_one_of_ours_is_not_cut_off(): void
+    {
+        $this->scopeCodesByCountry();
+        $this->connectionSettings(provider: 'm5azn', settings: ['storefront_country' => 'EG', 'country_code' => 'KW']);
+
+        $this->assertSame('KW', $this->providerCountry->of('m5azn'));
+        $this->assertFalse($this->providerCountry->servesNoCatalogueOfOurs('m5azn'), 'the country the chain settles on is one of ours');
+    }
+
     public function test_an_unknown_provider_falls_back_to_the_default_storefronts_country(): void
     {
         $this->scopeCodesByCountry();
