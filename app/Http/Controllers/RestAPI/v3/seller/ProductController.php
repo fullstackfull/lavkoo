@@ -37,6 +37,7 @@ use App\Models\Tag;
 use App\Models\Translation;
 use App\Repositories\DigitalProductPublishingHouseRepository;
 use App\Services\Marketplace\BrandRegistryService;
+use App\Services\Marketplace\SellerMarketScope;
 use App\Services\ProductService;
 use App\Traits\CacheManagerTrait;
 use App\Traits\FileManagerTrait;
@@ -72,6 +73,7 @@ class ProductController extends Controller
         private readonly ProductRepositoryInterface                $productRepo,
         private readonly BrandRepositoryInterface                  $brandRepo,
         private readonly ProductService                            $productService,
+        private readonly SellerMarketScope                         $sellerMarkets,
         private readonly RestockProductRepositoryInterface         $restockProductRepo,
         private readonly RestockProductCustomerRepositoryInterface $restockProductCustomerRepo,
     )
@@ -810,6 +812,7 @@ class ProductController extends Controller
         ]);
 
         $validator->after($this->brandClaimGuard($request, $seller));
+        $validator->after($this->marketGuard());
 
         $taxData = $this->getTaxSystemType();
         $productWiseTax = $taxData['productWiseTax'] && !$taxData['is_included'];
@@ -2217,6 +2220,23 @@ class ProductController extends Controller
      * legitimate reseller learns they need paperwork before the day their listings stop working
      * rather than on it.
      */
+    /**
+     * A product of a narrowed seller is saved in the market they work in, so a request that leaves it unresolved is refused
+     * rather than landed in the table default (K-04). It says which market is missing and nothing about the grant.
+     *
+     * No grant means no guard, so a seller with no markets — every seller while the switch is off — is validated as before.
+     */
+    private function marketGuard(): callable
+    {
+        return function ($validator): void {
+            $refusal = $this->sellerMarkets->whyItMayNotCreateInAMarket();
+
+            if ($refusal !== null) {
+                $validator->errors()->add(SellerMarketScope::REQUEST_FIELD, translate($refusal));
+            }
+        };
+    }
+
     private function brandClaimGuard(object $request, object $seller): callable
     {
         return function ($validator) use ($request, $seller): void {

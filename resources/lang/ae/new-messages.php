@@ -17749,4 +17749,9 @@ return [
 	'coupon_storefront' => 'المتجر',
 	'the_amounts_of_a_coupon_are_in_the_currency_of_its_storefront_it_cannot_be_changed_after_the_coupon_is_added' => 'مبالغ الكوبون بعملة متجره، ولا يمكن تغييره بعد إضافة الكوبون.',
 	'the_wallet_is_not_available_in_the_currency_of_this_storefront' => 'المحفظة غير متاحة بعملة هذا المتجر.',
+	'your_account_does_not_work_in_that_market' => 'حسابك لا يعمل في ذلك السوق',
+	'your_account_does_not_work_in_any_market' => 'حسابك لا يعمل في أي سوق',
+	'name_the_market_this_product_belongs_to_your_account_works_in_more_than_one' => 'حدّد السوق الذي ينتمي إليه هذا المنتج: حسابك يعمل في أكثر من سوق',
+	'this_action_covers_every_market_of_the_shop_and_your_account_does_not' => 'هذا الإجراء يشمل كل أسواق المتجر، وحسابك لا يشملها',
+	'totals_of_different_currencies_are_not_added' => 'لا تُجمع مبالغ بعملات مختلفة',
 ];

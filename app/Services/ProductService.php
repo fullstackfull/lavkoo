@@ -5,6 +5,7 @@ namespace App\Services;
 
 use App\Events\RestockProductNotificationEvent;
 use App\Models\Color;
+use App\Services\Marketplace\SellerMarketScope;
 use App\Services\Storefront\ProductCountry;
 use App\Traits\FileManagerTrait;
 use Illuminate\Support\Str;
@@ -13,8 +14,10 @@ class ProductService
 {
     use FileManagerTrait;
 
-    public function __construct(private readonly Color $color)
-    {
+    public function __construct(
+        private readonly Color $color,
+        private readonly SellerMarketScope $sellerMarkets,
+    ) {
     }
 
     public function getProcessedImages(object $request): array
@@ -585,7 +588,11 @@ class ProductService
         $digitalFileOptions = $this->getDigitalVariationOptions(request: $request);
         $digitalFileCombinations = $this->getDigitalVariationCombinations(arrays: $digitalFileOptions);
 
-        $countryAttributes = $addedBy == 'admin' ? ProductCountry::newProductAttributes(requestedCountry: $request['storefront_country']) : [];
+        // The admin names the country on the form; a seller works in a market and the product is saved in it (K-04). A seller with
+        // no market grant adds nothing, so the insert is the one it always was and the column keeps the table's own default.
+        $countryAttributes = $addedBy == 'admin'
+            ? ProductCountry::newProductAttributes(requestedCountry: $request['storefront_country'])
+            : $this->sellerMarkets->newProductAttributes();
 
         return $countryAttributes + [
             'added_by' => $addedBy,

@@ -13,6 +13,24 @@ return [
     |
     */
 
+    /*
+    |--------------------------------------------------------------------------
+    | Seller and seller staff market scopes
+    |--------------------------------------------------------------------------
+    |
+    | The markets a seller account, or one of its staff, may work in (K-09). Off by default, and it acts as off until the grant
+    | table exists: nothing is read then, and every seller endpoint answers what it has always answered. A principal with no
+    | grant row is unrestricted, so turning it on changes nothing until a market is granted.
+    |
+    | The grant lives in the table and nowhere else. A market a request names is a request, never a grant: it is checked against
+    | the rows and refused when they do not hold it. The only way to widen a grant is to change the grant.
+    |
+    */
+
+    'seller' => [
+        'market_scopes' => filter_var(env('GCC_SELLER_MARKET_SCOPES', false), FILTER_VALIDATE_BOOLEAN),
+    ],
+
     'storefronts' => [
         'enabled' => filter_var(env('GCC_STOREFRONTS_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
 

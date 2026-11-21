@@ -70,7 +70,7 @@ Route::group(['namespace' => 'RestAPI\v3\seller', 'prefix' => 'v3/seller', 'midd
         });
     });
 
-    Route::group(['middleware' => ['seller_api_auth']], function () {
+    Route::group(['middleware' => ['seller_api_auth', 'seller_market']], function () {
         Route::controller(SellerController::class)->group(function () {
             // The caller's own session and their own shop's public face: available to whoever
             // holds a credential for this shop, because withholding them would leave a staff
@@ -696,7 +696,7 @@ Route::group(['namespace' => 'RestAPI\v3\seller', 'prefix' => 'v3/seller', 'midd
      * The controller must still verify the token's seller owns {seller_id} — see the ownership
      * check added in getVendorAllProducts().
      */
-    Route::group(['middleware' => ['seller_api_auth']], function () {
+    Route::group(['middleware' => ['seller_api_auth', 'seller_market']], function () {
         Route::controller(ProductController::class)->group(function () {
             Route::group(['prefix' => 'products'], function () {
                 Route::middleware('seller_can:products.view,products.manage,orders.manage')->group(function () {

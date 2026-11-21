@@ -11250,4 +11250,9 @@ return [
 	'coupon_storefront' => 'Storefront',
 	'the_amounts_of_a_coupon_are_in_the_currency_of_its_storefront_it_cannot_be_changed_after_the_coupon_is_added' => 'The amounts of a coupon are in the currency of its storefront. It cannot be changed after the coupon is added.',
 	'the_wallet_is_not_available_in_the_currency_of_this_storefront' => 'The wallet is not available in the currency of this storefront.',
+	'your_account_does_not_work_in_that_market' => 'Your account does not work in that market',
+	'your_account_does_not_work_in_any_market' => 'Your account does not work in any market',
+	'name_the_market_this_product_belongs_to_your_account_works_in_more_than_one' => 'Name the market this product belongs to: your account works in more than one',
+	'this_action_covers_every_market_of_the_shop_and_your_account_does_not' => 'This action covers every market of the shop, and your account does not',
+	'totals_of_different_currencies_are_not_added' => 'Totals of different currencies are not added',
 ];
