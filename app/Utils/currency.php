@@ -293,11 +293,6 @@ if (!function_exists('getCurrencyCode')) {
      */
     function getCurrencyCode(string $type = 'default'): string
     {
-        // The session holds the currency a visitor is being shown, and loadCurrency() is what puts it there. getCurrencySymbol() calls it first;
-        // this did not, and returned session('currency_code') — null on the first money a request asks for, against a ": string" return type. The
-        // customer's invoice template asks for the code before any converter has run, so that request was a 500 rather than a document.
-        loadCurrency();
-
         $codeInForce = app(StorefrontCurrency::class)->currencyCodeInForce();
 
         if ($codeInForce !== null) {
@@ -305,7 +300,12 @@ if (!function_exists('getCurrencyCode')) {
         }
 
         if ($type == 'web') {
-            $currencyCode = session('currency_code');
+            // The session holds the currency a visitor is being shown, and loadCurrency() is what puts it there. getCurrencySymbol() calls it
+            // before reading the same session; this reader did not, and returned null against a ": string" return type. The customer's invoice
+            // template asks for the code before any converter has run, so that document was an error page instead. Only this one branch reads
+            // the session, so only this one branch loads it.
+            loadCurrency();
+            $currencyCode = (string) session('currency_code');
         } else {
             if (session()->has('system_default_currency_info')) {
                 $currencyCode = session('system_default_currency_info')->code;
