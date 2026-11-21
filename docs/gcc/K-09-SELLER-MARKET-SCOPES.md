@@ -199,6 +199,11 @@ a market the grant does not hold is moved to one it does and the screens are rel
 - **Coupons** are not bound to a market; the shape of the fix is in section 3.
 - **A payout request** carries no market, and reading or cancelling one is open to any principal holding `finance.view` /
   `payouts.request` however few markets they hold — see section 3.
+- **The payout *guard* still compares a request against `VendorLedger::withdrawable()`**, which is the mixed-currency sum the payout
+  *screen* now refuses to print. The screen is fixed because that figure is read and acted on; the guard is `PayoutService`'s own
+  arithmetic, with its own currency snapshot and conversion (E-12.5), and changing what a payout may draw against is a decision
+  in that lane rather than a presentation fix here. Named rather than quietly left: a shop holding two currencies can still ask
+  for a payout sized against the sum of them.
 - **`recorded.net` in the seller's reconciliation cannot be split by currency**, because neither `order_item_commissions` nor
   `order_transactions` has a currency column. The screen therefore withholds that figure over two currencies rather than
   publishing a mixed sum, and the two sides that can be split are given. Splitting it needs a currency on the commission
