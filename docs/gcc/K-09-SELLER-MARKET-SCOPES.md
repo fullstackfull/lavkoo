@@ -43,14 +43,43 @@ shop, a role switched off and a role that is gone all grant nothing.
 A request that names no single market works across the grant, and is then held to what the staff member may do in **every** market
 of it: a clerk who may refund in Riyadh and only read in Dubai may not refund a list that holds both.
 
+**The shop's own grant is the ceiling of everyone who works in it.** "No row means unrestricted" is read of the shop and never of a
+staff member inside a shop that is itself limited. A staff member with no row of their own takes the shop's markets; one with rows
+takes the overlap of theirs and the shop's. Reading a staff member's rows alone made a staff member outrank the owner who created
+them: the owner of a Saudi-only shop was refused Kuwait while their employee was answered every order in it, `me` told that
+employee their scope was `unrestricted`, and the same absence of a row carried them through the all-markets gate on staff
+management, payouts, bank details and account deletion that the owner was refused. The idiom was copied from `StaffCountryScope`,
+where an employee of the platform has no shop above them; here there is one.
+
 ## 3. What a seller sees
 
 | Surface | Bound to the grant by |
 |---|---|
-| Orders | `OrderStorefront::narrowToGrant()`, applied **before** the market filter, so a filter can only narrow inside the grant. The grant also keeps the orders with no record when it holds the default market, as the platform reads such an order. |
-| Products, their reports, their exports, their bulk jobs, the rules that change them | `SellerMarketScope::narrowQuery()` — one narrowing on the column they all read, so the surfaces cannot disagree. |
+| The order list | `OrderStorefront::narrowToGrant()`, applied **before** the market filter, so a filter can only narrow inside the grant. The grant also keeps the orders with no record when it holds the default market, as the platform reads such an order. |
+| One order by its id — the detail, the financial breakdown, the invoice, and forcing a status on it | `SellerMarketScope::mayReadOrder()`, the list's own bound asked of one id, answering the not-found the route already gives for an order of another shop. |
+| The product list, and one product by its id — the detail, the edit form, the review list, the image list, the update and the delete | `SellerMarketScope::narrowQuery()` on the one column they read, through a single finder in the controller, so a detail cannot answer what the list refuses. |
+| The four report screens and the four exports | The same two narrowings, inside `SellerReportService`, which the panel reads too: `scopedOrders()` takes the order bound, `scopedProducts()`, `stockQuery()` and `topProducts()` take the product bound. The exports read those same queries, so a file carries the report's rows and no more. A market named in the request narrows further inside the grant, as it does on the list. |
 | Stock | The same narrowing on the inventory query, so the overview, the movement filter and every figure drawn from it hold one line. |
-| Payout and bank details, staff management, account deletion | `seller_all_markets`, declared **beside** `seller_owner` and not instead of it: these cover every market at once, so a principal granted some of the platform's markets holds authority in those markets and not over the shop. Only the platform owner sees every market, and they do not come through this API. |
+| Returns — the list and one return by its id, and advancing, receiving or rejecting it | `SellerMarketScope::narrowByOrder()`. A return carries no market of its own, so it is held to the market of the sale it reverses. |
+| Bulk jobs — the receipt, its failure file, the list, and queueing one | The products the job names: a receipt's input is a list of product ids and its failure list their names, so `anyProductOutsideTheGrant()` decides it. Queueing is refused **before** the job exists, because the work runs in a queue where the caller's grant is no longer readable. |
+| What an automation rule may touch — its preview, and the catalogue a rule is written against | `SellerMarketScope::narrowQuery()` inside `SelectsSimpleProducts::sellerProducts()`, the one place every trigger builds its product query. |
+| Payout and bank details, staff management, the audit trail, account deletion | `seller_all_markets`, declared **beside** `seller_owner` and not instead of it: these cover every market at once, so a principal granted some of the platform's markets holds authority in those markets and not over the shop. Only the platform owner sees every market, and they do not come through this API. |
+
+**What is not narrowed, and why.** Saying it here because a doc that claims a control which does not exist is how the unbound
+single-resource reads shipped in the first place:
+
+- **The statement and its CSV export** carry every line of the shop's ledger whatever currency it is in. `vendor_ledger_entries`
+  has no market column: the ledger is the shop's account, not a market's. What the statement does refuse is the single *total*
+  across currencies (section 5).
+- **The audit trail** is withheld rather than narrowed: it sits behind `seller_all_markets`, so a limited principal gets 403 and
+  not a narrowed trail. That is a real consequence to know about — the moment any grant exists in a shop, an existing
+  `staff.manage` holder who is not granted every market loses the trail entirely. Narrowing it would need a market on the line,
+  which `audit_logs` does not have.
+- **A bulk job row and an automation rule row** are the shop's records and carry no market. The *products* they name and touch are
+  bound, as the table above says, but the row itself is readable by any token of the shop that is not refused by its products.
+- **The vendor web report pages** (`vendor-views.report.*`) still print the combined money figure across currencies. The pages'
+  figures, their chart and their `data-text` spans are entangled, and changing them is its own slice; the API half is fixed and
+  measured. Listed in section 8.
 
 `me` gains the grant: `market_scope` becomes `limited`, `allowed_markets` the list, and `permissions_by_market` what the caller may
 do in each. The ninth key is present **only while a grant is**, so a principal with no grant — every principal while the switch is
@@ -67,6 +96,14 @@ A seller granted several markets who names none has no market to save the produc
 market they may not hold, so the create is refused and says which market is missing — the shape `StaffCountryScope::whyItMayNotImport()`
 already uses for a restricted employee's bulk import.
 
+The **vendor web panel** reaches the same insert and carries no grant: `seller_market` is declared on the seller API group, and the
+middleware resolves a principal the API's token middleware put on the request, which a session request never has. So a seller
+granted Dubai alone added a product through the panel and it landed on the column's own default. `newProductAttributes()` now falls
+back to the grant of the seller signed into that panel when the request carries none, and takes its market when the shop holds
+exactly one; with several and no market named, the same refusal applies. Measured at the service the panel calls
+(`ProductService::getAddProductData`), which is how the admin side of this column is measured too — **not** through a web form
+post, and the panel's form still has no market picker, so a web seller of two markets cannot name one. In section 8.
+
 ## 5. The money rule: a sum of riyals and dinars is not a number
 
 `SellerMarketTotals` carries the rule, which is the one `SettlementCurrency` already applies to the seller ledger ("the net is kept
@@ -78,6 +115,19 @@ by currency so the page never adds two", E-17.1) and `ABalanceCannotBeLeftUnknow
 - **The stock screen** counts per market and adds the counts, because a unit in Riyadh and a unit in Dubai are two units, and values
   the stock per currency, because money is not a count. `stock_value_combined` is null with a stated reason when the markets differ
   in currency.
+- **The order report** was the surface this rule was written for and not applied to: `amounts.due` was the sum of every order in
+  the period whatever currency it was recorded in — 1015 for riyals plus dirhams plus dinars — with no currency key anywhere in
+  the answer. It now goes through the same `SellerMarketTotals::money()`: one currency and the three blocks are the figures the
+  screen always printed, byte for byte; two and `amounts`, `payments` and `chart.values` are null, with `amounts_by_currency`,
+  `chart_by_currency` and `totals_refused_because` beside them. An order recorded before the storefront snapshot names no currency
+  and is read as the store's base currency, as the ledger reads an entry that names none, so the orders of before do not become a
+  currency of their own.
+- **The printed report** is refused outright (409, with the reason) when the period holds two currencies: a PDF carries totals at
+  its foot and has no way to say a figure is missing. The seller names a market and gets that market's report.
+- **The app** reads the refusal. `StatementSummaryModel` turned the null `withdrawable` into `0` and the null `range` and `buckets`
+  into empty maps, so a two-currency seller saw every balance as 0.00 with nothing to say why — and a zero is worse than a wrong
+  sum, because a seller reads it as "there is nothing to withdraw" and acts on it. The combined figures are nullable now and the
+  screen shows the reason and each currency's own figures: `fullstackfull/lavkooappseller` PR 20.
 
 ## 6. The app half
 
@@ -102,10 +152,19 @@ a market the grant does not hold is moved to one it does and the screens are rel
 - The refusal page is the generic Access-denied page; it does not yet name the market as the reason.
 - K-08 in the app (hiding a screen the role cannot use) and the staff matrix over the 53 `seller_can` declarations.
 - `updateProduct` keeps a saved product's market, as `ProductCountry` requires; moving a product between markets is still a copy.
+- The **vendor web report pages** still print one money figure across currencies. The API half obeys the rule; the pages' figures,
+  their chart series and the `data-text` spans their JavaScript reads are entangled, and untangling them is its own slice.
+- The **vendor web panel has no market binding of its own** beyond the product insert above: its lists, reports and exports are
+  scoped by seller and not by market, because no principal is resolved on a session request. A grant bounds the API, not the panel.
+- The **audit trail is withheld, not narrowed**, for a limited principal — see section 3.
+- `products/details/{id}` and `products/get-product-images/{id}` answer **200 with an empty body** for a product the token cannot
+  reach, which is the answer they already gave for a product of another shop. No record travels; the status was left as it was
+  rather than changed for an existing case.
 
 ## 9. Tests
 
-`tests/Feature/Security/SellerMarketScopeTest.php` (38), `tests/Feature/Storefront/SellerAppProductMarketTest.php` (6) and
+`tests/Feature/Security/SellerMarketScopeTest.php` (38), `tests/Feature/Security/SellerMarketRowBoundTest.php` (33),
+`tests/Feature/Storefront/SellerAppProductMarketTest.php` (6), `tests/Feature/Storefront/VendorPanelProductMarketTest.php` (4) and
 `tests/Feature/Storefront/SellerMarketDormancyTest.php` (13). Every request is made against `/api/v3/seller` with a bearer token,
 so `api_lang`, `seller_api_auth`, `seller_market`, `seller_can` and `seller_all_markets` all run in the order the routing table
 declares. No middleware is invoked by hand, no principal is constructed and no request attribute is set by a test.
@@ -116,9 +175,52 @@ database that has never run the grant migration and again with the table created
 the two answers must be identical, status and body. Both measurements are warm calls, because this world's first request to a
 surface warms caches the panel fills at boot.
 
-Eight mutations, each reverted: the refusal removed (25 red), the grant read from the request (25 red), the shop-wide guard taken
-off the staff group (1 red), the per-market role ignored (3 red), the currencies added together (2 red), the market taken off the
-product insert (2 red), the unresolved-market guard removed (1 red), and the app's narrowing removed (5 red in Dart).
+**That matrix is a test of the refusal and not of the narrowing, and reading it as both is how the holes above shipped.** All
+twenty-eight cases name a market outside the grant, so all twenty-eight are exercises of one group middleware: with the narrowing
+made a no-op they stay green, and a surface that answers every market passes identically to one that is bound. Five of the
+fourteen also answered 500 on a missing table the moment a request was allowed through, so the matrix could not have detected a
+narrowing failure even in principle.
 
-These directories are the ones CI runs on SQLite, MySQL 8 and MariaDB 11.4.2. A local MariaDB pass was **not** run: the server on
-127.0.0.1:3308 refuses `root` with an empty password over TCP (error 1698), and reconfiguring it would disturb other lanes.
+`tests/Feature/Security/SellerMarketRowBoundTest.php` (33) is the narrowing test, and every assertion in it is about rows. Each
+names an id, a count or a figure that exists only in a market the token does not hold; the order one asserts that the set of
+orders openable by id **equals** the set the list offers, computed rather than written down; the export ones assert the rendered
+contents of the file the request downloaded. The seller-centre tables those screens read are built with the columns the
+controllers actually read, so each screen runs to its answer and the rows in it can be counted.
+
+### Mutations
+
+Thirteen, each applied alone and reverted, each run against the test that is supposed to catch it:
+
+| Mutation | Red |
+|---|---|
+| `mayReadOrder()` always true | 4 |
+| the report's order bound removed | 3 failures + 1 error |
+| the report's product bound removed | 2 |
+| the stock report's bound removed | 2 |
+| the product single-read bound removed | 3 |
+| the return bound removed | 4 |
+| the bulk-job and receipt bound removed | 2 |
+| the automation product bound removed | 1 |
+| the shop's grant no longer a ceiling on its staff | 4 |
+| the report adds the currencies again | 1 |
+| the order status write unbound | 1 |
+| the vendor panel's product market not resolved | 1 (of 4) |
+| the refusal itself removed | 25 in the matrix, and 2 more in the row test |
+
+The last row is the measurement that matters most about the two files together: removing the refusal reddens the matrix, and
+removing any single narrowing leaves the matrix green and reddens the row test. Neither file can stand in for the other.
+
+### Engines
+
+| | Tests | Assertions | Failures |
+|---|---|---|---|
+| SQLite in memory | 1390 | 6345 | 0 (3 skipped) |
+| MariaDB 10.11.14 on 127.0.0.1:3308 | 1390 | 6351 | 0 |
+
+Both over `tests/Feature/Security` and `tests/Feature/Storefront`, which are the directories CI runs on SQLite, MySQL 8 and
+MariaDB 11.4.2.
+
+The previous round reported that no local MariaDB pass could be run, which was true of the credentials it had. With the TCP
+account, **these two directories were red on MariaDB at this branch's own head**: six failures before any of this round's changes,
+every one a column missing from an inferred fixture table that a strict engine refuses a query without. They are fixed here, and
+the six are named in the commit that fixes them. A suite green on SQLite and red on MariaDB was not evidence on MariaDB.
