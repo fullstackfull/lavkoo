@@ -6,6 +6,7 @@ use App\Models\Banner;
 use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Coupon;
+use App\Models\ExperienceCampaign;
 use App\Models\DealOfTheDay;
 use App\Models\FlashDeal;
 use App\Models\StockClearanceSetup;
@@ -131,21 +132,42 @@ class StorefrontCatalogueVisibilityTest extends TestCase
         }
     }
 
+    /** @return array<string, string> the statement each narrowed model runs for a plain list, as the storefront now stands */
+    private function statementOfEveryNarrowedModel(): array
+    {
+        $models = [
+            StorefrontVisibility::CATEGORY => Category::class,
+            StorefrontVisibility::BRAND => Brand::class,
+            StorefrontVisibility::BANNER => Banner::class,
+            StorefrontVisibility::COUPON => Coupon::class,
+            StorefrontVisibility::FLASH_DEAL => FlashDeal::class,
+            StorefrontVisibility::DEAL_OF_THE_DAY => DealOfTheDay::class,
+            StorefrontVisibility::CLEARANCE_SALE => StockClearanceSetup::class,
+            StorefrontVisibility::EXPERIENCE_CAMPAIGN => ExperienceCampaign::class,
+        ];
+
+        return array_map(static fn (string $model): string => $model::query()->orderBy('id')->toSql(), $models);
+    }
+
     public function test_while_no_mapping_row_exists_the_storefront_runs_the_query_it_runs_today(): void
     {
-        $this->switchStorefrontsOn();
-        $this->serveStorefront('SA');
-        $withoutAnyMapping = Category::query()->where('position', 0)->toSql();
-
         $this->serveNoStorefront();
-        $asItWasBeforeStorefronts = Category::query()->where('position', 0)->toSql();
+        config(['gcc.storefronts.enabled' => false]);
+        $asItWasBeforeStorefronts = $this->statementOfEveryNarrowedModel();
 
-        $this->assertSame($asItWasBeforeStorefronts, $withoutAnyMapping);
+        $this->switchStorefrontsOn();
+        foreach (['SA', 'KW'] as $country) {
+            $this->serveStorefront($country);
+            $this->assertSame($asItWasBeforeStorefronts, $this->statementOfEveryNarrowedModel(), "storefront {$country} with an empty mapping table");
+        }
 
         StorefrontVisibility::set(entityType: StorefrontVisibility::CATEGORY, entityId: self::MAPPED_CATEGORY, countries: ['KW']);
         $this->serveStorefront('SA');
+        $withOneCategoryMapping = $this->statementOfEveryNarrowedModel();
 
-        $this->assertNotSame($asItWasBeforeStorefronts, Category::query()->where('position', 0)->toSql(), 'the predicate appears once a mapping exists');
+        $this->assertNotSame($asItWasBeforeStorefronts[StorefrontVisibility::CATEGORY], $withOneCategoryMapping[StorefrontVisibility::CATEGORY], 'the predicate appears once a mapping exists');
+        unset($asItWasBeforeStorefronts[StorefrontVisibility::CATEGORY], $withOneCategoryMapping[StorefrontVisibility::CATEGORY]);
+        $this->assertSame($asItWasBeforeStorefronts, $withOneCategoryMapping, 'one entity type mapped leaves the other seven running what they ran');
     }
 
     public function test_a_category_hidden_for_kuwait_is_gone_from_its_tree_home_filters_and_page_and_stays_in_saudi_arabia(): void
