@@ -57,7 +57,7 @@ where an employee of the platform has no shop above them; here there is one.
 |---|---|
 | The order list | `OrderStorefront::narrowToGrant()`, applied **before** the market filter, so a filter can only narrow inside the grant. The grant also keeps the orders with no record when it holds the default market, as the platform reads such an order. |
 | One order by its id — the detail, the financial breakdown, the invoice, and forcing a status on it | `SellerMarketScope::mayReadOrder()`, the list's own bound asked of one id, answering the not-found the route already gives for an order of another shop. |
-| The product list, and one product by its id — the detail, the edit form, the review list, the image list, the update and the delete | `SellerMarketScope::narrowQuery()` on the one column they read, through a single finder in the controller, so a detail cannot answer what the list refuses. |
+| The product list, the two catalogue lists a shop reaches by naming its own id (`products/{seller_id}/all-products` and `edit-order-all-products`), and one product by its id — the detail, the edit form, the review list, the image list, the update and the delete | `SellerMarketScope::narrowQuery()` on the one column they read, through a single finder in the controller, so a detail cannot answer what the list refuses. `products.storefront_country` is NOT NULL with a default, so the `whereIn` is complete: there is no product whose market is unknown. |
 | The four report screens and the four exports | The same two narrowings, inside `SellerReportService`, which the panel reads too: `scopedOrders()` takes the order bound, `scopedProducts()`, `stockQuery()` and `topProducts()` take the product bound. The exports read those same queries, so a file carries the report's rows and no more. A market named in the request narrows further inside the grant, as it does on the list. |
 | Stock | The same narrowing on the inventory query, so the overview, the movement filter and every figure drawn from it hold one line. |
 | Returns — the list and one return by its id, and advancing, receiving or rejecting it | `SellerMarketScope::narrowByOrder()`. A return carries no market of its own, so it is held to the market of the sale it reverses. |
@@ -80,6 +80,15 @@ single-resource reads shipped in the first place:
 - **The vendor web report pages** (`vendor-views.report.*`) still print the combined money figure across currencies. The pages'
   figures, their chart and their `data-text` spans are entangled, and changing them is its own slice; the API half is fixed and
   measured. Listed in section 8.
+- **Coupons**, which carry `storefront_country` like a product but **nullable**, where NULL means the default storefront. The list
+  and the three single-coupon writes (`coupon/update/{id}`, `status-update`, `delete/{id}`) are scoped by seller and not by
+  market. `narrowQuery()` cannot be used as it stands: its `whereIn` would hide every coupon that exists today from a granted
+  seller, because every one of them has NULL. It needs the NULL-is-the-default-market rule `OrderStorefront::narrowToGrant()` has
+  for orders — a decision rather than a line, so it is named open rather than half-done. In section 8.
+- **A payout request**, which carries no market: `vendor_payout_requests` has a currency and no country. The payout list is gated
+  on `finance.view` alone, so a principal granted one market reads the shop's payout requests and may cancel one. Whether that
+  belongs behind `seller_all_markets` with the bank details is a decision about an existing permission, not a narrowing. In
+  section 8.
 
 `me` gains the grant: `market_scope` becomes `limited`, `allowed_markets` the list, and `permissions_by_market` what the caller may
 do in each. The ninth key is present **only while a grant is**, so a principal with no grant — every principal while the switch is
@@ -157,13 +166,16 @@ a market the grant does not hold is moved to one it does and the screens are rel
 - The **vendor web panel has no market binding of its own** beyond the product insert above: its lists, reports and exports are
   scoped by seller and not by market, because no principal is resolved on a session request. A grant bounds the API, not the panel.
 - The **audit trail is withheld, not narrowed**, for a limited principal — see section 3.
+- **Coupons** are not bound to a market; the shape of the fix is in section 3.
+- **A payout request** carries no market, and reading or cancelling one is open to any principal holding `finance.view` /
+  `payouts.request` however few markets they hold — see section 3.
 - `products/details/{id}` and `products/get-product-images/{id}` answer **200 with an empty body** for a product the token cannot
   reach, which is the answer they already gave for a product of another shop. No record travels; the status was left as it was
   rather than changed for an existing case.
 
 ## 9. Tests
 
-`tests/Feature/Security/SellerMarketScopeTest.php` (38), `tests/Feature/Security/SellerMarketRowBoundTest.php` (33),
+`tests/Feature/Security/SellerMarketScopeTest.php` (38), `tests/Feature/Security/SellerMarketRowBoundTest.php` (35),
 `tests/Feature/Storefront/SellerAppProductMarketTest.php` (6), `tests/Feature/Storefront/VendorPanelProductMarketTest.php` (4) and
 `tests/Feature/Storefront/SellerMarketDormancyTest.php` (13). Every request is made against `/api/v3/seller` with a bearer token,
 so `api_lang`, `seller_api_auth`, `seller_market`, `seller_can` and `seller_all_markets` all run in the order the routing table
@@ -181,7 +193,7 @@ made a no-op they stay green, and a surface that answers every market passes ide
 fourteen also answered 500 on a missing table the moment a request was allowed through, so the matrix could not have detected a
 narrowing failure even in principle.
 
-`tests/Feature/Security/SellerMarketRowBoundTest.php` (33) is the narrowing test, and every assertion in it is about rows. Each
+`tests/Feature/Security/SellerMarketRowBoundTest.php` (35) is the narrowing test, and every assertion in it is about rows. Each
 names an id, a count or a figure that exists only in a market the token does not hold; the order one asserts that the set of
 orders openable by id **equals** the set the list offers, computed rather than written down; the export ones assert the rendered
 contents of the file the request downloaded. The seller-centre tables those screens read are built with the columns the
@@ -189,7 +201,7 @@ controllers actually read, so each screen runs to its answer and the rows in it 
 
 ### Mutations
 
-Thirteen, each applied alone and reverted, each run against the test that is supposed to catch it:
+Fourteen, each applied alone and reverted, each run against the test that is supposed to catch it:
 
 | Mutation | Red |
 |---|---|
@@ -205,6 +217,7 @@ Thirteen, each applied alone and reverted, each run against the test that is sup
 | the report adds the currencies again | 1 |
 | the order status write unbound | 1 |
 | the vendor panel's product market not resolved | 1 (of 4) |
+| the two catalogue lists reached by the shop's own id unbound | 2 (of 2) |
 | the refusal itself removed | 25 in the matrix, and 2 more in the row test |
 
 The last row is the measurement that matters most about the two files together: removing the refusal reddens the matrix, and
@@ -214,8 +227,8 @@ removing any single narrowing leaves the matrix green and reddens the row test. 
 
 | | Tests | Assertions | Failures |
 |---|---|---|---|
-| SQLite in memory | 1390 | 6345 | 0 (3 skipped) |
-| MariaDB 10.11.14 on 127.0.0.1:3308 | 1390 | 6351 | 0 |
+| SQLite in memory | 1392 | 6349 | 0 (3 skipped) |
+| MariaDB 10.11.14 on 127.0.0.1:3308 | 1392 | 6355 | 0 |
 
 Both over `tests/Feature/Security` and `tests/Feature/Storefront`, which are the directories CI runs on SQLite, MySQL 8 and
 MariaDB 11.4.2.
