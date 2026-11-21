@@ -12,7 +12,9 @@ use App\Services\MyFatoorah\PaymentInitiationService;
 use App\Services\Payments\GatewayAccountDirectory;
 use App\Services\Payments\GatewayAccountRegistry;
 use App\Services\Payments\GatewayAccountSecrets;
+use App\Services\Payments\PaymentAccountBinding;
 use App\Services\Storefront\LegalEntityRegistry;
+use App\Services\Storefront\StorefrontResolver;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
@@ -22,11 +24,18 @@ use Tests\Support\RestoresLanguageFiles;
 /**
  * A notification belongs to the company whose account it names (D2-09), and is processed once (D2-12).
  *
- * The webhook URL, the signing secret and the event scope are the account's, not the platform's. The case this exists to refuse is the first one
- * written: a delivery signed with company A's secret, posted to company B's address. It computes a different signature against B's secret, so it is
- * refused with the same flat 401 as every other refusal, and it settles nothing of B's.
+ * The webhook URL, the signing secret and the event scope are the account's, not the platform's. Two refusals carry the whole unit, and a delivery has
+ * to clear both:
  *
- * Every delivery here is a real POST to the real route; the signatures are computed by the production verifier.
+ *   WHOSE SECRET SIGNED IT — a delivery signed with company A's secret, posted to company B's address, computes a different signature against B's
+ *   secret and is refused.
+ *
+ *   WHOSE PAYMENT IT NAMES — a delivery signed with company A's OWN secret, at company A's OWN address, naming a payment that was taken through
+ *   company B's account, is refused too. Authentication says who sent it, not what it may move, and the attempt it names is found by an identifier
+ *   that carries no company: without this second refusal one company's address settles another company's payment.
+ *
+ * The payment under test is taken through the Kuwait account, stamped by the production writer, so "another company's payment" is a fact of the
+ * fixture and not an assumption. Every delivery here is a real POST to the real route; the signatures are computed by the production verifier.
  */
 class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends MyFatoorahTestCase
 {
@@ -59,8 +68,15 @@ class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends MyFatoorahTestCase
             'Data' => ['InvoiceId' => 'INV-1', 'PaymentId' => null, 'PaymentURL' => 'https://sa.myfatoorah.com/KSA/ie/1'],
         ], 201)]);
 
-        app(PaymentInitiationService::class)->start(PaymentRequest::find($this->makePaymentRequest()));
+        $payment = $this->makePaymentRequest(['additional_data' => $this->stampedForTheMarketOf($this->kuwait)]);
+        app(PaymentInitiationService::class)->start(PaymentRequest::find($payment));
         $this->attempt = MyFatoorahPaymentAttempt::firstOrFail();
+
+        $this->assertSame(
+            (int) $this->kuwait->id,
+            app(PaymentAccountBinding::class)->of(payment: (array) DB::table('payment_requests')->where('id', $payment)->first())?->accountId,
+            'the payment under test is taken through the Kuwait account, or none of the refusals below mean anything',
+        );
     }
 
     protected function tearDown(): void
@@ -88,15 +104,88 @@ class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends MyFatoorahTestCase
         $this->assertSame(0, (int) DB::table('payment_requests')->where('is_paid', 1)->count());
     }
 
-    /** The same delivery at its own company's address is accepted, so the refusal above is about whose secret it is. */
+    /** The same delivery at its own company's address is accepted and settles that company's payment, so the refusal above is about whose secret it is. */
     public function test_a_delivery_signed_with_a_companys_own_secret_is_accepted_at_its_own_address(): void
     {
         $this->fakePaid();
         $payload = $this->webhookPayload($this->attempt->external_identifier);
 
-        $this->deliverTo($this->kuwait, $payload, $this->signatureFor($payload, self::KUWAIT_WEBHOOK_SECRET))->assertOk();
+        $this->deliverTo($this->kuwait, $payload, $this->signatureFor($payload, self::KUWAIT_WEBHOOK_SECRET))
+            ->assertOk()
+            ->assertJsonPath('status', 'settled');
 
         $this->assertSame(1, MyFatoorahWebhookEvent::count());
+        $this->assertSame(1, $this->successHookCalls());
+        $this->assertSame([$this->attempt->payment_request_id], $this->paidPayments(), 'the Kuwait account settled the Kuwait payment');
+    }
+
+    /**
+     * THE CASE THE WHOLE UNIT TURNS ON: company A's own secret, at company A's own address, naming company B's payment.
+     *
+     * Nothing about this delivery is forged. It is signed with the Saudi account's own webhook secret and posted to the Saudi account's own address, so
+     * it is the Saudi company's delivery by every test the route can make of its sender. What it names is a payment taken through the KUWAIT account,
+     * and the identifier it names it by carries no company at all. It is refused, with the flat 401 every other refusal uses, and the Kuwait payment is
+     * neither settled nor touched.
+     */
+    public function test_a_companys_own_secret_at_its_own_address_cannot_settle_another_companys_payment(): void
+    {
+        $this->fakePaid();
+        $payload = $this->webhookPayload($this->attempt->external_identifier);
+        $before = $this->attemptRow();
+
+        $this->deliverTo($this->saudi, $payload, $this->signatureFor($payload, self::SAUDI_WEBHOOK_SECRET))
+            ->assertStatus(401)
+            ->assertJsonPath('message', 'Unauthorized request');
+
+        $this->assertSame([], $this->paidPayments(), 'the Kuwait payment is not paid by the Saudi address');
+        $this->assertSame(0, $this->successHookCalls());
+        $this->assertSame(0, MyFatoorahWebhookEvent::count(), 'nothing of the other company was even recorded');
+        $this->assertEquals($before, $this->attemptRow(), 'and not one column of the other company\'s attempt was written');
+    }
+
+    /**
+     * The same refusal when the delivery would not have settled anything either way.
+     *
+     * A notification whose payment the gateway reports at a different amount answers "mismatch" and writes the verification onto the attempt — a write
+     * on another company's row is a cross-tenant write whether or not money moved, so this is refused at the same point and leaves the row alone.
+     */
+    public function test_a_delivery_at_another_companys_address_writes_nothing_even_when_it_would_not_settle(): void
+    {
+        $this->fakePaid(amount: '999.00');
+        $payload = $this->webhookPayload($this->attempt->external_identifier);
+        $before = $this->attemptRow();
+
+        $this->deliverTo($this->saudi, $payload, $this->signatureFor($payload, self::SAUDI_WEBHOOK_SECRET))->assertStatus(401);
+
+        $this->assertEquals($before, $this->attemptRow());
+        $this->assertSame(0, MyFatoorahWebhookEvent::count());
+    }
+
+    /**
+     * An account of another gateway does not take this gateway's notifications — and this is the case the SHIPPED default exposes.
+     *
+     * `gcc.storefronts.payment_accounts.gateways` ships as `['paymob_accept']`, so Paymob is the one gateway an account may be configured for, and a
+     * Paymob account's webhook secret is stored in the same column a MyFatoorah account's is.
+     *
+     * Nothing else about this delivery is wrong, which is the point: it is signed with the Paymob account's own secret, posted to the Paymob account's
+     * own address, and it names a payment stamped with THAT account — so the secret and the stamp both check out and the gateway is the only objection
+     * left. An account is edited in place, so a gateway retyped on an account that has already taken payments reaches exactly this state.
+     */
+    public function test_an_account_of_another_gateway_does_not_take_this_gateways_notifications(): void
+    {
+        config(['gcc.storefronts.payment_accounts.gateways' => ['paymob_accept']]);
+        $paymob = $this->anAccountFor(country: 'QA', webhookSecret: 'qatar-paymob-webhook-secret', token: 'qatar-paymob-token', gateway: 'paymob_accept');
+        $itsOwnAttempt = $this->anAttemptStampedWith($paymob);
+        $this->fakePaid(attempt: $itsOwnAttempt);
+        $payload = $this->webhookPayload($itsOwnAttempt->external_identifier);
+
+        $this->deliverTo($paymob, $payload, $this->signatureFor($payload, 'qatar-paymob-webhook-secret'))
+            ->assertStatus(401)
+            ->assertJsonPath('message', 'Unauthorized request');
+
+        $this->assertSame([], $this->paidPayments());
+        $this->assertSame(0, $this->successHookCalls());
+        $this->assertSame(0, MyFatoorahWebhookEvent::count());
     }
 
     /** The platform-wide secret is not a company's secret, and a company's address does not fall back to it. */
@@ -124,6 +213,27 @@ class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends MyFatoorahTestCase
         $disabled = $this->deliverTo($this->kuwait, $payload, $signature);
         $disabled->assertStatus(401);
         $this->assertSame($unknown->json(), $disabled->json(), 'a prober learns nothing from the difference');
+    }
+
+    /**
+     * An event shape this gateway does not send is refused, whoever signed it.
+     *
+     * The signature is computed over the fields of a named event type, so an event type this gateway has no published field list for cannot be signed
+     * and cannot be verified — and an unverifiable event is not acted on. The shape and the gateway are the two halves of the same question: whether
+     * what arrived is a notification of the gateway the addressed account is registered for.
+     */
+    public function test_an_event_shape_this_gateway_does_not_send_is_refused(): void
+    {
+        $this->fakePaid();
+        $payload = $this->webhookPayload($this->attempt->external_identifier);
+        $payload['Event']['Code'] = 99;
+
+        $this->deliverTo($this->kuwait, $payload, $this->signatureFor($payload, self::KUWAIT_WEBHOOK_SECRET))
+            ->assertStatus(401)
+            ->assertJsonPath('message', 'Unauthorized request');
+
+        $this->assertSame(0, MyFatoorahWebhookEvent::count());
+        $this->assertSame([], $this->paidPayments());
     }
 
     /** An account with no secret of its own authenticates nothing, whatever the delivery is signed with. */
@@ -159,14 +269,25 @@ class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends MyFatoorahTestCase
         $this->assertSame(0, MyFatoorahWebhookEvent::count());
     }
 
-    /** D2-09: 'Webhook dedupe keys are unique per account'. */
+    /**
+     * D2-09: 'Webhook dedupe keys are unique per account'.
+     *
+     * The delivery both companies get is one neither of them owns: an invoice of another installation on the same merchant login, which is the real
+     * reason two accounts can be sent the same body. It names no attempt of ours, so each address records it and acts on nothing, and the two records
+     * prove the keys do not collide. A delivery naming one company's payment is NOT how this is measured, because the other company's address refuses
+     * such a delivery outright.
+     */
     public function test_the_same_delivery_at_two_companies_addresses_is_two_events_and_at_one_address_is_one(): void
     {
         $this->fakePaid();
-        $payload = $this->webhookPayload($this->attempt->external_identifier);
+        $payload = $this->webhookPayload('EXT-OF-ANOTHER-INSTALLATION');
 
-        $this->deliverTo($this->kuwait, $payload, $this->signatureFor($payload, self::KUWAIT_WEBHOOK_SECRET))->assertOk();
-        $this->deliverTo($this->saudi, $payload, $this->signatureFor($payload, self::SAUDI_WEBHOOK_SECRET))->assertOk();
+        $this->deliverTo($this->kuwait, $payload, $this->signatureFor($payload, self::KUWAIT_WEBHOOK_SECRET))
+            ->assertOk()
+            ->assertJsonPath('status', 'no_attempt');
+        $this->deliverTo($this->saudi, $payload, $this->signatureFor($payload, self::SAUDI_WEBHOOK_SECRET))
+            ->assertOk()
+            ->assertJsonPath('status', 'no_attempt');
 
         $this->assertSame(2, MyFatoorahWebhookEvent::count(), 'two accounts, two deliveries, two keys that do not collide');
 
@@ -174,6 +295,8 @@ class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends MyFatoorahTestCase
         $repeated->assertOk()->assertJsonPath('status', 'duplicate');
 
         $this->assertSame(2, MyFatoorahWebhookEvent::count(), 'the repeat at the same address was recognised');
+        $this->assertSame([], $this->paidPayments(), 'and nobody\'s payment was settled by a delivery naming nobody\'s payment');
+        $this->assertSame(0, $this->successHookCalls());
     }
 
     /** D2-12: each delivery is processed once, however many copies of it arrive at a company's address. */
@@ -248,12 +371,27 @@ class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends MyFatoorahTestCase
     }
 
     /** MyFatoorah answers "paid" for this attempt whenever asked, as the settlement tests arrange it. */
-    private function fakePaid(string $amount = '150.00'): void
+    private function fakePaid(string $amount = '150.00', ?MyFatoorahPaymentAttempt $attempt = null): void
     {
         Http::fake([
             '*/v3/invoices/*' => Http::response(['IsSuccess' => true, 'Data' => ['Transaction' => ['PaymentId' => 'PAY-1', 'Status' => 'SUCCESS']]]),
-            '*/v3/payments/*' => Http::response($this->paymentDetails($this->attempt->external_identifier, amount: $amount)),
+            '*/v3/payments/*' => Http::response($this->paymentDetails(($attempt ?? $this->attempt)->external_identifier, amount: $amount)),
         ]);
+    }
+
+    /**
+     * A MyFatoorah attempt whose payment is stamped with THIS account, whatever gateway the account is registered for.
+     *
+     * Both halves written by production: the stamp by App\Services\Payments\PaymentAccountBinding, the attempt by the real initiation service.
+     */
+    private function anAttemptStampedWith(PaymentGatewayAccount $account): MyFatoorahPaymentAttempt
+    {
+        $payment = $this->makePaymentRequest([
+            'additional_data' => $this->stampedForTheMarketOf($account, gateway: (string) $account->gateway),
+        ]);
+        app(PaymentInitiationService::class)->start(PaymentRequest::find($payment));
+
+        return MyFatoorahPaymentAttempt::query()->where('payment_request_id', $payment)->firstOrFail();
     }
 
     private function installTheCompanyAndAccountTables(): void
@@ -275,12 +413,13 @@ class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends MyFatoorahTestCase
             'gcc.storefronts.payment_accounts.gateways' => [GatewayConfigRepository::KEY, 'paymob_accept'],
             'gcc.storefronts.countries.AE.active' => true,
             'gcc.storefronts.countries.KW.active' => true,
+            'gcc.storefronts.countries.QA.active' => true,
         ]);
         app(LegalEntityRegistry::class)->flush();
         app(GatewayAccountRegistry::class)->flush();
     }
 
-    private function anAccountFor(string $country, ?string $webhookSecret, string $token): PaymentGatewayAccount
+    private function anAccountFor(string $country, ?string $webhookSecret, string $token, string $gateway = GatewayConfigRepository::KEY): PaymentGatewayAccount
     {
         $company = LegalEntity::create([
             'country' => $country,
@@ -291,7 +430,7 @@ class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends MyFatoorahTestCase
 
         $account = PaymentGatewayAccount::create([
             'storefront_country' => $country,
-            'gateway' => GatewayConfigRepository::KEY,
+            'gateway' => $gateway,
             'environment' => 'test',
             'legal_entity_id' => (int) $company->id,
             'webhook_path_token' => $token,
@@ -308,4 +447,40 @@ class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends MyFatoorahTestCase
         return $account->refresh();
     }
 
+    /**
+     * The additional data a payment of this account's market carries, written by the production writer inside that market's storefront.
+     *
+     * App\Services\Payments\PaymentAccountBinding is the same writer every gateway's payment goes through (App\Traits\Payment::generate_link calls
+     * it), so the stamp these tests rest on is the one production writes and not a shape invented here.
+     */
+    private function stampedForTheMarketOf(PaymentGatewayAccount $account, string $gateway = GatewayConfigRepository::KEY): string
+    {
+        $stamped = StorefrontResolver::fromConfig()
+            ->context(explicitChoice: (string) $account->storefront_country)
+            ->serve(static fn (): array => app(PaymentAccountBinding::class)->record(
+                additionalData: ['customer_id' => 7, 'order_note' => null],
+                gateway: $gateway,
+                currencyCode: 'SAR',
+            ));
+
+        $this->assertSame(
+            (int) $account->id,
+            app(PaymentAccountBinding::class)->of(payment: ['additional_data' => $stamped])?->accountId,
+            'the stamp the production writer produced names the account this payment is meant to belong to',
+        );
+
+        return (string) json_encode($stamped);
+    }
+
+    /** @return list<string> the payments marked paid, so a test can say WHOSE payment was acted on and not only how many were */
+    private function paidPayments(): array
+    {
+        return DB::table('payment_requests')->where('is_paid', 1)->orderBy('id')->pluck('id')->all();
+    }
+
+    /** Every column of the attempt under test, so "not one column was written" is a single comparison. */
+    private function attemptRow(): object
+    {
+        return DB::table('myfatoorah_payment_attempts')->where('id', $this->attempt->id)->firstOrFail();
+    }
 }

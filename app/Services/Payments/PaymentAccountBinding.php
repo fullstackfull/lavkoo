@@ -89,6 +89,19 @@ final class PaymentAccountBinding
         return $record?->accountId === null ? null : $this->registry->byId(id: $record->accountId);
     }
 
+    /**
+     * Was this payment taken through this account?
+     *
+     * The stamp, never a fresh resolution: an account edited, disabled or deleted since the payment started is still the account the payment was taken
+     * through. A payment carrying no stamp was taken through no company account and so belongs to none of them.
+     */
+    public function isStampedWith(PaymentRequest|array|null $payment, PaymentGatewayAccount $account): bool
+    {
+        $stamped = $this->of(payment: $payment)?->accountId;
+
+        return $stamped !== null && $stamped === (int) $account->id;
+    }
+
     /** The record a payment of this market through this account carries. */
     private function recordFor(PaymentGatewayAccount $account, string $market, string $currencyCode): PaymentTransactionRecord
     {

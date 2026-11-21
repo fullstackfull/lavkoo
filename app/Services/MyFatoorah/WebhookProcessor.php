@@ -98,6 +98,26 @@ class WebhookProcessor
     }
 
     /**
+     * The attempt a delivery names, through the same reader the delivery itself is matched with.
+     *
+     * Public because a caller has to decide something about the payment BEFORE the delivery is recorded or acted on — whether the account whose address
+     * it arrived at is the account that payment was taken through. Asking this class means asking exactly the question it will ask itself, rather than a
+     * second lookup that could answer differently.
+     *
+     * @param array<string,mixed> $payload
+     */
+    public function attemptFor(array $payload): ?MyFatoorahPaymentAttempt
+    {
+        $data = is_array($payload['Data'] ?? null) ? $payload['Data'] : [];
+
+        return $this->findAttempt(
+            externalIdentifier: $this->str($data, 'Invoice.ExternalIdentifier'),
+            paymentId: $this->str($data, 'Transaction.PaymentId'),
+            invoiceId: $this->str($data, 'Invoice.Id'),
+        );
+    }
+
+    /**
      * A payment changed state. Find the attempt, verify it properly, settle it if it is genuinely paid.
      *
      * @return array{result: string, note: string}
