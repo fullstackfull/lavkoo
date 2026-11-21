@@ -1,3 +1,4 @@
+@use('App\Services\Storefront\StorefrontCurrency')
 {{-- Themed announcement bar(s) from the Theme Builder's "header" page. Additive: the built-in
      header below always renders; a broken section logs and the bar is simply absent. --}}
 @php
@@ -40,7 +41,9 @@
                     @if($currency_model=='multi_currency')
                         <div class="topbar-text dropdown disable-autohide mr-4">
                             <a class="topbar-link dropdown-toggle border-0 fs-14 fw-normal bg-transparent" href="#" data-toggle="dropdown">
-                                <span>{{session('currency_code')}} {{session('currency_symbol')}}</span>
+                                {{-- A storefront that trades in its own currency (GCC-05) labels this switcher with its own money, whatever a visitor picked on
+                                     another market. Everywhere else, and wherever no storefront is in force, it prints the visitor's own pick exactly as before. --}}
+                                <span>{{ app(StorefrontCurrency::class)->currencyCodeInForce() ?? session('currency_code') }} {{ app(StorefrontCurrency::class)->symbolInForce() ?? session('currency_symbol') }}</span>
                             </a>
                             <ul class="text-align-direction dropdown-menu dropdown-menu-{{Session::get('direction') === "rtl" ? 'right' : 'left'}} min-width-160px">
                                 {{-- getActiveCurrencies() is cached; the raw query used to run on

@@ -16,6 +16,7 @@ use App\Utils\Helpers;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\View;
@@ -51,6 +52,12 @@ class StorefrontMoneyAndSeoTest extends TestCase
 
     /** A third market's price above the price filter's 500 step, so Kuwait's own bound and the whole catalogue's round to different numbers. */
     private const QATARI_PRICE_ABOVE_THE_STEP = '600.00';
+
+    /** The theme headers that print the currency switcher, which is where a visitor's pick is shown back to them. */
+    private const CURRENCY_SWITCHER_HEADERS = [
+        'resources/themes/default/layouts/front-end/partials/_header.blade.php',
+        'resources/themes/default/auction/layouts/partials/_header.blade.php',
+    ];
 
     /** A key no storefront scopes, for the vacuity check: what one market writes under it, another reads. */
     private const UNSCOPED_PROBE_KEY = 'gcc_test_unscoped_cache_probe';
@@ -112,6 +119,13 @@ class StorefrontMoneyAndSeoTest extends TestCase
         $this->assertStringNotContainsString('SAR', $snapshot['rendered_price_filter']['cold']);
         $this->assertStringContainsString('placeholder="SAR0"', $snapshot['rendered_price_filter']['warm'], 'once the session is warm');
         $this->assertStringContainsString('placeholder="SAR500"', $snapshot['rendered_price_filter']['warm']);
+
+        // The currency switcher each theme header prints, pinned absolutely for the same reason: these too are live Saudi fields, and
+        // they still show the visitor their own pick, which is the whole of what the header has ever said about money.
+        $this->assertSame([
+            self::CURRENCY_SWITCHER_HEADERS[0] => '<span>SAR SAR</span>',
+            self::CURRENCY_SWITCHER_HEADERS[1] => 'SAR SAR',
+        ], $snapshot['rendered_currency_switchers']);
 
         // No storefront address, no storefront alternates, no robots header, and the one sitemap the panel writes today.
         $this->assertSame('https://lavkoo.test/product/saudi-serum', $snapshot['canonical']);
@@ -247,6 +261,20 @@ class StorefrontMoneyAndSeoTest extends TestCase
 
         $this->assertStringContainsString('placeholder="KD0"', $filter);
         $this->assertStringNotContainsString('SAR', $filter);
+
+        // And the surface the pick is shown back to the visitor on, with the whole of the stale pick in the session as a visitor carries
+        // it. The theme headers printed that pick raw, so a Kuwaiti storefront read "SAR SAR" over a page of dinars; they name the
+        // market's money now, and a test called never may not sit beside a field that does.
+        session()->put('currency_code', 'SAR');
+        session()->put('currency_symbol', 'SAR');
+
+        $switchers = $this->inStorefrontKeepingTheVisitorsPick('KW', fn (): array => $this->renderedCurrencySwitchers());
+
+        foreach ($switchers as $header => $switcher) {
+            $this->assertStringContainsString('KWD', $switcher, $header);
+            $this->assertStringContainsString('KD', $switcher, $header);
+            $this->assertStringNotContainsString('SAR', $switcher, $header);
+        }
     }
 
     public function test_the_money_a_storefront_gives_its_app_is_the_money_its_pages_print(): void
@@ -710,6 +738,7 @@ class StorefrontMoneyAndSeoTest extends TestCase
         // The whole page a crawler reads, and the whole price filter a visitor reads, byte for byte, with all six markets live.
         $this->assertSame($before['rendered_supplement'], $after['rendered_supplement']);
         $this->assertSame($before['rendered_price_filter'], $after['rendered_price_filter']);
+        $this->assertSame($before['rendered_currency_switchers'], $after['rendered_currency_switchers']);
         $this->assertSame($before['robots_header'], $after['robots_header']);
         $this->assertSame($before['price_bound'], $after['price_bound']);
         $this->assertSame($before['sign'], $after['sign']);
@@ -776,6 +805,9 @@ class StorefrontMoneyAndSeoTest extends TestCase
                 // The other surface this feature renders: the price filter of the listing, whose two placeholders carry the sign and the
                 // catalogue's ceiling. Nothing in the suite rendered it, which is how a sign reached a live Saudi field unseen.
                 'rendered_price_filter' => $this->renderedPriceFilter(),
+                // The third surface this feature renders: the header's currency switcher, which states the money the rest of the page is
+                // priced in and so must not move while no storefront trades in its own currency.
+                'rendered_currency_switchers' => $this->renderedCurrencySwitchers(),
                 'offer' => $offer,
                 'schema_offer' => app(StructuredDataBuilder::class)->product([
                     'name' => 'Saudi serum',
@@ -853,6 +885,28 @@ class StorefrontMoneyAndSeoTest extends TestCase
         loadCurrency();
 
         return ['cold' => $cold, 'warm' => view('web-views.products.partials._filter-product-price')->render()];
+    }
+
+    /**
+     * The currency switcher each theme header prints, rendered from the header file itself along with that file's own imports. The rest
+     * of a header needs a whole request's worth of shared view data; the switcher is the one line of it this feature decides.
+     *
+     * @return array<string, string>
+     */
+    private function renderedCurrencySwitchers(): array
+    {
+        $switchers = [];
+
+        foreach (self::CURRENCY_SWITCHER_HEADERS as $header) {
+            $lines = explode("\n", file_get_contents(base_path($header)));
+            $switcher = preg_grep('/currency_symbol/', $lines);
+
+            $this->assertCount(1, $switcher, $header . ' prints its currency switcher on one line');
+
+            $switchers[$header] = trim(Blade::render(implode("\n", [...preg_grep('/^@use\(/', $lines), ...$switcher])));
+        }
+
+        return $switchers;
     }
 
     /** The partial the product page includes, rendered through the real composer for the Saudi product. */

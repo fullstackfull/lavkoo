@@ -1,3 +1,4 @@
+@use('App\Services\Storefront\StorefrontCurrency')
 <header class="header mb-3">
     <div class="header-top py-1 bg-light">
         <div class="container">
@@ -12,7 +13,9 @@
                     <li>
                         <div class="language-dropdown">
                             <button class="border-0 fs-14 fw-normal bg-transparent dropdown-toggle" data-bs-toggle="dropdown">
-                                {{ session('currency_code') }} {{ session('currency_symbol') }}
+                                {{-- A storefront that trades in its own currency (GCC-05) labels this switcher with its own money, whatever a visitor picked on
+                                     another market. Everywhere else, and wherever no storefront is in force, it prints the visitor's own pick exactly as before. --}}
+                                {{ app(StorefrontCurrency::class)->currencyCodeInForce() ?? session('currency_code') }} {{ app(StorefrontCurrency::class)->symbolInForce() ?? session('currency_symbol') }}
                             </button>
                             <ul class="dropdown-menu">
                                 @foreach (\App\Models\Currency::where('status', 1)->get() as $key => $currency)
