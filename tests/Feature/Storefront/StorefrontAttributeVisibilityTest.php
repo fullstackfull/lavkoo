@@ -16,7 +16,7 @@ use Tests\TestCase;
 /**
  * A variation attribute defined for one country is offered there and nowhere else (B-12).
  *
- * Attributes are the fifth entity type of the one mapping, and they are `assigned`: an attribute with no mapping row is offered in
+ * Attributes are the ninth entity type of the one mapping, and they are `assigned`: an attribute with no mapping row is offered in
  * every storefront — which is what every attribute does today and what the live Saudi storefront keeps doing — and one with any row is
  * offered only where its rows name. The central `attributes` row is never touched and carries no country, so removing the mapping
  * restores the attribute everywhere.
