@@ -355,6 +355,17 @@ class StorefrontMoneyAndSeoTest extends TestCase
         $this->assertNotSame($kuwait, $saudi);
     }
 
+    /** The other path that renders a fixed amount off a price: the discount typed on the product itself. */
+    public function test_a_fixed_amount_product_discount_states_its_unit_in_this_markets_money(): void
+    {
+        $this->openSixMarkets();
+
+        $product = ['unit_price' => self::KUWAITI_PRICE, 'discount' => 1.25, 'discount_type' => 'flat'];
+
+        $this->assertSame('KD1.250', $this->inStorefront('KW', fn (): string => (string) getProductPriceByType(product: $product, type: 'discount', result: 'string')));
+        $this->assertStringStartsWith('SAR', $this->inStorefront('SA', fn (): string => (string) getProductPriceByType(product: $product, type: 'discount', result: 'string')));
+    }
+
     /** A discount stated as a share of the price is not money, so it carries no currency on any market. */
     public function test_a_percentage_discount_states_a_share_and_not_a_currency(): void
     {

@@ -158,12 +158,13 @@ final class StorefrontCurrency
     public function money(string|int|float|null $amount = 0): array
     {
         loadCurrency();
+        $currencyCode = getCurrencyCode(type: 'web');
 
         return [
             'amount' => webCurrencyConverterOnlyDigit(amount: $amount),
-            'currency' => getCurrencyCode(type: 'web'),
+            'currency' => $currencyCode,
             'decimals' => $this->decimalsInForce(),
-            'symbol' => (string) getCurrencySymbol(currencyCode: getCurrencyCode(type: 'web'), type: 'web'),
+            'symbol' => (string) getCurrencySymbol(currencyCode: $currencyCode, type: 'web'),
             'formatted' => webCurrencyConverter(amount: $amount),
         ];
     }
