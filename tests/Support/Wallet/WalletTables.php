@@ -3,6 +3,7 @@
 namespace Tests\Support\Wallet;
 
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use RuntimeException;
@@ -44,6 +45,15 @@ final class WalletTables
             $table->text('value')->nullable();
             $table->timestamps();
         });
+        Schema::create('currencies', function (Blueprint $table): void {
+            $table->id();
+            $table->string('name')->nullable();
+            $table->string('symbol')->nullable();
+            $table->string('code', 10);
+            $table->decimal('exchange_rate', 24, 8)->default(1);
+            $table->boolean('status')->default(1);
+            $table->timestamps();
+        });
         Schema::create('add_fund_bonus_categories', function (Blueprint $table): void {
             $table->id();
             $table->string('title')->nullable();
@@ -65,6 +75,7 @@ final class WalletTables
 
         Schema::dropIfExists('wallet_transactions');
         Schema::dropIfExists('add_fund_bonus_categories');
+        Schema::dropIfExists('currencies');
         Schema::dropIfExists('business_settings');
         Schema::dropIfExists('users');
     }
@@ -86,6 +97,44 @@ final class WalletTables
             ['type' => $type],
             ['value' => $value, 'created_at' => now(), 'updated_at' => now()],
         );
+        Cache::flush();
+    }
+
+    /** @return int the currency's id, which `system_default_currency` is set to when it is the default. */
+    public static function addCurrency(string $code, float $exchangeRate): int
+    {
+        return (int) DB::table('currencies')->insertGetId([
+            'name' => $code,
+            'symbol' => $code,
+            'code' => $code,
+            'exchange_rate' => $exchangeRate,
+            'status' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    /** A live add-fund bonus band: everything from `minimumAmount` earns `amount`, as a percentage or a flat figure. */
+    public static function addFundBonus(string $bonusType, float $amount, float $minimumAmount, float $maximumBonus): void
+    {
+        DB::table('add_fund_bonus_categories')->insert([
+            'title' => 'test bonus',
+            'bonus_type' => $bonusType,
+            'bonus_amount' => $amount,
+            'min_add_money_amount' => $minimumAmount,
+            'max_bonus_amount' => $maximumBonus,
+            'start_date_time' => now()->subDay(),
+            'end_date_time' => now()->addDay(),
+            'is_active' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    /** @return object the one ledger row, or the row at `$index` when a case wrote more than one. */
+    public static function ledgerRow(int $index = 0): object
+    {
+        return DB::table('wallet_transactions')->orderBy('id')->get()[$index];
     }
 
     public static function walletBalance(int $customerId): float
