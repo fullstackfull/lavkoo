@@ -3007,6 +3007,54 @@ CRITERIA.setdefault('B-16', {})[2] = ('MET', "PR 146 (draft, gcc/p1-catalogue-vi
 
 CRITERIA.setdefault('B-16', {})[3] = ('MET', "PR 146 (draft, gcc/p1-catalogue-visible-per-storefront, head 29a829c1, base gcc/p1-theme-publish-per-storefront at eaa04e2f). ONE mapping table (storefront_entity_visibility: entity_type, entity_id, storefront_country, mode), ONE service (StorefrontVisibility), ONE global scope on eight models through a STOREFRONT_ENTITY_TYPE constant — so a fifth entity type costs one registry line, not a new table. NAMED GREEN JOBS ON THE NAMED HEAD that run the covering tests: 'Storefront tests, MySQL 8' (job 136702788158) and 'Storefront tests, MariaDB 11.4.2' (job 136702787971), both SUCCESS, which run tests/Feature/Storefront and therefore StorefrontCatalogueVisibilityTest and StorefrontCatalogueVisibilityCacheTest; plus 'Tests, SQLite' on PHP 8.2 (136702787928) and 8.3 (136702787827), both SUCCESS, the whole suite. Run 44857404867, 17 success at the time of reading with the only failure the by-design 'Deployment overlay', which is red on the base too. AN INDEPENDENT REVIEWER VERIFIED EACH OF THESE BY ITS OWN EXPERIMENT on SQLite AND MariaDB 10.11.14, not by reading the diff, and ruled on every one. Both the builder and the reviewer wrote CODED, each for ONE stated reason — that CI had not finished. It has since finished green on the four jobs that run the covering tests, which is the evidence this tracker's MET bar asks for, so the record is MET where the criterion's own words are covered. B-16.3: commerce_campaign_overrides_{page} carries the storefront, and CampaignResolver::forget() reads the campaign rows WITHOUT the visibility scope so a campaign confined to one storefront still clears every other market's overlay key. Unscoping it fails the test. One consequence the reviewer traced and found correctly handled: the campaign stamp feeds /theme/version's checksum and /theme/home's content_stamp, and both are written under a storefront-scoped key, so one market's checksum is never served to another.")
 
+CRITERIA.setdefault('E-09', {})[2] = ('CODED', "CORRECTED 2026-11-21, FROM MET, AND THE CORRECTION IS MINE TO MAKE. The criterion is 'a deadlock or lock-wait timeout is "
+    "rethrown after rollback and never returned as a refusal', recorded MET on CustomerBalanceLockTest and the green SQLite jobs. A REAL ENGINE DOES NOT DELIVER IT. An "
+    "independent reviewer arranged the worst case the lock can create — two processes, each holding one OUTER transaction, crediting two wallets in OPPOSITE orders, with "
+    "a rendezvous so both hold their first row lock before requesting the second — and measured it 3 of 3 on PR 145's head and 3 of 3 on main c5c04b7b: InnoDB raises a "
+    "real deadlock, resolved in about 20 milliseconds, and the caller receives **PDOException SQLSTATE[42000] 1305, 'SAVEPOINT trans2 does not exist'** — NOT the "
+    "deadlock. The mechanism: InnoDB rolls back the WHOLE transaction, so CustomerBalanceLock's DB::rollBack() at nesting level 2 issues ROLLBACK TO SAVEPOINT trans2 "
+    "against a savepoint that no longer exists, and that PDOException is thrown from INSIDE the catch block, so it escapes and the deadlock is never classified or "
+    "rethrown as one. AND THE TEST THAT RECORDED THIS MET PASSES FOR THE WRONG REASON: it FABRICATES the QueryException and throws it from the closure, so the savepoint "
+    "still exists and the rollback succeeds. A fabricated exception on SQLite is not evidence about a deadlock on InnoDB. "
+    "NO MONEY IS LOST OR DUPLICATED BY THIS — the reviewer measured final balances 110.00 / 210.00 with the loser's first credit correctly undone by InnoDB's full "
+    "rollback, identical on main — so this is a correctness-of-classification defect, not a money defect. The two callers that run inside an outer transaction (the "
+    "admin and vendor 'return the edited order's amount to the wallet' paths) both roll back on Throwable, so the escaping exception IS handled; what fails is the "
+    "promise that a deadlock is recognisable as one. MET needs the rollback to survive a real engine's full rollback — or the criterion rewritten to claim only what a "
+    "fabricated exception can prove, which is much less than it says.")
+
+CRITERIA.setdefault('E-09', {})[0] = ('MET', "STAYS MET, and its WORDING IS NOW OBSOLETE IN THE RIGHT DIRECTION, 2026-11-21. The criterion says 'ten simultaneous debits or "
+    "credits through each of THE FOUR wallet writers'. There are no longer four. PR 145 (draft, gcc/p0-wallet-one-locked-writer, head 095d537f, STACKED ON PR 9 rather "
+    "than reimplementing its lock) collapses all four copies into ONE writer, app/Services/Customer/CustomerWalletWriter.php, which is now the only code that reads or "
+    "writes users.wallet_balance and the only code that writes wallet_transactions. All four method bodies are DELETED, all 20 call sites rewired one for one, and a "
+    "guard (tests/Unit/Wallet/OneWalletWriterTest.php) was verified by the reviewer to go RED on origin/main — 7 tests, 6 failures and 1 error, naming every copy and "
+    "every call site. So the property holds more strongly than the criterion asks: through one writer, not four. "
+    "THE DEFECT THAT MADE THIS NECESSARY, measured by the reviewer on main INDEPENDENTLY and in both directions: main c5c04b7b loses a credit on 20 RUNS OF 20, with one "
+    "identical message every time ('Failed asserting that 450.0 matches expected 550.0'), and ten credits left 450.00 where 1350.00 was owed with all ten ledger rows "
+    "reading 450.0. It is a PROPERTY, not a coin flip. PR 145's head passes 20 of 20 under load, with both loops running concurrently on the same engine. The "
+    "arrangement is deterministic by design: a third process holds the customer's row and will not release it until the engine's own process list shows both credits "
+    "stopped at a statement that cannot pass a locked row. "
+    "A SECOND MONEY DEFECT CLOSED IN THE SAME SLICE: the wallet_transactions row's balance omitted the top-up bonus while the account included it, so for a bonused "
+    "add_fund the row disagreed with the account. The reviewer's 92-case differential dump gives 0 configurations disagreeing on the head against 10 on main, with "
+    "reconciliation through admin_bonus holding across the boundary, and the ACCOUNT balance identical in all six bonus cases — only the row was wrong, and only the row "
+    "changed. 68 of the 92 cases are byte-identical; of the 24 that differ, 6 are the declared fix, 8 are (copy, type) pairs NO LIVE CALLER REACHES, 3 are a missing "
+    "customer (main raised a 500, the head returns false and writes nothing) and 7 are degenerate rate configurations. "
+    "THREE THINGS FOR THE OWNER, each measured, none invented. (1) THE TWO LOYALTY CONVERSIONS DISAGREE AND BOTH WERE DELIBERATELY PRESERVED: at a session rate of 2, "
+    "1000 points credit 5.00 ON THE WEB and 10.00 IN THE API, because the web converts localToDefaultCurrency(loyaltyPointToLocalCurrency(p)) and the API computes "
+    "(p / exchange_rate) * Convert::default(1). They agree at rate 1. Settling it changes what one of the two paths pays a customer, which is not a lane's call. "
+    "(2) THE WALLET HISTORY IS NOW MIXED: rows written from here carry the corrected balance while older bonused rows keep the understated one, and the customer Flutter "
+    "app reads that field directly (lavkooapp lib/features/wallet/domain/models/wallet_transaction_model.dart:125), so the mixed history is visible to customers, not "
+    "only on the admin screen. No app release is needed, because no response shape changed. (3) IF THE SYSTEM DEFAULT CURRENCY'S OWN exchange_rate IS SET TO 0, the head "
+    "posts an UNCONVERTED debit or credit on four live paths where main raised DivisionByZeroError and wrote nothing — at the Saudi default a 3.75x error with a row "
+    "written. Three of the four old copies already behaved this way, so the convergence is defensible, but it is a misconfiguration the platform should refuse rather "
+    "than absorb. "
+    "STILL UNLOCKED AND OUT OF THIS SLICE'S SCOPE, confirmed by the reviewer: loyalty_point has TWO read-then-write writers with no row lock, app/Utils/CustomerManager."
+    "php:65 and app/Repositories/LoyaltyPointTransactionRepository.php:150 — the same defect class on a different column, and the reason criterion [1] of this "
+    "requirement should not be read as settled for points merely because the wallet is. "
+    "THE REQUIREMENT'S OWN STATE LABEL CONTRADICTED ITSELF and the correction to criterion [2] resolves it: it read INTEGRATED AND TESTED while its own field (5) says no "
+    "tree holds PR 9, 10 and 14 together and field (3) says main still has four unlocked wallet writers. The reviewer found the contradiction, declined to change the "
+    "record on its own evidence because the record is mine, and it was right to.")
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
