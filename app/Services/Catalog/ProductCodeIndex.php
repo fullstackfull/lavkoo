@@ -29,8 +29,10 @@ use Illuminate\Support\Facades\Schema;
  * read them as two. The index is therefore the stricter of the pair, never the looser; `ProductCodeReadiness` groups with the same
  * collation, so a pair the index would refuse is counted by the report before it is applied.
  *
- * Nothing here is applied by deploying code: `blockers()` is read-only and the migration refuses to create an index the live data
- * would reject rather than touch a row to make one fit.
+ * **What applies it.** `blockers()` is read only. The `2026_12_12_100000` migration is gated on the country-scoped codes switch, because
+ * `php artisan migrate` is this project's upgrade step and an index this refuses would otherwise abort the whole run; an installation that
+ * already migrated with the switch off applies the indexes with `php artisan gcc:catalog:code-readiness --apply`. Either way `create()`
+ * refuses to build an index the live data would reject rather than touch a row to make one fit.
  */
 final class ProductCodeIndex
 {

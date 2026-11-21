@@ -2,6 +2,8 @@
 
 namespace App\Console\Commands;
 
+use App\Services\Catalog\ProductCodeIndex;
+use App\Services\Catalog\ProductCodeIndexBlocked;
 use App\Services\Catalog\ProductCodeReadiness;
 use Illuminate\Console\Command;
 
@@ -9,9 +11,9 @@ class CatalogCodeReadinessCommand extends Command
 {
     private const LIST_LIMIT = 50;
 
-    protected $signature = 'gcc:catalog:code-readiness';
+    protected $signature = 'gcc:catalog:code-readiness {--apply : create the unique indexes the report describes, when the catalogue accepts them}';
 
-    protected $description = 'Read-only report before the country-scoped SKU and barcode switch is turned on: products per country, codes held twice inside one country, codes shared by countries, and the sites that still read a code as one product. Exits 1 when the catalogue is not ready';
+    protected $description = 'Report before the country-scoped SKU and barcode switch is turned on: products per country, codes held twice inside one country, codes shared by countries, and the sites that still read a code as one product. Read only unless --apply is given. Exits 1 when the catalogue is not ready';
 
     public function handle(ProductCodeReadiness $readiness): int
     {
@@ -32,9 +34,42 @@ class CatalogCodeReadinessCommand extends Command
         $this->printShared($report['across_countries']);
         $this->printIndexes($report['indexes']);
         $this->printSites($report['sites'], $report['survey']);
+
+        if ($this->option('apply') && !$this->applyIndexes()) {
+            return self::FAILURE;
+        }
+
         $this->line($report['ready'] ? 'Ready: nothing in the catalogue blocks the switch.' : 'Not ready: fix what is listed above, then run this again.');
 
         return $report['ready'] ? self::SUCCESS : self::FAILURE;
+    }
+
+    /**
+     * Creates the indexes the report has just described. It is how an installation that already ran the 2026_12_12_100000 migration while
+     * the switch was off applies them: that migration is recorded and will not run again, and it is gated so that a catalogue holding a
+     * duplicate cannot abort an upgrade. The refusal is the same one, and no row is changed to make an index fit either.
+     */
+    private function applyIndexes(): bool
+    {
+        foreach (ProductCodeIndex::kinds() as $kind) {
+            if (ProductCodeIndex::applied($kind)) {
+                $this->line("  {$kind}: already applied.");
+
+                continue;
+            }
+
+            try {
+                ProductCodeIndex::create(kind: $kind);
+            } catch (ProductCodeIndexBlocked $blocked) {
+                $this->error($blocked->getMessage());
+
+                return false;
+            }
+
+            $this->line("  {$kind}: applied.");
+        }
+
+        return true;
     }
 
     /** @param array<string, mixed> $report */
@@ -101,7 +136,7 @@ class CatalogCodeReadinessCommand extends Command
                 $index['applied']
                     ? 'applied'
                     : ($index['blocking_groups'] === 0
-                        ? 'not applied; the data would accept it (run the 2026_12_12_100000 migration)'
+                        ? 'not applied; the data would accept it (run this command again with --apply)'
                         : 'not applied; ' . $index['blocking_groups'] . ' value(s) held twice inside one country block it — an owner decision, listed above'),
                 $index['absent_values'],
                 $index['kind'],

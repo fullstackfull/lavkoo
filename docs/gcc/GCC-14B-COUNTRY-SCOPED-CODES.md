@@ -241,7 +241,9 @@ that the default storefront does not move them.
    block: it is what the switch allows, and none is expected before it is on.
 4. Decide the open points below, in particular which of the open sites the owner accepts (D1 partial, G9 deferred).
 5. Set `GCC_COUNTRY_SCOPED_CODES=true`, run `php artisan config:clear` and `php artisan cache:clear` (product caches).
-6. Check: add a product with a code that exists in another country, once on the admin form and once through the seller app; scan a code that two countries
+6. Run `php artisan gcc:catalog:code-readiness --apply` to create the two unique indexes (slice 3 below). It refuses, and changes nothing, while a
+   country still holds a value twice, so step 3 has to be clean first.
+7. Check: add a product with a code that exists in another country, once on the admin form and once through the seller app; scan a code that two countries
    hold with and without `country=`.
 
 **Do not turn it off again once two countries hold a product of the same code.** Off, the un-narrowed sites above pick one of the twins again, silently
@@ -274,16 +276,38 @@ shipped dump) the index reads `A1` and `a1` as one value while the gates, which 
 stricter of the pair, never the looser. `ProductCodeReadiness` groups with the same collation, so a pair the index would refuse is counted by the
 report before anything is applied.
 
-**Nothing is applied by deploying the code.** `php artisan gcc:catalog:code-readiness` is read only and now names each index, whether it is applied,
-how many values block it, and how many rows are outside it because they have no value. The `2026_12_12_100000_add_country_unique_codes_to_products`
-migration creates nothing unless `products.storefront_country` is there, and `ProductCodeIndex::create()` **refuses — writing nothing — when the live
-catalogue holds a value twice inside one country**. No row is ever deleted, merged or edited to make an index fit: which of a pair of duplicates to
-keep is the owner's decision, taken with the report in hand. An operator who meets the refusal has lost nothing, because the gates refuse the same
-duplicates whether or not the index exists.
+**What applies it, and why it is gated.** `php artisan migrate` is this project's documented upgrade step and
+`2026_12_12_100000_add_country_unique_codes_to_products` is an ordinary migration with no path exclusion and no custom migrator, so without a gate
+**deploying this branch is what applies the index**. Measured on MariaDB 10.11.14 against a catalogue holding ONE in-country duplicate, with the
+switch off: `ProductCodeIndex::create()` refuses, the exception escapes the command, `php artisan migrate` **exits 1, writes nothing to the
+`migrations` table, and the migration queued behind it never runs** (a second migration in the same run did not create its table). A slice that
+ships dormant must not be able to stop an upgrade that way, so `up()` creates nothing while `gcc.catalog.country_scoped_codes` is off. With the
+gate, the same run exits 0, records both migrations, runs the later one and creates no index.
 
-Rollback: `down()` drops the indexes (and the generated columns on MySQL and MariaDB). Nothing depends on either, and the gates go on refusing what
-they refused. A rehearsal on a copy of the real data is still the right order of work: the report says whether the index *can* be created, not how
-long creating it will take on a table of that size.
+The index is therefore applied by one of two paths:
+
+- a fresh installation that migrates with the switch already on gets it from the migration;
+- an installation that migrated while the switch was off — the migration is recorded and will not run again — applies it with
+  **`php artisan gcc:catalog:code-readiness --apply`**. That is the same refusal: measured on MariaDB, with one duplicate present it exits 1, creates
+  no index and leaves both rows; with the duplicate gone it creates `products_country_code_unique` and `products_country_barcode_unique` and exits 0.
+
+Without `--apply` the command is still read only, and it names each index, whether it is applied, how many values block it, and how many rows are
+outside it because they have no value. No row is ever deleted, merged or edited to make an index fit: which of a pair of duplicates to keep is the
+owner's decision, taken with the report in hand. An operator who meets the refusal has lost nothing, because the gates refuse the same duplicates
+whether or not the index exists.
+
+**What a live index does to a write that slips past the gates.** The constraint is the last refusal, and it refuses as the database refuses: a
+`1062 Duplicate entry` inside a `QueryException`. **No product writer in this repository catches it.** `ProductService::addProduct`/`updateProduct`,
+the admin, vendor and both seller-app product controllers, the bulk import and `M5aznProductImporter` all write without a duplicate-key handler, so
+a 1062 that reaches one of them surfaces as an unhandled 500 (or the API's exception answer), not as a field error. The only duplicate-key handlers
+in the application are elsewhere and do not cover products: `MyFatoorah\PaymentInitiationService`, `PaymentVerificationService`, `WebhookProcessor`,
+`RefundService` (payment rows) and `SalesChannels\Dispatch\ChannelOrderMaterializer` (channel orders). In practice the validation gates of slices 1
+and 2 refuse the same pair first on every one of those paths, so a 1062 means a path that skipped validation or two writes racing; it is correct that
+it fails loudly rather than storing the duplicate, but it is an unhandled 500, and turning a 1062 on these two indexes into a field error is open.
+
+Rollback: `down()` drops the indexes (and the generated columns on MySQL and MariaDB); it is **not** gated, so a rollback is never a silent no-op.
+Nothing depends on either, and the gates go on refusing what they refused. A rehearsal on a copy of the real data is still the right order of work:
+the report says whether the index *can* be created, not how long creating it will take on a table of that size.
 
 ## The seller POS scan (C1)
 

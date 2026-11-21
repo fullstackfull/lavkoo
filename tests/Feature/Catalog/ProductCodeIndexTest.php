@@ -28,6 +28,8 @@ class ProductCodeIndexTest extends TestCase
         parent::setUp();
 
         $this->buildCodeScopeProducts();
+        // The index migration is gated on the switch, so every test that applies it through the migration turns the switch on first.
+        $this->scopeCodesByCountry();
     }
 
     protected function tearDown(): void
@@ -149,6 +151,67 @@ class ProductCodeIndexTest extends TestCase
 
         $this->assertFalse(ProductCodeIndex::applied('code'));
         $this->assertSame(2, DB::table('products')->count(), 'no row may be deleted or merged to make an index fit');
+    }
+
+    /**
+     * The migration is gated because `php artisan migrate` is this project's upgrade step. Measured on MariaDB 10.11.14 with the gate off and
+     * one in-country duplicate: migrate exits 1, nothing is recorded in the migrations table, and a later pending migration never runs. A
+     * branch that ships dormant must not be able to stop an upgrade that way.
+     */
+    public function test_the_migration_creates_nothing_while_the_switch_is_off(): void
+    {
+        $this->scopeCodesByCountry(on: false);
+
+        $this->runIndexMigration();
+
+        $this->assertFalse(ProductCodeIndex::applied('code'));
+        $this->assertFalse(ProductCodeIndex::applied('barcode'));
+    }
+
+    public function test_the_migration_does_not_abort_an_upgrade_when_a_country_holds_a_code_twice(): void
+    {
+        $this->scopeCodesByCountry(on: false);
+        $this->insertRow(code: 'SKU-1', country: 'SA');
+        $this->insertRow(code: 'SKU-1', country: 'SA');
+
+        $this->runIndexMigration();
+
+        $this->assertFalse(ProductCodeIndex::applied('code'), 'nothing is applied, and nothing is thrown at the migrator either');
+        $this->assertSame(2, DB::table('products')->count());
+    }
+
+    public function test_the_command_applies_the_indexes_the_catalogue_accepts(): void
+    {
+        $this->insertRow(code: 'SKU-1', country: 'SA');
+
+        $this->artisan('gcc:catalog:code-readiness', ['--apply' => true])
+            ->expectsOutputToContain('code: applied.')
+            ->assertExitCode(0);
+
+        $this->assertTrue(ProductCodeIndex::applied('code'));
+        $this->assertTrue(ProductCodeIndex::applied('barcode'));
+    }
+
+    public function test_the_command_refuses_to_apply_an_index_the_catalogue_blocks_and_changes_nothing(): void
+    {
+        $this->insertRow(code: 'SKU-1', country: 'SA');
+        $this->insertRow(code: 'SKU-1', country: 'SA');
+
+        $this->artisan('gcc:catalog:code-readiness', ['--apply' => true])->assertExitCode(1);
+
+        $this->assertFalse(ProductCodeIndex::applied('code'));
+        $this->assertSame(2, DB::table('products')->count(), 'no row may be deleted or merged to make an index fit');
+    }
+
+    public function test_applying_twice_is_a_no_op(): void
+    {
+        $this->applyIndexes();
+
+        $this->artisan('gcc:catalog:code-readiness', ['--apply' => true])
+            ->expectsOutputToContain('code: already applied.')
+            ->assertExitCode(0);
+
+        $this->assertTrue(ProductCodeIndex::applied('code'));
     }
 
     public function test_the_migration_creates_nothing_before_the_country_column_exists(): void
