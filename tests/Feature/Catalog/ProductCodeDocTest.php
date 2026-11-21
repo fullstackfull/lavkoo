@@ -80,7 +80,7 @@ class ProductCodeDocTest extends TestCase
     {
         $doc = $this->doc();
 
-        foreach (['GCC_COUNTRY_SCOPED_CODES', 'gcc.catalog.country_scoped_codes', 'php artisan gcc:catalog:code-readiness', 'scan_code', 'No database index in this slice', 'Open owner decisions', 'Assumptions'] as $needle) {
+        foreach (['GCC_COUNTRY_SCOPED_CODES', 'gcc.catalog.country_scoped_codes', 'php artisan gcc:catalog:code-readiness', 'scan_code', 'The database index (slice 3)', 'Open owner decisions', 'Assumptions'] as $needle) {
             $this->assertStringContainsString($needle, $doc);
         }
     }
@@ -106,14 +106,28 @@ class ProductCodeDocTest extends TestCase
         return false;
     }
 
-    public function test_no_migration_of_this_tree_adds_a_unique_index_on_the_codes(): void
+    /**
+     * One migration, and only one, puts the unique index on the codes, and it is the guarded one: it goes through ProductCodeIndex, which
+     * refuses to create an index the live data would reject rather than touch a row to make one fit. A second migration writing its own
+     * `$table->unique('code')` would be the naive index this slice exists to avoid — it would read every product with no barcode as the
+     * same product.
+     */
+    public function test_only_the_guarded_migration_adds_a_unique_index_on_the_codes(): void
     {
+        $adders = [];
         foreach (glob(database_path('migrations/*.php')) as $migration) {
             $text = (string) file_get_contents($migration);
-            if (preg_match("/Schema::(?:table|create)\\(\\s*'products'/", $text) === 1) {
-                $this->assertFalse($this->addsAUniqueIndexOnACode($text), basename($migration) . ' adds a unique index on a product code: that is a later, owner-approved step (see the doc)');
+            $touchesProducts = preg_match("/Schema::(?:table|create)\\(\\s*'products'/", $text) === 1 || str_contains($text, 'ProductCodeIndex::');
+            if ($touchesProducts && ($this->addsAUniqueIndexOnACode($text) || str_contains($text, 'ProductCodeIndex::create'))) {
+                $adders[] = basename($migration);
             }
         }
+
+        $this->assertSame(['2026_12_12_100000_add_country_unique_codes_to_products.php'], $adders);
+
+        $guarded = (string) file_get_contents(database_path('migrations/2026_12_12_100000_add_country_unique_codes_to_products.php'));
+        $this->assertFalse($this->addsAUniqueIndexOnACode($guarded), 'the index must be created through ProductCodeIndex, never written out in the migration');
+        $this->assertStringContainsString('ProductCodeIndex::create(kind: $kind)', $guarded);
     }
 
     public function test_the_check_sees_every_way_of_writing_such_an_index(): void

@@ -29,6 +29,7 @@ final class ProductCodeReadiness
      *     across_countries: list<array{kind: string, value: string, countries: list<string>}>,
      *     sites: list<array{id: string, where: string, status: string, note: string}>,
      *     survey: array{covered: int, labelled: int, id_keyed: int, open: int},
+     *     indexes: list<array{kind: string, name: string, applied: bool, blocking_groups: int, absent_values: int}>,
      *     ready: bool
      * }
      */
@@ -46,6 +47,7 @@ final class ProductCodeReadiness
             'across_countries' => [],
             'sites' => ProductCodeSites::notCovered(),
             'survey' => ProductCodeSites::counts(),
+            'indexes' => [],
             'ready' => false,
         ];
         if (!$column) {
@@ -57,9 +59,28 @@ final class ProductCodeReadiness
         $kinds = $this->kindsOfCode();
         $report['within_country'] = $kinds->flatMap(fn (string $kind): array => $this->heldTwiceInOneCountry($kind))->all();
         $report['across_countries'] = $kinds->flatMap(fn (string $kind): array => $this->sharedByCountries($kind))->all();
+        $report['indexes'] = $kinds->map(fn (string $kind): array => $this->indexReadiness($kind))->all();
         $report['ready'] = $report['empty_country'] === 0 && $report['within_country'] === [];
 
         return $report;
+    }
+
+    /**
+     * Whether the database could take the unique index for one kind of code, counted with the database's own comparison — which on a
+     * case-insensitive collation reads 'A1' and 'a1' as one value, so it can block where the PHP gates would not. Read only: it creates
+     * nothing. `absent_values` is the rows the index leaves out (no code, or an empty one), which is why it does not collapse them.
+     *
+     * @return array{kind: string, name: string, applied: bool, blocking_groups: int, absent_values: int}
+     */
+    private function indexReadiness(string $kind): array
+    {
+        return [
+            'kind' => $kind,
+            'name' => ProductCodeIndex::indexName($kind),
+            'applied' => ProductCodeIndex::applied($kind),
+            'blocking_groups' => ProductCodeIndex::blockers($kind),
+            'absent_values' => DB::table(self::TABLE)->where(static fn ($query) => $query->whereNull($kind)->orWhere($kind, ''))->count(),
+        ];
     }
 
     /** @return Collection<int, string> the columns that hold a lookup value: the barcode column is part of the baseline schema, but two services guard it, so it is not assumed */

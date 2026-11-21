@@ -30,6 +30,7 @@ class CatalogCodeReadinessCommand extends Command
         $this->printEmptyCountry($report['empty_country']);
         $this->printHeldTwice($report['within_country']);
         $this->printShared($report['across_countries']);
+        $this->printIndexes($report['indexes']);
         $this->printSites($report['sites'], $report['survey']);
         $this->line($report['ready'] ? 'Ready: nothing in the catalogue blocks the switch.' : 'Not ready: fix what is listed above, then run this again.');
 
@@ -81,6 +82,31 @@ class CatalogCodeReadinessCommand extends Command
 
         $this->line('Shared by more than one country (expected none before the switch is on; it is what the switch allows):');
         $this->printLimited(array_map(static fn (array $row): string => sprintf('  %-8s %s (%s)', $row['kind'], $row['value'], implode(', ', $row['countries'])), $rows));
+    }
+
+    /**
+     * Whether the database itself could refuse a duplicate. The index leaves out the rows that have no value, so those never block it;
+     * what blocks it is one country holding one real value twice, and no row is ever changed here to make one fit.
+     *
+     * @param list<array{kind: string, name: string, applied: bool, blocking_groups: int, absent_values: int}> $indexes
+     */
+    private function printIndexes(array $indexes): void
+    {
+        $this->line('The unique index the database would refuse duplicates with:');
+        foreach ($indexes as $index) {
+            $this->line(sprintf(
+                '  %-8s %-34s %s (%d row(s) have no %s and are outside the index)',
+                $index['kind'],
+                $index['name'],
+                $index['applied']
+                    ? 'applied'
+                    : ($index['blocking_groups'] === 0
+                        ? 'not applied; the data would accept it (run the 2026_12_12_100000 migration)'
+                        : 'not applied; ' . $index['blocking_groups'] . ' value(s) held twice inside one country block it — an owner decision, listed above'),
+                $index['absent_values'],
+                $index['kind'],
+            ));
+        }
     }
 
     /**

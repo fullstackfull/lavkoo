@@ -206,12 +206,42 @@ that the default storefront does not move them.
 (the seller POS scan takes the lowest id), and the global gates refuse to edit either of them. The readiness command's "shared by countries" list is the
 list of what would be exposed.
 
-### No database index in this slice
+### The database index (slice 3)
 
-Uniqueness stays a validation rule, as it is today: there is no unique index on `products.code` or `products.barcode`. A composite unique index
-`(storefront_country, code)` (and one for the barcode) is a **later, owner-approved step**: existing data may hold duplicates inside a country (the
-readiness command finds them), the column is `CHAR(2) ascii_bin NOT NULL` while `code` carries the table's collation, and an index needs a rollback plan
-(drop the index; nothing else depends on it) and a rehearsal on a copy of the real data. A test pins that no migration of this tree adds a unique index on a product's code or barcode.
+The gates of slices 1 and 2 are the first refusal. The index is the last one, and it holds for a path that never reaches a form — a console
+command, a queue job, an import written next year — and for two requests that pass validation at the same instant.
+
+`App\Services\Catalog\ProductCodeIndex` owns it. Two indexes, `products_country_code_unique` and `products_country_barcode_unique`, each over
+`(storefront_country, <the code>)`.
+
+**The rule for an absent code: uniqueness holds among non-empty values only.** Most of a real catalogue has no barcode, and a plain unique index
+reads every one of those rows as the same product and refuses all but the first. NULL and `''` are both "this product has no barcode", so both are
+left out of the index:
+
+| Engine | How the rule is written |
+|---|---|
+| MariaDB, MySQL | no partial index exists, so the index is laid over a VIRTUAL generated column, `NULLIF(code, '')`. Adding a virtual column rewrites no rows, and a unique index skips its NULLs. |
+| SQLite, PostgreSQL | the same rule written directly: `CREATE UNIQUE INDEX ... WHERE code IS NOT NULL AND code <> ''`. |
+
+Measured on MariaDB 10.11.14 and on SQLite: many products of one country may have no code and no barcode at all, or an empty one, or one of each;
+a real value repeated inside one country is refused; the same value in two countries is accepted; and the code index and the barcode index do not
+constrain each other (`ProductCodeIndexTest`).
+
+**The index compares as the column's collation says, not as PHP does.** On a table whose collation is case-insensitive (`latin1_swedish_ci` in the
+shipped dump) the index reads `A1` and `a1` as one value while the gates, which compare in PHP, read them as two. The index is therefore the
+stricter of the pair, never the looser. `ProductCodeReadiness` groups with the same collation, so a pair the index would refuse is counted by the
+report before anything is applied.
+
+**Nothing is applied by deploying the code.** `php artisan gcc:catalog:code-readiness` is read only and now names each index, whether it is applied,
+how many values block it, and how many rows are outside it because they have no value. The `2026_12_12_100000_add_country_unique_codes_to_products`
+migration creates nothing unless `products.storefront_country` is there, and `ProductCodeIndex::create()` **refuses — writing nothing — when the live
+catalogue holds a value twice inside one country**. No row is ever deleted, merged or edited to make an index fit: which of a pair of duplicates to
+keep is the owner's decision, taken with the report in hand. An operator who meets the refusal has lost nothing, because the gates refuse the same
+duplicates whether or not the index exists.
+
+Rollback: `down()` drops the indexes (and the generated columns on MySQL and MariaDB). Nothing depends on either, and the gates go on refusing what
+they refused. A rehearsal on a copy of the real data is still the right order of work: the report says whether the index *can* be created, not how
+long creating it will take on a table of that size.
 
 ## The seller POS scan (C1)
 
