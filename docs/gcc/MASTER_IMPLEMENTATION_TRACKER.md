@@ -15,7 +15,7 @@ As of 2026-11-21. Generated from the independent assessment of every requirement
 | Axis | Requirements | Criteria | MET | CODED | MISSING | Code completion | Proven by tests | Release readiness | Verified |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---|
 | [A. Six-country base and customer identity](tracker/axis-a-six-country-base-and-customer-identity.md) | 37 | 173 | 91 | 24 | 58 | 66% | 53% | 9% | all |
-| [B. Catalogue and products](tracker/axis-b-catalogue-and-products.md) | 18 | 91 | 43 | 19 | 29 | 68% | 47% | 0% | all |
+| [B. Catalogue and products](tracker/axis-b-catalogue-and-products.md) | 18 | 91 | 43 | 27 | 21 | 77% | 47% | 0% | all |
 | [C. Inventory and fulfillment](tracker/axis-c-inventory-and-fulfillment.md) | 18 | 94 | 65 | 9 | 20 | 79% | 69% | 30% | all |
 | [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 179 | 87 | 32 | 60 | 66% | 49% | 8% | all |
 | [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 88 | 37 | 9 | 42 | 52% | 42% | 7% | all |
@@ -27,7 +27,7 @@ As of 2026-11-21. Generated from the independent assessment of every requirement
 | [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 104 | 40 | 26 | 38 | 63% | 38% | 3% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 45 | 18 | 31 | 67% | 48% | 7% | all |
 | [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 311 | 105 | 119 | 87 | 72% | 34% | 3% | all |
-| **All axes (pooled)** | **359** | **1753** | **821** | **365** | **567** | **68%** | **47%** | **8%** | |
+| **All axes (pooled)** | **359** | **1753** | **821** | **373** | **559** | **68%** | **47%** | **8%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -51,7 +51,7 @@ Chosen from the table of requirements, not from the pull request list: each one 
 
 - **Blocks:** orders with the right currency; prices that are the same in the app and on the web; wallets, coupons, shipping and tax that agree with the order.
 - **Where it stands:** GCC-05 (draft PR 87, slices 1 to 4 and most of slice 5, off by default) makes a non-default storefront single-currency in its own currency with the right decimals, records the storefront and currency on the order, refuses a gateway that cannot take that currency, makes the admin product screens work in the product's country, gives the storefront its own minimum order and free-delivery threshold (never the platform's riyal figure), prices its shipping from the product alone, lets the panel edit of an order read all of these in the order's money, and gives a coupon its storefront (stored, narrowed on every customer finder, and typed in the storefront's currency through the admin routes). Still reading the platform's one currency: the admin coupon form, list and export, coupon budgets, the tax snapshot, refunds in the original currency, channel prices, invoices, e-mails and exports, and both apps' other formatters (the customer app has the price formatter and the currency it sends, lavkooapp #8 and #9).
-- **Measured:** 20 requirements (2 not started), 100 criteria of which 46 MISSING (46%) as the assessors read it; slices 3 and 4 of PR 87 came after and are in the cards as updates. Requirements: B-02, B-03, D1-05, D1-06, D1-07, D1-10, D2-05, D2-10, E-16, H1-08, H1-09, H1-14, H2-08, I1-12, I1-14, J-05, K-10, L-08, M2-07, C-15.
+- **Measured:** 20 requirements (2 not started), 100 criteria of which 44 MISSING (44%) as the assessors read it; slices 3 and 4 of PR 87 came after and are in the cards as updates. Requirements: B-02, B-03, D1-05, D1-06, D1-07, D1-10, D2-05, D2-10, E-16, H1-08, H1-09, H1-14, H2-08, I1-12, I1-14, J-05, K-10, L-08, M2-07, C-15.
 - **First executable step:** Step 9 of the GCC-05 slice 5 plan on PR 87: the country select and currency labels on the admin coupon form, and the coupon list, quick view and export in the coupon's own money; then the readiness lines (step 10) and the tax and refund snapshot.
 
 ### Gap 2. Wallet and loyalty are one global balance
@@ -107,7 +107,6 @@ Executable on an isolated branch without production access, ordered by the prior
 | P0 | [M1-15](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1 | Register of deferred risks DR-1 to DR-5: open, not remediated | Link DEFERRED_RISKS.md from docs/gcc/README.md in the pull request that brings the documents to main (the docs branch is not a pull request and main is untouched). |
 | P0 | [M1-17](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1 | Saudi behaviour is unchanged while the GCC switches are off | Once the combined tree exists: run it with every switch off and add a Saudi golden-master pack (home, product list, cart, checkout, payment callback, order status, wallet) pinned byte for byte on SQLite, MySQL 8 and MariaDB; leave |
 | P0 | [M1-18](tracker/axis-m-security-tests-and-deployment.md) | IN PROGRESS | 1 | Engineering safety rules: classify, preserve, extend, isolate, verify; no direct SQL; no w | For each GCC switch (storefronts, country-scoped codes, staff scopes, platform admin) write down what turning it off after use does, add tests that turn it off with two countries' data present and assert no cross-country exposure  |
-| P1 | [B-17](tracker/axis-b-catalogue-and-products.md) | NOT STARTED | 5 | SEO, canonical and hreflang per storefront: meta, structured data, sitemap | Stack on #37: a StorefrontUrl helper (country path plus route) used by ProductSeoSupplementComposer (canonical, hreflang), StructuredDataBuilder (priceCurrency) and SiteMapController (one sitemap per active storefront through Site |
 | P1 | [D1-06](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 5 | Order currency snapshot on orders, lines and money rows | Slice 5 of PR 87: currency columns on order lines and money rows (payments, refunds, transactions), invoices, e-mails and exports reading the order's own record, and the Saudi backfill after the production currency model is read b |
 | P1 | [E-07](tracker/axis-e-wallets-loyalty-and-financial-records.md) | NOT STARTED | 5 | Saudi balances migrated into per-market accounts without loss | Write the migration pack as code only: expand-only migration, wallet:backfill-saudi-accounts --dry-run that exits unless wallet:reconcile reports zero unexplained, shadow dual-write behind GCC_MARKET_WALLETS, per-market read switc |
 | P1 | [E-13](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 5 | Refunds, return amounts and cancellations paid to the wallet | Branch on PR 15 once the owner approves: conditional UPDATE claims inside the customer lock for RF-01, RF-03 and RF-04, refund id as reference, one transaction in updateRefundStatus, and un-skip the four RefundConcurrencyTest case |
@@ -119,6 +118,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | P1 | [E-14](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 4 | Loyalty redeem and earn: atomic conversion, one formula, one rule | Branch on PR 10: add one canonical points-to-USD helper (LF-1) used by CustomerManager, CustomerTrait and the web preview, one earn-rule service for admin, vendor, seller API and delivery-man deliveries, and a refund_order floor p |
 | P1 | [E-15](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 4 | Referral rewards: once, to the referrer, one amount | On a branch from main merge PR 29 with PR 55 (both change OrderManager.php) and run the Referral, Address and Concurrency groups; once D15, D16 and D19 are decided, implement them with one test per path; credit through the market  |
 | P1 | [E-V1](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 4 | Wallet top-up (add fund) by gateway and by admin, the 'add' sites of the plan line 368 rev | See the criteria: the unmet ones name the file and the line that has to change. |
+| P1 | [A1-02](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 3 | Each market opens and closes on its own, with a safe way to switch one off | Branch gcc/p1-storefront-activation on #64: table storefront_activations read by StorefrontResolver::fromConfig (config is the fallback while the table is absent) and commands gcc:storefront:activate and :deactivate that refuse th |
 
 ## 7. Index of all requirements
 
@@ -172,7 +172,7 @@ Executable on an isolated branch without production access, ordered by the prior
 |---|---|---|---|
 | [B-01](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 4/0/2 | Country-owned products: each product row belongs to one country and a storefront shows only its own |
 | [B-02](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 1/2/1 | Independent local prices: each store prices its own copy, with no conversion or sync between countries |
-| [B-03](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 2/0/3 | Local price and availability display: a storefront shows its own market currency, decimals and stock |
+| [B-03](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 2/2/1 | Local price and availability display: a storefront shows its own market currency, decimals and stock |
 | [B-04](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 5/0/1 | SKU and barcode unique inside a country: form gates, seller APIs and importers (GCC-14b) |
 | [B-05](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 4/1/1 | SKU and barcode lookups are country-aware: POS scan, channel matcher, routing rules, provider pickers |
 | [B-06](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 2/0/2 | Variants: variant SKU, price and stock follow the product's country |
@@ -183,10 +183,10 @@ Executable on an isolated branch without production access, ordered by the prior
 | [B-11](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 2/2/0 | Central brands: one brand table for all countries |
 | [B-12](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 0/2/2 | Reusable base attributes plus local attributes per country or store |
 | [B-13](tracker/axis-b-catalogue-and-products.md) | NOT STARTED | 4/1/0 | Show or hide a category or brand per store without deleting its central origin |
-| [B-14](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 4/1/1 | Search and filters follow the storefront |
+| [B-14](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 4/2/0 | Search and filters follow the storefront |
 | [B-15](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 5/0/0 | Banners per store |
 | [B-16](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 2/3/1 | Campaigns, deals and coupon display per store |
-| [B-17](tracker/axis-b-catalogue-and-products.md) | NOT STARTED | 0/0/5 | SEO, canonical and hreflang per storefront: meta, structured data, sitemap |
+| [B-17](tracker/axis-b-catalogue-and-products.md) | NOT STARTED | 0/5/0 | SEO, canonical and hreflang per storefront: meta, structured data, sitemap |
 | [B-18](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 0/2/3 | Old product URLs, redirects, app links and deep links keep working next to the country paths |
 
 ### C. Inventory and fulfillment
