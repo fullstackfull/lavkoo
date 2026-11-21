@@ -614,7 +614,7 @@ class StorefrontMoneyAndSeoTest extends TestCase
      * Warmed for real as one market and read for real as the other, in ONE store with no flush between the two legs, both ways round.
      * A test that clears the cache before each leg proves only that the two markets compute different numbers; it never puts one
      * market's entry in front of the other, which is the whole property. Each leg therefore carries a vacuity check: the warming
-     * market's entry is still in the store when the asking market reads it past, and a value under an unscoped key — one nothing
+     * market's entry is still in the store when the asking market reads past it, and a value under an unscoped key — one nothing
      * scopes — is read straight through from one market to the other, so a pass cannot come from a store that was empty anyway.
      *
      * The Saudi storefront's key is the plain key, by design, so the two markets' keys are the plain one and `storefront:KW:...`.
