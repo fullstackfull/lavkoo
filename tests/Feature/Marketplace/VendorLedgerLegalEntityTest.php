@@ -354,10 +354,12 @@ class VendorLedgerLegalEntityTest extends TestCase
             $this->ledger()->companyOfSeller(sellerId: self::SELLER),
             'the legacy mirror of VendorController::withdrawStatus passes exactly this',
         );
-        $this->assertStringContainsString(
-            'legalEntityId: $ledger->companyOfSeller(sellerId: $withdraw[\'seller_id\'])',
-            (string) file_get_contents((new \ReflectionClass(VendorController::class))->getFileName()),
-            'the legacy withdraw mirror is wired to it',
+        $source = (string) file_get_contents((new \ReflectionClass(VendorController::class))->getFileName());
+        $this->assertStringContainsString('$company = $ledger->companyOfSeller(sellerId: $withdraw[\'seller_id\'])', $source, 'the legacy withdraw mirror is wired to it');
+        $this->assertLessThan(
+            strpos($source, "->increment('withdrawn'"),
+            strpos($source, '$company = $ledger->companyOfSeller('),
+            'the company is read before the wallet moves: the two are not one transaction, so a read that threw between them would debit a wallet and record no payout',
         );
     }
 

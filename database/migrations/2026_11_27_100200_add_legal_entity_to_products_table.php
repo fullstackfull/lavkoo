@@ -17,6 +17,10 @@ use Illuminate\Support\Facades\Schema;
  * It is written by the admin product screens, from the company registered for the product's country, and read while legal entities are switched
  * on (GCC_LEGAL_ENTITIES, off by default). Nothing reads it while that switch is off.
  *
+ * It adds the column and never alters one: on an installation whose products table already carries `legal_entity_id` with a different type —
+ * a signed integer, a string, a narrower width — this migration sees the name, returns, and leaves that type in place without saying so. Check
+ * the column's type before running it on a database that is not a stock one.
+ *
  * The column is appended, without a position, so MySQL 8 and MariaDB 11.4 add it without rebuilding the table, and it carries no index: the
  * country column next to it was measured on 200,000 products and an index on it made the selective seller and category lists 5 to 15 times
  * slower (see 2026_11_25_100000_add_storefront_country_to_products). Add one only after reading the plans on real data.

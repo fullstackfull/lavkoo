@@ -776,6 +776,12 @@ class VendorController extends BaseController
         }
 
         if ($request['approved'] == 1) {
+            // A legacy withdraw names no order either, so it carries the company of the ledger rows it is mirrored against, and none while
+            // they name more than one. Read BEFORE the wallet moves: the wallet and the ledger mirror below are not one transaction, so a
+            // read that threw between them would leave a wallet already debited and no record of the payout on the ledger.
+            $ledger = app(\App\Services\Marketplace\VendorLedger::class);
+            $company = $ledger->companyOfSeller(sellerId: $withdraw['seller_id']);
+
             $this->vendorWalletRepo->getFirstWhere(params: ['seller_id' => $withdraw['seller_id']])->increment('withdrawn', $withdraw['amount']);
             $this->vendorWalletRepo->getFirstWhere(params: ['seller_id' => $withdraw['seller_id']])->decrement('pending_withdraw', $withdraw['amount']);
 
@@ -785,7 +791,6 @@ class VendorController extends BaseController
             // amount is stored in USD; the ledger is in base currency, so convert. Idempotent on the
             // withdraw-request id (VendorLedger::record dedupes on entry+reference). This can only lower
             // ledger withdrawable, never raise it, so it can never enable an over-payment.
-            $ledger = app(\App\Services\Marketplace\VendorLedger::class);
             $ledger->record(
                 sellerId: $withdraw['seller_id'],
                 entryType: \App\Models\VendorLedgerEntry::TYPE_PAYOUT,
@@ -794,9 +799,7 @@ class VendorController extends BaseController
                 referenceType: 'legacy_withdraw',
                 referenceId: $id,
                 description: 'Legacy withdraw request #' . $id . ' paid',
-                // A legacy withdraw names no order either, so it carries the company of the ledger rows it is mirrored against, and none
-                // while they name more than one.
-                legalEntityId: $ledger->companyOfSeller(sellerId: $withdraw['seller_id']),
+                legalEntityId: $company,
             );
 
             $this->withdrawRequestRepo->update(id: $id, data: $withdrawData);
