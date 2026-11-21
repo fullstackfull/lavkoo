@@ -59,6 +59,12 @@ class StorefrontMoneyAndSeoTest extends TestCase
         'resources/themes/default/auction/layouts/partials/_header.blade.php',
     ];
 
+    /**
+     * The currencies the switcher's own dropdown offers in this suite's world. It is part of the rendered region because the region is
+     * the page's, `@if` and all, rather than the one line that names the pick; nothing in this feature decides the list.
+     */
+    private const SWITCHER_DROPDOWN_CURRENCIES = 'USD SAR AED KWD QAR BHD OMR';
+
     /** A key no storefront scopes, for the vacuity check: what one market writes under it, another reads. */
     private const UNSCOPED_PROBE_KEY = 'gcc_test_unscoped_cache_probe';
 
@@ -121,11 +127,19 @@ class StorefrontMoneyAndSeoTest extends TestCase
         $this->assertStringContainsString('placeholder="SAR500"', $snapshot['rendered_price_filter']['warm']);
 
         // The currency switcher each theme header prints, pinned absolutely for the same reason: these too are live Saudi fields, and
-        // they still show the visitor their own pick, which is the whole of what the header has ever said about money.
-        $this->assertSame([
-            self::CURRENCY_SWITCHER_HEADERS[0] => '<span>SAR SAR</span>',
-            self::CURRENCY_SWITCHER_HEADERS[1] => 'SAR SAR',
-        ], $snapshot['rendered_currency_switchers']);
+        // they still show the visitor their own pick, which is the whole of what the header has ever said about money. The whole
+        // guarded region is rendered, so the operator's currency model decides whether it is there at all -- under the single-currency
+        // model the header offers no switcher, and that is as true today as it was before the markets existed.
+        $this->assertSame($currencyModel === 'multi_currency' ? [
+            self::CURRENCY_SWITCHER_HEADERS[0] => '<span>SAR SAR</span> ' . self::SWITCHER_DROPDOWN_CURRENCIES,
+            self::CURRENCY_SWITCHER_HEADERS[1] => 'SAR SAR ' . self::SWITCHER_DROPDOWN_CURRENCIES,
+        ] : [
+            self::CURRENCY_SWITCHER_HEADERS[0] => '',
+            self::CURRENCY_SWITCHER_HEADERS[1] => '',
+        ], array_map(
+            static fn (string $switcher): string => trim(preg_replace('/\s+/', ' ', strip_tags($switcher, '<span>'))),
+            $snapshot['rendered_currency_switchers'],
+        ));
 
         // No storefront address, no storefront alternates, no robots header, and the one sitemap the panel writes today.
         $this->assertSame('https://lavkoo.test/product/saudi-serum', $snapshot['canonical']);
@@ -262,19 +276,30 @@ class StorefrontMoneyAndSeoTest extends TestCase
         $this->assertStringContainsString('placeholder="KD0"', $filter);
         $this->assertStringNotContainsString('SAR', $filter);
 
-        // And the surface the pick is shown back to the visitor on, with the whole of the stale pick in the session as a visitor carries
-        // it. The theme headers printed that pick raw, so a Kuwaiti storefront read "SAR SAR" over a page of dinars; they name the
-        // market's money now, and a test called never may not sit beside a field that does.
+        // The other surface a stale pick could reach is the header's currency switcher, and the reason it cannot is structural rather
+        // than a matter of what the switcher prints: the override that puts a storefront currency in force forces `currency_model` to
+        // `single_currency`, and both headers wrap the switcher in `@if($currency_model == 'multi_currency')`. The two states are
+        // mutually exclusive, so a market trading in its own money offers no switcher at all.
+        //
+        // This renders the whole guarded region with the operator's model set to multi_currency -- the only setting under which the
+        // switcher could appear -- and with the entire stale pick in the session. It goes red the moment either half of that structure
+        // changes: if the override stops forcing the model, or if a header's guard is removed, the region renders and the session's
+        // 'SAR SAR' is back on a page of dinars.
+        $this->setBusinessSettings(['currency_model' => 'multi_currency']);
         session()->put('currency_code', 'SAR');
         session()->put('currency_symbol', 'SAR');
 
         $switchers = $this->inStorefrontKeepingTheVisitorsPick('KW', fn (): array => $this->renderedCurrencySwitchers());
 
         foreach ($switchers as $header => $switcher) {
-            $this->assertStringContainsString('KWD', $switcher, $header);
-            $this->assertStringContainsString('KD', $switcher, $header);
-            $this->assertStringNotContainsString('SAR', $switcher, $header);
+            $this->assertSame('', $switcher, $header . ' offers no currency switcher while this market trades in its own money');
         }
+
+        $this->assertSame(
+            'single_currency',
+            $this->inStorefrontKeepingTheVisitorsPick('KW', static fn (): string => (string) getWebConfig(name: 'currency_model')),
+            'the model the headers read is forced by the storefront currency, which is what empties the region above',
+        );
     }
 
     public function test_the_money_a_storefront_gives_its_app_is_the_money_its_pages_print(): void
@@ -888,8 +913,15 @@ class StorefrontMoneyAndSeoTest extends TestCase
     }
 
     /**
-     * The currency switcher each theme header prints, rendered from the header file itself along with that file's own imports. The rest
-     * of a header needs a whole request's worth of shared view data; the switcher is the one line of it this feature decides.
+     * The currency switcher each theme header prints — **its whole guarded region, verbatim**: the header's own
+     * `@php($currency_model = getWebConfig(...))`, its own `@if($currency_model == 'multi_currency')`, everything down to the matching
+     * `@endif`, with the file's own `@use` lines in front. The rest of a header needs a whole request's worth of shared view data.
+     *
+     * Nothing is reconstructed and no line is lifted out. An earlier version of this helper grepped the one line that mentions
+     * `currency_symbol` and rendered that alone, which **dropped the two lines of guard above it** — and a review then read "SAR SAR"
+     * off a Kuwaiti storefront from a string this helper had built. The page never emits it: the override that puts a storefront
+     * currency in force forces `currency_model` to `single_currency`, so the `@if` is false and the region renders nothing at all.
+     * Measured over all 16 cells of markets off/on x SA/KW x both currency models, on both headers.
      *
      * @return array<string, string>
      */
@@ -899,14 +931,42 @@ class StorefrontMoneyAndSeoTest extends TestCase
 
         foreach (self::CURRENCY_SWITCHER_HEADERS as $header) {
             $lines = explode("\n", file_get_contents(base_path($header)));
-            $switcher = preg_grep('/currency_symbol/', $lines);
-
-            $this->assertCount(1, $switcher, $header . ' prints its currency switcher on one line');
-
-            $switchers[$header] = trim(Blade::render(implode("\n", [...preg_grep('/^@use\(/', $lines), ...$switcher])));
+            $switchers[$header] = trim(Blade::render(implode("\n", [
+                ...preg_grep('/^@use\(/', $lines),
+                ...$this->guardedCurrencyRegionOf($header, $lines),
+            ])));
         }
 
         return $switchers;
+    }
+
+    /**
+     * The lines of one header from its currency-model assignment down to the matching `@endif`, inclusive.
+     *
+     * @param list<string> $lines
+     * @return list<string>
+     */
+    private function guardedCurrencyRegionOf(string $header, array $lines): array
+    {
+        $start = null;
+        foreach ($lines as $index => $line) {
+            if (str_contains($line, '@php($currency_model')) {
+                $start = $index;
+
+                continue;
+            }
+
+            if ($start !== null && trim($line) === '@endif') {
+                $region = array_slice($lines, $start, $index - $start + 1);
+
+                $this->assertCount(1, preg_grep('/@if\(\$currency_model/', $region), $header . ' guards its switcher on the currency model');
+                $this->assertCount(1, preg_grep('/currency_symbol/', $region), $header . ' prints its currency switcher inside that guard');
+
+                return $region;
+            }
+        }
+
+        $this->fail($header . ' has no guarded currency region');
     }
 
     /** The partial the product page includes, rendered through the real composer for the Saudi product. */
