@@ -69,6 +69,17 @@ class StorefrontMoneyAndSeoTest extends TestCase
     /** A key no storefront scopes, for the vacuity check: what one market writes under it, another reads. */
     private const UNSCOPED_PROBE_KEY = 'gcc_test_unscoped_cache_probe';
 
+    /**
+     * The money paths that read the visitor's currency pick, and how many reads each file holds. The count is part of the assertion: a read
+     * added to one of these files fails this test until somebody has looked at whether it is guarded.
+     */
+    private const PICK_READERS_ON_MONEY_PATHS = [
+        'app/Http/Controllers/Customer/PaymentController.php' => 3,
+        'app/Traits/OrderEditManager.php' => 1,
+    ];
+
+    private const PICK_READ = "session('currency_code')";
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -350,39 +361,81 @@ class StorefrontMoneyAndSeoTest extends TestCase
     }
 
     /**
-     * **The one session-currency reader on a money path that is NOT behind that guard.** `Web\WebController` line 638 writes
-     * `'bring_change_amount_currency' => session('currency_code')` straight into the order `generateOrder()` creates, on the
-     * cash-on-delivery checkout, with no currency-model condition around it — unlike `PaymentController` line 634, which writes the
-     * same field behind the guard. So for this one the session pick itself has to be right, and what makes it right is `loadCurrency()`:
-     * it keys off `getWebConfig('system_default_currency')`, which `override()` points at the market's own currency, and rewrites the
-     * session whenever that differs from the currency the session is carrying.
+     * **The other half of what keeps those four reads unreachable, and it is a structural fact rather than a behavioural one.** The test above
+     * proves what `override()` answers on a market that trades in its own money: `single_currency`, and that market's own currency. That is
+     * only half of the reason the four reads are never taken — the other half is that each of them really is inside
+     * `if (... currency_model ... multi_currency ...)` in the file that ships. Delete one of those `if`s and the market's own money would stop
+     * protecting that read, while the test above stays green, because it never looks at the controllers at all.
      *
-     * Measured here as a visitor reaches it: the whole of a Saudi pick in the session, `system_default_currency_info` included — which
-     * is what somebody who browsed the Saudi storefront and then opened Kuwait actually carries — then `loadCurrency()`, then the value
-     * that line would store.
+     * So this reads the shipped source of both files and asserts that every read of the pick on these paths is lexically inside such a block.
+     * **It proves structure, not behaviour**: it says the guard is there, not what a gateway would be handed if it were not, which would need
+     * a cart, a customer and a gateway on each of the four paths. It is labelled that way in `docs/gcc/B-17-STOREFRONT-MONEY-AND-SEO.md` too.
      *
-     * It goes red if `override()` stops pointing the default currency at the market, because the session would then keep the Saudi code
-     * and a Kuwaiti order would be stored with a Saudi currency on it.
+     * The detector is checked against source it is given rather than trusted: a guarded sample reports nothing, the same sample with the `if`
+     * removed reports the read, and the brace walk is required to balance over each real file, so a scan that drifted could not pass quietly.
      */
-    public function test_the_order_field_written_from_the_session_carries_this_markets_currency(): void
+    public function test_every_read_of_the_visitors_pick_on_a_money_path_is_inside_the_currency_model_guard(): void
     {
-        $this->openSixMarkets();
-        $this->setBusinessSettings(['currency_model' => 'multi_currency']);
+        $guarded = "<?php\nif (getWebConfig('currency_model') === 'multi_currency') {\n    \$pick = session('currency_code');\n}\n";
+        $this->assertSame(['reads' => 1, 'unguarded' => [], 'balanced' => true], $this->pickReadsIn($guarded), 'the detector accepts a guarded read');
+        $this->assertSame(
+            ['reads' => 1, 'unguarded' => [3], 'balanced' => true],
+            $this->pickReadsIn(str_replace("if (getWebConfig('currency_model') === 'multi_currency') {", 'if (true) {', $guarded)),
+            'and names an unguarded one, so a green result above is not vacuous',
+        );
 
-        $stored = $this->inStorefrontKeepingTheVisitorsPick('KW', function (): string {
-            $saudiRiyal = Currency::query()->where('code', 'SAR')->first();
-            session()->put('system_default_currency_info', $saudiRiyal);
-            session()->put('currency_code', 'SAR');
-            session()->put('currency_symbol', 'SAR');
-            session()->put('currency_exchange_rate', $saudiRiyal->exchange_rate);
+        foreach (self::PICK_READERS_ON_MONEY_PATHS as $relativePath => $expectedReads) {
+            $found = $this->pickReadsIn((string) file_get_contents(base_path($relativePath)));
 
-            loadCurrency();
-
-            return (string) session('currency_code');
-        });
-
-        $this->assertSame('KWD', $stored, 'the currency a Kuwaiti cash-on-delivery order would be stored with');
+            $this->assertTrue($found['balanced'], $relativePath . ': the brace walk did not balance, so this scan cannot be trusted');
+            $this->assertSame($expectedReads, $found['reads'], $relativePath . ': a read of the visitor\'s pick was added or removed here');
+            $this->assertSame([], $found['unguarded'], $relativePath . ': these lines read the visitor\'s pick outside the currency-model guard');
+        }
     }
+
+    /**
+     * Every read of the visitor's pick in one PHP source, and which of them are not inside an `if (... multi_currency ...) {` block, by a
+     * brace walk whose balance is reported so that a caller can refuse an untrustworthy scan.
+     *
+     * @return array{reads: int, unguarded: list<int>, balanced: bool} the line numbers of the unguarded reads
+     */
+    private function pickReadsIn(string $source): array
+    {
+        $guardDepths = [];
+        $depth = 0;
+        $reads = 0;
+        $unguarded = [];
+
+        foreach (explode("\n", $source) as $index => $line) {
+            if (str_contains($line, self::PICK_READ)) {
+                $reads++;
+                if ($guardDepths === []) {
+                    $unguarded[] = $index + 1;
+                }
+            }
+
+            $opensGuard = preg_match('/\bif\s*\(.*multi_currency.*\)\s*\{\s*$/', $line) === 1;
+            $depth += substr_count($line, '{') - substr_count($line, '}');
+
+            if ($opensGuard) {
+                $guardDepths[] = $depth;
+            }
+            while ($guardDepths !== [] && $depth < end($guardDepths)) {
+                array_pop($guardDepths);
+            }
+        }
+
+        return ['reads' => $reads, 'unguarded' => $unguarded, 'balanced' => $depth === 0];
+    }
+
+    /*
+     * **The one session-currency reader on a money path that is NOT behind that guard** is `Web\WebController`'s cash-on-delivery
+     * checkout, which writes `bring_change_amount_currency` into the order `generateOrder()` creates with no currency-model condition
+     * around it. A test lived here that put a stale Saudi pick in the session, called `loadCurrency()` itself and read the session back.
+     * It passed, and it proved nothing: **nothing on that route calls `loadCurrency()`**, so the call was the test arranging its own
+     * precondition. Driven end to end instead, the route stored the Saudi code on a Kuwaiti order — a real mislabel, now fixed at the
+     * controller and pinned on the route itself by {@see StorefrontCodOrderCurrencyTest}, which places a real order and reads the row.
+     */
 
     public function test_the_money_a_storefront_gives_its_app_is_the_money_its_pages_print(): void
     {
