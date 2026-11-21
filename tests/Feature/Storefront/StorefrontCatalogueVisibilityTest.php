@@ -421,17 +421,23 @@ class StorefrontCatalogueVisibilityTest extends TestCase
         $this->assertSame(0, DB::table(StorefrontVisibility::TABLE)->count());
     }
 
-    public function test_the_migration_can_run_twice_and_be_rolled_back(): void
+    public function test_the_migration_can_run_twice_and_be_rolled_back_twice(): void
     {
         $migration = $this->storefrontVisibilityMigration();
 
         $migration->down();
+        $migration->down();
         $this->assertFalse(Schema::hasTable(StorefrontVisibility::TABLE));
 
         $migration->up();
+        $migration->up();
         $this->assertTrue(Schema::hasTable(StorefrontVisibility::TABLE));
 
-        $migration->down();
+        StorefrontVisibility::flush();
+        $this->switchStorefrontsOn();
+        StorefrontVisibility::set(entityType: StorefrontVisibility::CATEGORY, entityId: self::MAPPED_CATEGORY, countries: ['KW']);
+        $this->assertSame(['KW'], StorefrontVisibility::storefrontsOf(entityType: StorefrontVisibility::CATEGORY, entityId: self::MAPPED_CATEGORY));
+
         $migration->down();
         $this->assertFalse(Schema::hasTable(StorefrontVisibility::TABLE));
     }

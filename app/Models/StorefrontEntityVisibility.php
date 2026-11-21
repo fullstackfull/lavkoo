@@ -30,8 +30,12 @@ class StorefrontEntityVisibility extends Model
     ];
 
     /**
-     * The mapping decides whether a reader narrows at all, so a row written anywhere — the service, a seeder, a test — makes the readers
-     * look again instead of answering from what the process learnt before the row existed.
+     * The mapping decides whether a reader narrows at all, so a row written through this model — by the service, a seeder or a test —
+     * makes the readers look again instead of answering from what the process learnt before the row existed.
+     *
+     * These events are the model's, not the table's: a row inserted straight onto the table with `DB::table()->insert()` fires nothing,
+     * and the readers keep the answer they learnt for up to {@see StorefrontVisibility} ANSWER_SECONDS. Write through this model, or
+     * through {@see StorefrontVisibility::set()}, or call {@see StorefrontVisibility::flush()} yourself.
      */
     protected static function boot(): void
     {

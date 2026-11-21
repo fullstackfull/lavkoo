@@ -16,10 +16,17 @@ use Illuminate\Support\Facades\Schema;
  *
  * Both land on the same safe place: with no rows at all, every storefront shows exactly what it shows today, whether storefronts are
  * switched on or off. Nothing reads the table before this migration has run.
+ *
+ * Both directions are idempotent, as this platform's deployment imports a database dump before it migrates: `up()` returns when the
+ * table is already there instead of throwing, and `down()` drops it only if it exists.
  */
 return new class extends Migration {
     public function up(): void
     {
+        if (Schema::hasTable('storefront_entity_visibility')) {
+            return;
+        }
+
         Schema::create('storefront_entity_visibility', function (Blueprint $table) {
             $table->id();
             $table->string('entity_type', 40);
