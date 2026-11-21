@@ -15,7 +15,7 @@ As of 2026-11-21. Generated from the independent assessment of every requirement
 | Axis | Requirements | Criteria | MET | CODED | MISSING | Code completion | Proven by tests | Release readiness | Verified |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---|
 | [A. Six-country base and customer identity](tracker/axis-a-six-country-base-and-customer-identity.md) | 37 | 173 | 91 | 24 | 58 | 66% | 53% | 9% | all |
-| [B. Catalogue and products](tracker/axis-b-catalogue-and-products.md) | 18 | 91 | 43 | 27 | 21 | 77% | 47% | 0% | all |
+| [B. Catalogue and products](tracker/axis-b-catalogue-and-products.md) | 18 | 91 | 43 | 32 | 16 | 82% | 47% | 0% | all |
 | [C. Inventory and fulfillment](tracker/axis-c-inventory-and-fulfillment.md) | 18 | 94 | 65 | 9 | 20 | 79% | 69% | 30% | all |
 | [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 179 | 87 | 32 | 60 | 66% | 49% | 8% | all |
 | [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 88 | 37 | 9 | 42 | 52% | 42% | 7% | all |
@@ -27,7 +27,7 @@ As of 2026-11-21. Generated from the independent assessment of every requirement
 | [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 104 | 40 | 26 | 38 | 63% | 38% | 3% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 45 | 18 | 31 | 67% | 48% | 7% | all |
 | [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 311 | 105 | 119 | 87 | 72% | 34% | 3% | all |
-| **All axes (pooled)** | **359** | **1753** | **821** | **373** | **559** | **68%** | **47%** | **8%** | |
+| **All axes (pooled)** | **359** | **1753** | **821** | **378** | **554** | **68%** | **47%** | **8%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -173,10 +173,10 @@ Executable on an isolated branch without production access, ordered by the prior
 | [B-01](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 4/0/2 | Country-owned products: each product row belongs to one country and a storefront shows only its own |
 | [B-02](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 1/2/1 | Independent local prices: each store prices its own copy, with no conversion or sync between countries |
 | [B-03](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 2/2/1 | Local price and availability display: a storefront shows its own market currency, decimals and stock |
-| [B-04](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 5/0/1 | SKU and barcode unique inside a country: form gates, seller APIs and importers (GCC-14b) |
+| [B-04](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 5/1/0 | SKU and barcode unique inside a country: form gates, seller APIs and importers (GCC-14b) |
 | [B-05](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 4/1/1 | SKU and barcode lookups are country-aware: POS scan, channel matcher, routing rules, provider pickers |
-| [B-06](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 2/0/2 | Variants: variant SKU, price and stock follow the product's country |
-| [B-07](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 1/2/3 | Deliberate cross-country product creation: explicit admin copy, no shared stock or price sync, nothing created automatic |
+| [B-06](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 2/2/0 | Variants: variant SKU, price and stock follow the product's country |
+| [B-07](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 1/4/1 | Deliberate cross-country product creation: explicit admin copy, no shared stock or price sync, nothing created automatic |
 | [B-08](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 5/0/1 | Admin product tools: choose, show and filter a product's country; staff limited to their countries (GCC-14a, 14c slice 1 |
 | [B-09](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 1/1/2 | Seller and vendor products belong to a market (seller markets) |
 | [B-10](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 1/2/1 | One central category tree for all countries: no parallel tree, depth examined |
