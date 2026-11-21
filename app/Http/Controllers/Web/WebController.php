@@ -62,6 +62,7 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Session;
 use App\Services\Marketplace\PaymentRoutingService;
+use App\Services\Storefront\StorefrontCurrency;
 use function App\Utils\payment_gateways;
 
 class WebController extends Controller
@@ -85,6 +86,7 @@ class WebController extends Controller
         private readonly ProductService                       $productService,
         private readonly ShopService                              $shopService,
         private readonly StorefrontAddressService                 $storefrontAddresses,
+        private readonly StorefrontCurrency                       $storefrontCurrency,
     )
     {
 
@@ -635,7 +637,9 @@ class WebController extends Controller
             'address_id' => session('address_id'),
             'billing_address_id' => session('billing_address_id'),
             'bring_change_amount' => $request['bring_change_amount'] ?? 0,
-            'bring_change_amount_currency' => session('currency_code'),
+            // The currency of this purchase, not a pick a visitor may have left on another market: this field names what the
+            // bring-change amount is in, and the two v1 order endpoints already answer the storefront's own money here.
+            'bring_change_amount_currency' => $this->storefrontCurrency->purchaseCurrencyCode(picked: session('currency_code')),
         ]);
 
         // generateOrder() returns an empty list when the order was refused inside its transaction —
