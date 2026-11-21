@@ -41,16 +41,16 @@
         <tr>
             <td> {{++$key}} </td>
             <td> {{$item['id']}} </td>
-            <td>{{ setCurrencySymbol(amount: usdToDefaultCurrency(amount: $item->order_amount + $item->edit_due_amount - $item->edit_return_amount)) }}</td>
-            <td>{{ setCurrencySymbol(amount: usdToDefaultCurrency(amount: $item->edit_due_amount ?? 0)) }}</td>
-            <td>{{ setCurrencySymbol(amount: usdToDefaultCurrency(amount: $item->edit_return_amount ?? 0)) }}</td>
-            <td>{{ setCurrencySymbol(amount: usdToDefaultCurrency(amount: $item->details_sum_discount ?? 0)) }}</td>
-            <td>{{ setCurrencySymbol(amount: usdToDefaultCurrency(amount: $item->discount_amount ?? 0)) }}</td>
-            <td>{{ setCurrencySymbol(amount: usdToDefaultCurrency(amount: $item->refer_and_earn_discount ?? 0)) }}</td>
-            <td>{{ setCurrencySymbol(amount: usdToDefaultCurrency(amount: $item->shipping_cost - ($item->extra_discount_type == 'free_shipping_over_order_amount' ? $item->extra_discount : 0))) }}</td>
-            <td>{{ setCurrencySymbol(amount: usdToDefaultCurrency(amount: $item?->total_tax_amount ?? $item?->details_sum_tax)) }}</td>
-            <td>{{ setCurrencySymbol(amount: usdToDefaultCurrency(amount: $item->admin_commission ?? 0)) }}</td>
-            <td>{{ ($item->delivery_type=='self_delivery' && $item->delivery_man_id) ? setCurrencySymbol(amount: usdToDefaultCurrency(amount:$item->deliveryman_charge ?? 0)) : setCurrencySymbol(amount: usdToDefaultCurrency(amount: 0)) }}</td>
+            <td>{{ orderMoney(order: $item, amount: $item->order_amount + $item->edit_due_amount - $item->edit_return_amount) }}</td>
+            <td>{{ orderMoney(order: $item, amount: $item->edit_due_amount ?? 0) }}</td>
+            <td>{{ orderMoney(order: $item, amount: $item->edit_return_amount ?? 0) }}</td>
+            <td>{{ orderMoney(order: $item, amount: $item->details_sum_discount ?? 0) }}</td>
+            <td>{{ orderMoney(order: $item, amount: $item->discount_amount ?? 0) }}</td>
+            <td>{{ orderMoney(order: $item, amount: $item->refer_and_earn_discount ?? 0) }}</td>
+            <td>{{ orderMoney(order: $item, amount: $item->shipping_cost - ($item->extra_discount_type == 'free_shipping_over_order_amount' ? $item->extra_discount : 0)) }}</td>
+            <td>{{ orderMoney(order: $item, amount: $item?->total_tax_amount ?? $item?->details_sum_tax) }}</td>
+            <td>{{ orderMoney(order: $item, amount: $item->admin_commission ?? 0) }}</td>
+            <td>{{ ($item->delivery_type=='self_delivery' && $item->delivery_man_id) ? orderMoney(order: $item, amount: $item->deliveryman_charge ?? 0) : orderMoney(order: $item, amount: 0) }}</td>
             <td>{{translate($item['order_status'])}}</td>
         </tr>
     @endforeach

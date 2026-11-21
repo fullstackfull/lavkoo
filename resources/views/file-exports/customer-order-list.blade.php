@@ -43,7 +43,7 @@
                 <td> {{$order->id}}	</td>
                 <td> {{date('d M, Y h:i A',strtotime($order->created_at))}}</td>
                 <td> {{ucwords($order?->seller_is == 'seller' ? ($order?->seller?->shop->name ?? translate('not_found')) : translate('inhouse'))}}	</td>
-                <td> {{setCurrencySymbol(amount: usdToDefaultCurrency(amount: $order['order_amount'] ?? 0), currencyCode: getCurrencyCode())}}</td>
+                <td> {{orderMoney(order: $order, amount: $order['order_amount'] ?? 0)}}</td>
                 <td> {{translate($order->payment_status)}}</td>
                 <td> {{translate($order->order_status)}}</td>
             </tr>

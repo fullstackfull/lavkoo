@@ -29,6 +29,8 @@ class OrderCurrencyOnEverySurfaceTest extends ApiAddressTestCase
 
     private const KUWAITI_PRODUCT = 3;
 
+    private const EMIRATI_PRODUCT = 2;
+
     private const SAUDI_PRODUCT = 1;
 
     /** 30 dinars, charged. What the platform's rate turns the same stored 30 into, and the sign it puts on it: the figure nobody was charged. */
@@ -98,6 +100,24 @@ class OrderCurrencyOnEverySurfaceTest extends ApiAddressTestCase
 
         $this->assertContains(self::KUWAITI_ORDER_IN_ITS_OWN_MONEY, $printed);
         $this->assertNotContains('30.00AED', $printed, 'the dirham sign is never put on a Kuwaiti sale');
+    }
+
+    /** An export is a page of many sales at once, so one currency cannot be put in force for it: each row is its own order's money and decimals. */
+    public function test_the_order_export_prints_each_row_in_the_currency_that_row_was_sold_in(): void
+    {
+        $this->placeOrderFrom(country: 'KW', productId: self::KUWAITI_PRODUCT);
+        $this->placeOrderFrom(country: 'AE', productId: self::EMIRATI_PRODUCT);
+        $this->openTheAdminPanel();
+
+        $printed = $this->moneyPrintedIn($this->captureRender(
+            'file-exports.order-export',
+            fn () => $this->get(route('admin.orders.export-excel', ['status' => 'all'])),
+        ));
+
+        $this->assertContains(self::KUWAITI_ORDER_IN_ITS_OWN_MONEY, $printed, 'the Kuwaiti row is in dinars, to three decimals');
+        $this->assertContains('250.00AED', $printed, 'the Emirati row is in dirhams, to two');
+        $this->assertNotContains(self::KUWAITI_ORDER_AT_TODAYS_SAUDI_RATE, $printed);
+        $this->assertNotContains('937.50SAR', $printed, 'and neither is re-converted into the platform currency');
     }
 
     /** The e-mail is written by a queue worker, which has no storefront and no session: the order's record is the only thing left that knows. */

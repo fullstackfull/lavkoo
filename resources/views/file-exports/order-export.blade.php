@@ -80,7 +80,6 @@
             }
             $extraDiscountFinal = $order->is_shipping_free == 1 ? $extra_discount : 0;
             $totalAmount = ($order?->order_amount ?? 0) + $extraDiscountFinal;
-            $defaultCurrencyCode = getCurrencyCode();
         @endphp
 
         <tr>
@@ -92,18 +91,18 @@
                 <td> {{ucwords($order?->seller_is == 'seller' ? ($order?->seller?->shop->name ?? translate('not_found')) : translate('inhouse')) }}    </td>
             @endif
             <td> {{ $orderTotalPriceSummary['totalItemQuantity'] ?? 0 }} </td>
-            <td> {{setCurrencySymbol(amount: usdToDefaultCurrency(amount: $orderTotalPriceSummary['itemPrice'] ?? 0), currencyCode: getCurrencyCode()) }} </td>
-            <td> {{setCurrencySymbol(amount: usdToDefaultCurrency(amount: $order?->total_discount ?? 0), currencyCode: getCurrencyCode()) }} </td>
-            <td> {{setCurrencySymbol(amount: usdToDefaultCurrency(amount: $orderTotalPriceSummary['couponDiscount'] ?? 0), currencyCode: getCurrencyCode()) }}</td>
-            <td>{{setCurrencySymbol(amount: usdToDefaultCurrency(amount: $orderTotalPriceSummary['referAndEarnDiscount'] ?? 0), currencyCode: getCurrencyCode()) }}</td>
+            <td> {{orderMoney(order: $order, amount: $orderTotalPriceSummary['itemPrice'] ?? 0) }} </td>
+            <td> {{orderMoney(order: $order, amount: $order?->total_discount ?? 0) }} </td>
+            <td> {{orderMoney(order: $order, amount: $orderTotalPriceSummary['couponDiscount'] ?? 0) }}</td>
+            <td>{{orderMoney(order: $order, amount: $orderTotalPriceSummary['referAndEarnDiscount'] ?? 0) }}</td>
             @php
                 $extraDiscountAmount = ($order?->is_shipping_free == 0 ? $orderTotalPriceSummary['extraDiscount'] : 0);
             @endphp
-            <td> {{setCurrencySymbol(amount: usdToDefaultCurrency(amount: $extraDiscountAmount), currencyCode: getCurrencyCode()) }}</td>
-            <td> {{setCurrencySymbol(amount: usdToDefaultCurrency(amount: $orderTotalPriceSummary['subTotal'] ?? 0), currencyCode: getCurrencyCode()) }}  </td>
-            <td> {{setCurrencySymbol(amount: usdToDefaultCurrency(amount: $orderTotalPriceSummary['taxTotal'] ?? 0), currencyCode: getCurrencyCode()) }}    </td>
-            <td> {{setCurrencySymbol(amount: usdToDefaultCurrency(amount: $orderTotalPriceSummary['shippingTotal'] ?? 0), currencyCode: getCurrencyCode()) }}    </td>
-            <td> {{setCurrencySymbol(amount: usdToDefaultCurrency(amount: $orderTotalPriceSummary['totalAmount'] ?? 0), currencyCode: getCurrencyCode()) }}</td>
+            <td> {{orderMoney(order: $order, amount: $extraDiscountAmount) }}</td>
+            <td> {{orderMoney(order: $order, amount: $orderTotalPriceSummary['subTotal'] ?? 0) }}  </td>
+            <td> {{orderMoney(order: $order, amount: $orderTotalPriceSummary['taxTotal'] ?? 0) }}    </td>
+            <td> {{orderMoney(order: $order, amount: $orderTotalPriceSummary['shippingTotal'] ?? 0) }}    </td>
+            <td> {{orderMoney(order: $order, amount: $orderTotalPriceSummary['totalAmount'] ?? 0) }}</td>
             <td> {{ translate($order->payment_status) }}</td>
             @if($data['order_status'] == 'all')
                 <td> {{ translate($order->order_status) }}</td>

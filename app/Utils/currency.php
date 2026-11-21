@@ -318,6 +318,25 @@ if (!function_exists('getCurrencyCode')) {
     }
 }
 
+if (!function_exists('orderMoney')) {
+    /**
+     * One amount of one order, written in the money that order was sold in: the figure that was charged and the currency it was charged in.
+     *
+     * For the documents that list many orders at once — the order, report and list exports — where one currency cannot be put in force for the
+     * whole page because each row is its own sale. An order that records no currency reads exactly as it read before: the same two helpers, in
+     * the same order, with the same arguments. A row whose order is missing is written exactly as it was written before too.
+     *
+     * @param object|array<string, mixed>|null $order
+     */
+    function orderMoney(object|array|null $order, string|int|float|null $amount = 0): string
+    {
+        return app(StorefrontCurrency::class)->withinOrderCurrency(
+            order: $order,
+            callback: fn (): string => setCurrencySymbol(amount: usdToDefaultCurrency(amount: $amount), currencyCode: getCurrencyCode()),
+        );
+    }
+}
+
 if (!function_exists('getFormatCurrency')) {
     /**
      * @param string|int|float $amount
