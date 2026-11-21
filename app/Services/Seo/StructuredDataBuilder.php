@@ -142,7 +142,10 @@ class StructuredDataBuilder
         if (isset($data['price']) && is_numeric($data['price'])) {
             $offer = [
                 '@type'         => 'Offer',
-                'price'         => (string) round((float) $data['price'], 2),
+                // The precision is the currency's, not a constant: the dinar and the rial of Oman are thousandths, so rounding every
+                // price to hundredths would publish a price nobody can pay. Two when the caller says nothing, which is what it said
+                // before this was a parameter.
+                'price'         => (string) round((float) $data['price'], $this->priceDecimals($data)),
                 'priceCurrency' => (string) ($data['currency'] ?? 'USD'),
                 'availability'  => !empty($data['in_stock'])
                     ? 'https://schema.org/InStock'
@@ -223,5 +226,13 @@ class StructuredDataBuilder
         if (is_scalar($value) && trim((string) $value) !== '') {
             $target[$key] = (string) $value;
         }
+    }
+
+    /** How many decimals the offer's price is published with: the currency's own where the caller states them, two otherwise. */
+    private function priceDecimals(array $data): int
+    {
+        $decimals = $data['price_decimals'] ?? null;
+
+        return is_numeric($decimals) ? max(0, (int) $decimals) : 2;
     }
 }
