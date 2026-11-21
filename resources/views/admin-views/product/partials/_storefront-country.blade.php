@@ -1,9 +1,19 @@
 @php
+    use App\Services\Storefront\LegalEntityRegistry;
     use App\Services\Storefront\ProductCountry;
 
     $isExistingProduct = isset($product) && !request('product-gallery');
 @endphp
 @if (ProductCountry::isTracked())
+    @php
+        $chosenCountry = (string) old('storefront_country', isset($product) ? $product->storefront_country : ProductCountry::defaultCountry());
+        // The company that sells the product: the one an existing product names, and the one registered for the chosen country for a product that
+        // does not exist yet. Nothing is read or drawn while legal entities are off, before the migration has run, or while that country has no
+        // registered company, so a page of the default storefront with an empty registry is the page it is today.
+        $sellingCompany = $isExistingProduct
+            ? app(LegalEntityRegistry::class)->forProduct(product: $product, country: $chosenCountry)
+            : app(LegalEntityRegistry::class)->forCountry(country: $chosenCountry);
+    @endphp
     <div class="col-md-6 col-lg-4">
         <div class="form-group">
             <label class="form-label d-flex align-items-center gap-2" for="storefront-country">
@@ -31,4 +41,20 @@
             @endif
         </div>
     </div>
+    @if ($sellingCompany)
+        <div class="col-md-6 col-lg-4">
+            <div class="form-group">
+                <label class="form-label d-flex align-items-center gap-2" for="selling-company">
+                    {{ translate('selling_company') }}
+                    <span class="tooltip-icon cursor-pointer" data-bs-toggle="tooltip"
+                          aria-label="{{ translate('the_registered_company_that_sells_this_product_it_follows_from_the_country_and_is_not_typed') }}"
+                          data-bs-title="{{ translate('the_registered_company_that_sells_this_product_it_follows_from_the_country_and_is_not_typed') }}">
+                        <i class="fi fi-sr-info"></i>
+                    </span>
+                </label>
+                <input type="text" id="selling-company" class="form-control"
+                       value="{{ $sellingCompany->legal_name }}" disabled>
+            </div>
+        </div>
+    @endif
 @endif

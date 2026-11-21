@@ -44,6 +44,11 @@ seller APIs (`api/v2`, `api/v3`), queues and the console are never narrowed and 
    per-storefront copies written while the flag was on are not cleared by a product edit made while it was off, so they would be served again
    after the next flip.
 
+7. **The company that sells (GCC-13) is registered.** A separate, additive stack behind `GCC_LEGAL_ENTITIES` (off by default): each country has one
+   legal company in the `legal_entities` table, which ships empty, and an order of a storefront is stamped with that company and a frozen copy of its
+   identity. Fill it with `php artisan gcc:legal-entity:upsert` from the facts the owner supplies, check it with `php artisan gcc:legal-entity:list`, and
+   read `docs/gcc/GCC-13-LEGAL-ENTITIES.md` (the invoice does not print it yet; `GCC_LEGAL_ENTITIES_REQUIRED` makes a missing company stop a storefront from selling).
+
 ## The column has no index
 
 The first versions of #47 added an index on the column. The third review measured the one that was kept, `(storefront_country, id)`, on

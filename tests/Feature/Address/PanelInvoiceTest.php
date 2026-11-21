@@ -6,6 +6,7 @@ use App\Models\Order;
 use App\Services\Address\AddressSchema;
 use Illuminate\Support\Facades\View;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Support\CarriesAFrozenCompany;
 
 /**
  * The printed invoice of the admin and the vendor panel: the same address rows whichever way the order's copy was made, and no crash on a
@@ -13,6 +14,8 @@ use PHPUnit\Framework\Attributes\DataProvider;
  */
 class PanelInvoiceTest extends PanelAddressTestCase
 {
+    use CarriesAFrozenCompany;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -21,11 +24,12 @@ class PanelInvoiceTest extends PanelAddressTestCase
         app()->setLocale('en');
     }
 
-    private function invoice(string $view, Order $order): string
+    /** @param array<string, mixed> $invoiceSettings */
+    private function invoice(string $view, Order $order, array $invoiceSettings = []): string
     {
         return View::make($view, [
             'order' => $order, 'vendor' => null, 'companyPhone' => '0110000000', 'companyEmail' => 'shop@example.test', 'companyName' => 'Pharmacy',
-            'companyWebLogo' => null, 'invoiceSettings' => [],
+            'companyWebLogo' => null, 'invoiceSettings' => $invoiceSettings,
         ])->render();
     }
 
@@ -116,5 +120,43 @@ class PanelInvoiceTest extends PanelAddressTestCase
 
         $this->assertSame(1, preg_match('/<h5>\s*Customer Info\s*<\/h5>/', $html));
         $this->assertContains('Name : Sara Alharbi', $this->block($html, 'Billing address'));
+    }
+
+    #[DataProvider('invoices')]
+    public function test_an_order_with_no_frozen_company_prints_the_business_identity_of_the_invoice_settings(string $view): void
+    {
+        $this->turnLegalEntitiesOnOrOff(on: true);
+
+        $html = $this->invoice($view, $this->orderWithCopies($this->legacySnapshot()), $this->shopIdentity());
+
+        $this->assertSame(1, preg_match('/<span class="fw-semibold">VAT<\/span>\s*:\s*300000000000003/', $html), 'the line the invoice always had');
+        $this->assertStringNotContainsString('Lavkoo Kuwait Trading Co.', $html);
+    }
+
+    #[DataProvider('invoices')]
+    public function test_an_order_with_a_frozen_company_prints_that_company_and_not_the_identity_of_the_shop(string $view): void
+    {
+        $this->turnLegalEntitiesOnOrOff(on: true);
+        $order = $this->orderWithCopies($this->legacySnapshot(), null, ['entity_snapshot' => json_encode($this->frozenKuwaitCompany())]);
+
+        $html = $this->invoice($view, $order, $this->shopIdentity());
+
+        foreach (['Lavkoo Kuwait Trading Co.', '1 Example Street, Kuwait City', 'Commercial registration number', 'CR-KW-777'] as $printed) {
+            $this->assertStringContainsString($printed, $html);
+        }
+        $this->assertStringNotContainsString('300000000000003', $html, 'the tax number of the shop is not printed for another company');
+        $this->assertStringNotContainsString('Tax registration number', $html, 'a company with no tax number prints none');
+    }
+
+    #[DataProvider('invoices')]
+    public function test_the_frozen_company_is_not_printed_while_legal_entities_are_off(string $view): void
+    {
+        $this->turnLegalEntitiesOnOrOff(on: false);
+        $order = $this->orderWithCopies($this->legacySnapshot(), null, ['entity_snapshot' => json_encode($this->frozenKuwaitCompany())]);
+
+        $html = $this->invoice($view, $order, $this->shopIdentity());
+
+        $this->assertStringNotContainsString('Lavkoo Kuwait Trading Co.', $html);
+        $this->assertStringContainsString('300000000000003', $html);
     }
 }

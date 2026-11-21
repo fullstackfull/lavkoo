@@ -27,13 +27,17 @@ final class OrderStorefrontSnapshot
     /** @var array{value: bool, at: int}|null */
     private ?array $columnAnswer = null;
 
-    public function __construct(private readonly StorefrontCurrency $storefrontCurrency)
-    {
+    public function __construct(
+        private readonly StorefrontCurrency $storefrontCurrency,
+        private readonly OrderLegalEntitySnapshot $legalEntitySnapshot,
+    ) {
     }
 
     public function record(int|string $orderId): void
     {
-        if (!$this->storefrontCurrency->isEnabled() || !$this->columnReady() || !StorefrontCatalog::tracksProductCountry()) {
+        $recordsCurrency = $this->storefrontCurrency->isEnabled() && $this->columnReady();
+
+        if ((!$recordsCurrency && !$this->legalEntitySnapshot->recordsOrders()) || !StorefrontCatalog::tracksProductCountry()) {
             return;
         }
 
@@ -43,6 +47,15 @@ final class OrderStorefrontSnapshot
             return;
         }
 
+        if ($recordsCurrency) {
+            $this->recordCurrency(orderId: $orderId, country: $country);
+        }
+
+        $this->legalEntitySnapshot->record(orderId: $orderId, country: $country);
+    }
+
+    private function recordCurrency(int|string $orderId, string $country): void
+    {
         $requestCountry = StorefrontCatalog::country();
         $currency = $requestCountry === null || $requestCountry === $country ? $this->storefrontCurrency->currencyOfSales($country) : null;
 

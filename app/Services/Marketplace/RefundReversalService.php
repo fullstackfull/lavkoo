@@ -96,6 +96,14 @@ class RefundReversalService
                     return ['refund_debit' => 0.0, 'commission_credit' => 0.0];
                 }
 
+                // Whose money comes back: the company of the EARNING being reversed, not whatever the
+                // registry answers today. A reversal that landed in another company would take that
+                // company's balance negative by the amount and leave the earning's over-credited by
+                // it, so a company is never resolved afresh here: the earning's own entry is read,
+                // and an earning that names none gives back a reversal that names none too. Only when
+                // this line has no earning on the ledger at all is the order's frozen stamp read.
+                $legalEntityId = $this->companyOfTheEarningOf(snapshot: $snapshot, orderDetailsId: $orderDetailsId);
+
                 // The seller gives back the earning on the returned portion (ex-tax, capped at base)...
                 $this->ledger->record(
                     sellerId: $snapshot->seller_id,
@@ -106,6 +114,7 @@ class RefundReversalService
                     referenceId: $refundReference ?? $orderDetailsId,
                     description: 'Refund on order line #' . $orderDetailsId,
                     currency: $snapshot->currency,
+                    legalEntityId: $legalEntityId,
                 );
 
                 // ...and the marketplace gives back its cut of it.
@@ -119,6 +128,7 @@ class RefundReversalService
                         referenceId: $refundReference ?? $orderDetailsId,
                         description: 'Commission reversed on refund of line #' . $orderDetailsId,
                         currency: $snapshot->currency,
+                        legalEntityId: $legalEntityId,
                     );
 
                     $snapshot->forceFill([
@@ -133,5 +143,30 @@ class RefundReversalService
 
             return null;
         }
+    }
+
+    /**
+     * The company a reversal of this line belongs to (GCC-13, D1-03): the company of the earning it reverses, and no company at all when there is no
+     * earning to agree with.
+     *
+     * Read off the earning entry itself, never resolved afresh, so an earning that names no company is reversed by entries that name none either.
+     * A line whose earning is not on the ledger — the commission snapshot was written and the ledger write was swallowed, or the earning was made
+     * before the column existed — names NO company rather than the order's own stamp: the debit would otherwise take a company's balance down by
+     * money that company never held, while the credit it reverses sits in no company at all. Naming none is the answer that cannot be wrong, which
+     * is the same rule VendorLedger::companyOfSeller applies to a payout drawn on a pool that is not all one company's.
+     */
+    private function companyOfTheEarningOf(OrderItemCommission $snapshot, int|string $orderDetailsId): ?int
+    {
+        if (!$this->ledger->recordsCompanies()) {
+            return null;
+        }
+
+        return $this->ledger->entryOfEvent(
+            sellerId: $snapshot->seller_id,
+            entryType: VendorLedgerEntry::TYPE_ORDER_EARNING,
+            referenceType: 'order_details',
+            referenceId: $orderDetailsId,
+            sellerIs: $snapshot->seller_is,
+        )?->legal_entity_id;
     }
 }
