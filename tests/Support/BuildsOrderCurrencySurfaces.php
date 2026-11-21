@@ -3,7 +3,9 @@
 namespace Tests\Support;
 
 use App\Models\User;
+use Illuminate\Events\CallQueuedListener;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\View;
 
@@ -74,6 +76,109 @@ trait BuildsOrderCurrencySurfaces
         }
     }
 
+    /** The master administrator and the panel's own middleware, so the panel's routes can be called as an administrator calls them. */
+    protected function openTheAdminPanel(): static
+    {
+        if (!Schema::hasTable('admin_roles')) {
+            Schema::create('admin_roles', function ($table): void {
+                $table->id();
+                $table->string('name')->nullable();
+                $table->text('module_access')->nullable();
+                $table->integer('status')->default(1);
+                $table->timestamps();
+            });
+            DB::table('admin_roles')->insert(['id' => 1, 'name' => 'Master Admin', 'module_access' => null, 'status' => 1]);
+        }
+
+        if (!Schema::hasTable('admins')) {
+            Schema::create('admins', function ($table): void {
+                $table->id();
+                $table->string('name')->nullable();
+                $table->string('f_name')->nullable();
+                $table->string('email')->nullable();
+                $table->unsignedBigInteger('admin_role_id')->default(1);
+                $table->integer('status')->default(1);
+                $table->timestamps();
+            });
+            DB::table('admins')->insert(['id' => 1, 'name' => 'Master', 'f_name' => 'Master', 'email' => 'master@example.test', 'admin_role_id' => 1, 'status' => 1]);
+        }
+
+        $this->asAFreshVisitor();
+        $this->actingAs(\App\Models\Admin::findOrFail(1), 'admin');
+
+        return $this;
+    }
+
+    /**
+     * The order e-mail, switched on the way an operator switches it on: a mail service with a status, and the two templates the checkout sends.
+     * Without it a checkout sends nothing at all, and the document this measures does not exist.
+     */
+    protected function switchTheOrderMailOn(): void
+    {
+        if (!Schema::hasTable('email_templates')) {
+            Schema::create('email_templates', function ($table): void {
+                $table->id();
+                $table->string('template_name');
+                $table->string('user_type');
+                $table->string('template_design_name');
+                $table->string('title')->nullable();
+                $table->text('body')->nullable();
+                $table->string('banner_image')->nullable();
+                $table->string('image')->nullable();
+                $table->string('logo')->nullable();
+                $table->string('button_name')->nullable();
+                $table->string('button_url')->nullable();
+                $table->string('footer_text')->nullable();
+                $table->string('copyright_text')->nullable();
+                $table->text('pages')->nullable();
+                $table->text('social_media')->nullable();
+                $table->text('hide_field')->nullable();
+                $table->tinyInteger('button_content_status')->default(1);
+                $table->tinyInteger('product_information_status')->default(1);
+                $table->tinyInteger('order_information_status')->default(1);
+                $table->tinyInteger('status')->default(1);
+                $table->timestamps();
+            });
+            DB::table('email_templates')->insert([
+                ['template_name' => 'order-place', 'user_type' => 'customer', 'template_design_name' => 'order-place', 'title' => 'Order placed', 'body' => 'Thank you', 'status' => 1],
+                ['template_name' => 'order-received', 'user_type' => 'admin', 'template_design_name' => 'order-received', 'title' => 'Order received', 'body' => 'New order', 'status' => 1],
+            ]);
+        }
+
+        if (!Schema::hasTable('social_medias')) {
+            Schema::create('social_medias', function ($table): void {
+                $table->id();
+                $table->string('name')->nullable();
+                $table->string('link')->nullable();
+                $table->integer('status')->default(1);
+                $table->timestamps();
+            });
+        }
+
+        $this->setSetting('mail_config', json_encode(['status' => 1, 'name' => 'Shop', 'host' => 'smtp.example.test', 'driver' => 'smtp', 'port' => '587', 'username' => 'shop', 'email_id' => 'shop@example.test', 'encryption' => 'tls', 'password' => 'secret']));
+        config(['mail.default' => 'array']);
+    }
+
+    /**
+     * The documents a real checkout's order e-mails are made of, written where production writes them: the listener that sends them is queued,
+     * so it is run the way the worker runs it, with the request and the session of the checkout gone.
+     *
+     * @return list<string>
+     */
+    protected function orderMailsAQueueWorkerWrites(callable $checkout): array
+    {
+        Queue::fake();
+        $checkout();
+        $jobs = Queue::pushedJobs()[CallQueuedListener::class] ?? [];
+        $this->asAQueueWorker();
+
+        return $this->captureEveryRender('email-templates.index', function () use ($jobs): void {
+            foreach ($jobs as $queued) {
+                app($queued['job']->class)->{$queued['job']->method}(...$queued['job']->data);
+            }
+        });
+    }
+
     /** A real cash-on-delivery checkout of the API, served from one storefront, and the order it saved. */
     protected function placeOrderFrom(string $country, int $productId): object
     {
@@ -95,15 +200,32 @@ trait BuildsOrderCurrencySurfaces
      */
     protected function captureRender(string $template, callable $route): string
     {
-        $html = null;
+        return $this->captureEveryRender($template, $route)[0] ?? '';
+    }
 
-        View::composer($template, function ($view) use (&$html): void {
-            if ($html !== null) {
+    /**
+     * The same, for a route that renders the template more than once: the order e-mail is sent to the customer and to the seller, and each
+     * copy is its own document.
+     *
+     * @return list<string>
+     */
+    protected function captureEveryRender(string $template, callable $route): array
+    {
+        $documents = [];
+        $rendering = false;
+
+        View::composer($template, function ($view) use (&$documents, &$rendering): void {
+            if ($rendering) {
                 return;
             }
 
-            $html = '';
-            $html = $view->render();
+            $rendering = true;
+
+            try {
+                $documents[] = $view->render();
+            } finally {
+                $rendering = false;
+            }
         });
 
         ob_start();
@@ -114,7 +236,7 @@ trait BuildsOrderCurrencySurfaces
             ob_end_clean();
         }
 
-        return (string) $html;
+        return $documents;
     }
 
     /**
@@ -141,13 +263,35 @@ trait BuildsOrderCurrencySurfaces
         return array_values(array_unique($matches[0]));
     }
 
+    /**
+     * What a queue worker has when it sends the order e-mail: no request bound to a storefront, no session of the customer who checked out, and
+     * no currency anywhere. The listener that sends the mail is queued (ShouldQueue), so this is where that document is written in production —
+     * not in the checkout request, whose storefront would have answered for it.
+     */
+    protected function asAQueueWorker(): void
+    {
+        $this->asAFreshVisitor();
+        app()->instance('request', \Illuminate\Http\Request::create('/'));
+    }
+
     /** Signs the customer in the way the website does, from a request that names no storefront: the default storefront serves it. */
     protected function asTheCustomerOnTheWebsite(User $customer): static
     {
-        $this->flushSession();
-        $this->flushHeaders();
+        $this->asAFreshVisitor();
         $this->actingAs($customer, 'customer');
 
         return $this;
+    }
+
+    /**
+     * A request that starts where a real one starts: no session, no headers and no storefront bound to the container. The web server hands each
+     * request a container of its own; one test process hands the next request whatever the last one left, and the storefront a checkout bound
+     * would otherwise answer for the document that is being measured.
+     */
+    private function asAFreshVisitor(): void
+    {
+        $this->flushSession();
+        $this->flushHeaders();
+        app()->forgetInstance(\App\Services\Storefront\StorefrontContext::class);
     }
 }

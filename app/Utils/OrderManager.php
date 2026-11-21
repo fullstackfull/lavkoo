@@ -2779,8 +2779,12 @@ Log::warning('Delivery Syria: parcel saved successfully', [
     {
         $order = Order::with('seller')->with('shipping')->where('id', $id)->first();
         $invoiceSettings = getWebConfig('invoice_settings');
-        $mpdf_view = \View::make(VIEW_FILE_NAMES['order_invoice'], compact('order', 'invoiceSettings'));
-        return self::storePdf(view: $mpdf_view, filePrefix: 'order_invoice_', filePostfix: $order['id'], pdfType: 'invoice', requestFrom: 'web');
+
+        return app(StorefrontCurrency::class)->withinOrderCurrency(order: $order, callback: function () use ($order, $invoiceSettings): string {
+            $mpdf_view = \View::make(VIEW_FILE_NAMES['order_invoice'], compact('order', 'invoiceSettings'));
+
+            return self::storePdf(view: $mpdf_view, filePrefix: 'order_invoice_', filePostfix: $order['id'], pdfType: 'invoice', requestFrom: 'web');
+        });
     }
 
 

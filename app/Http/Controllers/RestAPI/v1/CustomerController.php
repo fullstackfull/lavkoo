@@ -41,6 +41,7 @@ use Modules\Auction\app\Models\AuctionParticipant;
 use Modules\Auction\app\Models\AuctionProduct;
 use Modules\Auction\app\Models\AuctionSavedProduct;
 use Modules\Auction\app\Services\AuctionAccountDeletionGuardService;
+use App\Services\Storefront\StorefrontCurrency;
 
 class CustomerController extends Controller
 {
@@ -558,7 +559,6 @@ class CustomerController extends Controller
         }
 
         $invoiceSettings = json_decode(BusinessSetting::where(['type' => 'invoice_settings'])->first()?->value, true);
-        $mpdf_view = \View::make(VIEW_FILE_NAMES['order_invoice'], compact('order', 'invoiceSettings'));
         $mpdf = new \Mpdf\Mpdf(['default_font' => 'FreeSerif', 'mode' => 'utf-8', 'format' => [190, 250], 'autoLangToFont' => true]);
         $mpdf->autoScriptToLang = true;
         $mpdf->autoLangToFont = true;
@@ -566,7 +566,10 @@ class CustomerController extends Controller
             $footerHtml = $this->footerHtml(requestFrom: 'web');
             $mpdf->SetHTMLFooter($footerHtml);
         }
-        $mpdf_view = $mpdf_view->render();
+        $mpdf_view = app(StorefrontCurrency::class)->withinOrderCurrency(
+            order: $order,
+            callback: fn (): string => \View::make(VIEW_FILE_NAMES['order_invoice'], compact('order', 'invoiceSettings'))->render(),
+        );
         $mpdf->WriteHTML($mpdf_view);
         $pdfContentStr = $mpdf->Output('', 'S');
         $pdfContentBytes = $pdfContentStr;

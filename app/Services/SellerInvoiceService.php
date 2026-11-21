@@ -7,6 +7,7 @@ use App\Models\Seller;
 use App\Traits\PdfGenerator;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\View as ViewFactory;
+use App\Services\Storefront\StorefrontCurrency;
 
 /**
  * The seller's invoice for an order, rendered once for whoever asks.
@@ -35,6 +36,18 @@ class SellerInvoiceService
         return Order::with(['details', 'customer', 'shipping', 'seller'])
             ->where(['id' => $orderId, 'seller_id' => $sellerId, 'seller_is' => 'seller'])
             ->first();
+    }
+
+    /**
+     * The invoice document itself — the vendor panel's own template, rendered in the money the order was sold in so that the seller app and the
+     * panel print the figures that were charged, not today's conversion of them.
+     */
+    public function html(Order $order, int|string $sellerId): string
+    {
+        return app(StorefrontCurrency::class)->withinOrderCurrency(
+            order: $order,
+            callback: fn (): string => $this->view($order, $sellerId)->render(),
+        );
     }
 
     /** The invoice document itself — the vendor panel's own template. */
@@ -70,7 +83,7 @@ class SellerInvoiceService
         $mpdf->autoScriptToLang = true;
         $mpdf->autoLangToFont = true;
         $mpdf->SetHTMLFooter(self::footerHtml(requestFrom: 'vendor'));
-        $mpdf->WriteHTML($this->view($order, $sellerId)->render());
+        $mpdf->WriteHTML($this->html($order, $sellerId));
 
         return array_values(unpack('C*', $mpdf->Output('', 'S')));
     }
