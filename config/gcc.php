@@ -51,6 +51,31 @@ return [
             'required_to_sell' => filter_var(env('GCC_LEGAL_ENTITIES_REQUIRED', false), FILTER_VALIDATE_BOOLEAN),
         ],
 
+        'payment_accounts' => [
+            // Off by default: every gateway is read from the one platform-wide addon_settings row, exactly as today, and the Saudi configuration IS that
+            // row. When it is on, a company's gateway account is resolved for the storefront a payment starts in, the payment is stamped with it, and
+            // settlement, verification and refund use the stamped account and never a fresh look at the settings. The table ships empty; while a country
+            // has no account the platform row answers for it, so Saudi Arabia keeps working with an empty table (GCC-19).
+            'enabled' => filter_var(env('GCC_PAYMENT_ACCOUNTS', false), FILTER_VALIDATE_BOOLEAN),
+            // Which gateway keys may be configured per company. Only the gateways somebody has read the multi-account documentation for belong here;
+            // a gateway not listed is always read from the platform row, whatever the table holds.
+            'gateways' => ['paymob_accept', 'fatoorah'],
+            // A customer's return from a gateway proves nothing by itself. Off by default: the return is read exactly as it is today. When it is on, a
+            // return settles only after the server has confirmed the payment with the gateway itself, and a return it cannot confirm settles nothing.
+            'confirm_returns' => filter_var(env('GCC_PAYMENT_CONFIRM_RETURNS', false), FILTER_VALIDATE_BOOLEAN),
+            // Which class asks each gateway, server to server, what became of a transaction. A gateway with no entry cannot be asked, so a return of
+            // it is never confirmed and, while `confirm_returns` is on, never settles.
+            'inquiries' => [
+                'paymob_accept' => App\Services\Payments\PaymobTransactionInquiry::class,
+            ],
+            'inquiry' => [
+                'connect_timeout' => (int) env('GCC_PAYMENT_INQUIRY_CONNECT_TIMEOUT', 10),
+                'timeout' => (int) env('GCC_PAYMENT_INQUIRY_TIMEOUT', 30),
+                // Paymob's regional host the inquiry is sent to, which must be one of PaymobTransactionInquiry::HOSTS; anything else is not called at all.
+                'paymob_host' => env('GCC_PAYMOB_HOST', 'https://ksa.paymob.com'),
+            ],
+        ],
+
         'legal' => [
             // Configuration, not a statement of what the law requires. A qualified reviewer confirms the list per country before release.
             'required_documents' => ['terms', 'privacy', 'refund', 'return', 'cancellation', 'shipping'],

@@ -3,8 +3,11 @@
 namespace App\Http\Controllers\Payment_Methods;
 
 use App\Models\PaymentRequest;
-use App\Services\Payments\GatewayConfirmations;
 use App\Models\User;
+use App\Services\Payments\GatewayAccountSecrets;
+use App\Services\Payments\GatewayConfirmations;
+use App\Services\Payments\GatewayReturnVerification;
+use App\Services\Payments\PaymentAccountBinding;
 use App\Traits\Processor;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -104,11 +107,17 @@ class PaymobController extends Controller
 
         $payer = json_decode($payment_data['payer_information']);
         $url = $this->base_url . '/v1/intention/';
-        $config = $this->config_values;
-        $token = $config['secret_key']; //secret key
+        $credentials = $this->credentialsFor(payment: $payment_data);
+        $token = $credentials['secret_key'];
+
+        if ($token === null || $credentials['integration_id'] === null || $credentials['public_key'] === null) {
+            // Nothing to call Paymob with. Answering rather than throwing, because a half-configured gateway is an operator's mistake and not a
+            // 500 for the customer; the payment row stays unpaid and the customer is returned to choose another method.
+            return response()->json($this->response_formatter(GATEWAYS_DEFAULT_204), 200);
+        }
 
         // Data for the request
-        $integration_id = (int)$config['integration_id'];
+        $integration_id = (int) $credentials['integration_id'];
         $data = [
             'amount' => round($payment_data->payment_amount * 100),
             'currency' => $payment_data->currency_code,
@@ -168,7 +177,7 @@ class PaymobController extends Controller
         }
         $secret_key = $result['client_secret'];
         curl_close($ch);
-        $publicKey = $config['public_key'];
+        $publicKey = $credentials['public_key'];
         $urlRedirect = $this->base_url . "/unifiedcheckout/?publicKey=$publicKey&clientSecret=$secret_key";
         return redirect()->to($urlRedirect);
 
@@ -239,7 +248,7 @@ class PaymobController extends Controller
     {
         $data = $request->all();
         ksort($data);
-        $hmac = $data['hmac'];
+        $hmac = $data['hmac'] ?? null;
         $array = [
             'amount_cents',
             'created_at',
@@ -268,19 +277,47 @@ class PaymobController extends Controller
                 $connectedString .= $element;
             }
         }
-        $secret = is_array($this->config_values) ? $this->config_values['hmac'] : $this->config_values->hmac;
-        $hased = hash_hmac('sha512', $connectedString, $secret);
+        $paymentId = (string) session('payment_id');
+        $waiting = $paymentId === '' ? null : $this->payment::where(['id' => $paymentId])->first();
+        $verification = app(GatewayReturnVerification::class);
 
-        if ($hased == $hmac && $data['success'] === "true") {
+        $signed = $verification->signatureHolds(
+            algorithm: 'sha512',
+            signedString: $connectedString,
+            provided: is_string($hmac) ? $hmac : null,
+            secret: $verification->signingSecret(
+                payment: $waiting,
+                name: 'hmac',
+                platformSecret: fn (): ?string => $this->platformHmacSecret(),
+            ),
+        );
+
+        if (!$signed) {
+            // Not Paymob's return, or this shop has no secret to tell whether it is. Either way it decides nothing about the payment, so no hook runs
+            // and nothing is marked failed on the strength of it.
+            return $this->payment_response($waiting, 'fail');
+        }
+
+        $confirmation = $verification->confirm(payment: $waiting, gateway: self::GATEWAY, reference: (string) ($data['id'] ?? ''));
+
+        if ($verification->confirmsWithGateway(gateway: self::GATEWAY) && !$confirmation->isPaid()) {
+            // The server asked Paymob and did not get a "paid" back. A refusal is a failure; an unknown answer is neither, and guessing either way is
+            // how a paid customer is told their payment failed.
+            return $confirmation->isRefused() ? $this->fail($waiting) : $this->payment_response($waiting, 'fail');
+        }
+
+        $success = $confirmation->isPaid() || $this->isTrue($data['success'] ?? null);
+
+        if ($success) {
             $payment_data = $this->settle(
-                paymentId: (string) session('payment_id'),
-                transaction: (string) ($data['id'] ?? ''),
-                minorUnits: $data['amount_cents'] ?? null,
-                currency: (string) ($data['currency'] ?? ''),
+                paymentId: $paymentId,
+                transaction: (string) ($confirmation->reference ?? $data['id'] ?? ''),
+                minorUnits: $confirmation->isPaid() ? $confirmation->minorUnits : ($data['amount_cents'] ?? null),
+                currency: (string) ($confirmation->isPaid() ? $confirmation->currency : ($data['currency'] ?? '')),
             );
 
             if ($payment_data === null) {
-                return $this->payment_response($this->payment::where(['id' => session('payment_id')])->first(), 'fail');
+                return $this->payment_response($waiting, 'fail');
             }
 
             if (function_exists($payment_data->success_hook)) {
@@ -288,11 +325,74 @@ class PaymobController extends Controller
             }
             return $this->payment_response($payment_data, 'success');
         }
-        $payment_data = $this->payment::where(['id' => session('payment_id')])->first();
-        if (isset($payment_data) && function_exists($payment_data->failure_hook)) {
-            call_user_func($payment_data->failure_hook, $payment_data);
+
+        return $this->fail($waiting);
+    }
+
+    /**
+     * The credentials this payment is taken with: the ones of the company's own account when the payment was stamped with one (D2-07, D2-08), else the
+     * one platform-wide settings row, which is what every payment uses today and what the Saudi configuration is.
+     *
+     * A Kuwait payment stamped with the Kuwait account therefore goes to Paymob with the Kuwait account's secret key and integration id, and never
+     * with the Saudi row's.
+     *
+     * @return array{secret_key: ?string, integration_id: ?string, public_key: ?string}
+     */
+    private function credentialsFor(PaymentRequest $payment): array
+    {
+        $account = app(PaymentAccountBinding::class)->accountOf(payment: $payment);
+
+        if ($account !== null) {
+            $secrets = app(GatewayAccountSecrets::class);
+
+            return [
+                'secret_key' => $secrets->read(account: $account, name: 'secret_key'),
+                'integration_id' => $secrets->read(account: $account, name: 'integration_id'),
+                'public_key' => $secrets->read(account: $account, name: 'public_key'),
+            ];
         }
-        return $this->payment_response($payment_data, 'fail');
+
+        return [
+            'secret_key' => $this->platformValue(name: 'secret_key'),
+            'integration_id' => $this->platformValue(name: 'integration_id'),
+            'public_key' => $this->platformValue(name: 'public_key'),
+        ];
+    }
+
+    /** One value of the platform settings row, or null when the row does not hold it. */
+    private function platformValue(string $name): ?string
+    {
+        $values = $this->config_values;
+        $value = is_array($values) ? ($values[$name] ?? null) : ($values->{$name} ?? null);
+
+        return is_scalar($value) && (string) $value !== '' ? (string) $value : null;
+    }
+
+    /** Paymob said the payment did not go through: the failure hook runs, as it always has. */
+    private function fail(?PaymentRequest $payment): mixed
+    {
+        if ($payment !== null && function_exists($payment->failure_hook)) {
+            call_user_func($payment->failure_hook, $payment);
+        }
+
+        return $this->payment_response($payment, 'fail');
+    }
+
+    /** Paymob writes its booleans as "true" in the return and as true in its API answers. */
+    private function isTrue(mixed $value): bool
+    {
+        return $value === true || $value === 1 || (is_string($value) && strcasecmp($value, 'true') === 0);
+    }
+
+    /**
+     * The HMAC secret of the one platform-wide settings row, which is what every Paymob payment uses today.
+     *
+     * Null rather than an exception for a row that has none: an unconfigured gateway must not throw out of a route Laravel reaches while gathering
+     * middleware, and a missing secret is read as "cannot verify" by the caller, which refuses.
+     */
+    private function platformHmacSecret(): ?string
+    {
+        return $this->platformValue(name: 'hmac');
     }
 
     /**
