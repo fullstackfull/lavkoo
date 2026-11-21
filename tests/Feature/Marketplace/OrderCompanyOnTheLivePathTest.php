@@ -3,8 +3,8 @@
 namespace Tests\Feature\Marketplace;
 
 use App\Models\LegalEntity;
-use App\Models\User;
 use App\Models\VendorLedgerEntry;
+use App\Services\Marketplace\CommissionEngine;
 use App\Services\Marketplace\RefundReversalService;
 use App\Services\Storefront\LegalEntityRegistry;
 use App\Services\Storefront\StorefrontCatalog;
@@ -145,6 +145,52 @@ class OrderCompanyOnTheLivePathTest extends ApiAddressTestCase
         );
     }
 
+    // ---- the order is still an order -------------------------------------------------------------------------------------------
+
+    public function test_a_cart_of_a_physical_and_a_digital_line_saves_stamps_and_pays_for_both(): void
+    {
+        $this->turnSellingCompaniesOn();
+        $company = $this->registerSaudiCompany();
+        $this->sellersProduct(productId: 1, country: 'SA');
+        $this->sellersProduct(productId: 2, country: 'SA', digital: true);
+        DB::table('orders')->insert(['id' => 700, 'customer_id' => 1, 'order_amount' => 200]);
+
+        OrderManager::addOrderDetailsData(orderId: 700, vendorCart: $this->cartOf(productIds: [1, 2]));
+
+        $this->assertSame(2, DB::table('order_details')->where('order_id', 700)->count());
+        $this->assertSame(9, (int) DB::table('products')->where('id', 1)->value('current_stock'), 'the physical line took its stock');
+        $this->assertSame(9, (int) DB::table('products')->where('id', 2)->value('current_stock'), 'the digital line decrements unconditionally, as it always did');
+        $this->assertSame($company->id, (int) DB::table('orders')->where('id', 700)->value(LegalEntityRegistry::COLUMN));
+        $this->assertSame(
+            [$company->id, $company->id, $company->id, $company->id],
+            array_values($this->companiesOnTheLedger()),
+            'both lines earn and are charged in the company that sold them',
+        );
+    }
+
+    public function test_a_commission_write_that_throws_still_leaves_a_whole_order(): void
+    {
+        $this->turnSellingCompaniesOn();
+        $company = $this->registerSaudiCompany();
+        $this->app->bind(CommissionEngine::class, fn () => new ThrowingCommissionEngine());
+        $this->sellersProduct(productId: 1, country: 'SA');
+        $this->sellersProduct(productId: 2, country: 'SA');
+        DB::table('orders')->insert(['id' => 701, 'customer_id' => 1, 'order_amount' => 200]);
+
+        OrderManager::addOrderDetailsData(orderId: 701, vendorCart: $this->cartOf(productIds: [1, 2]));
+
+        $this->assertSame(2, DB::table('order_details')->where('order_id', 701)->count(), 'both lines are saved');
+        $this->assertSame(0, DB::table('vendor_ledger_entries')->count(), 'and no money is invented for them');
+        $this->assertSame(0, DB::table('order_item_commissions')->count());
+        $this->assertSame(9, (int) DB::table('products')->where('id', 1)->value('current_stock'), 'the stock of each line was still taken');
+        $this->assertSame(9, (int) DB::table('products')->where('id', 2)->value('current_stock'));
+        $this->assertSame(
+            $company->id,
+            (int) DB::table('orders')->where('id', 701)->value(LegalEntityRegistry::COLUMN),
+            'and the order is still stamped, because the stamp is not inside the money writer',
+        );
+    }
+
     // ---- the world -------------------------------------------------------------------------------------------------------------
 
     /** The checkout, run the way every controller runs it: the cart is priced, the order row is written, its lines are saved, and its money is recorded. */
@@ -168,12 +214,33 @@ class OrderCompanyOnTheLivePathTest extends ApiAddressTestCase
         return (int) $orderIds[0];
     }
 
-    private function putASellersProductInTheCart(int $customerId, int $productId, string $country): void
+    /** The lines of a cart as generateOrder hands them to addOrderDetailsData: no tax rows, no coupon, overselling refused. */
+    private function cartOf(array $productIds): array
+    {
+        $cartList = [];
+
+        foreach ($productIds as $index => $productId) {
+            $cartList[] = [
+                'id' => $index + 1, 'product_id' => $productId, 'seller_id' => self::SELLER, 'seller_is' => 'seller',
+                'quantity' => 1, 'price' => 100, 'variant' => null, 'variations' => null,
+            ];
+        }
+
+        return ['cart_list' => $cartList, 'applied_tax_cart_list' => [], 'coupon_code' => null, 'coupon_discount' => 0];
+    }
+
+    private function sellersProduct(int $productId, string $country, bool $digital = false): void
     {
         DB::table('products')->insert([
-            'id' => $productId, 'name' => 'Paracetamol ' . $country, 'added_by' => 'seller', 'user_id' => self::SELLER,
+            'id' => $productId, 'name' => 'Paracetamol ' . $productId, 'added_by' => 'seller', 'user_id' => self::SELLER,
             'unit_price' => 100, 'current_stock' => 10, StorefrontCatalog::COLUMN => $country,
+            'product_type' => $digital ? 'digital' : 'physical', 'digital_product_type' => $digital ? 'ready_after_sell' : null,
         ]);
+    }
+
+    private function putASellersProductInTheCart(int $customerId, int $productId, string $country): void
+    {
+        $this->sellersProduct(productId: $productId, country: $country);
 
         DB::table('carts')->insert([
             'customer_id' => $customerId, 'is_guest' => false, 'cart_group_id' => 'group-' . $customerId, 'product_id' => $productId,
@@ -217,5 +284,14 @@ class OrderCompanyOnTheLivePathTest extends ApiAddressTestCase
                 $table->decimal('sales_commission_percentage', 12, 4)->nullable();
             });
         }
+    }
+}
+
+/** A commission engine that cannot answer, to prove that an order survives one. */
+final class ThrowingCommissionEngine extends CommissionEngine
+{
+    public function calculate(array $line, float $commissionableAmount): array
+    {
+        throw new \RuntimeException('the commission rules are unreachable');
     }
 }
