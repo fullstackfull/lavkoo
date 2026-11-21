@@ -190,6 +190,40 @@ class CompanyAccountsAreDormantTest extends TestCase
             ->assertRedirectContains('payment-success');
     }
 
+    /**
+     * The one thing this work changes on the dormant path, and it changes it on purpose.
+     *
+     * A return whose signature does not check out used to run the payment's FAILURE hook. That let anybody who could reach the address make the shop
+     * record a failed attempt against a payment they had nothing to do with -- and run whatever a module's failure hook does -- on a request the shop
+     * could not authenticate. A signature that does not check out is not the gateway saying the payment failed; it is the shop not knowing anything,
+     * which is the rule this project already applies to an unknown outcome everywhere else.
+     *
+     * What the customer sees is the same page as before. What is no longer written is the analytics row the shared failure hook writes.
+     */
+    #[DataProvider('dormantStates')]
+    public function test_an_unauthenticated_return_no_longer_runs_the_failure_hook(string $state): void
+    {
+        require_once __DIR__ . '/../../Support/myfatoorah_test_hooks.php';
+        $GLOBALS['myfatoorah_failure_calls'] = [];
+        $this->inState($state);
+        $payment = $this->aPaymentStartedIn(country: 'SA', currency: 'SAR', amount: 100);
+        DB::table('payment_requests')->where('id', $payment->id)->update(['failure_hook' => 'myfatoorah_test_failure_hook']);
+
+        $this->withSession(['payment_id' => $payment->id])
+            ->get($this->aSignedReturn(transaction: '4455667', amount: 100, secret: 'not-the-platform-secret'))
+            ->assertRedirectContains('payment-fail');
+
+        $this->assertSame(0, (int) DB::table('payment_requests')->where('id', $payment->id)->value('is_paid'));
+        $this->assertSame([], $GLOBALS['myfatoorah_failure_calls'], 'the failure hook of a payment is not run by a request the shop cannot authenticate');
+
+        // And the gateway saying it failed still runs it, so the change is about authentication and nothing else.
+        $this->withSession(['payment_id' => $payment->id])
+            ->get($this->aSignedReturn(transaction: '4455667', amount: 100, secret: self::PLATFORM_SECRET, success: 'false'))
+            ->assertRedirectContains('payment-fail');
+
+        $this->assertSame([$payment->id], $GLOBALS['myfatoorah_failure_calls'], 'a signed refusal from the gateway runs it, as it always has');
+    }
+
     private function inState(string $state): void
     {
         if ($state === 'off') {

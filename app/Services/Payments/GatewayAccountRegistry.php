@@ -3,7 +3,6 @@
 namespace App\Services\Payments;
 
 use App\Models\PaymentGatewayAccount;
-use App\Services\Storefront\LegalEntityRegistry;
 use App\Services\Storefront\StorefrontResolver;
 use Illuminate\Container\Attributes\Singleton;
 use Illuminate\Support\Facades\Schema;
@@ -132,18 +131,6 @@ final class GatewayAccountRegistry
         $this->accounts[$key] = ['account' => $account, 'at' => time()];
 
         return $account;
-    }
-
-    /** The company an account belongs to: the one it names, else the one registered for its country. Null while legal entities are off or it has none. */
-    public function companyOf(PaymentGatewayAccount $account): ?int
-    {
-        if ($account->legal_entity_id !== null) {
-            return (int) $account->legal_entity_id;
-        }
-
-        $entity = app(LegalEntityRegistry::class)->forCountry((string) $account->storefront_country);
-
-        return $entity === null ? null : (int) $entity->id;
     }
 
     /** Forgets what was remembered, after the registry was changed in this process. */

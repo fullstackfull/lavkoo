@@ -32,7 +32,7 @@ final class PaymobTransactionInquiry implements GatewayTransactionInquiry
 
     public function canAsk(?PaymentGatewayAccount $account): bool
     {
-        return $account !== null && $this->secretOf(account: $account) !== null && $this->hostOf(account: $account) !== null;
+        return $account !== null && $this->secretOf(account: $account) !== null && $this->host() !== null;
     }
 
     public function transaction(?PaymentGatewayAccount $account, string $reference): GatewayTransactionState
@@ -41,7 +41,7 @@ final class PaymobTransactionInquiry implements GatewayTransactionInquiry
             return GatewayTransactionState::unknown();
         }
 
-        $url = $this->hostOf(account: $account) . self::PATH . rawurlencode(trim($reference));
+        $url = $this->host() . self::PATH . rawurlencode(trim($reference));
 
         try {
             $response = Http::withHeaders(['Authorization' => 'Token ' . $this->secretOf(account: $account), 'Accept' => 'application/json'])
@@ -107,7 +107,7 @@ final class PaymobTransactionInquiry implements GatewayTransactionInquiry
     }
 
     /** The configured region's host, only while it is one Paymob publishes. */
-    private function hostOf(PaymentGatewayAccount $account): ?string
+    private function host(): ?string
     {
         $configured = (string) config('gcc.storefronts.payment_accounts.inquiry.paymob_host', self::HOSTS[0]);
 
