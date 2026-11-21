@@ -18,7 +18,13 @@ use Illuminate\Container\Attributes\Singleton;
 #[Singleton]
 final class StorefrontUrl
 {
-    /** The storefront form of a platform URL: the page's own address in that storefront. */
+    /**
+     * The storefront form of a platform URL: the page's own address in that storefront.
+     *
+     * Only a market a visitor can actually reach gets a segment of its own. A market that is switched off answers nothing under its
+     * path, so naming that address would publish a link to a page that does not exist; it takes the platform address, which is what a
+     * country this installation does not serve has always taken.
+     */
     public function of(string $url, ?string $country = null): string
     {
         $resolver = StorefrontResolver::fromConfig();
@@ -29,7 +35,7 @@ final class StorefrontUrl
 
         $code = strtoupper(trim((string) ($country ?? StorefrontContext::current()->country)));
 
-        if ($code === $resolver->defaultCountry() || !in_array($code, $resolver->configuredCountries(), true)) {
+        if ($code === $resolver->defaultCountry() || !in_array($code, array_column($resolver->activeStorefronts(), 'country'), true)) {
             return $url;
         }
 

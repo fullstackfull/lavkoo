@@ -324,23 +324,124 @@ class StorefrontMoneyAndSeoTest extends TestCase
         );
     }
 
-    public function test_the_hreflang_alternates_list_the_storefront_and_the_language_variants_of_the_same_page(): void
+    /**
+     * A page every market has of its own — a landing page — is carried by every live market, so its hreflang set names them all, in
+     * every published language.
+     */
+    public function test_a_landing_pages_hreflang_set_names_every_live_market(): void
     {
         $this->openSixMarkets();
 
         $alternates = $this->inStorefront('KW', fn (): array => app(StorefrontSeo::class)->alternates(
-            url: route('product', ['slug' => 'kuwaiti-serum']),
+            url: route('home'),
             languageCodes: ['en', 'ar'],
         ));
 
         $this->assertSame([
-            'en-SA' => 'https://lavkoo.test/product/kuwaiti-serum?language=en',
-            'ar-SA' => 'https://lavkoo.test/product/kuwaiti-serum?language=ar',
-            'en-AE' => 'https://lavkoo.test/ae/product/kuwaiti-serum?language=en',
-            'ar-AE' => 'https://lavkoo.test/ae/product/kuwaiti-serum?language=ar',
-            'en-KW' => 'https://lavkoo.test/kw/product/kuwaiti-serum?language=en',
-            'ar-KW' => 'https://lavkoo.test/kw/product/kuwaiti-serum?language=ar',
+            'en-SA' => 'https://lavkoo.test/?language=en',
+            'ar-SA' => 'https://lavkoo.test/?language=ar',
+            'en-AE' => 'https://lavkoo.test/ae?language=en',
+            'ar-AE' => 'https://lavkoo.test/ae?language=ar',
+            'en-KW' => 'https://lavkoo.test/kw?language=en',
+            'ar-KW' => 'https://lavkoo.test/kw?language=ar',
         ], $alternates);
+    }
+
+    /**
+     * Which markets may be indexed and which markets carry a page are two different questions, and a product page must answer the
+     * second. Every product belongs to one country, so the Saudi storefront serves no page at all for a Kuwaiti product — its own
+     * controller takes the not-found branch — and an `en-SA` alternate, or an `x-default` built from one, would point a crawler at a
+     * redirect. The alternates of a product page name its own market, in every published language, and nobody else's.
+     */
+    public function test_a_product_pages_hreflang_set_names_only_the_markets_whose_catalogue_holds_it(): void
+    {
+        $this->openSixMarkets();
+
+        $seo = app(StorefrontSeo::class);
+
+        // The gate still says all three markets may be indexed; the catalogue says which one holds the product.
+        $this->assertSame(['SA', 'AE', 'KW'], $this->inStorefront('KW', fn (): array => $seo->indexableCountries()));
+        $this->assertSame(['KW'], $this->inStorefront('KW', fn (): array => $seo->countriesCarrying(product: Product::query()->find(2))));
+        $this->assertSame(['SA'], $this->inStorefront('KW', fn (): array => $seo->countriesCarrying(product: Product::query()->find(1))));
+
+        $kuwaiti = $this->inStorefront('KW', fn (): array => $seo->alternates(
+            url: route('product', ['slug' => 'kuwaiti-serum']),
+            languageCodes: ['en', 'ar'],
+            countries: $seo->countriesCarrying(product: Product::query()->find(2)),
+        ));
+
+        $this->assertSame([
+            'en' => 'https://lavkoo.test/kw/product/kuwaiti-serum?language=en',
+            'ar' => 'https://lavkoo.test/kw/product/kuwaiti-serum?language=ar',
+        ], $kuwaiti);
+
+        // Symmetrically for the Saudi page, which keeps the bare address its own market has always had.
+        $saudi = $this->inStorefront('SA', fn (): array => $seo->alternates(
+            url: route('product', ['slug' => 'saudi-serum']),
+            languageCodes: ['en', 'ar'],
+            countries: $seo->countriesCarrying(product: Product::query()->find(1)),
+        ));
+
+        $this->assertSame([
+            'en' => 'https://lavkoo.test/product/saudi-serum?language=en',
+            'ar' => 'https://lavkoo.test/product/saudi-serum?language=ar',
+        ], $saudi);
+    }
+
+    /** The market the page declares is a market whose own shop would show the product: one source, read through the narrowed catalogue. */
+    public function test_a_market_the_page_declares_can_itself_show_the_product(): void
+    {
+        $this->openSixMarkets();
+
+        $seo = app(StorefrontSeo::class);
+
+        foreach ([1 => 'saudi-serum', 2 => 'kuwaiti-serum'] as $productId => $slug) {
+            foreach ($seo->countriesCarrying(product: Product::query()->find($productId)) as $country) {
+                $this->assertSame(
+                    $slug,
+                    $this->inStorefront($country, fn (): ?string => Product::active()->where('slug', $slug)->value('slug')),
+                    "{$country} declares {$slug}, so its own catalogue has to hold it",
+                );
+            }
+        }
+
+        // And a market the page does not declare cannot: this is the redirect the old alternates pointed at.
+        $this->assertNull($this->inStorefront('SA', fn (): ?string => Product::active()->where('slug', 'kuwaiti-serum')->value('slug')));
+        $this->assertNull($this->inStorefront('KW', fn (): ?string => Product::active()->where('slug', 'saudi-serum')->value('slug')));
+    }
+
+    /** A product of a market a crawler may not be told about declares nothing at all, so no hreflang and no x-default is published for it. */
+    public function test_a_product_of_a_market_that_is_not_live_declares_no_market(): void
+    {
+        $this->openSixMarkets();
+        $this->addProduct(id: 4, name: 'Qatari balm', slug: 'qatari-balm', price: '9.00', country: 'QA');
+
+        $seo = app(StorefrontSeo::class);
+
+        $this->assertSame([], $this->inStorefront('QA', fn (): array => $seo->countriesCarrying(product: Product::query()->find(4))));
+        $this->assertSame([], $this->inStorefront('QA', fn (): array => $seo->alternates(
+            url: route('product', ['slug' => 'qatari-balm']),
+            languageCodes: ['en', 'ar'],
+            countries: $seo->countriesCarrying(product: Product::query()->find(4)),
+        )));
+    }
+
+    /**
+     * A market that is switched off answers nothing under its path, so it is never given an address of its own: naming `/kw/...` while
+     * Kuwait is dark would publish a link to a page that does not exist. It takes the platform address, which is what a country this
+     * installation does not serve has always taken.
+     */
+    public function test_a_market_that_is_switched_off_is_never_given_an_address_of_its_own(): void
+    {
+        $this->openSixMarkets();
+        $url = route('product', ['slug' => 'kuwaiti-serum']);
+
+        $this->assertSame('https://lavkoo.test/kw/product/kuwaiti-serum', app(StorefrontUrl::class)->of(url: $url, country: 'KW'));
+
+        config(['gcc.storefronts.countries.KW.active' => false]);
+
+        $this->assertSame($url, app(StorefrontUrl::class)->of(url: $url, country: 'KW'));
+        $this->assertSame($url, app(StorefrontUrl::class)->of(url: $url, country: 'ZZ'), 'a country this installation does not serve, for comparison');
     }
 
     /** One implementation of the offer, read by the page's structured data and by the app, so neither can state a price the other does not. */
@@ -367,13 +468,18 @@ class StorefrontMoneyAndSeoTest extends TestCase
     {
         $this->openSixMarkets();
 
-        $html = $this->inStorefront('KW', fn (): string => view('seo.product-supplement', [
-            'productDetails' => \App\Models\Product::query()->find(2),
-        ])->render());
+        $html = $this->inStorefront('KW', fn (): string => $this->renderedSupplement(productId: 2));
 
         $this->assertStringContainsString('<link rel="canonical" href="https://lavkoo.test/kw/product/kuwaiti-serum">', $html);
-        $this->assertStringContainsString('hreflang="en-KW" href="https://lavkoo.test/kw/product/kuwaiti-serum?language=en"', $html);
-        $this->assertStringContainsString('hreflang="en-SA" href="https://lavkoo.test/product/kuwaiti-serum?language=en"', $html);
+        $this->assertStringContainsString('hreflang="en" href="https://lavkoo.test/kw/product/kuwaiti-serum?language=en"', $html);
+        $this->assertStringContainsString('hreflang="ar" href="https://lavkoo.test/kw/product/kuwaiti-serum?language=ar"', $html);
+
+        // Every address the page publishes is its own market's, including the fallback a crawler uses for an unmatched language. No
+        // Saudi address appears: the Saudi shop holds no Kuwaiti product and would redirect away from this page.
+        $this->assertStringContainsString('hreflang="x-default" href="https://lavkoo.test/kw/product/kuwaiti-serum?language=en"', $html);
+        $this->assertStringNotContainsString('-SA"', $html);
+        $this->assertStringNotContainsString('https://lavkoo.test/product/', $html);
+
         $this->assertStringContainsString('"priceCurrency":"KWD"', $html);
         // Three decimals, not the two a hundredths currency would be rounded to: a dinar price rounded to hundredths is a price
         // nobody can pay, and a crawler told it would advertise a figure the page never printed.
@@ -393,10 +499,22 @@ class StorefrontMoneyAndSeoTest extends TestCase
         $this->assertStringContainsString('<loc>https://lavkoo.test/kw/product/kuwaiti-serum</loc>', $kuwait);
         $this->assertStringContainsString('<loc>https://lavkoo.test/kw/product/kuwaiti-balm</loc>', $kuwait);
         $this->assertStringContainsString('<loc>https://lavkoo.test/kw</loc>', $kuwait);
-        // The landing page has no path of its own, so its language alternate keeps the separator rather than hanging off the host.
+        // The landing page is carried by every live market, and it has no path of its own, so its language alternate keeps the
+        // separator rather than hanging off the host.
         $this->assertStringContainsString('hreflang="en-SA" href="https://lavkoo.test/?language=en"', $kuwait);
         $this->assertStringNotContainsString('saudi-serum', $kuwait);
         $this->assertStringNotContainsString('<loc>https://lavkoo.test/product/', $kuwait);
+
+        // A product entry declares only the market whose catalogue holds it, the fallback for an unmatched language included: the
+        // whole file published `en-SA`, `ar-SA` and an `x-default` at a bare address for every Kuwaiti product before this.
+        $this->assertStringContainsString(
+            '<loc>https://lavkoo.test/kw/product/kuwaiti-serum</loc>' . "\n"
+            . '    <xhtml:link rel="alternate" hreflang="en" href="https://lavkoo.test/kw/product/kuwaiti-serum?language=en"/>' . "\n"
+            . '    <xhtml:link rel="alternate" hreflang="ar" href="https://lavkoo.test/kw/product/kuwaiti-serum?language=ar"/>' . "\n"
+            . '    <xhtml:link rel="alternate" hreflang="x-default" href="https://lavkoo.test/kw/product/kuwaiti-serum?language=en"/>',
+            $kuwait,
+        );
+        $this->assertStringNotContainsString('href="https://lavkoo.test/product/kuwaiti-serum', $kuwait);
 
         // The Emirati market is live and has no products, so its file carries its landing page and nobody else's catalogue.
         $this->assertStringNotContainsString('kuwaiti-serum', $files['sitemap-now-ae.xml']);
@@ -496,6 +614,11 @@ class StorefrontMoneyAndSeoTest extends TestCase
 
         $this->assertSame($before['money'], $after['money']);
         $this->assertSame($before['canonical'], $after['canonical']);
+        $this->assertSame($before['alternates'], $after['alternates']);
+        $this->assertSame($before['offer'], $after['offer']);
+        $this->assertSame($before['schema_offer'], $after['schema_offer']);
+        // The whole page a crawler reads, byte for byte, with all six markets live.
+        $this->assertSame($before['rendered_supplement'], $after['rendered_supplement']);
         $this->assertSame($before['robots_header'], $after['robots_header']);
         $this->assertSame($before['price_bound'], $after['price_bound']);
         $this->assertSame($before['sign'], $after['sign']);
@@ -511,9 +634,13 @@ class StorefrontMoneyAndSeoTest extends TestCase
         // The Saudi sitemap keeps the Saudi product and gains no other market's.
         $this->assertSame(['saudi-serum'], $after['platform_sitemap_slugs']);
 
-        // The one tag that changes is the one this feature is for: the page now says which markets carry it, Saudi Arabia among them.
-        $this->assertArrayHasKey('en-SA', $after['alternates']);
-        $this->assertSame('https://lavkoo.test/product/saudi-serum?language=en', $after['alternates']['en-SA']);
+        // The page keeps the language-only set and the bare addresses it has today, because Saudi Arabia is the only market whose
+        // catalogue holds this product. A market alternate appears where a page really does exist in several markets — a landing
+        // page: {@see test_a_landing_pages_hreflang_set_names_every_live_market}.
+        $this->assertSame(
+            ['en' => 'https://lavkoo.test/product/saudi-serum?language=en', 'ar' => 'https://lavkoo.test/product/saudi-serum?language=ar'],
+            $after['alternates'],
+        );
     }
 
     /* ----------------------------------------------------------------------------------------------------------- helpers */

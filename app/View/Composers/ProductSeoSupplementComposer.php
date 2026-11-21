@@ -111,7 +111,8 @@ class ProductSeoSupplementComposer
             'images'      => $this->imageUrls($product),
             'brand'       => $product->brand?->name,
             // The offer states the money of the storefront serving the page, from the one service the page itself and the customer
-            // API read, so a crawler is never told a price the page does not print.
+            // API read, so a crawler is never told a price that storefront's page does not print. On the default storefront, and
+            // while the markets are off, it is the offer this page has always published, unchanged.
             'price'          => $offer['price'],
             'currency'       => $offer['currency'] ?: 'USD',
             'price_decimals' => $offer['decimals'],
@@ -137,12 +138,16 @@ class ProductSeoSupplementComposer
     }
 
     /**
-     * hreflang targets: every storefront that may be indexed, in every language the store publishes.
+     * hreflang targets: every storefront whose catalogue holds this product, in every language the store publishes.
      *
      * The storefront serves one URL per product and switches language by session, so a language alternate points at the same
      * URL with an explicit language parameter rather than at a separate path; a storefront alternate points at that
      * storefront's own address for the page. {@see StorefrontSeo::alternates()} owns both, and keeps the language-only set
-     * the page carries today while only one storefront is indexable.
+     * the page carries today while only one storefront carries it.
+     *
+     * Which markets carry the product is the catalogue's answer, not the indexing gate's
+     * ({@see StorefrontSeo::countriesCarrying()}): a market whose shop cannot show this product redirects away from the page, so
+     * naming it would point a crawler — and, through x-default, every unmatched language — at a redirect.
      *
      * @return array<string,string>
      */
@@ -164,7 +169,11 @@ class ProductSeoSupplementComposer
 
             // One storefront and one language is not an alternate of anything — emitting hreflang for a single page
             // is noise that tells a crawler nothing.
-            return $this->storefront->alternates(url: route('product', [$product->slug]), languageCodes: $codes);
+            return $this->storefront->alternates(
+                url: route('product', [$product->slug]),
+                languageCodes: $codes,
+                countries: $this->storefront->countriesCarrying(product: $product),
+            );
         } catch (\Throwable) {
             return [];
         }
