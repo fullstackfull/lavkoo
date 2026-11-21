@@ -290,7 +290,9 @@ class PaymobController extends Controller
         ];
         $connectedString = '';
         foreach ($data as $key => $element) {
-            if (in_array($key, $array)) {
+            // Only a scalar is part of what Paymob signs. `?id[]=1` used to be concatenated as an array, which this application's error handler turns
+            // into an exception, so a crafted address answered 500 instead of simply failing to match the signature.
+            if (in_array($key, $array, true) && is_scalar($element)) {
                 $connectedString .= $element;
             }
         }

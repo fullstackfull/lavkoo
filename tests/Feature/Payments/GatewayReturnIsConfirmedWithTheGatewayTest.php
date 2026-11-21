@@ -129,6 +129,17 @@ class GatewayReturnIsConfirmedWithTheGatewayTest extends TestCase
         $this->assertWasNotPaid($kuwait);
     }
 
+    /** A crafted address refuses, rather than answering 500: an array where Paymob sends a value is not part of what Paymob signs. */
+    public function test_a_return_whose_parameters_are_not_values_is_refused_and_does_not_fail_the_request(): void
+    {
+        $kuwait = $this->aKuwaitPayment(amount: 12.5);
+
+        $this->openTheReturn('/payment/paymob/callback?' . http_build_query(['id' => ['1', '2'], 'amount_cents' => '1250', 'currency' => 'KWD', 'success' => 'true', 'hmac' => 'anything']), forPayment: $kuwait)
+            ->assertRedirectContains('payment-fail');
+
+        $this->assertWasNotPaid($kuwait);
+    }
+
     /** D2-11: 'a return is accepted only after the provider confirms it and amount, currency and reference match the stored payment'. */
     public function test_with_confirmation_on_a_return_the_gateway_confirms_settles_the_payment(): void
     {
