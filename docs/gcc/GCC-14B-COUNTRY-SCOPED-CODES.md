@@ -262,7 +262,7 @@ left out of the index:
 
 | Engine | How the rule is written |
 |---|---|
-| MariaDB, MySQL | no partial index exists, so the index is laid over a VIRTUAL generated column, `NULLIF(code, '')`. Adding a virtual column rewrites no rows, and a unique index skips its NULLs. |
+| MariaDB, MySQL | no partial index exists, so the index is laid over a VIRTUAL generated column, `NULLIF(code, '')`, **declared with the stored column's own type** (a guessed length smaller than the real one would truncate the indexed value, and two different codes that agree up to it would collide). Adding a virtual column rewrites no rows, and a unique index skips its NULLs. |
 | SQLite, PostgreSQL | the same rule written directly: `CREATE UNIQUE INDEX ... WHERE code IS NOT NULL AND code <> ''`. |
 
 Measured on MariaDB 10.11.14 and on SQLite: many products of one country may have no code and no barcode at all, or an empty one, or one of each;

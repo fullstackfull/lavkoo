@@ -134,11 +134,28 @@ final class ProductCodeIndex
         $generated = self::generatedColumn($kind);
         $statements = [];
         if (!Schema::hasColumn(self::TABLE, $generated)) {
-            $statements[] = 'ALTER TABLE ' . self::TABLE . ' ADD COLUMN ' . $generated . ' VARCHAR(191) AS (NULLIF(' . $kind . ", '')) VIRTUAL";
+            $statements[] = 'ALTER TABLE ' . self::TABLE . ' ADD COLUMN ' . $generated . ' ' . self::typeOf($kind) . ' AS (NULLIF(' . $kind . ", '')) VIRTUAL";
         }
         $statements[] = 'ALTER TABLE ' . self::TABLE . ' ADD UNIQUE INDEX ' . $index . ' (' . $country . ', ' . $generated . ')';
 
         return $statements;
+    }
+
+    /**
+     * The generated column takes the **stored column's own type**, read from the schema. A length guessed here and smaller than the real one
+     * would truncate the value the index is built on, and two codes that agree up to that length would collide although they are different
+     * codes — an index stricter than the rule it is meant to express. A type the schema cannot name falls back to the length the
+     * `add_code_to_products_table` migration gives the code.
+     */
+    private static function typeOf(string $kind): string
+    {
+        foreach (Schema::getColumns(self::TABLE) as $column) {
+            if (($column['name'] ?? null) === $kind && is_string($column['type'] ?? null) && $column['type'] !== '') {
+                return $column['type'];
+            }
+        }
+
+        return 'VARCHAR(191)';
     }
 
     private static function usesGeneratedColumn(Connection $connection): bool

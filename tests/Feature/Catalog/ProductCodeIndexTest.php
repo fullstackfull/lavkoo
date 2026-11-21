@@ -196,6 +196,22 @@ class ProductCodeIndexTest extends TestCase
         );
     }
 
+    public function test_two_long_codes_that_agree_up_to_the_default_length_are_still_two_codes(): void
+    {
+        if (!in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+            $this->markTestSkipped('only the generated-column engines can get the length of the indexed value wrong');
+        }
+
+        DB::statement('ALTER TABLE products MODIFY code VARCHAR(500) NULL');
+        $this->applyIndexes();
+        $shared = str_repeat('A', 200);
+
+        $this->insertRow(code: $shared . '-ONE', country: 'SA');
+        $this->insertRow(code: $shared . '-TWO', country: 'SA');
+
+        $this->assertSame(2, DB::table('products')->count(), 'a generated column shorter than the stored one would read these as one code');
+    }
+
     // ---- the read-only report ----------------------------------------------------------------------------------------------------
 
     public function test_the_readiness_report_says_whether_each_index_can_be_applied(): void
