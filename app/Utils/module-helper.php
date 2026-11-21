@@ -9,11 +9,11 @@ use App\Models\ShippingAddress;
 use App\Models\User;
 use App\Services\Address\OrderAddressService;
 use App\Utils\Convert;
-use App\Utils\CustomerManager;
 use App\Utils\OrderManager;
 use Illuminate\Support\Facades\DB;
 use Modules\TaxModule\app\Models\SystemTaxSetup;
 use Modules\TaxModule\app\Models\Tax;
+use App\Services\Customer\CustomerWalletWriter;
 
 if (!function_exists('digital_payment_success')) {
     function digital_payment_success($paymentData): void
@@ -304,7 +304,7 @@ if (!function_exists('add_fund_to_wallet_success')) {
 
             $paymentAmount = Convert::usdPaymentModule(floatval($payment_data['payment_amount']), $payment_data['currency_code']);
             $paymentAmount = usdToDefaultCurrency(amount: $paymentAmount);
-            $wallet_transaction = CustomerManager::create_wallet_transaction($payment_data['payer_id'], $paymentAmount, 'add_fund', 'add_funds_to_wallet', $payment_data);
+            $wallet_transaction = CustomerWalletWriter::record(customerId: $payment_data['payer_id'], amount: $paymentAmount, transactionType: 'add_fund', reference: 'add_funds_to_wallet', paymentData: $payment_data);
 
             if ($wallet_transaction) {
                 try {

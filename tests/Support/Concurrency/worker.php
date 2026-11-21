@@ -4,6 +4,7 @@
 
 use Illuminate\Contracts\Console\Kernel;
 use Tests\Support\Concurrency\Operations;
+use Tests\Support\Concurrency\Rendezvous;
 
 $root = dirname(__DIR__, 3);
 require $root . '/vendor/autoload.php';
@@ -21,6 +22,9 @@ if (getenv('DB_STRICT_TESTS') === '1') {
 foreach (glob(__DIR__ . '/registrations/*.php') ?: [] as $registration) {
     require $registration;
 }
+
+// The directory of this run's meeting points, for an operation that holds its process at one of them.
+Rendezvous::in($spec['rendezvous'] ?? null);
 
 while (microtime(true) < (float) $spec['start_at']) {
     usleep(200);

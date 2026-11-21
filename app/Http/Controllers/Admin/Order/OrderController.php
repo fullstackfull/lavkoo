@@ -24,14 +24,11 @@ use App\Services\ProductService;
 use App\Services\RefundStatusService;
 use App\Services\RefundTransactionService;
 use App\Traits\OrderEditManager;
-use App\Utils\CustomerManager;
-use App\Utils\Helpers;
 use Carbon\Carbon;
 use App\Enums\WebConfigKey;
 use App\Utils\OrderManager;
 use App\Exports\OrderExport;
 use App\Traits\PdfGenerator;
-use Exception;
 use Illuminate\Http\Request;
 use App\Enums\GlobalConstant;
 use App\Traits\CustomerTrait;
@@ -72,6 +69,7 @@ use App\Contracts\Repositories\DeliveryCountryCodeRepositoryInterface;
 use App\Contracts\Repositories\DeliveryManTransactionRepositoryInterface;
 use App\Contracts\Repositories\LoyaltyPointTransactionRepositoryInterface;
 use App\Contracts\Repositories\OrderExpectedDeliveryHistoryRepositoryInterface;
+use App\Services\Customer\CustomerWalletWriter;
 
 class OrderController extends BaseController
 {
@@ -264,7 +262,7 @@ class OrderController extends BaseController
                     ToastMagic::error(translate('Amount_returned_currently_not_possible_to_wallet'));
                     return redirect()->back();
                 }
-                CustomerManager::create_wallet_transaction($order['customer_id'], $order['edit_return_amount'], 'return_order_amount_by_admin', 'add_wallet_amount', ['payment_method' => 'wallet']);
+                CustomerWalletWriter::record(customerId: $order['customer_id'], amount: $order['edit_return_amount'], transactionType: 'return_order_amount_by_admin', reference: 'add_wallet_amount', paymentData: ['payment_method' => 'wallet']);
             }
 
             $adminWallet = $this->adminWalletRepo->getFirstWhere(params: ['admin_id' => 1]);
@@ -699,11 +697,11 @@ class OrderController extends BaseController
             && $order['customer_id'] != 0
             && !$this->walletTransactionRepo->getFirstWhere(params: ['reference' => 'pos_order_cancel_' . $order['id'], 'transaction_type' => 'order_refund'])
         ) {
-            $this->createWalletTransaction(
-                user_id: $order['customer_id'],
+            CustomerWalletWriter::record(
+                customerId: $order['customer_id'],
                 amount: usdToDefaultCurrency(amount: $order['order_amount']),
-                transaction_type: 'order_refund',
-                reference: 'pos_order_cancel_' . $order['id']
+                transactionType: 'order_refund',
+                reference: 'pos_order_cancel_' . $order['id'],
             );
         }
         if ($request['order_status'] == 'delivered') {

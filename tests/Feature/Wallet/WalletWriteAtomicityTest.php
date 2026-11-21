@@ -3,24 +3,20 @@
 namespace Tests\Feature\Wallet;
 
 use App\Models\User;
-use App\Repositories\WalletTransactionRepository;
 use App\Services\Customer\CustomerBalanceLock;
-use App\Utils\CustomerManager;
-use App\Utils\OrderManager;
+use App\Services\Customer\CustomerWalletWriter;
 use Error;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 use Tests\Support\Wallet\WalletTables;
-use Tests\Support\Wallet\WalletWritingHost;
 use Tests\TestCase;
 
 /**
- * Every wallet writer changes the balance and writes its ledger row in one transaction, under the customer's row lock.
+ * The wallet writer changes the balance and writes its ledger row in one transaction, under the customer's row lock.
  *
  * A failure between the two writes must leave neither behind, and a missing customer must change nothing. Retries are not
- * guarded: the writers have no idempotency key, so the characterization below pins what happens today without endorsing it.
+ * guarded: the writer has no idempotency key, so the characterization below pins what happens today without endorsing it.
  */
 class WalletWriteAtomicityTest extends TestCase
 {
@@ -37,33 +33,20 @@ class WalletWriteAtomicityTest extends TestCase
         WalletTables::seedCustomer(self::CUSTOMER_ID, self::OPENING_BALANCE);
     }
 
-    /** @return array<string, array{0: string}> */
-    public static function writers(): array
-    {
-        return [
-            'repository' => ['repository'],
-            'customer manager' => ['customer_manager'],
-            'order manager' => ['order_manager'],
-            'customer trait' => ['customer_trait'],
-        ];
-    }
-
-    #[DataProvider('writers')]
-    public function test_a_failed_ledger_write_leaves_the_wallet_unchanged(string $writer): void
+    public function test_a_failed_ledger_write_leaves_the_wallet_unchanged(): void
     {
         Schema::drop('wallet_transactions');
 
-        $result = $this->write($writer, customerId: (string) self::CUSTOMER_ID, transactionType: 'order_place', reference: 'order-atomic');
+        $result = $this->write(customerId: (string) self::CUSTOMER_ID, transactionType: 'order_place', reference: 'order-atomic');
 
         $this->assertFalse($result);
         $this->assertSame(self::OPENING_BALANCE, WalletTables::walletBalance(self::CUSTOMER_ID));
         $this->assertSame(0, DB::transactionLevel());
     }
 
-    #[DataProvider('writers')]
-    public function test_a_missing_customer_is_refused_and_nothing_is_written(string $writer): void
+    public function test_a_missing_customer_is_refused_and_nothing_is_written(): void
     {
-        $result = $this->write($writer, customerId: '999', transactionType: 'order_place', reference: 'order-missing');
+        $result = $this->write(customerId: '999', transactionType: 'order_place', reference: 'order-missing');
 
         $this->assertFalse($result);
         $this->assertSame(0, DB::table('wallet_transactions')->count());
@@ -75,11 +58,10 @@ class WalletWriteAtomicityTest extends TestCase
      * reference order_place_in_pos, so the reference cannot serve as the key either. Whether writes need an idempotency key is an
      * owner decision.
      */
-    #[DataProvider('writers')]
-    public function test_current_behaviour_an_identical_retry_debits_again(string $writer): void
+    public function test_current_behaviour_an_identical_retry_debits_again(): void
     {
-        $this->write($writer, customerId: (string) self::CUSTOMER_ID, transactionType: 'order_place', reference: 'order-retried');
-        $this->write($writer, customerId: (string) self::CUSTOMER_ID, transactionType: 'order_place', reference: 'order-retried');
+        $this->write(customerId: (string) self::CUSTOMER_ID, transactionType: 'order_place', reference: 'order-retried');
+        $this->write(customerId: (string) self::CUSTOMER_ID, transactionType: 'order_place', reference: 'order-retried');
 
         $this->assertSame(self::OPENING_BALANCE - 2 * self::DEBIT_AMOUNT, WalletTables::walletBalance(self::CUSTOMER_ID));
         $this->assertSame(2, DB::table('wallet_transactions')->count());
@@ -162,33 +144,13 @@ class WalletWriteAtomicityTest extends TestCase
         $this->assertSame(0, DB::transactionLevel());
     }
 
-    private function write(string $writer, string $customerId, string $transactionType, string $reference, float $amount = self::DEBIT_AMOUNT): mixed
+    private function write(string $customerId, string $transactionType, string $reference, float $amount = self::DEBIT_AMOUNT): mixed
     {
-        return match ($writer) {
-            'repository' => app(WalletTransactionRepository::class)->addWalletTransaction(
-                user_id: $customerId,
-                amount: $amount,
-                transactionType: $transactionType,
-                reference: $reference,
-            ),
-            'customer_manager' => CustomerManager::create_wallet_transaction(
-                user_id: $customerId,
-                amount: $amount,
-                transaction_type: $transactionType,
-                reference: $reference,
-            ),
-            'order_manager' => OrderManager::createWalletTransaction(
-                user_id: $customerId,
-                amount: $amount,
-                transaction_type: $transactionType,
-                reference: $reference,
-            ),
-            'customer_trait' => app(WalletWritingHost::class)->write(
-                customerId: $customerId,
-                amount: $amount,
-                transactionType: $transactionType,
-                reference: $reference,
-            ),
-        };
+        return CustomerWalletWriter::record(
+            customerId: $customerId,
+            amount: $amount,
+            transactionType: $transactionType,
+            reference: $reference,
+        );
     }
 }

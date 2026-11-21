@@ -3,23 +3,15 @@
 namespace App\Repositories;
 
 use App\Contracts\Repositories\WalletTransactionRepositoryInterface;
-use App\Models\AddFundBonusCategories;
 use App\Models\WalletTransaction;
-use App\Models\BusinessSetting;
-use App\Models\User;
-use App\Services\Customer\CustomerBalanceLock;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Pagination\LengthAwarePaginator;
-use Illuminate\Support\Str;
 
 class WalletTransactionRepository implements WalletTransactionRepositoryInterface
 {
     public function __construct(
-        private readonly WalletTransaction      $walletTransaction,
-        private readonly BusinessSetting        $businessSetting,
-        private readonly User                   $user,
-        private readonly AddFundBonusCategories $addFundBonusCategories,
+        private readonly WalletTransaction $walletTransaction,
     )
     {
     }
@@ -104,72 +96,4 @@ class WalletTransactionRepository implements WalletTransactionRepositoryInterfac
         return true;
     }
 
-    public function addWalletTransaction(string $user_id, float $amount, string $transactionType, ?string $reference = null, array $payment_data = []): bool|WalletTransaction
-    {
-        if ($this->businessSetting->where('type', 'wallet_status')->first()->value != 1) return false;
-
-        return CustomerBalanceLock::apply($user_id, function (User $user) use ($user_id, $amount, $transactionType, $reference, $payment_data) {
-            $currentBalance = $user->wallet_balance;
-
-            $wallet_transaction = new WalletTransaction();
-            $wallet_transaction['user_id'] = $user->id;
-            $wallet_transaction['transaction_id'] = Str::uuid();
-            $wallet_transaction['reference'] = $reference;
-            $wallet_transaction['transaction_type'] = $transactionType;
-            $wallet_transaction['payment_method'] = $payment_data['payment_method'] ?? null;
-
-            $debit = 0.0;
-            $credit = 0.0;
-            $addFundToWalletBonus = 0;
-
-            if (in_array($transactionType, ['add_fund_by_admin', 'add_fund', 'order_refund', 'loyalty_point', 'return_order_amount_by_admin'])) {
-                $credit = $amount;
-                if ($transactionType == 'add_fund') {
-                    $wallet_transaction['admin_bonus'] = $this->addFundToWalletBonus(amount: currencyConverter(amount: $amount ?? 0));
-                    $addFundToWalletBonus = $this->addFundToWalletBonus(amount: currencyConverter(amount: $amount ?? 0));
-                } else if ($transactionType == 'loyalty_point') {
-                    $credit = (($amount / $this->businessSetting->where('type', 'loyalty_point_exchange_rate')->first()->value) * currencyConverter(1));
-                }
-            } else if ($transactionType == 'order_place') {
-                $debit = $amount;
-            }
-
-            $credit_amount = currencyConverter(amount: $credit);
-            $debit_amount = currencyConverter(amount: $debit);
-            $wallet_transaction['credit'] = $credit_amount;
-            $wallet_transaction['debit'] = $debit_amount;
-            $wallet_transaction['balance'] = $currentBalance + $credit_amount - $debit_amount;
-            $wallet_transaction['created_at'] = now();
-            $wallet_transaction['updated_at'] = now();
-
-            $this->user->where('id', $user_id)->update([
-                'wallet_balance' => $currentBalance + $addFundToWalletBonus + $credit_amount - $debit_amount,
-            ]);
-            $wallet_transaction->save();
-
-            if (in_array($transactionType, ['loyalty_point', 'order_place', 'add_fund_by_admin'])) return $wallet_transaction;
-            return true;
-        });
-    }
-
-    public function addFundToWalletBonus(float $amount): string|float
-    {
-        $bonuses = $this->addFundBonusCategories->where('is_active', 1)
-            ->whereDate('start_date_time', '<=', now())
-            ->whereDate('end_date_time', '>=', now())
-            ->where('min_add_money_amount', '<=', $amount)
-            ->get();
-
-        $applicableBonuses = $bonuses->where('min_add_money_amount', $bonuses->max('min_add_money_amount'));
-
-        foreach ($applicableBonuses as $key => $item) {
-            $item->applied_bonus_amount = $item->bonus_type == 'percentage' ? ($amount * $item->bonus_amount) / 100 : $item->bonus_amount;
-
-            //max bonus check
-            if ($item->bonus_type == 'percentage' && $item->applied_bonus_amount > $item->max_bonus_amount) {
-                $item->applied_bonus_amount = $item->max_bonus_amount;
-            }
-        }
-        return $bonuses->max('applied_bonus_amount') ?? 0;
-    }
 }

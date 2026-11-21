@@ -33,11 +33,12 @@ final class ConcurrentRunner
     public static function run(string $operation, array $arguments): array
     {
         $startAt = microtime(true) + self::BOOT_SECONDS;
+        $rendezvous = self::rendezvousDirectory();
         $processes = [];
         foreach ($arguments as $index => $args) {
             $own = (string) ($args['op'] ?? $operation);
             unset($args['op']);
-            $spec = json_encode(['op' => $own, 'args' => $args, 'start_at' => $startAt, 'index' => $index], JSON_THROW_ON_ERROR);
+            $spec = json_encode(['op' => $own, 'args' => $args, 'start_at' => $startAt, 'index' => $index, 'rendezvous' => $rendezvous], JSON_THROW_ON_ERROR);
             $command = [PHP_BINARY];
             $prepend = (string) ini_get('auto_prepend_file');
             if ($prepend !== '') {
@@ -51,6 +52,21 @@ final class ConcurrentRunner
             $processes[$index] = $process;
         }
 
+        try {
+            return self::reportsOf($processes);
+        } finally {
+            self::forget($rendezvous);
+        }
+    }
+
+    /**
+     * Waits for every process and reads the one JSON line each prints.
+     *
+     * @param  array<int, Process> $processes
+     * @return list<array{ok: bool, result?: mixed, error?: string, message?: string, started_at: float, finished_at: float, pid: int}>
+     */
+    private static function reportsOf(array $processes): array
+    {
         $reports = [];
         foreach ($processes as $index => $process) {
             $process->wait();
@@ -64,6 +80,25 @@ final class ConcurrentRunner
         }
 
         return $reports;
+    }
+
+    /** A directory of this run's own for the marks the processes hold each other at (Rendezvous), so one run cannot release the processes of another. */
+    private static function rendezvousDirectory(): string
+    {
+        $directory = sys_get_temp_dir() . '/concurrent-runner-' . bin2hex(random_bytes(8));
+        if (!mkdir($directory, 0o700) && !is_dir($directory)) {
+            throw new RuntimeException("Could not make the rendezvous directory {$directory}.");
+        }
+
+        return $directory;
+    }
+
+    private static function forget(string $directory): void
+    {
+        foreach (glob($directory . '/*') ?: [] as $mark) {
+            unlink($mark);
+        }
+        rmdir($directory);
     }
 
     /** The settings phpunit.mysql.xml gives the test process through <server>, which a child process does not inherit. */

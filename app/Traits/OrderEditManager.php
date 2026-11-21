@@ -24,12 +24,12 @@ use App\Models\ShippingType;
 use App\Models\User;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
 use App\Utils\CartManager;
-use App\Utils\CustomerManager;
 use App\Utils\Helpers;
 use App\Utils\OrderManager;
 use Carbon\Carbon;
 use Modules\TaxModule\app\Models\OrderTax;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
+use App\Services\Customer\CustomerWalletWriter;
 
 trait OrderEditManager
 {
@@ -716,7 +716,7 @@ trait OrderEditManager
                 'message' => translate('Insufficient_Wallet_Balance')
             ];
         }
-        CustomerManager::create_wallet_transaction($customer['id'], $order['edit_due_amount'], 'due_payment_for_order', 'reduce_wallet_amount', ['payment_method' => 'wallet']);
+        CustomerWalletWriter::record(customerId: $customer['id'], amount: $order['edit_due_amount'], transactionType: 'due_payment_for_order', reference: 'reduce_wallet_amount', paymentData: ['payment_method' => 'wallet']);
         AdminWallet::where(['admin_id' => 1])->increment('pending_amount', $order['edit_due_amount']);
         OrderEditHistory::where('id', $order?->latestEditHistory?->id)->update([
             'order_due_payment_status' => 'paid',

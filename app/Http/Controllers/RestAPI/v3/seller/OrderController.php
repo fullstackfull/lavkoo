@@ -37,6 +37,7 @@ use Illuminate\Validation\ValidationException;
 use Ramsey\Uuid\Uuid;
 use App\Services\Marketplace\SellerOrderBreakdownService;
 use App\Services\Marketplace\SellerOrderTimelineService;
+use App\Services\Customer\CustomerWalletWriter;
 
 
 class OrderController extends Controller
@@ -472,7 +473,7 @@ class OrderController extends Controller
             $referredByUser = User::find($customer->referred_by);
 
             if ($isFirstOrder == 1 && isset($customer->referred_by) && isset($referredByUser)) {
-                CustomerManager::create_wallet_transaction($referredByUser->id, floatval($refEarningExchangeRate), 'add_fund_by_admin', 'earned_by_referral');
+                CustomerWalletWriter::record(customerId: $referredByUser->id, amount: floatval($refEarningExchangeRate), transactionType: 'add_fund_by_admin', reference: 'earned_by_referral');
             }
         }
 
@@ -769,7 +770,7 @@ class OrderController extends Controller
                     $referredByUser = User::find($customer->referred_by);
 
                     if ($isFirstOrder == 1 && isset($customer->referred_by) && isset($referredByUser)) {
-                        CustomerManager::create_wallet_transaction($referredByUser->id, floatval($refEarningExchangeRate), 'add_fund_by_admin', 'earned_by_referral');
+                        CustomerWalletWriter::record(customerId: $referredByUser->id, amount: floatval($refEarningExchangeRate), transactionType: 'add_fund_by_admin', reference: 'earned_by_referral');
                     }
                 }
 

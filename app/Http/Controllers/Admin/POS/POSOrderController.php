@@ -31,6 +31,7 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Str;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
 use Throwable;
+use App\Services\Customer\CustomerWalletWriter;
 
 class POSOrderController extends BaseController
 {
@@ -114,7 +115,7 @@ class POSOrderController extends BaseController
         if ($request['type'] == 'wallet' && $userId != 0) {
             $customerBalance = $this->customerRepo->getFirstWhere(params: ['id' => $userId]) ?? 0;
             if ($customerBalance['wallet_balance'] >= currencyConverter(amount: $amount)) {
-                $this->createWalletTransaction(user_id: $userId, amount: floatval($amount), transaction_type: 'order_place', reference: 'order_place_in_pos');
+                CustomerWalletWriter::record(customerId: $userId, amount: floatval($amount), transactionType: 'order_place', reference: 'order_place_in_pos');
             } else {
                 ToastMagic::error(translate('need_Sufficient_Amount_Balance'));
                 return response()->json();

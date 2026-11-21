@@ -30,6 +30,7 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
+use App\Services\Customer\CustomerWalletWriter;
 
 class POSController extends Controller
 {
@@ -320,7 +321,7 @@ class POSController extends Controller
         if ($paymentMethod == 'wallet' && $customerId != 0) {
             $customerBalance = $this->customerRepo->getFirstWhere(params: ['id' => $customerId]) ?? 0;
             if ($customerBalance['wallet_balance'] >= $paidAmount) {
-                $this->createWalletTransaction(user_id: $customerId, amount: floatval($paidAmount), transaction_type: 'order_place', reference: 'order_place_in_pos');
+                CustomerWalletWriter::record(customerId: $customerId, amount: floatval($paidAmount), transactionType: 'order_place', reference: 'order_place_in_pos');
             } else {
                 return response()->json([
                     'need_balance' => true,
