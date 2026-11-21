@@ -2,6 +2,7 @@
 
 namespace Tests\Support;
 
+use App\Models\ReturnShipment;
 use App\Services\Marketplace\SellerMarketScope;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -94,6 +95,7 @@ trait GrantsSellerMarkets
         foreach ([
             'digital_product_authors', 'digital_product_publishing_houses', 'product_seos', 'product_tag', 'tags', 'translations',
             'system_tax_setups', 'product_vat_taxes', 'reviews', 'vendor_payout_requests', 'stock_clearance_products', 'stock_clearance_setups',
+            'digital_product_variations',
         ] as $table) {
             Schema::dropIfExists($table);
 
@@ -184,6 +186,13 @@ trait GrantsSellerMarkets
         DB::table('products')->insert([
             'id' => $id, 'name' => 'Product ' . $id, 'added_by' => 'seller', 'user_id' => $sellerId,
             'current_stock' => $stock, 'unit_price' => $unitPrice, 'status' => 1,
+            // Physical: the stock report and every automation trigger read the shelf, and a product with no type is on no shelf.
+            'product_type' => 'physical', 'request_status' => 1, 'slug' => 'product-' . $id, 'code' => 'CODE' . $id,
+            // The JSON text columns the product form writes. Left null they decode to null, and the detail and edit screens
+            // answer a 500 on an unencodable response rather than the product — which is no way to test what a screen shows.
+            'images' => json_encode([]), 'color_image' => json_encode([]), 'colors' => json_encode([]),
+            'choice_options' => json_encode([]), 'variation' => json_encode([]), 'attributes' => json_encode([]),
+            'category_ids' => json_encode([]), 'discount_type' => 'flat', 'unit' => 'pc',
             'created_at' => '2026-11-01 10:00:00', 'updated_at' => '2026-11-01 10:00:00',
         ] + $market);
     }
@@ -219,6 +228,178 @@ trait GrantsSellerMarkets
         ]);
     }
 
+    /**
+     * The tables the seller-centre screens read, which the installation dump owns and this repository does not.
+     *
+     * Built because a controller that answers 500 on a missing table cannot prove anything about narrowing: a refusal matrix over
+     * surfaces that throw before they reach a query stays green whether the narrowing is there or not. These are the columns the
+     * controllers and the models actually read, so each screen runs to its answer and the rows in it can be counted.
+     */
+    protected function createTheSellerCentreTables(): void
+    {
+        foreach (['return_shipments', 'seller_bulk_jobs', 'seller_automation_rules', 'seller_automation_runs', 'audit_logs', 'categories'] as $table) {
+            Schema::dropIfExists($table);
+        }
+
+        Schema::create('return_shipments', function (Blueprint $table) {
+            $table->id();
+            $table->string('reference')->nullable();
+            $table->unsignedBigInteger('order_id')->nullable();
+            $table->unsignedBigInteger('order_details_id')->nullable();
+            $table->unsignedBigInteger('refund_request_id')->nullable();
+            $table->unsignedBigInteger('product_id')->nullable();
+            $table->unsignedBigInteger('seller_id')->nullable();
+            $table->integer('qty')->default(1);
+            $table->string('reason')->nullable();
+            $table->string('status')->default(ReturnShipment::STATUS_AUTHORIZED);
+            $table->boolean('restock')->default(false);
+            $table->string('carrier')->nullable();
+            $table->string('tracking_number')->nullable();
+            $table->timestamp('received_at')->nullable();
+            $table->text('note')->nullable();
+            $table->unsignedBigInteger('created_by')->nullable();
+            $table->string('created_by_type')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('seller_bulk_jobs', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('seller_id');
+            $table->unsignedBigInteger('created_by_staff_id')->nullable();
+            $table->unsignedBigInteger('created_by_api_key_id')->nullable();
+            $table->string('type');
+            $table->string('status')->default('queued');
+            $table->integer('total')->default(0);
+            $table->integer('processed')->default(0);
+            $table->integer('succeeded')->default(0);
+            $table->integer('failed')->default(0);
+            $table->longText('failures')->nullable();
+            $table->longText('input')->nullable();
+            $table->text('error')->nullable();
+            $table->timestamp('started_at')->nullable();
+            $table->timestamp('finished_at')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('seller_automation_rules', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('seller_id');
+            $table->unsignedBigInteger('created_by_staff_id')->nullable();
+            $table->unsignedBigInteger('created_by_api_key_id')->nullable();
+            $table->string('name');
+            $table->string('trigger');
+            $table->string('action');
+            $table->longText('trigger_settings')->nullable();
+            $table->longText('action_settings')->nullable();
+            $table->longText('scope')->nullable();
+            $table->string('status')->default('active');
+            $table->integer('max_actions_per_run')->default(25);
+            $table->integer('cooldown_minutes')->default(0);
+            $table->integer('run_count')->default(0);
+            $table->integer('applied_count')->default(0);
+            $table->integer('consecutive_failures')->default(0);
+            $table->timestamp('last_run_at')->nullable();
+            $table->timestamp('last_fired_at')->nullable();
+            $table->timestamp('suspended_at')->nullable();
+            $table->string('suspension_reason')->nullable();
+            $table->string('suspended_by')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('seller_automation_runs', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('rule_id');
+            $table->unsignedBigInteger('seller_id')->nullable();
+            $table->string('outcome')->nullable();
+            $table->integer('matched_count')->default(0);
+            $table->integer('applied_count')->default(0);
+            $table->integer('skipped_count')->default(0);
+            $table->integer('failed_count')->default(0);
+            $table->boolean('dry_run')->default(false);
+            $table->text('message')->nullable();
+            $table->timestamp('started_at')->nullable();
+            $table->timestamp('finished_at')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('audit_logs', function (Blueprint $table) {
+            $table->id();
+            $table->string('actor_type')->nullable();
+            $table->unsignedBigInteger('actor_id')->nullable();
+            $table->string('actor_name')->nullable();
+            $table->string('action')->nullable();
+            $table->string('subject_type')->nullable();
+            $table->unsignedBigInteger('subject_id')->nullable();
+            $table->longText('before')->nullable();
+            $table->longText('after')->nullable();
+            $table->longText('context')->nullable();
+            $table->string('ip_address')->nullable();
+            $table->text('user_agent')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('categories', function (Blueprint $table) {
+            $table->id();
+            $table->string('name')->nullable();
+            $table->integer('position')->default(0);
+            $table->unsignedBigInteger('parent_id')->default(0);
+            $table->timestamps();
+        });
+    }
+
+    /** A return of one order line, which carries no market of its own: the sale it reverses does. */
+    protected function insertReturnShipment(int $id, int $sellerId, int $orderId, int $productId): void
+    {
+        DB::table('return_shipments')->insert([
+            'id' => $id, 'reference' => 'RMA-' . $id, 'order_id' => $orderId, 'order_details_id' => null,
+            'product_id' => $productId, 'seller_id' => $sellerId, 'qty' => 1, 'reason' => 'damaged',
+            'status' => ReturnShipment::STATUS_AUTHORIZED, 'restock' => 0,
+            'created_at' => '2026-11-01 11:00:00', 'updated_at' => '2026-11-01 11:00:00',
+        ]);
+    }
+
+    /** A bulk job's receipt, whose input names the products it was queued against. */
+    protected function insertBulkJob(int $id, int $sellerId, array $productIds): void
+    {
+        DB::table('seller_bulk_jobs')->insert([
+            'id' => $id, 'seller_id' => $sellerId, 'type' => 'price_update', 'status' => 'completed',
+            'total' => count($productIds), 'processed' => count($productIds), 'succeeded' => count($productIds), 'failed' => 0,
+            'failures' => json_encode([]), 'input' => json_encode(['product_ids' => $productIds, 'settings' => ['mode' => 'set', 'value' => 5]]),
+            'created_at' => '2026-11-01 11:00:00', 'updated_at' => '2026-11-01 11:00:00',
+        ]);
+    }
+
+    /** A rule pointed at named products, so the market of what it may touch is decidable. */
+    protected function insertAutomationRule(int $id, int $sellerId, array $productIds): void
+    {
+        DB::table('seller_automation_rules')->insert([
+            'id' => $id, 'seller_id' => $sellerId, 'name' => 'Rule ' . $id, 'trigger' => 'low_stock', 'action' => 'hide_listing',
+            // A threshold every product in the fixture is under, so the trigger matches both and only the market bound can
+            // tell them apart: a test whose trigger already excluded the other market's product would prove nothing.
+            'trigger_settings' => json_encode(['threshold' => 1000]), 'action_settings' => json_encode([]),
+            'scope' => json_encode(['product_ids' => $productIds]), 'status' => 'active', 'max_actions_per_run' => 25,
+            'created_at' => '2026-11-01 11:00:00', 'updated_at' => '2026-11-01 11:00:00',
+        ]);
+    }
+
+    /** One line of the shop's own trail, recorded against the shop rather than against a market. */
+    protected function insertAuditLine(int $sellerId, string $action): void
+    {
+        DB::table('audit_logs')->insert([
+            'actor_type' => 'seller', 'actor_id' => $sellerId, 'actor_name' => 'Seller ' . $sellerId, 'action' => $action,
+            'subject_type' => 'seller', 'subject_id' => $sellerId, 'before' => json_encode([]), 'after' => json_encode([]),
+            'context' => json_encode(['seller_id' => $sellerId]), 'ip_address' => '127.0.0.1',
+            'created_at' => '2026-11-01 11:00:00', 'updated_at' => '2026-11-01 11:00:00',
+        ]);
+    }
+
+    protected function dropTheSellerCentreTables(): void
+    {
+        foreach (['return_shipments', 'seller_bulk_jobs', 'seller_automation_rules', 'seller_automation_runs', 'audit_logs', 'categories'] as $table) {
+            Schema::dropIfExists($table);
+        }
+    }
+
     /** Only the grant table, so a test can be the database that never ran its migration without losing the rest of the world. */
     protected function dropOnlyTheMarketGrantTable(): void
     {
@@ -232,6 +413,7 @@ trait GrantsSellerMarkets
         foreach ([
             'digital_product_authors', 'digital_product_publishing_houses', 'product_seos', 'product_tag', 'tags', 'translations',
             'system_tax_setups', 'product_vat_taxes', 'reviews', 'vendor_payout_requests', 'stock_clearance_products', 'stock_clearance_setups',
+            'digital_product_variations',
         ] as $table) {
             Schema::dropIfExists($table);
         }

@@ -41,6 +41,7 @@ trait BuildsSellerMarketWorld
     private const SELLER_MARKET_TABLES = [
         'business_settings', 'sellers', 'shops', 'seller_roles', 'seller_staff', 'seller_api_keys', 'users', 'storages', 'orders', 'order_details',
         'shipping_methods', 'delivery_men', 'offline_payments', 'order_delivery_verifications', 'order_edit_histories', 'products', 'colors',
+        'currencies',
     ];
 
     protected function buildSellerMarketWorld(bool $ordersRecordTheirStorefront = true): void
@@ -60,6 +61,7 @@ trait BuildsSellerMarketWorld
         }
 
         $this->seedTheSellersAndTheirOrders();
+        $this->useTheStoresOwnCurrency();
         $this->useOrderWiseTax();
     }
 
@@ -135,6 +137,28 @@ trait BuildsSellerMarketWorld
         ]);
     }
 
+    /**
+     * The store's own money, which every install has and which the ledger and the reports read an unlabelled figure as.
+     *
+     * Without it `baseCurrency()` is null, and a figure that names no currency cannot be told apart from one that names the
+     * store's — so a report of orders from before the storefront snapshot would withhold a total that was always right. The
+     * default market is Saudi Arabia, so the store's money is the riyal.
+     */
+    protected function useTheStoresOwnCurrency(string $code = 'SAR'): void
+    {
+        DB::table('currencies')->insert([
+            'id' => 1, 'name' => 'Saudi Riyal', 'symbol' => 'SR', 'code' => $code, 'exchange_rate' => 1, 'status' => 1,
+            'created_at' => '2026-11-01 08:00:00', 'updated_at' => '2026-11-01 08:00:00',
+        ]);
+
+        DB::table('business_settings')->insert([
+            'type' => 'system_default_currency', 'value' => '1',
+            'created_at' => '2026-11-01 08:00:00', 'updated_at' => '2026-11-01 08:00:00',
+        ]);
+
+        Cache::forget('system_default_currency');
+    }
+
     /** The order detail asks which tax system the store runs on; the answer is given here instead of building the tax module's tables. */
     private function useOrderWiseTax(): void
     {
@@ -153,6 +177,14 @@ trait BuildsSellerMarketWorld
         }
 
         DB::table('users')->insert(['id' => 1, 'f_name' => 'Customer', 'l_name' => 'One', 'email' => 'customer-one@example.test']);
+
+        // Each shop its own row: the export sheets print the store's name in their header, so a seller without one cannot export.
+        foreach ([self::SELLER, self::OTHER_SELLER] as $id) {
+            DB::table('shops')->insert([
+                'id' => $id, 'seller_id' => $id, 'name' => 'Shop ' . $id,
+                'created_at' => '2026-11-01 08:00:00', 'updated_at' => '2026-11-01 08:00:00',
+            ]);
+        }
 
         // Seller 1: one order of each kind of record the snapshot can leave, and a second default-storefront order with no currency.
         $this->insertSellerMarketOrder(id: 101, sellerId: self::SELLER, country: 'SA', currency: 'SAR');
@@ -338,6 +370,16 @@ trait BuildsSellerMarketWorld
         Schema::create('products', function (Blueprint $table) {
             $table->id();
             $table->string('name')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('currencies', function (Blueprint $table) {
+            $table->id();
+            $table->string('name')->nullable();
+            $table->string('symbol')->nullable();
+            $table->string('code')->nullable();
+            $table->decimal('exchange_rate', 24, 6)->default(1);
+            $table->unsignedTinyInteger('status')->default(1);
             $table->timestamps();
         });
 
