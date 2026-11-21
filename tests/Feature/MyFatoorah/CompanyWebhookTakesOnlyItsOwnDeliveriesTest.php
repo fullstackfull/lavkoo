@@ -41,6 +41,9 @@ class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends MyFatoorahTestCase
 {
     use RestoresLanguageFiles;
 
+    /** A value an operator could type into the environment column: no translation key, and short enough for the column (8 characters). */
+    private const AN_ENVIRONMENT_NOBODY_TRANSLATED = 'stage-7';
+
     private const KUWAIT_WEBHOOK_SECRET = 'kuwait-account-webhook-secret';
 
     private const SAUDI_WEBHOOK_SECRET = 'saudi-account-webhook-secret';
@@ -347,6 +350,25 @@ class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends MyFatoorahTestCase
         $this->assertStringNotContainsString(self::SAUDI_WEBHOOK_SECRET, $rendered);
     }
 
+    /**
+     * A value out of the database is not a translation key.
+     *
+     * translate() WRITES any key it does not know into `resources/lang/<locale>/new-messages.php`, and that file is included on every request. Handing
+     * it a stored column therefore lets a row an operator typed edit a shipped language file permanently — and it is the mechanism behind the stray
+     * language keys that have turned up in the working tree of this project more than once. The screen still shows the value; it just does not look it
+     * up. (The files are put back by RestoresLanguageFiles whatever this test finds, which is why the assertion reads them during the test.)
+     */
+    public function test_the_screen_does_not_write_an_accounts_stored_value_into_the_language_files(): void
+    {
+        $this->kuwait->forceFill(['environment' => self::AN_ENVIRONMENT_NOBODY_TRANSLATED])->save();
+        app(GatewayAccountRegistry::class)->flush();
+
+        $rendered = $this->renderTheAccountsBlock();
+
+        $this->assertStringNotContainsString(self::AN_ENVIRONMENT_NOBODY_TRANSLATED, $this->languageFileContents(), 'a stored value must not be written into a file every request includes');
+        $this->assertStringContainsString(self::AN_ENVIRONMENT_NOBODY_TRANSLATED, $rendered, 'and the operator is still shown what the row says');
+    }
+
     /** With per-company accounts off, the screen is what it is today: no per-account block at all. */
     public function test_the_admin_screen_is_unchanged_while_per_company_accounts_are_off(): void
     {
@@ -476,6 +498,20 @@ class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends MyFatoorahTestCase
     private function paidPayments(): array
     {
         return DB::table('payment_requests')->where('is_paid', 1)->orderBy('id')->pluck('id')->all();
+    }
+
+    /** Every tracked language file, end to end, so "this value was not written into one" is a single assertion. */
+    private function languageFileContents(): string
+    {
+        $contents = '';
+
+        foreach (['en', 'sa', 'ae'] as $locale) {
+            foreach (['messages', 'new-messages'] as $file) {
+                $contents .= (string) file_get_contents(base_path("resources/lang/{$locale}/{$file}.php"));
+            }
+        }
+
+        return $contents;
     }
 
     /** Every column of the attempt under test, so "not one column was written" is a single comparison. */
