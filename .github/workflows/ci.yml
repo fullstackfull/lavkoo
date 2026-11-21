@@ -263,7 +263,11 @@ jobs:
             #
             # It runs on a real server as well as on SQLite because three of its failures were visible only here: an `orders` table that outlived the test, a currency left
             # switched off by an earlier test, and REPEATABLE READ hiding a sibling's just-committed row from a plain SELECT.
-            paths: tests/Feature/MyFatoorah tests/Unit/MyFatoorah tests/Feature/Wallet
+            #
+            # tests/*/Payments rides here too, and on a real engine deliberately: the per-company gateway accounts turn on a unique key over three text
+            # columns, a payment is stamped with a decimal rate read back as text, and a confirmation is held by an insertOrIgnore on a unique key. None
+            # of those three is a property of the code -- SQLite agreeing about a unique index over ascii_bin columns proves nothing about MySQL.
+            paths: tests/Feature/MyFatoorah tests/Unit/MyFatoorah tests/Feature/Wallet tests/Feature/Payments tests/Unit/Payments
           - group: costs
             # tests/*/Accounting is the Odoo posting, which belongs with the cost ledger it reads from. It runs on a real engine
             # because its whole job is uniqueness: a NULL is never equal to another NULL in a unique index, so a mapping or a
