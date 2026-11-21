@@ -5502,6 +5502,8 @@ return [
 	'copy_this_product_to_another_country' => 'نسخ هذا المنتج إلى دولة أخرى',
 	'the_copy_starts_with_no_stock_and_no_price_and_is_not_published_until_you_set_them' => 'تبدأ النسخة بلا مخزون ولا سعر، وتبقى غير منشورة حتى تحددهما. وصورها ملفات خاصة بها.',
 	'the_copy_was_made_without_the_stock_or_the_price_of_the_original_set_them_here' => 'أُنشئت النسخة دون مخزون الأصل أو سعره. حدّدهما هنا ثم انشرها.',
+	'storefront_country_of_this_connection' => 'دولة المتجر لهذا الاتصال',
+	'the_default_storefronts_country' => 'دولة المتجر الافتراضي',
 	'some_actions_are_disabled_because_the_admin_added_coupons' => 'Some actions are disabled because the admin added coupons',
 	'some_status_buttons_are_disabled_because_the_admin_added_coupons' => 'Some status buttons are disabled because the admin added coupons',
 	'location_data' => 'Location data',

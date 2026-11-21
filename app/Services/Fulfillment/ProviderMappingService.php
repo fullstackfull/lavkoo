@@ -26,6 +26,7 @@ class ProviderMappingService
         private readonly AuditLogger $audit,
         private readonly ProviderStockOwnership $stockOwnership,
         private readonly ProductCodeScope $codeScope,
+        private readonly ProviderStorefrontCountry $providerCountry,
     ) {
     }
 
@@ -148,7 +149,11 @@ class ProviderMappingService
     public function suggestionsFor(ProviderCatalogItem $item, ?string $echoedExternalId = null): array
     {
         $provider = ProviderCode::from($item->provider);
-        $query = $this->codeScope->restrictToCountry(query: DB::table('products'), country: $this->codeScope->countryOfProviderProducts())
+        if ($this->providerCountry->servesNoCatalogueOfOurs($provider->value)) {
+            return [];
+        }
+
+        $query = $this->codeScope->restrictToCountry(query: DB::table('products'), country: $this->providerCountry->of($provider->value))
             ->where('added_by', 'admin')
             ->where('product_type', 'physical')
             ->where(static fn ($owned) => $owned->whereNull('fulfillment_provider')->orWhere('fulfillment_provider', $provider->value));

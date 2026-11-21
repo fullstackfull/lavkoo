@@ -6,8 +6,10 @@ use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\ProviderCode;
 use App\Services\Fulfillment\Providers\TorodPoint\TorodStockConfirmation;
 use App\Services\Fulfillment\Support\ProviderConfig;
+use App\Services\Storefront\ProductCountry;
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 /**
  * What an administrator may edit for each provider, how it is validated, and how it becomes stored settings.
@@ -22,7 +24,7 @@ class ProviderSettingsForm
     private const FIELDS = [
         'm5azn' => [
             'bool' => ['dispatch_enabled', 'auto_dispatch', 'dry_run', 'product_sync_enabled', 'inventory_sync_enabled', 'import_enabled', 'publish_on_import', 'update_content_on_sync', 'cod_supported', 'cod_verified'],
-            'string' => ['platform_name', 'country_code', 'country_name', 'language', 'device', 'api_version', 'app_version', 'catalog_product_type', 'catalog_category_id', 'catalog_brand_id', 'order_response_reference_path', 'tracking_url_template', 'price_policy'],
+            'string' => ['storefront_country', 'platform_name', 'country_code', 'country_name', 'language', 'device', 'api_version', 'app_version', 'catalog_product_type', 'catalog_category_id', 'catalog_brand_id', 'order_response_reference_path', 'tracking_url_template', 'price_policy'],
             'int' => ['default_category_id', 'min_margin_percent', 'product_sync_interval_minutes', 'inventory_sync_interval_minutes'],
             'list' => ['dispatch_order_statuses'],
             'json' => ['status_map'],
@@ -30,7 +32,7 @@ class ProviderSettingsForm
         ],
         'torod_point' => [
             'bool' => ['dispatch_enabled', 'auto_dispatch', 'dry_run', 'product_sync_enabled', 'inventory_sync_enabled', 'push_products_enabled', 'webhooks_enabled', 'cod_supported', 'cod_verified', 'verify_terminal_webhooks'],
-            'string' => ['company_id', 'lastmile_base_url', 'phone_format', 'cod_collection_method', 'cost_source', 'tracking_url_template', 'webhook_ip_allowlist', 'order_response_reference_path'],
+            'string' => ['storefront_country', 'company_id', 'lastmile_base_url', 'phone_format', 'cod_collection_method', 'cost_source', 'tracking_url_template', 'webhook_ip_allowlist', 'order_response_reference_path'],
             'int' => ['product_sync_interval_minutes', 'inventory_sync_interval_minutes'],
             'number' => ['default_weight_kg'],
             'list' => ['dispatch_order_statuses'],
@@ -101,6 +103,9 @@ class ProviderSettingsForm
             $rules[$interval] = ['nullable', 'integer', 'min:' . ProviderSyncService::MIN_INTERVAL_MINUTES, 'max:1440'];
         }
         $rules['catalog_product_type'] = ['nullable', 'string', 'max:80', $this->catalogProductTypesRule()];
+        // The storefront country whose catalogue this connection works against (B-05). Empty keeps the default storefront's, which is
+        // what every connection used before; while countries are not tracked the field is not offered and nothing reads it.
+        $rules['storefront_country'] = ProductCountry::isTracked() ? ['nullable', Rule::in(ProductCountry::options())] : ['nullable', 'string', 'max:2'];
 
         $rules['company_id'] = ['nullable', 'regex:/^\d{1,12}$/'];
         $rules['lastmile_base_url'] = ['nullable', 'url', 'max:255', $this->providerHost($provider)];

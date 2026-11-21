@@ -1657,6 +1657,8 @@ ____________________________________________________on_search_engines_and_see_th
 	'copy_this_product_to_another_country' => 'نسخ هذا المنتج إلى دولة أخرى',
 	'the_copy_starts_with_no_stock_and_no_price_and_is_not_published_until_you_set_them' => 'تبدأ النسخة بلا مخزون ولا سعر، وتبقى غير منشورة حتى تحددهما. وصورها ملفات خاصة بها.',
 	'the_copy_was_made_without_the_stock_or_the_price_of_the_original_set_them_here' => 'أُنشئت النسخة دون مخزون الأصل أو سعره. حدّدهما هنا ثم انشرها.',
+	'storefront_country_of_this_connection' => 'دولة المتجر لهذا الاتصال',
+	'the_default_storefronts_country' => 'دولة المتجر الافتراضي',
 	'the_constant_it_is_declared_in_has_been_renamed_or_removed' => 'الثابت المُعلَن فيه أُعيدت تسميته أو حُذف',
 	'the_currency_model_was_updated' => 'تم تحديث نموذج العملة.',
 	'the_dashboard_cannot_see_the_shop_right_now_so_nothing_below_can_be_trusted_as_current' => 'لوحة المراقبة لا ترى المتجر الآن، لذا لا يمكن اعتبار ما تحت هذا السطر حديثًا',

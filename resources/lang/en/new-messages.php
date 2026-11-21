@@ -6373,6 +6373,8 @@ return [
 	'copy_this_product_to_another_country' => 'Copy this product to another country',
 	'the_copy_starts_with_no_stock_and_no_price_and_is_not_published_until_you_set_them' => 'The copy starts with no stock and no price, and stays unpublished until you set them. Its images are files of its own.',
 	'the_copy_was_made_without_the_stock_or_the_price_of_the_original_set_them_here' => 'The copy was made without the stock or the price of the original. Set them here and publish it.',
+	'storefront_country_of_this_connection' => 'Storefront country of this connection',
+	'the_default_storefronts_country' => 'The default storefront\'s country',
 	'the_cache_the_whole_server_depends_on_a_falling_hit_ratio_turns_every_query_into_disk_io' => 'The cache the whole server depends on a falling hit ratio turns every query into disk io',
 	'the_caller_was_identified_and_still_not_allowed_a_guard_a_policy_or_a_missing_permission' => 'The caller was identified and still not allowed a guard a policy or a missing permission',
 	'the_cards_in_this_section_have_no_content_yet' => 'The cards in this section have no content yet',

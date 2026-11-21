@@ -81,10 +81,12 @@ class ProductCodeReadinessTest extends TestCase
 
         $output = $this->run_command()[1];
 
-        $this->assertNotEmpty(ProductCodeSites::notCovered(), 'the registry keeps the open sites');
         foreach (ProductCodeSites::notCovered() as $site) {
             $this->assertStringContainsString($site['id'], $output);
             $this->assertStringContainsString($site['where'], $output);
+        }
+        if (ProductCodeSites::notCovered() === []) {
+            $this->assertStringContainsString('Every site of the survey is covered, labelled or id-keyed', $output);
         }
     }
 
@@ -113,14 +115,12 @@ class ProductCodeReadinessTest extends TestCase
         $this->assertSame(($byStatus[ProductCodeSites::PARTIAL] ?? 0) + ($byStatus[ProductCodeSites::NOT_COVERED] ?? 0) + ($byStatus[ProductCodeSites::DEFERRED] ?? 0), $counts['open']);
     }
 
-    public function test_the_open_sites_are_the_partial_the_not_covered_and_the_deferred_ones_and_nothing_else(): void
+    public function test_an_open_site_is_a_partial_a_not_covered_or_a_deferred_one_and_slice_3_left_none(): void
     {
         $open = array_column(ProductCodeSites::notCovered(), 'status');
 
-        $this->assertNotSame([], $open);
         $this->assertSame([], array_diff($open, [ProductCodeSites::PARTIAL, ProductCodeSites::NOT_COVERED, ProductCodeSites::DEFERRED]));
-        $this->assertContains(ProductCodeSites::PARTIAL, $open, 'the channel product matcher is narrowed only where an account names a country');
-        $this->assertNotContains(ProductCodeSites::DEFERRED, $open, 'slice 3 made the copy to another country, so nothing waits for the owner any more');
+        $this->assertSame([], $open, 'slice 3 closed the channel matcher, the provider connections and the copy to another country');
     }
 
     public function test_a_product_without_a_country_makes_the_catalog_not_ready(): void

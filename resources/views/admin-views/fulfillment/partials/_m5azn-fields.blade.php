@@ -9,6 +9,7 @@
     <input class="form-control" type="password" id="password" name="password" autocomplete="new-password" placeholder="{{ $secretField('password') }}">
     @if ($secrets['password'] ?? false)<label class="form-check fs-12 mt-1"><input class="form-check-input" type="checkbox" name="clear_secrets[]" value="password"> <span class="form-check-label">{{ translate('clear_stored_value') }}</span></label>@endif
 </div>
+@include('admin-views.fulfillment.partials._storefront-country-field')
 <div class="col-md-4"><label class="form-label" for="platform_name">{{ translate('platform_name_sent_to_m5azn') }}</label>
     <input class="form-control" id="platform_name" name="platform_name" value="{{ $config->string('platform_name') }}"></div>
 <div class="col-md-2"><label class="form-label" for="country_code">{{ translate('country_code') }}</label>

@@ -123,6 +123,12 @@ class CatalogCodeReadinessCommand extends Command
             $survey['id_keyed'],
             $survey['open'],
         ));
+        if ($sites === []) {
+            $this->line('Every site of the survey is covered, labelled or id-keyed: none still reads a code as one product.');
+
+            return;
+        }
+
         $this->line(count($sites) . ' site(s) still read a code as one product, wholly or in part, or wait for the owner:');
         foreach ($sites as $site) {
             $this->line(sprintf('  %-4s %-12s %s: %s', $site['id'], str_replace('_', ' ', $site['status']), $site['where'], $site['note']));

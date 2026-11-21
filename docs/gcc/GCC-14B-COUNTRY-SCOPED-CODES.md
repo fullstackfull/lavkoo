@@ -66,7 +66,7 @@ Status of every site of the survey.
   covered site still treats a code as if it named one product, wholly or in part; a deferred one is safe as it is and waits for a feature the owner has
   not approved.
 
-Totals after slice 3 (a test keeps this line equal to the registry): **18 covered, 7 labelled, 18 not needed (id-keyed), 1 open** (D1 partial).
+Totals after slice 3 (a test keeps this line equal to the registry): **19 covered, 7 labelled, 18 not needed (id-keyed), 0 open**.
 
 | # | Where | Status | What it does now |
 |---|---|---|---|
@@ -93,7 +93,7 @@ Totals after slice 3 (a test keeps this line equal to the registry): **18 covere
 | C9 | `SellerCenter ProductList` | not needed (id-keyed) | A list a person reads (code LIKE); every action on a row is keyed by its id. |
 | C10 | `SellerCenter InventoryList` | not needed (id-keyed) | A list a person reads (code LIKE); every action on a row is keyed by its id. |
 | C11 | `SellerCenter Search` | not needed (id-keyed) | A list a person reads (code LIKE); every action on a row is keyed by its id. |
-| D1 | `SalesChannels ProductMatcher` | partial | A listing is proposed only the products of the country its account sells in: a Trendyol storefront, a noon country, or an Amazon account whose marketplaces are all the Saudi (A17E79C6D8DWNP) or all the UAE (A2VIGQ35RCS4UG) one. An Amazon account of any other marketplace or of marketplaces of two countries, the Turkish Trendyol marketplace and any account of no configured country are not narrowed: a code two countries share stays a conflict and nothing links on a guess. |
+| D1 | `SalesChannels ProductMatcher` | covered | A listing is proposed only the products of the country its account sells in: a Trendyol storefront, a noon country, or an Amazon account whose marketplaces all name one country. Slice 3 added the marketplaces Amazon publishes outside the Gulf, so an account of one of those names a country this platform has **no storefront for** and is proposed **nothing**, instead of being read as "country unknown" and matched against every country's products; the same holds for a Turkish Trendyol storefront or a noon country we do not serve. An account of marketplaces of two of our own countries, of a marketplace the list does not know, or of none, is still not narrowed: a code two countries share stays a conflict and nothing links on a guess. |
 | D2 | `ChannelOrderIngestor` | not needed (id-keyed) | The mapping is found by the account and the channel's own listing key; a code never picks it. |
 | D3 | `ListingDraftService / ListingPublisher` | covered | The default outbound key is the product code; a key a listing of the account already holds for another product refuses the second publish. Pinned across two countries, switch on and off. |
 | D4 | `ChannelInventoryWriter` | not needed (id-keyed) | Keyed by the account's listing key. |
@@ -101,8 +101,8 @@ Totals after slice 3 (a test keeps this line equal to the registry): **18 covere
 | D6 | `RoutingRuleMatcher` | covered | A SKU condition also needs the line's product to be in the country the rule names, or in the default storefront's when it names none; an unknown product country matches no SKU rule. A rule keyed by a product id is untouched. |
 | D7 | `Admin SalesChannels ProductDirectory` | labelled | The listing-link picker (and the routing rule's product picker, which shares it) offers every country and names the country at the end of each row; the link is saved by the picked id. |
 | D8 | `LocationStockPage` | not needed (id-keyed) | A stock page filter (code LIKE); a list a person reads. |
-| E1 | `ProviderMappingService::suggestionsFor` | covered | Suggests only the products of the provider's country: the default storefront's, until provider connections have a country of their own. |
-| E2 | `TorodMatchingController::productSearch` | covered | Offers only the products of the provider's country (the default storefront's). |
+| E1 | `ProviderMappingService::suggestionsFor` | covered | Suggests only the products of the connection's own country (`ProviderStorefrontCountry`): its `storefront_country` setting, else the country setting the provider already had (M5AZN's `country_code`), else the default storefront's. A connection whose `storefront_country` names a country we have no storefront for is suggested nothing. |
+| E2 | `TorodMatchingController::productSearch` | covered | Offers only the products of the Torod connection's own country, by the same three steps, and nothing at all when that connection serves a country we have no storefront for. |
 | E3 | `TorodChecks` | not needed (id-keyed) | A diagnostic that reads warehouse items, not store products. |
 | F1 | `Admin ProductCostController picker` | labelled | The cost-layer picker offers every country and names the country at the end of each row and of the chosen product; the layer is written by the picked product id. |
 | G1 | `Printed labels and seller PDFs` | not needed (id-keyed) | Display only: the label prints the code of a product chosen by id. |
