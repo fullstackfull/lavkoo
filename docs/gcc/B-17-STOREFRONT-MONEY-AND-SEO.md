@@ -38,6 +38,15 @@ Two places used to assume hundredths and no longer do:
   `getCurrencySymbol()` now follow the storefront in force, and the switcher refuses on a storefront that trades in one
   currency instead of writing a pick there.
 
+**The language files, and which ref the "no change" claim is against.** `git diff -- resources/lang/` is empty against
+`08a7c083` ("revert thirteen translation keys no code in this slice reads, and add the one it does") and against every
+commit on this branch after it — which is the ref the claim was made against, and it is the branch's own intermediate state
+rather than the pull request's base. Against the **pull request's actual base**, `gcc/p1-catalogue-visible-per-storefront`,
+the branch carries exactly **one key in three files**: `this_storefront_trades_in_one_currency`, in
+`resources/lang/en/new-messages.php` in English and in `resources/lang/sa/new-messages.php` and
+`resources/lang/ae/new-messages.php` in Arabic. The locales are right and no English text sits in an Arabic file, so this
+is a correction to what the claim says, not a defect in what the branch carries.
+
 The price filter's placeholders are the one field that does **not** go through `getCurrencySymbol()`, and deliberately so.
 They have always printed `session('currency_symbol')` raw, which on a visitor's first request — before any money helper has
 called `loadCurrency()` — is no sign at all. Routing them through the helper would have put the platform's default sign on
@@ -91,9 +100,26 @@ guarded region verbatim — its `@php` assignment, its `@if`, down to the matchi
 
 The "SAR SAR" existed only inside a string the test's own helper had built: it grepped the single line mentioning
 `currency_symbol` and rendered that alone, **discarding the two lines of guard above it**. The helper now renders the whole
-guarded region, so it pins the page. The change also cost 33 bytes of whitespace on a live Saudi surface — a Blade comment
-inside the rendered region — which the revert removes: front header 2733 → 2700, auction 2471 → 2438, non-space character
-counts unchanged at 1072 and 812.
+guarded region, so it pins the page. The change also cost whitespace on a live Saudi surface — a Blade comment inside the
+rendered region — which the revert removes.
+
+**Which surface each byte figure is measured on**, because the two are not the same thing:
+
+* **the extracted guarded region**, which is what `renderedCurrencySwitchers()` returns, and which is the surface every
+  figure quoted here and in pull request #147 before this round was measured on, labelled as the page: front header
+  **2733 → 2700**, auction **2471 → 2438**, non-space character counts unchanged at 1072 and 812.
+* **the whole rendered header page**: **33 bytes on each** header. Measured on the emitted literals of the compiled
+  template — the `T_INLINE_HTML` tokens of `Blade::compileString()`, which are byte for byte what the page prints for its
+  static parts — the only divergence between the two versions is a single run of one newline and 32 spaces of indentation,
+  at byte 1562 of the front header's literals and byte 746 of the auction header's. Front 33749 → 33716, auction
+  36522 → 36489.
+
+The page delta and the region delta are the same 33 bytes, because the only bytes the change added outside the region
+belong to its `@use('App\Services\Storefront\StorefrontCurrency')` line, and **that line costs nothing at all on the
+page**: Blade compiles it to `<?php use \App\Services\Storefront\StorefrontCurrency; ?>` and PHP swallows the newline that
+follows a close tag, so the first literal byte of either version is the same byte. **In the cells where the switcher never
+renders there is therefore no byte delta whatever.** A figure of 34 bytes for the front header, or of one further byte for
+the removed `@use` line, does not reproduce: both were measured again for this round and are 33 and 0.
 
 What stands in its place is the structural fact, asserted rather than assumed: with the operator's model set to
 `multi_currency` (the only setting under which the switcher could appear) and the whole stale pick in the session, a
@@ -125,30 +151,81 @@ So on a market that trades in its own money the pick is never read, and the curr
 `getWebConfig('system_default_currency')` — which the same override points at that market's own currency. The Saudi
 storefront keeps the operator's own currency model and the platform's own currency, exactly as before.
 
-A test pins both halves, because they are what keeps those four reads unreachable on a money path: make `override()` stop
-forcing the model, or stop pointing the default currency at the market, and it goes red.
+**Two different things keep those four reads unreachable, and each is now pinned by a test of its own.** The sentence that
+used to stand here said one test pinned both halves. It did not, and the gap was measured: stripping the
+`multi_currency` condition off either payment-controller site left the whole suite green at 31 tests and 234 assertions,
+because `test_a_payment_on_a_market_with_its_own_money_cannot_be_taken_in_a_pick_left_on_another` never looks at the
+controllers at all. What it pins is `override()`'s own answers.
 
-**A fifth reader, and it is not behind that guard.** `Web\WebController` line 638 writes
-`'bring_change_amount_currency' => session('currency_code')` straight into the order `generateOrder()` creates, on the
-cash-on-delivery checkout, with **no currency-model condition around it** — unlike `PaymentController` line 634, which
-writes the same field behind the guard. So for this one the session pick itself has to be right, and it is:
-`loadCurrency()` keys off `getWebConfig('system_default_currency')`, which `override()` points at the market's own
-currency, and rewrites `currency_code`, `currency_symbol` and the rate whenever that differs from what the session carries.
+| Half | Pinned by | How it goes red |
+| --- | --- | --- |
+| `override()` answers `single_currency`, and the market's own currency, on a market that trades in its own money | `test_a_payment_on_a_market_with_its_own_money_cannot_be_taken_in_a_pick_left_on_another` | make `override()` stop forcing the model, or stop pointing the default currency at the market |
+| each of the four reads really is inside `if (... currency_model ... multi_currency ...)` in the file that ships | `test_every_read_of_the_visitors_pick_on_a_money_path_is_inside_the_currency_model_guard` | remove any one of the four guards, or add a fifth unguarded read to either file |
 
-Measured as a visitor reaches it — the whole of a Saudi pick in the session, `system_default_currency_info` included, which
-is what somebody who browsed Saudi Arabia and then opened Kuwait actually carries, then `loadCurrency()`: the session reads
-**`KWD`**, so a Kuwaiti cash-on-delivery order is stored with Kuwaiti currency on it, not the Saudi code. Pinned, and it
-goes red if `override()` stops pointing the default currency at the market.
+The second test **reads the shipped source** of `app/Http/Controllers/Customer/PaymentController.php` and
+`app/Traits/OrderEditManager.php` and walks their braces, so **it proves structure and not behaviour**: it says the guard is
+there, not what a gateway would be handed if it were not, which would need a cart, a customer and a gateway on each of the
+four paths. Its own detector is checked rather than trusted — a guarded sample reports nothing, the same sample with the
+`if` removed reports the read by line number, the read count per file is asserted, and the brace walk is required to
+balance over each real file, so a scan that drifted could not pass quietly. Each of the four guards was removed in turn and
+each made it red: `PaymentController` lines 416, 485 and 633, and `OrderEditManager` line 828.
 
-**So no live defect was found on any of the five session-currency readers on these paths, and nothing on them was changed.**
-Four are behind a guard that cannot be true while a storefront currency is in force; the fifth is correct because
-`loadCurrency()` re-syncs the session from the same overridden setting. What this round adds is the three guards that keep
-that true.
+### A fifth reader, it is not behind that guard, and it was storing the wrong currency
 
-**Not done:** driving the controllers end to end, with a cart, a customer and a gateway. Whether a client-supplied
-`current_currency_code` should be trusted at all on the default storefront is a pre-existing platform question, older than
-the markets and untouched by them. Two readers outside these paths were not examined: `UserLoyaltyController` lines 143–144
-(the loyalty-to-currency quote) and the exchange-rate helpers in `app/Utils/currency.php`.
+`Web\WebController`'s cash-on-delivery checkout writes `bring_change_amount_currency` straight into the order
+`generateOrder()` creates, with **no currency-model condition around it** — unlike `PaymentController` line 634, which
+writes the same field behind the guard. So for this one the session pick itself had to be right.
+
+An earlier round of this document claimed it was, on the strength of a test that put a stale Saudi pick in the session,
+**called `loadCurrency()` itself** and read the session back. That test passed and proved nothing: **nothing on that route
+calls `loadCurrency()`** — not the controller, not a middleware of the `web` group, not a service provider. The only four
+call sites are `webCurrencyConverter()`, `webCurrencyConverterOnlyDigit()`, `getCurrencySymbol()` and
+`StorefrontCurrency::money()`, and the checkout reaches none of them before it writes the order. The call was the test
+arranging the one condition it was supposed to detect.
+
+**Driven end to end instead — a real `POST /checkout-complete` with a cart, a customer, a saved address and the real
+middleware, and no manual currency call anywhere — the route stored the Saudi code on a Kuwaiti order.** It is a live
+money-label defect, on a field the order pages, the invoice, the seller app and the seller VAT report all read:
+
+| Storefront | Session pick | Stored, before | Stored, now |
+| --- | --- | --- | --- |
+| KW (trades in dinars, order of **30 KWD**) | `SAR` | **`SAR`** | `KWD` |
+| KW (trades in dinars, order of 30 KWD) | none | `NULL` | `KWD` |
+| SA (the default storefront, order of 100) | `AED` | `AED` | `AED` |
+| SA (the default storefront, order of 100) | none | `NULL` | `NULL` |
+
+The amount stored was 30 — the single-currency model is in force on that market, so nothing converts it — under a label
+that said riyals. The platform's own API never had the bug: `RestAPI\v1\OrderController` resolves the same field from
+`getWebConfig('system_default_currency')` in **both** branches, which `override()` points at the market's own currency, so
+the mobile app's cash-on-delivery order has always stored `KWD`. The website and the app disagreed on one field.
+
+**Fixed at the source.** The checkout now writes `currencyCodeInForce() ?? session('currency_code')`: the storefront's own
+currency where one is in force, and the visitor's pick everywhere else, which is byte for byte what the default storefront
+stored before in either session state — a pick where there is one, nothing where there is not. `getCurrencyCode(type:
+'web')` applies the same precedence and was the first candidate, but it is declared `: string` while returning
+`session('currency_code')`, so it raises a `TypeError` on a session no money helper has warmed; that is a pre-existing
+latent fault in a shared helper and is recorded, not changed here.
+
+`StorefrontCodOrderCurrencyTest` pins all four rows of that table on the route itself, places a real order for each of the
+five markets that trade in their own money, and asserts that the visitor's pick is **still in the session** after the order
+was placed — which is the measurement the manual `loadCurrency()` stood in for, and the thing that would notice if some
+middleware ever did start warming the session on this path. Put the old line back and seven of its ten tests go red; drop
+the session fallback and the two default-storefront tests go red instead.
+
+**So four of the five session-currency readers on these paths are sound and were not changed, and the fifth was wrong and
+is fixed.** The four are behind a guard that cannot be true while a storefront currency is in force, and both halves of
+that guard are pinned above.
+
+**Not done.** The cash-on-delivery checkout is now driven end to end with a cart, a customer and a saved address, which is
+what found the defect above. The four guarded reads are **not**: each of them hands its answer to a payment gateway, so
+driving them needs a gateway as well, and what is pinned on those four is the structural fact that the guard is there,
+plus what `override()` answers. Whether a client-supplied `current_currency_code` should be trusted at all on the default
+storefront is a pre-existing platform question, older than the markets and untouched by them. Two readers outside these
+paths were not examined: `UserLoyaltyController` lines 143–144 (the loyalty-to-currency quote) and the exchange-rate
+helpers in `app/Utils/currency.php`. One pre-existing fault was measured and left alone: `getCurrencyCode()` in
+`app/Utils/currency.php` is declared `: string` and returns `session('currency_code')`, so it raises a `TypeError` on a
+session no money helper has warmed. Every caller today warms it first through `loadCurrency()`; a caller that does not
+would crash.
 
 ### The published offer on the default storefront is dormant, and it is dormant on a known defect
 
