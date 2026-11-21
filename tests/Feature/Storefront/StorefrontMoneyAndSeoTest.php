@@ -48,6 +48,9 @@ class StorefrontMoneyAndSeoTest extends TestCase
 
     private const KUWAITI_PRICE = '12.345';
 
+    /** A key no storefront scopes, for the vacuity check: what one market writes under it, another reads. */
+    private const UNSCOPED_PROBE_KEY = 'gcc_test_unscoped_cache_probe';
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -602,6 +605,48 @@ class StorefrontMoneyAndSeoTest extends TestCase
         $this->assertSame('10%', $this->inStorefront('KW', fn (): string => (string) getProductPriceByType(product: $product, type: 'discount', result: 'string')));
     }
 
+    /* ------------------------------------------------------------------ B-14/B-16: one market never reads another's cache */
+
+    /**
+     * The price filter's bound and the brand facet are cached, so the key they are cached under decides whether a market can be served
+     * another market's catalogue.
+     *
+     * Warmed for real as one market and read for real as the other, in ONE store with no flush between the two legs, both ways round.
+     * A test that clears the cache before each leg proves only that the two markets compute different numbers; it never puts one
+     * market's entry in front of the other, which is the whole property. Each leg therefore carries a vacuity check: the warming
+     * market's entry is still in the store when the asking market reads it past, and a value under an unscoped key — one nothing
+     * scopes — is read straight through from one market to the other, so a pass cannot come from a store that was empty anyway.
+     *
+     * The Saudi storefront's key is the plain key, by design, so the two markets' keys are the plain one and `storefront:KW:...`.
+     */
+    public function test_a_catalogue_answer_warmed_in_one_market_is_never_served_to_another(): void
+    {
+        $this->openSixMarkets();
+
+        $answers = ['SA' => ['price_floor' => 350, 'brand_facet' => 1], 'KW' => ['price_floor' => 0, 'brand_facet' => 2]];
+
+        foreach ([['KW', 'SA'], ['SA', 'KW']] as [$warms, $asks]) {
+            Cache::flush();
+
+            $warmKey = $this->priceBoundCacheKeyOf($warms);
+            $this->assertNotSame($warmKey, $this->priceBoundCacheKeyOf($asks), "{$warms} and {$asks} have to write the price bound under different keys");
+            $this->assertSame(CACHE_FOR_PRODUCTS_MIN_UNIT_PRICE, $this->priceBoundCacheKeyOf('SA'), 'the Saudi storefront keeps the plain key');
+
+            $this->assertSame($answers[$warms], $this->catalogueAnswers($warms), "{$warms} warms the cache");
+            $this->servingStorefront($warms, static fn (): bool => Cache::put(self::UNSCOPED_PROBE_KEY, 'warmed-by-' . $warms, CACHE_FOR_3_HOURS));
+
+            // No flush here, on purpose: this is the whole test.
+            $this->assertSame($answers[$asks], $this->catalogueAnswers($asks), "{$asks} reads its own catalogue after {$warms} warmed the cache");
+
+            $this->assertTrue(Cache::has($warmKey), "the {$warms} entry is still in the store, so {$asks} read past it rather than finding nothing");
+            $this->assertSame(
+                'warmed-by-' . $warms,
+                $this->servingStorefront($asks, static fn (): ?string => Cache::get(self::UNSCOPED_PROBE_KEY)),
+                "the vacuity check: an unscoped key written by {$warms} does reach {$asks}, so this is one store across both legs",
+            );
+        }
+    }
+
     /* ----------------------------------------------------------------------------------------------- Saudi protection */
 
     public function test_with_all_six_markets_live_the_saudi_pages_money_address_and_robots_are_unchanged(): void
@@ -705,6 +750,35 @@ class StorefrontMoneyAndSeoTest extends TestCase
             'storefront_sitemaps' => array_keys(app(StorefrontSitemap::class)->files(at: CarbonImmutable::parse('2026-11-21T09:00:00+00:00'), stamp: 'now')),
             'platform_sitemap_slugs' => app(StorefrontSitemap::class)->defaultStorefrontSlugs(),
         ]);
+    }
+
+    /** The key the price filter's lower bound is cached under for one market. */
+    private function priceBoundCacheKeyOf(string $country): string
+    {
+        return $this->servingStorefront($country, static fn (): string => storefrontCacheKey(key: CACHE_FOR_PRODUCTS_MIN_UNIT_PRICE));
+    }
+
+    /**
+     * The two cached catalogue answers this slice reads, for the market serving the request.
+     *
+     * @return array{price_floor: int, brand_facet: int}
+     */
+    private function catalogueAnswers(string $country): array
+    {
+        return $this->servingStorefront($country, static fn (): array => [
+            'price_floor' => getProductMinUnitPriceRange(type: 'web'),
+            'brand_facet' => (int) BrandManager::getActiveBrandWithCountingAndPriorityWiseSorting()->first()->brand_products_count,
+        ]);
+    }
+
+    /**
+     * Serves the callback as a customer of the market does and touches the cache, so a leg can read whatever another leg warmed.
+     * {@see inStorefront()} flushes, which is right for every test that compares two markets' numbers and wrong for the one that
+     * compares their cache keys.
+     */
+    private function servingStorefront(string $country, callable $callback): mixed
+    {
+        return StorefrontResolver::fromConfig()->context(explicitChoice: $country)->serve($callback);
     }
 
     /** The partial the product page includes, rendered through the real composer for the Saudi product. */
