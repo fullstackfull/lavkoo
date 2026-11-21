@@ -19,7 +19,7 @@ Every surface asks it:
 | --- | --- |
 | product page price, listing, cards | the price helpers, which `money()` composes and a test compares against it |
 | price filter bound and its sign | `getProductMaxUnitPriceRange()` (narrowed to the storefront) and `getCurrencySymbol()` |
-| JSON-LD offer | `App\Services\Seo\StorefrontSeo::offer()`, which calls `money()` |
+| JSON-LD offer | `App\Services\Seo\StorefrontSeo::offer()`, which calls `money()` where a storefront has money of its own |
 | customer API: config, product details, filter bounds | `StorefrontCurrency::apiMoney()`, which calls `money()` |
 | sitemap | `StorefrontSitemap`, which takes its URLs from `StorefrontUrl` |
 
@@ -41,15 +41,61 @@ Two places used to assume hundredths and no longer do:
 **Not changed, and an owner decision:** `products.unit_price` is `DECIMAL(40,20)`, so a thousandths price is stored as it
 was typed. Nothing here rounds or re-scales a stored amount; a rounding change on money is a separate piece of work.
 
+### The published offer on the default storefront is dormant, and it is dormant on a known defect
+
+`StorefrontSeo::offer()` answers the storefront's money only while a storefront trades in its own currency. Wherever the
+platform's own currency settings stand — the markets switched off, or a request served from the default storefront — it
+returns the amount **as it is stored**, `getCurrencyCode()` and the two decimals `StructuredDataBuilder` has always
+rounded to, which is the offer this page published before any of this existed.
+
+That is deliberately a dormant copy of a defect. Under `currency_model = multi_currency` the money helpers treat a stored
+amount as a base-currency amount and convert it for display, so a product stored at `100.00` **prints** as `SAR375.00`
+and its JSON-LD offer says `100 SAR`; a visitor who has picked another currency shifts the printed price again. The page
+and the crawler have disagreed like that since long before the markets, and reading `money()` here would have corrected
+it — publishing `375 SAR`, or `367.25 AED` for a visitor who picked the dirham, on the live Saudi page, from a slice
+whose headline claim is that nothing moves. It would also have made the published offer follow the visitor's session
+rather than the page.
+
+So the offer stays dormant and the disagreement is pinned instead, by
+`StorefrontMoneyAndSeoTest::test_the_published_offer_still_disagrees_with_the_printed_price_under_the_multi_currency_model`,
+beside the percentage-rounding characterisation next to it. **Whether the crawler should be told the printed price is an
+owner decision about what Google is shown, and it belongs to a slice that announces it.** A market that trades in its own
+currency has no such gap: the single-currency model is in force there, so the printed price and the offer are the same
+number by construction.
+
 ## One answer about addresses and indexing
 
 `App\Services\Storefront\StorefrontUrl` is the only place that builds a storefront's address for a page. The prefix is
 the `path` of the market's entry in `config('gcc.storefronts.countries')` — the `/sa`, `/ae`, `/kw`, `/qa`, `/bh`, `/om`
 of `docs/gcc/DECISIONS.md` — and the default storefront keeps the bare address it has today.
 
-`App\Services\Seo\StorefrontSeo` answers three things from it: the canonical address of a page, its hreflang alternates
-(every indexable market times every published language, with the default market as `x-default`), and whether a market may
-be indexed at all.
+Only a market a visitor can actually reach gets a segment of its own: `of()` reads the **active** storefronts, so a market
+that is switched off takes the platform address rather than a `/kw/...` link to a page that answers nothing — which is
+what a country this installation does not serve has always taken.
+
+`App\Services\Seo\StorefrontSeo` answers three things from it: the canonical address of a page, its hreflang alternates,
+and whether a market may be indexed at all.
+
+### Which markets a page declares is a catalogue question
+
+*May this market be indexed* and *does this market carry this page* are two different questions, and an hreflang set
+answers the second. They were being answered by one source — `indexableCountries()` — and that published `en-SA`,
+`ar-SA` and an `x-default` at a bare address on every Kuwaiti product page and in `sitemap-now-kw.xml`, while the Saudi
+storefront holds no Kuwaiti product and its own `ProductDetailsController` redirects away from that page. `x-default` is
+the address a crawler falls back to for every language it cannot match, so that was the worst of the three.
+
+`StorefrontSeo::countriesCarrying()` is the one source now. It asks the catalogue, through the same narrowing the
+storefront's own pages use (`StorefrontCatalog::offers()`), in each candidate market's context and with no query of its
+own; the page composer and the sitemap both go through it.
+
+| Page | What it declares |
+| --- | --- |
+| a product page | its own market's address in each published language — every product row belongs to one country |
+| a landing page | every live market, in each published language, because every market has a landing page of its own |
+| a page of a market that may not be indexed | nothing at all: no hreflang, no `x-default` |
+
+A market alternate therefore appears where a page really does exist in several markets. **Linking equivalent products
+across markets is a separate piece of work**, and `countriesCarrying()` is the method it changes.
 
 **A market is indexable once it is active and may sell**: `StorefrontResolver::activeStorefronts()` for the first and
 `StorefrontSellingGate::maySell()` — legal texts approved, currency present — for the second. Nothing new decides this,
@@ -68,23 +114,46 @@ narrowed to it. The platform file the panel has always generated is the default 
 markets are on it lists that storefront's products, so no other market's product is advertised under the bare address.
 
 **The `/kw` path prefix has no routes registered yet.** The canonical and sitemap addresses follow the recorded decision
-and become reachable when that route group lands; until the markets are switched on, nothing emits them.
+and become reachable when that route group lands; until the markets are switched on, nothing emits them. So a
+non-default market's canonical is **a correct string and not yet a reachable address** — `https://lavkoo.test/kw/...`
+would answer 404 today. Any criterion recorded on it carries that caveat.
 
 ## Dormancy
 
 With the markets switched off, and with them on while only Saudi Arabia is configured, every number, tag and file is what
 it is today. `tests/Feature/Storefront/StorefrontMoneyAndSeoTest.php` takes one snapshot of everything this feature can
-state about a Saudi page — money, the app's money block, the canonical, the alternates, indexability, the robots header,
-the price filter's ceiling and floor and its conversion, the sign, a flat clearance discount, the storefront sitemaps and
-the platform sitemap's slugs — and compares the two states field by field.
+state about a Saudi page and compares the two states field by field:
+
+* **the rendered page** — the `seo.product-supplement` partial, through the real composer: the canonical, the hreflang
+  set and the JSON-LD a crawler actually reads;
+* the offer, as `StorefrontSeo::offer()` answers it and as `StructuredDataBuilder` publishes it;
+* money, the app's money block, the canonical, the alternates, indexability, the robots header, the price filter's
+  ceiling and floor and its conversion, the sign, a flat clearance discount, the storefront sitemaps and the platform
+  sitemap's slugs.
+
+The rendered page is in the snapshot because a proof that compares the services and not the page they feed excuses the
+feature's headline output — which is how a converted price reached the published offer and nobody saw it.
+
+Both comparisons run under **both currency models**, `multi_currency` and `single_currency`, because the model an
+operator picked decides whether the money helpers convert a stored amount or show it as it is, and a dormancy claim that
+holds under one and not the other is not a dormancy claim.
 
 A dormant installation serves Saudi Arabia only, so it holds no other market's products; the comparison runs on that
 catalogue, and no field is excused.
 
-With all six markets live and other markets' products present, the Saudi money, canonical, robots header, price-filter
-ceiling, sign and discount are byte-identical to the switched-off state, and the Saudi sitemap keeps its own product and
-gains no other market's. Two things move, both by design and neither about money:
+With all six markets live and other markets' products present, the whole Saudi page a crawler reads is byte-identical to
+the switched-off state — money, the rendered partial, the canonical, the alternates, the offer, the robots header, the
+price-filter ceiling, the sign and the discount — and the Saudi sitemap keeps its own product and gains no other
+market's. One thing moves, and it is not about money: the price filter's floor rises, because the Saudi catalogue no
+longer holds a cheaper Kuwaiti product. That is the catalogue narrowing this branch already carried, and the floor is in
+riyals in both states.
 
-* the page now names the markets that carry the product in its hreflang set, Saudi Arabia among them — the requirement;
-* the price filter's floor rises, because the Saudi catalogue no longer holds a cheaper Kuwaiti product. That is the
-  catalogue narrowing this branch already carried, and the floor is in riyals in both states.
+## One market never reads another's cache
+
+The price filter's bound and the brand facet are cached, so the key decides whether a market can be served another
+market's catalogue. `StorefrontMoneyAndSeoTest::test_a_catalogue_answer_warmed_in_one_market_is_never_served_to_another`
+warms each for real as one market and reads it for real as the other, **both ways round, in one store with no flush
+between the legs** — a test that clears the cache between them shows only that two markets compute different numbers.
+Each leg carries two vacuity checks: the warming market's entry is still in the store when the asking market reads past
+it, and a value under a key nothing scopes travels from one market to the other. The Saudi storefront's key is the plain
+key by design, so the probe uses a key of its own.
