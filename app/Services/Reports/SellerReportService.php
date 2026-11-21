@@ -116,13 +116,7 @@ class SellerReportService
      */
     public function productReport(int|string $sellerId, ReportWindow $window, ?string $search = null): array
     {
-        $sales = $this->scopedProducts($sellerId, $window)
-            ->join('order_details', 'order_details.product_id', '=', 'products.id')
-            ->where('order_details.delivery_status', self::DELIVERED)
-            ->selectRaw('SUM(order_details.qty) as sold_quantity')
-            ->selectRaw('SUM(order_details.qty * order_details.price) as sold_amount')
-            ->selectRaw('SUM(order_details.discount) as discount_given')
-            ->first();
+        $sales = $this->deliveredLinesOfProducts($sellerId, $window)->first();
 
         $chartRows = $this->scopedProducts($sellerId, $window)->get(['created_at']);
 
@@ -132,11 +126,7 @@ class SellerReportService
                 'pending' => $this->countProducts($sellerId, $window, self::PRODUCT_PENDING),
                 'rejected' => $this->countProducts($sellerId, $window, self::PRODUCT_DENIED),
             ],
-            'totals' => [
-                'sold_quantity' => (float) ($sales->sold_quantity ?? 0),
-                'sold_amount' => (float) ($sales->sold_amount ?? 0),
-                'discount_given' => (float) ($sales->discount_given ?? 0),
-            ],
+            'totals' => $this->soldFigures($sales),
             'top_products' => $this->topProducts($sellerId),
             // Counted, not summed: this chart is how many products were listed over the period.
             'chart' => $window->series(
@@ -144,6 +134,96 @@ class SellerReportService
                 valueKey: 'listed',
             ),
             'chart_labels' => $window->seriesLabels(),
+        ];
+    }
+
+    /**
+     * The product report's money, kept apart by the currency the sale was taken in (K-04.2).
+     *
+     * `totals.sold_amount` was the sum of every delivered line of the period whatever currency its order was in — 1200 for a
+     * thousand riyals plus two hundred dirhams — and `discount_given` the same, 10 for 7 riyals plus 3 dirhams. The controller's
+     * own docblock said "no screen here adds two currencies" while this one did, which is the kind of committed assertion a
+     * single request disproves.
+     *
+     * The quantity is **not** refused: a unit sold in Riyadh and a unit sold in Dubai are two units, which is the same
+     * distinction `SellerMarketTotals::counts()` draws. Only the two money figures are withheld.
+     *
+     * @return array{by_currency: list<array<string, mixed>>, combined: array<string, float|int>|null, refused_because: string|null, sold_quantity: float}
+     */
+    public function productMoneyByCurrency(int|string $sellerId, ReportWindow $window): array
+    {
+        $byCurrency = $this->productSalesByCurrency($sellerId, $window);
+        $money = $this->totals->money($byCurrency);
+
+        return $money + [
+            'sold_quantity' => round(array_sum(array_column($byCurrency, 'sold_quantity')), 4),
+        ];
+    }
+
+    /**
+     * What the delivered lines of the period sold, grouped by the currency of the order each line belongs to.
+     *
+     * The currency lives on the order and not on the line, so the orders are joined in; a database that has not run the
+     * storefront snapshot has no such column and therefore one currency by definition, which is the same reading
+     * `currenciesInWindow()` takes for the order report.
+     *
+     * @return array<string, array{sold_quantity: float, sold_amount: float, discount_given: float}>
+     */
+    private function productSalesByCurrency(int|string $sellerId, ReportWindow $window): array
+    {
+        $base = (string) $this->ledger->baseCurrency();
+        $sales = $this->deliveredLinesOfProducts($sellerId, $window);
+
+        if (!Schema::hasColumn('orders', self::CURRENCY_COLUMN)) {
+            $row = $sales->first();
+
+            return [$base => $this->soldFigures($row)];
+        }
+
+        $rows = $sales
+            ->join('orders', 'orders.id', '=', 'order_details.order_id')
+            ->groupBy('orders.' . self::CURRENCY_COLUMN)
+            ->addSelect('orders.' . self::CURRENCY_COLUMN . ' as sold_currency')
+            ->get();
+
+        $byCurrency = [];
+
+        foreach ($rows as $row) {
+            $code = is_string($row->sold_currency) && trim($row->sold_currency) !== '' ? trim($row->sold_currency) : $base;
+            $figures = $this->soldFigures($row);
+
+            foreach ($figures as $name => $figure) {
+                $byCurrency[$code][$name] = round((float) ($byCurrency[$code][$name] ?? 0) + $figure, 4);
+            }
+        }
+
+        ksort($byCurrency);
+
+        return $byCurrency === [] ? [$base => $this->soldFigures(null)] : $byCurrency;
+    }
+
+    /**
+     * The delivered lines of this seller's products in the period, as one query the two readers below both select from.
+     */
+    private function deliveredLinesOfProducts(int|string $sellerId, ReportWindow $window): Builder
+    {
+        return $this->scopedProducts($sellerId, $window)
+            ->join('order_details', 'order_details.product_id', '=', 'products.id')
+            ->where('order_details.delivery_status', self::DELIVERED)
+            ->selectRaw('SUM(order_details.qty) as sold_quantity')
+            ->selectRaw('SUM(order_details.qty * order_details.price) as sold_amount')
+            ->selectRaw('SUM(order_details.discount) as discount_given');
+    }
+
+    /**
+     * @return array{sold_quantity: float, sold_amount: float, discount_given: float}
+     */
+    private function soldFigures(?object $row): array
+    {
+        return [
+            'sold_quantity' => (float) ($row->sold_quantity ?? 0),
+            'sold_amount' => (float) ($row->sold_amount ?? 0),
+            'discount_given' => (float) ($row->discount_given ?? 0),
         ];
     }
 

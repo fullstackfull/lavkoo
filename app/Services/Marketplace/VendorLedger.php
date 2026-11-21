@@ -128,6 +128,89 @@ class VendorLedger
     }
 
     /**
+     * The same four buckets and the withdrawable amount, kept apart by the currency each entry is in (K-04.2).
+     *
+     * `balances()` sums every entry whatever currency it names, which is a sum of riyals and dirhams the moment a seller sells in
+     * two markets. Four screens printed that sum as one number — the shop overview, the payout screen, the daily briefing and the
+     * seller's own reconciliation — and the briefing printed it **under the currency code `SAR`**, which is worse than leaving it
+     * unlabelled. This is the one place the per-currency figures come from, so the statement, those four screens and anything
+     * added later cannot disagree about what a shop holds.
+     *
+     * An entry naming no currency is read as the store's base currency, as `SettlementCurrency` reads one, so the entries of
+     * before do not become a currency of their own. The keys are sorted, so two readers of the same account see the same order.
+     *
+     * @return array<string, array{pending: float, available: float, reserved: float, paid: float, balance: float, withdrawable: float}>
+     */
+    public function balancesByCurrency(int|string $sellerId, string $sellerIs = 'seller'): array
+    {
+        if (!Schema::hasTable('vendor_ledger_entries')) {
+            return [];
+        }
+
+        $empty = ['pending' => 0.0, 'available' => 0.0, 'reserved' => 0.0, 'paid' => 0.0, 'balance' => 0.0];
+        $base = (string) $this->baseCurrency();
+        $buckets = [];
+
+        $rows = VendorLedgerEntry::query()
+            ->forSeller($sellerId, $sellerIs)
+            ->selectRaw('currency, status, SUM(credit) as credits, SUM(debit) as debits')
+            ->groupBy('currency', 'status')
+            ->get();
+
+        foreach ($rows as $row) {
+            $code = is_string($row->currency) && trim($row->currency) !== '' ? trim($row->currency) : $base;
+            $buckets[$code] ??= $empty;
+            $net = round((float) $row->credits - (float) $row->debits, 4);
+
+            if (array_key_exists($row->status, $buckets[$code])) {
+                $buckets[$code][$row->status] = round($buckets[$code][$row->status] + $net, 4);
+            }
+
+            $buckets[$code]['balance'] = round($buckets[$code]['balance'] + $net, 4);
+        }
+
+        $claimed = $this->settlementClaimedNetByCurrency($sellerId, $sellerIs);
+        ksort($buckets);
+
+        foreach ($buckets as $code => $figures) {
+            // The same formula `withdrawable()` applies, asked of one currency: balance less what is still in the return window
+            // and less what a settlement has already claimed.
+            $buckets[$code]['withdrawable'] = round($figures['balance'] - $figures['pending'] - ($claimed[$code] ?? 0.0), 4);
+        }
+
+        return $buckets;
+    }
+
+    /**
+     * What a settlement has already claimed, per currency, so one currency's settled earning cannot lower another's withdrawable.
+     *
+     * @return array<string, float>
+     */
+    private function settlementClaimedNetByCurrency(int|string $sellerId, string $sellerIs = 'seller'): array
+    {
+        if (!Schema::hasTable('vendor_ledger_entries') || !Schema::hasColumn('vendor_ledger_entries', 'settlement_id')) {
+            return [];
+        }
+
+        $base = (string) $this->baseCurrency();
+        $claimed = [];
+
+        $rows = VendorLedgerEntry::query()
+            ->forSeller($sellerId, $sellerIs)
+            ->whereNotNull('settlement_id')
+            ->selectRaw('currency, SUM(credit) as credits, SUM(debit) as debits')
+            ->groupBy('currency')
+            ->get();
+
+        foreach ($rows as $row) {
+            $code = is_string($row->currency) && trim($row->currency) !== '' ? trim($row->currency) : $base;
+            $claimed[$code] = round(($claimed[$code] ?? 0.0) + (float) $row->credits - (float) $row->debits, 4);
+        }
+
+        return $claimed;
+    }
+
+    /**
      * The amount a seller can actually request a payout for, right now.
      *
      * It is the running balance minus anything still `pending`. That one formula handles every case

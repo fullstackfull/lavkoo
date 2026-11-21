@@ -179,35 +179,19 @@ class SellerLedgerStatementService
     /**
      * The whole account's buckets in each currency it holds, so a seller who is denied one balance is not denied every balance.
      *
+     * Read from `VendorLedger::balancesByCurrency()`, which is the one place these are computed now: the overview, the payout
+     * screen and the daily briefing read the same figures, and a second copy of this arithmetic is how a label and an amount
+     * drift apart. It carries each currency's own `withdrawable` as well, which is the figure the combined answer withholds.
+     *
      * @return list<array<string, mixed>>
      */
     private function bucketsByCurrency(int|string $sellerId): array
     {
-        $rows = VendorLedgerEntry::query()
-            ->forSeller($sellerId)
-            ->selectRaw('currency, status, SUM(credit) as credits, SUM(debit) as debits')
-            ->groupBy('currency', 'status')
-            ->get();
-
-        $empty = ['pending' => 0.0, 'available' => 0.0, 'reserved' => 0.0, 'paid' => 0.0, 'balance' => 0.0];
-        $buckets = [];
-
-        foreach ($rows as $row) {
-            $code = $this->currencyOf($row->currency);
-            $buckets[$code] ??= $empty;
-            $net = round((float) $row->credits - (float) $row->debits, 4);
-
-            if (array_key_exists($row->status, $buckets[$code])) {
-                $buckets[$code][$row->status] = round($buckets[$code][$row->status] + $net, 4);
-            }
-
-            $buckets[$code]['balance'] = round($buckets[$code]['balance'] + $net, 4);
-        }
-
-        ksort($buckets);
+        $buckets = $this->ledger->balancesByCurrency($sellerId);
 
         return array_map(
-            static fn (string $code, array $figures): array => ['currency_code' => $code] + array_map(static fn (float $figure): float => round($figure, 2), $figures),
+            static fn (string $code, array $figures): array => ['currency_code' => $code]
+                + array_map(static fn (float $figure): float => round($figure, 2), $figures),
             array_keys($buckets),
             array_values($buckets),
         );

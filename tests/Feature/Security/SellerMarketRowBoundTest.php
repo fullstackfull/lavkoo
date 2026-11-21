@@ -317,6 +317,138 @@ class SellerMarketRowBoundTest extends TestCase
         $this->assertIsArray($report['chart']['values'], 'and keeps its series');
     }
 
+    /**
+     * The product report, which was left out of the per-currency rule entirely while the controller's own docblock asserted
+     * that "no screen here adds two currencies". It answered `sold_amount` 1200 — a thousand riyals plus two hundred dirhams —
+     * and `discount_given` 10, which is 7 plus 3.
+     */
+    public function test_the_product_report_refuses_the_one_money_figure_and_keeps_the_count(): void
+    {
+        $this->sellInTwoCurrencies();
+
+        $report = $this->sellerApi('get', 'seller-center/reports/products')->assertStatus(200)->json();
+
+        $this->assertNull($report['totals']['sold_amount'], 'a thousand riyals and two hundred dirhams are not 1200');
+        $this->assertNull($report['totals']['discount_given'], 'nor are 7 riyals and 3 dirhams 10');
+        $this->assertSame(2.0, (float) $report['totals']['sold_quantity'], 'but two units sold are two units sold: a count is not money');
+        $this->assertSame(SellerMarketTotals::CURRENCIES_DIFFER, $report['totals_refused_because']);
+
+        $byCurrency = collect($report['totals_by_currency'])->keyBy('currency_code');
+        $this->assertSame(1000.0, (float) $byCurrency['SAR']['sold_amount'], 'the riyal sale keeps its own real figure');
+        $this->assertSame(7.0, (float) $byCurrency['SAR']['discount_given']);
+        $this->assertSame(200.0, (float) $byCurrency['AED']['sold_amount'], 'and the dirham sale keeps its own');
+        $this->assertSame(3.0, (float) $byCurrency['AED']['discount_given']);
+        $this->assertStringNotContainsString('1200', json_encode($report['totals']), 'and the sum of the two is not in the totals');
+    }
+
+    /**
+     * The three ledger screens that printed one number over two currencies. The briefing was the worst of them: it printed the
+     * riyal-plus-dirham total **under the currency code SAR**, which reads as a checked figure rather than an unlabelled one.
+     *
+     * @return array<string, array{0: string, 1: string, 2: list<string>}>
+     */
+    public static function ledgerBalanceScreens(): array
+    {
+        return [
+            'the shop overview' => ['seller-center/overview', 'finance', ['available', 'balance', 'withdrawable']],
+            'the payout screen' => ['seller-center/payouts', '', ['balances', 'withdrawable']],
+            'the daily briefing' => ['seller-center/control-tower/briefing', 'balance', ['currency', 'pending', 'withdrawable']],
+        ];
+    }
+
+    #[DataProvider('ledgerBalanceScreens')]
+    public function test_a_ledger_screen_of_two_currencies_refuses_the_one_balance(string $uri, string $block, array $withheld): void
+    {
+        $this->grantSaudiAlone();
+        $this->insertLedgerEntry(sellerId: self::SELLER, currency: 'SAR', credit: 100, debit: 0);
+        $this->insertLedgerEntry(sellerId: self::SELLER, currency: 'AED', credit: 40, debit: 0);
+
+        $answer = $this->sellerApi('get', $uri)->assertStatus(200);
+        $money = (array) ($block === '' ? $answer->json() : $answer->json($block));
+
+        foreach ($withheld as $key) {
+            $this->assertNull($money[$key], "{$uri} must not answer one {$key} over two currencies");
+        }
+
+        $this->assertSame(SellerMarketTotals::CURRENCIES_DIFFER, $money['totals_refused_because'], "{$uri} says why");
+
+        $byCurrency = collect($money['balances_by_currency'] ?? $money['balance_by_currency'])->keyBy('currency_code');
+        $this->assertSame(100.0, (float) $byCurrency['SAR']['balance'], 'the riyals are still there and still 100');
+        $this->assertSame(40.0, (float) $byCurrency['AED']['balance'], 'and the dirhams 40');
+        $this->assertSame(100.0, (float) $byCurrency['SAR']['withdrawable'], 'each currency keeps its own withdrawable');
+        $this->assertStringNotContainsString('140', json_encode($money), 'and 140 is nowhere in the answer');
+    }
+
+    /**
+     * The seller's own reconciliation. `reconciles` is a comparison of `recorded.net` with `credited.amount`, so over two
+     * currencies it was a verdict about whether one mixed-currency sum matched another.
+     */
+    public function test_the_reconciliation_refuses_a_verdict_it_cannot_reach_over_two_currencies(): void
+    {
+        $this->sellInTwoCurrencies();
+        $this->insertLedgerEntry(sellerId: self::SELLER, currency: 'SAR', credit: 100, debit: 0);
+        $this->insertLedgerEntry(sellerId: self::SELLER, currency: 'AED', credit: 40, debit: 0);
+
+        $answer = $this->sellerApi('get', 'seller-center/finance/reconciliation')->assertStatus(200)->json();
+
+        $this->assertNull($answer['delivered']['gross'], 'riyal sales and dirham sales are not one gross');
+        $this->assertNull($answer['credited']['amount'], 'nor one credited amount');
+        $this->assertNull($answer['reconciles'], 'and whether they match is not a question with an answer');
+        $this->assertSame(SellerMarketTotals::CURRENCIES_DIFFER, $answer['totals_refused_because']);
+
+        $delivered = collect($answer['delivered_by_currency'])->keyBy('currency_code');
+        $this->assertSame(993.0, (float) $delivered['SAR']['gross'], 'the riyal side keeps its own real gross');
+        $this->assertSame(197.0, (float) $delivered['AED']['gross'], 'and the dirham side its own');
+
+        $credited = collect($answer['credited_by_currency'])->keyBy('currency_code');
+        $this->assertSame(100.0, (float) $credited['SAR']['amount']);
+        $this->assertSame(40.0, (float) $credited['AED']['amount']);
+        $this->assertSame(2, $answer['delivered']['lines'], 'the line count survives: a count is not money');
+    }
+
+    /**
+     * And the same screen read the orders of every market. `gross` was once composed **entirely** of the two markets the token
+     * had been refused, because this walked `order_details` joined to `orders` by seller alone.
+     */
+    public function test_the_reconciliation_counts_only_the_orders_of_the_granted_markets(): void
+    {
+        $this->grantSaudiAlone();
+        $this->deliverOneLine(orderId: 101, productId: self::PRODUCT_INSIDE, price: 100, discount: 0);
+        $this->deliverOneLine(orderId: 102, productId: self::PRODUCT_OUTSIDE, price: 55555, discount: 0);
+        $this->deliverOneLine(orderId: 103, productId: self::PRODUCT_OUTSIDE, price: 55555, discount: 0);
+
+        $answer = $this->sellerApi('get', 'seller-center/finance/reconciliation')->assertStatus(200);
+
+        $this->assertSame(100.0, (float) $answer->json('delivered.gross'), 'the gross is the granted market and nothing else');
+        $this->assertSame(1, $answer->json('delivered.lines'));
+        $this->assertStringNotContainsString('55555', $answer->getContent(), 'no figure of a market the token was refused is in the answer');
+        $this->assertStringNotContainsString('111110', $answer->getContent(), 'nor the sum of them');
+    }
+
+    /** A delivered sale in riyals and another in dirhams, which is the smallest world in which the money rule has to decide. */
+    private function sellInTwoCurrencies(): void
+    {
+        $this->switchMarketScopesOn();
+        $this->grantMarket(sellerId: self::SELLER, market: 'SA');
+        $this->grantMarket(sellerId: self::SELLER, market: 'AE');
+
+        $this->insertSellerProduct(id: 966, sellerId: self::SELLER, market: 'AE', stock: 3, unitPrice: 200);
+        $this->deliverOneLine(orderId: 101, productId: self::PRODUCT_INSIDE, price: 1000, discount: 7);
+        $this->deliverOneLine(orderId: 102, productId: 966, price: 200, discount: 3);
+    }
+
+    /** Points the one line of an order at a product, marks it delivered and prices it. */
+    private function deliverOneLine(int $orderId, int $productId, float $price, float $discount): void
+    {
+        DB::table('order_details')->where('order_id', $orderId)->update([
+            'product_id' => $productId,
+            'delivery_status' => self::DELIVERED_SO_THE_WRITE_IS_OTHERWISE_ALLOWED,
+            'qty' => 1,
+            'price' => $price,
+            'discount' => $discount,
+        ]);
+    }
+
     public function test_the_printed_report_is_refused_rather_than_printed_with_a_sum_of_two_currencies(): void
     {
         $this->switchMarketScopesOn();

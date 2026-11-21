@@ -423,14 +423,22 @@ final class SellerMarketScope
      */
     public function narrowByOrder(Builder $query, string $column = 'order_id'): Builder
     {
-        if ($this->boundGrant() === null) {
-            return $query;
-        }
+        $granted = $this->grantedOrderIds();
 
-        return $query->whereIn(
-            $query->qualifyColumn($column),
-            $this->narrowOrders(Order::query())->select('orders.id'),
-        );
+        return $granted === null ? $query : $query->whereIn($query->qualifyColumn($column), $granted);
+    }
+
+    /**
+     * The ids of the orders this request was granted, as a subquery, or null when the request is not narrowed (K-09).
+     *
+     * The same bound `narrowByOrder()` applies, for a caller holding a plain query builder rather than an Eloquent one: the
+     * seller's own reconciliation walks `order_details` joined to `orders` through the query builder, and the alternative would
+     * be a second copy of the grant arithmetic there. Null rather than an always-true subquery, so an unbound request runs the
+     * query it always ran.
+     */
+    public function grantedOrderIds(): ?Builder
+    {
+        return $this->boundGrant() === null ? null : $this->narrowOrders(Order::query())->select('orders.id');
     }
 
     /**

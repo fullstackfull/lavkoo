@@ -66,6 +66,7 @@ where an employee of the platform has no shop above them; here there is one.
 | The till — its product list, a product scanned by its barcode, and a receipt read by its order id | `SellerMarketScope::narrowQuery()` on the two catalogue reads and `narrowOrders()` on the receipt. `pos/product-list` served the ungranted market's product in full, price and stock included, and `pos/products?code=` is a product id by another name. |
 | Bulk jobs — the receipt, its failure file, the list, and queueing one | The products the job names: a receipt's input is a list of product ids and its failure list their names, so `anyProductOutsideTheGrant()` decides it. Queueing is refused **before** the job exists, because the work runs in a queue where the caller's grant is no longer readable. |
 | What an automation rule may touch — its preview, and the catalogue a rule is written against | `SellerMarketScope::narrowQuery()` inside `SelectsSimpleProducts::sellerProducts()`, the one place every trigger builds its product query. |
+| The seller's own reconciliation — the delivered lines it walks, the commission rows and the gap samples | `SellerMarketScope::grantedOrderIds()`, the order list's bound as a subquery, because this reads `order_details` joined to `orders` through the query builder. `gross: 111111` was once composed **entirely** of two markets the token had been refused. The ledger side carries no market and is not narrowed, as the statement is not. |
 | Payout and bank details, staff management, the audit trail, account deletion | `seller_all_markets`, declared **beside** `seller_owner` and not instead of it: these cover every market at once, so a principal granted some of the platform's markets holds authority in those markets and not over the shop. Only the platform owner sees every market, and they do not come through this API. |
 
 **What is not narrowed, and why.** Saying it here because a doc that claims a control which does not exist is how the unbound
@@ -134,12 +135,36 @@ by currency so the page never adds two", E-17.1) and `ABalanceCannotBeLeftUnknow
   `chart_by_currency` and `totals_refused_because` beside them. An order recorded before the storefront snapshot names no currency
   and is read as the store's base currency, as the ledger reads an entry that names none, so the orders of before do not become a
   currency of their own.
+- **The product report** was left out of the rule entirely, while the controller's own docblock asserted that no screen there
+  adds two currencies: `totals.sold_amount` answered **1200** for a thousand riyals plus two hundred dirhams and
+  `discount_given` **10** for 7 plus 3. It now goes through the same `SellerMarketTotals::money()`, grouped by the currency of
+  the order each delivered line belongs to — the currency is on the order, not on the line. `sold_quantity` is **not** refused:
+  a unit sold in Riyadh and a unit sold in Dubai are two units, the same distinction `counts()` draws for the stock screen.
+- **The three ledger screens** each printed one number over two currencies, because `VendorLedger::balances()` sums every entry
+  whatever currency it names. For 100 riyals and 40 dirhams: `seller-center/overview` answered `available = balance =
+  withdrawable = 140`, `seller-center/payouts` the same 140 on the screen a seller asks for money from, and
+  `control-tower/briefing` the worst of the three — `{"currency":"SAR","pending":0,"withdrawable":140}`, a riyal-plus-dirham
+  total printed **under the riyal's own code**, which reads as a checked figure rather than an unlabelled one. The per-currency
+  figures now come from one place, `VendorLedger::balancesByCurrency()`, which the statement reads too, each currency carrying
+  its own `withdrawable`.
+- **The seller's own reconciliation** compared `recorded.net` with `credited.amount` and published `reconciles` — a verdict on
+  whether one mixed-currency sum matched another. Over more than one currency the three money figures and the verdict are
+  withheld with the reason, and the two sides that can be split are given per currency. `recorded` cannot be: neither
+  `order_item_commissions` nor `order_transactions` carries a currency column, so the middle hand-off of the chain has no
+  currency to group by. Named in section 8 rather than guessed at.
 - **The printed report** is refused outright (409, with the reason) when the period holds two currencies: a PDF carries totals at
   its foot and has no way to say a figure is missing. The seller names a market and gets that market's report.
 - **The app** reads the refusal. `StatementSummaryModel` turned the null `withdrawable` into `0` and the null `range` and `buckets`
   into empty maps, so a two-currency seller saw every balance as 0.00 with nothing to say why — and a zero is worse than a wrong
   sum, because a seller reads it as "there is nothing to withdraw" and acts on it. The combined figures are nullable now and the
   screen shows the reason and each currency's own figures: `fullstackfull/lavkooappseller` PR 20.
+- **And the order report screen in the app, which was the other half of the same defect.** `OrderReportModel` read the refused
+  `amounts` and `payments` through `_toDouble` on an empty map, so a seller owed 1015 across three currencies was shown
+  `0.00 / 0.00 / 0.00`. **This case does not need the switch on**: `currenciesInWindow()` reads the currencies an installation
+  actually has, so an installation with the switch off and no grant table at all — the dormant case — is refused the single
+  figure the moment its orders carry two currency codes. That is the money rule working as written, not a dormancy break; the
+  break was the app reading the refusal as nothing. The gate was deliberately **not** moved onto `markets->enabled()`, because
+  that would have the dormant installation go back to printing 1015 as if it were money. The app half is in PR 20.
 
 ## 6. The app half
 
@@ -165,22 +190,32 @@ a market the grant does not hold is moved to one it does and the screens are rel
 - K-08 in the app (hiding a screen the role cannot use) and the staff matrix over the 53 `seller_can` declarations.
 - `updateProduct` keeps a saved product's market, as `ProductCountry` requires; moving a product between markets is still a copy.
 - The **vendor web report pages** still print one money figure across currencies. The API half obeys the rule; the pages' figures,
-  their chart series and the `data-text` spans their JavaScript reads are entangled, and untangling them is its own slice.
+  their chart series and the `data-text` spans their JavaScript reads are entangled, and untangling them is its own slice. This
+  is the money gap that is left: an earlier version of this document said there was one gap left while five single figures over
+  two currencies were still being published by the API (the product report and the four screens above), which was wrong.
 - The **vendor web panel has no market binding of its own** beyond the product insert above: its lists, reports and exports are
   scoped by seller and not by market, because no principal is resolved on a session request. A grant bounds the API, not the panel.
 - The **audit trail is withheld, not narrowed**, for a limited principal — see section 3.
 - **Coupons** are not bound to a market; the shape of the fix is in section 3.
 - **A payout request** carries no market, and reading or cancelling one is open to any principal holding `finance.view` /
   `payouts.request` however few markets they hold — see section 3.
+- **`recorded.net` in the seller's reconciliation cannot be split by currency**, because neither `order_item_commissions` nor
+  `order_transactions` has a currency column. The screen therefore withholds that figure over two currencies rather than
+  publishing a mixed sum, and the two sides that can be split are given. Splitting it needs a currency on the commission
+  snapshot, which is a schema decision in the ledger's own lane and not a line here.
+- **`top_products` and the per-product `sold_amount` of the product report are each in the money of that product's own market.**
+  A product carries exactly one `storefront_country`, so a per-product figure is one currency by construction; what was refused
+  above is the figure that added *across* products of different markets. Recorded because it rests on products not being sold
+  through another market's storefront, which is true of the platform as it stands and is not enforced by a constraint.
 - `products/details/{id}` and `products/get-product-images/{id}` answer **200 with an empty body** for a product the token cannot
   reach, which is the answer they already gave for a product of another shop. No record travels; the status was left as it was
   rather than changed for an existing case.
 
 ## 9. Tests
 
-`tests/Feature/Security/SellerMarketScopeTest.php` (38), `tests/Feature/Security/SellerMarketRowBoundTest.php` (35),
+`tests/Feature/Security/SellerMarketScopeTest.php` (38), `tests/Feature/Security/SellerMarketRowBoundTest.php` (50),
 `tests/Feature/Storefront/SellerAppProductMarketTest.php` (6), `tests/Feature/Storefront/VendorPanelProductMarketTest.php` (4) and
-`tests/Feature/Storefront/SellerMarketDormancyTest.php` (13). Every request is made against `/api/v3/seller` with a bearer token,
+`tests/Feature/Storefront/SellerMarketDormancyTest.php` (14). Every request is made against `/api/v3/seller` with a bearer token,
 so `api_lang`, `seller_api_auth`, `seller_market`, `seller_can` and `seller_all_markets` all run in the order the routing table
 declares. No middleware is invoked by hand, no principal is constructed and no request attribute is set by a test.
 

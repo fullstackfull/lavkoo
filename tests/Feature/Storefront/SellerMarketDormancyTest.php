@@ -3,6 +3,7 @@
 namespace Tests\Feature\Storefront;
 
 use App\Services\Marketplace\SellerMarketScope;
+use App\Services\Marketplace\SellerMarketTotals;
 use App\Services\Storefront\StorefrontResolver;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Schema;
@@ -91,6 +92,42 @@ class SellerMarketDormancyTest extends TestCase
             (string) $withTheGrantUnread->getContent(),
             "{$uri} answers the body of the base, byte for byte, while the switch is off",
         );
+    }
+
+    /**
+     * The order report of a dormant installation whose orders are already in more than one currency (K-04.2).
+     *
+     * Deliberately **not** a byte-for-byte comparison with the base, because this one answer did move and is meant to: the money
+     * rule is about the currencies an installation actually has, not about whether market scopes are switched on, so an
+     * installation with riyals, dirhams and dinars in the period is refused the single figure whatever the switch says. What this
+     * pins is that the refusal is not a zero and not an absence: each currency keeps its own real figure, the reason is in the
+     * answer, and the meaningless sum of the three is nowhere in it. The app half that draws this is the other half of the fix —
+     * reading the null as 0 put "0.00" on the screen of a seller who was owed 1015 across three currencies, and a zero is worse
+     * than a wrong sum because a seller acts on it.
+     */
+    public function test_a_dormant_installation_of_several_currencies_is_told_each_real_figure_and_never_a_zero(): void
+    {
+        $this->switchStorefrontsOn();
+        $this->dropOnlyTheMarketGrantTable();
+        config([SellerMarketScope::SWITCH => false]);
+
+        $report = $this->sellerApi('get', 'seller-center/reports/orders')->assertStatus(200);
+
+        $this->assertFalse(Schema::hasTable(SellerMarketScope::TABLE), 'the grant table is not there: this is the dormant case');
+        $this->assertNull($report->json('amounts'), 'three currencies are not one amount, switch or no switch');
+        $this->assertSame(
+            SellerMarketTotals::CURRENCIES_DIFFER,
+            $report->json('totals_refused_because'),
+            'and the reason travels with the refusal, so the app has something to draw instead of a zero',
+        );
+
+        $byCurrency = collect($report->json('amounts_by_currency'))->keyBy('currency_code');
+        $this->assertSame(['AED', 'KWD', 'SAR'], $byCurrency->keys()->sort()->values()->all());
+        $this->assertSame(610.0, (float) $byCurrency['SAR']['due'], 'the riyal orders keep their own real figure');
+        $this->assertSame(202.0, (float) $byCurrency['AED']['due'], 'and the dirham order keeps its own');
+        $this->assertSame(203.0, (float) $byCurrency['KWD']['due'], 'and the dinar order keeps its own');
+        $this->assertStringNotContainsString('1015', $report->getContent(), 'and the sum of the three is nowhere in the answer');
+        $this->assertNotSame(0.0, (float) $byCurrency['SAR']['due'], 'none of them is zero: a zero is what the app used to show');
     }
 
     public function test_who_am_i_keeps_the_eight_keys_in_the_order_the_app_reads_them(): void

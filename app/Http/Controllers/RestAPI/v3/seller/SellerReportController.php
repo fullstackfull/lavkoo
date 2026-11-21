@@ -30,7 +30,10 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
  *
  * No screen here adds two currencies (K-04.2). Where the period holds orders in more than one, the combined money is withheld and
  * each currency's real figures are given with the reason; the PDF, which has no room for a refusal, is refused outright with the
- * market to name instead.
+ * market to name instead. That holds for the **product** report too, which this sentence once claimed while
+ * `reports/products` answered `sold_amount` 1200 for a thousand riyals plus two hundred dirhams and `discount_given` 10 for 7
+ * plus 3. Quantities are still added, there and on the stock screen: a unit sold in Riyadh and a unit sold in Dubai are two
+ * units, and only money is refused.
  */
 class SellerReportController extends Controller
 {
@@ -105,13 +108,14 @@ class SellerReportController extends Controller
         $search = $this->search($request);
 
         $report = $this->reports->productReport($sellerId, $window, $search);
+        $money = $this->reports->productMoneyByCurrency($sellerId, $window);
         $products = $this->reports->productQuery($sellerId, $window, $search)
             ->paginate($this->limit($request), ['*'], 'page', $this->page($request));
 
         return response()->json([
             'period' => $this->period($window),
             'counts' => $report['counts'],
-            'totals' => $report['totals'],
+        ] + $this->soldTotals($report, $money) + [
             'chart' => [
                 'labels' => $report['chart_labels'],
                 'values' => array_values($report['chart']),
@@ -319,6 +323,33 @@ class SellerReportController extends Controller
             'Content-Type' => 'application/pdf',
             'Content-Disposition' => 'attachment; filename="order-report.pdf"',
         ]);
+    }
+
+    /**
+     * What the period sold, as one set of figures while it is in one currency and as the per-currency figures while it is not.
+     *
+     * The quantity survives the refusal because it is a count: only `sold_amount` and `discount_given` are money. A period of one
+     * currency is answered the one `totals` key it always was, with the three figures it always carried.
+     *
+     * @param  array<string, mixed>  $report
+     * @param  array{by_currency: list<array<string, mixed>>, refused_because: string|null, sold_quantity: float}  $money
+     * @return array<string, mixed>
+     */
+    private function soldTotals(array $report, array $money): array
+    {
+        if ($money['refused_because'] === null) {
+            return ['totals' => $report['totals']];
+        }
+
+        return [
+            'totals' => [
+                'sold_quantity' => $money['sold_quantity'],
+                'sold_amount' => null,
+                'discount_given' => null,
+            ],
+            'totals_by_currency' => $money['by_currency'],
+            'totals_refused_because' => $money['refused_because'],
+        ];
     }
 
     /**

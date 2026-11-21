@@ -8,6 +8,7 @@ use App\Models\Currency;
 use App\Models\VendorPayoutRequest;
 use App\Services\DeveloperPortal\ApiDoc;
 use App\Services\Marketplace\PayoutService;
+use App\Services\Marketplace\SellerMarketTotals;
 use App\Services\Marketplace\SellerVerificationService;
 use App\Services\Marketplace\VendorLedger;
 use App\Utils\Helpers;
@@ -27,6 +28,7 @@ class SellerPayoutController extends Controller
         private readonly PayoutService             $payouts,
         private readonly VendorLedger              $ledger,
         private readonly SellerVerificationService $verification,
+        private readonly SellerMarketTotals        $totals,
     )
     {
     }
@@ -57,10 +59,8 @@ class SellerPayoutController extends Controller
             $payoutCurrencies = Currency::orderBy('code')->pluck('code');
         }
 
-        return response()->json([
-            'balances' => $this->ledger->balances($sellerId),
+        return response()->json($this->balances($sellerId) + [
             'payout_currencies' => $payoutCurrencies,
-            'withdrawable' => $this->ledger->withdrawable($sellerId),
             'in_cooling_period' => $this->payouts->isInCoolingPeriod($sellerId),
             'payout_eligible' => $this->verification->isPayoutEligible($sellerId),
             'total_size' => $payoutRequests->total(),
@@ -68,6 +68,35 @@ class SellerPayoutController extends Controller
             'offset' => $offset,
             'requests' => $payoutRequests->items(),
         ], 200);
+    }
+
+    /**
+     * The balances the payout screen reads, and none of them when the account holds two currencies (K-04.2).
+     *
+     * `balances` and `withdrawable` both read 140 for a shop holding 100 riyals and 40 dirhams — and this is the screen a seller
+     * asks for money from, so the figure is acted on directly. Where the account holds more than one currency both are withheld
+     * with the reason, and each currency's own real figures are given. A seller of one currency, which is every seller today, is
+     * answered the two keys of before.
+     *
+     * @return array<string, mixed>
+     */
+    private function balances(int|string $sellerId): array
+    {
+        $money = $this->totals->money($this->ledger->balancesByCurrency($sellerId));
+
+        if ($money['refused_because'] === null) {
+            return [
+                'balances' => $this->ledger->balances($sellerId),
+                'withdrawable' => $this->ledger->withdrawable($sellerId),
+            ];
+        }
+
+        return [
+            'balances' => null,
+            'withdrawable' => null,
+            'balances_by_currency' => $money['by_currency'],
+            'totals_refused_because' => $money['refused_because'],
+        ];
     }
 
     #[ApiDoc(
