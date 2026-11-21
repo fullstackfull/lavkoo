@@ -1218,9 +1218,15 @@ class OrderManager
         }
     }
 
+    /**
+     * Save an order's lines, then freeze the company that sold it, then record the money that follows from them.
+     *
+     * The three steps are in that order on purpose, and the order is the whole point: see the comment at the stamp below.
+     */
     public static function addOrderDetailsData(int $orderId, object|array|null $vendorCart = []): void
     {
         $orderDetailsRewardsData = [];
+        $savedLines = [];
         $totalPrice = 0;
 
         $taxConfig = self::getTaxSystemType();
@@ -1411,6 +1417,26 @@ class OrderManager
                 }
             }
 
+            $savedLines[] = [
+                'cart_item' => $cartSingleItem,
+                'product' => $product,
+                'order_details_id' => $orderDetailsId,
+                'net_amount' => $finalAmount,
+                'applied_tax_amount' => $appliedTaxAmount,
+                'applied_tax_rate' => $appliedTaxRate,
+            ];
+        }
+
+        // The company that sold this order is frozen here: once every line is saved, and before a single figure of the order's money names one.
+        //
+        // It has to be both. The country an order belongs to is read from the products of the lines it was saved with, so nothing can be frozen
+        // while they are still being written; and recordOrderItemCommission below reads that frozen company for the seller's earning and for the
+        // commission charged on it, so a stamp written after them reaches no row the order wrote — which is what used to happen, and why every
+        // ledger row of a running system named no company however the registry was set up. Stamping mid-loop would be worse than either: the first
+        // line's country would be frozen and the lines after it ignored, because an order is stamped once and never restamped.
+        app(OrderStorefrontSnapshot::class)->record(orderId: $orderId);
+
+        foreach ($savedLines as $savedLine) {
             // Freeze the commission for this line, here, inside the order transaction.
             //
             // Until now the only figure kept was one aggregate `orders.admin_commission`, derived
@@ -1422,39 +1448,19 @@ class OrderManager
             // re-deriving from live rules, which is the difference between accounting and guessing.
             OrderManager::recordOrderItemCommission(
                 orderId: $orderId,
-                orderDetailsId: $orderDetailsId,
-                cartItem: $cartSingleItem,
-                product: $product,
-                netLineAmount: $finalAmount,
+                orderDetailsId: $savedLine['order_details_id'],
+                cartItem: $savedLine['cart_item'],
+                product: $savedLine['product'],
+                netLineAmount: $savedLine['net_amount'],
             );
 
-            foreach ($vendorCart['applied_tax_cart_list'] as $cartItem) {
-                if ($cartItem['cart_id'] == $cartSingleItem['id']) {
-                    foreach ($cartItem['applied_tax_ids'] as $taxItem) {
-                        if ($taxItem) {
-                            self::getAddOrderTaxDetails(
-                                systemTaxVat: $taxConfig['SystemTaxVat'],
-                                taxRate: $taxItem,
-                                orderId: $orderId,
-                                data: [
-                                    'tax_amount' => ($appliedTaxAmount > 0 && $appliedTaxRate > 0) ? ($appliedTaxAmount * $taxItem['tax_rate']) / $appliedTaxRate : 0,
-                                    'before_tax_amount' => $finalAmount,
-                                    'after_tax_amount' => $finalAmount + $appliedTaxAmount,
-                                    'quantity' => $cartSingleItem['quantity'],
-                                    'seller_id' => $cartSingleItem['seller_id'],
-                                    'seller_type' => $cartSingleItem['seller_is'],
-                                ]
-                            );
-                        }
-                    }
-                }
-            }
+            self::addOrderLineTaxDetails(orderId: $orderId, taxConfig: $taxConfig, vendorCart: $vendorCart, savedLine: $savedLine);
 
             $orderDetailsRewardsData[] = [
                 'order_id' => $orderId,
-                'product_id' => $cartSingleItem['product_id'],
-                'order_details_id' => $orderDetailsId,
-                'price' => $finalAmount,
+                'product_id' => $savedLine['cart_item']['product_id'],
+                'order_details_id' => $savedLine['order_details_id'],
+                'price' => $savedLine['net_amount'],
                 'coupon_code' => $vendorCart['coupon_code'],
                 'coupon_discount' => $vendorCart['coupon_discount'],
             ];
@@ -1470,6 +1476,42 @@ class OrderManager
                 couponCode: $orderReward['coupon_code'],
                 couponDiscount: $orderReward['coupon_discount'],
             );
+        }
+    }
+
+    /**
+     * The tax rows of one saved order line: one for each rate the cart applied to it, each carrying its share of the line's tax.
+     *
+     * @param array<string, mixed> $taxConfig
+     * @param array<string, mixed> $savedLine
+     */
+    private static function addOrderLineTaxDetails(int $orderId, array $taxConfig, object|array|null $vendorCart, array $savedLine): void
+    {
+        $cartSingleItem = $savedLine['cart_item'];
+        $appliedTaxAmount = $savedLine['applied_tax_amount'];
+        $appliedTaxRate = $savedLine['applied_tax_rate'];
+        $finalAmount = $savedLine['net_amount'];
+
+        foreach ($vendorCart['applied_tax_cart_list'] as $cartItem) {
+            if ($cartItem['cart_id'] == $cartSingleItem['id']) {
+                foreach ($cartItem['applied_tax_ids'] as $taxItem) {
+                    if ($taxItem) {
+                        self::getAddOrderTaxDetails(
+                            systemTaxVat: $taxConfig['SystemTaxVat'],
+                            taxRate: $taxItem,
+                            orderId: $orderId,
+                            data: [
+                                'tax_amount' => ($appliedTaxAmount > 0 && $appliedTaxRate > 0) ? ($appliedTaxAmount * $taxItem['tax_rate']) / $appliedTaxRate : 0,
+                                'before_tax_amount' => $finalAmount,
+                                'after_tax_amount' => $finalAmount + $appliedTaxAmount,
+                                'quantity' => $cartSingleItem['quantity'],
+                                'seller_id' => $cartSingleItem['seller_id'],
+                                'seller_type' => $cartSingleItem['seller_is'],
+                            ]
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -1675,12 +1717,11 @@ class OrderManager
 
             self::add_order_status_history($order_id, $getCustomerInfo['customer_id'], $data['payment_status'] == 'paid' ? 'confirmed' : 'pending', 'customer');
 
+            // Saves the lines, freezes the company that sold the order and records its money, in that order.
             OrderManager::addOrderDetailsData(
                 orderId: $order_id,
                 vendorCart: $vendorWiseCart
             );
-
-            app(OrderStorefrontSnapshot::class)->record(orderId: $order_id);
 
             $order = Order::with('customer', 'seller.shop', 'details')->find($order_id);
             

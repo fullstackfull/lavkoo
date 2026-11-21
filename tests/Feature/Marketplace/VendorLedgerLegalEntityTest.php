@@ -29,6 +29,10 @@ use Tests\TestCase;
  *
  * The first group is the way back and is pinned first: with the switch off every figure and every row is what it is today, and so is the number of
  * companies on the ledger, which is none.
+ *
+ * These call each writer directly, with the world it reads already in the state it reads. What production does to reach them — a cart priced, an
+ * order written, its lines saved and only then the order stamped — is proved end to end in OrderCompanyOnTheLivePathTest, because the ORDER of
+ * those steps is itself the thing that was wrong, and no test that starts from a stamped order can see it.
  */
 class VendorLedgerLegalEntityTest extends TestCase
 {
@@ -143,7 +147,8 @@ class VendorLedgerLegalEntityTest extends TestCase
 
     // ---- an order's earning and its commission read the order's own stamp ------------------------------------------------------
 
-    public function test_the_earning_and_its_commission_carry_the_company_the_order_was_stamped_with(): void
+    /** The reader, given an order that is already stamped. The sequence production runs them in is OrderCompanyOnTheLivePathTest's job. */
+    public function test_the_earning_and_its_commission_read_the_stamp_the_order_already_carries(): void
     {
         $this->runCompanyMigrations();
         $this->turnSellingCompaniesOn();

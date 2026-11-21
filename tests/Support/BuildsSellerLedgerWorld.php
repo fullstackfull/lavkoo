@@ -75,6 +75,40 @@ trait BuildsSellerLedgerWorld
             $table->timestamps();
         });
 
+        $this->createSellerLedgerTables();
+
+        Schema::create('vendor_payout_requests', static function (Blueprint $table): void {
+            $table->id();
+            $table->string('reference', 60);
+            $table->unsignedBigInteger('seller_id');
+            $table->string('seller_is', 20)->default('seller');
+            $table->decimal('amount', 24, 4)->default(0);
+            $table->string('currency', 20)->nullable();
+            $table->string('status', 20)->default('requested');
+            $table->string('method', 40)->nullable();
+            $table->text('method_details')->nullable();
+            $table->unsignedBigInteger('reserve_entry_id')->nullable();
+            $table->unsignedBigInteger('payout_entry_id')->nullable();
+            $table->unsignedBigInteger('reviewed_by')->nullable();
+            $table->timestamp('reviewed_at')->nullable();
+            $table->text('review_note')->nullable();
+            $table->timestamp('paid_at')->nullable();
+            $table->string('payment_reference', 100)->nullable();
+            $table->string('payout_currency', 20)->nullable();
+            $table->decimal('payout_amount', 24, 4)->nullable();
+            $table->decimal('exchange_rate', 24, 8)->nullable();
+            $table->timestamps();
+        });
+
+        $this->flushCompanyAnswers();
+    }
+
+    /**
+     * The two tables the seller's side of an order line is written to, without the rest of the world around them, for a test case that already has
+     * its own orders, sellers, currencies and settings.
+     */
+    protected function createSellerLedgerTables(): void
+    {
         Schema::create('order_item_commissions', static function (Blueprint $table): void {
             $table->id();
             $table->unsignedBigInteger('order_id')->nullable();
@@ -114,31 +148,6 @@ trait BuildsSellerLedgerWorld
             $table->string('created_by_type', 20)->nullable();
             $table->timestamps();
         });
-
-        Schema::create('vendor_payout_requests', static function (Blueprint $table): void {
-            $table->id();
-            $table->string('reference', 60);
-            $table->unsignedBigInteger('seller_id');
-            $table->string('seller_is', 20)->default('seller');
-            $table->decimal('amount', 24, 4)->default(0);
-            $table->string('currency', 20)->nullable();
-            $table->string('status', 20)->default('requested');
-            $table->string('method', 40)->nullable();
-            $table->text('method_details')->nullable();
-            $table->unsignedBigInteger('reserve_entry_id')->nullable();
-            $table->unsignedBigInteger('payout_entry_id')->nullable();
-            $table->unsignedBigInteger('reviewed_by')->nullable();
-            $table->timestamp('reviewed_at')->nullable();
-            $table->text('review_note')->nullable();
-            $table->timestamp('paid_at')->nullable();
-            $table->string('payment_reference', 100)->nullable();
-            $table->string('payout_currency', 20)->nullable();
-            $table->decimal('payout_amount', 24, 4)->nullable();
-            $table->decimal('exchange_rate', 24, 8)->nullable();
-            $table->timestamps();
-        });
-
-        $this->flushCompanyAnswers();
     }
 
     protected function tearDownSellerLedgerWorld(): void
