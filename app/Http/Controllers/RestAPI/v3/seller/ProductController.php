@@ -899,7 +899,9 @@ class ProductController extends Controller
         $requestChoiceNo = json_decode($request['choice_no'], true);
         $requestChoiceAttributes = json_decode($request['choice_attributes'], true);
         $storage = config('filesystems.disks.default') ?? 'public';
-        $productArray = [
+        // The market the seller works in, not the table default (K-04). Empty for a seller with no market grant, so the insert is
+        // the one it always was. The market was checked against the grant before the controller ran, so this cannot name another.
+        $productArray = $this->sellerMarkets->newProductAttributes() + [
             'user_id' => $seller->id,
             'shop_id' => Shop::where('seller_id', $seller->id)->first()->id ?? null,
             'added_by' => "seller",
