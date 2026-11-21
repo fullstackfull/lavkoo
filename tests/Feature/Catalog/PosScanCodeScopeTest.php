@@ -329,6 +329,14 @@ class PosScanCodeScopeTest extends TestCase
         $this->assertNull($this->scannedId(['code' => 'V-RED']));
     }
 
+    public function test_a_till_does_not_read_the_whole_catalogue_for_a_sku_a_printed_label_would_not_carry(): void
+    {
+        $this->scopeCodesByCountry();
+        $this->sellerProduct(1, 'SKU100', 'SA', extra: ['variation' => $this->variation('V/RED')]);
+
+        $this->assertNull($this->scannedId(['code' => 'V/RED']), 'the code and barcode half still answers; the variants are not scanned for it');
+    }
+
     private function variation(string $sku): string
     {
         return (string) json_encode([['type' => 'Red', 'price' => 10, 'sku' => $sku, 'qty' => 3]]);

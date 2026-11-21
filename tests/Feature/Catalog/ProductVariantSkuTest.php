@@ -147,6 +147,33 @@ class ProductVariantSkuTest extends TestCase
         $this->assertSame([], $this->variantSku->refusals(request: $this->submission(['sku_Blue' => 'V_1']), country: 'SA'));
     }
 
+    public function test_one_sku_the_text_filter_cannot_carry_drops_the_filter_for_the_whole_submission(): void
+    {
+        $this->scopeCodesByCountry();
+        $this->insertProduct(code: 'P-1', country: 'SA', variants: ['Red' => 'V-1', 'Blue' => 'V/2']);
+
+        $refusals = $this->variantSku->refusals(request: $this->submission(['sku_A' => 'V/2', 'sku_B' => 'V-1']), country: 'SA');
+
+        $this->assertCount(2, $refusals, 'both are found: the filter is a superset, never a narrower');
+    }
+
+    public function test_the_gate_asks_one_question_however_many_variants_a_product_has(): void
+    {
+        $this->scopeCodesByCountry();
+        $this->insertProduct(code: 'P-1', country: 'SA', variants: ['Red' => 'V-1']);
+        $fields = [];
+        foreach (range(1, 30) as $index) {
+            $fields['sku_V' . $index] = 'V-' . $index;
+        }
+
+        DB::enableQueryLog();
+        $this->variantSku->refusals(request: $this->submission($fields), country: 'SA');
+        $reads = count(array_filter(DB::getQueryLog(), static fn (array $query): bool => str_contains($query['query'], 'variation')));
+        DB::disableQueryLog();
+
+        $this->assertSame(1, $reads, 'a query for each variant would be a scan of the products table for each');
+    }
+
     // ---- the gate the four forms share -------------------------------------------------------------------------------------------
 
     public function test_the_gate_adds_its_refusals_under_the_field_the_forms_already_show(): void

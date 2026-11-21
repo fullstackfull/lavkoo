@@ -33,6 +33,9 @@ final class ProductVariantSku
     /** A SKU json_encode writes out unchanged, so a LIKE over the stored JSON can be used to narrow the candidates before they are decoded. */
     private const PLAIN_SKU = '/^[A-Za-z0-9 ._:#()-]+$/';
 
+    /** How many of a country's products a till may read for one scan. The gate has no such cap: it must not miss a duplicate. */
+    private const CANDIDATE_LIMIT = 50;
+
     public function __construct(private readonly ProductCodeScope $codeScope)
     {
     }
@@ -90,14 +93,42 @@ final class ProductVariantSku
             $this->repeatedWithinTheProduct($submitted),
         );
 
-        foreach (array_unique(array_values($submitted)) as $sku) {
-            $holder = $this->heldByAnotherProduct(sku: $sku, country: $country, ignoreProductId: $ignoreProductId);
-            if ($holder !== null) {
-                $refusals[] = translate('this_variation_sku_belongs_to_another_product_of_the_same_country') . ': ' . $sku . ' (' . $holder . ')';
-            }
+        $holders = $this->holdersOf(skus: array_values(array_unique(array_values($submitted))), country: $country, ignoreProductId: $ignoreProductId);
+        foreach ($holders as $sku => $holder) {
+            $refusals[] = translate('this_variation_sku_belongs_to_another_product_of_the_same_country') . ': ' . $sku . ' (' . $holder . ')';
         }
 
         return $refusals;
+    }
+
+    /**
+     * Which of these SKUs a product of the country already holds, and the name of that product. **One pass over the candidates**, because a
+     * product can carry dozens of variants and a query each would be a scan of the products table each.
+     *
+     * @param list<string> $skus
+     * @return array<string, string> sku => the name of the product that holds it, in the order the SKUs were given
+     */
+    public function holdersOf(array $skus, ?string $country, ?int $ignoreProductId = null): array
+    {
+        if ($skus === [] || !$this->applies()) {
+            return [];
+        }
+
+        $candidates = $this->candidates(country: $country, skus: $skus)
+            ->when($ignoreProductId !== null, static fn (QueryBuilder $query) => $query->where('id', '!=', $ignoreProductId))
+            ->get(['id', 'name', 'variation']);
+
+        $holders = [];
+        foreach ($candidates as $candidate) {
+            foreach ($this->skusOf($candidate->variation) as $held) {
+                $holders[$held] ??= (string) $candidate->name;
+            }
+        }
+
+        return array_filter(
+            array_combine($skus, array_map(static fn (string $sku): string => $holders[$sku] ?? '', $skus)),
+            static fn (string $holder): bool => $holder !== '',
+        );
     }
 
     /**
@@ -120,22 +151,16 @@ final class ProductVariantSku
      */
     public function heldByAnotherProduct(string $sku, ?string $country, ?int $ignoreProductId = null): ?string
     {
-        if (!$this->applies()) {
-            return null;
-        }
-
-        $holder = $this->candidates(country: $country, sku: $sku)
-            ->when($ignoreProductId !== null, static fn (QueryBuilder $query) => $query->where('id', '!=', $ignoreProductId))
-            ->get(['id', 'name', 'variation'])
-            ->first(fn (object $product): bool => $this->skusOf($product->variation)->contains($sku));
-
-        return $holder === null ? null : (string) $holder->name;
+        return $this->holdersOf(skus: [$sku], country: $country, ignoreProductId: $ignoreProductId)[$sku] ?? null;
     }
 
     /**
      * The products of the country whose own code, barcode or **variant SKU** is the scanned value: what a till needs, because the label on a
      * box of one size carries that size's SKU, not the product's. The code and barcode half is `ProductCodeScope::scan`, so a scan behaves
      * exactly as it did before this class when the scope does not apply.
+     *
+     * A till reads a printed label, so a value `json_encode` would rewrite is not looked for among the variants at all: finding it would mean
+     * reading every product of the country at the till, and the code and barcode half still answers.
      *
      * @return Collection<int, \App\Models\Product>
      */
@@ -147,9 +172,14 @@ final class ProductVariantSku
         }
 
         $sku = (string) $code;
+        if (!$this->isPlain($sku)) {
+            return $byCode;
+        }
+
         $byVariantSku = $this->codeScope->restrictToCountry(query: (clone $ownedProducts), country: $country)
-            ->when($this->isPlain($sku), static fn (EloquentBuilder $query) => $query->where('variation', 'like', '%' . self::likeEscaped($sku) . '%'))
+            ->where('variation', 'like', '%' . self::likeEscaped($sku) . '%')
             ->orderBy('id')
+            ->limit(self::CANDIDATE_LIMIT)
             ->get()
             ->filter(fn (object $product): bool => $this->skusOf($product->variation)->contains($sku));
 
@@ -167,14 +197,25 @@ final class ProductVariantSku
             ->values();
     }
 
-    /** The products of one country that could hold the SKU: narrowed by text where the SKU allows it, and decoded afterwards either way. */
-    private function candidates(?string $country, string $sku): QueryBuilder
+    /**
+     * The products of one country that could hold any of these SKUs. The text filter is a superset and never a narrower: it is applied only
+     * while every SKU is written in characters `json_encode` leaves alone, and one that is not drops the filter for the whole set, so the
+     * answer stays right at the cost of reading the country's products. The confirmation is always the decode in `holdersOf`.
+     *
+     * @param list<string> $skus
+     */
+    private function candidates(?string $country, array $skus): QueryBuilder
     {
         $query = $this->codeScope->restrictToCountry(query: DB::table(self::TABLE), country: $country);
+        if (array_filter($skus, fn (string $sku): bool => !$this->isPlain($sku)) !== []) {
+            return $query;
+        }
 
-        return $this->isPlain($sku)
-            ? $query->where('variation', 'like', '%' . self::likeEscaped($sku) . '%')
-            : $query;
+        return $query->where(static function (QueryBuilder $match) use ($skus): void {
+            foreach ($skus as $sku) {
+                $match->orWhere('variation', 'like', '%' . self::likeEscaped($sku) . '%');
+            }
+        });
     }
 
     private function isPlain(string $sku): bool
