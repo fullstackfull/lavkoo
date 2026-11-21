@@ -5,6 +5,7 @@ namespace App\Repositories;
 use App\Contracts\Repositories\CategoryRepositoryInterface;
 use App\Models\Translation;
 use App\Models\Category;
+use App\Services\Storefront\StorefrontVisibility;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -25,7 +26,10 @@ class CategoryRepository implements CategoryRepositoryInterface
 
     public function getFirstWhere(array $params, array $relations = []): ?Model
     {
-        return $this->category->where($params)->with($relations)->withoutGlobalScopes()->first();
+        $query = $this->category->where($params)->with($relations)->withoutGlobalScopes();
+
+        // Dropping every global scope drops the storefront's own, so the one a storefront must keep is put back by hand.
+        return StorefrontVisibility::restrict(query: $query, entityType: Category::STOREFRONT_ENTITY_TYPE)->first();
     }
 
     public function getList(array $orderBy = [], array $relations = [], int|string $dataLimit = DEFAULT_DATA_LIMIT, ?int $offset = null): Collection|LengthAwarePaginator
@@ -42,8 +46,8 @@ class CategoryRepository implements CategoryRepositoryInterface
     {
         $query = $this->category
             ->with($relations)
-            ->when(in_array('translations', $relations), function ($query) use ($filters) {
-                return $query->withoutGlobalScopes();
+            ->when(in_array('translations', $relations), function ($query) {
+                return StorefrontVisibility::restrict(query: $query->withoutGlobalScopes(), entityType: Category::STOREFRONT_ENTITY_TYPE);
             })
             ->where($filters)
             ->when(isset($searchValue), function ($query) use ($searchValue) {
@@ -66,8 +70,8 @@ class CategoryRepository implements CategoryRepositoryInterface
     {
         $query = $this->category->with($relations)
             ->where($filters)
-            ->when(in_array('translations', $relations), function ($query) use ($filters) {
-                return $query->withoutGlobalScopes();
+            ->when(in_array('translations', $relations), function ($query) {
+                return StorefrontVisibility::restrict(query: $query->withoutGlobalScopes(), entityType: Category::STOREFRONT_ENTITY_TYPE);
             })
             ->when(isset($searchValue), function ($query) use ($searchValue) {
                 $translation_ids = $this->translation->where('translationable_type', 'App\Models\Category')

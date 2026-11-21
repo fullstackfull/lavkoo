@@ -365,7 +365,10 @@ class OrderRepository implements OrderRepositoryInterface
             )->when(isset($filters['whereIn_payment_status']) && $filters['whereIn_payment_status'] !== 'all', function ($query) use ($filters) {
                     $query->whereIn('payment_status', $filters['whereIn_payment_status']);
                 }
-            )->when(isset($filters['storefront_country']), function ($query) use ($filters) {
+            )->when(isset($filters['storefront_grant']), function ($query) use ($filters) {
+                    // The bound first, so a market the list asks for can only narrow inside the grant, never beside it (K-09).
+                    app(OrderStorefront::class)->narrowToGrant(orders: $query, grant: $filters['storefront_grant']);
+            })->when(isset($filters['storefront_country']), function ($query) use ($filters) {
                     app(OrderStorefront::class)->narrow(orders: $query, country: $filters['storefront_country']);
                 }
             )->when(!empty($whereIn), function ($query) use ($whereIn) {

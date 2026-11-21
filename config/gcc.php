@@ -13,6 +13,24 @@ return [
     |
     */
 
+    /*
+    |--------------------------------------------------------------------------
+    | Seller and seller staff market scopes
+    |--------------------------------------------------------------------------
+    |
+    | The markets a seller account, or one of its staff, may work in (K-09). Off by default, and it acts as off until the grant
+    | table exists: nothing is read then, and every seller endpoint answers what it has always answered. A principal with no
+    | grant row is unrestricted, so turning it on changes nothing until a market is granted.
+    |
+    | The grant lives in the table and nowhere else. A market a request names is a request, never a grant: it is checked against
+    | the rows and refused when they do not hold it. The only way to widen a grant is to change the grant.
+    |
+    */
+
+    'seller' => [
+        'market_scopes' => filter_var(env('GCC_SELLER_MARKET_SCOPES', false), FILTER_VALIDATE_BOOLEAN),
+    ],
+
     'storefronts' => [
         'enabled' => filter_var(env('GCC_STOREFRONTS_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
 
@@ -39,6 +57,15 @@ return [
             // (App\Traits\PaymentGatewayTrait) and has two decimals. A currency with three (KWD, BHD, OMR) goes only to a gateway listed here, after
             // somebody has read what that gateway does with a third decimal. Empty until then: a payment in such a currency is refused before it starts.
             'verified_three_decimal_gateways' => [],
+        ],
+
+        'themes' => [
+            // Off by default: one theme is active for the whole platform, as before, and activating a theme deactivates every other. When it is on, a theme belongs to one
+            // storefront (`themes.storefront_country`, NULL for the default storefront's, which is every theme that exists today), activating it deactivates only the active
+            // theme of that same storefront, and a request is served the active theme of its storefront, or the default storefront's when its own has none. It does nothing
+            // until the themes migration has run, and it needs no other switch: while storefronts are off the only storefront a request can reach is the default one.
+            // Read docs/gcc/F-01-STOREFRONT-THEME.md before turning it on.
+            'enabled' => filter_var(env('GCC_STOREFRONT_THEMES', false), FILTER_VALIDATE_BOOLEAN),
         ],
 
         'legal' => [

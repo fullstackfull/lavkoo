@@ -5,6 +5,7 @@ namespace Tests;
 use App\Services\Address\AddressSchema;
 use App\Services\Fulfillment\FulfillmentSchema;
 use App\Services\Storefront\StorefrontCatalog;
+use App\Services\Storefront\StorefrontVisibility;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 
 abstract class TestCase extends BaseTestCase
@@ -19,5 +20,6 @@ abstract class TestCase extends BaseTestCase
         FulfillmentSchema::flush();
         AddressSchema::flush();
         StorefrontCatalog::flush();
+        StorefrontVisibility::flush();
     }
 }

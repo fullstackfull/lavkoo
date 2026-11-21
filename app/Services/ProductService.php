@@ -5,6 +5,7 @@ namespace App\Services;
 
 use App\Events\RestockProductNotificationEvent;
 use App\Models\Color;
+use App\Services\Marketplace\SellerMarketScope;
 use App\Services\Storefront\ProductCountry;
 use App\Traits\FileManagerTrait;
 use Illuminate\Support\Str;
@@ -13,8 +14,10 @@ class ProductService
 {
     use FileManagerTrait;
 
-    public function __construct(private readonly Color $color)
-    {
+    public function __construct(
+        private readonly Color $color,
+        private readonly SellerMarketScope $sellerMarkets,
+    ) {
     }
 
     public function getProcessedImages(object $request): array
@@ -585,7 +588,11 @@ class ProductService
         $digitalFileOptions = $this->getDigitalVariationOptions(request: $request);
         $digitalFileCombinations = $this->getDigitalVariationCombinations(arrays: $digitalFileOptions);
 
-        $countryAttributes = $addedBy == 'admin' ? ProductCountry::newProductAttributes(requestedCountry: $request['storefront_country']) : [];
+        // The admin names the country on the form; a seller works in a market and the product is saved in it (K-04). A seller with
+        // no market grant adds nothing, so the insert is the one it always was and the column keeps the table's own default.
+        $countryAttributes = $addedBy == 'admin'
+            ? ProductCountry::newProductAttributes(requestedCountry: $request['storefront_country'])
+            : $this->sellerMarkets->newProductAttributes();
 
         return $countryAttributes + [
             'added_by' => $addedBy,
@@ -1109,6 +1116,19 @@ class ProductService
             "created_at" => now(),
             "updated_at" => now(),
         ];
+    }
+
+    /**
+     * The attribute ids a saved product already carries. The form that edits it keeps offering them whatever the storefront mapping
+     * says (B-12), so adding a mapping later never silently strips a variation a merchant has already defined.
+     *
+     * @return list<int>
+     */
+    public function getProductAttributeIds(object|array|null $product): array
+    {
+        $attributeIds = json_decode($product['attributes'] ?? '[]', true);
+
+        return array_values(array_filter(array_map('intval', is_array($attributeIds) ? $attributeIds : [])));
     }
 
     public function getProductAuthorsInfo(object|array $product): array

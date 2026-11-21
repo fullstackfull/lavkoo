@@ -62,6 +62,27 @@ final class SellerPrincipal
         return new self($seller, $staff, array_values(array_unique($permissions)));
     }
 
+    /**
+     * The same principal, holding what it may do in one market (K-09).
+     *
+     * A copy rather than a mutation: the market of a request decides the set, so a principal resolved once must not carry one
+     * market's authority into the next request of the same worker. Everything else is kept, so the shop, the person, the key,
+     * the audit actor and every query that scopes on `sellerId()` keep meaning exactly what they meant.
+     *
+     * The owner is never permission-checked and a key is held to the scopes it was issued with, so neither changes here; it is
+     * the staff member whose role differs per market.
+     *
+     * @param  array<int, string>  $permissions
+     */
+    public function withPermissions(array $permissions): self
+    {
+        if ($this->staff === null) {
+            return $this;
+        }
+
+        return new self($this->seller, $this->staff, array_values(array_unique($permissions)), $this->apiKey);
+    }
+
     /** The shop. Not the person — this is what every query scopes on. */
     public function sellerId(): int
     {

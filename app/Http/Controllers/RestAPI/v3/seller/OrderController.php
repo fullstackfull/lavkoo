@@ -10,6 +10,7 @@ use App\Events\OrderStatusEvent;
 use App\Http\Controllers\Controller;
 use App\Services\DeveloperPortal\ApiDoc;
 use App\Services\SellerInvoiceService;
+use App\Services\Marketplace\SellerMarketScope;
 use App\Services\Storefront\OrderStorefront;
 use App\Http\Requests\API\v3\DigitalProductFileUploadAfterSell;
 use App\Models\BusinessSetting;
@@ -51,6 +52,7 @@ class OrderController extends Controller
         private readonly OrderRepositoryInterface $orderRepo,
         private readonly OrderAddressUpdateService $addressUpdates,
         private readonly OrderStorefront $orderStorefront,
+        private readonly SellerMarketScope $sellerMarkets,
     )
     {
     }
@@ -84,6 +86,13 @@ class OrderController extends Controller
         $storefront = $this->orderStorefront->requestedBy(request: $request);
         if ($storefront !== null) {
             $filters['storefront_country'] = $storefront;
+        }
+
+        // A seller granted markets never sees an order outside them, whatever the list asks for (K-09). The grant comes from the
+        // rows the middleware resolved, never from the request, so the filter above can only narrow inside it.
+        $grant = $this->sellerMarkets->boundGrant();
+        if ($grant !== null) {
+            $filters['storefront_grant'] = $grant;
         }
 
         $filterWhereIn = [];
@@ -148,7 +157,9 @@ class OrderController extends Controller
     )]
     public function invoice(Request $request, $id, SellerInvoiceService $invoices): JsonResponse
     {
-        $order = $invoices->orderFor(orderId: $id, sellerId: $request->seller->id);
+        $order = $this->sellerMarkets->mayReadOrder($id)
+            ? $invoices->orderFor(orderId: $id, sellerId: $request->seller->id)
+            : null;
 
         if (!$order) {
             return response()->json(['errors' => [
@@ -182,7 +193,9 @@ class OrderController extends Controller
         SellerOrderTimelineService $timelines,
     ): JsonResponse {
         $sellerId = $request->seller->id;
-        $breakdown = $breakdowns->breakdownFor(orderId: $id, sellerId: $sellerId);
+        $breakdown = $this->sellerMarkets->mayReadOrder($id)
+            ? $breakdowns->breakdownFor(orderId: $id, sellerId: $sellerId)
+            : null;
 
         if ($breakdown === null) {
             // Either no such order, or one belonging to another seller. Both are the same answer
@@ -205,9 +218,11 @@ class OrderController extends Controller
     public function details(Request $request, $id): JsonResponse
     {
         $seller = $request->seller;
-        $detailsList = OrderDetail::with(['order.offlinePayments', 'order.customer', 'order.deliveryMan', 'verificationImages', 'latestEditHistory', 'orderEditHistory' => function ($query) {
-            return $query->orderBy('updated_at', 'desc');
-        }])->where(['seller_id' => $seller['id'], 'order_id' => $id])->get();
+        $detailsList = $this->sellerMarkets->mayReadOrder($id)
+            ? OrderDetail::with(['order.offlinePayments', 'order.customer', 'order.deliveryMan', 'verificationImages', 'latestEditHistory', 'orderEditHistory' => function ($query) {
+                return $query->orderBy('updated_at', 'desc');
+            }])->where(['seller_id' => $seller['id'], 'order_id' => $id])->get()
+            : collect();
 
         if ($detailsList->isEmpty()) {
             // Either no such order, or one belonging to another seller. Both are the same answer
@@ -382,8 +397,12 @@ class OrderController extends Controller
         $seller = $request->seller;
         // Scope to the seller: this mutates order/payment status with wallet/stock/settlement side-effects,
         // so an unscoped find let one seller force-deliver or cancel any vendor's order.
-        $order = Order::with(['customer', 'seller.shop', 'deliveryMan', 'latestEditHistory'])
-            ->where(['seller_id' => $seller['id'], 'seller_is' => 'seller'])->find($request['id']);
+        // And to the markets the token was granted (K-09): forcing a status on an order of a market this account does not work
+        // in is the same act as reading it, with side effects.
+        $order = $this->sellerMarkets->narrowOrders(
+            Order::with(['customer', 'seller.shop', 'deliveryMan', 'latestEditHistory'])
+                ->where(['seller_id' => $seller['id'], 'seller_is' => 'seller'])
+        )->find($request['id']);
         if (!$order) {
             return response()->json(['success' => 0, 'message' => translate('order_not_found')], 404);
         }

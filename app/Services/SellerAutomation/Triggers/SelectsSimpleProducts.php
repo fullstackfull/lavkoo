@@ -3,6 +3,7 @@
 namespace App\Services\SellerAutomation\Triggers;
 
 use App\Models\Product;
+use App\Services\Marketplace\SellerMarketScope;
 use App\Services\SellerAutomation\RuleScope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -34,7 +35,10 @@ trait SelectsSimpleProducts
                 $query->whereNull('variation')->orWhereIn('variation', ['', '[]']);
             });
 
-        return RuleScope::apply($query, $scope);
+        // And held to the markets of the request that is asking (K-09). A preview and a rule's own catalogue are reads of the
+        // shop's products, so they are bound exactly as the product list is. A rule running on the schedule is no request and is
+        // bound by nothing: it acts as the shop, over the whole shop, as it always did.
+        return app(SellerMarketScope::class)->narrowQuery(RuleScope::apply($query, $scope));
     }
 
     /** @param Collection<int, Product> $products */

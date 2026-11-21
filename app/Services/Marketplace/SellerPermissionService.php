@@ -209,6 +209,30 @@ class SellerPermissionService
     }
 
     /**
+     * What one of a seller's own roles grants, now.
+     *
+     * Asked when a market names a role other than the one on the staff record (K-09): the permission machinery is unchanged, a
+     * second role of the same shop is simply read. A role of another shop, a role that was switched off and a role that is gone
+     * all grant nothing, which is the safe answer for a permission check.
+     *
+     * @return list<string>
+     */
+    public function permissionsOfRole(int|string $sellerId, int|string $roleId): array
+    {
+        if (!Schema::hasTable('seller_roles')) {
+            return [];
+        }
+
+        $role = SellerRole::where('id', $roleId)->where('seller_id', $sellerId)->first();
+
+        if ($role === null || ($role->status ?? SellerRole::STATUS_ACTIVE) !== SellerRole::STATUS_ACTIVE) {
+            return [];
+        }
+
+        return $this->sanitize(is_array($role->permissions) ? $role->permissions : []);
+    }
+
+    /**
      * Can a staff member perform an action? Resolves through their assigned role. An inactive staff
      * member, or one with no role, can do nothing — the safe default for a permission check.
      */

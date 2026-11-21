@@ -473,7 +473,7 @@ if (!function_exists('cacheRemoveByType')) {
         } else if ($type == 'banners') {
             cacheGroupRemoveByType(key: CACHE_BANNER_ALL_CACHE_KEYS);
 
-            Cache::forget(CACHE_BANNER_TABLE);
+            cacheForgetInEveryStorefront(key: CACHE_BANNER_TABLE);
         } else if ($type == 'currencies') {
             Cache::forget(CACHE_FOR_CURRENCY_TABLE);
         } else if ($type == 'categories') {

@@ -71,6 +71,42 @@ final class OrderStorefront
     }
 
     /**
+     * Keeps the orders of the markets a seller was granted, and nothing else (K-09).
+     *
+     * This is a bound, not a filter: the caller may ask for one market inside it, but never outside it. A grant that holds the
+     * default market also keeps the orders with no record, for the same reason one market does — the platform reads such an order
+     * as the default market's. A grant of nothing keeps nothing, which is the safe answer; a damaged value keeps nothing of its
+     * own rather than widening the rest.
+     *
+     * @param  list<string>  $grant
+     */
+    public function narrowToGrant(Builder $orders, array $grant): Builder
+    {
+        $markets = array_values(array_filter(
+            array_map(static fn (string $market): string => strtoupper(trim($market)), $grant),
+            static fn (string $market): bool => preg_match(self::COUNTRY_CODE, $market) === 1,
+        ));
+
+        if ($markets === []) {
+            return $orders->whereRaw('1 = 0');
+        }
+
+        $holdsDefault = in_array(StorefrontResolver::fromConfig()->defaultCountry(), $markets, true);
+
+        if (!$this->snapshot->columnReady()) {
+            return $holdsDefault ? $orders : $orders->whereRaw('1 = 0');
+        }
+
+        $column = $orders->qualifyColumn(OrderStorefrontSnapshot::COLUMN);
+
+        return $orders->where(function (Builder $inner) use ($column, $markets, $holdsDefault): Builder {
+            $inner->whereIn($column, $markets);
+
+            return $holdsDefault ? $inner->orWhereNull($column) : $inner;
+        });
+    }
+
+    /**
      * Makes each order carry its storefront and its currency, as null where it has none, and as the seller sees them even where the model hides its record.
      *
      * @param iterable<Order|null> $orders

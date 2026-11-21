@@ -9,6 +9,7 @@ use App\Services\Theme\ExperiencePageService;
 use App\Services\Theme\SectionDataResolver;
 use App\Services\Theme\SectionRegistry;
 use App\Services\Theme\StorefrontThemeRenderer;
+use App\Services\Theme\StorefrontThemeResolver;
 use App\Services\Theme\ThemeDelivery;
 use App\Services\Theme\ThemePreviewToken;
 use App\Services\Theme\ThemeSourceMap;
@@ -54,6 +55,7 @@ class ThemeSectionController extends Controller
         private readonly ThemePreviewToken $previews,
         private readonly ExperiencePageService $pages,
         private readonly VendorSummaryService $vendorSummary,
+        private readonly StorefrontThemeResolver $themes,
     ) {
     }
 
@@ -80,7 +82,7 @@ class ThemeSectionController extends Controller
             return 'home';
         }
 
-        $theme = \App\Models\Theme::query()->where('is_active', true)->value('id');
+        $theme = $this->themes->activeTheme()?->id;
 
         $allowed = $theme === null
             ? self::GUARANTEED_PAGES
@@ -143,16 +145,19 @@ class ThemeSectionController extends Controller
         $type = $request->query('type');
         $type = is_string($type) && $type !== '' ? $type : null;
 
+        $previewing = $this->renderer->isPreviewing();
         $sections = $this->renderer->sectionsFor($page) ?? [];
 
         if ($type !== null) {
             $sections = array_values(array_filter($sections, fn (array $section) => $section['type'] === $type));
         }
 
-        return response()->json([
+        $response = response()->json([
             'page' => $page,
             'sections' => array_map(fn (array $section) => $this->present($section), $sections),
         ]);
+
+        return $previewing ? $this->markAsDraft($response) : $response;
     }
 
     #[ApiDoc(
@@ -165,6 +170,9 @@ class ThemeSectionController extends Controller
             . 'Send `X-UI-Components` (comma-separated section types this build can render) and '
             . '`X-UI-Engine` (renderer generation) to negotiate; a client that sends neither is '
             . 'served every app-safe section, so builds predating capability reporting keep working. '
+            . 'Send `X-Storefront` (a country code listed by /api/v1/storefronts) to be served that storefront\'s theme; '
+            . 'a storefront without a theme of its own, a request that names none and every request while '
+            . 'storefronts are switched off are served the default storefront\'s. '
             . 'Send `If-None-Match` with the last checksum to get 304 and no body. '
             . 'Sections carry `source` (where to fetch their data), `cards` (banner-backed blocks '
             . 'resolved live from Banner Setup) and typed `action` objects beside every link, so a '
@@ -192,12 +200,11 @@ class ThemeSectionController extends Controller
         // A merchant checking a draft on a real phone before it is anyone else's home page. The
         // preview path shares no cache and no validator with the published one: a draft changes on
         // every save, and a 304 against a shopper's checksum would hand them the draft.
-        $previewing = $this->previews->version($request->query('preview'));
+        $token = $request->query('preview');
+        $previewing = $this->previews->version(is_string($token) ? $token : null);
 
         if ($previewing !== null) {
-            return response()
-                ->json($this->delivery->previewPayload($previewing, $page, $viewer))
-                ->header('Cache-Control', 'no-store, private');
+            return $this->markAsDraft(response()->json($this->delivery->previewPayload($previewing, $page, $viewer)));
         }
 
         $payload = $this->delivery->payload($page, $viewer);
@@ -225,6 +232,8 @@ class ThemeSectionController extends Controller
         summary: 'Whether the published theme has changed, without downloading it',
         description: 'The cheap half of the sync: /api/v1/theme/version returns `revision`, '
             . '`checksum`, `schema_version`, `engine_version` and `published_at` and nothing else. '
+            . 'Send the same `X-Storefront` header as for /theme/home: `revision` and `checksum` are those of '
+            . 'the theme that storefront is served. '
             . 'A client holding revision N calls this on cold start and resume; only a higher '
             . 'revision (or a different checksum) is worth a call to /theme/home. '
             . '`revision: 0` means nothing has ever been published.',
@@ -236,6 +245,12 @@ class ThemeSectionController extends Controller
     public function version(): JsonResponse
     {
         return response()->json($this->delivery->revision());
+    }
+
+    /** A draft is for one merchant and one phone: no cache keeps it and no crawler is offered it. */
+    private function markAsDraft(JsonResponse $response): JsonResponse
+    {
+        return $response->header('Cache-Control', 'no-store, private')->header('X-Robots-Tag', 'noindex, nofollow');
     }
 
     /**

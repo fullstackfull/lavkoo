@@ -9,6 +9,7 @@ use App\Models\ReturnShipment;
 use App\Models\VendorLedgerEntry;
 use App\Services\DeveloperPortal\ApiDoc;
 use App\Services\Marketplace\ReturnLogisticsService;
+use App\Services\Marketplace\SellerMarketScope;
 use App\Services\Marketplace\SellerPrincipal;
 use App\Utils\Helpers;
 use Illuminate\Http\JsonResponse;
@@ -31,8 +32,10 @@ use Illuminate\Support\Facades\Validator;
  */
 class SellerReturnController extends Controller
 {
-    public function __construct(private readonly ReturnLogisticsService $returns)
-    {
+    public function __construct(
+        private readonly ReturnLogisticsService $returns,
+        private readonly SellerMarketScope $markets,
+    ) {
     }
 
     #[ApiDoc(
@@ -52,8 +55,10 @@ class SellerReturnController extends Controller
             return response()->json(['total_size' => 0, 'limit' => 25, 'offset' => 1, 'returns' => [], 'statuses' => $this->statuses()], 200);
         }
 
-        $returns = ReturnShipment::where('seller_id', $request->seller->id)
-            ->when($this->statusFilter($request), fn ($query, $status) => $query->where('status', $status))
+        $returns = $this->markets->narrowByOrder(
+            ReturnShipment::where('seller_id', $request->seller->id)
+                ->when($this->statusFilter($request), fn ($query, $status) => $query->where('status', $status))
+        )
             ->orderByDesc('id')
             ->paginate(perPage: $this->limit($request), page: $this->page($request));
 
@@ -232,8 +237,10 @@ class SellerReturnController extends Controller
             return null;
         }
 
-        // Scoped on the seller, so another shop's return is not found rather than actionable.
-        return ReturnShipment::where('seller_id', $request->seller->id)->find($id);
+        // Scoped on the seller, so another shop's return is not found rather than actionable, and on the markets the token was
+        // granted (K-09): a return carries no market of its own, so it is held to the market of the sale it reverses. The one
+        // finder behind reading a return and behind advancing, receiving and rejecting it.
+        return $this->markets->narrowByOrder(ReturnShipment::where('seller_id', $request->seller->id))->find($id);
     }
 
     /**
