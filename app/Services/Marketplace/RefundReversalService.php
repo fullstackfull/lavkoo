@@ -4,7 +4,6 @@ namespace App\Services\Marketplace;
 
 use App\Models\OrderItemCommission;
 use App\Models\VendorLedgerEntry;
-use App\Services\Storefront\OrderLegalEntitySnapshot;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
@@ -38,10 +37,8 @@ use Illuminate\Support\Facades\Schema;
  */
 class RefundReversalService
 {
-    public function __construct(
-        private readonly VendorLedger $ledger,
-        private readonly OrderLegalEntitySnapshot $orderCompany,
-    ) {
+    public function __construct(private readonly VendorLedger $ledger)
+    {
     }
 
     /**
@@ -149,10 +146,14 @@ class RefundReversalService
     }
 
     /**
-     * The company a reversal of this line belongs to (GCC-13, D1-03): the company of the earning it reverses.
+     * The company a reversal of this line belongs to (GCC-13, D1-03): the company of the earning it reverses, and no company at all when there is no
+     * earning to agree with.
      *
-     * Read off the earning entry itself, so an earning that names no company is reversed by entries that name none either. The order's own frozen
-     * stamp is read only when the line has no earning on the ledger, which is the one case where there is no earning to agree with.
+     * Read off the earning entry itself, never resolved afresh, so an earning that names no company is reversed by entries that name none either.
+     * A line whose earning is not on the ledger — the commission snapshot was written and the ledger write was swallowed, or the earning was made
+     * before the column existed — names NO company rather than the order's own stamp: the debit would otherwise take a company's balance down by
+     * money that company never held, while the credit it reverses sits in no company at all. Naming none is the answer that cannot be wrong, which
+     * is the same rule VendorLedger::companyOfSeller applies to a payout drawn on a pool that is not all one company's.
      */
     private function companyOfTheEarningOf(OrderItemCommission $snapshot, int|string $orderDetailsId): ?int
     {
@@ -160,16 +161,12 @@ class RefundReversalService
             return null;
         }
 
-        $earning = $this->ledger->entryOfEvent(
+        return $this->ledger->entryOfEvent(
             sellerId: $snapshot->seller_id,
             entryType: VendorLedgerEntry::TYPE_ORDER_EARNING,
             referenceType: 'order_details',
             referenceId: $orderDetailsId,
             sellerIs: $snapshot->seller_is,
-        );
-
-        return $earning === null
-            ? $this->orderCompany->companyOf(orderId: $snapshot->order_id)
-            : $earning->legal_entity_id;
+        )?->legal_entity_id;
     }
 }

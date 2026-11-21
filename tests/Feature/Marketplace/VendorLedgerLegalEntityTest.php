@@ -229,7 +229,7 @@ class VendorLedgerLegalEntityTest extends TestCase
         );
     }
 
-    public function test_a_refund_of_a_line_with_no_earning_on_the_ledger_falls_back_to_the_orders_stamp(): void
+    public function test_a_refund_of_a_line_with_no_earning_on_the_ledger_names_no_company(): void
     {
         $this->runCompanyMigrations();
         $this->turnSellingCompaniesOn();
@@ -238,7 +238,16 @@ class VendorLedgerLegalEntityTest extends TestCase
 
         app(RefundReversalService::class)->reverseForOrderLine(orderDetailsId: 906, refundedAmount: 100);
 
-        $this->assertSame([self::COMPANY_SA, self::COMPANY_SA], array_values($this->companiesOnTheLedger()));
+        $this->assertSame(
+            [null, null],
+            array_values($this->companiesOnTheLedger()),
+            'there is no earning to agree with, and the order stamp would take a company negative by money it never held',
+        );
+        $this->assertSame(
+            [-100.0, -90.0],
+            DB::table('vendor_ledger_entries')->orderBy('id')->pluck('balance_after')->map(fn ($amount) => (float) $amount)->all(),
+            'the figures of the reversal are what they always were; only the company it is labelled with changed',
+        );
     }
 
     public function test_a_refund_with_the_switch_off_is_the_refund_it_is_today(): void
