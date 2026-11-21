@@ -77,6 +77,30 @@ class PaymentBelongsToACompanyAccountTest extends TestCase
         Http::assertNotSent(static fn ($request): bool => str_contains((string) $request->header('Authorization')[0], 'platform-secret-key'));
     }
 
+    /**
+     * Two payments started in the same second are two payments at Paymob, and each is findable there by our own identifier.
+     *
+     * The reference sent was `time()`: two customers in one second shared it, and Paymob holds it unique, so the second intention was refused. It
+     * also named nothing of ours, so a payment paid at Paymob and never returned from could not be found there at all.
+     */
+    public function test_two_payments_started_in_the_same_second_name_themselves_to_the_gateway(): void
+    {
+        $this->aCompanyIn('KW');
+        $this->anAccountFor(country: 'KW', secrets: ['secret_key' => self::KUWAIT_SECRET_KEY, 'public_key' => 'kuwait-public', 'integration_id' => '2222']);
+        Http::fake(['*' => Http::response(['client_secret' => 'a-client-secret'], 200)]);
+
+        $first = $this->aPaymentStartedIn(country: 'KW', currency: 'KWD', amount: 12.5);
+        $second = $this->aPaymentStartedIn(country: 'KW', currency: 'KWD', amount: 12.5);
+
+        $this->get('/payment/paymob/pay?payment_id=' . $first->id)->assertRedirectContains('unifiedcheckout');
+        $this->get('/payment/paymob/pay?payment_id=' . $second->id)->assertRedirectContains('unifiedcheckout');
+
+        $references = array_map(static fn ($request): mixed => $request->data()['special_reference'] ?? null, Http::recorded()->map(static fn (array $pair): mixed => $pair[0])->all());
+
+        $this->assertSame([$first->id, $second->id], $references, 'each intention names its own payment');
+        $this->assertCount(2, array_unique($references), 'and two payments of one second are two references');
+    }
+
     /** D2-07: 'An attempt keeps its account after the account is edited or disabled; verification, settlement and refund use that account'. */
     public function test_an_attempt_keeps_its_account_after_the_account_is_edited_or_disabled(): void
     {

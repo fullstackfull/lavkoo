@@ -147,7 +147,15 @@ class PaymobController extends Controller
                 "last_name" => !empty($payer->name) ? $payer->name : "rashed",
                 "state" => "N/A",
             ],
-            'special_reference' => time(),
+            /*
+             * Paymob's own unique reference for this intention, and OUR identifier for the payment.
+             *
+             * It was `time()`: two customers who started a payment in the same second were given the same reference, which Paymob holds unique, so
+             * the second one's intention was refused for a reason neither they nor an operator could see. And `time()` names nothing, so a payment
+             * paid at Paymob and never returned from could not be found there by any reference of ours -- which is the first thing a recovery sweep
+             * for Paymob needs (D2-12, owner decision R-071).
+             */
+            'special_reference' => (string) $payment_data->id,
             'customer' => [
                 'first_name' => !empty($payer->name) ? $payer->name : "rashed",
                 'last_name' => !empty($payer->name) ? $payer->name : "rashed",
