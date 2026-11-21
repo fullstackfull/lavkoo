@@ -32,6 +32,7 @@ final class StorefrontSeo
         private readonly StorefrontUrl $urls,
         private readonly StorefrontCurrency $currency,
         private readonly StorefrontSellingGate $sellingGate,
+        private readonly SitemapHreflangGenerator $hreflang,
     ) {
     }
 
@@ -68,7 +69,13 @@ final class StorefrontSeo
             $address = $this->urls->of(url: $url, country: $country);
 
             foreach ($languages as $language) {
-                $alternates[strtolower($language) . '-' . strtoupper($country)] = $address . '?language=' . $language;
+                // One rule for what a valid hreflang is, the one the sitemap markup already applies, so the page head and the sitemap
+                // cannot disagree and a language code the store was given cannot produce a tag a crawler rejects.
+                $tag = $this->hreflang->languageCode($language . '-' . $country);
+
+                if ($tag !== null) {
+                    $alternates[$tag] = $this->withLanguage(url: $address, language: $language);
+                }
             }
         }
 
@@ -126,6 +133,17 @@ final class StorefrontSeo
     }
 
     /**
+     * The same page in one language. A storefront's landing page has no path of its own, so the separator is kept rather than hanging the
+     * query off the host; every other page already has one and is left exactly as it was.
+     */
+    private function withLanguage(string $url, string $language): string
+    {
+        $separator = (string) parse_url($url, PHP_URL_PATH) === '' ? '/' : '';
+
+        return $url . $separator . '?language=' . $language;
+    }
+
+    /**
      * @param list<string> $languages
      *
      * @return array<string, string>
@@ -135,7 +153,7 @@ final class StorefrontSeo
         $alternates = [];
 
         foreach ($languages as $language) {
-            $alternates[$language] = $url . '?language=' . $language;
+            $alternates[$language] = $this->withLanguage(url: $url, language: $language);
         }
 
         return $alternates;

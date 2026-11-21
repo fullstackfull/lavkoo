@@ -14,6 +14,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Tests\Support\BuildsStorefrontCatalog;
 use Tests\Support\BuildsStorefrontLegalDocuments;
 use Tests\Support\BuildsStorefrontSeoWorld;
@@ -82,8 +83,14 @@ class StorefrontMoneyAndSeoTest extends TestCase
         $this->assertSame(['saudi-serum', 'kuwaiti-serum', 'kuwaiti-balm'], $snapshot['platform_sitemap_slugs']);
     }
 
+    /**
+     * A dormant installation is a Saudi one: it holds no other market's products, because no other market exists on it. So this compares
+     * the two states on that catalogue, and every field has to match — no field is excused.
+     */
     public function test_with_the_markets_on_and_only_saudi_arabia_configured_nothing_changes(): void
     {
+        $this->keepOnlySaudiCatalogue();
+
         config(['gcc.storefronts.enabled' => false, 'gcc.storefronts.currency.enabled' => false]);
         $before = $this->saudiSnapshot();
 
@@ -98,14 +105,7 @@ class StorefrontMoneyAndSeoTest extends TestCase
         ]);
         Cache::flush();
 
-        $after = $this->saudiSnapshot();
-
-        // One difference is lawful and is not a page: the platform file lists the Saudi storefront's own products once the markets are
-        // on, because every other market's products now belong to a market with a sitemap of its own.
-        $this->assertSame(['saudi-serum'], $after['platform_sitemap_slugs']);
-
-        unset($before['platform_sitemap_slugs'], $after['platform_sitemap_slugs']);
-        $this->assertSame($before, $after);
+        $this->assertSame($before, $this->saudiSnapshot());
     }
 
     /* ----------------------------------------------------------------------------------- B-03: local price and availability */
@@ -139,6 +139,13 @@ class StorefrontMoneyAndSeoTest extends TestCase
             $this->assertSame($money['amount'], webCurrencyConverterOnlyDigit(amount: self::KUWAITI_PRICE));
             $this->assertSame($money['currency'], getCurrencyCode(type: 'web'));
             $this->assertSame($money['symbol'], getCurrencySymbol(type: 'web'));
+
+            // The listing and the cards print a discounted unit price through getProductPriceByType, which reaches the same helper.
+            $discounted = ['unit_price' => self::KUWAITI_PRICE, 'discount' => 1.25, 'discount_type' => 'flat'];
+            $this->assertSame(
+                app(StorefrontCurrency::class)->money(amount: 11.095)['formatted'],
+                (string) getProductPriceByType(product: $discounted, type: 'discounted_unit_price', result: 'string'),
+            );
         });
     }
 
@@ -208,9 +215,10 @@ class StorefrontMoneyAndSeoTest extends TestCase
     {
         $this->openSixMarkets();
 
-        [$kuwaitiFacet, $kuwaitiBound, $kuwaitiSign] = $this->inStorefront('KW', fn (): array => [
+        [$kuwaitiFacet, $kuwaitiBound, $kuwaitiFloor, $kuwaitiSign] = $this->inStorefront('KW', fn (): array => [
             BrandManager::getActiveBrandWithCountingAndPriorityWiseSorting()->first()->brand_products_count,
             getProductMaxUnitPriceRange(type: 'web'),
+            getProductMinUnitPriceRange(type: 'web'),
             getCurrencySymbol(type: 'web'),
         ]);
         [$saudiFacet, $saudiSign] = $this->inStorefront('SA', fn (): array => [
@@ -221,8 +229,10 @@ class StorefrontMoneyAndSeoTest extends TestCase
         $this->assertSame(2, $kuwaitiFacet, 'the Kuwaiti brand facet counts the two Kuwaiti products and neither Saudi one');
         $this->assertSame(1, $saudiFacet);
 
-        // The bound is the Kuwaiti catalogue's own maximum (12.345 dinars) rounded up by the range step, not the Saudi 100.
+        // The bounds are the Kuwaiti catalogue's own: a maximum of 12.345 dinars rounded up by the range step, not the Saudi 100, and a
+        // floor of zero because its cheapest product is under ten dinars.
         $this->assertSame(500, $kuwaitiBound);
+        $this->assertSame(0, $kuwaitiFloor);
         $this->assertSame('KD', $kuwaitiSign);
         $this->assertSame('SAR', $saudiSign);
     }
@@ -329,6 +339,8 @@ class StorefrontMoneyAndSeoTest extends TestCase
         $this->assertStringContainsString('<loc>https://lavkoo.test/kw/product/kuwaiti-serum</loc>', $kuwait);
         $this->assertStringContainsString('<loc>https://lavkoo.test/kw/product/kuwaiti-balm</loc>', $kuwait);
         $this->assertStringContainsString('<loc>https://lavkoo.test/kw</loc>', $kuwait);
+        // The landing page has no path of its own, so its language alternate keeps the separator rather than hanging off the host.
+        $this->assertStringContainsString('hreflang="en-SA" href="https://lavkoo.test/?language=en"', $kuwait);
         $this->assertStringNotContainsString('saudi-serum', $kuwait);
         $this->assertStringNotContainsString('<loc>https://lavkoo.test/product/', $kuwait);
 
@@ -434,6 +446,13 @@ class StorefrontMoneyAndSeoTest extends TestCase
         $this->assertSame($before['price_bound'], $after['price_bound']);
         $this->assertSame($before['sign'], $after['sign']);
         $this->assertSame($before['clearance_discount'], $after['clearance_discount']);
+        $this->assertSame($before['filter_bound_conversion'], $after['filter_bound_conversion']);
+
+        // One Saudi number moves, and not because of money: with the markets live the Saudi catalogue no longer holds the cheaper
+        // Kuwaiti product, so the cheapest Saudi price sets the price filter's floor. That is the catalogue narrowing this branch
+        // already carried, in riyals both times, and it is why the dormancy proof above compares a Saudi-only catalogue.
+        $this->assertSame(30, $before['price_floor']);
+        $this->assertSame(350, $after['price_floor']);
 
         // The Saudi sitemap keeps the Saudi product and gains no other market's.
         $this->assertSame(['saudi-serum'], $after['platform_sitemap_slugs']);
@@ -479,6 +498,7 @@ class StorefrontMoneyAndSeoTest extends TestCase
             'indexable' => app(StorefrontSeo::class)->isIndexable(),
             'robots_header' => $this->robotsHeader(),
             'price_bound' => getProductMaxUnitPriceRange(type: 'web'),
+            'price_floor' => getProductMinUnitPriceRange(type: 'web'),
             'filter_bound_conversion' => Convert::usdPaymentModule(10, (string) session('currency_code')),
             'sign' => getCurrencySymbol(type: 'web'),
             'clearance_discount' => (string) getProductPriceByType(
@@ -489,6 +509,13 @@ class StorefrontMoneyAndSeoTest extends TestCase
             'storefront_sitemaps' => array_keys(app(StorefrontSitemap::class)->files(at: CarbonImmutable::parse('2026-11-21T09:00:00+00:00'), stamp: 'now')),
             'platform_sitemap_slugs' => app(StorefrontSitemap::class)->defaultStorefrontSlugs(),
         ]);
+    }
+
+    /** The catalogue of an installation that serves Saudi Arabia only, which is what a dormant installation is. */
+    private function keepOnlySaudiCatalogue(): void
+    {
+        DB::table('products')->where('storefront_country', '!=', 'SA')->delete();
+        Cache::flush();
     }
 
     /** What the middleware puts on a response served from the market in force. */

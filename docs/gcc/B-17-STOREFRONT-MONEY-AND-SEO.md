@@ -74,4 +74,17 @@ and become reachable when that route group lands; until the markets are switched
 
 With the markets switched off, and with them on while only Saudi Arabia is configured, every number, tag and file is what
 it is today. `tests/Feature/Storefront/StorefrontMoneyAndSeoTest.php` takes one snapshot of everything this feature can
-state about a Saudi page and compares the two states field by field.
+state about a Saudi page — money, the app's money block, the canonical, the alternates, indexability, the robots header,
+the price filter's ceiling and floor and its conversion, the sign, a flat clearance discount, the storefront sitemaps and
+the platform sitemap's slugs — and compares the two states field by field.
+
+A dormant installation serves Saudi Arabia only, so it holds no other market's products; the comparison runs on that
+catalogue, and no field is excused.
+
+With all six markets live and other markets' products present, the Saudi money, canonical, robots header, price-filter
+ceiling, sign and discount are byte-identical to the switched-off state, and the Saudi sitemap keeps its own product and
+gains no other market's. Two things move, both by design and neither about money:
+
+* the page now names the markets that carry the product in its hreflang set, Saudi Arabia among them — the requirement;
+* the price filter's floor rises, because the Saudi catalogue no longer holds a cheaper Kuwaiti product. That is the
+  catalogue narrowing this branch already carried, and the floor is in riyals in both states.
