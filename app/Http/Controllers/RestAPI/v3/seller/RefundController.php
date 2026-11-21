@@ -14,13 +14,27 @@ use App\Utils\CustomerManager;
 use App\Utils\Helpers;
 use App\Utils\OrderManager;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use App\Services\Marketplace\ReturnLogisticsService;
+use App\Services\Marketplace\SellerMarketScope;
 
+/**
+ * A customer's refund request, from the seller's side.
+ *
+ * A refund request carries no market of its own — the order it reverses does, exactly as a return authorisation does. So every
+ * finder here goes through `narrowByOrder()`, and for the same reason the returns family does (K-09): without it a token granted
+ * one market was refused `orders/103` and then **approved the refund on that order**, wrote `refund_statuses`, and read the whole
+ * record back out of `refund/list` — a money decision on a market the token cannot read.
+ */
 class RefundController extends Controller
 {
+    public function __construct(private readonly SellerMarketScope $markets)
+    {
+    }
+
     public function list(Request $request):JsonResponse
     {
         $seller = $request->seller;
@@ -43,13 +57,10 @@ class RefundController extends Controller
             $endDate = $endDate->endOfDay();
         }
 
-        $refund_list = RefundRequest::with('customer', 'product', 'orderDetails')
+        $refund_list = $this->narrowToTheSellersGrantedOrders(RefundRequest::with('customer', 'product', 'orderDetails')
             ->with(['order' => function ($query) {
                 $query->select('id', 'payment_method');
-            }])
-            ->whereHas('order', function ($query) use ($seller) {
-                $query->where('seller_is', 'seller')->where('seller_id', $seller['id']);
-            })
+            }]), $seller['id'])
             ->when($request['search'], function ($query) use ($request) {
                 $key = searchTerms($request['search']);
                 foreach ($key as $value) {
@@ -79,13 +90,10 @@ class RefundController extends Controller
     public function getSingleItem(Request $request): JsonResponse
     {
         $seller = $request->seller;
-        $refundList = RefundRequest::with('customer', 'product', 'orderDetails')
+        $refundList = $this->narrowToTheSellersGrantedOrders(RefundRequest::with('customer', 'product', 'orderDetails')
             ->with(['order' => function ($query) {
                 $query->select('id', 'payment_method');
-            }])
-            ->whereHas('order', function ($query) use ($seller) {
-                $query->where('seller_is', 'seller')->where('seller_id', $seller['id']);
-            })
+            }]), $seller['id'])
             ->where('id', $request['id'])
             ->first();
 
@@ -96,7 +104,9 @@ class RefundController extends Controller
     {
         $seller = $request->seller;
         // Ownership: scope the order line to this seller so one seller can't read another's line/refund detail.
-        $order_details = OrderDetail::where('seller_id', $seller['id'])->find($request->order_details_id);
+        // And to the markets the token was granted (K-09): the line's market is its order's.
+        $order_details = $this->markets->narrowByOrder(OrderDetail::where('seller_id', $seller['id']))
+            ->find($request->order_details_id);
         if (!$order_details) {
             return response()->json(['errors' => [['code' => 'order-details', 'message' => translate('not_found')]]], 404);
         }
@@ -139,9 +149,8 @@ class RefundController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)]);
         }
 
-        $refund = RefundRequest::whereHas('order', function ($query) use ($seller) {
-            $query->where('seller_is', 'seller')->where('seller_id', $seller['id']);
-        })->find($request->refund_request_id);
+        $refund = $this->narrowToTheSellersGrantedOrders(RefundRequest::query(), $seller['id'])
+            ->find($request->refund_request_id);
 
         // Answered rather than fataled. A refund id belonging to another seller — or to nothing at
         // all — used to reach the next line and die on a null, so a cross-tenant probe got a 500 HTML
@@ -217,5 +226,19 @@ class RefundController extends Controller
             return response()->json(['message' => 'refunded status can not be changed!!'], 403);
         }
 
+    }
+
+    /**
+     * The refund requests of this seller's own orders, held to the markets the token was granted.
+     *
+     * Ownership stays where it was — a request whose order belongs to another shop is not this shop's — and the market bound is
+     * the order list's own bound asked of the refund's `order_id`, so the refund family cannot answer an order the list refuses.
+     */
+    private function narrowToTheSellersGrantedOrders(Builder $refunds, int|string $sellerId): Builder
+    {
+        return $this->markets->narrowByOrder($refunds->whereHas(
+            'order',
+            fn (Builder $order): Builder => $order->where('seller_is', 'seller')->where('seller_id', $sellerId),
+        ));
     }
 }

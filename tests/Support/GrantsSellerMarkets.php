@@ -22,6 +22,12 @@ trait GrantsSellerMarkets
     /** A market no test grants, so a request for it is always a request outside the grant. */
     protected const UNGRANTED_MARKET = 'QA';
 
+    /** The tables the seller-centre screens read, built and dropped together. */
+    private const SELLER_CENTRE_TABLES = [
+        'return_shipments', 'seller_bulk_jobs', 'seller_automation_rules', 'seller_automation_runs', 'audit_logs', 'categories',
+        'refund_requests', 'refund_statuses',
+    ];
+
     protected function createTheMarketGrantTable(): void
     {
         Schema::dropIfExists(SellerMarketScope::TABLE);
@@ -270,9 +276,11 @@ trait GrantsSellerMarkets
      */
     protected function createTheSellerCentreTables(): void
     {
-        foreach (['return_shipments', 'seller_bulk_jobs', 'seller_automation_rules', 'seller_automation_runs', 'audit_logs', 'categories'] as $table) {
+        foreach (self::SELLER_CENTRE_TABLES as $table) {
             Schema::dropIfExists($table);
         }
+
+        $this->createTheRefundTables();
 
         Schema::create('return_shipments', function (Blueprint $table) {
             $table->id();
@@ -380,6 +388,57 @@ trait GrantsSellerMarkets
         });
     }
 
+    /**
+     * The refund tables. A refund request carries no market of its own either — the order it reverses does, which is why the
+     * refund family is bound by its order and not by a column.
+     */
+    private function createTheRefundTables(): void
+    {
+        Schema::create('refund_requests', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('order_details_id')->nullable();
+            $table->unsignedBigInteger('order_id')->nullable();
+            $table->unsignedBigInteger('customer_id')->nullable();
+            $table->unsignedBigInteger('product_id')->nullable();
+            $table->string('status')->default('pending');
+            $table->integer('approved_count')->default(0);
+            $table->integer('denied_count')->default(0);
+            $table->decimal('amount', 16, 2)->default(0);
+            $table->text('refund_reason')->nullable();
+            $table->text('images')->nullable();
+            $table->text('approved_note')->nullable();
+            $table->text('rejected_note')->nullable();
+            $table->text('payment_info')->nullable();
+            $table->string('change_by')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('refund_statuses', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('refund_request_id');
+            $table->string('change_by')->nullable();
+            $table->string('change_by_id')->nullable();
+            $table->string('status')->nullable();
+            $table->text('message')->nullable();
+            $table->timestamps();
+        });
+    }
+
+    /** A customer's refund request against one line of one order, which is the only thing that places it in a market. */
+    protected function insertRefundRequest(int $id, int $orderId, int $productId, float $amount, string $status = 'pending'): int
+    {
+        $lineId = (int) DB::table('order_details')->where('order_id', $orderId)->value('id');
+
+        DB::table('refund_requests')->insert([
+            'id' => $id, 'order_id' => $orderId, 'order_details_id' => $lineId, 'customer_id' => 1, 'product_id' => $productId,
+            'status' => $status, 'approved_count' => 0, 'denied_count' => 0, 'amount' => $amount,
+            'refund_reason' => 'refund-reason-' . $id, 'images' => json_encode([]),
+            'created_at' => '2026-11-01 12:00:00', 'updated_at' => '2026-11-01 12:00:00',
+        ]);
+
+        return $lineId;
+    }
+
     /** A return of one order line, which carries no market of its own: the sale it reverses does. */
     protected function insertReturnShipment(int $id, int $sellerId, int $orderId, int $productId): void
     {
@@ -428,7 +487,7 @@ trait GrantsSellerMarkets
 
     protected function dropTheSellerCentreTables(): void
     {
-        foreach (['return_shipments', 'seller_bulk_jobs', 'seller_automation_rules', 'seller_automation_runs', 'audit_logs', 'categories'] as $table) {
+        foreach (self::SELLER_CENTRE_TABLES as $table) {
             Schema::dropIfExists($table);
         }
     }

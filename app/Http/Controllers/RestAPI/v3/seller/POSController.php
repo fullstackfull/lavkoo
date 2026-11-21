@@ -17,6 +17,7 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Services\Address\CheckoutAddressGuard;
 use App\Services\Address\OrderAddressService;
+use App\Services\Marketplace\SellerMarketScope;
 use App\Services\PasswordResetService;
 use App\Services\Storefront\OrderStorefrontSnapshot;
 use App\Models\User;
@@ -59,6 +60,7 @@ class POSController extends Controller
         private readonly CustomerRepositoryInterface                $customerRepo,
         private readonly OrderAddressService                        $orderAddresses,
         private readonly CheckoutAddressGuard                       $addressGuard,
+        private readonly SellerMarketScope                          $markets,
     )
     {
     }
@@ -205,11 +207,13 @@ class POSController extends Controller
     public function get_product_by_barcode(Request $request): JsonResponse
     {
         $seller = $request->seller;
-        $product = Product::withCount('reviews')->where([
+        // Held to the markets the token was granted (K-09): the till is a way into the catalogue like any other, and a barcode
+        // is a product id by another name.
+        $product = $this->markets->narrowQuery(Product::withCount('reviews')->where([
             'added_by' => 'seller',
             'user_id' => $seller->id,
             'code' => $request->code
-        ])->with(['clearanceSale' => function ($query) {
+        ]))->with(['clearanceSale' => function ($query) {
             return $query->active()->with(['setup']);
         }])->first();
 
@@ -227,11 +231,13 @@ class POSController extends Controller
         $search = $request['name'];
         $categoryIds = $request->has('category_id') && $request['category_id'] != 0 ? json_decode($request['category_id'], true) : [];
 
-        $products = Product::active()->with(['digitalVariation', 'clearanceSale' => function ($query) {
+        // Held to the markets the token was granted, as the product list is (K-09). Without it the till served a product of a
+        // market the token could not read anywhere else, in full, price and stock included.
+        $products = $this->markets->narrowQuery(Product::active()->with(['digitalVariation', 'clearanceSale' => function ($query) {
             return $query->active();
         }])
             ->withCount('reviews')
-            ->where(['added_by' => 'seller', 'user_id' => $seller['id'], 'status' => 1])
+            ->where(['added_by' => 'seller', 'user_id' => $seller['id'], 'status' => 1]))
             ->when(!empty($categoryIds), function ($query) use ($categoryIds) {
                 $query->where(function ($query) use ($categoryIds) {
                     return $query->whereIn('category_id', $categoryIds)
@@ -444,7 +450,9 @@ class POSController extends Controller
             return response()->json(['message' => translate('access_denied!')], 403);
         }
 
-        $orders = Order::with('details', 'shipping')->where(['seller_id' => $seller['id']])->find($request['id']);
+        // One order read by its id, bound like the order list (K-09): a till receipt is an order detail by another name.
+        $orders = $this->markets->narrowOrders(Order::with('details', 'shipping')->where(['seller_id' => $seller['id']]))
+            ->find($request['id']);
         if ($orders) {
             foreach ($orders['details'] as $order) {
                 $order['product_details'] = Helpers::product_data_formatting(json_decode($order['product_details'], true));

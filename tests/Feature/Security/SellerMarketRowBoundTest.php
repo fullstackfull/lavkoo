@@ -6,6 +6,7 @@ use App\Models\Product;
 use App\Services\Marketplace\SellerMarketTotals;
 use App\Services\Storefront\StorefrontResolver;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
 use Maatwebsite\Excel\Facades\Excel;
@@ -50,6 +51,9 @@ class SellerMarketRowBoundTest extends TestCase
     private const PRODUCT_INSIDE = 955;
 
     private const STAFF_TOKEN = 'row-bound-staff-token-that-is-longer-than-thirty-characters';
+
+    /** The one order status under which every order writer below runs to its write rather than refusing on a precondition. */
+    private const DELIVERED_SO_THE_WRITE_IS_OTHERWISE_ALLOWED = 'delivered';
 
     protected function setUp(): void
     {
@@ -578,6 +582,124 @@ class SellerMarketRowBoundTest extends TestCase
             ['AE'],
             array_values(array_unique(array_column((array) $orders->json('orders'), 'storefront_country'))),
             'a shop with no grant of its own lends nothing, so its employee keeps exactly the market they were given',
+        );
+    }
+
+    /**
+     * The sharpest of them. A refund request carries no market of its own, so before this every finder in the refund family
+     * narrowed by seller alone: the same token that was answered 404 on `orders/103` **approved the refund on that order**,
+     * wrote a `refund_statuses` row, and read the whole record — order id, amount and note — back out of `refund/list`.
+     */
+    public function test_a_refund_on_an_order_of_another_market_is_neither_decided_nor_read(): void
+    {
+        $this->grantSaudiAlone();
+        $outsideLine = $this->insertRefundRequest(id: 11, orderId: 103, productId: self::PRODUCT_OUTSIDE, amount: 250);
+        $this->insertRefundRequest(id: 12, orderId: 101, productId: self::PRODUCT_INSIDE, amount: 50);
+
+        $this->sellerApi('get', 'orders/103')->assertStatus(404);
+
+        $decision = $this->sellerApi('post', 'refund/refund-status-update', [
+            'refund_status' => 'approved', 'refund_request_id' => 11, 'note' => 'approved from outside the grant',
+        ]);
+
+        $decision->assertStatus(404);
+        $this->assertSame('pending', DB::table('refund_requests')->where('id', 11)->value('status'), 'the money decision was not taken');
+        $this->assertNull(DB::table('refund_requests')->where('id', 11)->value('change_by'), 'and nobody is recorded as having taken it');
+        $this->assertSame(0, DB::table('refund_statuses')->where('refund_request_id', 11)->count(), 'and no status line was written');
+        $this->assertSame(
+            0,
+            (int) DB::table('order_details')->where('id', $outsideLine)->value('refund_request'),
+            'and the order line of the other market is still at the stage it was',
+        );
+
+        $listed = $this->sellerApi('get', 'refund/list')->assertStatus(200);
+        $this->assertSame([12], array_column((array) $listed->json(), 'id'), 'the list holds only the refunds of the granted markets');
+        $this->assertStringNotContainsString('250', $listed->getContent(), 'and no amount of a refund in a market the token cannot read');
+
+        $single = $this->sellerApi('get', 'refund/single-item', ['id' => 11])->assertStatus(200);
+        $this->assertNull($single->json('id'), 'the single item carries no refund of another market');
+
+        $details = $this->sellerApi('get', 'refund/refund-details', ['order_details_id' => $outsideLine]);
+        $details->assertStatus(404);
+        $this->assertStringNotContainsString('250', $details->getContent(), 'nor do its details');
+    }
+
+    /**
+     * The eight writers that key off an order id. Seven of them found by seller alone, so the token refused `orders/102` wrote
+     * to it anyway: `update-payment-status` moved the money, and the other six moved the courier, the delivery man, the status,
+     * the charge and the address.
+     *
+     * @return array<string, array{0: string, 1: string, 2: array<string, mixed>, 3: string}>
+     */
+    public static function orderWrites(): array
+    {
+        return [
+            'marking it paid' => ['post', 'orders/update-payment-status', ['payment_status' => 'paid'], 'payment_status'],
+            'handing it to a courier' => ['post', 'orders/assign-third-party-delivery', ['delivery_service_name' => 'Courier of another market'], 'delivery_service_name'],
+            'assigning a delivery man' => ['put', 'orders/assign-delivery-man', ['delivery_man_id' => 9], 'delivery_man_id'],
+            'rewriting its whole detail' => ['post', 'orders/order-detail-info-update', ['payment_status' => 'paid', 'order_status' => 'confirmed'], 'order_status'],
+            'changing its delivery charge' => ['put', 'orders/delivery-charge-date-update', ['deliveryman_charge' => 77], 'deliveryman_charge'],
+            'rewriting its address' => ['post', 'orders/address-update', ['address_type' => 'shipping', 'contact_person_name' => 'Somebody else'], 'shipping_address_data'],
+        ];
+    }
+
+    #[DataProvider('orderWrites')]
+    public function test_a_write_to_an_order_of_another_market_changes_nothing(string $method, string $uri, array $payload, string $column): void
+    {
+        $this->grantSaudiAlone();
+        DB::table('delivery_men')->insert(['id' => 9, 'f_name' => 'Delivery', 'l_name' => 'Man']);
+        // Delivered and not cash-pending, so that the only thing standing between this request and the write is the market
+        // bound: a precondition that refuses it anyway would make the mutation below pass with the bound removed.
+        DB::table('orders')->where('id', 102)->update(['order_status' => self::DELIVERED_SO_THE_WRITE_IS_OTHERWISE_ALLOWED]);
+        $before = DB::table('orders')->where('id', 102)->value($column);
+
+        $refused = $this->sellerApi($method, $uri, ['order_id' => 102, 'id' => 102] + $payload);
+
+        $refused->assertStatus(404);
+        $this->assertSame(
+            $before,
+            DB::table('orders')->where('id', 102)->value($column),
+            "{$uri} must leave orders.{$column} of a market outside the grant exactly as it was",
+        );
+    }
+
+    public function test_a_digital_file_cannot_be_attached_to_a_line_of_an_order_in_another_market(): void
+    {
+        $this->grantSaudiAlone();
+        $outsideLine = (int) DB::table('order_details')->where('order_id', 102)->value('id');
+
+        $refused = $this->sellerApi('put', 'orders/order-wise-product-upload', [
+            'order_id' => $outsideLine,
+            'digital_file_ready' => UploadedFile::fake()->create('delivered.pdf', 1, 'application/pdf'),
+            'digital_file_after_sell' => UploadedFile::fake()->create('delivered.pdf', 1, 'application/pdf'),
+        ]);
+
+        $this->assertSame(202, $refused->status(), 'a line of an order in a market outside the grant is not there to be written to');
+        $this->assertNull(
+            DB::table('order_details')->where('id', $outsideLine)->value('digital_file_after_sell'),
+            'and nothing was attached to it',
+        );
+    }
+
+    /**
+     * The till. It is a way into the catalogue like any other and the market bound had been put on none of it: `pos/product-list`
+     * served the ungranted market's product in full, and a barcode is a product id by another name.
+     */
+    public function test_the_till_reaches_only_the_granted_markets(): void
+    {
+        $this->grantSaudiAlone();
+
+        $list = $this->sellerApi('get', 'pos/product-list?limit=50&offset=1')->assertStatus(200);
+        $this->assertSame([self::PRODUCT_INSIDE], array_column((array) $list->json('products'), 'id'), 'the till lists the granted market and nothing else');
+        $this->assertStringNotContainsString('99999', $list->getContent(), 'and no price of another market');
+
+        $byBarcode = $this->sellerApi('get', 'pos/products?code=CODE' . self::PRODUCT_OUTSIDE)->assertStatus(200);
+        $this->assertNull($byBarcode->json('id'), 'a barcode of another market scans to nothing');
+
+        $this->assertSame(
+            [self::PRODUCT_INSIDE],
+            array_column((array) $this->sellerApi('get', 'pos/product-list?limit=50&offset=1&name=Product')->json('products'), 'id'),
+            'and a search in the till is bound too',
         );
     }
 
