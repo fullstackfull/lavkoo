@@ -184,14 +184,15 @@ class VendorLedger
      * on the order, refund or payout paths: `vendor_ledger_entries` has no migration in this
      * repository and the column is absent from the installation dump the live table came from.
      *
+     * The registry answers it, and remembers the answer, because this is asked on every money path and
+     * more than once on some of them; a ledger of its own would be a second memo of one fact.
+     *
      * Public so a caller about to work out which company its write belongs to can stop before it
      * reads anything, rather than paying for a question whose answer cannot be recorded.
      */
     public function recordsCompanies(): bool
     {
-        return app(LegalEntityRegistry::class)->isEnabled()
-            && Schema::hasTable('vendor_ledger_entries')
-            && Schema::hasColumn('vendor_ledger_entries', LegalEntityRegistry::COLUMN);
+        return app(LegalEntityRegistry::class)->tracksLedgerEntries();
     }
 
     /**

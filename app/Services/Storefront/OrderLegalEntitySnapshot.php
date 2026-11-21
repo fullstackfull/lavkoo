@@ -15,8 +15,6 @@ use Illuminate\Support\Facades\Schema;
 #[Singleton]
 final class OrderLegalEntitySnapshot
 {
-    private const ENTITY_COLUMN = 'legal_entity_id';
-
     private const SNAPSHOT_COLUMN = 'entity_snapshot';
 
     /** How long a "no" is remembered, so a worker started before the migration notices it without a restart. A "yes" lasts for the process. */
@@ -43,8 +41,8 @@ final class OrderLegalEntitySnapshot
             return;
         }
 
-        DB::table('orders')->where('id', $orderId)->whereNull(self::ENTITY_COLUMN)->update([
-            self::ENTITY_COLUMN => $entity->id,
+        DB::table('orders')->where('id', $orderId)->whereNull(LegalEntityRegistry::COLUMN)->update([
+            LegalEntityRegistry::COLUMN => $entity->id,
             self::SNAPSHOT_COLUMN => json_encode($this->registry->identityOf($entity), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         ]);
     }
@@ -63,7 +61,7 @@ final class OrderLegalEntitySnapshot
             return null;
         }
 
-        $company = DB::table('orders')->where('id', $orderId)->value(self::ENTITY_COLUMN);
+        $company = DB::table('orders')->where('id', $orderId)->value(LegalEntityRegistry::COLUMN);
 
         return $company === null ? null : (int) $company;
     }
@@ -76,7 +74,7 @@ final class OrderLegalEntitySnapshot
             return $answer['value'];
         }
 
-        $ready = Schema::hasColumn('orders', self::ENTITY_COLUMN) && Schema::hasColumn('orders', self::SNAPSHOT_COLUMN);
+        $ready = Schema::hasColumn('orders', LegalEntityRegistry::COLUMN) && Schema::hasColumn('orders', self::SNAPSHOT_COLUMN);
         $this->columnsAnswer = ['value' => $ready, 'at' => time()];
 
         return $ready;

@@ -34,8 +34,8 @@ final class LegalEntityRegistry
     /** @var array<string, array{entity: ?LegalEntity, at: int}> */
     private array $entitiesById = [];
 
-    /** @var array{value: bool, at: int}|null */
-    private ?array $productColumnAnswer = null;
+    /** @var array<string, array{value: bool, at: int}> whether a table carries the company column, remembered per table */
+    private array $columnAnswers = [];
 
     public function isEnabled(): bool
     {
@@ -115,19 +115,17 @@ final class LegalEntityRegistry
     /** Whether a product carries the company that sells it: the registry is on and the products migration has run. */
     public function tracksProducts(): bool
     {
-        if (!$this->isEnabled()) {
-            return false;
-        }
+        return $this->tracksCompanyOn('products');
+    }
 
-        $answer = $this->productColumnAnswer;
-
-        if ($answer !== null && ($answer['value'] || time() - $answer['at'] < self::ANSWER_SECONDS)) {
-            return $answer['value'];
-        }
-
-        $this->productColumnAnswer = ['value' => Schema::hasColumn('products', self::COLUMN), 'at' => time()];
-
-        return $this->productColumnAnswer['value'];
+    /**
+     * Whether a row of the seller's ledger carries the company its money belongs to: the registry is on, the ledger table is there and its
+     * migration has run. Remembered, because it is asked on every money path and twice on some of them, and reading the schema catalogue for
+     * an answer that cannot change within a request is a query spent on nothing.
+     */
+    public function tracksLedgerEntries(): bool
+    {
+        return $this->tracksCompanyOn('vendor_ledger_entries');
     }
 
     /**
@@ -165,7 +163,7 @@ final class LegalEntityRegistry
      */
     public function identityOf(LegalEntity $entity): array
     {
-        $identity = ['legal_entity_id' => (int) $entity->id];
+        $identity = [self::COLUMN => (int) $entity->id];
 
         foreach (self::IDENTITY_FIELDS as $field) {
             $identity[$field] = $entity->{$field};
@@ -213,7 +211,26 @@ final class LegalEntityRegistry
         $this->entities = [];
         $this->entitiesById = [];
         $this->tableAnswer = null;
-        $this->productColumnAnswer = null;
+        $this->columnAnswers = [];
+    }
+
+    /** Whether this table carries the company column, asked of the schema once and then remembered; a "no" is re-asked so a worker notices the migration without a restart. */
+    private function tracksCompanyOn(string $table): bool
+    {
+        if (!$this->isEnabled()) {
+            return false;
+        }
+
+        $answer = $this->columnAnswers[$table] ?? null;
+
+        if ($answer !== null && ($answer['value'] || time() - $answer['at'] < self::ANSWER_SECONDS)) {
+            return $answer['value'];
+        }
+
+        $tracks = Schema::hasTable($table) && Schema::hasColumn($table, self::COLUMN);
+        $this->columnAnswers[$table] = ['value' => $tracks, 'at' => time()];
+
+        return $tracks;
     }
 
     private function tableReady(): bool
