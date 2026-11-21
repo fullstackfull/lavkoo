@@ -6,12 +6,14 @@ use App\Enums\Fulfillment\ProviderCode;
 use App\Enums\SalesChannels\SalesChannel;
 use App\Models\SalesChannelAccount;
 use App\Services\Fulfillment\ProviderStorefrontCountry;
+use App\Services\Fulfillment\Support\ProviderConfig;
 use App\Services\SalesChannels\Support\ChannelAccountCountry;
 use App\Services\Storefront\StorefrontCatalog;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Tests\Support\BuildsCodeScopeCatalog;
+use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
 
 /**
@@ -24,7 +26,7 @@ use Tests\TestCase;
  */
 class ProviderAndAccountCountryTest extends TestCase
 {
-    use BuildsCodeScopeCatalog;
+    use BuildsCodeScopeCatalog, RestoresLanguageFiles;
 
     private ProviderStorefrontCountry $providerCountry;
 
@@ -34,7 +36,9 @@ class ProviderAndAccountCountryTest extends TestCase
     {
         parent::setUp();
 
+        $this->rememberLanguageFiles();
         $this->buildCodeScopeProducts();
+        $this->buildCodeScopeRelationTables();
         $this->buildIntegrationSettingsTable();
         $this->providerCountry = app(ProviderStorefrontCountry::class);
         $this->accountCountry = app(ChannelAccountCountry::class);
@@ -42,6 +46,7 @@ class ProviderAndAccountCountryTest extends TestCase
 
     protected function tearDown(): void
     {
+        $this->restoreLanguageFiles();
         StorefrontCatalog::flush();
 
         parent::tearDown();
@@ -179,6 +184,43 @@ class ProviderAndAccountCountryTest extends TestCase
         foreach ([$this->amazonAccount(['ARBP9OOSHTCHU']), $this->channelAccount(SalesChannel::Trendyol->value, ['storefront_code' => 'TR'])] as $account) {
             $this->assertFalse($this->accountCountry->sellsWhereWeHaveNoCatalogue($account), 'nothing about the country is read while the switch is off');
         }
+    }
+
+    // ---- the screen the setting is typed on ---------------------------------------------------------------------------------------
+
+    public function test_the_connection_country_field_draws_nothing_while_the_markets_are_off(): void
+    {
+        $this->assertSame('', $this->connectionCountryField(), 'not one byte: the provider settings page is the page of today');
+    }
+
+    public function test_the_connection_country_field_offers_every_configured_country_and_the_default(): void
+    {
+        config(['gcc.storefronts.enabled' => true]);
+        StorefrontCatalog::flush();
+
+        $field = $this->connectionCountryField();
+
+        $this->assertStringContainsString('name="storefront_country"', $field);
+        $this->assertStringContainsString('value="KW"', $field);
+        $this->assertStringContainsString('<option value="">', $field, 'leaving it empty keeps the default storefront, which is what every connection used before');
+    }
+
+    public function test_both_provider_pages_include_the_field(): void
+    {
+        foreach (['_m5azn-fields', '_torod-fields'] as $partial) {
+            $this->assertStringContainsString(
+                "@include('admin-views.fulfillment.partials._storefront-country-field')",
+                (string) file_get_contents(resource_path("views/admin-views/fulfillment/partials/{$partial}.blade.php")),
+                $partial,
+            );
+        }
+    }
+
+    private function connectionCountryField(): string
+    {
+        $config = new ProviderConfig(provider: ProviderCode::TorodPoint, enabled: true, baseUrl: '', settings: [], credentials: []);
+
+        return view('admin-views.fulfillment.partials._storefront-country-field', ['config' => $config])->render();
     }
 
     // ---- helpers -----------------------------------------------------------------------------------------------------------------
