@@ -64,13 +64,15 @@ class OrderCurrencyOnEverySurfaceTest extends ApiAddressTestCase
         $order = $this->placeOrderFrom(country: 'KW', productId: self::KUWAITI_PRODUCT);
         $this->asTheCustomerOnTheWebsite($order->customer);
 
-        $printed = $this->moneyPrintedIn($this->captureRender(
+        $document = $this->captureRender(
             VIEW_FILE_NAMES['order_invoice'],
             fn () => $this->get(route('generate-invoice', ['id' => $order->id])),
-        ));
+        );
+        $printed = $this->moneyPrintedIn($document);
 
         $this->assertContains(self::KUWAITI_ORDER_IN_ITS_OWN_MONEY, $printed, 'the invoice states the dinars that were charged');
         $this->assertNotContains(self::KUWAITI_ORDER_AT_TODAYS_SAUDI_RATE, $printed, 'and never the riyals today would turn them into');
+        $this->assertStringContainsString('( KWD )', $document, 'and it names the currency its figures are in, next to the heading');
     }
 
     public function test_the_panel_invoice_of_a_kuwaiti_order_prints_dinars(): void
@@ -148,13 +150,15 @@ class OrderCurrencyOnEverySurfaceTest extends ApiAddressTestCase
         DB::table('orders')->where('id', $order->id)->update(['currency_code' => null, 'currency_rate' => null]);
         $this->asTheCustomerOnTheWebsite($order->customer);
 
-        $printed = $this->moneyPrintedIn($this->captureRender(
+        $document = $this->captureRender(
             VIEW_FILE_NAMES['order_invoice'],
             fn () => $this->get(route('generate-invoice', ['id' => $order->id])),
-        ));
+        );
+        $printed = $this->moneyPrintedIn($document);
 
         $this->assertContains(self::KUWAITI_ORDER_AT_TODAYS_SAUDI_RATE, $printed, 'nothing about such an order is read, so nothing about it changes');
         $this->assertNotContains(self::KUWAITI_ORDER_IN_ITS_OWN_MONEY, $printed);
+        $this->assertStringContainsString('( SAR )', $document, 'and the heading still names the platform currency, which the session loader is what puts there');
     }
 
     /** Dormancy, the other half: a sale of the default storefront, which records no currency on this platform, is the document it always was. */
