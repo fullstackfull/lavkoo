@@ -20,8 +20,10 @@ use Illuminate\Database\Eloquent\Model;
  *  - the hreflang alternates, which are the same page in every storefront that CARRIES it and every published language;
  *  - whether the storefront may be indexed at all.
  *
- * The money a page states is not here. It has one owner too, {@see StorefrontCurrency::money()}, and the offer this builds reads it,
- * so the price in a JSON-LD offer is the number the page prints and the API answers, never a second calculation of it.
+ * The money a page states is not here. It has one owner too, {@see StorefrontCurrency::money()}, and the offer this builds reads it
+ * while a storefront trades in its own currency, so there the price in a JSON-LD offer is the number the page prints and the API
+ * answers, never a second calculation of it. Where the platform's own currency settings stand the offer is deliberately the one the
+ * page has always published, which is not that number: {@see offer()} says why.
  *
  * A storefront is indexable once it is switched on and may sell: legal texts approved and the currency it trades in present
  * ({@see StorefrontSellingGate}). A market being prepared is reachable to whoever is preparing it and invisible to a crawler.
