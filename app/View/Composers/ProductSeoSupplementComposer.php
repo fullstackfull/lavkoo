@@ -112,8 +112,9 @@ class ProductSeoSupplementComposer
             'brand'       => $product->brand?->name,
             // The offer states the money of the storefront serving the page, from the one service the page itself and the customer
             // API read, so a crawler is never told a price the page does not print.
-            'price'       => $offer['price'],
-            'currency'    => $offer['currency'] ?: 'USD',
+            'price'          => $offer['price'],
+            'currency'       => $offer['currency'] ?: 'USD',
+            'price_decimals' => $offer['decimals'],
             // A product with no stock field (a digital one) is available; only an explicit zero
             // means out of stock, so physical stock is not inferred where it does not apply.
             'in_stock'     => $product->product_type === 'digital' || (int) ($product->current_stock ?? 0) > 0,

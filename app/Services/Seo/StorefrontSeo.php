@@ -77,13 +77,15 @@ final class StorefrontSeo
      * The price and the currency a storefront states for an amount, as a schema.org offer carries them. The same two values the page
      * prints and the customer API answers, because all three read {@see StorefrontCurrency::money()}.
      *
-     * @return array{price: float|string, currency: string}
+     * The precision travels with them: a dinar price published to hundredths is a price nobody can pay.
+     *
+     * @return array{price: float|string, currency: string, decimals: int}
      */
     public function offer(string|int|float|null $amount): array
     {
         $money = $this->currency->money(amount: $amount);
 
-        return ['price' => $money['amount'], 'currency' => $money['currency']];
+        return ['price' => $money['amount'], 'currency' => $money['currency'], 'decimals' => $money['decimals']];
     }
 
     /** Whether a storefront may be indexed: it is switched on, and it may sell. The whole platform is indexable while storefronts are off. */
