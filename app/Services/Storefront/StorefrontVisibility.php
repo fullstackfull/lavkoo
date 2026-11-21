@@ -90,16 +90,14 @@ final class StorefrontVisibility
     }
 
     /**
-     * The one query helper every reader shares. It adds a predicate only when this request belongs to a storefront and the entity type
-     * has at least one mapping row; otherwise the query is handed back exactly as it came in.
+     * The one query helper every reader shares, through the global scope or by hand where a reader drops every scope. It adds a
+     * predicate only when this request belongs to a storefront and the entity type has at least one mapping row; otherwise the query is
+     * handed back exactly as it came in.
      *
-     * @template TQuery of Builder|QueryBuilder
-     *
-     * @param TQuery $query
-     *
-     * @return TQuery
+     * @param string|null $idColumn the column holding the entity's id, for a query that reaches the table through a join; the model's
+     *                              own key by default
      */
-    public static function restrict(Builder|QueryBuilder $query, string $entityType, ?string $idColumn = null): Builder|QueryBuilder
+    public static function restrict(Builder $query, string $entityType, ?string $idColumn = null): Builder
     {
         $country = self::narrowedCountry($entityType);
 
@@ -107,7 +105,7 @@ final class StorefrontVisibility
             return $query;
         }
 
-        $idColumn ??= self::idColumnOf($query);
+        $idColumn ??= $query->qualifyColumn($query->getModel()->getKeyName());
 
         return self::ENTITY_MODES[$entityType] === self::MODE_HIDDEN
             ? self::narrowToVisible(query: $query, entityType: $entityType, idColumn: $idColumn, country: $country)
@@ -216,7 +214,7 @@ final class StorefrontVisibility
             ->all();
     }
 
-    private static function narrowToVisible(Builder|QueryBuilder $query, string $entityType, string $idColumn, string $country): Builder|QueryBuilder
+    private static function narrowToVisible(Builder $query, string $entityType, string $idColumn, string $country): Builder
     {
         return $query->whereNotExists(static fn (QueryBuilder $mapping) => self::mappingRowsOf(
             mapping: $mapping,
@@ -226,9 +224,9 @@ final class StorefrontVisibility
         )->where('storefront_country', $country));
     }
 
-    private static function narrowToAssigned(Builder|QueryBuilder $query, string $entityType, string $idColumn, string $country): Builder|QueryBuilder
+    private static function narrowToAssigned(Builder $query, string $entityType, string $idColumn, string $country): Builder
     {
-        return $query->where(static function (Builder|QueryBuilder $inner) use ($entityType, $idColumn, $country): void {
+        return $query->where(static function (Builder $inner) use ($entityType, $idColumn, $country): void {
             $inner
                 ->whereNotExists(static fn (QueryBuilder $mapping) => self::mappingRowsOf(
                     mapping: $mapping,
@@ -253,13 +251,6 @@ final class StorefrontVisibility
             ->whereColumn(self::TABLE . '.entity_id', $idColumn)
             ->where(self::TABLE . '.entity_type', $entityType)
             ->where(self::TABLE . '.mode', $mode);
-    }
-
-    private static function idColumnOf(Builder|QueryBuilder $query): string
-    {
-        return $query instanceof Builder
-            ? $query->qualifyColumn($query->getModel()->getKeyName())
-            : $query->from . '.id';
     }
 
     /**
