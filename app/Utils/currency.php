@@ -246,6 +246,16 @@ if (!function_exists('getCurrencySymbol')) {
     function getCurrencySymbol(string $currencyCode = USD, string $type = 'default'): float|int|string
     {
         loadCurrency();
+
+        // A visitor may pick a currency from the header, and the pick is kept in the session across storefronts. A storefront that trades in its
+        // own currency (GCC-05) shows the amounts of its own catalogue, so printing another storefront's sign beside them would say a Kuwaiti
+        // price is Saudi money. While such a storefront serves the request its sign wins over the pick; everywhere else the session stands.
+        $symbolInForce = app(StorefrontCurrency::class)->symbolInForce();
+
+        if ($symbolInForce !== null) {
+            return $symbolInForce;
+        }
+
         if ($type == 'web' && session()->has('currency_symbol')) {
             $currentSymbol = session('currency_symbol');
         } else {
@@ -283,6 +293,12 @@ if (!function_exists('getCurrencyCode')) {
      */
     function getCurrencyCode(string $type = 'default'): string
     {
+        $codeInForce = app(StorefrontCurrency::class)->currencyCodeInForce();
+
+        if ($codeInForce !== null) {
+            return $codeInForce;
+        }
+
         if ($type == 'web') {
             $currencyCode = session('currency_code');
         } else {

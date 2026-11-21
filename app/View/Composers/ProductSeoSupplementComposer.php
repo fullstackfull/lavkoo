@@ -5,6 +5,7 @@ namespace App\View\Composers;
 use App\Models\Product;
 use App\Services\Seo\SeoMetaResolver;
 use App\Services\Seo\SeoTagRenderer;
+use App\Services\Seo\StorefrontSeo;
 use App\Services\Seo\StructuredDataBuilder;
 use Illuminate\View\View;
 
@@ -30,6 +31,7 @@ class ProductSeoSupplementComposer
         private readonly SeoMetaResolver       $resolver,
         private readonly SeoTagRenderer        $tags,
         private readonly StructuredDataBuilder $schema,
+        private readonly StorefrontSeo         $storefront,
     )
     {
     }
@@ -63,7 +65,12 @@ class ProductSeoSupplementComposer
                 $canonical = route('product', [$product->slug]);
             }
 
-            return $this->tags->renderCanonicalAndAlternates($canonical, $this->alternates($product));
+            // The page belongs to the storefront that served it, so that is the address it claims and the address its alternates
+            // are grouped around. On the default storefront, and while storefronts are off, this is the URL above unchanged.
+            return $this->tags->renderCanonicalAndAlternates(
+                $this->storefront->canonical($canonical),
+                $this->alternates($product),
+            );
         } catch (\Throwable) {
             return '';
         }
@@ -91,6 +98,7 @@ class ProductSeoSupplementComposer
     private function schemaDataFor(Product $product): array
     {
         $reviews = $product->relationLoaded('reviews') ? $product->reviews : collect();
+        $offer = $this->storefront->offer(amount: $product->unit_price);
 
         return [
             'name'        => (string) $product->name,
@@ -99,11 +107,13 @@ class ProductSeoSupplementComposer
             // Google reads a real GTIN (EAN/UPC) differently from a shop's own SKU: it matches the
             // product across the web, so it travels beside the SKU rather than replacing it.
             'gtin'        => $product->barcode ?: null,
-            'url'         => route('product', [$product->slug]),
+            'url'         => $this->storefront->canonical(route('product', [$product->slug])),
             'images'      => $this->imageUrls($product),
             'brand'       => $product->brand?->name,
-            'price'       => $product->unit_price,
-            'currency'    => getCurrencyCode() ?: 'USD',
+            // The offer states the money of the storefront serving the page, from the one service the page itself and the customer
+            // API read, so a crawler is never told a price the page does not print.
+            'price'       => $offer['price'],
+            'currency'    => $offer['currency'] ?: 'USD',
             // A product with no stock field (a digital one) is available; only an explicit zero
             // means out of stock, so physical stock is not inferred where it does not apply.
             'in_stock'     => $product->product_type === 'digital' || (int) ($product->current_stock ?? 0) > 0,
@@ -126,10 +136,12 @@ class ProductSeoSupplementComposer
     }
 
     /**
-     * hreflang targets for the languages the store actually publishes.
+     * hreflang targets: every storefront that may be indexed, in every language the store publishes.
      *
-     * The storefront serves one URL per product and switches language by session, so the alternates
-     * point at the same URL with an explicit language parameter rather than at separate paths.
+     * The storefront serves one URL per product and switches language by session, so a language alternate points at the same
+     * URL with an explicit language parameter rather than at a separate path; a storefront alternate points at that
+     * storefront's own address for the page. {@see StorefrontSeo::alternates()} owns both, and keeps the language-only set
+     * the page carries today while only one storefront is indexable.
      *
      * @return array<string,string>
      */
@@ -141,18 +153,17 @@ class ProductSeoSupplementComposer
                 return [];
             }
 
-            $url = route('product', [$product->slug]);
-            $alternates = [];
+            $codes = [];
             foreach ($languages as $language) {
                 $code = $language['code'] ?? null;
                 if ($code) {
-                    $alternates[$code] = $url . '?language=' . $code;
+                    $codes[] = (string) $code;
                 }
             }
 
-            // One language is not an alternate of anything — emitting hreflang for a single locale
+            // One storefront and one language is not an alternate of anything — emitting hreflang for a single page
             // is noise that tells a crawler nothing.
-            return count($alternates) > 1 ? $alternates : [];
+            return $this->storefront->alternates(url: route('product', [$product->slug]), languageCodes: $codes);
         } catch (\Throwable) {
             return [];
         }

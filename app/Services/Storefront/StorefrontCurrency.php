@@ -137,6 +137,45 @@ final class StorefrontCurrency
         return $this->currencyInForce()?->code;
     }
 
+    /** The symbol of that currency, or null while the platform's own settings stand. Read by getCurrencySymbol() so no surface prints another storefront's sign. */
+    public function symbolInForce(): ?string
+    {
+        return $this->currencyInForce()?->symbol;
+    }
+
+    /**
+     * The one answer to "what money is this amount, in the storefront serving this request": the number every surface shows, the currency it is
+     * in, that currency's decimals, its symbol and the formatted text. The product page, the listing, the filter facets, the price filter, the
+     * JSON-LD offer, the sitemap and the customer API all read this one method, so none of them can state a different number or a different
+     * currency from another.
+     *
+     * It reports today's answer rather than inventing one: the number and the text come from the money helpers the storefront has always used,
+     * which read the three currency settings through getWebConfig() and so through {@see override()}. While the switch is off, and on the default
+     * storefront, every field is exactly what the page prints today. Nothing stored is re-scaled or re-rounded here.
+     *
+     * @return array{amount: float|string, currency: string, decimals: int, symbol: string, formatted: string}
+     */
+    public function money(string|int|float|null $amount = 0): array
+    {
+        loadCurrency();
+
+        return [
+            'amount' => webCurrencyConverterOnlyDigit(amount: $amount),
+            'currency' => getCurrencyCode(type: 'web'),
+            'decimals' => $this->decimalsInForce(),
+            'symbol' => (string) getCurrencySymbol(currencyCode: getCurrencyCode(type: 'web'), type: 'web'),
+            'formatted' => webCurrencyConverter(amount: $amount),
+        ];
+    }
+
+    /** How many decimals the money of this request is shown with: the currency's own while a storefront trades in it, the platform's setting otherwise. */
+    public function decimalsInForce(): int
+    {
+        $decimals = getWebConfig('decimal_point_settings');
+
+        return is_numeric($decimals) ? (int) $decimals : self::DEFAULT_DECIMALS;
+    }
+
     /** Whether a storefront has the currency it trades in. Every storefront is ready while the switch is off, and so is the default one. */
     public function isReady(string $country, string $currencyCode): bool
     {
