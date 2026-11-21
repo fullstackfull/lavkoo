@@ -716,40 +716,45 @@ class StorefrontMoneyAndSeoTest extends TestCase
      */
     private function saudiSnapshot(): array
     {
-        return $this->inStorefront('SA', fn (): array => [
-            'money' => app(StorefrontCurrency::class)->money(amount: self::SAUDI_PRICE),
-            'api_money' => app(StorefrontCurrency::class)->apiMoney(amount: self::SAUDI_PRICE),
-            // The feature's headline output: the partial the product page includes, rendered through the real composer, which is where
-            // the canonical, the hreflang set and the JSON-LD offer a crawler actually reads are decided. A dormancy proof that
-            // compares the services but not the page excuses the one field a reader would check first.
-            'rendered_supplement' => $this->renderedSupplement(),
-            'offer' => app(StorefrontSeo::class)->offer(amount: self::SAUDI_PRICE),
-            'schema_offer' => app(StructuredDataBuilder::class)->product([
-                'name' => 'Saudi serum',
-                'price' => app(StorefrontSeo::class)->offer(amount: self::SAUDI_PRICE)['price'],
-                'currency' => app(StorefrontSeo::class)->offer(amount: self::SAUDI_PRICE)['currency'],
-                'price_decimals' => app(StorefrontSeo::class)->offer(amount: self::SAUDI_PRICE)['decimals'],
-            ])['offers'],
-            'canonical' => app(StorefrontSeo::class)->canonical(route('product', ['slug' => 'saudi-serum'])),
-            'alternates' => app(StorefrontSeo::class)->alternates(
-                url: route('product', ['slug' => 'saudi-serum']),
-                languageCodes: ['en', 'ar'],
-                countries: app(StorefrontSeo::class)->countriesCarrying(product: Product::query()->find(1)),
-            ),
-            'indexable' => app(StorefrontSeo::class)->isIndexable(),
-            'robots_header' => $this->robotsHeader(),
-            'price_bound' => getProductMaxUnitPriceRange(type: 'web'),
-            'price_floor' => getProductMinUnitPriceRange(type: 'web'),
-            'filter_bound_conversion' => Convert::usdPaymentModule(10, (string) session('currency_code')),
-            'sign' => getCurrencySymbol(type: 'web'),
-            'clearance_discount' => (string) getProductPriceByType(
-                product: ['unit_price' => self::SAUDI_PRICE, 'discount' => 0, 'discount_type' => 'flat', 'clearance_sale' => ['discount_type' => 'flat', 'discount_amount' => 2.5]],
-                type: 'discount',
-                result: 'string',
-            ),
-            'storefront_sitemaps' => array_keys(app(StorefrontSitemap::class)->files(at: CarbonImmutable::parse('2026-11-21T09:00:00+00:00'), stamp: 'now')),
-            'platform_sitemap_slugs' => app(StorefrontSitemap::class)->defaultStorefrontSlugs(),
-        ]);
+        return $this->inStorefront('SA', function (): array {
+            $seo = app(StorefrontSeo::class);
+            $offer = $seo->offer(amount: self::SAUDI_PRICE);
+
+            return [
+                'money' => app(StorefrontCurrency::class)->money(amount: self::SAUDI_PRICE),
+                'api_money' => app(StorefrontCurrency::class)->apiMoney(amount: self::SAUDI_PRICE),
+                // The feature's headline output: the partial the product page includes, rendered through the real composer, which is where
+                // the canonical, the hreflang set and the JSON-LD offer a crawler actually reads are decided. A dormancy proof that
+                // compares the services but not the page excuses the one field a reader would check first.
+                'rendered_supplement' => $this->renderedSupplement(),
+                'offer' => $offer,
+                'schema_offer' => app(StructuredDataBuilder::class)->product([
+                    'name' => 'Saudi serum',
+                    'price' => $offer['price'],
+                    'currency' => $offer['currency'],
+                    'price_decimals' => $offer['decimals'],
+                ])['offers'],
+                'canonical' => $seo->canonical(route('product', ['slug' => 'saudi-serum'])),
+                'alternates' => $seo->alternates(
+                    url: route('product', ['slug' => 'saudi-serum']),
+                    languageCodes: ['en', 'ar'],
+                    countries: $seo->countriesCarrying(product: Product::query()->find(1)),
+                ),
+                'indexable' => $seo->isIndexable(),
+                'robots_header' => $this->robotsHeader(),
+                'price_bound' => getProductMaxUnitPriceRange(type: 'web'),
+                'price_floor' => getProductMinUnitPriceRange(type: 'web'),
+                'filter_bound_conversion' => Convert::usdPaymentModule(10, (string) session('currency_code')),
+                'sign' => getCurrencySymbol(type: 'web'),
+                'clearance_discount' => (string) getProductPriceByType(
+                    product: ['unit_price' => self::SAUDI_PRICE, 'discount' => 0, 'discount_type' => 'flat', 'clearance_sale' => ['discount_type' => 'flat', 'discount_amount' => 2.5]],
+                    type: 'discount',
+                    result: 'string',
+                ),
+                'storefront_sitemaps' => array_keys(app(StorefrontSitemap::class)->files(at: CarbonImmutable::parse('2026-11-21T09:00:00+00:00'), stamp: 'now')),
+                'platform_sitemap_slugs' => app(StorefrontSitemap::class)->defaultStorefrontSlugs(),
+            ];
+        });
     }
 
     /** The key the price filter's lower bound is cached under for one market. */
