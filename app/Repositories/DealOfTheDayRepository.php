@@ -4,6 +4,7 @@ namespace App\Repositories;
 
 use App\Contracts\Repositories\DealOfTheDayRepositoryInterface;
 use App\Models\DealOfTheDay;
+use App\Services\Storefront\StorefrontVisibility;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -26,7 +27,9 @@ class DealOfTheDayRepository implements DealOfTheDayRepositoryInterface
 
     public function getFirstWhereWithoutGlobalScope(array $params, array $relations = []): ?Model
     {
-        return $this->dealOfTheDay->withoutGlobalScopes()->where($params)->with($relations)->first();
+        $query = $this->dealOfTheDay->withoutGlobalScopes()->where($params)->with($relations);
+
+        return StorefrontVisibility::restrict(query: $query, entityType: DealOfTheDay::STOREFRONT_ENTITY_TYPE)->first();
     }
 
     public function getList(array $orderBy = [], array $relations = [], int|string $dataLimit = DEFAULT_DATA_LIMIT, ?int $offset = null): Collection|LengthAwarePaginator

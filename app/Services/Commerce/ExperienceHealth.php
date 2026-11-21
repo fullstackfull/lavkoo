@@ -7,10 +7,9 @@ use App\Models\ExperienceExperiment;
 use App\Models\Product;
 use App\Models\ProductCollection;
 use App\Models\ProductMetric;
-use App\Models\Theme;
 use App\Models\ThemeSection;
-use App\Models\ThemeVersion;
 use App\Services\Theme\ContentSource;
+use App\Services\Theme\StorefrontThemeResolver;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Schema;
 
@@ -273,12 +272,7 @@ class ExperienceHealth
     private function publishedVersionId(): ?int
     {
         try {
-            $theme = Theme::query()->where('is_active', true)->first();
-
-            return $theme === null ? null : ThemeVersion::query()
-                ->where('theme_id', $theme->id)
-                ->where('status', ThemeVersion::STATUS_PUBLISHED)
-                ->value('id');
+            return app(StorefrontThemeResolver::class)->publishedVersion()?->id;
         } catch (\Throwable) {
             return null;
         }

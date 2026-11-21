@@ -39,6 +39,7 @@ use App\Repositories\DigitalProductPublishingHouseRepository;
 use App\Services\Fulfillment\ProductFormProviderSelection;
 use App\Services\Fulfillment\ProviderStockOwnership;
 use App\Services\ProductService;
+use App\Services\Storefront\ProductCountry;
 use App\Traits\FileManagerTrait;
 use App\Traits\ProductTrait;
 use App\Services\Catalog\ProductCodeScope;
@@ -169,7 +170,11 @@ class ProductController extends BaseController
         $brandSetting = getWebConfig(name: 'product_brand');
         $digitalProductSetting = getWebConfig(name: 'digital_product');
         $colors = $this->colorRepo->getList(orderBy: ['name' => 'desc'], dataLimit: 'all');
-        $attributes = $this->attributeRepo->getList(orderBy: ['name' => 'desc'], dataLimit: 'all');
+        $attributes = $this->attributeRepo->getListOfferedIn(
+            storefrontCountry: ProductCountry::countryOfForm(requestedCountry: old('storefront_country')),
+            orderBy: ['name' => 'desc'],
+            dataLimit: 'all',
+        );
         $languages = getWebConfig(name: 'pnc_language') ?? null;
         $defaultLanguage = $languages[0];
         $digitalProductFileTypes = ['audio', 'video', 'document', 'software'];
@@ -283,7 +288,12 @@ class ProductController extends BaseController
         $digitalProductSetting = getWebConfig(name: 'digital_product');
         $languages = getWebConfig(name: 'pnc_language') ?? null;
         $colors = $this->colorRepo->getList(orderBy: ['name' => 'desc'], dataLimit: 'all');
-        $attributes = $this->attributeRepo->getList(orderBy: ['name' => 'desc'], dataLimit: 'all');
+        $attributes = $this->attributeRepo->getListOfferedIn(
+            storefrontCountry: ProductCountry::countryOfForm(product: $product),
+            alwaysOffered: $this->productService->getProductAttributeIds(product: $product),
+            orderBy: ['name' => 'desc'],
+            dataLimit: 'all',
+        );
         $defaultLanguage = $languages[0];
         $digitalProductFileTypes = ['audio', 'video', 'document', 'software'];
         $digitalProductAuthors = $this->authorRepo->getListWhere(dataLimit: 'all');

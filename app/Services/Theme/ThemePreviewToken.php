@@ -42,7 +42,9 @@ class ThemePreviewToken
      * The version a token names, or null for anything that is not a live, untampered token.
      *
      * Every failure returns null rather than explaining itself: a caller cannot act differently on
-     * "expired" than on "forged", and saying which is a hint for whoever is guessing.
+     * "expired" than on "forged", and saying which is a hint for whoever is guessing. A token names no
+     * storefront, so a version of another storefront's theme fails the same way (F-07): a draft is
+     * only ever shown on the storefront its theme belongs to.
      */
     public function version(?string $token): ?ThemeVersion
     {
@@ -64,7 +66,9 @@ class ThemePreviewToken
             return null;
         }
 
-        return ThemeVersion::find((int) $versionId);
+        $version = ThemeVersion::find((int) $versionId);
+
+        return $version !== null && app(StorefrontThemeResolver::class)->mayPreview(version: $version) ? $version : null;
     }
 
     /** Seconds a freshly minted token of this length will remain valid, for a client to display. */

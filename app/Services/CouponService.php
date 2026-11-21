@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Services\Storefront\CouponCountry;
 use Brian2694\Toastr\Facades\Toastr;
 
 class CouponService
@@ -62,7 +63,7 @@ class CouponService
             ];
         }
 
-        return $data;
+        return $data + CouponCountry::attributesOfNewCoupon(requestedCountry: $request['storefront_country']);
     }
 
     public function getUpdateData(object $request): array

@@ -6,13 +6,16 @@ use App\Contracts\Repositories\ThemeRepositoryInterface;
 use App\Http\Controllers\BaseController;
 use App\Models\Theme;
 use App\Models\ThemeVersion;
+use App\Services\AuditLogger;
 use App\Services\Theme\BuilderReadiness;
 use App\Services\Theme\PublishValidator;
+use App\Services\Theme\StorefrontThemeResolver;
 use App\Services\Theme\ThemeManager;
 use App\Services\Theme\ThemePermissionService;
 use App\Services\Theme\ThemePortabilityService;
 use App\Services\Theme\ThemeAssetService;
 use App\Models\ThemeAsset;
+use Carbon\CarbonInterface;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Contracts\View\View;
@@ -38,6 +41,8 @@ class ThemeManagementController extends BaseController
         private readonly ThemePortabilityService  $portability,
         private readonly ThemeAssetService         $assets,
         private readonly BuilderReadiness          $readiness,
+        private readonly StorefrontThemeResolver   $storefrontThemes,
+        private readonly AuditLogger               $audit,
     )
     {
     }
@@ -98,6 +103,7 @@ class ThemeManagementController extends BaseController
         $validated = $request->validate([
             'name'        => ['required', 'string', 'max:191'],
             'description' => ['nullable', 'string', 'max:500'],
+            ...$this->storefrontThemes->newThemeRules(),
         ]);
 
         $slug = Str::slug($validated['name']);
@@ -114,13 +120,14 @@ class ThemeManagementController extends BaseController
             'is_system'       => false,
             'created_by_type' => 'admin',
             'created_by_id'   => auth('admin')->id(),
+            ...$this->storefrontThemes->newThemeAttributes(requestedCountry: $validated[StorefrontThemeResolver::COLUMN] ?? null),
         ]);
 
         ToastMagic::success(translate('theme_created_successfully'));
         return $this->backToIndex();
     }
 
-    /** Activate a theme (exclusive — all others are deactivated atomically). */
+    /** Activate a theme (exclusive — all others are deactivated atomically, or only those of its storefront while themes are kept by storefront). */
     public function activate(Request $request): RedirectResponse
     {
         if ($this->blockedOnDemo()) {
@@ -255,8 +262,15 @@ class ThemeManagementController extends BaseController
             return $this->backToIndex();
         }
 
+        $previousMoment = $version->publish_at;
+
         if ($request->boolean('cancel')) {
             $version->forceFill(['publish_at' => null])->save();
+
+            if ($previousMoment !== null) {
+                $this->recordScheduleChange(action: 'theme.scheduled_publish_unset', version: $version, before: $previousMoment, after: null);
+            }
+
             ToastMagic::success(translate('scheduled_publish_cancelled'));
 
             return $this->backToIndex();
@@ -285,9 +299,35 @@ class ThemeManagementController extends BaseController
             'change_note' => $note !== '' ? mb_substr($note, 0, 300) : $version->change_note,
         ])->save();
 
+        $this->recordScheduleChange(action: 'theme.scheduled_publish_set', version: $version, before: $previousMoment, after: $moment);
+
         ToastMagic::success(translate('this_version_will_publish_on') . ' ' . $moment->toDayDateTimeString());
 
         return $this->backToIndex();
+    }
+
+    /**
+     * The audit line of a schedule set, changed or unset by hand, which names the storefront of the theme the way the lines of ThemeManager do. A lookup of the storefront that fails is
+     * reported and adds nothing: the schedule is saved by now, and the line is not worth an error page.
+     */
+    private function recordScheduleChange(string $action, ThemeVersion $version, ?CarbonInterface $before, ?CarbonInterface $after): void
+    {
+        $storefront = rescue(
+            callback: function () use ($version): array {
+                $theme = $this->storefrontThemes->keepsThemesByStorefront() ? $version->theme : null;
+
+                return $theme === null ? [] : $this->storefrontThemes->auditContextOf(theme: $theme);
+            },
+            rescue: [],
+        );
+
+        $this->audit->record(
+            action: $action,
+            subject: $version,
+            before: ['publish_at' => $before?->toIso8601String()],
+            after: ['publish_at' => $after?->toIso8601String()],
+            context: ['theme_id' => $version->theme_id] + $storefront,
+        );
     }
 
     /**
