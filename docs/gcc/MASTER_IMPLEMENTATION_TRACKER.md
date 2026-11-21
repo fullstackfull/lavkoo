@@ -24,10 +24,10 @@ As of 2026-11-21. Generated from the independent assessment of every requirement
 | [H. Shipping and integrations](tracker/axis-h-shipping-and-integrations.md) | 34 | 157 | 79 | 13 | 65 | 59% | 50% | 16% | all |
 | [I. Marketing, policies and operations](tracker/axis-i-marketing-policies-and-operations.md) | 37 | 185 | 84 | 41 | 60 | 68% | 45% | 3% | all |
 | [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 98 | 44 | 29 | 25 | 74% | 45% | 5% | all |
-| [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 104 | 40 | 26 | 38 | 63% | 38% | 3% | all |
+| [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 104 | 40 | 30 | 34 | 67% | 38% | 3% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 45 | 18 | 31 | 67% | 48% | 7% | all |
 | [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 311 | 105 | 119 | 87 | 72% | 34% | 3% | all |
-| **All axes (pooled)** | **359** | **1753** | **821** | **379** | **553** | **68%** | **47%** | **8%** | |
+| **All axes (pooled)** | **359** | **1753** | **821** | **383** | **549** | **69%** | **47%** | **8%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -436,12 +436,12 @@ Executable on an isolated branch without production access, ordered by the prior
 | [K-01](tracker/axis-k-flutter-seller-app.md) | IMPLEMENTED IN DRAFT | 4/0/0 | Seller market scope and X-Storefront header (default off) |
 | [K-02](tracker/axis-k-flutter-seller-app.md) | IMPLEMENTED IN DRAFT | 4/1/0 | Seller market choice: storage and manual precedence |
 | [K-03](tracker/axis-k-flutter-seller-app.md) | NOT STARTED | 2/1/1 | Market selector, live header update and market-switch hygiene |
-| [K-04](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 1/0/2 | Per-market data in seller screens (orders, products, stock, finance) |
+| [K-04](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 1/1/1 | Per-market data in seller screens (orders, products, stock, finance) |
 | [K-05](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 5/1/0 | POS scan with country-scoped codes |
 | [K-06](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 3/1/1 | POS sale safety: retries, offline outbox and customer id |
 | [K-07](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 5/0/0 | Order edit refusal handling and approved-only review average |
 | [K-08](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 1/3/1 | Seller owner and staff roles keep working; the app shows what a role may use |
-| [K-09](tracker/axis-k-flutter-seller-app.md) | NOT STARTED | 0/0/4 | Country and entity scopes for sellers and seller staff (GCC-14, seller side) |
+| [K-09](tracker/axis-k-flutter-seller-app.md) | NOT STARTED | 0/3/1 | Country and entity scopes for sellers and seller staff (GCC-14, seller side) |
 | [K-10](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 2/3/0 | Per-market currency, decimals and no app-side conversion |
 | [K-11](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 2/0/3 | Seller push: tokens, topics, payload market and routing |
 | [K-12](tracker/axis-k-flutter-seller-app.md) | IN PROGRESS | 2/0/3 | Session and token handling in the seller app |
