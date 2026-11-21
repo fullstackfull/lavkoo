@@ -101,6 +101,15 @@ class ProductCopyControlTest extends TestCase
         $this->assertStringEndsWith('ProductController@copyToCountry', $route->getActionName());
     }
 
+    public function test_the_copy_action_is_behind_the_same_guards_as_the_rest_of_the_product_screens(): void
+    {
+        $middleware = Route::getRoutes()->getByName('admin.products.copy-to-country')->gatherMiddleware();
+
+        foreach (['admin', 'actch:admin_panel', 'module:catalog'] as $guard) {
+            $this->assertContains($guard, $middleware, 'a copy makes a product row: it is for an admin of the catalogue module');
+        }
+    }
+
     public function test_every_message_the_control_and_the_action_show_exists_in_every_language_file(): void
     {
         $keys = [
