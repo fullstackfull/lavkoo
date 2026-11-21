@@ -1,25 +1,25 @@
-# B-11, B-13, B-15, B-16: one mechanism makes a catalogue entity visible or hidden per storefront
+# B-11, B-12, B-13, B-15, B-16: one mechanism makes a catalogue entity visible or hidden per storefront
 
 Status: coded and tested on SQLite and MariaDB 10.11.14 (branch `gcc/p1-catalogue-visible-per-storefront`). Dormant by construction — see below. Nothing here has been run on the pilot server or on production, and nothing is MET until CI has run on a pushed head.
 
 ## The rule
 
-A storefront shows or does not show a category, a brand, a banner, a coupon, a deal, a clearance sale or a campaign **without the central row ever being touched**. Hiding is a mapping, not a flag on the entity, so removing the mapping restores the entity exactly. Brands carry no country at all (B-11): one brand table serves every market, and each storefront counts that brand's products for itself.
+A storefront shows or does not show a category, a brand, a banner, a coupon, a deal, a clearance sale, a campaign or a variation attribute **without the central row ever being touched**. Hiding is a mapping, not a flag on the entity, so removing the mapping restores the entity exactly. Brands carry no country at all (B-11): one brand table serves every market, and each storefront counts that brand's products for itself.
 
 ## One table, one service, one scope
 
 - **One table.** `storefront_entity_visibility` holds `(entity_type, entity_id, storefront_country, mode)`, unique on the first three. Nothing else is stored, and no entity table gains a column.
 - **One service.** `App\Services\Storefront\StorefrontVisibility` answers "does this storefront show this entity" (`isVisible`), hands every reader the same predicate (`restrict`), and is the only writer (`set`, `storefrontsOf`).
-- **One scope.** `App\Traits\HasStorefrontVisibility` adds the global scope `storefront_visibility` to the eight models. Every reader **in this repository** that goes through the model — the category tree, the home page, the filters and facets, the category and brand pages, the brand list, the API v1 attribute, category, brand and coupon lists, the app lists, the deals, the clearance sales and the campaign overlay — is narrowed by that one rule, and a reader added tomorrow is narrowed too. A reader that reaches the table with `DB::table()` instead of the model is not, and a reader in an add-on this repository does not vendor was not audited at all. Three repository methods drop *every* global scope (`CategoryRepository::getFirstWhere`, `FlashDealRepository` and `DealOfTheDayRepository::getFirstWhereWithoutGlobalScope`); they put this one back by hand.
+- **One scope.** `App\Traits\HasStorefrontVisibility` adds the global scope `storefront_visibility` to the nine models. Every reader **in this repository** that goes through the model — the category tree, the home page, the filters and facets, the category and brand pages, the brand list, the API v1 attribute, category, brand and coupon lists, the app lists, the deals, the clearance sales and the campaign overlay — is narrowed by that one rule, and a reader added tomorrow is narrowed too. A reader that reaches the table with `DB::table()` instead of the model is not, and a reader in an add-on this repository does not vendor was not audited at all. Three repository methods drop *every* global scope (`CategoryRepository::getFirstWhere`, `FlashDealRepository` and `DealOfTheDayRepository::getFirstWhereWithoutGlobalScope`); they put this one back by hand.
 
-A fifth entity type costs one line of `StorefrontVisibility::ENTITY_MODES` and the trait on its model.
+A further entity type costs one line of `StorefrontVisibility::ENTITY_MODES` and the trait on its model — that is what the attribute type cost on the storefront side, and the bill is itemised in `B-12-LOCAL-ATTRIBUTES-PER-COUNTRY.md`. A **panel** screen that works on one country's catalogue while belonging to no storefront is the one thing this does not cover; it names the country through `StorefrontVisibility::offeredIn()`, which is the same table, the same two modes and the same predicate.
 
 ## Two defaults, and they are not the same rule
 
 | Mode | Entity types | No mapping row | A row naming KW |
 |---|---|---|---|
 | `hidden` | category, brand | shown in every storefront (today's behaviour) | hidden in KW, shown everywhere else |
-| `assigned` | banner, coupon, flash deal, deal of the day, clearance sale, experience campaign | shown in every storefront | shown **only** in KW |
+| `assigned` | banner, coupon, flash deal, deal of the day, clearance sale, experience campaign, attribute | shown in every storefront | shown **only** in KW |
 
 They meet at the same safe place — with no rows at all, every storefront shows exactly what it shows today — but they are opposite rules, and `StorefrontVisibility` expresses both without conflating them (`test_the_two_defaults_are_not_the_same_rule`).
 
@@ -48,8 +48,8 @@ Invalidation reaches every market: `cacheRemoveByType('banners')` forgets `cache
 
 ## Before turning it on
 
-1. Run `2026_12_08_100000_create_storefront_entity_visibility_table`. It creates one table and changes nothing else; it can be rolled back at any time, and the code goes dormant again the moment the table is gone.
-2. Write the mappings you want with `php artisan storefront:visibility {entity-type} {entity-id} [countries...]` (no countries removes the mapping and restores the entity everywhere; `--show` only prints). The command is a thin shell over `StorefrontVisibility::set` / `storefrontsOf`, which is the whole write surface; a country that is not configured is dropped rather than stored.
+1. Run `2026_12_08_100000_create_storefront_entity_visibility_table`. It creates one table and changes nothing else; it can be rolled back at any time, and the code goes dormant again the moment the table is gone. Both directions are idempotent, because this platform's deployment imports `installation/backup/database.sql` before it migrates (`test_the_migration_can_run_twice_and_be_rolled_back_twice`).
+2. Write the mappings you want with `php artisan storefront:visibility {entity-type} {entity-id} [countries...]` (the entity types are `category`, `brand`, `banner`, `coupon`, `flash_deal`, `deal_of_the_day`, `clearance_sale`, `experience_campaign` and `attribute`) (no countries removes the mapping and restores the entity everywhere; `--show` only prints). The command is a thin shell over `StorefrontVisibility::set` / `storefrontsOf`, which is the whole write surface; a country that is not configured is dropped rather than stored.
 3. Clear the application cache once, or wait for the entries to expire.
 
 Rollback: remove the mapping rows (or drop the table). Nothing else has changed, because nothing else was written.
