@@ -4,6 +4,7 @@ namespace App\Services\Marketplace;
 
 use App\Services\Storefront\StorefrontCatalog;
 use App\Services\Storefront\StorefrontResolver;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -256,6 +257,30 @@ final class SellerMarketScope
         $bound = $this->boundGrant();
 
         return $bound === null ? $markets : array_values(array_intersect($markets, $bound));
+    }
+
+    /**
+     * Keeps the rows of a query whose market this request was granted (K-09).
+     *
+     * The one narrowing every list of this API uses — products, their reports, their exports, their bulk jobs and the rules that
+     * change them all read the same column — so the surfaces cannot disagree about what a staff member may see. A query that is
+     * not narrowed is returned untouched, so a seller with no grant reads exactly the list they always read.
+     *
+     * A grant of nothing keeps nothing: `[]` is a scope that reaches no market, never read as "no limit".
+     */
+    public function narrowQuery(Builder $query, string $column = StorefrontCatalog::COLUMN): Builder
+    {
+        $bound = $this->boundGrant();
+
+        if ($bound === null) {
+            return $query;
+        }
+
+        if ($bound === [] || !Schema::hasColumn($query->getModel()->getTable(), $column)) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->whereIn($query->qualifyColumn($column), $bound);
     }
 
     /**

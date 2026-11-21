@@ -83,11 +83,11 @@ class ProductController extends Controller
     public function getProductList(Request $request): JsonResponse
     {
         $seller = $request->seller;
-        $products = Product::with(['clearanceSale' => function ($query) {
+        $products = $this->sellerMarkets->narrowQuery(Product::with(['clearanceSale' => function ($query) {
                 return $query->active();
             }])
             ->withCount('reviews')
-            ->where(['added_by' => 'seller', 'user_id' => $seller['id']])
+            ->where(['added_by' => 'seller', 'user_id' => $seller['id']]))
             ->when(isset($request['filter_category_ids']) && !empty($request['filter_category_ids']) && is_array($request['filter_category_ids']) && count($request['filter_category_ids']) > 0,
                 function ($query) use ($request) {
                     return \App\Utils\ProductManager::filterQueryForCategoryWithSubCategories(
