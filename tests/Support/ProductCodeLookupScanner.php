@@ -32,7 +32,7 @@ final class ProductCodeLookupScanner
         'getWebListWithScope', 'getStockLimitListWhere', 'updateWhere', 'deleteWhere', 'updateOrCreate', 'firstOrCreate', 'firstOrNew', 'sole',
     ];
 
-    private const COLUMNS = ['code', 'barcode', 'products.code', 'products.barcode'];
+    private const COLUMNS = ['code', 'barcode', 'products.code', 'products.barcode', 'variation', 'products.variation'];
 
     /** What the chain a lookup belongs to starts from when it is about products: the Product model, the products table, the product repository. */
     private const PRODUCT_CHAIN = '/^(?:\\\\?(?:[A-Za-z0-9_]+\\\\)*Product::|\$this->productRepo\b|\$productRepo\b|\$this->product(?:->|$))|(?:::|->)table\(\'products\'\)/';

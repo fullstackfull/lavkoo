@@ -64,7 +64,7 @@ class ProductCodeDocTest extends TestCase
         $ids = array_column(ProductCodeSites::all(), 'id');
 
         $survey = array_merge(
-            array_map(static fn (int $number): string => 'A' . $number, range(1, 10)),
+            array_map(static fn (int $number): string => 'A' . $number, range(1, 11)),
             ['B1', 'B2'],
             array_map(static fn (int $number): string => 'C' . $number, range(1, 11)),
             array_map(static fn (int $number): string => 'D' . $number, range(1, 8)),

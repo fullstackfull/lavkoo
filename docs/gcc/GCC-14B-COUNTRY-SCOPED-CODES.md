@@ -7,7 +7,7 @@ sites slice 1 left partial or uncovered (the pickers, the exports, the gallery, 
 Decisions behind it: GCC-02/03 (every country has its own product rows), GCC-08 and GCC-18 (catalog products stay independent per country). The owner's
 rule: the same physical box carries the same EAN in Saudi Arabia and in Kuwait, so the same SKU or barcode may exist in two **countries**, never twice in
 **one** country. The survey this work follows is `docs/gcc/audits/2026-11-16-sku-barcode-lookup-map.md` (on the survey branch, not yet merged), 35
-sites and display groups, ids A1 to G9 (44 rows below).
+sites and display groups, ids A1 to G9 (45 rows below).
 
 ## What the switch does
 
@@ -66,7 +66,7 @@ Status of every site of the survey.
   covered site still treats a code as if it named one product, wholly or in part; a deferred one is safe as it is and waits for a feature the owner has
   not approved.
 
-Totals after slice 3 (a test keeps this line equal to the registry): **19 covered, 7 labelled, 18 not needed (id-keyed), 0 open**.
+Totals after slice 3 (a test keeps this line equal to the registry): **20 covered, 7 labelled, 18 not needed (id-keyed), 0 open**.
 
 | # | Where | Status | What it does now |
 |---|---|---|---|
@@ -80,6 +80,7 @@ Totals after slice 3 (a test keeps this line equal to the registry): **19 covere
 | A8 | `RestAPI v3 seller ProductController::updateProduct` | covered | Unique inside the product's own country; the product itself is ignored. |
 | A9 | `ProductService::getUniqueProductSKUCode` | covered | Free in the country the imported products take (the table default: the sheet has no country column). |
 | A10 | `M5aznProductImporter::clashesWithExistingProduct` | covered | Parks an item only when its SKU or barcode is used in the country it is imported into (the table default, written explicitly while the switch is on). |
+| A11 | `Variant SKU gate and till lookup` | covered | A variant SKU names one variant inside its product's country: it may not be repeated inside a product, nor be one another product of that country holds, and the seller till finds a product by one. `ProductVariantSku` narrows through `ProductCodeScope` and confirms the SKU by decoding the stored list. See "Variant SKUs (slice 3)". |
 | B1 | `ProductService::getImportBulkProductData ($productsTax)` | covered | The tax ids are listed in the order of the sheet rows, not keyed by code. |
 | B2 | `Admin ProductController::importBulkProduct` | covered | The tax rows go to the ids of the rows the import just created; no product is found by its code. |
 | C1 | `RestAPI v3 seller POSController::get_product_by_barcode` | covered | Looks at the code and the barcode of the seller's own products, narrowed to the country of the request (`country`, else the default storefront); more than one match answers 409 ambiguous_code. Switch off: the first product with the code, as before. |
@@ -141,6 +142,28 @@ and the M5AZN import all take the table default, `SA`; only the admin add lets a
 in a seller's list. `SellerSurfacesCountryTest` pins both the reason and the result; the day a seller can hold products in two countries it fails and
 names the views that need the label. Lists of products already chosen (the products of a deal, the lines of a clearance sale) are display and are not
 labelled either: only the rows and chips of a picker are.
+
+### Variant SKUs (slice 3, A11)
+
+A variant's SKU names one variant inside its product's country, as the product's own code names one product there. Variants are **not rows**: they
+live as a JSON list in `products.variation`, each `{type, price, sku, qty}`, so no index can hold this and no gate checked it before — two variants
+of one product could share a SKU, and a SKU another product already used could be typed again, and then a scan of that SKU names two things.
+
+`App\Services\Catalog\ProductVariantSku` is the one gate of the admin form, the vendor form and both seller apps, so the four cannot drift apart.
+It refuses a SKU repeated inside the product and a SKU a product of the **same country** already holds, under `sku_error`, the field the forms
+already show variant SKU errors under, so no screen changes to carry the message. The same SKU in another country is free, as a product's own code
+is. It is dormant with the switch: with it off nothing is refused that saves today.
+
+The seller till (C1) now also finds a product by a variant SKU, narrowed to the same country, because the label on a box of one size carries that
+size's SKU and not the product's; two products of one country holding the SKU is the same `409 ambiguous_code` as a shared code, never a choice.
+
+**Reading a SKU out of SQL.** The list is a JSON string in a text column and the engines disagree about JSON, so a candidate is found by a cheap text
+filter and **confirmed in PHP** by decoding the list. The filter is a superset, never a narrower: it is applied only while every SKU in the question
+is written in characters `json_encode` leaves alone, and one that is not drops the filter for the whole set, so the answer stays right at the cost of
+reading the country's products. The gate takes that cost and has no row cap, because a gate that misses a duplicate lets one in; the till does not —
+it reads a printed label, so a value that would be rewritten is not looked for among the variants at all, and the filtered lookup takes the same
+candidate cap as the code scan. The gate asks **one** question however many variants a product has (a query each would be a scan of the products
+table each), and a test pins that.
 
 ### The copy to another country (slice 3, G9)
 
