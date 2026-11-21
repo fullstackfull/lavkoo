@@ -124,6 +124,8 @@ final class ProductCopyToCountry
         ], $attributes));
 
         // A copy nobody can see a record of is the thing this criterion forbids, so the row and its audit line are written together or not at all.
+        // The files are already copied: doing that inside the transaction would hold it open across network writes to s3, so a failed audit leaves
+        // files on disk with no row pointing at them. Storage to tidy, not a wrong answer.
         return DB::transaction(function () use ($copy, $source, $target, $code, $barcode, $imagesNotCopied): Product {
             $copy->save();
 

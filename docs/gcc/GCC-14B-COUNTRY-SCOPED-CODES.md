@@ -199,6 +199,10 @@ country already holds is caught the moment the admin saves the copy's form.
 Only a column the source row already has is ever written, so an installation whose products table is older than one of these columns is not given
 a column by a copy.
 
+One known trade-off: the image files are copied **before** the transaction opens, because copying them inside it would hold a database
+transaction open across network writes to s3. A copy whose audit line cannot be written therefore leaves its copied files on disk with no row
+pointing at them. That is storage to tidy, not a wrong answer, and it is the better of the two failures.
+
 ### The site guard
 
 `tests/Feature/Catalog/ProductCodeLookupGuardTest.php` reads every PHP file under `app/` and `Modules/` and fails for any place that looks a product up,
