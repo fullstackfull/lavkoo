@@ -88,7 +88,7 @@ final class SellerMarketScope
      *
      * @return list<string>
      */
-    public function storedMarketsOf(SellerPrincipal $principal): array
+    private function storedMarketsOf(SellerPrincipal $principal): array
     {
         return $this->rowsOf($principal)->pluck('country')->map(static fn ($country): string => (string) $country)->all();
     }
@@ -232,31 +232,6 @@ final class SellerMarketScope
         $market = request()->attributes->get(self::WORKING_MARKET_ATTRIBUTE);
 
         return is_string($market) ? $market : null;
-    }
-
-    public function restricts(): bool
-    {
-        return $this->boundGrant() !== null;
-    }
-
-    public function allows(string $market): bool
-    {
-        $bound = $this->boundGrant();
-
-        return $bound === null || in_array($market, $bound, true);
-    }
-
-    /**
-     * The markets a narrowed request may read, in the order they were given. A request that is not narrowed reads them all.
-     *
-     * @param  list<string>  $markets
-     * @return list<string>
-     */
-    public function narrow(array $markets): array
-    {
-        $bound = $this->boundGrant();
-
-        return $bound === null ? $markets : array_values(array_intersect($markets, $bound));
     }
 
     /**
