@@ -28,8 +28,7 @@ class WalletConcurrencyTest extends TestCase
         if (!ConcurrentRunner::available()) {
             $this->markTestSkipped('Needs a real MySQL or MariaDB: SQLite in memory is private to one process.');
         }
-        WalletTables::drop();
-        WalletTables::create();
+        WalletTables::reset();
         WalletTables::setSetting('wallet_status', '1');
         WalletTables::setSetting('loyalty_point_exchange_rate', '100');
         WalletTables::seedCustomer(self::CUSTOMER_ID, self::OPENING_BALANCE);

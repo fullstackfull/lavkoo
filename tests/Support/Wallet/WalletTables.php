@@ -11,29 +11,40 @@ use RuntimeException;
 /**
  * The tables the customer wallet writers read and write, with the columns the wallet code uses.
  *
+ * The money columns carry the precision the shipped schema carries after
+ * 2026_05_07_000001_update_all_decimal_columns_to_40_20, because a narrower column here would round a figure the application
+ * never rounds and the test would be measuring the helper.
+ *
  * Changing them is refused on a non-SQLite connection unless the database name says it is a test database and APP_ENV is
  * testing, the same guard the address and MyFatoorah schema helpers use. A run pointed at a real database cannot drop its customers.
  */
 final class WalletTables
 {
+    /** A clean set of tables, whatever the last test left behind. A real engine keeps them between tests; SQLite in memory does not. */
+    public static function reset(): void
+    {
+        self::drop();
+        self::create();
+    }
+
     public static function create(): void
     {
         self::guardTestDatabase();
 
         Schema::create('users', function (Blueprint $table): void {
             $table->id();
-            $table->decimal('wallet_balance', 18, 12)->default(0);
-            $table->decimal('loyalty_point', 18, 4)->nullable()->default(0);
+            $table->decimal('wallet_balance', 40, 20)->default(0);
+            $table->decimal('loyalty_point', 40, 20)->nullable()->default(0);
             $table->timestamps();
         });
         Schema::create('wallet_transactions', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('user_id')->nullable();
             $table->uuid('transaction_id');
-            $table->decimal('credit', 24, 3)->default(0);
-            $table->decimal('debit', 24, 3)->default(0);
-            $table->decimal('admin_bonus', 24, 3)->default(0);
-            $table->decimal('balance', 24, 3)->default(0);
+            $table->decimal('credit', 40, 20)->default(0);
+            $table->decimal('debit', 40, 20)->default(0);
+            $table->decimal('admin_bonus', 40, 20)->default(0);
+            $table->decimal('balance', 40, 20)->default(0);
             $table->string('transaction_type', 191)->nullable();
             $table->string('reference', 191)->nullable();
             $table->string('payment_method')->nullable();

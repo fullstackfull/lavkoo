@@ -29,8 +29,7 @@ class WalletFiguresTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        WalletTables::drop();
-        WalletTables::create();
+        WalletTables::reset();
         WalletTables::setSetting('wallet_status', '1');
         WalletTables::setSetting('loyalty_point_exchange_rate', '100');
         WalletTables::setSetting('currency_model', 'single_currency');
@@ -218,7 +217,7 @@ class WalletFiguresTest extends TestCase
         $this->record(amount: 100.0, transactionType: 'add_fund_by_admin', reference: 'earned_by_referral');
         $credited = (float) WalletTables::ledgerRow()->credit;
 
-        $this->assertEqualsWithDelta(100.0 / 3.75, $credited, 0.0000001);
+        $this->assertEqualsWithDelta(100.0 / 3.75, $credited, 0.00000000001);
         $this->assertEqualsWithDelta(self::OPENING_BALANCE + $credited, WalletTables::walletBalance(self::CUSTOMER_ID), 0.0001);
         $this->assertEqualsWithDelta(self::OPENING_BALANCE + $credited, (float) WalletTables::ledgerRow()->balance, 0.0001);
     }
@@ -230,7 +229,7 @@ class WalletFiguresTest extends TestCase
 
         $this->record(amount: 100.0, transactionType: 'order_place', reference: 'order payment');
 
-        $this->assertEqualsWithDelta(100.0 / 3.75, (float) WalletTables::ledgerRow()->debit, 0.0000001);
+        $this->assertEqualsWithDelta(100.0 / 3.75, (float) WalletTables::ledgerRow()->debit, 0.00000000001);
         $this->assertEqualsWithDelta(self::OPENING_BALANCE - 100.0 / 3.75, WalletTables::walletBalance(self::CUSTOMER_ID), 0.0001);
     }
 

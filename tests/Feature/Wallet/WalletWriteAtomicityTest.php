@@ -27,10 +27,16 @@ class WalletWriteAtomicityTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        WalletTables::create();
+        WalletTables::reset();
         WalletTables::setSetting('wallet_status', '1');
         WalletTables::setSetting('loyalty_point_exchange_rate', '100');
         WalletTables::seedCustomer(self::CUSTOMER_ID, self::OPENING_BALANCE);
+    }
+
+    protected function tearDown(): void
+    {
+        WalletTables::drop();
+        parent::tearDown();
     }
 
     public function test_a_failed_ledger_write_leaves_the_wallet_unchanged(): void
