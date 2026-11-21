@@ -382,12 +382,51 @@ class StorefrontMoneyAndSeoTest extends TestCase
         // The field a visitor actually reads, not only the helper behind it: the Kuwaiti filter is signed in dinars on a first request
         // as well as a later one, and the maximum it offers is Kuwait's own 500 and not the catalogue's 1000. That number is written out
         // rather than interpolated from the helper, so the rendered field is read against Kuwait's catalogue instead of following the
-        // helper wherever it goes. The minimum the field prints is the template's own literal zero, so only the maximum is a bound here.
+        // helper wherever it goes.
         $kuwaitiFilter = $this->inStorefront('KW', fn (): array => $this->renderedPriceFilter());
         foreach (['cold', 'warm'] as $state) {
             $this->assertStringContainsString('placeholder="KD0"', $kuwaitiFilter[$state], $state);
             $this->assertStringContainsString('placeholder="KD500"', $kuwaitiFilter[$state], $state);
         }
+
+        $this->assertRenderedMinimumCarriesTheSignAndNotTheFloor();
+    }
+
+    /**
+     * **The rendered price filter carries the SIGN and the CEILING. It does not carry the floor, and no assertion against it can prove
+     * one.** The partial prints `placeholder="{{ $priceFilterSign }}{{ '0' }}"` -- a template literal -- and never calls the minimum
+     * helper at all; the slider beside it is a literal `data-min-value="0"` too. The floor is therefore proved at the surface where it
+     * IS observable, which is the helper, and this is what keeps that claim honest: it is the assertion that goes red the day the field
+     * starts carrying the floor, so the record cannot quietly fall out of date.
+     *
+     * **Why the field was not wired to the helper instead.** Doing so would change what a Saudi shopper sees today -- measured on this
+     * head, the Saudi floor is 350 converted (100 as stored) while the field offers 0 -- and it would leave the placeholder disagreeing
+     * with the slider's own hardcoded minimum unless that moved too. That is a behaviour change to a live Saudi surface that nothing in
+     * the plan asks for, against a rule that says to inject logic and not alter the design. The floor already has a reader that a wrong
+     * value would reach: `api/v1/config` publishes it as `product_min_unit_price_range`, straight from this helper.
+     *
+     * The Saudi market is the one to measure it on, because its floor is a non-zero number there: `KD0` on the Kuwaiti field could be
+     * the literal zero or a floor that happens to be zero, and would prove nothing either way.
+     */
+    private function assertRenderedMinimumCarriesTheSignAndNotTheFloor(): void
+    {
+        [$floorAsStored, $floorConverted, $filter] = $this->inStorefront('SA', fn (): array => [
+            getProductMinUnitPriceRange(),
+            getProductMinUnitPriceRange(type: 'web'),
+            $this->renderedPriceFilter()['warm'],
+        ]);
+
+        $this->assertSame(100, $floorAsStored, 'the Saudi floor as stored, which the field would print if it carried the floor');
+        $this->assertSame(350, $floorConverted, 'and converted for the web, which it would print under the web conversion');
+
+        $this->assertStringContainsString('placeholder="SAR0"', $filter, 'the minimum is the sign and the template\'s own literal zero');
+        $this->assertStringNotContainsString('placeholder="SAR' . $floorAsStored . '"', $filter);
+        $this->assertStringNotContainsString('placeholder="SAR' . $floorConverted . '"', $filter);
+        $this->assertStringNotContainsString(
+            'getProductMinUnitPriceRange',
+            file_get_contents(resource_path('themes/default/web-views/products/partials/_filter-product-price.blade.php')),
+            'if the field ever calls the minimum helper, the floor becomes a rendered bound and this test must be rewritten to prove it',
+        );
     }
 
     /**
