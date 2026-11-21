@@ -3,10 +3,13 @@
 namespace Tests\Feature\Storefront;
 
 use App\Http\Middleware\NoIndexUnlaunchedStorefront;
+use App\Models\Product;
 use App\Services\Seo\StorefrontSeo;
 use App\Services\Seo\StorefrontSitemap;
+use App\Services\Seo\StructuredDataBuilder;
 use App\Services\Storefront\StorefrontCurrency;
 use App\Services\Storefront\StorefrontResolver;
+use App\Services\Storefront\StorefrontUrl;
 use App\Utils\BrandManager;
 use App\Utils\Convert;
 use App\Utils\Helpers;
@@ -15,6 +18,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsStorefrontCatalog;
 use Tests\Support\BuildsStorefrontLegalDocuments;
 use Tests\Support\BuildsStorefrontSeoWorld;
@@ -28,7 +32,10 @@ use Tests\TestCase;
  * with each other, so a second calculation appearing anywhere would show up as a disagreement rather than as a plausible number.
  *
  * The first two tests are the dormancy proof: with the markets switched off, and with them switched on while only Saudi Arabia is
- * configured, every number, tag and file is what it is today, compared field by field against the same snapshot.
+ * configured, every number, tag and file is what it is today, compared field by field against the same snapshot. The snapshot holds
+ * this feature's headline output — the rendered `seo.product-supplement` partial, through the real composer — because a proof that
+ * excuses the page itself proves nothing, and it is taken under both currency models, since the model an operator picked decides
+ * whether the money helpers convert a stored amount or show it as it is.
  */
 class StorefrontMoneyAndSeoTest extends TestCase
 {
@@ -62,15 +69,30 @@ class StorefrontMoneyAndSeoTest extends TestCase
 
     /* ---------------------------------------------------------------------------------------------------------------- dormancy */
 
-    public function test_with_the_markets_switched_off_every_number_tag_and_file_is_what_it_is_today(): void
+    #[DataProvider('currencyModels')]
+    public function test_with_the_markets_switched_off_every_number_tag_and_file_is_what_it_is_today(string $currencyModel): void
     {
         config(['gcc.storefronts.enabled' => false, 'gcc.storefronts.currency.enabled' => false]);
+        $this->setBusinessSettings(['currency_model' => $currencyModel]);
 
         $snapshot = $this->saudiSnapshot();
 
-        // The platform's own settings, untouched: the riyal, two decimals, the platform's multi-currency conversion.
+        // The platform's own settings, untouched: the riyal, two decimals, the platform's own currency model.
         $this->assertSame('SAR', $snapshot['money']['currency']);
         $this->assertSame(2, $snapshot['money']['decimals']);
+
+        // The rendered page is in the snapshot, so it has to be there to compare: the real partial, through the real composer, with
+        // the bare address, no storefront alternate, and the offer this page has always published — the amount as it is stored, in
+        // the platform's default currency, under either currency model. What the page PRINTS under the multi-currency model is a
+        // different number, and that disagreement is older than the markets:
+        // {@see test_the_published_offer_still_disagrees_with_the_printed_price_under_the_multi_currency_model}.
+        $this->assertStringContainsString('<link rel="canonical" href="https://lavkoo.test/product/saudi-serum">', $snapshot['rendered_supplement']);
+        $this->assertStringNotContainsString('/sa/', $snapshot['rendered_supplement']);
+        $this->assertStringContainsString('"price":"100"', $snapshot['rendered_supplement']);
+        $this->assertStringContainsString('"priceCurrency":"SAR"', $snapshot['rendered_supplement']);
+        $this->assertSame(['price' => self::SAUDI_PRICE, 'currency' => 'SAR', 'decimals' => 2], $snapshot['offer']);
+        $this->assertSame('100', $snapshot['schema_offer']['price']);
+        $this->assertSame('SAR', $snapshot['schema_offer']['priceCurrency']);
 
         // No storefront address, no storefront alternates, no robots header, and the one sitemap the panel writes today.
         $this->assertSame('https://lavkoo.test/product/saudi-serum', $snapshot['canonical']);
@@ -87,9 +109,11 @@ class StorefrontMoneyAndSeoTest extends TestCase
      * A dormant installation is a Saudi one: it holds no other market's products, because no other market exists on it. So this compares
      * the two states on that catalogue, and every field has to match — no field is excused.
      */
-    public function test_with_the_markets_on_and_only_saudi_arabia_configured_nothing_changes(): void
+    #[DataProvider('currencyModels')]
+    public function test_with_the_markets_on_and_only_saudi_arabia_configured_nothing_changes(string $currencyModel): void
     {
         $this->keepOnlySaudiCatalogue();
+        $this->setBusinessSettings(['currency_model' => $currencyModel]);
 
         config(['gcc.storefronts.enabled' => false, 'gcc.storefronts.currency.enabled' => false]);
         $before = $this->saudiSnapshot();
@@ -106,6 +130,36 @@ class StorefrontMoneyAndSeoTest extends TestCase
         Cache::flush();
 
         $this->assertSame($before, $this->saudiSnapshot());
+    }
+
+    /**
+     * Characterisation, not an endorsement, and the reason the offer above is dormant rather than corrected.
+     *
+     * Under the multi-currency model the money helpers treat a stored amount as a base-currency amount and convert it for display, so
+     * a product stored at 100 PRINTS as SAR375.00 on the live Saudi page while its JSON-LD offer says 100 SAR. The page and the
+     * crawler have disagreed like that since before the markets existed, and correcting it would move the published price of a live
+     * page — which is the one thing a dormant slice may not do, and a decision for whoever owns what Google is shown. This pins what
+     * ships today so that the change is visible when somebody makes it, as
+     * {@see test_a_percentage_discount_is_rounded_to_whole_percent_everywhere_today} pins the rounding beside it.
+     */
+    public function test_the_published_offer_still_disagrees_with_the_printed_price_under_the_multi_currency_model(): void
+    {
+        config(['gcc.storefronts.enabled' => false, 'gcc.storefronts.currency.enabled' => false]);
+        $this->setBusinessSettings(['currency_model' => 'multi_currency']);
+
+        $snapshot = $this->saudiSnapshot();
+
+        $this->assertSame('SAR375.00', $snapshot['money']['formatted'], 'what the page prints');
+        $this->assertStringContainsString('"price":"100"', $snapshot['rendered_supplement'], 'what the crawler is told');
+        $this->assertStringContainsString('"priceCurrency":"SAR"', $snapshot['rendered_supplement']);
+
+        // A market that trades in its own currency has no such gap: there the model is the single-currency one, so the number the page
+        // prints and the number the offer states are the same number.
+        $this->openSixMarkets();
+        $this->inStorefront('KW', function (): void {
+            $this->assertSame('KD12.345', app(StorefrontCurrency::class)->money(amount: self::KUWAITI_PRICE)['formatted']);
+            $this->assertStringContainsString('"price":"12.345"', $this->renderedSupplement(productId: 2));
+        });
     }
 
     /* ----------------------------------------------------------------------------------- B-03: local price and availability */
@@ -493,8 +547,23 @@ class StorefrontMoneyAndSeoTest extends TestCase
         return $this->inStorefront('SA', fn (): array => [
             'money' => app(StorefrontCurrency::class)->money(amount: self::SAUDI_PRICE),
             'api_money' => app(StorefrontCurrency::class)->apiMoney(amount: self::SAUDI_PRICE),
+            // The feature's headline output: the partial the product page includes, rendered through the real composer, which is where
+            // the canonical, the hreflang set and the JSON-LD offer a crawler actually reads are decided. A dormancy proof that
+            // compares the services but not the page excuses the one field a reader would check first.
+            'rendered_supplement' => $this->renderedSupplement(),
+            'offer' => app(StorefrontSeo::class)->offer(amount: self::SAUDI_PRICE),
+            'schema_offer' => app(StructuredDataBuilder::class)->product([
+                'name' => 'Saudi serum',
+                'price' => app(StorefrontSeo::class)->offer(amount: self::SAUDI_PRICE)['price'],
+                'currency' => app(StorefrontSeo::class)->offer(amount: self::SAUDI_PRICE)['currency'],
+                'price_decimals' => app(StorefrontSeo::class)->offer(amount: self::SAUDI_PRICE)['decimals'],
+            ])['offers'],
             'canonical' => app(StorefrontSeo::class)->canonical(route('product', ['slug' => 'saudi-serum'])),
-            'alternates' => app(StorefrontSeo::class)->alternates(url: route('product', ['slug' => 'saudi-serum']), languageCodes: ['en', 'ar']),
+            'alternates' => app(StorefrontSeo::class)->alternates(
+                url: route('product', ['slug' => 'saudi-serum']),
+                languageCodes: ['en', 'ar'],
+                countries: app(StorefrontSeo::class)->countriesCarrying(product: Product::query()->find(1)),
+            ),
             'indexable' => app(StorefrontSeo::class)->isIndexable(),
             'robots_header' => $this->robotsHeader(),
             'price_bound' => getProductMaxUnitPriceRange(type: 'web'),
@@ -509,6 +578,26 @@ class StorefrontMoneyAndSeoTest extends TestCase
             'storefront_sitemaps' => array_keys(app(StorefrontSitemap::class)->files(at: CarbonImmutable::parse('2026-11-21T09:00:00+00:00'), stamp: 'now')),
             'platform_sitemap_slugs' => app(StorefrontSitemap::class)->defaultStorefrontSlugs(),
         ]);
+    }
+
+    /** The partial the product page includes, rendered through the real composer for the Saudi product. */
+    private function renderedSupplement(int $productId = 1): string
+    {
+        return view('seo.product-supplement', ['productDetails' => Product::query()->find($productId)])->render();
+    }
+
+    /**
+     * The two currency models an operator can pick. The money helpers convert a stored amount under the first and show it as it is
+     * stored under the second, so a dormancy claim that holds under one and not the other is not a dormancy claim.
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function currencyModels(): array
+    {
+        return [
+            'the platform converts a stored amount' => ['multi_currency'],
+            'the platform shows an amount as stored' => ['single_currency'],
+        ];
     }
 
     /** The catalogue of an installation that serves Saudi Arabia only, which is what a dormant installation is. */
