@@ -61,7 +61,7 @@ class PaymentAccountWebhookController extends Controller
     {
         $resolved = $this->registry->byWebhookToken(token: $account);
 
-        if ($resolved === null || !$this->registry->covers(gateway: (string) $resolved->gateway) || (string) $resolved->gateway !== self::GATEWAY) {
+        if ($resolved === null || !$this->readsNotificationsOf(account: $resolved)) {
             return $this->unauthorised(reason: 'account');
         }
 
@@ -99,6 +99,18 @@ class PaymentAccountWebhookController extends Controller
         }
 
         return response()->json(['success' => true, 'status' => $outcome['result']], $outcome['http'] ?? 200);
+    }
+
+    /**
+     * May this address act for this account at all?
+     *
+     * Two conditions, and they are two different things. The registry's covered list is the owner's switch: a gateway that is not on it is read from the
+     * platform row everywhere and has no per-company notification address. The gateway ON THE ACCOUNT is the dispatch decision: this address hands a
+     * delivery to one gateway's processor, and a webhook secret authenticates a body whatever gateway the account it belongs to is registered for.
+     */
+    private function readsNotificationsOf(PaymentGatewayAccount $account): bool
+    {
+        return $this->registry->covers(gateway: (string) $account->gateway) && (string) $account->gateway === self::GATEWAY;
     }
 
     /**
