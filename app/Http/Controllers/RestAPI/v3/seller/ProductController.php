@@ -208,9 +208,11 @@ class ProductController extends Controller
 
         $productIdsForUnknownAuthor = Product::active()->where(['product_type' => 'digital'])->whereNotIn('id', $productIdsForAuthor)->pluck('id')->toArray();
 
-        $products = Product::when($request['offer_type'] == 'clearance_sale', function ($query) {
+        // Held to the markets the token was granted, as the product list is (K-09). Two more lists of the shop's own catalogue,
+        // reached by naming the shop's own id, which the market bound had not been put on.
+        $products = $this->sellerMarkets->narrowQuery(Product::when($request['offer_type'] == 'clearance_sale', function ($query) {
                 return $query->active();
-            })->with(['brand', 'category', 'rating', 'tags', 'reviews', 'seoInfo', 'digitalVariation', 'digitalProductAuthors' => function ($query) {
+            }))->with(['brand', 'category', 'rating', 'tags', 'reviews', 'seoInfo', 'digitalVariation', 'digitalProductAuthors' => function ($query) {
                 return $query->with(['author']);
             }, 'digitalProductPublishingHouse' => function ($query) {
                 return $query->with(['publishingHouse']);
@@ -461,9 +463,11 @@ class ProductController extends Controller
 
         $productIdsForUnknownAuthor = Product::active()->where(['product_type' => 'digital'])->whereNotIn('id', $productIdsForAuthor)->pluck('id')->toArray();
 
-        $products = Product::when($request['offer_type'] == 'clearance_sale', function ($query) {
+        // Held to the markets the token was granted, as the product list is (K-09). Two more lists of the shop's own catalogue,
+        // reached by naming the shop's own id, which the market bound had not been put on.
+        $products = $this->sellerMarkets->narrowQuery(Product::when($request['offer_type'] == 'clearance_sale', function ($query) {
             return $query->active();
-        })->with(['brand', 'category', 'rating', 'tags', 'reviews', 'seoInfo', 'digitalVariation', 'digitalProductAuthors' => function ($query) {
+        }))->with(['brand', 'category', 'rating', 'tags', 'reviews', 'seoInfo', 'digitalVariation', 'digitalProductAuthors' => function ($query) {
             return $query->with(['author']);
         }, 'digitalProductPublishingHouse' => function ($query) {
             return $query->with(['publishingHouse']);

@@ -95,7 +95,7 @@ trait GrantsSellerMarkets
         foreach ([
             'digital_product_authors', 'digital_product_publishing_houses', 'product_seos', 'product_tag', 'tags', 'translations',
             'system_tax_setups', 'product_vat_taxes', 'reviews', 'vendor_payout_requests', 'stock_clearance_products', 'stock_clearance_setups',
-            'digital_product_variations',
+            'digital_product_variations', 'publishing_houses', 'authors', 'brands', 'taxables', 'taxes',
         ] as $table) {
             Schema::dropIfExists($table);
 
@@ -170,6 +170,9 @@ trait GrantsSellerMarkets
                 $blueprint->unsignedTinyInteger('is_active')->default(0);
                 $blueprint->unsignedTinyInteger('is_default')->default(0);
                 $blueprint->unsignedBigInteger('tax_id')->nullable();
+                $blueprint->unsignedBigInteger('taxable_id')->nullable();
+                $blueprint->string('taxable_type')->nullable();
+                $blueprint->string('tax_for')->nullable();
                 $blueprint->timestamps();
             });
         }
@@ -443,7 +446,7 @@ trait GrantsSellerMarkets
         foreach ([
             'digital_product_authors', 'digital_product_publishing_houses', 'product_seos', 'product_tag', 'tags', 'translations',
             'system_tax_setups', 'product_vat_taxes', 'reviews', 'vendor_payout_requests', 'stock_clearance_products', 'stock_clearance_setups',
-            'digital_product_variations',
+            'digital_product_variations', 'publishing_houses', 'authors', 'brands', 'taxables', 'taxes',
         ] as $table) {
             Schema::dropIfExists($table);
         }

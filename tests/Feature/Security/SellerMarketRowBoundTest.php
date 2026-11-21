@@ -174,6 +174,32 @@ class SellerMarketRowBoundTest extends TestCase
         $this->assertStringNotContainsString('99999', $answer->getContent(), "{$shape} must carry no figure of another market's product");
     }
 
+    /**
+     * The two catalogue lists a shop reaches by naming its own id. They are not `products/list`, they carry the whole product
+     * row, and the market bound had not been put on either of them — found by enumerating the route file rather than the screens.
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function catalogueListsReachedByShopId(): array
+    {
+        return ['the whole catalogue' => ['all-products'], 'the catalogue an order edit picks from' => ['edit-order-all-products']];
+    }
+
+    #[DataProvider('catalogueListsReachedByShopId')]
+    public function test_a_catalogue_list_reached_by_the_shops_own_id_holds_only_the_granted_markets(string $list): void
+    {
+        $this->grantSaudiAlone();
+
+        $answer = $this->sellerApi('get', 'products/' . self::SELLER . '/' . $list . '?limit=50&offset=1');
+
+        $answer->assertStatus(200);
+        $this->assertSame(
+            [self::PRODUCT_INSIDE],
+            array_column((array) $answer->json('products'), 'id'),
+            "products/{$list} must hold the granted market and nothing else",
+        );
+    }
+
     public function test_deleting_a_product_of_another_market_leaves_it_where_it_is(): void
     {
         $this->grantSaudiAlone();
