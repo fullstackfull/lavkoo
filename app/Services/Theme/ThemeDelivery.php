@@ -2,7 +2,6 @@
 
 namespace App\Services\Theme;
 
-use App\Models\Theme;
 use App\Models\ThemeSection;
 use App\Models\ThemeVersion;
 use App\Services\Storefront\StorefrontContext;
@@ -159,17 +158,23 @@ class ThemeDelivery
         }
     }
 
-    /** Drop every cached delivery — called on publish, alongside the storefront's own flush. */
-    public function flush(): void
+    /**
+     * Drop every cached delivery — called on publish, alongside the storefront's own flush. For the storefronts given only (F-02), or for every storefront when none is given.
+     *
+     * @param list<string>|null $storefronts
+     */
+    public function flush(?array $storefronts = null): void
     {
-        foreach (StorefrontContext::keysForEveryStorefront(self::CACHE_PREFIX . 'revision') as $key) {
+        $keysOf = static fn (string $key): array => $storefronts === null ? StorefrontContext::keysForEveryStorefront($key) : StorefrontContext::keysForStorefronts(countries: $storefronts, key: $key);
+
+        foreach ($keysOf(self::CACHE_PREFIX . 'revision') as $key) {
             Cache::forget($key);
         }
 
         // Per-client payloads are keyed by a capability fingerprint nobody enumerates, so they
         // cannot be forgotten one by one. They carry the revision in their key instead: a publish
         // moves the revision, which strands every old entry to expire on its own TTL.
-        foreach (StorefrontContext::keysForEveryStorefront(self::CACHE_PREFIX . 'home_index') as $key) {
+        foreach ($keysOf(self::CACHE_PREFIX . 'home_index') as $key) {
             Cache::forget($key);
         }
     }
@@ -576,8 +581,9 @@ $blocks = $row->blocks
             'colors'     => $settings['colors'] ?? [],
             'typography' => $settings['typography'] ?? [],
             'layout'     => $settings['layout'] ?? [],
+            // A logo is a path and its size is a number: the size a merchant sets must reach the app, which draws the logo at that size.
             'branding'   => $this->absolutize(array_map(
-                fn ($value) => is_string($value) && $value !== '' ? $value : null,
+                fn ($value) => (is_string($value) && $value !== '') || is_int($value) || is_float($value) ? $value : null,
                 $settings['branding'] ?? [],
             )),
         ];
@@ -666,6 +672,9 @@ $blocks = $row->blocks
             $viewer->platform,
             $viewer->device,
             $viewer->audience(),
+            // The channel decides which sections a client is sent (SectionVisibility), and the response already says it varies by X-UI-Channel: without it in the key the client that asks
+            // first decides what the others get, and a section kept for the seller app is sent to the customer app.
+            $viewer->channel(),
             // The matched segment SET joins the key (§64–65): what varies the response must vary
             // the cache. Bounded by the segments actually defined, not by customers — two repeat
             // buyers share one entry, and no customer data is ever IN a shared value.
@@ -721,15 +730,7 @@ $blocks = $row->blocks
 
     private function publishedVersion(): ?ThemeVersion
     {
-        $theme = Theme::query()->where('is_active', true)->first();
-        if ($theme === null) {
-            return null;
-        }
-
-        return ThemeVersion::query()
-            ->where('theme_id', $theme->id)
-            ->where('status', ThemeVersion::STATUS_PUBLISHED)
-            ->first();
+        return app(StorefrontThemeResolver::class)->publishedVersion();
     }
 
     private function tablesReady(): bool

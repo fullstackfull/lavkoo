@@ -60,6 +60,22 @@ final readonly class StorefrontContext
         return $keys;
     }
 
+    /**
+     * The keys that the given storefronts write one key under: the Saudi storefront's own key, and the key each other one is scoped to. A publish of one storefront's theme forgets
+     * these and no others.
+     *
+     * @param list<string> $countries
+     *
+     * @return list<string>
+     */
+    public static function keysForStorefronts(array $countries, string $key): array
+    {
+        return array_values(array_unique(array_map(
+            static fn (string $country): string => strtoupper($country) === self::UNSCOPED_COUNTRY ? $key : self::scoped(strtoupper($country), $key),
+            $countries,
+        )));
+    }
+
     public function scopedCacheKey(string $key): string
     {
         if (!$this->storefrontsEnabled || $this->country === self::UNSCOPED_COUNTRY) {

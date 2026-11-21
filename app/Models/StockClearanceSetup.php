@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Services\Storefront\StorefrontVisibility;
+use App\Traits\HasStorefrontVisibility;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -33,7 +35,9 @@ use Illuminate\Database\Eloquent\Relations\MorphOne;
  */
 class StockClearanceSetup extends Model
 {
-    use HasFactory;
+    use HasFactory, HasStorefrontVisibility;
+
+    public const STOREFRONT_ENTITY_TYPE = StorefrontVisibility::CLEARANCE_SALE;
 
     protected $fillable = [
         'setup_by',

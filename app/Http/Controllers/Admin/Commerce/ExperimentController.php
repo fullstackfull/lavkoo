@@ -4,12 +4,11 @@ namespace App\Http\Controllers\Admin\Commerce;
 
 use App\Http\Controllers\BaseController;
 use App\Models\ExperienceExperiment;
-use App\Models\Theme;
 use App\Models\ThemeSection;
-use App\Models\ThemeVersion;
 use App\Services\AuditLogger;
 use App\Services\Commerce\ExperimentRules;
 use App\Services\Theme\SectionRegistry;
+use App\Services\Theme\StorefrontThemeResolver;
 use App\Services\Theme\ThemePermissionService;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Contracts\View\View;
@@ -27,6 +26,7 @@ class ExperimentController extends BaseController
         private readonly SectionRegistry $registry,
         private readonly ThemePermissionService $permissions,
         private readonly AuditLogger $audit,
+        private readonly StorefrontThemeResolver $themes,
     ) {
     }
 
@@ -225,12 +225,7 @@ class ExperimentController extends BaseController
     private function publishedVersionId(): ?int
     {
         try {
-            $theme = Theme::query()->where('is_active', true)->first();
-
-            return $theme === null ? null : ThemeVersion::query()
-                ->where('theme_id', $theme->id)
-                ->where('status', ThemeVersion::STATUS_PUBLISHED)
-                ->value('id');
+            return $this->themes->publishedVersion()?->id;
         } catch (\Throwable) {
             return null;
         }
