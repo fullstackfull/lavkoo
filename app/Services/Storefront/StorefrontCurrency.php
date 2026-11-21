@@ -168,6 +168,31 @@ final class StorefrontCurrency
         ];
     }
 
+    /**
+     * The money block an API answer carries while the storefront serving it trades in its own currency: the currency, its symbol, the
+     * decimals that currency is written with and where the symbol goes, and, when an amount is given, that amount and its text.
+     *
+     * Nothing at all otherwise, so a client of the platform as it stands reads byte for byte the answer it reads today, and a client
+     * that does read this never has to work a storefront's currency out from a numeric setting.
+     *
+     * @return array{storefront_money?: array<string, mixed>}
+     */
+    public function apiMoney(string|int|float|null $amount = null): array
+    {
+        if ($this->currencyCodeInForce() === null) {
+            return [];
+        }
+
+        $money = $this->money(amount: $amount ?? 0);
+
+        return ['storefront_money' => [
+            'currency' => $money['currency'],
+            'symbol' => $money['symbol'],
+            'decimals' => $money['decimals'],
+            'symbol_position' => getWebConfig('currency_symbol_position') ?? 'right',
+        ] + ($amount === null ? [] : ['amount' => $money['amount'], 'formatted' => $money['formatted']])];
+    }
+
     /** How many decimals the money of this request is shown with: the currency's own while a storefront trades in it, the platform's setting otherwise. */
     public function decimalsInForce(): int
     {

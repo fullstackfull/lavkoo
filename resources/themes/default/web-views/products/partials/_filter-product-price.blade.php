@@ -5,13 +5,13 @@
             <div class="form-group mb-0">
                 <label for="min_price" class="mb-1 fs-12 fw-semibold">{{ translate('Min') }}</label>
                 <input type="number" id="min_price" name="min_price" class="form-control form-control--sm bg-black-09"
-                       placeholder="{{ session('currency_symbol') }}{{ '0' }}">
+                       placeholder="{{ getCurrencySymbol(type: 'web') }}{{ '0' }}">
             </div>
             <div class="mb-2">-</div>
             <div class="form-group mb-0">
                 <label for="max_price" class="mb-1 fs-12 fw-semibold">{{ translate('Max') }}</label>
                 <input type="number" id="max_price" name="max_price" class="form-control form-control--sm bg-black-09"
-                       placeholder="{{ session('currency_symbol') }}{{ getProductMaxUnitPriceRange(type: 'web') }}">
+                       placeholder="{{ getCurrencySymbol(type: 'web') }}{{ getProductMaxUnitPriceRange(type: 'web') }}">
             </div>
             <button class="btn btn--primary py-1 px-2 fs-13 action-search-products-by-price" id="">
                 <i class="text-absolute-white czi-arrow-{{ session('direction') === "rtl" ? 'left' : 'right' }}"></i>
