@@ -117,8 +117,9 @@ if (!$mapping) {
 
     foreach ($validated['customer_ids'] as $customerId) {
 
-        if ($consentRequired && !$consentGate->allowsCustomer(
+        if ($consentRequired && !$consentGate->allowsPerson(
             customerId: (int) $customerId,
+            email: User::where('id', $customerId)->value('email'),
             market: MarketingMarket::forCustomer(customerId: (int) $customerId),
             channel: MarketingConsent::CHANNEL_WHATSAPP,
             purpose: MarketingConsent::PURPOSE_CART_MARKETING,
@@ -258,7 +259,7 @@ if (!$mapping) {
 // Nothing is appended while the consent gate is off, where $skipped can only be 0: the message an administrator
 // reads today stays the message they read.
 $skippedNote = $skipped > 0
-    ? " {$skipped} customer(s) were skipped because they have not agreed to WhatsApp marketing."
+    ? ' ' . translate('skipped_for_lack_of_whatsapp_marketing_consent') . ": {$skipped}."
     : '';
 
 return redirect()

@@ -40,6 +40,15 @@ final class MarketingConsent
 
     public const POLICY_OPT_OUT = 'opt_out';
 
+    /**
+     * The six markets, spelled the one way they are stored.
+     *
+     * A PHP constant cannot be computed, so this list cannot literally BE AddressCountry's: it is the five
+     * GCC_SPELLINGS keys plus Saudi Arabia, which AddressCountry answers from its own SAUDI list. What keeps the two
+     * from drifting is a test, not a comment — MarketingMarketTest::test_the_six_markets_are_the_markets_the_address_book_knows.
+     */
+    public const MARKETS = ['SA', 'AE', 'KW', 'QA', 'BH', 'OM'];
+
     public const SOURCE_REGISTRATION = 'registration';
 
     public const SOURCE_ACCOUNT_PAGE = 'account_page';
@@ -60,5 +69,19 @@ final class MarketingConsent
     public static function market(string $market): string
     {
         return mb_strtoupper(trim($market));
+    }
+
+    /**
+     * Is this one of the six markets?
+     *
+     * Asked wherever a market arrives from outside this application — a deployment's own configuration, a token out of
+     * an e-mail — because `market` is char(2): a longer value is SILENTLY TRUNCATED by a non-strict MySQL and RAISES
+     * under the strict-mode job, and a truncated market is never found again by the read that normalised it, so a
+     * recorded withdrawal stops being honoured. Measured on MariaDB 10.11.14 by an independent review: a home market
+     * of 'Saudi Arabia' was asked about as 'SAUDI ARABIA', stored as 'SA', and never matched again.
+     */
+    public static function isMarket(string $market): bool
+    {
+        return in_array(self::market($market), self::MARKETS, true);
     }
 }

@@ -11,6 +11,9 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex, nofollow">
+    {{-- The URL of this page IS a token, and the signature deliberately never expires, so it must not be handed to
+         anything the visitor clicks through to and must not reach a web-server log of another host. --}}
+    <meta name="referrer" content="no-referrer">
     <title>{{ translate('you_have_been_unsubscribed') }}</title>
     <style>
         body { margin: 0; padding: 32px 16px; background: #f4f6f8; color: #1f2937; font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }

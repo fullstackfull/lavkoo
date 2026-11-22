@@ -198,27 +198,36 @@ class AbandonedCartService
     /**
      * Has this person agreed to a cart reminder by e-mail in that market?
      *
-     * A registered customer is asked about by account, so the answer follows them whatever address they used. A guest
-     * has no account, so the address they typed is the subject — which is also the only thing an unsubscribe link in
-     * that message can name.
+     * ASKED ABOUT BY BOTH NAMES, and that is the fix for a defect two independent reviews measured: a registered
+     * customer who checks out as a guest is a customer subject AND an address subject, so a withdrawal recorded
+     * through the unsubscribe link in their account reminder was invisible to the guest-side send of the same
+     * schedule, and the other way round. A recorded no on either name now stops the send.
+     *
+     * A GUEST CART CARRIES A GUEST ID, NOT AN ACCOUNT ID, so for a guest the account is found from the address they
+     * typed: that is the only thing that joins the two halves of one person, and without it a withdrawal recorded
+     * through an account reminder was invisible to the very next guest cart at the same address.
      */
     private function mayRemind(string $market, $customerId, bool $isGuest, string $email): bool
     {
-        if ($isGuest || !$customerId) {
-            return $this->consentGate->allowsEmail(
-                email: $email,
-                market: $market,
-                channel: MarketingConsent::CHANNEL_EMAIL,
-                purpose: MarketingConsent::PURPOSE_ABANDONED_CART,
-            );
-        }
-
-        return $this->consentGate->allowsCustomer(
-            customerId: (int) $customerId,
+        return $this->consentGate->allowsPerson(
+            customerId: $this->accountBehind(customerId: $customerId, isGuest: $isGuest, email: $email),
+            email: $email,
             market: $market,
             channel: MarketingConsent::CHANNEL_EMAIL,
             purpose: MarketingConsent::PURPOSE_ABANDONED_CART,
         );
+    }
+
+    /** The registered account this cart belongs to, by id for a customer's cart and by address for a guest's. */
+    private function accountBehind($customerId, bool $isGuest, string $email): ?int
+    {
+        if (!$isGuest && $customerId) {
+            return (int) $customerId;
+        }
+
+        $accountId = User::where('email', $email)->value('id');
+
+        return $accountId ? (int) $accountId : null;
     }
 
     /**

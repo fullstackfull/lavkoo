@@ -79,7 +79,18 @@ final class MarketingUnsubscribeLink
             }
         }
 
-        if (!in_array($payload['channel'], MarketingConsent::CHANNELS, true) || !in_array($payload['purpose'], MarketingConsent::PURPOSES, true)) {
+        if (!in_array($payload['channel'], MarketingConsent::CHANNELS, true)) {
+            return null;
+        }
+
+        if (!in_array($payload['purpose'], MarketingConsent::PURPOSES, true)) {
+            return null;
+        }
+
+        // A market this application does not sell in is not acted on: `market` is char(2), so a longer one would be
+        // truncated on the write and never found by the read. Each of these three is a guard of its own, because a
+        // mutation that removed only the purpose half of the single condition they used to share stayed green.
+        if (!MarketingConsent::isMarket($payload['market'])) {
             return null;
         }
 

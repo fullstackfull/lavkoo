@@ -20,11 +20,19 @@ use Illuminate\Support\Facades\Schema;
  */
 final class MarketingMarket
 {
+    /**
+     * The market a subject is filed under when nothing else names one.
+     *
+     * A configured value that is not one of the six markets is IGNORED rather than passed on. `market` is char(2):
+     * 'Saudi Arabia' in the environment was stored as 'SA' by a non-strict MySQL and then never matched again, so a
+     * recorded withdrawal stopped being honoured and two clicks wrote two rows — measured on MariaDB 10.11.14 by an
+     * independent review, and it raises 1406 under the strict-mode job. One typed setting is not allowed to do that.
+     */
     public static function homeMarket(): string
     {
         $configured = Config::get('marketing.consent.home_market');
 
-        return is_string($configured) && trim($configured) !== '' ? MarketingConsent::market($configured) : 'SA';
+        return is_string($configured) && MarketingConsent::isMarket($configured) ? MarketingConsent::market($configured) : 'SA';
     }
 
     /** The market of a customer's newest address, or the home market when they have none that names a market. */

@@ -1590,9 +1590,9 @@ class WebController extends Controller
             $newSubscription = new Subscription;
             $newSubscription->email = $request['subscription_email'];
             $newSubscription->save();
-            $this->recordNewsletterConsent(email: $request['subscription_email']);
             Toastr::success(translate('Your_subscription_successfully_done'));
         }
+        $this->recordNewsletterConsent(email: $request['subscription_email']);
         if (str_contains(url()->previous(), 'checkout-complete') || str_contains(url()->previous(), 'web-payment')) {
             return redirect()->route('home');
         }
@@ -1606,22 +1606,49 @@ class WebController extends Controller
      * so while the consent gate is on the choice is ALSO written as a consent decision, which does carry all of those.
      * The `subscriptions` row is still written exactly as before, so nothing that reads that table changes.
      *
+     * CALLED FOR AN ADDRESS THAT IS ALREADY SUBSCRIBED TOO, which it was not before: the duplicate check on
+     * `subscriptions` meant that somebody who had unsubscribed through the link could never state a choice again, in
+     * the only form that exists — an independent review drove three real POSTs and measured the second and third
+     * writing nothing. The `subscriptions` row and the toast an administrator's visitor sees are untouched either way;
+     * what changes is that a signed-in customer can now agree again after withdrawing.
+     *
+     * Nothing is written when the answer in force is already a grant, so subscribing twice still records once.
+     *
+     * A SIGNED-IN CUSTOMER'S CHOICE IS A GRANT; AN ANONYMOUS VISITOR'S IS A CLAIM. The form asks nothing of whoever
+     * types the address, so a stranger can enter somebody else's — see MarketingConsentRecorder::claimForEmail.
+     *
      * With the gate off this writes nothing at all.
      */
     private function recordNewsletterConsent(string $email): void
     {
-        if (!app(MarketingConsentGate::class)->enabled()) {
+        $gate = app(MarketingConsentGate::class);
+
+        if (!$gate->enabled()) {
             return;
         }
 
         $customer = auth('customer')->user();
+        $customerId = $customer ? (int) $customer->id : null;
+        $market = $customerId ? MarketingMarket::forCustomer(customerId: $customerId) : MarketingMarket::homeMarket();
+
+        $alreadyAnswered = $gate->choiceAlreadyRecorded(
+            customerId: $customerId,
+            email: $customerId ? null : $email,
+            market: $market,
+            channel: MarketingConsent::CHANNEL_EMAIL,
+            purpose: MarketingConsent::PURPOSE_NEWSLETTER,
+        );
+
+        if ($alreadyAnswered) {
+            return;
+        }
 
         $recorder = app(MarketingConsentRecorder::class);
 
-        if ($customer) {
+        if ($customerId) {
             $recorder->grantForCustomer(
-                customerId: (int) $customer->id,
-                market: MarketingMarket::forCustomer(customerId: (int) $customer->id),
+                customerId: $customerId,
+                market: $market,
                 channel: MarketingConsent::CHANNEL_EMAIL,
                 purpose: MarketingConsent::PURPOSE_NEWSLETTER,
                 source: MarketingConsent::SOURCE_NEWSLETTER_FORM,
@@ -1630,9 +1657,9 @@ class WebController extends Controller
             return;
         }
 
-        $recorder->grantForEmail(
+        $recorder->claimForEmail(
             email: $email,
-            market: MarketingMarket::homeMarket(),
+            market: $market,
             channel: MarketingConsent::CHANNEL_EMAIL,
             purpose: MarketingConsent::PURPOSE_NEWSLETTER,
             source: MarketingConsent::SOURCE_NEWSLETTER_FORM,

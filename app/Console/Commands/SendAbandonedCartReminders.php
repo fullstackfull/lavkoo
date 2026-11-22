@@ -159,7 +159,10 @@ class SendAbandonedCartReminders extends Command
             return null;
         }
 
-        $customerId = $reminder->is_guest ? null : $reminder->customer_id;
+        // Not `is_guest ? null : customer_id`: findAbandoned already writes null there for a guest, so that ternary
+        // could not change the answer for any input and a mutation removing it stayed green. The line that looks
+        // careful and is not goes, the same way the previous round removed its twin three lines up.
+        $customerId = $reminder->customer_id;
 
         if ($customerId) {
             return MarketingUnsubscribeLink::forCustomer(

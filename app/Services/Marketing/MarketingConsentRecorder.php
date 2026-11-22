@@ -72,6 +72,39 @@ final class MarketingConsentRecorder
     }
 
     /**
+     * Records that an address was typed into a form by somebody who was not signed in.
+     *
+     * NOT A GRANT. The newsletter box takes an address and asks nothing of whoever typed it, so a visitor can enter a
+     * stranger's address; an independent review drove that through the real route and watched the gate's answer turn
+     * from refuse to allow. A legal record that any passer-by can create for somebody else is not evidence of
+     * consent, so what is written is a claim that the gate does not read as permission. Confirming a claim (a
+     * double-opt-in e-mail) is a sender and a screen this branch does not add — see the PR's open list.
+     */
+    public function claimForEmail(
+        string $email,
+        string $market,
+        string $channel,
+        string $purpose,
+        string $source,
+        ?string $textVersion = null,
+        ?string $textHash = null,
+    ): CustomerMarketingConsent {
+        return $this->record(
+            decision: CustomerMarketingConsent::DECISION_PENDING,
+            customerId: null,
+            subjectHash: MarketingSubject::forEmail(email: $email),
+            market: $market,
+            channel: $channel,
+            purpose: $purpose,
+            source: $source,
+            textVersion: $textVersion,
+            textHash: $textHash,
+            storefront: null,
+            legalEntityId: null,
+        );
+    }
+
+    /**
      * Records that this subject no longer wants this channel and purpose in this market.
      *
      * Returns the row in force afterwards: the withdrawal this call wrote, or the withdrawal that was already there.
