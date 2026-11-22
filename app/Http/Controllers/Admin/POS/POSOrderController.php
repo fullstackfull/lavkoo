@@ -143,6 +143,18 @@ class POSOrderController extends BaseController
         $payByWallet = $request['type'] == 'wallet' && $userId != 0;
         if ($payByWallet) {
             $customerBalance = $this->customerRepo->getFirstWhere(params: ['id' => $userId]) ?? 0;
+            // A sale that does not cost a positive amount cannot be paid for out of a wallet, and the balance
+            // comparison alone does not say so: `$balance < -100` is false of every balance, so a cart discounted past
+            // its own lines would pass it and then CREDIT the customer — createWalletTransaction treats `order_place`
+            // as a debit, and a debit of a negative amount adds to the balance. The panel's own discount route already
+            // refuses such a cart (POSController::extraDiscount answers 'amount_low'), so this is the second line of
+            // that defence rather than the first. It is deliberately NOT applied to the sale as a whole: a line of
+            // fewer than one unit also comes to less than nothing, and that is refused where it belongs, by
+            // InventoryService::takeForSale, with the `stockShortfall` answer the panel reads.
+            if ($saleAmount <= 0) {
+                ToastMagic::error(translate('You cannot place an order with an amount of zero. Please enter a valid amount.'));
+                return response()->json();
+            }
             if ($customerBalance['wallet_balance'] < currencyConverter(amount: $saleAmount)) {
                 ToastMagic::error(translate('need_Sufficient_Amount_Balance'));
                 return response()->json();

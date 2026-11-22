@@ -227,6 +227,87 @@ class PosTillServerTotalTest extends PosTillTestCase
         $this->assertSame(30000, $this->chargedMinorUnits());
     }
 
+    /**
+     * A cart carrying the discounts the cashier added to it, not to a line: they come off the server's figure.
+     *
+     * The extra discount is a PERCENTAGE, which `CartService::getTotalCalculation` resolves against what the lines come
+     * to — so this is the test that the integer subtotal reaches it and that the resolved amount is taken off.
+     */
+    #[DataProvider('tills')]
+    public function test_the_carts_own_coupon_and_percentage_discount_come_off_the_server_figure(string $till): void
+    {
+        $this->shelfProduct(id: 731, stock: 10, till: $till);
+        $cartId = $this->givenCartAtTill($till, [731 => 3]);
+        $this->withSession([$cartId => array_merge((array) session($cartId), [
+            'coupon_discount' => 25.0,
+            'ext_discount' => 10,
+            'ext_discount_type' => 'percent',
+        ])]);
+
+        // 300.00 of lines, 25.00 off for the coupon, and the platform's own rule takes the percentage on what is left
+        // of the lines after the coupon: ten per cent of 275.00 is 27.50, so the sale costs 247.50.
+        $this->placeSaleAtTill($till, amount: 300.0);
+
+        $this->assertSame(['success'], $this->toastTypes());
+        // Measured at 60f5a605: charged 30000, the figure the request carried.
+        $this->assertSame(24750, $this->chargedMinorUnits(), 'the lines, less the coupon, less ten per cent of what the coupon left');
+    }
+
+    /** An amount extra discount, which needs no resolving, comes off as well. */
+    #[DataProvider('tills')]
+    public function test_an_amount_extra_discount_comes_off_the_server_figure(string $till): void
+    {
+        $this->shelfProduct(id: 732, stock: 10, till: $till);
+        $cartId = $this->givenCartAtTill($till, [732 => 3]);
+        $this->withSession([$cartId => array_merge((array) session($cartId), [
+            'ext_discount' => 12.5,
+            'ext_discount_type' => 'amount',
+        ])]);
+
+        $this->placeSaleAtTill($till, amount: 300.0);
+
+        $this->assertSame(['success'], $this->toastTypes());
+        // Measured at 60f5a605: charged 30000.
+        $this->assertSame(28750, $this->chargedMinorUnits());
+    }
+
+    /**
+     * A wallet sale that does not cost a positive amount is refused instead of CREDITING the customer.
+     *
+     * `$balance < -100` is false of every balance, so the balance comparison alone lets such a sale through, and
+     * `createWalletTransaction` treats `order_place` as a debit — a debit of a negative amount ADDS to the balance. At
+     * 60f5a605 the posted figure was what was debited, so the same cart with `amount=300.00` took 300.00 from a
+     * customer for a cart worth less than nothing; with the server's figure and no guard it would hand them 100.00.
+     *
+     * The cart is crafted: the panel's own discount route refuses a discount this large
+     * (POSController::extraDiscount answers `amount_low`), so this is the second line of that defence.
+     */
+    #[DataProvider('tills')]
+    public function test_a_wallet_sale_discounted_past_nothing_is_refused_and_credits_no_one(string $till): void
+    {
+        $this->walletCustomer(id: 57, balance: 300.0);
+        $this->shelfProduct(id: 733, stock: 10, till: $till);
+        $cartId = $this->givenCartAtTill($till, [733 => 3], customerId: 57);
+        $this->withSession([$cartId => array_merge((array) session($cartId), [
+            'ext_discount' => 400.0,
+            'ext_discount_type' => 'amount',
+        ])]);
+
+        $response = $this->placeSaleAtTill($till, amount: 300.0, extra: ['type' => 'wallet', 'paid_amount' => 300.0]);
+
+        $this->assertSame(['error'], $this->toastTypes());
+        $this->assertSame('[]', $response->content(), 'the answer the panel already handles');
+        $this->assertSame(300.0, (float) DB::table('users')->where('id', 57)->value('wallet_balance'), 'neither taken nor given');
+        $this->assertSame(0, DB::table('wallet_transactions')->count());
+        $this->assertSame([
+            'orders' => 0,
+            'order_details' => 0,
+            'charged' => null,
+            'current_stock' => 10,
+            'movements' => [],
+        ], $this->readings(733), 'no order and nothing taken off the shelf');
+    }
+
     // ---- the wallet ---------------------------------------------------------------------------------------------
 
     #[DataProvider('tills')]
@@ -331,19 +412,20 @@ class PosTillServerTotalTest extends PosTillTestCase
     }
 
     /**
-     * A cart whose every line names a product that is no longer there takes no money.
+     * A cart whose every line names a product that is no longer there takes no money from a wallet.
      *
-     * The panel tills still WRITE an order row for such a cart — the `count($cartListSession) > 0` guard counts cart
-     * lines, not lines it can sell, and the sale's own loop skips a line whose product it cannot find. The seller app's
-     * till was given a refusal for exactly this in the base branch (`a_sale_needs_at_least_one_product`); the two panel
-     * tills were not, and that is recorded, not fixed here.
+     * At 60f5a605 the order was charged whatever `amount` the request carried and a WALLET sale debited it: 300.00
+     * taken for an order with no lines at all. The server's figure for a cart with nothing sellable in it is nothing,
+     * and a wallet sale that costs nothing is refused, so the balance is untouched and no order is written either.
      *
-     * What this branch settles is the money. At 60f5a605 the order was charged whatever `amount` the request carried,
-     * and a WALLET sale debited it: 300.00 taken for an order with no lines at all. The server's figure for a cart with
-     * nothing sellable in it is nothing, so no money moves and the balance is untouched.
+     * A CASH sale of the same cart is NOT refused: the `count($cartListSession) > 0` guard counts cart lines, not lines
+     * the till can sell, and the sale's own loop skips a line whose product it cannot find, so an order row with no
+     * lines is still written — charged 0.00 now rather than the 300.00 the request asked for. The seller app's till was
+     * given a refusal for exactly this in the base branch (`a_sale_needs_at_least_one_product`); the two panel tills
+     * were not. That is recorded, not fixed here.
      */
     #[DataProvider('tills')]
-    public function test_a_sale_whose_lines_name_no_product_that_exists_takes_no_money(string $till): void
+    public function test_a_wallet_sale_whose_lines_name_no_product_that_exists_takes_no_money(string $till): void
     {
         $this->walletCustomer(id: 56, balance: 300.0);
         $this->givenCartAtTill($till, [729 => 3], customerId: 56);
@@ -351,8 +433,21 @@ class PosTillServerTotalTest extends PosTillTestCase
         $this->placeSaleAtTill($till, amount: 300.0, extra: ['type' => 'wallet', 'paid_amount' => 300.0]);
 
         // Measured at 60f5a605: balance 0.00, one wallet row debiting 300.00, one order charged 300.00, no lines.
+        $this->assertSame(['error'], $this->toastTypes());
         $this->assertSame(300.0, (float) DB::table('users')->where('id', 56)->value('wallet_balance'), 'nothing was taken for nothing');
-        $this->assertSame([['debit' => 0, 'balance' => 30000]], $this->walletRowsInMinorUnits(), 'the debit is nil');
+        $this->assertSame(0, DB::table('wallet_transactions')->count(), 'and no wallet row at all');
+        $this->assertSame(0, DB::table('orders')->count(), 'nor an order');
+    }
+
+    /** The same cart in cash: still charged, now nothing rather than what the request asked for. */
+    #[DataProvider('tills')]
+    public function test_a_cash_sale_whose_lines_name_no_product_that_exists_is_charged_nothing(string $till): void
+    {
+        $this->givenCartAtTill($till, [729 => 3]);
+
+        $this->placeSaleAtTill($till, amount: 300.0);
+
+        // Measured at 60f5a605: one order charged 300.00 with no lines.
         $this->assertSame(0, $this->chargedMinorUnits(), 'the order is charged nothing');
         $this->assertSame(0, DB::table('order_details')->count(), 'and still has no lines: the order row itself is a separate defect, recorded');
     }
