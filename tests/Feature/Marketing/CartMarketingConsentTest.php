@@ -8,8 +8,11 @@ use App\Services\ChatwootService;
 use App\Services\Marketing\MarketingConsent;
 use App\Services\Marketing\MarketingConsentRecorder;
 use App\Services\Marketing\MarketingSubject;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Tests\Support\RecordingChatwootService;
 
 /**
@@ -74,7 +77,12 @@ class CartMarketingConsentTest extends MarketingConsentTestCase
         $response = $this->send(customerIds: [(int) $agreed->id, (int) $silent->id]);
 
         $this->assertSame(['+966500000003'], $this->chatwoot->phonesSentTo());
-        $this->assertStringContainsString('1 customer(s) were skipped', (string) $response->getSession()->get('success'));
+        // Byte for byte, because the sentence an administrator reads is the only report they get of a skip, and
+        // because an untranslated one was what the review found here.
+        $this->assertSame(
+            'Cart marketing sent successfully to 1 customer(s). Skipped for lack of whatsapp marketing consent: 1.',
+            (string) $response->getSession()->get('success'),
+        );
     }
 
     /** Agreeing to marketing e-mail is not agreeing to a WhatsApp template. */
@@ -134,8 +142,37 @@ class CartMarketingConsentTest extends MarketingConsentTestCase
         $this->assertSame('Cart marketing sent successfully to 2 customer(s).', (string) $response->getSession()->get('success'));
     }
 
+    /**
+     * THE DORMANCY OF THIS SENDER, MEASURED RATHER THAN READ.
+     *
+     * The test above proves the recipients and the administrator's sentence do not move. It does not prove the claim
+     * the code makes, which is that with the gate off nothing is even looked up — and an independent review removed
+     * the `$consentRequired &&` short-circuit, so that the market resolver inside the call's own arguments ran and
+     * queried shipping_addresses with the switch off, and all 90 tests stayed green.
+     *
+     * So the statements are counted. The other sender has had this from the start; this one was asserted by reading.
+     */
+    public function test_with_the_switch_off_the_send_reads_no_consent_and_no_address(): void
+    {
+        $one = $this->makeCustomer(email: 'wa-quiet-one@example.test', phone: '+966500000011');
+        $this->makeAbandonedCart(customerId: (int) $one->id, groupId: 'wa-group-quiet');
+
+        $statements = [];
+        DB::listen(static function ($query) use (&$statements): void {
+            $statements[] = $query->sql;
+        });
+
+        $this->send(customerIds: [(int) $one->id]);
+
+        $this->assertNotEmpty($statements, 'The send made no queries at all, so this measures nothing.');
+        foreach ($statements as $statement) {
+            $this->assertStringNotContainsString('customer_marketing_consents', $statement);
+            $this->assertStringNotContainsString('shipping_addresses', $statement);
+        }
+    }
+
     /** @param array<int, int> $customerIds */
-    private function send(array $customerIds): \Illuminate\Http\RedirectResponse
+    private function send(array $customerIds): RedirectResponse
     {
         $mapping = NotificationTemplateMapping::create([
             'provider' => 'chatwoot',
@@ -169,7 +206,7 @@ class CartMarketingConsentTest extends MarketingConsentTestCase
 
     private function createMappingTable(): void
     {
-        \Illuminate\Support\Facades\Schema::create('notification_template_mappings', function (\Illuminate\Database\Schema\Blueprint $table) {
+        Schema::create('notification_template_mappings', function (Blueprint $table) {
             $table->id();
             $table->string('provider')->nullable();
             $table->string('template_name')->nullable();

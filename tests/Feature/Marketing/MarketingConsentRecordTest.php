@@ -7,6 +7,7 @@ use App\Services\Marketing\MarketingConsent;
 use App\Services\Marketing\MarketingConsentGate;
 use App\Services\Marketing\MarketingConsentRecorder;
 use App\Services\Marketing\MarketingSubject;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use RuntimeException;
@@ -31,8 +32,79 @@ class MarketingConsentRecordTest extends MarketingConsentTestCase
         $this->assertFalse(Schema::hasColumn('customer_marketing_consents', 'updated_at'));
     }
 
+    /**
+     * THE SHAPE, not only the names. Column presence was all that was asserted, so a mutation widening `market` from
+     * char(2) to a 32-character string left all 90 tests green, and neither index was covered at all.
+     *
+     * The index names are checked on both engines; the widths only where a width survives the round trip, because
+     * SQLite answers "varchar" for every string column whatever the migration asked for. MySQL 8 and MariaDB 11.4.2
+     * run this group in CI, and the strict-mode job now does too.
+     */
+    public function test_the_columns_are_the_width_the_record_needs_and_both_indexes_are_there(): void
+    {
+        $indexes = array_map(
+            static fn (array $index): string => $index['name'] . ':' . implode(',', $index['columns']),
+            Schema::getIndexes('customer_marketing_consents')
+        );
+        sort($indexes);
+
+        $this->assertSame([
+            'marketing_consents_customer_idx:customer_id,market,channel,purpose',
+            'marketing_consents_subject_idx:subject_hash,market,channel,purpose',
+            'primary:id',
+        ], $indexes);
+
+        if (DB::connection()->getDriverName() === 'sqlite') {
+            return;
+        }
+
+        $columns = collect(Schema::getColumns('customer_marketing_consents'))->keyBy('name');
+        $this->assertSame('char(2)', $columns['market']['type'], 'A wider market column stops a market being one spelling.');
+        $this->assertSame('char(64)', $columns['subject_hash']['type']);
+        $this->assertSame('varchar(32)', $columns['channel']['type']);
+        $this->assertSame('varchar(32)', $columns['purpose']['type']);
+        $this->assertSame('varchar(16)', $columns['decision']['type']);
+    }
+
+    /**
+     * `granted()` means granted, not "not withdrawn".
+     *
+     * Undiscriminable until there was a third decision value: both reviews inverted the predicate to
+     * `!== DECISION_WITHDRAWN` and all 90 tests stayed green, because only two values were ever written. An
+     * unverified claim is now the third, and it must not read as permission — nor as a suppression.
+     */
+    public function test_an_unverified_claim_is_neither_a_grant_nor_a_refusal(): void
+    {
+        $this->switchConsentOn();
+        $question = ['email' => 'claimed@example.test', 'market' => 'SA', 'channel' => MarketingConsent::CHANNEL_EMAIL, 'purpose' => MarketingConsent::PURPOSE_NEWSLETTER];
+        $claim = app(MarketingConsentRecorder::class)->claimForEmail(...[...$question, 'source' => MarketingConsent::SOURCE_NEWSLETTER_FORM]);
+
+        $this->assertFalse($claim->granted());
+        $this->assertFalse(app(MarketingConsentGate::class)->allowsEmail(...$question));
+
+        // And the market's policy still answers, exactly as it did before anybody typed the address in.
+        $this->setMarketPolicy('SA', MarketingConsent::POLICY_OPT_OUT);
+        $this->assertTrue(app(MarketingConsentGate::class)->allowsEmail(...$question));
+    }
+
+    /**
+     * An account and an address are different subjects even when they look alike.
+     *
+     * A mutation hashing "email:<id>" for a customer stayed green: the existing test only proved the hash is keyed and
+     * differs between customers, which that spelling satisfies too.
+     */
+    public function test_a_customer_and_an_address_are_never_the_same_subject(): void
+    {
+        $this->assertNotSame(
+            MarketingSubject::forCustomer(customerId: 7),
+            MarketingSubject::forEmail(email: '7'),
+            'The namespace is what keeps an account and an address apart.'
+        );
+    }
+
     public function test_a_grant_records_the_customer_the_market_the_channel_the_purpose_the_text_version_and_the_time(): void
     {
+        $this->travelTo(Carbon::parse('2026-07-01 10:20:30'));
         $customer = $this->makeCustomer(email: 'record@example.test');
 
         $row = app(MarketingConsentRecorder::class)->grantForCustomer(
@@ -53,7 +125,9 @@ class MarketingConsentRecordTest extends MarketingConsentTestCase
         $this->assertSame('marketing-consent-v3', $row->text_version);
         $this->assertSame(str_repeat('a', 64), $row->text_hash);
         $this->assertSame(CustomerMarketingConsent::DECISION_GRANTED, $row->decision);
-        $this->assertNotNull($row->recorded_at);
+        // Not assertNotNull: a mutation writing a time five years wrong stayed green. "and time" in the criterion
+        // means the time the person answered.
+        $this->assertSame('2026-07-01 10:20:30', $row->recorded_at->toDateTimeString(), 'The recorded time is not when the answer was given.');
 
         // The storefront layer is not on this head; the column exists for it and is left alone.
         $this->assertNull($row->storefront);
@@ -210,7 +284,16 @@ class MarketingConsentRecordTest extends MarketingConsentTestCase
         $this->assertFalse($gate->allowsCustomer(customerId: (int) $customer->id, market: 'SA', channel: MarketingConsent::CHANNEL_WHATSAPP, purpose: MarketingConsent::PURPOSE_CART_MARKETING));
     }
 
-    public function test_a_person_may_agree_again_after_withdrawing_and_the_history_keeps_every_step(): void
+    /**
+     * THE RECORDER'S OWN HISTORY, built by calling the recorder — which is what this test is, and all it is.
+     *
+     * An independent review was right that as a claim about the APPLICATION it proves nothing: it constructs the state
+     * it reads. It stays, renamed for what it actually covers, because the append-only history is the recorder's job.
+     * Whether a person can get back in through a screen is driven through the real routes by
+     * NewsletterConsentTest::test_a_customer_may_agree_again_after_unsubscribing_through_the_link, which did not exist
+     * when this was written and which was RED until the controller was fixed.
+     */
+    public function test_the_recorder_keeps_every_step_when_a_decision_is_reversed_and_made_again(): void
     {
         $this->switchConsentOn();
         $customer = $this->makeCustomer(email: 'mindchanger@example.test');
@@ -362,6 +445,41 @@ class MarketingConsentRecordTest extends MarketingConsentTestCase
 
         $this->assertTrue(Schema::hasTable('customer_marketing_consents'));
         $this->assertSame(1, DB::table('customer_marketing_consents')->count());
+    }
+
+    /**
+     * A withdrawal carries the text the person was shown when they agreed.
+     *
+     * Dropping it from the withdrawal row stayed green on all 90 tests. It matters because the withdrawal is the row
+     * in force: a regulator asking what was agreed to, and then unagreed to, reads that row.
+     */
+    public function test_a_withdrawal_keeps_the_text_version_of_the_grant_it_reverses(): void
+    {
+        $this->switchConsentOn();
+        $customer = $this->makeCustomer(email: 'textversion@example.test');
+        $recorder = app(MarketingConsentRecorder::class);
+
+        $recorder->grantForCustomer(
+            customerId: (int) $customer->id,
+            market: 'SA',
+            channel: MarketingConsent::CHANNEL_EMAIL,
+            purpose: MarketingConsent::PURPOSE_NEWSLETTER,
+            source: MarketingConsent::SOURCE_REGISTRATION,
+            textVersion: 'marketing-2026-07',
+            textHash: str_repeat('d', 64),
+        );
+
+        $withdrawal = $recorder->withdraw(
+            subjectHash: MarketingSubject::forCustomer(customerId: (int) $customer->id),
+            market: 'SA',
+            channel: MarketingConsent::CHANNEL_EMAIL,
+            purpose: MarketingConsent::PURPOSE_NEWSLETTER,
+            source: MarketingConsent::SOURCE_UNSUBSCRIBE_LINK,
+        );
+
+        $this->assertSame('marketing-2026-07', $withdrawal->text_version);
+        $this->assertSame(str_repeat('d', 64), $withdrawal->text_hash);
+        $this->assertSame((int) $customer->id, $withdrawal->customer_id);
     }
 
     public function test_the_migration_drops_an_empty_table_and_can_be_run_again(): void

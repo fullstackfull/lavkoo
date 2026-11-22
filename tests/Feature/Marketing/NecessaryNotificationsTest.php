@@ -121,6 +121,10 @@ class NecessaryNotificationsTest extends MarketingConsentTestCase
             [
                 // The two senders that ask it directly, on the screen and in the web action.
                 'app/Http/Controllers/Admin/CartMarketingController.php',
+                // Not a sender: it asks `recordable()` so that a link already in an inbox neither raises before the
+                // migration has run nor stops working when an operator switches the feature off. Added in this round
+                // after a review measured a QueryException out of this route on both engines.
+                'app/Http/Controllers/Web/MarketingUnsubscribeController.php',
                 'app/Http/Controllers/Web/WebController.php',
                 // The gate itself, and the selection that asks it for the abandoned-cart run.
                 'app/Services/Marketing/MarketingConsentGate.php',

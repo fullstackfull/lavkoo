@@ -8,7 +8,11 @@ use App\Services\Marketing\MarketingConsentGate;
 use App\Services\Marketing\MarketingConsentRecorder;
 use App\Services\Marketing\MarketingSubject;
 use App\Services\Marketing\MarketingUnsubscribeLink;
+use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\URL;
 
 /**
  * The signed unsubscribe link, driven through the real route with real HTTP requests. I1-08 criterion 3.
@@ -215,9 +219,127 @@ class MarketingUnsubscribeLinkTest extends MarketingConsentTestCase
         $this->assertNull(MarketingUnsubscribeLink::read(token: 'not-a-token-at-all'));
 
         // Signed by this application, so the route lets it through; the token itself still says nothing.
-        $this->get(\Illuminate\Support\Facades\URL::signedRoute(MarketingUnsubscribeLink::ROUTE, ['token' => 'not-a-token-at-all']))->assertOk();
+        $this->get(URL::signedRoute(MarketingUnsubscribeLink::ROUTE, ['token' => 'not-a-token-at-all']))->assertOk();
 
         $this->assertSame(0, DB::table('customer_marketing_consents')->count());
+    }
+
+    /**
+     * WHAT THE TOKEN ACTUALLY CARRIES, decrypted and listed.
+     *
+     * The test next door asserts that nothing can be READ off the token, which is true and is what protects a URL
+     * sitting in somebody's inbox — but an independent review pointed out that it is confidentiality by encryption,
+     * not by absence: the payload does carry the account id, and a mutation that ALSO put a plaintext e-mail address
+     * into it left all 90 tests green, because the assertions run against the ciphertext. So the payload itself is
+     * pinned here, key by key, and anything new in it has to be argued for in a diff.
+     */
+    public function test_the_token_carries_exactly_the_five_things_the_route_needs(): void
+    {
+        $this->switchConsentOn();
+        $customer = $this->makeCustomer(email: 'payload@example.test');
+
+        $token = $this->tokenOf(url: $this->linkFor(customerId: (int) $customer->id));
+        $padded = strtr($token, '-_', '+/');
+        $padded .= str_repeat('=', (4 - strlen($padded) % 4) % 4);
+        $payload = json_decode(Crypt::decryptString($padded), true);
+
+        $this->assertSame(['subject_hash', 'customer_id', 'market', 'channel', 'purpose'], array_keys($payload));
+        $this->assertSame(MarketingSubject::forCustomer(customerId: (int) $customer->id), $payload['subject_hash']);
+        $this->assertSame((int) $customer->id, $payload['customer_id']);
+        $this->assertSame('SA', $payload['market']);
+        $this->assertStringNotContainsString('payload@example.test', (string) json_encode($payload));
+    }
+
+    /**
+     * The withdrawal a link records is filed under the account the link names.
+     *
+     * Two mutations — the token dropping customer_id, and the controller passing null instead of it — were both GREEN.
+     * The grant's own row masked it: withdraw() falls back to the grant's customer_id, and in an opt_out market, where
+     * there is no grant, nothing falls back. So this one has NO grant to fall back to.
+     */
+    public function test_the_withdrawal_a_link_records_names_the_account_even_with_no_grant_on_file(): void
+    {
+        $this->switchConsentOn();
+        $this->setMarketPolicy('SA', MarketingConsent::POLICY_OPT_OUT);
+        $customer = $this->makeCustomer(email: 'optout-account@example.test');
+
+        $this->get($this->linkFor(customerId: (int) $customer->id))->assertOk();
+
+        $withdrawal = CustomerMarketingConsent::query()->sole();
+        $this->assertSame(CustomerMarketingConsent::DECISION_WITHDRAWN, $withdrawal->decision);
+        $this->assertSame((int) $customer->id, $withdrawal->customer_id, 'A withdrawal that names nobody cannot be shown to be about this customer.');
+    }
+
+    /**
+     * THE SIGNATURE DOES NOT EXPIRE, and that is a decision the class argues for at length with no test behind it.
+     *
+     * An independent review added an expiry to URL::signedRoute and watched all 90 tests stay green. Adding one is the
+     * most likely "hardening" edit a later developer makes, and it is the edit this feature must not take: people
+     * unsubscribe from old mail, and a link that has timed out is a legal problem, not a security one — it can only
+     * ever remove consent.
+     */
+    public function test_a_link_still_works_years_after_the_message_was_sent(): void
+    {
+        $this->switchConsentOn();
+        $customer = $this->makeCustomer(email: 'old-mail@example.test');
+        $this->grantNewsletterConsent(customerId: (int) $customer->id);
+        $link = $this->linkFor(customerId: (int) $customer->id);
+
+        $this->travel(5)->years();
+
+        $this->get($link)->assertOk();
+        $this->assertSame(1, DB::table('customer_marketing_consents')->where('decision', CustomerMarketingConsent::DECISION_WITHDRAWN)->count());
+    }
+
+    /**
+     * THE ROUTE MUST NOT RAISE BEFORE ITS MIGRATION HAS RUN, or after a rollback.
+     *
+     * The whole dormancy argument is that the gate needs the switch AND the table; an independent review found this one
+     * route asking for neither and measured a QueryException out of it on both engines. The reachable sequence is a
+     * rollback: links go out, nobody has consented yet so down() permits the drop, and every link in an inbox then
+     * answers 500 instead of the neutral page the controller promises.
+     */
+    public function test_the_route_answers_neutrally_when_the_table_is_not_there(): void
+    {
+        $this->switchConsentOn();
+        $link = $this->linkFor(customerId: 1);
+        Schema::drop('customer_marketing_consents');
+
+        $this->withoutExceptionHandling();
+        $this->get($link)->assertOk();
+
+        $this->runConsentMigration();
+        $this->assertSame(0, DB::table('customer_marketing_consents')->count());
+    }
+
+    /**
+     * A link already in an inbox keeps working after an operator switches the feature off.
+     *
+     * The DELIBERATE EXCEPTION to "the switch off means nothing happens", and the reason this route asks the gate's
+     * `recordable()` rather than `enabled()`. The alternative is a person who asked to be left alone and no record of
+     * it; a withdrawal can only ever reduce what the store sends.
+     */
+    public function test_a_link_still_removes_consent_after_the_feature_is_switched_off(): void
+    {
+        $this->switchConsentOn();
+        $customer = $this->makeCustomer(email: 'switched-off@example.test');
+        $this->grantNewsletterConsent(customerId: (int) $customer->id);
+        $link = $this->linkFor(customerId: (int) $customer->id);
+
+        Config::set('marketing.consent.enabled', false);
+        $this->get($link)->assertOk();
+
+        $this->assertSame(1, DB::table('customer_marketing_consents')->where('decision', CustomerMarketingConsent::DECISION_WITHDRAWN)->count());
+    }
+
+    /** The page's own URL is a token, so it must not travel to the next site the visitor opens. */
+    public function test_the_page_hands_its_own_url_to_nothing(): void
+    {
+        $this->switchConsentOn();
+        $body = (string) $this->get($this->linkFor(customerId: 1))->getContent();
+
+        $this->assertStringContainsString('<meta name="referrer" content="no-referrer">', $body);
+        $this->assertStringContainsString('noindex, nofollow', $body);
     }
 
     /** A token whose channel or purpose is not one of the known names is refused rather than stored. */
@@ -231,7 +353,7 @@ class MarketingUnsubscribeLinkTest extends MarketingConsentTestCase
         ));
         $this->assertNotNull(MarketingUnsubscribeLink::read(token: $encoded));
 
-        $forged = rtrim(strtr(\Illuminate\Support\Facades\Crypt::encryptString((string) json_encode([
+        $forged = rtrim(strtr(Crypt::encryptString((string) json_encode([
             'subject_hash' => str_repeat('b', 64),
             'market' => 'SA',
             'channel' => 'carrier-pigeon',
@@ -239,6 +361,79 @@ class MarketingUnsubscribeLinkTest extends MarketingConsentTestCase
         ])), '+/', '-_'), '=');
 
         $this->assertNull(MarketingUnsubscribeLink::read(token: $forged));
+    }
+
+    /**
+     * The PURPOSE half of that guard, which nothing covered.
+     *
+     * Both reviews split the single condition the channel and purpose checks used to share, removed only the purpose
+     * half, and all 90 tests stayed green — so the PR's own mutation figure for it (one condition, red) overstated
+     * what was covered. They are three separate guards now, one per line, each with its own test.
+     */
+    public function test_a_token_naming_an_unknown_purpose_is_not_acted_on(): void
+    {
+        $this->assertNull(MarketingUnsubscribeLink::read(token: $this->forgedToken(market: 'SA', channel: MarketingConsent::CHANNEL_EMAIL, purpose: 'win-a-car')));
+    }
+
+    /**
+     * A token naming a market the store does not sell in is refused.
+     *
+     * `market` is char(2). A longer one is silently truncated by a non-strict MySQL and raises 1406 under the
+     * strict-mode job, and a truncated market is never found again by the read — so acting on one would write a
+     * withdrawal that no sender will ever see.
+     */
+    public function test_a_token_naming_a_market_the_store_does_not_sell_in_is_not_acted_on(): void
+    {
+        $this->assertNull(MarketingUnsubscribeLink::read(token: $this->forgedToken(market: 'Saudi Arabia', channel: MarketingConsent::CHANNEL_EMAIL, purpose: MarketingConsent::PURPOSE_NEWSLETTER)));
+        $this->assertNull(MarketingUnsubscribeLink::read(token: $this->forgedToken(market: 'FR', channel: MarketingConsent::CHANNEL_EMAIL, purpose: MarketingConsent::PURPOSE_NEWSLETTER)));
+    }
+
+    /**
+     * A market spelled in lower case in the token still finds the consent it is about.
+     *
+     * The ONE normalisation rule is the point of commit 8fa75070, and the token leg of it had no test: a mutation
+     * removing it from read() stayed green on all 90, on both engines, because no test ever passed a lower-case
+     * market. MySQL's collation would have hidden it and SQLite's BINARY comparison would not.
+     */
+    public function test_a_market_spelled_in_lower_case_in_the_token_still_finds_the_consent(): void
+    {
+        $this->switchConsentOn();
+        $customer = $this->makeCustomer(email: 'lower-market@example.test');
+        $this->grantNewsletterConsent(customerId: (int) $customer->id);
+
+        $token = $this->forgedToken(
+            market: 'sa',
+            channel: MarketingConsent::CHANNEL_EMAIL,
+            purpose: MarketingConsent::PURPOSE_NEWSLETTER,
+            subjectHash: MarketingSubject::forCustomer(customerId: (int) $customer->id),
+            customerId: (int) $customer->id,
+        );
+
+        // read() is a public API and its contract is a CANONICAL market, whoever calls it next. Asserted directly,
+        // because the recorder and the gate both normalise again, so going through them alone cannot tell the
+        // difference — which is why the review's mutation of this line stayed green.
+        $this->assertSame('SA', MarketingUnsubscribeLink::read(token: $token)['market']);
+
+        $this->get(URL::signedRoute(MarketingUnsubscribeLink::ROUTE, ['token' => $token]))->assertOk();
+
+        $this->assertFalse(app(MarketingConsentGate::class)->allowsCustomer(
+            customerId: (int) $customer->id,
+            market: 'SA',
+            channel: MarketingConsent::CHANNEL_EMAIL,
+            purpose: MarketingConsent::PURPOSE_NEWSLETTER,
+        ));
+    }
+
+    /** A token this application did not write, built with its key, so the route lets it through to `read`. */
+    private function forgedToken(string $market, string $channel, string $purpose, ?string $subjectHash = null, ?int $customerId = null): string
+    {
+        return rtrim(strtr(Crypt::encryptString((string) json_encode([
+            'subject_hash' => $subjectHash ?? str_repeat('c', 64),
+            'customer_id' => $customerId,
+            'market' => $market,
+            'channel' => $channel,
+            'purpose' => $purpose,
+        ])), '+/', '-_'), '=');
     }
 
     private function grantNewsletterConsent(int $customerId): CustomerMarketingConsent

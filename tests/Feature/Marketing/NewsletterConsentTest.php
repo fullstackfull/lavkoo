@@ -6,6 +6,7 @@ use App\Models\CustomerMarketingConsent;
 use App\Services\Marketing\MarketingConsent;
 use App\Services\Marketing\MarketingConsentGate;
 use App\Services\Marketing\MarketingSubject;
+use App\Services\Marketing\MarketingUnsubscribeLink;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -25,7 +26,7 @@ use Illuminate\Support\Facades\DB;
  */
 class NewsletterConsentTest extends MarketingConsentTestCase
 {
-    public function test_subscribing_records_a_newsletter_consent_and_still_writes_the_subscription_row(): void
+    public function test_subscribing_records_an_unverified_claim_and_still_writes_the_subscription_row(): void
     {
         $this->switchConsentOn();
 
@@ -41,19 +42,148 @@ class NewsletterConsentTest extends MarketingConsentTestCase
         $this->assertSame(MarketingConsent::CHANNEL_EMAIL, $consent->channel);
         $this->assertSame(MarketingConsent::PURPOSE_NEWSLETTER, $consent->purpose);
         $this->assertSame(MarketingConsent::SOURCE_NEWSLETTER_FORM, $consent->source);
-        $this->assertSame(CustomerMarketingConsent::DECISION_GRANTED, $consent->decision);
+        $this->assertSame(
+            CustomerMarketingConsent::DECISION_PENDING,
+            $consent->decision,
+            'The form asks nothing of whoever typed the address, so what is recorded is a claim, not a grant.'
+        );
     }
 
-    public function test_the_recorded_choice_is_what_the_gate_then_answers(): void
+    /**
+     * THE DEFECT AN INDEPENDENT REVIEW MEASURED, and the reason the row above is a claim.
+     *
+     * The newsletter box is a public form with `required|email` and nothing else: no login, no confirmation mail, no
+     * CAPTCHA. A visitor could therefore write a GRANT — the store's own legal evidence that it was allowed to send —
+     * against an address belonging to somebody else, and the review watched the gate's answer turn from refuse to
+     * allow after one POST. It now stays refuse.
+     */
+    public function test_a_stranger_cannot_make_the_store_allowed_to_write_to_somebody_elses_address(): void
     {
         $this->switchConsentOn();
         $gate = app(MarketingConsentGate::class);
+        $question = ['email' => 'victim@example.test', 'market' => 'SA', 'channel' => MarketingConsent::CHANNEL_EMAIL, 'purpose' => MarketingConsent::PURPOSE_NEWSLETTER];
 
-        $this->assertFalse($gate->allowsEmail(email: 'news-gate@example.test', market: 'SA', channel: MarketingConsent::CHANNEL_EMAIL, purpose: MarketingConsent::PURPOSE_NEWSLETTER));
+        $this->assertFalse($gate->allowsEmail(...$question));
 
-        $this->post(route('subscription'), ['subscription_email' => 'news-gate@example.test'])->assertRedirect();
+        $this->assertGuest();
+        $this->post(route('subscription'), ['subscription_email' => 'victim@example.test'])->assertRedirect();
 
-        $this->assertTrue($gate->allowsEmail(email: 'news-gate@example.test', market: 'SA', channel: MarketingConsent::CHANNEL_EMAIL, purpose: MarketingConsent::PURPOSE_NEWSLETTER));
+        $this->assertFalse(
+            $gate->allowsEmail(...$question),
+            'An address typed by a passer-by is not that person agreeing to be written to.'
+        );
+        $this->assertSame(CustomerMarketingConsent::DECISION_PENDING, CustomerMarketingConsent::query()->sole()->decision);
+    }
+
+    /** A choice made by somebody who IS signed in is a grant, because the session shows whose address it is. */
+    public function test_the_recorded_choice_of_a_signed_in_customer_is_what_the_gate_then_answers(): void
+    {
+        $this->switchConsentOn();
+        $customer = $this->makeCustomer(email: 'news-gate@example.test');
+        $gate = app(MarketingConsentGate::class);
+        $question = ['customerId' => (int) $customer->id, 'market' => 'SA', 'channel' => MarketingConsent::CHANNEL_EMAIL, 'purpose' => MarketingConsent::PURPOSE_NEWSLETTER];
+
+        $this->assertFalse($gate->allowsCustomer(...$question));
+
+        $this->actingAs($customer, 'customer')
+            ->post(route('subscription'), ['subscription_email' => 'news-gate@example.test'])
+            ->assertRedirect();
+
+        $this->assertSame(CustomerMarketingConsent::DECISION_GRANTED, CustomerMarketingConsent::query()->sole()->decision);
+        $this->assertTrue($gate->allowsCustomer(...$question));
+    }
+
+    /**
+     * A PERSON MAY CHANGE THEIR MIND BACK, through the only form this application has.
+     *
+     * An independent review drove three real POSTs and one real unsubscribe and measured the second and third writing
+     * nothing: the duplicate check on `subscriptions` meant the consent recorder was never reached again, so an
+     * unsubscribe was a one-way door with no screen anywhere that could undo it. The recorder's own append-only
+     * history was tested for this, but by calling the recorder BY HAND — which is the pattern this project forbids,
+     * because it builds the state it claims to detect. This one drives the routes.
+     */
+    public function test_a_customer_may_agree_again_after_unsubscribing_through_the_link(): void
+    {
+        $this->switchConsentOn();
+        $customer = $this->makeCustomer(email: 'news-again@example.test');
+        $gate = app(MarketingConsentGate::class);
+        $question = ['customerId' => (int) $customer->id, 'market' => 'SA', 'channel' => MarketingConsent::CHANNEL_EMAIL, 'purpose' => MarketingConsent::PURPOSE_NEWSLETTER];
+
+        $this->actingAs($customer, 'customer')->post(route('subscription'), ['subscription_email' => 'news-again@example.test'])->assertRedirect();
+        $this->assertTrue($gate->allowsCustomer(...$question));
+
+        $this->get(MarketingUnsubscribeLink::forCustomer(
+            customerId: (int) $customer->id,
+            market: 'SA',
+            channel: MarketingConsent::CHANNEL_EMAIL,
+            purpose: MarketingConsent::PURPOSE_NEWSLETTER,
+        ))->assertOk();
+        $this->assertFalse($gate->allowsCustomer(...$question));
+
+        // The same form again. `subscriptions` still holds their address, which is what used to end the story here.
+        $this->actingAs($customer, 'customer')->post(route('subscription'), ['subscription_email' => 'news-again@example.test'])->assertRedirect();
+
+        $this->assertTrue($gate->allowsCustomer(...$question), 'There is no way back from an unsubscribe.');
+        $this->assertSame(
+            ['granted', 'withdrawn', 'granted'],
+            CustomerMarketingConsent::query()->orderBy('id')->pluck('decision')->all(),
+            'Every step has to be kept: the history is the evidence.'
+        );
+        $this->assertSame(1, DB::table('subscriptions')->where('email', 'news-again@example.test')->count());
+    }
+
+    /**
+     * THE MARKET OF THE SENDER THAT WRITES, which nothing checked.
+     *
+     * A mutation filing every signed-in customer's newsletter choice under the home market instead of their own stayed
+     * GREEN across all 90 tests, because no test here ever subscribed a customer whose address is outside Saudi
+     * Arabia. A2-13's rulings rest on "per market", and this is the one sender on main that WRITES a market.
+     */
+    public function test_a_kuwaiti_customers_newsletter_choice_is_filed_under_kuwait(): void
+    {
+        $this->switchConsentOn();
+        $customer = $this->makeCustomer(email: 'news-kw@example.test', country: 'Kuwait');
+
+        $this->actingAs($customer, 'customer')
+            ->post(route('subscription'), ['subscription_email' => 'news-kw@example.test'])
+            ->assertRedirect();
+
+        $this->assertSame('KW', CustomerMarketingConsent::query()->sole()->market);
+    }
+
+    /**
+     * ONE ADDRESS, HOWEVER IT IS SPELLED, IS ONE SUBJECT.
+     *
+     * Two independent reviews removed the lower-casing from MarketingSubject::forEmail and watched all 90 tests stay
+     * green. It matters because `subscriptions.email` is already case-insensitive on MySQL while the subject hash is
+     * not: the same person could otherwise have two consent histories, an unsubscribe recorded under one of them and a
+     * send allowed under the other.
+     */
+    public function test_two_spellings_of_one_address_are_one_subject(): void
+    {
+        $this->switchConsentOn();
+
+        $this->post(route('subscription'), ['subscription_email' => 'News-Case@Example.test'])->assertRedirect();
+
+        // The link is built for the lower-case spelling, and it has to reach the row the mixed-case form wrote.
+        $this->get(MarketingUnsubscribeLink::forEmail(
+            email: ' news-case@example.test ',
+            market: 'SA',
+            channel: MarketingConsent::CHANNEL_EMAIL,
+            purpose: MarketingConsent::PURPOSE_NEWSLETTER,
+        ))->assertOk();
+
+        $this->assertSame(['pending', 'withdrawn'], CustomerMarketingConsent::query()->orderBy('id')->pluck('decision')->all());
+
+        // THE LOAD-BEARING ASSERTION. The decisions above are written whatever the spelling does — withdraw() writes
+        // a withdrawal for a subject it has never seen — so asserting them proves nothing on its own, which is how my
+        // first attempt at this test passed with the normalisation removed. What has to be true is that the two rows
+        // are about ONE subject.
+        $this->assertCount(
+            1,
+            CustomerMarketingConsent::query()->pluck('subject_hash')->unique(),
+            'Two spellings of one address became two subjects, so a withdrawal under one does not stop a send under the other.'
+        );
     }
 
     /** Subscribing twice is refused by the existing duplicate check, so it cannot stack consent rows either. */
@@ -65,7 +195,11 @@ class NewsletterConsentTest extends MarketingConsentTestCase
         $this->post(route('subscription'), ['subscription_email' => 'news-twice@example.test'])->assertRedirect();
 
         $this->assertSame(1, DB::table('subscriptions')->count());
-        $this->assertSame(1, DB::table('customer_marketing_consents')->count());
+        $this->assertSame(
+            1,
+            DB::table('customer_marketing_consents')->count(),
+            'The recorder is now reached for an address that is already subscribed, so it has to refuse to stack a duplicate.'
+        );
     }
 
     /** A signed-in customer's choice is filed under their account, so it follows them whatever address they type. */
@@ -89,7 +223,7 @@ class NewsletterConsentTest extends MarketingConsentTestCase
         $this->switchConsentOn();
         $this->post(route('subscription'), ['subscription_email' => 'news-withdraw@example.test'])->assertRedirect();
 
-        $link = \App\Services\Marketing\MarketingUnsubscribeLink::forEmail(
+        $link = MarketingUnsubscribeLink::forEmail(
             email: 'news-withdraw@example.test',
             market: 'SA',
             channel: MarketingConsent::CHANNEL_EMAIL,

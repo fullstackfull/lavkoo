@@ -3,6 +3,7 @@
 namespace Tests\Feature\Marketing;
 
 use App\Mail\AbandonedCartReminderMail;
+use App\Models\ShippingAddress;
 use App\Services\Marketing\MarketingConsent;
 use App\Services\Marketing\MarketingConsentRecorder;
 use App\Services\Marketing\MarketingSubject;
@@ -321,6 +322,104 @@ class AbandonedCartConsentTest extends MarketingConsentTestCase
         // And the link actually stops the next send, which is the whole point of naming the right market.
         $this->get((string) $this->sentUnsubscribeUrl())->assertOk();
         $this->assertSame([], app(AbandonedCartService::class)->findAbandoned(stage: 2)->pluck('email')->all());
+    }
+
+    /**
+     * ONE PERSON, TWO SUBJECTS — the defect both reviews measured, in the direction they measured it.
+     *
+     * A registered customer unsubscribes through the link in their own reminder, then shops again without signing in
+     * (a guest cart with the same address, which is an ordinary thing to do). The withdrawal was filed under
+     * "customer:<id>" and the guest-side send asks about "email:<address>", so the next run of the SAME schedule sent
+     * them the same message: measured on both engines as one mail to the address that had just unsubscribed.
+     *
+     * Driven under opt_out on purpose. Under the shipped opt_in policy the send is blocked anyway for want of a grant,
+     * so the test would have passed for the wrong reason — which is how the first version of it went green, and the
+     * same blind spot as the fixture in which every subject was Saudi.
+     */
+    public function test_unsubscribing_as_a_customer_also_stops_the_guest_checkout_reminder(): void
+    {
+        $this->switchConsentOn();
+        $this->setMarketPolicy('SA', MarketingConsent::POLICY_OPT_OUT);
+        $this->switchAbandonedCartRemindersOn(includeGuests: true);
+
+        $customer = $this->makeCustomer(email: 'one-person@example.test');
+        $this->get(MarketingUnsubscribeLink::forCustomer(
+            customerId: (int) $customer->id,
+            market: 'SA',
+            channel: MarketingConsent::CHANNEL_EMAIL,
+            purpose: MarketingConsent::PURPOSE_ABANDONED_CART,
+        ))->assertOk();
+
+        $this->makeGuestCart(email: 'one-person@example.test', groupId: 'group-one-person');
+
+        Mail::fake();
+        $this->artisan('cart:remind-abandoned --stage=1')->assertSuccessful();
+
+        Mail::assertNotSent(AbandonedCartReminderMail::class);
+        $this->assertSame([], app(AbandonedCartService::class)->findAbandoned(stage: 1)->pluck('email')->all());
+    }
+
+    /** And the mirror: a guest unsubscribes, then signs in. The same person, so the same answer. */
+    public function test_unsubscribing_as_a_guest_also_stops_the_account_reminder(): void
+    {
+        $this->switchConsentOn();
+        $this->setMarketPolicy('SA', MarketingConsent::POLICY_OPT_OUT);
+        $this->switchAbandonedCartRemindersOn();
+
+        $this->get(MarketingUnsubscribeLink::forEmail(
+            email: 'other-way@example.test',
+            market: 'SA',
+            channel: MarketingConsent::CHANNEL_EMAIL,
+            purpose: MarketingConsent::PURPOSE_ABANDONED_CART,
+        ))->assertOk();
+
+        $customer = $this->makeCustomer(email: 'other-way@example.test');
+        $this->makeAbandonedCart(customerId: (int) $customer->id, groupId: 'group-other-way');
+
+        Mail::fake();
+        $this->artisan('cart:remind-abandoned --stage=1')->assertSuccessful();
+
+        Mail::assertNotSent(AbandonedCartReminderMail::class);
+    }
+
+    /**
+     * A customer who agreed by account is still reminded when the address they used has no row of its own.
+     *
+     * The guard on the fix above: "ask every subject" must not become "every subject has to say yes", which would
+     * have stopped reminding most of the people who HAVE agreed.
+     */
+    public function test_a_customer_who_agreed_by_account_is_still_reminded_at_an_address_with_no_row(): void
+    {
+        $this->switchConsentOn();
+        $this->switchAbandonedCartRemindersOn();
+
+        $customer = $this->makeCustomer(email: 'account-only@example.test');
+        $this->grantCartReminderConsent(customerId: (int) $customer->id);
+        $this->makeAbandonedCart(customerId: (int) $customer->id, groupId: 'group-account-only');
+
+        Mail::fake();
+        $this->artisan('cart:remind-abandoned --stage=1')->assertSuccessful();
+
+        Mail::assertSent(AbandonedCartReminderMail::class, 1);
+    }
+
+    /** A guest cart carrying an address somebody typed at the checkout form. */
+    private function makeGuestCart(string $email, string $groupId): int
+    {
+        $guestId = (int) DB::table('guest_users')->insertGetId(['ip_address' => '127.0.0.1', 'created_at' => now(), 'updated_at' => now()]);
+
+        $address = new ShippingAddress;
+        $address->customer_id = (string) $guestId;
+        $address->is_guest = 1;
+        $address->contact_person_name = 'Guest';
+        $address->country = 'Saudi Arabia';
+        $address->city = 'Riyadh';
+        $address->email = $email;
+        $address->save();
+
+        $this->makeAbandonedCart(customerId: $guestId, groupId: $groupId, isGuest: true);
+
+        return $guestId;
     }
 
     private function sentUnsubscribeUrl(): ?string

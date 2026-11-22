@@ -3,7 +3,9 @@
 namespace Tests\Feature\Marketing;
 
 use App\Services\Address\AddressCountry;
+use App\Services\Marketing\MarketingConsent;
 use App\Services\Marketing\MarketingMarket;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\DataProvider;
 
@@ -132,5 +134,63 @@ class MarketingMarketTest extends MarketingConsentTestCase
 
         $this->assertSame('SA', MarketingMarket::forCustomer(customerId: (int) $customer->id));
         $this->assertSame('OM', MarketingMarket::forCustomer(customerId: (int) $customer->id, isGuest: true));
+    }
+
+    /**
+     * The six markets are the six the address book knows, and a constant cannot compute itself.
+     *
+     * MarketingConsent::MARKETS has to be the five AddressCountry::GCC_SPELLINGS keys plus Saudi Arabia, which
+     * AddressCountry answers from its own SAUDI list. If a seventh market is added to one place and not the other, a
+     * consent would be recorded for a market the gate refuses to recognise — or the reverse.
+     */
+    public function test_the_six_markets_are_the_markets_the_address_book_knows(): void
+    {
+        $fromTheAddressBook = array_merge(['SA'], array_keys(AddressCountry::GCC_SPELLINGS));
+        sort($fromTheAddressBook);
+
+        $markets = MarketingConsent::MARKETS;
+        sort($markets);
+
+        $this->assertSame($fromTheAddressBook, $markets);
+
+        foreach (MarketingConsent::MARKETS as $market) {
+            $this->assertTrue(MarketingConsent::isMarket($market));
+            $this->assertTrue(MarketingConsent::isMarket(mb_strtolower($market)), 'A market has to be recognised however it is spelled.');
+        }
+    }
+
+    /**
+     * A HOME MARKET THAT IS NOT A MARKET IS IGNORED, and this is the setting that made it matter.
+     *
+     * `market` is char(2). An independent review set GCC_MARKETING_CONSENT_HOME_MARKET to 'Saudi Arabia' — the exact
+     * spelling AddressCountry::LEGACY_NAME and the shipping_addresses.country column both use — and measured the same
+     * public unsubscribe route behaving three different ways: on SQLite it worked; on a non-strict MariaDB the value
+     * was asked about as 'SAUDI ARABIA', SILENTLY STORED as 'SA', never matched again, so the person saw the "you have
+     * been unsubscribed" page while the gate kept allowing the send and every click wrote another row; under the
+     * strict-mode job it raised SQLSTATE 22001. One typed setting is not allowed to do any of that.
+     */
+    public function test_a_home_market_that_is_not_one_of_the_six_is_ignored(): void
+    {
+        foreach (['Saudi Arabia', 'SAU', 'FR', '', '  ', 'Kuwait'] as $misconfigured) {
+            Config::set('marketing.consent.home_market', $misconfigured);
+            $this->assertSame('SA', MarketingMarket::homeMarket(), "A home market of '{$misconfigured}' must not reach the column.");
+        }
+
+        // A real market, spelled either way, is still honoured.
+        Config::set('marketing.consent.home_market', 'ae');
+        $this->assertSame('AE', MarketingMarket::homeMarket());
+    }
+
+    /**
+     * A CUSTOMER OUTSIDE THE SIX MARKETS INHERITS THE HOME MARKET'S REGIME. Recorded here because it is a consequence
+     * nothing stated, not because it is settled: the owner's answer to Discovery Q-15 is per market, and if Saudi
+     * Arabia becomes opt_out then a customer in France becomes opt_out with it. That is an OWNER DECISION — see the
+     * pull request's open list.
+     */
+    public function test_a_customer_outside_the_six_markets_is_filed_under_the_home_market(): void
+    {
+        $customer = $this->makeCustomer(email: 'france@example.test', country: 'France');
+
+        $this->assertSame('SA', MarketingMarket::forCustomer(customerId: (int) $customer->id));
     }
 }
