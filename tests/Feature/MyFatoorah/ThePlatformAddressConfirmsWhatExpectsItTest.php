@@ -5,10 +5,12 @@ namespace Tests\Feature\MyFatoorah;
 use App\Models\MyFatoorahPaymentAttempt;
 use App\Models\MyFatoorahWebhookEvent;
 use App\Models\PaymentGatewayAccount;
+use App\Models\PaymentRequest;
 use App\Services\MyFatoorah\GatewayConfigRepository;
 use App\Services\Payments\ConfirmationAddresses;
 use App\Services\Payments\GatewayAccountDirectory;
 use App\Services\Payments\GatewayAccountRegistry;
+use App\Services\Payments\GatewayAccountSecrets;
 use App\Services\Payments\PaymentAccountBinding;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\DB;
@@ -229,30 +231,42 @@ class ThePlatformAddressConfirmsWhatExpectsItTest extends CompanyAccountsTestCas
      * A STORED VALUE THAT IS NOT TEXT BUT IS NOT EMPTY EITHER — a number — reads as an address, and this is what that costs.
      *
      * `PaymentTransactionRecord::text()` casts an int or a float to a string, which the exchange rate it shares that helper with needs; so a stored
-     * `0` under this key reads as the address "0" rather than as no address. No writer of this application produces it. Pinned rather than guessed,
-     * and pinned in both directions, because the direction is the whole question: the PUBLIC address refuses it, as it refuses any address that is not
-     * its own — and the payment is NOT stranded, because its company address keys on the ACCOUNT the payment was stamped with and still confirms it.
+     * `0` under this key reads as the address "0" rather than as no address. No writer of this application produces it. CONSTRUCTED, therefore, and
+     * pinned rather than guessed — in both directions, because the direction is the whole question.
      *
-     * So this shape is treated exactly as a real company address is. That is why it is recorded here as a measured consequence and not as a defect to
-     * fix: changing `text()` would change how the exchange rate is read on a financial record, for a shape nothing writes.
+     * "0" is an address this payment positively expects, so the first of the two facts a refusal needs is present. The second is not: "0" is not the
+     * address this payment's account is named at, so it is not an address this payment can be confirmed at, and the platform address confirms it as
+     * the address of last resort. Its own company address confirms it too, because a company's address keys on the ACCOUNT. Either way the payment is
+     * not stranded, which is the claim.
+     *
+     * Before the liveness condition the public address REFUSED this payment, and the only thing then standing between it and being stranded was its
+     * company address still resolving. Reviewer A of the stage-C round measured that this single assertion was the whole price of un-stranding six
+     * ordinary administrative acts, and it was the right price to pay: this is the safer answer for a shape nothing writes.
+     *
+     * `text()` is still not changed, and that is still deliberate: changing it would change how the exchange rate is read on a financial record.
      */
-    public function test_a_stored_number_reads_as_an_address_and_its_company_address_still_confirms_it(): void
+    public function test_a_stored_number_reads_as_an_address_and_neither_address_strands_the_payment(): void
     {
         $attempt = $this->anAttemptStampedWith($this->kuwait);
         $this->replaceTheRecordedAddressOf($attempt, with: 0);
         $this->fakePaidFor($attempt);
 
         $this->assertSame('0', $this->theAddressExpectedBy($attempt), 'a number reads as an address, not as none');
+        $this->assertNotSame(
+            '0',
+            app(GatewayAccountDirectory::class)->webhookUrlOf(account: $this->kuwait),
+            'and it is not the address this payment\'s account is named at, so it is not an address it can be confirmed at',
+        );
 
-        $this->deliverToThePlatformAddress($attempt)->assertStatus(401);
-
-        $this->assertSame([], $this->paidPayments(), 'the public address refuses an address that is not its own');
-
-        $this->deliverToTheCompanyAddress($this->kuwait, $attempt, self::KUWAIT_WEBHOOK_SECRET)
+        $this->deliverToThePlatformAddress($attempt)
             ->assertOk()
             ->assertJsonPath('status', 'settled');
 
-        $this->assertSame([$attempt->payment_request_id], $this->paidPayments(), 'and nothing is stranded: its own address confirms it');
+        $this->assertSame([$attempt->payment_request_id], $this->paidPayments(), 'the address of last resort confirms it');
+
+        $this->deliverToTheCompanyAddress($this->kuwait, $attempt, self::KUWAIT_WEBHOOK_SECRET)
+            ->assertOk()
+            ->assertJsonPath('status', 'already_settled');
     }
 
     /** A payment of one company is not confirmed at another company's address either. The addresses are the account's, and the account is the stamp's. */
@@ -525,6 +539,154 @@ class ThePlatformAddressConfirmsWhatExpectsItTest extends CompanyAccountsTestCas
         $this->assertSame([], $this->paidPayments(), 'there is nothing to pay');
         $this->assertSame(0, $this->successHookCalls());
         $this->assertSame(1, MyFatoorahWebhookEvent::count(), 'recorded, as it is today');
+    }
+
+    /**
+     * OBLIGATION 3, THE HALF THE FIRST ROUND OF THIS STAGE DID NOT HOLD: a recorded address that is no longer live does not strand its payment.
+     *
+     * The first round keyed the refusal on the recorded address text alone, and leant for safety on one fact — that turning per-company accounts off
+     * turns every company address off with them, so enforcement requires the registry to be enabled. True, and not enough. Six further things make a
+     * recorded address stop reading deliveries, every one of them an ordinary administrative act on a live account, and for each of them the base
+     * branch confirms and PAYS the payment while the first round of this stage confirmed it nowhere at all.
+     *
+     * Each lever is applied AFTER the payment started, through the real model or the real configuration, and then measured on both routes: the
+     * address the gateway was actually given (the recorded one), and the platform address. The assertion is the one the owner's decision asks for —
+     * the payment ends up PAID — and the control is the one lever-free case, which must still be refused at the platform address or this provider
+     * would prove nothing.
+     *
+     * The base branch's answer for each was measured in a second worktree at 4504a41a before this was written: six disturbances, platform 200,
+     * settled, paid, in every case. Found by reviewer A and reviewer B of the stage-C round; two of the six (no webhook secret, and the account-id
+     * dropped from the stamp) were found measuring their findings out.
+     *
+     * @return array<string, array{string, bool}>
+     */
+    public static function levers(): array
+    {
+        return [
+            'the account is deactivated' => ['deactivated', true],
+            'the account row is deleted' => ['deleted', true],
+            'the owner takes its gateway off the covered list' => ['unlisted', true],
+            'its webhook token is retyped' => ['retyped', true],
+            'it holds no webhook secret' => ['no-secret', true],
+            'the stamp names no account, address kept' => ['no-account-id', true],
+            'CONTROL: nothing is disturbed' => ['none', false],
+        ];
+    }
+
+    #[DataProvider('levers')]
+    public function test_a_recorded_address_that_is_no_longer_live_does_not_strand_its_payment(string $lever, bool $expectPaidAtThePlatformAddress): void
+    {
+        $attempt = $this->anAttemptStampedWith($this->kuwait);
+        $recorded = (string) $this->theAddressExpectedBy($attempt);
+        $this->assertStringContainsString('kuwait-webhook-token', $recorded, 'the payment recorded its own company address');
+        $this->fakePaidFor($attempt);
+
+        $this->applyTheLever($lever);
+
+        $this->assertTrue(app(ConfirmationAddresses::class)->isEnforced(), 'with the rule in force');
+        $this->deliverToTheAddressTheGatewayWasGiven($recorded, $attempt)
+            ->assertStatus($lever === 'none' ? 200 : 401, 'the address the gateway was given either still reads deliveries or does not');
+
+        $atThePlatformAddress = $this->deliverToThePlatformAddress($attempt);
+
+        if ($expectPaidAtThePlatformAddress) {
+            $atThePlatformAddress->assertOk();
+            $this->assertSame([$attempt->payment_request_id], $this->paidPayments(), 'no money is left unconfirmed by this change');
+            $this->assertSame(1, $this->successHookCalls());
+
+            return;
+        }
+
+        $atThePlatformAddress->assertStatus(401);
+        $this->assertSame([$attempt->payment_request_id], $this->paidPayments(), 'the control was paid at its own live address and nowhere else');
+    }
+
+    /**
+     * THE CONTROL OF THE CONTROL: with every lever in place the platform address still refuses a payment whose address IS live.
+     *
+     * Without this, the provider above could be passed by a method that simply never refuses anything. The one lever-free row of the provider says
+     * the same thing, and this says it about the account's own state rather than about the absence of a disturbance: the account is active, listed,
+     * holds its secret and keeps its token, so the address the payment recorded reads deliveries, and this address is not it.
+     */
+    public function test_the_platform_address_still_refuses_a_payment_whose_recorded_address_is_live(): void
+    {
+        $attempt = $this->anAttemptStampedWith($this->kuwait);
+        $recorded = (string) $this->theAddressExpectedBy($attempt);
+        $this->fakePaidFor($attempt);
+        $before = $this->theWorld($attempt);
+
+        $this->assertSame(
+            $recorded,
+            app(GatewayAccountDirectory::class)->webhookUrlOf(account: $this->kuwait),
+            'the recorded address is the address this account is named at now',
+        );
+        $this->assertNotNull(
+            app(GatewayAccountSecrets::class)->webhookSecret(account: $this->kuwait),
+            'and the account holds the secret that address authenticates with',
+        );
+
+        $this->deliverToThePlatformAddress($attempt)->assertStatus(401);
+
+        $this->assertEquals($before, $this->theWorld($attempt), 'and nothing moved');
+        $this->deliverToTheAddressTheGatewayWasGiven($recorded, $attempt)->assertOk()->assertJsonPath('status', 'settled');
+        $this->assertSame([$attempt->payment_request_id], $this->paidPayments());
+    }
+
+    /**
+     * An ordinary administrative act on an account, applied after a payment of it has started.
+     *
+     * Each one goes through the real model or the real configuration key an operator reaches, never through a shape invented here, and each is a
+     * supported act: `PaymentGatewayAccountUpsertCommand` offers --activate/--deactivate and --new-webhook-token, creates an account before any
+     * secret is given to it, and `config/gcc.php`'s own note on the covered list names removing this gateway from it as the rollback.
+     */
+    private function applyTheLever(string $lever): void
+    {
+        match ($lever) {
+            'deactivated' => PaymentGatewayAccount::query()->whereKey($this->kuwait->id)->update(['status' => false]),
+            'deleted' => PaymentGatewayAccount::query()->whereKey($this->kuwait->id)->delete(),
+            'unlisted' => config(['gcc.storefronts.payment_accounts.gateways' => $this->shippedGatewayList]),
+            'retyped' => PaymentGatewayAccount::query()->whereKey($this->kuwait->id)->update(['webhook_path_token' => 'a-token-typed-later']),
+            'no-secret' => app(GatewayAccountSecrets::class)->put(
+                account: $this->kuwait,
+                secrets: [],
+                clear: [GatewayAccountSecrets::WEBHOOK_SECRET],
+            ),
+            'no-account-id' => $this->dropTheAccountIdFromTheStampOf($this->kuwait),
+            'none' => null,
+        };
+
+        app(GatewayAccountRegistry::class)->flush();
+    }
+
+    /**
+     * Removes the account id from a stamp the production writer produced, leaving its recorded address alone.
+     *
+     * CONSTRUCTED, and the one lever that is: `additional_data` is a JSON column this application is not the only writer of, and the shape matters
+     * because a recorded address with no account behind it is the shape with no account to hand the payment back to. It must read as an old payment's
+     * address rather than as a live company one.
+     */
+    private function dropTheAccountIdFromTheStampOf(PaymentGatewayAccount $account): void
+    {
+        $payment = PaymentRequest::query()
+            ->whereIn('id', MyFatoorahPaymentAttempt::query()->pluck('payment_request_id'))
+            ->orderByDesc('created_at')
+            ->firstOrFail();
+        $stored = (array) json_decode((string) $payment->additional_data, true);
+        unset($stored[PaymentAccountBinding::KEY]['account_id']);
+
+        DB::table('payment_requests')->where('id', $payment->id)->update(['additional_data' => json_encode($stored)]);
+    }
+
+    /** A delivery to the address initiation actually gave the gateway for this payment, whatever that address resolves to now. */
+    private function deliverToTheAddressTheGatewayWasGiven(string $recorded, MyFatoorahPaymentAttempt $attempt): TestResponse
+    {
+        $payload = $this->webhookPayload((string) $attempt->external_identifier);
+
+        return $this->postJson(
+            (string) parse_url($recorded, PHP_URL_PATH),
+            $payload,
+            ['MyFatoorah-Signature' => $this->signatureFor($payload, self::KUWAIT_WEBHOOK_SECRET)],
+        );
     }
 
     private function theOneAddressRuleIsOn(): void
