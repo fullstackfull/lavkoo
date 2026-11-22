@@ -9,16 +9,25 @@ use Illuminate\Support\Facades\Schema;
  * The table the payment routing rules were always written to, and which did not exist.
  *
  * App\Models\PaymentRoutingRule, App\Services\Marketplace\PaymentRoutingService and the admin screen
- * at Admin\Marketplace\PaymentRoutingController (create, update and delete) were all shipped, and the
- * table was not: no migration in this repository creates `payment_routing_rules`, and it is absent
- * from the installed SQL dump. So every read was turned away by the service's own
- * `Schema::hasTable()` guard and returned the gateway list unchanged, and a save from the admin screen
- * could only fail. The feature was unreachable rather than switched off.
+ * at Admin\Marketplace\PaymentRoutingController (create, update and delete) were all shipped, and NO
+ * MIGRATION IN THIS REPOSITORY CREATES THE TABLE. Where this repository is the whole schema, every
+ * read is therefore turned away by the service's own `Schema::hasTable()` guard and answers the
+ * gateway list unchanged, and a save from the admin screen can only fail.
  *
- * This creates it, and that is all it does. IT ARRIVES EMPTY, and the resolver's contract is that with
- * no rule the gateway list comes back unchanged -- so the checkout, the payment start and the mobile
- * app's /api/v1/config behave exactly as they do today until an administrator writes a rule. The
- * table existing is what makes the feature testable; a rule existing is what makes it act.
+ * WHAT CANNOT BE DETERMINED FROM HERE, said rather than assumed: whether the installed SQL dump
+ * already has this table. `.gitignore` excludes `*.sql`, so installation/backup/database.sql is not in
+ * this repository and is not in the container this was written in -- no claim about the live schema can
+ * be sourced from here, including a claim that the table is missing from it.
+ *
+ * WHICH IS WHY THE FIRST LINE OF up() IS A hasTable() EARLY-OUT, and why that matters rather than
+ * being boilerplate: if the dump already carries the table, this migration does NOTHING and alters no
+ * column of it. If it does not, the table is created empty. Safe either way, which is the only
+ * standard available to a migration whose starting schema cannot be read.
+ *
+ * It ARRIVES EMPTY where it is created, and the resolver's contract is that with no rule the gateway
+ * list comes back unchanged -- so the checkout, the payment start and the mobile app's /api/v1/config
+ * behave exactly as they do today until an administrator writes a rule. The table existing is what
+ * makes the feature testable; a rule existing is what makes it act.
  *
  * Nothing existing is altered and nothing is dropped.
  */
