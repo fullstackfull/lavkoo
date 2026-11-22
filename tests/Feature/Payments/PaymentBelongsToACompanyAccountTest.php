@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Payments;
 
+use App\Events\AddFundToWalletEvent;
 use App\Http\Middleware\ApplySeoRedirects;
 use App\Http\Middleware\DetectMobile;
 use App\Http\Middleware\Localization;
@@ -13,7 +14,9 @@ use App\Models\PaymentGatewayAccount;
 use App\Services\Payments\GatewayAccountRegistry;
 use App\Services\Payments\PaymentAccountBinding;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use RuntimeException;
@@ -34,6 +37,12 @@ class PaymentBelongsToACompanyAccountTest extends TestCase
     private const KUWAIT_SECRET_KEY = 'kuwait-account-secret-key';
 
     private const SAUDI_SECRET_KEY = 'saudi-account-secret-key';
+
+    /** The HMAC of the one platform-wide settings row, which is what every payment is signed with today (BuildsCompanyGatewayAccounts default). */
+    private const PLATFORM_HMAC = 'the-platform-signing-secret';
+
+    /** The SA account's own HMAC, which is a different secret from the platform row's, or settling through the account would prove nothing. */
+    private const SAUDI_ACCOUNT_HMAC = 'saudi-account-signing-secret';
 
     protected function setUp(): void
     {
@@ -147,6 +156,95 @@ class PaymentBelongsToACompanyAccountTest extends TestCase
         $this->get('/payment/paymob/pay?payment_id=' . $payment->id)->assertRedirectContains('unifiedcheckout');
 
         Http::assertSent(static fn ($request): bool => str_contains((string) $request->header('Authorization')[0], 'platform-secret-key'));
+    }
+
+    /**
+     * D2-07: 'The existing Saudi row works unchanged as the SA account with no data change' — the half of that wording nothing reached.
+     *
+     * The test above carrying the criterion's words registers NO account: it proves a Saudi payment taken while the feature is dormant, which is the
+     * "works unchanged, no data change" half, and says nothing about the SA ACCOUNT. The only test that registered a Saudi account asserted what the
+     * KUWAITI payment did with it. So this one registers the SA account, takes the SAME Saudi payment through it, and measures it against the dormant
+     * payment TAKEN IN THIS TEST: "unchanged" is a comparison of two sets of figures this test took, not of numbers typed into it.
+     *
+     * The only difference the comparison permits is the stamp itself, which is the record the feature adds to a NEW payment and which
+     * CompanyAccountsAreDormantTest pins as absent in every dormant state. Nothing installed changes: not the platform settings row, not the amount,
+     * not the settlement, not the wallet credit.
+     */
+    public function test_a_saudi_payment_goes_through_the_registered_sa_account_and_is_otherwise_the_dormant_payment(): void
+    {
+        $this->installTheTopUpRegister();
+        $this->installTheConfirmationRegister();
+        Event::fake([AddFundToWalletEvent::class]);
+        $customer = $this->aCustomer(balance: 10.0);
+        $settingsBefore = DB::table('addon_settings')->where('key_name', self::PAYMOB)->first();
+
+        $dormant = $this->aSaudiTopUpSettledWith(customer: $customer, hmac: self::PLATFORM_HMAC, transaction: '4455667');
+
+        $company = $this->aCompanyIn('SA');
+        $account = $this->anAccountFor(
+            country: 'SA',
+            secrets: ['secret_key' => self::SAUDI_SECRET_KEY, 'public_key' => 'saudi-public', 'integration_id' => '3333', 'hmac' => self::SAUDI_ACCOUNT_HMAC],
+            company: (int) $company->id,
+        );
+
+        $throughTheAccount = $this->aSaudiTopUpSettledWith(customer: $customer, hmac: self::SAUDI_ACCOUNT_HMAC, transaction: '4455668');
+
+        // It is taken through THAT account: the stamp names it, and the credentials the gateway was called with are its own.
+        $this->assertSame((int) $account->id, $this->theRecordOf($throughTheAccount['payment'])?->accountId, 'the Saudi payment names the SA account');
+        $this->assertSame((int) $company->id, $this->theRecordOf($throughTheAccount['payment'])?->companyId, 'and the Saudi company that holds it');
+        $this->assertStringContainsString(self::SAUDI_SECRET_KEY, $throughTheAccount['authorization'], 'the SA account own key went to the gateway');
+        $this->assertStringNotContainsString('platform-secret-key', $throughTheAccount['authorization'], 'and the platform row key did not');
+        $this->assertStringContainsString('platform-secret-key', $dormant['authorization'], 'the dormant payment is the platform row, or there is nothing to compare against');
+
+        // And nothing else about it is different from the dormant payment measured a moment ago.
+        $this->assertNull($this->theRecordOf($dormant['payment']), 'the dormant payment carries no stamp, which is the state being compared with');
+        $this->assertSame($dormant['amount'], $throughTheAccount['amount'], 'the amount stored is the dormant amount');
+        $this->assertSame($dormant['paid'], $throughTheAccount['paid'], 'it settles as the dormant payment settles');
+        $this->assertSame($dormant['credited'], $throughTheAccount['credited'], 'and credits the wallet with what the dormant payment credited');
+        $this->assertSame(
+            $dormant['stored'],
+            Arr::except($throughTheAccount['stored'], [PaymentAccountBinding::KEY]),
+            'the stored data of the payment is the dormant data, plus the stamp and nothing else',
+        );
+        $this->assertEquals($settingsBefore, DB::table('addon_settings')->where('key_name', self::PAYMOB)->first(), 'the platform settings row was not written to');
+    }
+
+    /**
+     * One Saudi wallet top-up of 100, taken to the gateway and settled by a return signed with the given secret, and the figures it left behind.
+     *
+     * Each phase of the comparison above runs this, so the two payments differ in nothing but the account registered when they started.
+     *
+     * Each phase names its OWN Paymob transaction: App\Services\Payments\GatewayConfirmations holds a gateway's reference under a unique key, so a
+     * second payment settled on the first one's reference is a replay and settles nothing — which is the register working, and cost this test a
+     * debugging round.
+     *
+     * @return array{payment: object, authorization: string, amount: float, paid: int, credited: float, stored: array<string, mixed>}
+     */
+    private function aSaudiTopUpSettledWith(int $customer, string $hmac, string $transaction): array
+    {
+        $payment = $this->aPaymentStartedIn(country: 'SA', currency: 'SAR', amount: 100);
+        DB::table('payment_requests')->where('id', $payment->id)->update(['payer_id' => (string) $customer, 'attribute' => 'add_fund']);
+
+        Http::fake(['*' => Http::response(['client_secret' => 'a-client-secret'], 200)]);
+        $sentBefore = Http::recorded()->count();
+        $balanceBefore = $this->walletBalanceOf($customer);
+
+        $this->get('/payment/paymob/pay?payment_id=' . $payment->id)->assertRedirectContains('unifiedcheckout');
+
+        $this->withSession(['payment_id' => $payment->id])
+            ->get($this->aSignedReturn(transaction: $transaction, amount: 100, secret: $hmac))
+            ->assertRedirectContains('payment-success');
+
+        $row = DB::table('payment_requests')->where('id', $payment->id)->first();
+
+        return [
+            'payment' => $payment,
+            'authorization' => implode(' ', Http::recorded()->skip($sentBefore)->map(static fn (array $pair): string => implode(' ', $pair[0]->header('Authorization')))->all()),
+            'amount' => (float) $row->payment_amount,
+            'paid' => (int) $row->is_paid,
+            'credited' => $this->walletBalanceOf($customer) - $balanceBefore,
+            'stored' => (array) json_decode((string) $row->additional_data, true),
+        ];
     }
 
     /** D2-07: 'A storefront has at most one live account per gateway and environment (unique key)'. */
