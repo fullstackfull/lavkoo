@@ -130,6 +130,90 @@ class PosTillStockTest extends PosTillTestCase
         $this->assertSame(0, StockMovement::query()->count());
     }
 
+    // ---- the boundary of the rule: the LAST unit is still sellable -----------------------------------------------------
+
+    /**
+     * The guard is one character wide. `>=` sells the last unit; `>` refuses it, and a till that cannot sell the last unit of
+     * anything is the opposite of the defect being fixed. Nothing in the first round of this test sold a shelf to zero, so
+     * that character was unpinned: changing it left all twenty tests green on SQLite.
+     */
+    #[DataProvider('tills')]
+    public function test_a_sale_of_exactly_the_stock_on_hand_goes_through_and_empties_the_shelf(string $till): void
+    {
+        $this->shelfProduct(id: 631, stock: 3, till: $till);
+        $this->givenCartAtTill($till, [631 => 3]);
+
+        $this->placeSaleAtTill($till, amount: 300.0);
+
+        $this->assertSame(['success'], $this->toastTypes(), 'the last three units are three units');
+        $this->assertSame([
+            'orders' => 1,
+            'order_details' => 1,
+            'charged' => 300.0,
+            'current_stock' => 0,
+            'movements' => [['qty_change' => -3, 'balance_after' => 0]],
+        ], $this->readings(631));
+    }
+
+    /** The same boundary one level down: a variant sold to exactly nothing is a sale, not a shortfall. */
+    #[DataProvider('tills')]
+    public function test_a_variant_sold_down_to_exactly_nothing_goes_through_and_the_variants_still_sum_to_the_stock(string $till): void
+    {
+        $this->shelfProduct(id: 632, stock: 5, till: $till, variation: json_encode([
+            ['type' => 'Red', 'price' => 100, 'qty' => 3],
+            ['type' => 'Blue', 'price' => 100, 'qty' => 2],
+        ]));
+        $this->givenCartAtTill($till, [632 => ['quantity' => 3, 'variant' => 'Red', 'variations' => ['color' => 'Red']]]);
+
+        $this->placeSaleAtTill($till, amount: 300.0);
+
+        $this->assertSame(['success'], $this->toastTypes());
+        $this->assertSame(['Red' => 0, 'Blue' => 2], $this->variantQuantities(632), 'the whole of Red is still Red');
+        $this->assertSame(2, (int) Product::query()->whereKey(632)->value('current_stock'));
+        $this->assertSame(2, array_sum($this->variantQuantities(632)), 'the variants sum to the stock');
+    }
+
+    /** And the money boundary the wallet check keeps: a customer may spend the whole of their balance. */
+    public function test_a_wallet_sale_for_exactly_the_balance_goes_through_and_lands_on_nothing(): void
+    {
+        $this->walletCustomer(id: 44, balance: 300);
+        $this->shelfProduct(id: 634, stock: 10, till: self::ADMIN_TILL);
+        $this->givenWalletCartAtTill(self::ADMIN_TILL, customerId: 44, productId: 634, quantity: 3);
+
+        $this->actingAtTill(self::ADMIN_TILL)->post($this->placeOrderUrl(self::ADMIN_TILL), [
+            'amount' => 300.0, 'type' => 'wallet', 'fulfillment' => 'instant',
+        ]);
+
+        $this->assertSame(['success'], $this->toastTypes(), 'the whole balance is enough for a sale of the whole balance');
+        $this->assertSame(0.0, (float) DB::table('users')->where('id', 44)->value('wallet_balance'));
+        $this->assertSame(1, DB::table('wallet_transactions')->count());
+        $this->assertSame(1, Order::query()->count());
+        $this->assertSame(7, (int) Product::query()->whereKey(634)->value('current_stock'));
+    }
+
+    // ---- what the refusal leaves the cashier ---------------------------------------------------------------------------
+
+    /**
+     * The reason a shop should accept the refusal is that it costs the cashier one correction and nothing else: the basket is
+     * still there to be adjusted. The first round of this test asserted the database and never the cart, so a change that
+     * emptied a full basket on every refusal passed the whole suite on both engines.
+     */
+    #[DataProvider('tills')]
+    public function test_a_refused_sale_leaves_the_cashier_the_basket_it_refused(string $till): void
+    {
+        $this->shelfProduct(id: 635, stock: 2, till: $till);
+        $cartId = $this->givenCartAtTill($till, [635 => 5]);
+
+        $response = $this->placeSaleAtTill($till, amount: 500.0);
+
+        $response->assertJson(['stockShortfall' => true]);
+        $this->assertSame($cartId, session(SessionKey::CURRENT_USER), 'the till is still serving the same customer');
+        $lines = array_values(array_filter((array) session($cartId), 'is_array'));
+        $this->assertCount(1, $lines, 'the line the cashier scanned is still in the basket');
+        $this->assertSame(635, $lines[0]['id']);
+        $this->assertSame(5, $lines[0]['quantity'], 'at the quantity they entered, for them to correct');
+    }
+
     // ---- a line that is not a sale at all ------------------------------------------------------------------------------
 
     /**
@@ -451,6 +535,25 @@ class PosTillStockTest extends PosTillTestCase
         if (DB::connection()->getDriverName() !== 'sqlite') {
             $this->assertStringContainsStringIgnoringCase('for update', $first['sql'], 'the statement that reads them in id order is the one that locks them');
         }
+
+        // WHEN, not only whether. A lock taken after the lines have already been priced and taken protects nothing, and the
+        // assertions above are blind to it: moving the call to just before the order row left all twenty tests of the first
+        // round green on both engines. The lock must precede the first write to any product of the sale.
+        $positions = array_keys($statements);
+        $lockAt = null;
+        $firstWriteAt = null;
+        foreach ($positions as $index) {
+            $sql = $statements[$index]['sql'];
+            if ($lockAt === null && str_contains($sql, 'from "products"') && str_contains($sql, 'order by "id" asc')) {
+                $lockAt = $index;
+            }
+            if ($firstWriteAt === null && str_starts_with($sql, 'update "products"')) {
+                $firstWriteAt = $index;
+            }
+        }
+        $this->assertNotNull($firstWriteAt, 'the sale writes to the products it sold');
+        $this->assertNotNull($lockAt);
+        $this->assertLessThan($firstWriteAt, $lockAt, 'the products are locked before the first one of them is written, not after');
     }
 
     // ---- helpers -------------------------------------------------------------------------------------------------------
