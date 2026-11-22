@@ -212,6 +212,9 @@ class PosTillServerTotalTest extends PosTillTestCase
         // Measured at 60f5a605: charged 1.00 for three products at 100.00.
         $this->assertSame(30000, $this->chargedMinorUnits(), 'the sale costs 300.00 whatever the request said');
         $this->assertSame(30000, $this->initialMinorUnits(), 'and the amount the order started at says the same');
+        // The deliberate consequence of leaving the tendered figure alone: the order records 300.00 owed against the
+        // 1.00 the request claimed was handed over. At 60f5a605 both read 1.00 and the 299.00 went unrecorded.
+        $this->assertSame(100, $this->paidMinorUnits(), 'what the cashier says was taken is recorded as said, and the shortfall is now visible');
     }
 
     #[DataProvider('tills')]
@@ -225,6 +228,7 @@ class PosTillServerTotalTest extends PosTillTestCase
         $this->assertSame(['success'], $this->toastTypes());
         // Measured at 60f5a605: charged 5000.00.
         $this->assertSame(30000, $this->chargedMinorUnits());
+        $this->assertSame(500000, $this->paidMinorUnits(), 'and the overpayment the request claimed is recorded as claimed, against a sale of 300.00');
     }
 
     /**
