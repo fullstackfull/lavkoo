@@ -276,6 +276,39 @@ class RefundGivesBackTheOriginalPaymentTest extends ApiAddressTestCase
         $this->assertEqualsWithDelta(100, (float) $credits[0]['credit'], 0.000001, 'the wallet is in the platform\'s money, which is now the dirham: a riyal payment cannot be handed back through it, so the figure the flow always used stands and the amount owed is recorded instead');
     }
 
+    /**
+     * Criterion 6 for a settings change that leaves the money of the payment reachable: the platform's decimals and its rate both move after the sale,
+     * and the buyer still gets back what they paid, to the last minor unit of the currency.
+     *
+     * 375.00 riyals at a rate of 4.2 is 89.285714285714... in the amounts balances are kept in, which does not end: what the buyer gets back is
+     * therefore exact only to the decimals of the column that holds it, and the installed database holds twenty (DECIMAL(40,20), set by
+     * database/migrations/2026_05_07_000001). The real engine is what made this visible -- the first fixture here gave the column six decimals, SQLite
+     * ignored the scale and answered 375.0 while MariaDB answered 374.9999988 -- and the fixture now has the precision the real column has, so what is
+     * measured is what a shop would pay.
+     */
+    public function test_a_refund_after_the_decimals_and_the_rate_changed_gives_back_exactly_what_the_buyer_paid(): void
+    {
+        $this->theShopConvertsAtTheRateOfTheDay('SAR');
+        $this->theRateOfBecomes('SAR', self::RATE_AT_THE_SALE);
+        $this->anAccountFor('SA', $this->aCompanyIn('SA')->id);
+        $this->turnTheOriginalPaymentPayoutOn();
+
+        [$customer, , , $refunds] = $this->sellPayAndAskForRefund([1], 'TXN-ON-7');
+        $this->assertSame(['375.00', 'SAR'], $this->whatWasPaid('TXN-ON-7'));
+
+        // The shop is reconfigured after the sale: three decimals instead of two, and another rate.
+        $this->theShopConvertsAtTheRateOfTheDay('SAR', decimals: 3);
+        $this->theRateOfBecomes('SAR', 4.2);
+
+        $this->refundItThroughTheAdminScreen($refunds[0])->assertOk();
+
+        $credits = $this->theWalletCreditsOf($customer);
+        $given = (float) $credits[0]['credit'] * 4.2;
+        $this->assertSame('375.00', self::money($given, 2), 'the buyer gets back the 375.00 SAR they paid, at the rate and the decimals of the day of the refund');
+        $this->assertEqualsWithDelta(375.0, $given, 0.0000001, 'to the decimals the balance column holds, which the installed database sets to twenty: ' . $given);
+        $this->assertEqualsWithDelta(420.0, (float) usdToDefaultCurrency(amount: 100), 0.000001, 'while the conversion of today would have given them 420.00 SAR for the same refund');
+    }
+
     /** Criterion 6, in three decimals: a dinar payment comes back in thirds that add up to the dinar exactly. */
     public function test_a_three_decimal_payment_refunded_in_parts_adds_up_to_exactly_what_was_paid(): void
     {
@@ -290,11 +323,15 @@ class RefundGivesBackTheOriginalPaymentTest extends ApiAddressTestCase
         $this->assertEqualsWithDelta(3.0, (float) DB::table('orders')->where('id', $orderId)->value('order_amount'), 0.000001);
         $this->assertCount(3, $refunds);
 
+        // The rate moves between the parts, not merely before them: what each part gives back is its share of the payment, never a conversion of today.
         $this->theRateOfBecomes('KWD', 2.5);
+        $this->refundItThroughTheAdminScreen($refunds[0])->assertOk();
 
-        foreach ($refunds as $refund) {
-            $this->refundItThroughTheAdminScreen($refund)->assertOk();
-        }
+        $this->theRateOfBecomes('KWD', 1.8);
+        $this->refundItThroughTheAdminScreen($refunds[1])->assertOk();
+
+        $this->theRateOfBecomes('KWD', 5.5);
+        $this->refundItThroughTheAdminScreen($refunds[2])->assertOk();
 
         $given = array_map(static fn (mixed $amount): string => self::money($amount, 3), DB::table('refund_transactions')->orderBy('id')->pluck('original_payment_amount')->all());
         $this->assertSame(['3.333', '3.334', '3.333'], $given, 'each part is the difference of two roundings of the cumulative share, so no fils is lost or made up');

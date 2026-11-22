@@ -34,20 +34,25 @@ trait DrivesTheAdminRefund
     /** The tables the refund payout writes to, and the administrator who signs the decision. */
     protected function buildTheAdminRefundDesk(): void
     {
+        // The precision the installed database actually has: database/migrations/2026_05_07_000001 widens every one of these, and
+        // `users.wallet_balance` with them, to DECIMAL(40,20). A narrower fixture would round a refund that the real column keeps whole and
+        // invent a shortfall that does not exist.
         Schema::dropIfExists('wallet_transactions');
         Schema::create('wallet_transactions', function (Blueprint $table): void {
             $table->id();
             $table->unsignedBigInteger('user_id')->nullable();
             $table->string('transaction_id', 36)->nullable();
-            $table->decimal('credit', 24, 6)->default(0);
-            $table->decimal('debit', 24, 6)->default(0);
-            $table->decimal('admin_bonus', 24, 6)->default(0);
-            $table->decimal('balance', 24, 6)->default(0);
+            $table->decimal('credit', 40, 20)->default(0);
+            $table->decimal('debit', 40, 20)->default(0);
+            $table->decimal('admin_bonus', 40, 20)->default(0);
+            $table->decimal('balance', 40, 20)->default(0);
             $table->string('transaction_type')->nullable();
             $table->string('payment_method')->nullable();
             $table->string('reference')->nullable();
             $table->timestamps();
         });
+
+        Schema::table('users', fn (Blueprint $table) => $table->decimal('wallet_balance', 40, 20)->default(0)->change());
 
         Schema::dropIfExists('refund_statuses');
         Schema::create('refund_statuses', function (Blueprint $table): void {
