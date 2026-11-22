@@ -73,6 +73,36 @@ class PaymobController extends Controller
         return json_decode($output);
     }
 
+    /**
+     * Create the payment intention at Paymob and hand back what it answered.
+     *
+     * The one outbound call of credit(), in a method of its own for the same reason cURL() above is
+     * one: it is the seam a test needs. The URL, the two headers and the JSON body are byte for byte
+     * what credit() sent when this block was inline, so nothing about the request to Paymob changed.
+     *
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>|null what Paymob answered, decoded, or null when it answered nothing usable
+     */
+    protected function postIntention(string $url, array $data, string $token): ?array
+    {
+        $ch = curl_init($url);
+
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Authorization: Token ' . $token,
+            'Content-Type: application/json'
+        ]);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+
+        $response = curl_exec($ch);
+        curl_close($ch);
+
+        $decoded = json_decode((string) $response, true);
+
+        return is_array($decoded) ? $decoded : null;
+    }
+
     public function credit(Request $request): JsonResponse|RedirectResponse
     {
         $validator = Validator::make($request->all(), [
@@ -146,23 +176,12 @@ class PaymobController extends Controller
             "redirection_url" => route('paymob.callback'),
         ];
 
-        $ch = curl_init($url);
+        $result = $this->postIntention(url: $url, data: $data, token: (string) $token);
 
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            'Authorization: Token ' . $token,
-            'Content-Type: application/json'
-        ]);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
-
-        $response = curl_exec($ch);
-        $result = json_decode($response, true);
         if (!isset($result['client_secret'])) {
             return response()->json($this->response_formatter(GATEWAYS_DEFAULT_204), 200);
         }
         $secret_key = $result['client_secret'];
-        curl_close($ch);
         $publicKey = $config['public_key'];
         $urlRedirect = $this->base_url . "/unifiedcheckout/?publicKey=$publicKey&clientSecret=$secret_key";
         return redirect()->to($urlRedirect);
@@ -234,7 +253,12 @@ class PaymobController extends Controller
     {
         $data = $request->all();
         ksort($data);
-        $hmac = $data['hmac'];
+        /*
+         * A return that carries no signature at all used to index a key that was not there, which on
+         * PHP 8 is a thrown error and a 500 — a malformed call answering a server error instead of a
+         * refusal. Absent reads as empty, and empty is refused below with everything else.
+         */
+        $hmac = is_scalar($data['hmac'] ?? null) ? (string) $data['hmac'] : '';
         $array = [
             'amount_cents',
             'created_at',
@@ -264,9 +288,17 @@ class PaymobController extends Controller
             }
         }
         $secret = is_array($this->config_values) ? $this->config_values['hmac'] : $this->config_values->hmac;
-        $hased = hash_hmac('sha512', $connectedString, $secret);
+        $expected = hash_hmac('sha512', $connectedString, (string) $secret);
 
-        if ($hased == $hmac && $data['success'] === "true") {
+        /*
+         * hash_equals, not `==`: a signature is compared in constant time, so how long the comparison takes
+         * says nothing about how much of the signature was right. And `success` is read
+         * with the same care as the signature — a return that omits it is refused rather than raising
+         * an error. Both halves must hold, and an empty signature can never satisfy the first.
+         */
+        $isAuthentic = $hmac !== '' && hash_equals($expected, $hmac);
+
+        if ($isAuthentic && ($data['success'] ?? null) === "true") {
 
             $this->payment::where(['id' => session('payment_id')])->update([
                 'payment_method' => 'paymob_accept',
