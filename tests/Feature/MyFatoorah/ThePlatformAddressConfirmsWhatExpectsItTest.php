@@ -555,6 +555,17 @@ class ThePlatformAddressConfirmsWhatExpectsItTest extends CompanyAccountsTestCas
      *
      * CONSTRUCTED, for the reason the third stored shape is: no writer of this application records a platform address, because the value only ever
      * comes from a per-account route. The stamp is the production writer's and only the one value under the one key is replaced.
+     *
+     * TWO ASSERTIONS ARE ON THE POLICY METHOD and not only on the route, because the liveness condition makes the route's own answer less sensitive
+     * to the comparison. Measured: dropping the address comparison from `expectsAnAddressOtherThan()` leaves every route-level test of this branch
+     * green, because a recorded value that is not a live account's address is handed back to this address anyway. The comparison still has to be
+     * right, and these two assertions are what holds it: of THIS address the method answers no, and of another address yes.
+     *
+     * TWO MUTANTS ARE DECLARED RATHER THAN KILLED, with their reasons measured. Pointing the route's question at a per-account address for a token
+     * that resolves nothing leaves this file green, and is equivalent within everything reachable: a recorded value is either absent, a live
+     * account's address, or neither, and in all three the outcome is the same whichever of those two addresses is compared. Pointing it at the
+     * account's REAL token is the discriminating form of the same mutation and is red at four failures. The other is the early return in
+     * `theAddressItExpectsIsLive()` rewritten as a `&&` chain, which is the same expression written twice.
      */
     public function test_a_payment_that_recorded_this_very_address_is_confirmed_here(): void
     {
@@ -564,6 +575,17 @@ class ThePlatformAddressConfirmsWhatExpectsItTest extends CompanyAccountsTestCas
 
         $this->assertSame(route('myfatoorah.webhook'), $this->theAddressExpectedBy($attempt), 'the payment expects this address');
         $this->assertTrue(app(ConfirmationAddresses::class)->isEnforced(), 'with the rule in force');
+        $this->assertFalse(
+            app(PaymentAccountBinding::class)->expectsAnAddressOtherThan(payment: (array) $this->paymentRow($attempt), address: route('myfatoorah.webhook')),
+            'and the policy says so of THIS address, by comparing the record against it',
+        );
+        $this->assertTrue(
+            app(PaymentAccountBinding::class)->expectsAnAddressOtherThan(
+                payment: (array) $this->paymentRow($attempt),
+                address: route('payments.account.webhook', ['account' => (string) $this->kuwait->webhook_path_token]),
+            ),
+            'and of any other address, no',
+        );
 
         $this->deliverToThePlatformAddress($attempt)
             ->assertOk()
