@@ -238,6 +238,40 @@ class ThePlatformAddressConfirmsWhatExpectsItTest extends CompanyAccountsTestCas
     }
 
     /**
+     * WHY A COMPANY'S OWN ADDRESS KEEPS KEYING ON THE ACCOUNT and not on the recorded address text. The asymmetry, measured instead of argued.
+     *
+     * An account's webhook token is editable in place. Retype it after a payment has started and the address the payment RECORDED names a token that
+     * no longer resolves — while the account it was taken through is the same account. So at a company's address the durable question is the account,
+     * and `PaymentAccountWebhookController` asks that one; at a public address the durable question is the address, because the alternative there is a
+     * public address acting on a payment it was never given.
+     *
+     * Here is the case that decides it: the token is retyped, the delivery arrives at the NEW address, and it settles — with the rule in force and the
+     * recorded address still naming the old token. Had the company address been held to the recorded text as well, this payment would have been
+     * refused at the only address that now resolves, and refused at the platform address too. That is the shape of a stranded payment, and it is why
+     * this stage changes one of the two addresses and not both.
+     */
+    public function test_a_company_address_still_confirms_its_payment_after_its_token_is_retyped(): void
+    {
+        $attempt = $this->anAttemptStampedWith($this->kuwait);
+        $recorded = (string) $this->theAddressExpectedBy($attempt);
+        $this->fakePaidFor($attempt);
+
+        PaymentGatewayAccount::query()->whereKey($this->kuwait->id)->update(['webhook_path_token' => 'a-token-typed-later']);
+        app(GatewayAccountRegistry::class)->flush();
+
+        $this->assertTrue(app(ConfirmationAddresses::class)->isEnforced(), 'with the rule in force');
+        $this->assertSame($recorded, $this->theAddressExpectedBy($attempt), 'the record still names the old token');
+        $this->assertStringContainsString('kuwait-webhook-token', $recorded);
+        $this->post($recorded, [], ['MyFatoorah-Signature' => 'anything'])->assertUnauthorized('the old address no longer resolves an account');
+
+        $this->deliverToTheCompanyAddress($this->kuwait->refresh(), $attempt, self::KUWAIT_WEBHOOK_SECRET)
+            ->assertOk()
+            ->assertJsonPath('status', 'settled');
+
+        $this->assertSame([$attempt->payment_request_id], $this->paidPayments(), 'the account is the durable question at a company address');
+    }
+
+    /**
      * NOTHING IS STRANDED when per-company accounts are switched OFF with the rule still on.
      *
      * A company's own address resolves no account while the registry is off (`byWebhookToken` answers null before it looks), so turning accounts off
