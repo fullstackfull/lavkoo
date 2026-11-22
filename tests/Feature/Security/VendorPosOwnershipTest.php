@@ -44,18 +44,36 @@ class VendorPosOwnershipTest extends VendorPanelTestCase
 
     private const CART = 'walk-in-customer-1';
 
+    /**
+     * The columns a POS sale writes that the inferred base schema does not build.
+     *
+     * Each is added only if it is missing: the base schema grows when a handler under test starts reading another real column (coupon_code
+     * did), and an unconditional ALTER then dies on "duplicate column name" and takes the whole class with it.
+     */
     private function addTheColumnsAPosSaleWrites(): void
     {
-        Schema::table('order_details', static function (Blueprint $table): void {
-            $table->string('discount_type')->nullable();
-        });
-        Schema::table('orders', static function (Blueprint $table): void {
-            foreach (['customer_type', 'shipping_address', 'billing_address', 'billing_address_data', 'shipping_responsibility', 'verification_code', 'tax_type', 'tax_model',
-                         'extra_discount_type', 'coupon_code', 'discount_type', 'coupon_discount_bearer'] as $column) {
-                $table->string($column)->nullable();
-            }
-            foreach (['checked', 'total_tax_amount', 'extra_discount', 'discount_amount', 'init_order_amount'] as $column) {
-                $table->decimal($column, 16, 2)->default(0);
+        $this->addMissingColumns('order_details', ['discount_type' => 'string']);
+        $this->addMissingColumns('orders', [
+            'customer_type' => 'string', 'shipping_address' => 'string', 'billing_address' => 'string', 'billing_address_data' => 'string',
+            'shipping_responsibility' => 'string', 'verification_code' => 'string', 'tax_type' => 'string', 'tax_model' => 'string',
+            'extra_discount_type' => 'string', 'coupon_code' => 'string', 'discount_type' => 'string', 'coupon_discount_bearer' => 'string',
+            'checked' => 'amount', 'total_tax_amount' => 'amount', 'extra_discount' => 'amount', 'discount_amount' => 'amount',
+            'init_order_amount' => 'amount',
+        ]);
+    }
+
+    /** @param array<string, string> $columns column => 'string' (nullable) or 'amount' (decimal, default 0) */
+    private function addMissingColumns(string $table, array $columns): void
+    {
+        $missing = array_filter($columns, static fn (string $type, string $column): bool => !Schema::hasColumn($table, $column), ARRAY_FILTER_USE_BOTH);
+
+        if ($missing === []) {
+            return;
+        }
+
+        Schema::table($table, static function (Blueprint $blueprint) use ($missing): void {
+            foreach ($missing as $column => $type) {
+                $type === 'amount' ? $blueprint->decimal($column, 16, 2)->default(0) : $blueprint->string($column)->nullable();
             }
         });
     }
