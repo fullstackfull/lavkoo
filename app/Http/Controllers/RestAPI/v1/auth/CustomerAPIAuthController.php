@@ -240,7 +240,7 @@ class CustomerAPIAuthController extends Controller
             ], 403);
         }
 
-        $token = (config('app.mode') == 'live') ? rand(100000, 999999) : 123456;
+        $token = (config('app.mode') == 'live') ? random_int(100000, 999999) : 123456;
         $this->phoneOrEmailVerificationRepo->updateOrCreate(params: ['phone_or_email' => $request['phone']], value: [
             'phone_or_email' => $request['phone'],
             'token' => $token,
@@ -326,7 +326,7 @@ class CustomerAPIAuthController extends Controller
                 ], 403);
             }
 
-            $token = (config('app.mode') == 'live') ? rand(100000, 999999) : 123456;
+            $token = (config('app.mode') == 'live') ? random_int(100000, 999999) : 123456;
 
             $this->phoneOrEmailVerificationRepo->updateOrCreate(params: ['phone_or_email' => $request['email']], value: [
                 'phone_or_email' => $request['email'],
@@ -672,7 +672,7 @@ class CustomerAPIAuthController extends Controller
             'f_name' => $request['name'],
             'email' => $request['email'],
             'phone' => $request['phone'],
-            'password' => bcrypt(rand(11111111, 99999999)),
+            'password' => bcrypt(random_int(11111111, 99999999)),
             'temporary_token' => $temporaryToken,
             'app_language' => 'en',
             'is_phone_verified' => 1,
@@ -841,7 +841,7 @@ class CustomerAPIAuthController extends Controller
             'f_name' => $request['name'],
             'email' => $request['email'],
             'phone' => $request['phone'],
-            'password' => bcrypt(rand(11111111, 99999999)),
+            'password' => bcrypt(random_int(11111111, 99999999)),
             'temporary_token' => $temporaryToken,
             'app_language' => 'en',
             'email_verified_at' => now(),
@@ -884,7 +884,7 @@ class CustomerAPIAuthController extends Controller
                 return response()->json(['errors' => [['code' => 'otp', 'message' => translate('please_try_again_after_') . $time . ' ' . translate('seconds')]]], 403);
             }
 
-            $token = (config('app.mode') == 'live') ? rand(100000, 999999) : 123456;
+            $token = (config('app.mode') == 'live') ? random_int(100000, 999999) : 123456;
 
             DB::table('password_resets')->updateOrInsert(['identity' => $request['email_or_phone']], [
                 'token' => $token,

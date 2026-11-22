@@ -798,7 +798,7 @@ class DeliveryManController extends Controller
         $order = $this->order::with('customer')->where('id', $request['order_id'])->first();
 
         $fcm_token = $order->customer->cm_firebase_token ?? null;
-        $verification_code = rand(100000, 999999);
+        $verification_code = random_int(100000, 999999);
         $order->verification_code = $verification_code;
         if ($order->save() && !$order->is_guest && $fcm_token) {
             $data = [

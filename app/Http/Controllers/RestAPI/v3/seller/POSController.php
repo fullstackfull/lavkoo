@@ -400,7 +400,7 @@ class POSController extends Controller
             'shipping_address' => $deliveryShippingAddress?->id,
             'shipping_address_data' => $deliveryAddressSnapshot ? json_encode($deliveryAddressSnapshot) : null,
             'shipping_responsibility' => $deliveryShippingResponsibility,
-            'verification_code' => $fulfillment == 'delivery' ? rand(100000, 999999) : '0',
+            'verification_code' => $fulfillment == 'delivery' ? random_int(100000, 999999) : '0',
             'checked' => 1,
             'extra_discount' => $extraDiscount ?? 0,
             'extra_discount_type' => $extraDiscountType ?? null,

@@ -12,7 +12,7 @@ class CustomerAuthService
 {
     public function getCustomerVerificationToken(): string
     {
-        return (config('app.mode') == 'live') ? rand(100000, 999999) : 123456;
+        return (config('app.mode') == 'live') ? random_int(100000, 999999) : 123456;
     }
 
     public function getCustomerLoginDataReset(): array

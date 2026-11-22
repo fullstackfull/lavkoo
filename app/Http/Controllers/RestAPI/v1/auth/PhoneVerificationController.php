@@ -35,7 +35,7 @@ class PhoneVerificationController extends Controller
             ], 200);
         }
 
-        $token = (config('app.mode') == 'live') ? rand(1000, 9999) : 1234;
+        $token = (config('app.mode') == 'live') ? random_int(1000, 9999) : 1234;
         DB::table('phone_or_email_verifications')->insert([
             'phone_or_email' => $request['phone'],
             'token' => $token,
@@ -77,7 +77,7 @@ class PhoneVerificationController extends Controller
         }
 
         if ($time_differance == 0) {
-            $new_token = (config('app.mode') == 'live') ? rand(1000, 9999) : 1234;
+            $new_token = (config('app.mode') == 'live') ? random_int(1000, 9999) : 1234;
             if ($token) {
                 $token->token = $new_token;
                 $token->otp_hit_count = 0;

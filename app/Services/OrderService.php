@@ -164,7 +164,7 @@ class OrderService
              * Verification
              */
             'verification_code' => $isDelivery
-                ? rand(100000, 999999)
+                ? random_int(100000, 999999)
                 : '0',
 
             'checked' => 1,
