@@ -11285,4 +11285,6 @@ return [
 	'return_received_and_restocked' => 'Return received and restocked',
 	'return_authorized' => 'Return authorized',
 	'this_payment_method_is_not_available_in_this_storefront' => 'This payment method is not available in this storefront.',
+	'you_can_not_delete_account_while_your_wallet_holds_money' => 'You can not delete account while your wallet holds money',
+	'you_can_not_delete_account_while_you_still_have_loyalty_points' => 'You can not delete account while you still have loyalty points',
 ];

@@ -17,6 +17,7 @@ use App\Models\OrderStatusHistory;
 use App\Models\SupportTicketConv;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\StorefrontAddressService;
+use App\Services\CustomerAccountDeletionGuardService;
 use App\Services\Fulfillment\Support\SaudiPhone;
 use App\Services\OrderStatusHistoryService;
 use App\Services\Storefront\StorefrontPaymentMethods;
@@ -74,6 +75,7 @@ class UserProfileController extends Controller
         private readonly OrderStatusHistoryService                 $orderStatusHistoryService,
         private readonly StorefrontAddressService                  $storefrontAddresses,
         private readonly StorefrontPaymentMethods                  $storefrontPaymentMethods,
+        private readonly CustomerAccountDeletionGuardService       $accountDeletionGuard,
     )
     {
         // The address book is the signed-in customer's: nobody else can add, open, change or remove an address.
@@ -138,6 +140,12 @@ class UserProfileController extends Controller
                     Toastr::warning(translate($auctionBlocker));
                     return redirect()->back();
                 }
+            }
+
+            $moneyBlocker = $this->accountDeletionGuard->blockingReason(customer: $user);
+            if ($moneyBlocker !== null) {
+                Toastr::warning(translate($moneyBlocker));
+                return redirect()->back();
             }
 
             auth()->guard('customer')->logout();

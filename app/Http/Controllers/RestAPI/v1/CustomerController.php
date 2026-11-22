@@ -20,6 +20,7 @@ use App\Models\SupportTicketConv;
 use App\Models\Wishlist;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\AddressSnapshot;
+use App\Services\CustomerAccountDeletionGuardService;
 use App\Services\DigitalFileAddressService;
 use App\Services\Fulfillment\CustomerFulfillmentPresenter;
 use App\Services\ShippingAddressService;
@@ -53,7 +54,11 @@ class CustomerController extends Controller
 
     private const LOCATION_FIELDS = ['city', 'country', 'region_id', 'city_id', 'district', 'national_address'];
 
-    public function __construct(private readonly ShippingAddressService $shippingAddressService, private readonly DigitalFileAddressService $digitalFileAddresses)
+    public function __construct(
+        private readonly ShippingAddressService $shippingAddressService,
+        private readonly DigitalFileAddressService $digitalFileAddresses,
+        private readonly CustomerAccountDeletionGuardService $accountDeletionGuard,
+    )
     {
     }
 
@@ -131,6 +136,11 @@ class CustomerController extends Controller
                 if ($auctionBlocker !== null) {
                     return response()->json(['message' => translate($auctionBlocker)], 403);
                 }
+            }
+
+            $moneyBlocker = $this->accountDeletionGuard->blockingReason(customer: $user);
+            if ($moneyBlocker !== null) {
+                return response()->json(['message' => translate($moneyBlocker)], 403);
             }
 
             $this->delete('/profile/' . $user['image']);
