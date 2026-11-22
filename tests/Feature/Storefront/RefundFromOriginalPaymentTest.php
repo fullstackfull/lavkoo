@@ -303,16 +303,36 @@ class RefundFromOriginalPaymentTest extends TestCase
         }
     }
 
+    /**
+     * The computation is still called by nothing but the preview.
+     *
+     * The comments of a file are taken out before it is read, so a class named in a doc block -- App\Services\Payments\OrderPaymentAccount names this
+     * one to say that it refuses an ambiguous payment by the same rule -- is not counted as a caller of it. What is counted is the code: an import, a
+     * type, a constructor argument, an app() resolution. The record this test keeps is unchanged: the moment the refund flow actually calls the
+     * computation, this test goes red and has to be changed on purpose.
+     */
     public function test_no_refund_calls_it_only_the_preview_does(): void
     {
         $callers = [];
         foreach (File::allFiles(app_path()) as $file) {
-            if (str_contains($file->getContents(), 'RefundFromOriginalPayment') && $file->getFilename() !== 'RefundFromOriginalPayment.php') {
+            if (str_contains(self::codeWithoutComments($file->getContents()), 'RefundFromOriginalPayment') && $file->getFilename() !== 'RefundFromOriginalPayment.php') {
                 $callers[] = $file->getFilename();
             }
         }
 
         $this->assertSame(['RefundOriginalPaymentPreviewCommand.php'], $callers, 'the refund flow keeps converting the stored amount as it always did until the owner adopts a policy');
+    }
+
+    /** The file's code with every comment taken out, so that what a comment mentions is not read as what the code does. */
+    private static function codeWithoutComments(string $source): string
+    {
+        $code = '';
+
+        foreach (token_get_all($source) as $token) {
+            $code .= is_array($token) ? (in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true) ? ' ' : $token[1]) : $token;
+        }
+
+        return $code;
     }
 
     // ---- the preview ---------------------------------------------------------------------------------------------------------------------

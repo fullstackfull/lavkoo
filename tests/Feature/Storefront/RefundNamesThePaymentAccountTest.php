@@ -36,23 +36,37 @@ class RefundNamesThePaymentAccountTest extends ApiAddressTestCase
 
     /**
      * What the refund route did on the base of this branch (edfefa0b, the merge of pull requests 103 and 152) for a paid order whose payment carries no
-     * stamp, measured through these same routes before a line of this change was written, with the quoting of identifiers taken off so the figures read
-     * the same on both engines.
+     * stamp, measured through these same routes on each engine before a line of this change was written, with the quoting of identifiers taken off.
      *
      * The dormant path has to still do exactly this: the same work in the same order, the same writes, and the refund row made of the same values. The
-     * only statements this change may add are read-only questions to the database about its own schema -- whether the two new columns are there -- which
-     * are left out of the comparison and counted separately.
+     * only statements this change may add are read-only questions to the database about its own schema -- whether the two new columns are there -- and
+     * those are left out of the comparison.
+     *
+     * The figures are per engine because the two write the same work differently: MariaDB qualifies the column of an update with its table and gives a
+     * decimal(20,8) back as 1.00000000 where SQLite gives 1. Both were measured on the base, and both are what the base did.
+     *
+     * @var array{work: int, digest: string, writes: list<string>, insert: string}
      */
-    private const BASE_WORK = 20;
-
-    private const BASE_WORK_DIGEST = '81a0cbb94f130341a1712e41e0f3a2b720defaeda6e6ef047ba872dd62e84b2a';
-
-    private const BASE_WRITES = [
-        'insert into refund_requests (order_details_id, customer_id, status, amount, product_id, order_id, refund_reason, storefront_country, currency_code, currency_rate, updated_at, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        'update order_details set refund_request = ?, updated_at = ? where id = ?',
+    private const BASE_ON_SQLITE = [
+        'work' => 20,
+        'digest' => '81a0cbb94f130341a1712e41e0f3a2b720defaeda6e6ef047ba872dd62e84b2a',
+        'writes' => [
+            'insert into refund_requests (order_details_id, customer_id, status, amount, product_id, order_id, refund_reason, storefront_country, currency_code, currency_rate, updated_at, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'update order_details set refund_request = ?, updated_at = ? where id = ?',
+        ],
+        'insert' => 'insert into refund_requests (order_details_id, customer_id, status, amount, product_id, order_id, refund_reason, storefront_country, currency_code, currency_rate, updated_at, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) -- [1,1,pending,250,2,100001,wrong item,AE,AED,1,<moment>,<moment>]',
     ];
 
-    private const BASE_INSERT = 'insert into refund_requests (order_details_id, customer_id, status, amount, product_id, order_id, refund_reason, storefront_country, currency_code, currency_rate, updated_at, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) -- [1,1,pending,250,2,100001,wrong item,AE,AED,1,<moment>,<moment>]';
+    /** @var array{work: int, digest: string, writes: list<string>, insert: string} */
+    private const BASE_ON_MYSQL = [
+        'work' => 20,
+        'digest' => '00c9eaabab2d1d189ea0fa6b1d0d4d9205e0b3dc6f12dd36919074be19bd4415',
+        'writes' => [
+            'insert into refund_requests (order_details_id, customer_id, status, amount, product_id, order_id, refund_reason, storefront_country, currency_code, currency_rate, updated_at, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'update order_details set refund_request = ?, order_details.updated_at = ? where id = ?',
+        ],
+        'insert' => 'insert into refund_requests (order_details_id, customer_id, status, amount, product_id, order_id, refund_reason, storefront_country, currency_code, currency_rate, updated_at, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) -- [1,1,pending,250,2,100001,wrong item,AE,AED,1.00000000,<moment>,<moment>]',
+    ];
 
     protected function setUp(): void
     {
@@ -168,6 +182,12 @@ class RefundNamesThePaymentAccountTest extends ApiAddressTestCase
         $orderId = (int) DB::table('orders')->where('customer_id', $customer->id)->value('id');
 
         return [$customer, $orderId, (int) DB::table('order_details')->where('order_id', $orderId)->value('id'), $payment];
+    }
+
+    /** @return array{work: int, digest: string, writes: list<string>, insert: string} what the base did on the engine this run is against */
+    private function whatTheBaseDid(): array
+    {
+        return DB::connection()->getDriverName() === 'sqlite' ? self::BASE_ON_SQLITE : self::BASE_ON_MYSQL;
     }
 
     /** The statement with the quoting of its identifiers taken off, so the same statement reads the same on SQLite and on MySQL. */
@@ -293,11 +313,12 @@ class RefundNamesThePaymentAccountTest extends ApiAddressTestCase
 
         $done = $this->theRefundRouteDoes($customer, 'AE', $lineId);
 
+        $base = $this->whatTheBaseDid();
         $work = $this->workAmong($done['statements']);
-        $this->assertSame(self::BASE_WORK, count($work), 'the refund route does the work the base did, and no more');
-        $this->assertSame(self::BASE_WORK_DIGEST, hash('sha256', implode("\n", $work)), 'every statement of the refund route that touches the data, in order, is the one the base issued');
-        $this->assertSame(self::BASE_WRITES, $this->writesAmong($done['statements']), 'the refund route writes what the base wrote, and nothing else');
-        $this->assertSame(self::BASE_INSERT, self::plain($done['insert']), 'the write that makes the refund row names the columns the base named, with the values the base wrote');
+        $this->assertSame($base['work'], count($work), 'the refund route does the work the base did, and no more');
+        $this->assertSame($base['digest'], hash('sha256', implode("\n", $work)), 'every statement of the refund route that touches the data, in order, is the one the base issued');
+        $this->assertSame($base['writes'], $this->writesAmong($done['statements']), 'the refund route writes what the base wrote, and nothing else');
+        $this->assertSame($base['insert'], self::plain($done['insert']), 'the write that makes the refund row names the columns the base named, with the values the base wrote');
         $this->assertSame([], array_values(array_filter($done['statements'], static fn (string $sql): bool => str_contains($sql, 'payment_requests'))), 'while company accounts are off the payments table is never asked');
 
         $refund = DB::table('refund_requests')->first();
