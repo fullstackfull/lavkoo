@@ -22,7 +22,7 @@ use Tests\Feature\Address\ApiAddressTestCase;
 
 /**
  * Every verification and reset code of the apps is random when the application runs in live mode (APP_MODE=live, which is also what a missing
- * APP_MODE means) and a fixed test value in the other modes: `(config('app.mode') == 'live') ? rand(...) : 123456` (1234 for the four-digit
+ * APP_MODE means) and a fixed test value in the other modes: `(config('app.mode') == 'live') ? random_int(...) : 123456` (1234 for the four-digit
  * codes). The mode is the `mode` line of config/app.php, which reads APP_MODE. A configuration without that line made every code the
  * constant on a live server, so the person who knew a phone number could ask for a code and type it.
  *
@@ -58,15 +58,15 @@ class OneTimeCodesByAppModeTest extends ApiAddressTestCase
      * @var array<string, array{count: int, condition: string, random: string, fixed: string}>
      */
     private const DECIDERS = [
-        'app/Services/Web/CustomerAuthService.php' => ['count' => 1, 'condition' => "config('app.mode') == 'live'", 'random' => 'rand(100000, 999999)', 'fixed' => '123456'],
-        'app/Http/Controllers/Customer/Auth/CustomerAuthController.php' => ['count' => 1, 'condition' => "config('app.mode') == 'live'", 'random' => 'rand(100000, 999999)', 'fixed' => '123456'],
-        'app/Http/Controllers/RestAPI/v1/auth/CustomerAPIAuthController.php' => ['count' => 3, 'condition' => "config('app.mode') == 'live'", 'random' => 'rand(100000, 999999)', 'fixed' => '123456'],
-        'app/Http/Controllers/RestAPI/v1/auth/ForgotPasswordController.php' => ['count' => 1, 'condition' => "config('app.mode') == 'live'", 'random' => 'rand(100000, 999999)', 'fixed' => '123456'],
-        'app/Http/Controllers/RestAPI/v1/auth/PhoneVerificationController.php' => ['count' => 2, 'condition' => "config('app.mode') == 'live'", 'random' => 'rand(1000, 9999)', 'fixed' => '1234'],
-        'app/Http/Controllers/RestAPI/v2/delivery_man/auth/LoginController.php' => ['count' => 1, 'condition' => "config('app.mode') == 'live'", 'random' => 'rand(1000, 9999)', 'fixed' => '1234'],
-        'app/Http/Controllers/RestAPI/v2/seller/auth/ForgotPasswordController.php' => ['count' => 1, 'condition' => "config('app.mode') == 'dev'", 'random' => 'rand(1000, 9999)', 'fixed' => '1234'],
-        'app/Http/Controllers/RestAPI/v3/seller/auth/ForgotPasswordController.php' => ['count' => 1, 'condition' => "config('app.mode') == 'live'", 'random' => 'rand(100000, 999999)', 'fixed' => '123456'],
-        'app/Http/Controllers/Vendor/Auth/ForgotPasswordController.php' => ['count' => 1, 'condition' => "config('app.mode') == 'live'", 'random' => 'rand(111111, 999999)', 'fixed' => '123456'],
+        'app/Services/Web/CustomerAuthService.php' => ['count' => 1, 'condition' => "config('app.mode') == 'live'", 'random' => 'random_int(100000, 999999)', 'fixed' => '123456'],
+        'app/Http/Controllers/Customer/Auth/CustomerAuthController.php' => ['count' => 1, 'condition' => "config('app.mode') == 'live'", 'random' => 'random_int(100000, 999999)', 'fixed' => '123456'],
+        'app/Http/Controllers/RestAPI/v1/auth/CustomerAPIAuthController.php' => ['count' => 3, 'condition' => "config('app.mode') == 'live'", 'random' => 'random_int(100000, 999999)', 'fixed' => '123456'],
+        'app/Http/Controllers/RestAPI/v1/auth/ForgotPasswordController.php' => ['count' => 1, 'condition' => "config('app.mode') == 'live'", 'random' => 'random_int(100000, 999999)', 'fixed' => '123456'],
+        'app/Http/Controllers/RestAPI/v1/auth/PhoneVerificationController.php' => ['count' => 2, 'condition' => "config('app.mode') == 'live'", 'random' => 'random_int(1000, 9999)', 'fixed' => '1234'],
+        'app/Http/Controllers/RestAPI/v2/delivery_man/auth/LoginController.php' => ['count' => 1, 'condition' => "config('app.mode') == 'live'", 'random' => 'random_int(1000, 9999)', 'fixed' => '1234'],
+        'app/Http/Controllers/RestAPI/v2/seller/auth/ForgotPasswordController.php' => ['count' => 1, 'condition' => "config('app.mode') == 'dev'", 'random' => 'random_int(1000, 9999)', 'fixed' => '1234'],
+        'app/Http/Controllers/RestAPI/v3/seller/auth/ForgotPasswordController.php' => ['count' => 1, 'condition' => "config('app.mode') == 'live'", 'random' => 'random_int(100000, 999999)', 'fixed' => '123456'],
+        'app/Http/Controllers/Vendor/Auth/ForgotPasswordController.php' => ['count' => 1, 'condition' => "config('app.mode') == 'live'", 'random' => 'random_int(111111, 999999)', 'fixed' => '123456'],
     ];
 
     /** @var array<string, int> the places that write 123456 or 1234 without issuing a code: the example value of a code field in the generated API documentation */
