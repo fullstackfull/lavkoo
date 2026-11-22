@@ -265,6 +265,28 @@ class RestockThroughTheRealRoutesTest extends AdminPagesTestCase
         $this->assertSame(ReturnShipment::STATUS_RECEIVED, $rma->fresh()->status);
     }
 
+    public function test_two_partial_returns_that_together_complete_the_line_leave_its_marker_claimed(): void
+    {
+        $lineId = $this->soldLine(3);
+
+        $this->receiveThroughThePanel($this->authorizedReturn(1, $lineId));
+        $this->assertSame(1, (int) DB::table('order_details')->where('id', $lineId)->value('is_stock_decreased'), 'one of three units back: the line is still a line whose stock is taken');
+
+        $this->receiveThroughThePanel($this->authorizedReturn(2, $lineId));
+
+        $this->assertSame(53, $this->reading()['current_stock'], 'three units left the shelf and three came back, in two receipts');
+        $this->assertSame(
+            0,
+            (int) DB::table('order_details')->where('id', $lineId)->value('is_stock_decreased'),
+            'the claim is on the cumulative returned quantity: the receipt that completes the line takes the marker, '
+            . 'so the flag does not go on saying the units are off the shelf while they are on it',
+        );
+
+        // And the status writer, finding the marker already taken, adds nothing.
+        $this->changeStatusThroughThePanel('returned');
+        $this->assertSame(53, $this->reading()['current_stock']);
+    }
+
     // ---- (c) a return for more units than the line held --------------------------------------------------------------------
 
     public function test_a_return_for_more_units_than_the_line_held_restocks_the_lines_quantity_and_says_so(): void
