@@ -29,7 +29,7 @@ class PaymentRoutingService
             return $available;
         }
 
-        $rules = PaymentRoutingRule::where('status', PaymentRoutingRule::STATUS_ACTIVE)->orderBy('priority')->orderBy('id')->get();
+        $rules = $this->activeRules();
 
         $hidden = [];
         $preferredOrder = [];   // gateway_code => priority
@@ -82,6 +82,80 @@ class PaymentRoutingService
 
         $byCode = $models->keyBy($codeAttribute);
         return collect($resolved)->map(fn ($code) => $byCode->get($code))->filter()->values();
+    }
+
+    /**
+     * The same list, judged where there is NO order to judge against -- the global config response.
+     *
+     * /api/v1/config is asked before there is a cart, an amount or a delivery address, so most rules
+     * cannot be decided there: a rule bound to an amount band or to a country might or might not apply
+     * to the order the customer goes on to place, and removing a method on a maybe would hide a method
+     * the customer is entitled to. ONLY rules that name neither an amount band nor a country are
+     * applied, because those apply wherever they are read.
+     *
+     * Deliberately NOT resolve($available, 0.0, null): a rule with only a max_amount matches an amount
+     * of zero, so passing zero would let an amount-bound rule hide a method from every mobile client.
+     *
+     * @param array<int, string> $availableGateways
+     * @return array<int, string>
+     */
+    public function resolveWithoutAnOrder(array $availableGateways): array
+    {
+        $available = array_values(array_unique($availableGateways));
+        if ($available === [] || !Schema::hasTable('payment_routing_rules')) {
+            return $available;
+        }
+
+        $hidden = [];
+        foreach ($this->activeRules() as $rule) {
+            if ($rule->action === PaymentRoutingRule::ACTION_HIDE && $rule->appliesEverywhere() && in_array($rule->gateway_code, $available, true)) {
+                $hidden[$rule->gateway_code] = true;
+            }
+        }
+
+        return array_values(array_filter($available, static fn ($gateway) => !isset($hidden[$gateway])));
+    }
+
+    /**
+     * Apply the same judgement to gateway MODELS where there is no order, keeping the caller's own models.
+     *
+     * @return \Illuminate\Support\Collection
+     */
+    public function applyToModelsWithoutAnOrder($models, string $codeAttribute = 'key_name')
+    {
+        $models = collect($models);
+        if ($models->isEmpty()) {
+            return $models;
+        }
+
+        $kept = $this->resolveWithoutAnOrder($models->pluck($codeAttribute)->filter()->values()->all());
+        $byCode = $models->keyBy($codeAttribute);
+
+        return collect($kept)->map(fn ($code) => $byCode->get($code))->filter()->values();
+    }
+
+    /**
+     * Is this gateway hidden for an order of this amount going to this destination?
+     *
+     * The payment START asks this. A customer who was offered a method before a rule was written, or
+     * who posts the method straight to the payment route, would otherwise be handed to a gateway the
+     * rules say must not take this order -- and the money would move before anything noticed. Only a
+     * gateway the platform offers at all is judged: whether an unknown gateway may start a payment is
+     * a different question, answered elsewhere, and this must not quietly take it over.
+     */
+    public function hides(string $gateway, array $availableGateways, float $amount = 0.0, ?string $country = null): bool
+    {
+        if (!in_array($gateway, $availableGateways, true)) {
+            return false;
+        }
+
+        return !in_array($gateway, $this->resolve($availableGateways, $amount, $country), true);
+    }
+
+    /** The active rules in the order they are judged. */
+    private function activeRules()
+    {
+        return PaymentRoutingRule::where('status', PaymentRoutingRule::STATUS_ACTIVE)->orderBy('priority')->orderBy('id')->get();
     }
 
     /** The active rules, for display. */

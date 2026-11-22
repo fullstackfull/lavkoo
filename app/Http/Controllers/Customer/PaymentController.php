@@ -2,6 +2,10 @@
 
 namespace App\Http\Controllers\Customer;
 
+use App\Services\Payments\CheckoutCurrency;
+use App\Services\Marketplace\PaymentRoutingService;
+use Illuminate\Support\Facades\Schema;
+use function App\Utils\payment_gateways;
 use App\Enums\Address\AddressChannel;
 use App\Events\OrderEditDuePaymentEvent;
 use App\Services\Address\OrderAddressService;
@@ -242,6 +246,29 @@ class PaymentController extends Controller
     }
 
 
+    /** Does an active routing rule hide the chosen gateway for this order's amount and destination? */
+    private function routingHidesTheChosenMethod(string $method, float $amount, int|string|null $addressId): bool
+    {
+        /*
+         * ASK NOTHING BEFORE THERE IS ANYTHING TO ASK WITH. Until the routing-rules table exists no
+         * rule can exist either, so the answer is already known -- and reading the offered gateway
+         * list to work that out would add a query to EVERY payment start, and throw wherever
+         * addon_settings is not there. (It is always there on the platform; it is not always there in
+         * a test that builds only the tables its own feature touches, which is how this was found.)
+         *
+         * This is the same shape as the routing service's own guard, kept here as well so the cost is
+         * not paid before the feature is in use.
+         */
+        if ($method === '' || !Schema::hasTable('payment_routing_rules')) {
+            return false;
+        }
+
+        $country = $addressId ? ShippingAddress::find($addressId)?->country : null;
+        $offered = payment_gateways()->pluck('key_name')->filter()->values()->all();
+
+        return (new PaymentRoutingService())->hides(gateway: $method, availableGateways: $offered, amount: $amount, country: $country);
+    }
+
     function getRegisterNewCustomer($request, $address, $shippingId = null, $billingId = null): array
     {
         return [
@@ -421,6 +448,23 @@ class PaymentController extends Controller
         } else {
             $default = getWebConfig(name: 'system_default_currency');
             $currency_code = Currency::find($default)->code;
+        }
+
+        /*
+         * A routing rule that hides this gateway must refuse the payment, not merely hide the button
+         * (D2-06). A customer who was offered the method before the rule was written, who kept a
+         * checkout page open, or who posts the method straight to this route would otherwise be handed
+         * to a gateway the rules say must not take this order -- and the money moves before anything
+         * notices. Judged with the order in front of us, so amount-bound and country-bound rules count
+         * here even though the global config answer could not decide them.
+         *
+         * Only a gateway the platform offers at all is judged: whether an unknown gateway may start a
+         * payment is a different question with its own answer, and this must not take it over.
+         */
+        if ($this->routingHidesTheChosenMethod(method: (string) $request['payment_method'], amount: (float) $paymentAmount, addressId: $additionalData['address_id'] ?? null)) {
+            Toastr::error(translate('this_payment_method_is_not_available_for_this_order'));
+
+            return route('checkout-payment');
         }
 
         $paymentInfo = new PaymentInfo(
@@ -639,13 +683,14 @@ class PaymentController extends Controller
         if ($validated['payment_method'] === 'cash_on_delivery') {
             if ($request->filled('bring_change_amount_input')) {
                 $order->bring_change_amount = $request['bring_change_amount_input'];
-                if (getWebConfig('currency_model') === 'multi_currency') {
-                    $currentCurrency = $request->current_currency_code ?? session('currency_code');
-                    $order->bring_change_amount_currency = $this->getPaymentGatewayCurrencyCode('cash_on_delivery', $currentCurrency);
-                } else {
-                    $defaultCurrency = Currency::find(getWebConfig('system_default_currency'))->code;
-                    $order->bring_change_amount_currency = $defaultCurrency;
-                }
+                // Cash is not a gateway. This used to ask the GATEWAY CAPABILITY MAP what currency a
+                // cash payment is in; `cash_on_delivery` has no entry there, so the lookup matched
+                // nothing and fell through to that map's last line, `return 'USD'` -- labelling every
+                // multi-currency cash order USD on the admin order screen, whatever the customer was
+                // shopping in. Now the same answer its three siblings already use.
+                $order->bring_change_amount_currency = CheckoutCurrency::forOrder(
+                    $request->current_currency_code ?? session('currency_code')
+                );
                 $order->save();
             }
             $orderEditHistory->update(['order_due_payment_method' => 'cash_on_delivery']);

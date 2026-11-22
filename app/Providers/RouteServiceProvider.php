@@ -264,6 +264,25 @@ class RouteServiceProvider extends ServiceProvider
         // behind one address while cutting the ceiling by a factor of thirty.
         RateLimiter::for('myfatoorah-status', static fn (Request $request): Limit => Limit::perMinute(90)->by($request->ip()));
 
+        /*
+         * THE GATEWAY RETURN AND CALLBACK ROUTES. Forty-nine of them sit in one group in
+         * routes/web/routes.php -- one `pay`, `success`, `failed`, `cancel` or `callback` per gateway
+         * -- and NOT ONE carried a limit. Twelve are POST routes that stand the CSRF check down,
+         * because the caller is a gateway and not a browser holding a session, so they were reachable
+         * by anyone at any rate.
+         *
+         * 600 a minute per source address, the same posture number this file already uses for the
+         * MyFatoorah webhook, and for the same reason: it is here to stop a flood, not to pace a
+         * gateway that is behaving. A customer coming back from a gateway makes one or two requests; a
+         * gateway retrying a callback makes a handful. Several customers behind one carrier address
+         * stay far under it.
+         *
+         * KEYED BY SOURCE ADDRESS AND BY NOTHING THE CALLER CHOOSES. A key taken from the path or the
+         * body -- the gateway name, a payment id -- would let one prober vary it and buy an unlimited
+         * number of requests from one address, which is the opposite of a limit.
+         */
+        RateLimiter::for('public-payment-endpoints', static fn (Request $request): Limit => Limit::perMinute(600)->by($request->ip()));
+
         RateLimiter::for('global', function (Request $request) {
             return Limit::perMinute(app(Policy::class)->int('api_requests_per_minute'));
         });

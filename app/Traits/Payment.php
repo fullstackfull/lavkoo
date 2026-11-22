@@ -8,6 +8,7 @@ use Illuminate\Contracts\Routing\UrlGenerator;
 use Illuminate\Foundation\Application;
 use InvalidArgumentException;
 use App\Models\PaymentRequest;
+use App\Services\Payments\PaymentGatewayCatalog;
 
 trait Payment
 {
@@ -40,50 +41,7 @@ trait Payment
         $payment->payment_platform = $payment_info->getPaymentPlatForm();
         $payment->save();
 
-        $routes = [
-            'ssl_commerz' => 'payment/sslcommerz/pay',
-            'stripe' => 'payment/stripe/pay',
-            'paymob_accept' => 'payment/paymob/pay',
-            'flutterwave' => 'payment/flutterwave-v3/pay',
-            'paytm' => 'payment/paytm/pay',
-            'paypal' => 'payment/paypal/pay',
-            'paytabs' => 'payment/paytabs/pay',
-            'liqpay' => 'payment/liqpay/pay',
-            'razor_pay' => 'payment/razor-pay/pay',
-            'senang_pay' => 'payment/senang-pay/pay',
-            'mercadopago' => 'payment/mercadopago/pay',
-            'bkash' => 'payment/bkash/make-payment',
-            'paystack' => 'payment/paystack/pay',
-            'paymera' => 'payment/paymera/pay',
-'mtn_cash' => 'payment/mtn-cash/pay',
-            // MyFatoorah. Both `payment/myfatoorah/pay` and `payment/fatoorah/pay` are registered and
-            // reach the same controller; the canonical one is used for new links.
-            'fatoorah' => 'payment/myfatoorah/pay',
-            'my_fatoorah' => 'payment/myfatoorah/pay',
-            'xendit' => 'payment/xendit/pay',
-            'amazon_pay' => 'payment/amazon/pay',
-            'iyzi_pay' => 'payment/iyzipay/pay',
-            'hyper_pay' => 'payment/hyperpay/pay',
-            'foloosi' => 'payment/foloosi/pay',
-            'ccavenue' => 'payment/ccavenue/pay',
-            'pvit' => 'payment/pvit/pay',
-            'moncash' => 'payment/moncash/pay',
-            'thawani' => 'payment/thawani/pay',
-            'tap' => 'payment/tap/pay',
-            'viva_wallet' => 'payment/viva/pay',
-            'hubtel' => 'payment/hubtel/pay',
-            'maxicash' => 'payment/maxicash/pay',
-            'esewa' => 'payment/esewa/pay',
-            'swish' => 'payment/swish/pay',
-            'momo' => 'payment/momo/pay',
-            'payfast' => 'payment/payfast/pay',
-            'worldpay' => 'payment/worldpay/pay',
-            'sixcash' => 'payment/sixcash/pay',
-            'phonepe' => 'payment/phonepe/pay',
-            'cashfree' => 'payment/cashfree/pay',
-            'instamojo' => 'payment/instamojo/pay',
-            'mercadopago_pix' => 'payment/mercadopago_pix/pay',
-        ];
+        $routes = PaymentGatewayCatalog::startRoutes();
         if (array_key_exists($payment->payment_method, $routes)) {
             return url("{$routes[$payment->payment_method]}/?payment_id={$payment->id}");
         } else {

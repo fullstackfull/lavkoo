@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\RestAPI\v1;
 
+use App\Services\Payments\CheckoutCurrency;
 use App\Enums\Address\AddressChannel;
 use App\Events\DigitalProductOtpVerificationEvent;
 use App\Events\RefundEvent;
@@ -256,9 +257,9 @@ class OrderController extends Controller
 
         $currency_model = getWebConfig(name: 'currency_model');
         if ($currency_model == 'multi_currency') {
-            $currencyCode = $request->current_currency_code ?? Currency::find(getWebConfig(name: 'system_default_currency'))->code;
+            $currencyCode = CheckoutCurrency::forOrder($request->current_currency_code);
         } else {
-            $currencyCode = Currency::find(getWebConfig(name: 'system_default_currency'))->code;
+            $currencyCode = CheckoutCurrency::platformDefault();
         }
 
         $orderIds = OrderManager::generateOrder(data: [

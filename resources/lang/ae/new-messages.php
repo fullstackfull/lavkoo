@@ -9706,6 +9706,7 @@ return [
 	'Invalid_file_type_selected' => 'Invalid file type selected',
 	'Invalid_image_format_type_must_be' => 'Invalid image format type must be',
 	'invalid_payment_method' => 'Invalid payment method',
+	'this_payment_method_is_not_available_for_this_order' => 'This payment method is not available for this order',
 	'invalid_prodcut' => 'Invalid prodcut',
 	'invalid_request' => 'Invalid request',
 	'Invalid_type_provided!' => 'Invalid type provided!',

@@ -4556,6 +4556,7 @@ ____________________________________________________on_search_engines_and_see_th
 	'payment_gateways_page' => 'صفحة بوابات الدفع',
 	'payment_id' => 'معرّف الدفعة',
 	'payment_methods_refreshed' => 'تم تحديث وسائل الدفع',
+	'this_payment_method_is_not_available_for_this_order' => 'وسيلة الدفع هذه غير متاحة لهذا الطلب',
 	'payment_methods_to_show_on_the_hosted_page' => 'وسائل الدفع التي تظهر في صفحة الدفع',
 	'payments' => 'المدفوعات',
 	'payments_already_in_flight_are_still_verified_so_no_money_is_stranded' => 'لا يزال يتم التحقق من المدفوعات الجارية، فلا تضيع أي أموال',

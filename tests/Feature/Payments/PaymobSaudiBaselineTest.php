@@ -1,0 +1,320 @@
+<?php
+
+namespace Tests\Feature\Payments;
+
+use App\Http\Controllers\Payment_Methods\PaymobController;
+use App\Models\PaymentRequest;
+use App\Models\User;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use Tests\Support\BuildsMyFatoorahSchema;
+use Tests\TestCase;
+
+/**
+ * Paymob, the Saudi baseline, pinned (D2-01).
+ *
+ * This is the gateway the live Saudi store takes card payments through, and it had no test of any
+ * kind. The three things recorded about it -- that the outgoing payment takes its amount and currency
+ * from the STORED payment row rather than from the request, that an unauthentic return settles nothing
+ * and runs the failure hook, and that a valid return settles -- were all read off the source.
+ *
+ * A characterisation suite, so the expansion cannot move Saudi behaviour without the move being
+ * visible. Where today's behaviour looks wrong it is pinned under a name saying so (`..._currently_...`)
+ * rather than quietly corrected: this suite's job is to say what the platform does, and changing any of
+ * it is a separate decision with its own evidence.
+ */
+class PaymobSaudiBaselineTest extends TestCase
+{
+    use BuildsMyFatoorahSchema;
+
+    private const HMAC_SECRET = 'paymob-test-hmac-secret';
+
+    /** The fields Paymob signs, in the order the controller concatenates them (it ksorts the payload). */
+    private const SIGNED_FIELDS = [
+        'amount_cents', 'created_at', 'currency', 'error_occured', 'has_parent_transaction', 'id',
+        'integration_id', 'is_3d_secure', 'is_auth', 'is_capture', 'is_refunded',
+        'is_standalone_payment', 'is_voided', 'order', 'owner', 'pending', 'source_data_pan',
+        'source_data_sub_type', 'source_data_type', 'success',
+    ];
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Cache::flush();
+        $this->buildMyFatoorahSchema();
+        require_once __DIR__ . '/../../Support/myfatoorah_test_hooks.php';
+        $GLOBALS['myfatoorah_effects'] = [];
+        $GLOBALS['myfatoorah_failure_calls'] = [];
+        $GLOBALS['myfatoorah_success_throw_after'] = null;
+
+        $this->paymobIsConfigured();
+    }
+
+    private function paymobIsConfigured(string $country = 'KSA'): void
+    {
+        $values = json_encode([
+            'status' => 1,
+            'mode' => 'live',
+            'secret_key' => 'paymob-secret-key',
+            'public_key' => 'paymob-public-key',
+            'integration_id' => '4242',
+            'hmac' => self::HMAC_SECRET,
+            'supported_country' => $country,
+        ]);
+
+        DB::table('addon_settings')->updateOrInsert(
+            ['key_name' => 'paymob_accept', 'settings_type' => 'payment_config'],
+            ['id' => (string) Str::uuid(), 'mode' => 'live', 'is_active' => 1, 'live_values' => $values, 'test_values' => $values, 'additional_data' => json_encode(['gateway_title' => 'Paymob']), 'updated_at' => now()],
+        );
+        Cache::flush();
+    }
+
+    /**
+     * The real controller with its one outbound call captured.
+     *
+     * The outbound call is raw curl, so Http::fake() cannot see it. Overriding the one protected
+     * method it goes through is what lets the REAL credit() body run -- the amount, the currency, the
+     * items, the billing block -- and still have the payload read back rather than sent to Paymob.
+     */
+    private function controllerCapturing(): PaymobController
+    {
+        return new class(app(PaymentRequest::class), app(User::class)) extends PaymobController {
+            /** @var list<array{url: string, json: array}> */
+            public array $captured = [];
+
+            protected function postIntention(string $url, array $data, string $token): ?array
+            {
+                $this->captured[] = ['url' => $url, 'json' => $data, 'token' => $token];
+
+                return ['client_secret' => 'a-client-secret'];
+            }
+        };
+    }
+
+    /** A signed return, as Paymob sends it. */
+    private function aSignedReturn(array $overrides = []): array
+    {
+        $payload = array_merge([
+            'amount_cents' => '15000',
+            'created_at' => '2026-11-22T10:00:00',
+            'currency' => 'SAR',
+            'error_occured' => 'false',
+            'has_parent_transaction' => 'false',
+            'id' => '987654',
+            'integration_id' => '4242',
+            'is_3d_secure' => 'true',
+            'is_auth' => 'false',
+            'is_capture' => 'false',
+            'is_refunded' => 'false',
+            'is_standalone_payment' => 'true',
+            'is_voided' => 'false',
+            'order' => '123456',
+            'owner' => '55',
+            'pending' => 'false',
+            'source_data_pan' => '2346',
+            'source_data_sub_type' => 'MasterCard',
+            'source_data_type' => 'card',
+            'success' => 'true',
+        ], $overrides);
+
+        ksort($payload);
+        $connected = '';
+        foreach ($payload as $key => $value) {
+            if (in_array($key, self::SIGNED_FIELDS, true)) {
+                $connected .= $value;
+            }
+        }
+        $payload['hmac'] = hash_hmac('sha512', $connected, self::HMAC_SECRET);
+
+        return $payload;
+    }
+
+    private function theReturnArrivesFor(string $paymentId, array $payload)
+    {
+        return $this->withSession(['payment_id' => $paymentId])->get('/payment/paymob/callback?' . http_build_query($payload));
+    }
+
+    // ---------------------------------------------------------------- the outgoing payment
+
+    public function test_the_amount_and_currency_sent_to_paymob_come_from_the_stored_row_and_not_the_request(): void
+    {
+        $id = $this->makePaymentRequest(['payment_amount' => 150.00, 'currency_code' => 'SAR']);
+
+        $controller = $this->controllerCapturing();
+
+        // The request carries a different amount and a different currency on purpose. Neither may be
+        // read: the amount a customer is charged is decided on the server from the cart, and a request
+        // that could move it would be a way to pay less than the order is worth.
+        $controller->credit(Request::create('/payment/paymob/pay', 'GET', [
+            'payment_id' => $id,
+            'amount' => '1.00',
+            'payment_amount' => '1.00',
+            'currency' => 'USD',
+            'currency_code' => 'USD',
+        ]));
+
+        $sent = $controller->captured;
+        $this->assertCount(1, $sent, 'the intention was not created');
+
+        // round() answers a float, so the amount is 15000.0 in memory -- but json_encode writes it as
+        // 15000, and the JSON is what Paymob reads. Both are asserted so neither can drift unseen.
+        $this->assertEqualsWithDelta(15000, $sent[0]['json']['amount'], 0.0, 'the amount did not come from the stored row');
+        $this->assertStringContainsString('"amount":15000,', json_encode($sent[0]['json']), 'the amount on the wire is not an integer number of minor units');
+
+        $this->assertSame('SAR', $sent[0]['json']['currency'], 'the currency did not come from the stored row');
+        $this->assertEqualsWithDelta(15000, $sent[0]['json']['items'][0]['amount'], 0.0, 'the item line and the order total disagree');
+        $this->assertSame([4242], $sent[0]['json']['payment_methods'], 'the integration id is not the configured one, as an integer');
+        $this->assertSame('paymob-secret-key', $sent[0]['token'], 'the call was not authorised with the configured secret key');
+    }
+
+    public function test_the_amount_is_sent_in_two_decimal_minor_units(): void
+    {
+        // Pinned rather than corrected. Paymob declares only SAR and AED, and both take two decimals,
+        // so multiplying by 100 is right for every currency this gateway says it can accept. It is NOT
+        // right for KWD, BHD or OMR, which take three -- so if Paymob's declared list ever grows to
+        // include one of them, this test is the one that must fail first.
+        foreach ([['150.00', 15000], ['0.05', 5], ['99.99', 9999], ['1234.50', 123450]] as [$stored, $minorUnits]) {
+            $id = $this->makePaymentRequest(['payment_amount' => $stored, 'currency_code' => 'SAR']);
+            $controller = $this->controllerCapturing();
+            $controller->credit(Request::create('/payment/paymob/pay', 'GET', ['payment_id' => $id]));
+
+            $this->assertEqualsWithDelta($minorUnits, $controller->captured[0]['json']['amount'], 0.0, "{$stored} was not sent as {$minorUnits}");
+            $this->assertStringContainsString('"amount":' . $minorUnits . ',', json_encode($controller->captured[0]['json']), "{$stored} is not an integer number of minor units on the wire");
+        }
+    }
+
+    public function test_a_payment_that_is_already_paid_starts_nothing(): void
+    {
+        $id = $this->makePaymentRequest(['is_paid' => true]);
+
+        $controller = $this->controllerCapturing();
+        $controller->credit(Request::create('/payment/paymob/pay', 'GET', ['payment_id' => $id]));
+
+        $this->assertSame([], $controller->captured, 'a paid payment was sent to the gateway a second time');
+    }
+
+    public function test_the_saudi_store_talks_to_the_saudi_host(): void
+    {
+        $controller = $this->controllerCapturing();
+        $controller->credit(Request::create('/payment/paymob/pay', 'GET', ['payment_id' => $this->makePaymentRequest()]));
+        $this->assertStringStartsWith('https://ksa.paymob.com/', $controller->captured[0]['url'], 'a Saudi payment did not go to the Saudi host');
+
+        // A configuration naming a country this integration does not serve falls back to the default
+        // host rather than throwing in the constructor, which Laravel runs whenever it gathers this
+        // route's middleware.
+        $this->paymobIsConfigured(country: 'Narnia');
+        $fallback = $this->controllerCapturing();
+        $fallback->credit(Request::create('/payment/paymob/pay', 'GET', ['payment_id' => $this->makePaymentRequest()]));
+        $this->assertStringStartsWith('https://accept.paymob.com/', $fallback->captured[0]['url']);
+    }
+
+    // ---------------------------------------------------------------- the return
+
+    public function test_a_valid_return_marks_the_payment_paid_and_runs_the_success_hook_once(): void
+    {
+        $id = $this->makePaymentRequest();
+
+        $this->theReturnArrivesFor($id, $this->aSignedReturn())->assertRedirectContains('payment-success');
+
+        $row = DB::table('payment_requests')->where('id', $id)->first();
+        $this->assertSame(1, (int) $row->is_paid);
+        $this->assertSame('paymob_accept', $row->payment_method);
+        $this->assertSame(1, myfatoorah_test_effect_count('order'), 'the success hook did not create exactly one order');
+        $this->assertSame([], $GLOBALS['myfatoorah_failure_calls'], 'the failure hook ran on a valid return');
+    }
+
+    public function test_a_return_whose_signature_is_wrong_settles_nothing_and_runs_the_failure_hook(): void
+    {
+        foreach ([
+            'a signature from another secret' => ['hmac' => hash_hmac('sha512', 'whatever', 'the-wrong-secret')],
+            'a signature of the right shape but one character changed' => null,
+            'an empty signature' => ['hmac' => ''],
+            'no signature at all' => 'drop',
+        ] as $case => $change) {
+            $id = $this->makePaymentRequest();
+            $payload = $this->aSignedReturn();
+
+            if ($change === null) {
+                $payload['hmac'] = substr($payload['hmac'], 0, -1) . (str_ends_with($payload['hmac'], 'a') ? 'b' : 'a');
+            } elseif ($change === 'drop') {
+                unset($payload['hmac']);
+            } else {
+                $payload = array_merge($payload, $change);
+            }
+
+            $response = $this->theReturnArrivesFor($id, $payload);
+
+            $response->assertRedirectContains('payment-fail');
+            $this->assertSame(0, (int) DB::table('payment_requests')->where('id', $id)->value('is_paid'), "{$case} marked the payment paid");
+            $this->assertContains($id, $GLOBALS['myfatoorah_failure_calls'], "{$case} did not run the failure hook");
+        }
+
+        $this->assertSame(0, myfatoorah_test_effect_count('order'), 'an unauthentic return created an order');
+    }
+
+    public function test_a_return_that_does_not_say_success_settles_nothing_and_runs_the_failure_hook(): void
+    {
+        foreach (['false', 'TRUE', '1', '', 'yes'] as $success) {
+            $id = $this->makePaymentRequest();
+
+            // Signed correctly for this very payload, so the ONLY objection left is the success flag.
+            $this->theReturnArrivesFor($id, $this->aSignedReturn(['success' => $success]))
+                ->assertRedirectContains('payment-fail');
+
+            $this->assertSame(0, (int) DB::table('payment_requests')->where('id', $id)->value('is_paid'), "success={$success} marked the payment paid");
+            $this->assertContains($id, $GLOBALS['myfatoorah_failure_calls'], "success={$success} did not run the failure hook");
+        }
+
+        $this->assertSame(0, myfatoorah_test_effect_count('order'));
+    }
+
+    public function test_a_return_with_no_success_field_at_all_is_refused_rather_than_raising_an_error(): void
+    {
+        $id = $this->makePaymentRequest();
+        $payload = $this->aSignedReturn();
+        unset($payload['success']);
+
+        $this->theReturnArrivesFor($id, $payload)->assertRedirectContains('payment-fail');
+
+        $this->assertSame(0, (int) DB::table('payment_requests')->where('id', $id)->value('is_paid'));
+    }
+
+    public function test_a_valid_return_opened_twice_currently_runs_the_success_hook_twice(): void
+    {
+        /*
+         * PINNED AS IT IS, AND IT LOOKS WRONG. The callback has no guard of its own: a second valid
+         * return updates the row again and calls the success hook again. What stops a SECOND ORDER on
+         * the live platform is a guard inside the hook, and that guard is on an unmerged branch, not
+         * here. So this test records today's behaviour rather than the behaviour anyone wants, and the
+         * day a replay guard lands this is the test that must be rewritten -- deliberately, not by
+         * accident.
+         */
+        $id = $this->makePaymentRequest();
+        $payload = $this->aSignedReturn();
+
+        $this->theReturnArrivesFor($id, $payload)->assertRedirectContains('payment-success');
+        $this->theReturnArrivesFor($id, $payload)->assertRedirectContains('payment-success');
+
+        $this->assertSame(2, myfatoorah_test_effect_count('order'), 'a replay guard has landed in the callback; this characterisation wants rewriting');
+        $this->assertSame(1, (int) DB::table('payment_requests')->where('id', $id)->value('is_paid'));
+    }
+
+    public function test_the_transaction_id_recorded_is_currently_the_payments_own_id_and_not_paymobs(): void
+    {
+        /*
+         * ALSO PINNED AS IT IS. The callback writes `transaction_id` = the payment's own id, so
+         * Paymob's transaction reference -- `id` in the return, 987654 here -- is never stored. Nothing
+         * then links a settled payment to the provider's own record, which is what a reconciliation
+         * would need (D2-16). Recorded here so the gap is measured rather than argued about.
+         */
+        $id = $this->makePaymentRequest();
+
+        $this->theReturnArrivesFor($id, $this->aSignedReturn(['id' => '987654']));
+
+        $this->assertSame($id, DB::table('payment_requests')->where('id', $id)->value('transaction_id'));
+        $this->assertNotSame('987654', DB::table('payment_requests')->where('id', $id)->value('transaction_id'));
+    }
+}

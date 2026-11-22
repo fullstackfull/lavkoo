@@ -102,7 +102,7 @@ jobs:
             version: '^11\.4\.2-MariaDB'
             health: mariadb-admin ping -h 127.0.0.1 -uroot -pci-root-password
           - group: Fulfillment + security tests
-            paths: tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Security tests/Feature/CiDatabaseTest.php
+            paths: tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Security tests/Feature/Payments tests/Unit/Payments tests/Feature/CiDatabaseTest.php
           - group: Address tests
             paths: tests/Feature/Address
           - group: Storefront tests
