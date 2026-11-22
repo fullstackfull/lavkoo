@@ -176,6 +176,9 @@ trait BuildsFulfillmentSchema
             $t->longText('shipping_address_data')->nullable();
             $t->string('seller_is')->default('admin');
             $t->unsignedBigInteger('seller_id')->nullable();
+            // The coupon quick view of the vendor panel counts the orders a coupon was used on, by `orders.coupon_code` against `coupons.code`
+            // (2021_09_20_020716_add_coupon_code_to_orders_table). Without the column that read is a 500 instead of the answer under test.
+            $t->string('coupon_code')->nullable();
             $t->timestamps();
         });
 
