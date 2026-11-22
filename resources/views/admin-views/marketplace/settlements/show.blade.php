@@ -43,7 +43,7 @@
                     <div class="card h-100 border-{{ $colour }}">
                         <div class="card-body">
                             <p class="mb-1 fs-12 text-muted">{{ $label }}</p>
-                            <h4 class="mb-0">{{ setCurrencySymbol($settlement->$field) }}</h4>
+                            <h4 class="mb-0">{{ $settlementCurrency->format(amount: $settlement->$field, currency: $settlement->currency) }}</h4>
                         </div>
                     </div>
                 </div>
@@ -120,9 +120,9 @@
                                         {{ $entry->reference_type }} #{{ $entry->reference_id }}
                                         @if ($entry->description)<br><span class="text-muted">{{ $entry->description }}</span>@endif
                                     </td>
-                                    <td class="text-end text-success">{{ $entry->credit > 0 ? setCurrencySymbol($entry->credit) : '—' }}</td>
-                                    <td class="text-end text-danger">{{ $entry->debit > 0 ? setCurrencySymbol($entry->debit) : '—' }}</td>
-                                    <td class="text-end">{{ setCurrencySymbol($entry->balance_after) }}</td>
+                                    <td class="text-end text-success">{{ $entry->credit > 0 ? $settlementCurrency->format(amount: $entry->credit, currency: $entry->currency) : '—' }}</td>
+                                    <td class="text-end text-danger">{{ $entry->debit > 0 ? $settlementCurrency->format(amount: $entry->debit, currency: $entry->currency) : '—' }}</td>
+                                    <td class="text-end">{{ $settlementCurrency->format(amount: $settlement->hasBalances() ? $entry->balance_after : null, currency: $entry->currency) }}</td>
                                 </tr>
                             @endforeach
                         </tbody>

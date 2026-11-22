@@ -41,7 +41,7 @@ class ChannelDispatchConcurrencyTest extends DispatchTestCase
         $this->assertSame(8, ($outcomes['materialized'] ?? 0) + ($outcomes['busy'] ?? 0) + ($outcomes['already_done'] ?? 0), 'every other process stood back or found the order made: ' . json_encode($outcomes));
         $this->assertSame([1, 1, 1, 1], [DB::table('orders')->count(), DB::table('order_details')->count(), ProviderFulfillmentItem::count(), ChannelOrderDispatch::count()]);
         $this->assertSame(1, ChannelOrderDispatch::firstOrFail()->attempts);
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes really ran at the same time');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the processes really ran at the same time');
     }
 
     public function test_eight_different_orders_dispatched_at_once_each_get_exactly_one_internal_order(): void

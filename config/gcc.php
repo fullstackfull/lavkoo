@@ -20,6 +20,29 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Seller settlements
+    |--------------------------------------------------------------------------
+    |
+    | How a settlement is drawn from a seller's ledger (E-17).
+    |
+    */
+
+    'settlements' => [
+        // Off by default, and off means the platform of today: a settlement adds every entry of a seller that is waiting, whatever currency each one names, takes the label
+        // of its first entry, and the screens print every amount as the platform's money. That is right only while every amount on the seller ledger is in the store's base
+        // currency, which is what every writer of the ledger writes today (VendorLedger::record). It is also why the label of an entry is not trusted to split money while this
+        // is off: the ledger once stamped the visitor's display currency on entries whose amount was in the base currency (VendorLedger::baseCurrency), so an installation may
+        // hold entries whose label is not the currency of their amount. When it is on, the label is the currency: a settlement is drawn in one currency, entries of another are
+        // left for a settlement of their own, an entry that names none is read as the base currency, and the screens print each settlement in its own currency
+        // (App\Services\Marketplace\SettlementEngine). It has to be on before any market writes ledger entries in a currency of its own. Before turning it on: check the labels
+        // of the entries still waiting against the above, and make sure `opening_balance` and `closing_balance` of `vendor_settlements` accept NULL, because a settlement of a
+        // ledger that mixes currencies records neither and the engine refuses to draw on a table that cannot say so. That table has no migration in this repository, so neither
+        // can be checked from the code; `php artisan marketplace:settle --dry-run` reports the second.
+        'one_currency' => filter_var(env('GCC_SETTLEMENT_ONE_CURRENCY', false), FILTER_VALIDATE_BOOLEAN),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Country-scoped SKU and barcode (GCC-14b)
     |--------------------------------------------------------------------------
     |
@@ -177,6 +200,41 @@ return [
             'pending_warning_count' => 5,
             'pending_critical_count' => 20,
         ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Seller ledgers
+    |--------------------------------------------------------------------------
+    |
+    | What a running balance on the seller ledger belongs to (E-17).
+    |
+    */
+
+    'ledgers' => [
+        // Off by default, and off means the platform of today: one chain per seller, so one `balance_after` running over everything the seller earned, whatever company sold
+        // it and whatever currency it was in. That is right while a seller sells in one market, which is every seller on the live Saudi platform. When it is on, a chain is
+        // named by the seller, the selling company and the currency: an entry reads the balance of its own chain, the row lock is taken on its own chain, and a reader can
+        // ask for one chain's position instead of the sum of all of them (App\Services\Marketplace\LedgerChain). It has to be on before a seller earns in a second company or
+        // a second currency, because until it is, those amounts are added together. Turning it on changes no figure on a ledger that holds one company and one currency, which
+        // is what makes it safe to throw on the live Saudi ledger. Entries that name no currency belong to the base-currency chain, so years of unlabelled history stay in one
+        // piece. The selling company is part of the key only where `vendor_ledger_entries` has a `legal_entity_id` column; that table has no migration in this repository (the
+        // live one came from the installation dump), so an installation without the column keys its chains by seller and currency alone — and no writer in the application
+        // passes a company yet, so on a live ledger the key is the seller and the currency whatever the column holds.
+        //
+        // IT IS NOT YET SAFE TO THROW ON A LEDGER THAT ALREADY HOLDS TWO CURRENCIES. A payout is still drawn on the seller's whole withdrawable amount and its reserve names
+        // no currency, so on a two-currency ledger the reserve lands in the base-currency chain and takes that chain's running balance negative by the amount paid out of the
+        // other, which still advertises money that has gone. A payout drawn per chain, or one that refuses while a seller holds more than one, is the owner's decision and the
+        // gate on throwing this where a second currency is already on the ledger (docs/gcc: E-17.2).
+        //
+        // AND THE REVERSALS ALREADY ON THE LEDGER HAVE TO BE CHECKED BEFORE IT IS THROWN, which needs only the switch and not two currencies: a refund and the commission
+        // reversed with it were labelled with the currency of the ORDER's commission snapshot, which is stamped when the order is placed and falls back to the currency the
+        // customer was browsing in (OrderManager::recordOrderItemCommission), while the earning they reverse is labelled with the store's base currency. Where the two
+        // disagree, the switch puts the reversal in a chain the earning was never in: the earning settles as payable while the refund waits in a settlement nobody can be
+        // paid, so a line refunded IN FULL leaves the marketplace owing for a sale it gave back. A reversal written from now on takes the label of the entry it reverses
+        // (RefundReversalService), so this is about the rows that are already there: the `refund` and `return_adjustment` entries of each `refund_order_details` reference
+        // have to carry the currency of the `order_details` earning of the same line, and be relabelled where they do not.
+        'keyed_by_entity_and_currency' => filter_var(env('GCC_LEDGER_KEYED_BY_ENTITY_AND_CURRENCY', false), FILTER_VALIDATE_BOOLEAN),
     ],
 
 ];

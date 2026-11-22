@@ -22,24 +22,6 @@ use RecursiveIteratorIterator;
  */
 class ConcurrentOperationsAreRegisteredTest extends TestCase
 {
-    /** Names the harness itself answers in `Operations::run()`'s match, so no registration file needs to name them. */
-    private const BUILT_IN = [
-        'probe_insert',
-        'dispatch_channel_order',
-        'mirror_managed_shipment',
-        'layers_from_purchase_orders',
-        'layer_purchase_order_tranche',
-        'wallet.pay_edit_due',
-        'stock.ingest_many',
-        'wallet.repository',
-        'wallet.customer_manager',
-        'wallet.order_manager',
-        'wallet.customer_trait',
-        'loyalty.repository',
-        'loyalty.customer_manager',
-        'loyalty.convert',
-    ];
-
     /**
      * Names a test asks for ON PURPOSE without registering them.
      *
@@ -51,7 +33,7 @@ class ConcurrentOperationsAreRegisteredTest extends TestCase
 
     public function test_every_operation_a_concurrency_test_runs_is_registered_or_built_in(): void
     {
-        $registered = [...self::BUILT_IN, ...self::DELIBERATELY_UNREGISTERED, ...$this->registeredNames()];
+        $registered = [...$this->builtInNames(), ...self::DELIBERATELY_UNREGISTERED, ...$this->registeredNames()];
         $asked = $this->namesAskedForByTests();
 
         $this->assertNotEmpty($asked, 'the scan found no operation names, so it is not checking anything');
@@ -70,6 +52,23 @@ class ConcurrentOperationsAreRegisteredTest extends TestCase
         $this->assertContains('noon.ingest_same_order', $asked);
         $this->assertContains('noon.page', $asked);
         $this->assertContains('stock.mixed', $asked);
+        // A name a PROCESS asks for with its own `op`, which ConcurrentRunner::run() honours over the name given for the
+        // whole run. Two test files use it and the scan read neither until this line: it looked only for `operation`,
+        // which is a key of an operation's own arguments and a different thing entirely.
+        $this->assertContains('vendor_ledger.append_with_a_snapshot_taken_first', $asked);
+        $this->assertContains('attention.put_back_after_reading', $asked);
+    }
+
+    public function test_the_scan_sees_the_built_in_names_it_reads_from_the_harness(): void
+    {
+        // The built-in names used to be a second copy of Operations::run()'s match, kept by hand. It drifted the first
+        // time an operation was added to the match and not to the copy, and a green unit test then reported a name as
+        // unregistered that the harness answers.
+        $builtIn = $this->builtInNames();
+
+        $this->assertContains('probe_insert', $builtIn);
+        $this->assertContains('probe_rendezvous', $builtIn);
+        $this->assertContains('stock.ingest_many', $builtIn);
     }
 
     public function test_every_registration_file_is_loadable_php(): void
@@ -81,6 +80,19 @@ class ConcurrentOperationsAreRegisteredTest extends TestCase
                 basename($file) . ' is not parseable, and the worker requires it',
             );
         }
+    }
+
+    /**
+     * The names the harness itself answers in `Operations::run()`'s match, read from that match rather than copied.
+     *
+     * @return list<string>
+     */
+    private function builtInNames(): array
+    {
+        $source = (string) file_get_contents($this->path('tests/Support/Concurrency/Operations.php'));
+        preg_match_all("/^\s*'([^']+)'\s*=>\s*(?:self::|[A-Za-z]+::)/m", $source, $matches);
+
+        return array_values(array_unique($matches[1]));
     }
 
     /** @return list<string> every name passed to Operations::register() in a registration file */
@@ -105,8 +117,12 @@ class ConcurrentOperationsAreRegisteredTest extends TestCase
         foreach ($this->concurrencyTestFiles() as $file) {
             $source = (string) file_get_contents($file);
             preg_match_all("/ConcurrentRunner::run\(\s*'([^']+)'/", $source, $direct);
+            // `operation` is a key a dispatching operation reads out of its own arguments (StockOperations::mixed,
+            // NoonOperations::page); `op` is the runner's own per-process override, which it unsets from the arguments
+            // and runs INSTEAD of the name given for the whole run. Both name an operation that has to exist.
             preg_match_all("/'operation'\s*=>\s*'([^']+)'/", $source, $perWorker);
-            foreach ([...$direct[1], ...$perWorker[1]] as $name) {
+            preg_match_all("/'op'\s*=>\s*'([^']+)'/", $source, $perProcess);
+            foreach ([...$direct[1], ...$perWorker[1], ...$perProcess[1]] as $name) {
                 $names[] = $name;
             }
         }

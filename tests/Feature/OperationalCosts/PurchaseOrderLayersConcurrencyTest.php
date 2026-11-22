@@ -60,7 +60,7 @@ class PurchaseOrderLayersConcurrencyTest extends TestCase
         $this->assertSame(2, array_sum(array_column(array_column($reports, 'result'), 'created')), 'Between the eight of them: one layer per line.');
         $this->assertSame(2, InventoryCostLayer::count());
         $this->assertSame([$lines[0] => 10, $lines[1] => 6], InventoryCostLayer::orderBy('source_id')->pluck('quantity_received', 'source_id')->all());
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes really ran at the same time');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the processes really ran at the same time');
         $this->assertSame(0, $this->service()->apply(since: CarbonImmutable::parse('2000-01-01'))->created, 'And a run afterwards finds nothing left to do.');
     }
 
@@ -76,7 +76,7 @@ class PurchaseOrderLayersConcurrencyTest extends TestCase
         $outcomes = $this->outcomes($reports);
         $this->assertEquals([TrancheOutcome::CREATED => 1, TrancheOutcome::OVERTAKEN => 1], $outcomes, 'The one that got there second was told the units were taken: ' . json_encode($outcomes));
         $this->assertSame(1, InventoryCostLayer::count(), 'Whichever tranche got there first, the units from 0 are in one layer, not two.');
-        $this->assertTrue(ConcurrentRunner::overlapped($reports));
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports));
 
         $this->service()->apply(since: CarbonImmutable::parse('2000-01-01'));
         $layers = InventoryCostLayer::orderBy('source_from')->get();
