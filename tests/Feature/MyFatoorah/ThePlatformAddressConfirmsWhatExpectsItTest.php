@@ -5,6 +5,7 @@ namespace Tests\Feature\MyFatoorah;
 use App\Models\MyFatoorahPaymentAttempt;
 use App\Models\MyFatoorahWebhookEvent;
 use App\Models\PaymentGatewayAccount;
+use App\Services\MyFatoorah\GatewayConfigRepository;
 use App\Services\Payments\ConfirmationAddresses;
 use App\Services\Payments\GatewayAccountDirectory;
 use App\Services\Payments\GatewayAccountRegistry;
@@ -337,6 +338,44 @@ class ThePlatformAddressConfirmsWhatExpectsItTest extends CompanyAccountsTestCas
 
         $this->assertSame(1, MyFatoorahWebhookEvent::count(), 'recorded, as it is today');
         $this->assertSame(0, $this->successHookCalls());
+    }
+
+    /**
+     * ON THE SHIPPED GATEWAY LIST this address confirms exactly what it confirms today, with the rule on and with it off.
+     *
+     * The gateway this address serves is not on the list `config/gcc.php` ships, so a payment of it is stamped with nothing at all even with
+     * per-company accounts switched on — and a payment stamped with nothing expects this address. The list is read out of the repository's own file,
+     * so a later change that put this gateway on it fails this test rather than quietly making the address refuse live payments.
+     *
+     * @return array<string, array{bool}>
+     */
+    public static function theSwitch(): array
+    {
+        return ['the rule off, which is what ships' => [false], 'the rule on' => [true]];
+    }
+
+    #[DataProvider('theSwitch')]
+    public function test_on_the_shipped_gateway_list_this_address_confirms_what_it_confirms_today(bool $switch): void
+    {
+        $this->assertNotContains(GatewayConfigRepository::KEY, $this->shippedGatewayList, 'the premise is the shipped list');
+
+        config([
+            'gcc.storefronts.payment_accounts.gateways' => $this->shippedGatewayList,
+            'gcc.storefronts.payment_accounts.one_confirmation_address' => $switch,
+        ]);
+        app(GatewayAccountRegistry::class)->flush();
+
+        $attempt = $this->anAttemptOfAPaymentWhoseAdditionalDataIs($this->theProductionWriterRunFor($this->kuwait));
+        $this->fakePaidFor($attempt);
+
+        $this->assertNull($this->theRecordOf($attempt), 'a payment of a gateway off the list is stamped with nothing by the production writer');
+
+        $this->deliverToThePlatformAddress($attempt)
+            ->assertOk()
+            ->assertJsonPath('status', 'settled');
+
+        $this->assertSame([$attempt->payment_request_id], $this->paidPayments());
+        $this->assertSame(1, $this->successHookCalls());
     }
 
     /** The address the rule is applied at is the gateway's own platform-wide route, and not some other value the controller made up. */
