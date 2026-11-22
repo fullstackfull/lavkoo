@@ -3,6 +3,7 @@
 namespace App\Listeners;
 
 use App\Events\OrderStatusEvent;
+use App\Services\Storefront\OrderNotificationContext;
 use App\Traits\PushNotificationTrait;
 
 class OrderStatusListener
@@ -30,6 +31,6 @@ class OrderStatusListener
         $key = $event->key;
         $type = $event->type;
         $order = $event->order;
-        $this->sendOrderNotification(key: $key, type: $type, order: $order);
+        OrderNotificationContext::within(order: $order, userType: $type, callback: fn () => $this->sendOrderNotification(key: $key, type: $type, order: $order));
     }
 }
