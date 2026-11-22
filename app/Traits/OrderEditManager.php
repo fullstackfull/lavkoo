@@ -23,6 +23,7 @@ use App\Models\ShippingMethod;
 use App\Models\ShippingType;
 use App\Models\User;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
+use App\Services\Payments\GatewayCurrencySupport;
 use App\Utils\CartManager;
 use App\Utils\CustomerManager;
 use App\Utils\Helpers;
@@ -742,6 +743,22 @@ trait OrderEditManager
         $customerId = $customer == 'offline' ? $guestId : $customer['id'];
         $isGuest = $customer == 'offline' ? 1 : 0;
         $payerId = $customerId;
+
+        /*
+         * The same refusal as the payment start and the wallet top-up (D2-V1): the due amount must not be
+         * converted into a currency the customer never chose. Answered in this method's own shape -- a
+         * status, a message and no link -- which both the website controller and the app controller
+         * already read. `redirect_link` is spelled out rather than left out because both of them go on to
+         * read that key.
+         */
+        $currencyDecision = app(GatewayCurrencySupport::class)->decideForRequest($request);
+        if ($currencyDecision->refused()) {
+            return [
+                'status' => false,
+                'message' => $currencyDecision->message(),
+                'redirect_link' => null,
+            ];
+        }
 
         [$paymentAmount, $currency_code] = self::resolvePaymentAmount($order['edit_due_amount'], $request['payment_method'], $request);
 

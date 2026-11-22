@@ -9,6 +9,7 @@ use App\Enums\Address\AddressChannel;
 use App\Events\OrderEditDuePaymentEvent;
 use App\Services\Address\OrderAddressService;
 use App\Services\Analytics\Analytics;
+use App\Services\Payments\GatewayCurrencySupport;
 use App\Models\AdminWallet;
 use App\Models\Cart;
 use App\Models\CustomerWallet;
@@ -131,6 +132,22 @@ class PaymentController extends Controller
             return redirect()->route('checkout-details');
         }
 
+        /*
+         * A gateway that cannot take the currency the customer is being charged in must REFUSE, not be
+         * handed a converted amount in a currency nobody asked for (D2-V1). Asked here, at the entry
+         * point, rather than beside the conversion further down: nothing has been read or written yet,
+         * and the two answers this route already gives a refusal -- 403 with an `errors` list for the
+         * app, a message and the payment page for the website -- are the ones every refusal above uses.
+         */
+        if ($currencyMessage = $this->unusableCurrencyMessage(request: $request)) {
+            if (in_array($request['payment_request_from'], ['app'])) {
+                return response()->json(['message' => $currencyMessage, 'errors' => [['code' => 'payment-currency', 'message' => $currencyMessage]]], 403);
+            }
+            Toastr::error($currencyMessage);
+
+            return redirect()->route('checkout-payment');
+        }
+
         $cartGroupIds = CartManager::get_cart_group_ids(request: $request, type: 'checked');
         $carts = Cart::whereHas('product', function ($query) {
             return $query->active();
@@ -243,6 +260,17 @@ class PaymentController extends Controller
         return $newCustomerRegister;
     }
 
+
+    /**
+     * What the customer is told when the chosen gateway cannot take the currency they are being charged
+     * in, or null when it can -- the one question, asked of the one place that answers it.
+     */
+    private function unusableCurrencyMessage(Request $request): ?string
+    {
+        $decision = app(GatewayCurrencySupport::class)->decideForRequest($request);
+
+        return $decision->refused() ? $decision->message() : null;
+    }
 
     /** Does an active routing rule hide the chosen gateway for this order's amount and destination? */
     private function routingHidesTheChosenMethod(string $method, float $amount, int|string|null $addressId): bool
@@ -521,6 +549,16 @@ class PaymentController extends Controller
                 }
                 return back();
             }
+        }
+
+        // Same question as the payment start, same answer, in the shape this method's own refusals use.
+        if ($currencyMessage = $this->unusableCurrencyMessage(request: $request)) {
+            if (in_array($request['payment_request_from'], ['app'])) {
+                return response()->json(['message' => $currencyMessage], 403);
+            }
+            Toastr::error($currencyMessage);
+
+            return back();
         }
 
         $paymentAmount = $request['amount'];
