@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Storefront;
 
+use App\Events\DigitalProductDownloadEvent;
 use App\Events\OrderPlacedEvent;
 use App\Mail\SendMail;
 use App\Models\EmailTemplate;
@@ -63,6 +64,14 @@ abstract class OrderNotificationTestCase extends ApiAddressTestCase
 
     protected const CHARGE_AS_THE_ORDER_HOLDS_IT = '30';
 
+    /** What one line of the order costs, as it is stored: 375 once converted into the riyal, 100 as a market with its own currency holds it. */
+    protected const LINE_PRICE = 100;
+
+    protected const LINE_CONVERTED_TO_THE_PLATFORM_CURRENCY = '375.00SAR';
+
+    protected const LINE_AS_THE_ORDER_HOLDS_IT = '100.000KWD';
+
+    protected const CAPTURING_MAILER = 'array';
 
     /** Measured on the base branch, with the listeners unwrapped: what a customer order push costs the database. */
     protected const QUERIES_OF_A_CUSTOMER_PUSH = 5;
@@ -158,27 +167,47 @@ abstract class OrderNotificationTestCase extends ApiAddressTestCase
     }
 
     /** The e-mail the platform sends when an order is placed, with an Arabic title for the market that reads Arabic. */
-    protected function seedOrderPlacedEmailTemplate(string $titleInEnglish, string $titleInArabic): void
+    protected function seedOrderPlacedEmailTemplate(string $titleInEnglish, string $titleInArabic, ?string $design = null): void
     {
         $this->seedEmailTemplate(
             templateName: 'order-place',
             userType: 'customer',
             titleInEnglish: $titleInEnglish,
             titleInArabic: $titleInArabic,
+            design: $design,
         );
     }
 
     /** Any of the platform's e-mail templates, with an Arabic title row beside the English one. */
-    protected function seedEmailTemplate(string $templateName, string $userType, string $titleInEnglish, string $titleInArabic): void
+    protected function seedEmailTemplate(string $templateName, string $userType, string $titleInEnglish, string $titleInArabic, ?string $design = null): void
     {
         $template = EmailTemplate::create([
             'template_name' => $templateName, 'user_type' => $userType, 'title' => $titleInEnglish,
-            'body' => 'Order {orderId} is on its way', 'status' => 1,
+            'body' => 'Order {orderId} is on its way', 'status' => 1, 'template_design_name' => $design,
         ]);
         Translation::create([
             'translationable_type' => EmailTemplate::class, 'translationable_id' => $template->id,
             'locale' => 'sa', 'key' => 'title', 'value' => $titleInArabic,
         ]);
+    }
+
+    /**
+     * The body of the one e-mail that left, as the mailer rendered it. Mail::fake() is deliberately NOT used here: it captures the mailable
+     * and leaves the view unrendered, so the amounts would be read afterwards, outside the storefront the send ran in. The real mailer
+     * renders inside Mail::to()->send(), which is inside the listener's wrap, exactly as on a server.
+     */
+    protected function bodyOfTheEmailTheMailerSent(): string
+    {
+        $messages = Mail::mailer(self::CAPTURING_MAILER)->getSymfonyTransport()->messages();
+        $this->assertCount(1, $messages, 'exactly one e-mail left the server');
+
+        return (string) $messages[0]->getOriginalMessage()->getHtmlBody();
+    }
+
+    /** The mailer that keeps what it was given, so the view is rendered where the send happens. */
+    protected function captureTheEmailsTheMailerRenders(): void
+    {
+        config(['mail.default' => self::CAPTURING_MAILER]);
     }
 
     /** The title the platform chose for the one e-mail it sent, as it handed it to the mailable. */
@@ -291,7 +320,8 @@ abstract class OrderNotificationTestCase extends ApiAddressTestCase
         $this->insertCatalogProduct(id: $productId, name: "product of {$country}", price: 100, stock: 5, country: $country);
         $this->insertOrder($orderId, $orderColumns);
         DB::table('order_details')->insert([
-            'order_id' => $orderId, 'product_id' => $productId, 'qty' => 1, 'price' => 100,
+            'order_id' => $orderId, 'product_id' => $productId, 'qty' => 1, 'price' => self::LINE_PRICE,
+            'product_details' => json_encode(['id' => $productId, 'name' => "product of {$country}", 'product_type' => 'physical']),
             'created_at' => now(), 'updated_at' => now(),
         ]);
 
@@ -373,6 +403,14 @@ abstract class OrderNotificationTestCase extends ApiAddressTestCase
         ]));
     }
 
+    /** The download e-mail a till sends about a digital order, as the three POS controllers raise it, through the queued listener. */
+    protected function sendTheDownloadMailFor(Order $order): void
+    {
+        event(new DigitalProductDownloadEvent(email: 'buyer@example.test', data: [
+            'subject' => 'download', 'title' => 'download', 'userName' => 'Noura',
+            'userType' => 'customer', 'templateName' => 'digital-product-download', 'order' => $order, 'orderId' => $order->id,
+        ]));
+    }
 
     protected function theOnePushSent(): Request
     {

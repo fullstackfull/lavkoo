@@ -9,9 +9,13 @@ use App\Events\OrderStatusEvent;
 use App\Events\RefundEvent;
 use App\Models\Order;
 use App\Services\Storefront\OrderNotificationContext;
+use App\Services\Storefront\PaymentStorefront;
+use App\Services\Storefront\StorefrontCatalog;
 use App\Services\Storefront\StorefrontContext;
+use App\Services\Storefront\StorefrontCurrency;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\App;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\URL;
@@ -218,6 +222,71 @@ class OrderNotificationStorefrontTest extends OrderNotificationTestCase
     }
 
     /**
+     * The money of the order, not the money of whatever market the sending process was narrowed to. A panel screen or a job wrapped in
+     * money.market sets StorefrontCurrency's own market, and that market outranks the storefront a context binds, so the order's money has
+     * to be put in force by name as well. Measured before this was done: the same push carried 112.5 (review A F5, review B F3).
+     */
+    public function test_a_push_carries_the_orders_money_even_inside_a_process_narrowed_to_another_markets_money(): void
+    {
+        $this->switchStorefrontsOn();
+        $order = $this->sellOrderIn(country: 'KW', orderId: self::KW_ORDER, orderColumns: [
+            'customer_id' => $this->customerWhoReadsArabic()->id,
+            'delivery_man_id' => $this->deliveryMan(id: 1, token: 'kw-rider', language: null)->id,
+            'deliveryman_charge' => self::CHARGE_STORED,
+        ]);
+
+        app(StorefrontCurrency::class)->within(country: 'SA', callback: static function () use ($order): void {
+            event(new OrderStatusEvent(key: 'new_order_assigned_message', type: 'delivery_man', order: $order));
+        });
+
+        $this->assertSame(self::CHARGE_AS_THE_ORDER_HOLDS_IT, $this->theOnePushSent()['message']['data']['deliveryman_charge']);
+    }
+
+    /**
+     * A recipient who has chosen no language has none bound for them, so the sender takes the language exactly as it would have. The
+     * sending process's own language must still come back: getDefaultLanguage() writes the session language when it is empty and translate()
+     * rewrites the locale on every call, so without this one order's notification decides the next one's language (review A F7, review B F8).
+     */
+    public function test_a_notification_to_a_recipient_who_has_chosen_no_language_leaves_the_senders_own_language_untouched(): void
+    {
+        $this->switchStorefrontsOn();
+        App::setLocale('en');
+        $order = $this->sellOrderIn(country: 'KW', orderId: self::KW_ORDER, orderColumns: [
+            'customer_id' => $this->makeCustomer(['cm_firebase_token' => 'customer-device', 'app_language' => null])->id,
+        ]);
+
+        event(new OrderStatusEvent(key: 'pending', type: 'customer', order: $order));
+
+        $this->assertCount(1, $this->pushesSent());
+        $this->assertNull(session('local'), 'nothing the send settled on is left in the session');
+        $this->assertSame('en', App::getLocale(), 'and the locale the sender was given is back');
+    }
+
+    /**
+     * The same leak across several sends, where it bites hardest. translate() rewrites the application locale on every call, and on an /api
+     * request getDefaultLanguage() reads that locale back, so a leftover walks: sa becomes ar, ar becomes es, and es is a locale the
+     * project's own language-file restorer does not cover, so the next unknown key is written into the working tree and stays there.
+     * Measured on the base branch, where the listeners are unwrapped: six sends end at locale 'es' and leave resources/lang/es modified
+     * (review B F8). Here the locale a notification was given comes back after every one of them.
+     */
+    public function test_the_locale_does_not_walk_from_one_send_to_the_next_on_an_api_request(): void
+    {
+        $this->switchStorefrontsOn();
+        URL::setRequest(Request::create('https://shop.test/api/v1/order/place', 'POST'));
+        App::setLocale('sa');
+        $order = $this->sellOrderIn(country: 'KW', orderId: self::KW_ORDER, orderColumns: [
+            'customer_id' => $this->makeCustomer(['cm_firebase_token' => 'customer-device', 'app_language' => null])->id,
+        ]);
+
+        for ($send = 0; $send < 4; $send++) {
+            event(new OrderStatusEvent(key: 'pending', type: 'customer', order: $order));
+        }
+
+        $this->assertCount(4, $this->pushesSent());
+        $this->assertSame('sa', App::getLocale(), 'the locale the sender was given, four sends later');
+    }
+
+    /**
      * The due-payment listener's own wrap. Its one production dispatcher raises a key that PushNotificationTrait's map does not hold, so no
      * push has ever left it and no test of that path can tell a wrapped listener from an unwrapped one (the fact is pinned next door, in
      * OrderNotificationTodayTest). The event and the listener here are the real ones; only the key is one the map does hold, which is what
@@ -236,6 +305,162 @@ class OrderNotificationStorefrontTest extends OrderNotificationTestCase
         $push = $this->theOnePushSent();
         $this->assertSame('customer-device', $push['message']['token']);
         $this->assertSame(self::TITLE_IN_ARABIC, $push['message']['notification']['title']);
+    }
+
+    /** The till's download e-mail is about one order too, and it is queued: the seventh listener (review A F1). */
+    public function test_the_digital_product_download_email_is_written_in_the_language_of_the_buyer(): void
+    {
+        Mail::fake();
+        $this->switchStorefrontsOn();
+        $this->seedEmailTemplate(templateName: 'digital-product-download', userType: 'customer', titleInEnglish: 'Your download', titleInArabic: 'التحميل');
+        $order = $this->sellOrderIn(country: 'KW', orderId: self::KW_ORDER, orderColumns: [
+            'customer_id' => $this->customerWhoReadsArabic()->id,
+        ]);
+
+        $this->sendTheDownloadMailFor($order);
+
+        $this->assertSame('التحميل', $this->titleOfTheEmailSent());
+    }
+
+    /**
+     * A record that is a country code the platform does not configure any more: narrowing needs only the code, so that code is bound, but it
+     * has no currency in force, so the amounts stay the platform's (review A F6, review B F7).
+     */
+    public function test_an_order_recorded_in_a_country_the_platform_does_not_configure_is_notified_in_the_platform_money(): void
+    {
+        $this->switchStorefrontsOn();
+        $order = $this->sellOrderIn(country: 'KW', orderId: self::KW_ORDER, orderColumns: [
+            'customer_id' => $this->customerWhoReadsArabic()->id,
+            'delivery_man_id' => $this->deliveryMan(id: 1, token: 'kw-rider', language: null)->id,
+            'deliveryman_charge' => self::CHARGE_STORED,
+        ]);
+        DB::table('orders')->where('id', self::KW_ORDER)->update(['storefront_country' => 'OM']);
+
+        event(new OrderStatusEvent(key: 'new_order_assigned_message', type: 'delivery_man', order: Order::findOrFail(self::KW_ORDER)));
+
+        $this->assertSame(self::CHARGE_CONVERTED_TO_THE_PLATFORM_CURRENCY, $this->theOnePushSent()['message']['data']['deliveryman_charge']);
+    }
+
+    /**
+     * A market whose currency was switched off in the panel. The base layer's contract is that such a storefront keeps the platform's
+     * settings and may not sell, so the amounts in its notifications are the platform's conversion, not the order's own money, however the
+     * order's record reads (review A F6).
+     */
+    public function test_an_order_of_a_market_whose_currency_is_switched_off_is_notified_in_the_platform_money(): void
+    {
+        $this->switchStorefrontsOn();
+        $order = $this->sellOrderIn(country: 'KW', orderId: self::KW_ORDER, orderColumns: [
+            'customer_id' => $this->customerWhoReadsArabic()->id,
+            'delivery_man_id' => $this->deliveryMan(id: 1, token: 'kw-rider', language: null)->id,
+            'deliveryman_charge' => self::CHARGE_STORED,
+        ]);
+        $this->assertSame('KWD', DB::table('orders')->where('id', self::KW_ORDER)->value('currency_code'));
+        DB::table('currencies')->where('code', 'KWD')->update(['status' => 0]);
+        Cache::flush();
+
+        event(new OrderStatusEvent(key: 'new_order_assigned_message', type: 'delivery_man', order: $order));
+
+        $this->assertSame(self::CHARGE_CONVERTED_TO_THE_PLATFORM_CURRENCY, $this->theOnePushSent()['message']['data']['deliveryman_charge']);
+    }
+
+    /**
+     * A recordless order notified from inside a payment that was taken in another market. The platform sends 30 here today, because the
+     * payment's own storefront is bound and the amount is read as that market's money; this binds the default storefront instead, so an
+     * order whose amounts are in the platform's money is priced in the platform's money. A deliberate difference from the base branch, which
+     * review A measured at 30 on fd40399c and 112.5 here (review A F4).
+     */
+    public function test_a_recordless_order_is_notified_in_the_platform_money_even_inside_a_payment_of_another_market(): void
+    {
+        $this->switchStorefrontsOn();
+        $this->insertOrder(self::SA_ORDER, [
+            'customer_id' => $this->customerWhoReadsArabic()->id,
+            'delivery_man_id' => $this->deliveryMan(id: 1, token: 'legacy-rider', language: null)->id,
+            'deliveryman_charge' => self::CHARGE_STORED,
+        ]);
+        $order = Order::findOrFail(self::SA_ORDER);
+
+        PaymentStorefront::within(additionalData: [PaymentStorefront::KEY => 'KW'], callback: static function () use ($order): void {
+            event(new OrderStatusEvent(key: 'new_order_assigned_message', type: 'delivery_man', order: $order));
+        });
+
+        $this->assertNull(DB::table('orders')->where('id', self::SA_ORDER)->value('storefront_country'));
+        $this->assertSame(self::CHARGE_CONVERTED_TO_THE_PLATFORM_CURRENCY, $this->theOnePushSent()['message']['data']['deliveryman_charge']);
+    }
+
+    /**
+     * The body of the e-mail, not only its title. The order-placed design puts every amount of the order through webCurrencyConverter and
+     * setCurrencySymbol, and those read the currency settings the bound storefront answers for, so the whole body now reads in the order's
+     * own money. Review B (F2) measured the mechanism and found this stated nowhere; it is a real change and here it is driven end to end.
+     */
+    public function test_the_email_body_of_an_order_of_a_market_with_its_own_currency_shows_the_money_the_order_holds(): void
+    {
+        $this->captureTheEmailsTheMailerRenders();
+        $this->switchStorefrontsOn();
+        $this->seedOrderPlacedEmailTemplate(titleInEnglish: 'Your order is placed', titleInArabic: 'تم إنشاء طلبك', design: 'order-place');
+        $order = $this->sellOrderIn(country: 'KW', orderId: self::KW_ORDER, orderColumns: [
+            'customer_id' => $this->customerWhoReadsArabic()->id,
+        ]);
+
+        $this->placeOrderMailFor($order);
+
+        $body = $this->bodyOfTheEmailTheMailerSent();
+        $this->assertStringContainsString(self::LINE_AS_THE_ORDER_HOLDS_IT, $body, "the order's line in the order's own money, with the dinar's decimals");
+        $this->assertStringNotContainsString(self::LINE_CONVERTED_TO_THE_PLATFORM_CURRENCY, $body, 'and not the platform conversion');
+    }
+
+    /**
+     * The storefront itself, for an order really sold in one, while the request is being served from another. Nothing a sender puts on the
+     * wire reads the bound storefront on this base — the senders read the order's own relations, the notification messages and the e-mail
+     * templates, and none of those is narrowed by country — so this is asserted where the binding is visible: what StorefrontCatalog answers
+     * inside the send, which is what any catalog read added inside a notification would follow. The record is the one the platform's own
+     * snapshot writer wrote when the order was sold.
+     */
+    public function test_a_notification_is_served_in_the_storefront_the_order_records_not_the_one_the_request_serves(): void
+    {
+        $this->switchStorefrontsOn();
+        $this->serveRequestFrom('AE');
+        $order = $this->sellOrderIn(country: 'KW', orderId: self::KW_ORDER, orderColumns: [
+            'customer_id' => $this->customerWhoReadsArabic()->id,
+        ]);
+
+        $served = OrderNotificationContext::within(
+            order: $order,
+            userType: 'customer',
+            callback: static fn (): array => ['bound' => StorefrontContext::current()->country, 'catalog' => StorefrontCatalog::country()],
+        );
+
+        $this->assertSame('KW', DB::table('orders')->where('id', self::KW_ORDER)->value('storefront_country'), 'which is what the sale recorded');
+        $this->assertSame(['bound' => 'KW', 'catalog' => 'KW'], $served);
+        $this->assertSame('AE', StorefrontContext::current()->country, 'and the request keeps its own storefront');
+    }
+
+    /**
+     * What else the order's money in force brings with it, recorded because it surprises: StorefrontCurrency answers ten business settings
+     * for a storefront that trades in its own currency, not three. Inside a notification about a Kuwaiti order the wallet reads closed and
+     * every amount threshold reads the neutral value, because those rows are typed in the platform's money and may not be read as dinars.
+     * Nothing a sender does reads them today — the pushes and the e-mail read the currency settings only — so this is PR 87's contract
+     * reaching into notifications, pinned so that anything added inside a wrapped listener meets it knowingly (review B F11).
+     */
+    public function test_the_orders_money_in_force_also_closes_the_wallet_and_neutralises_the_amount_thresholds(): void
+    {
+        $this->switchStorefrontsOn();
+        DB::table('business_settings')->updateOrInsert(['type' => 'wallet_status'], ['value' => json_encode(1)]);
+        DB::table('business_settings')->updateOrInsert(['type' => 'minimum_order_amount'], ['value' => json_encode(50)]);
+        Cache::flush();
+        $order = $this->sellOrderIn(country: 'KW', orderId: self::KW_ORDER, orderColumns: [
+            'customer_id' => $this->customerWhoReadsArabic()->id,
+        ]);
+
+        $inside = OrderNotificationContext::within(
+            order: $order,
+            userType: 'customer',
+            callback: static fn (): array => ['wallet' => getWebConfig('wallet_status'), 'minimum' => getWebConfig('minimum_order_amount')],
+        );
+
+        $this->assertSame(['wallet' => '0', 'minimum' => '0'], $inside);
+        $this->assertSame(['wallet' => '1', 'minimum' => '50'], [
+            'wallet' => getWebConfig('wallet_status'), 'minimum' => getWebConfig('minimum_order_amount'),
+        ], 'and the platform reads its own again afterwards');
     }
 
     /**

@@ -67,6 +67,22 @@ class OrderNotificationTodayTest extends OrderNotificationTestCase
         $this->assertSame('Your order is placed', $this->titleOfTheEmailSent());
     }
 
+    /** The amounts in the body of the same e-mail today: the platform's conversion of every line, with the platform's symbol. */
+    public function test_with_the_switches_off_the_email_body_of_an_order_of_another_market_is_the_platform_conversion(): void
+    {
+        $this->captureTheEmailsTheMailerRenders();
+        $this->seedOrderPlacedEmailTemplate(titleInEnglish: 'Your order is placed', titleInArabic: 'تم إنشاء طلبك', design: 'order-place');
+        $order = $this->sellOrderIn(country: 'KW', orderId: self::KW_ORDER, orderColumns: [
+            'customer_id' => $this->customerWhoReadsArabic()->id,
+        ]);
+
+        $this->placeOrderMailFor($order);
+
+        $body = $this->bodyOfTheEmailTheMailerSent();
+        $this->assertStringContainsString(self::LINE_CONVERTED_TO_THE_PLATFORM_CURRENCY, $body);
+        $this->assertStringNotContainsString(self::LINE_AS_THE_ORDER_HOLDS_IT, $body);
+    }
+
     public function test_an_order_with_no_storefront_record_is_notified_as_the_default_storefront(): void
     {
         $this->switchStorefrontsOn();

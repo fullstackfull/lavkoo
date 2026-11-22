@@ -12,14 +12,21 @@ use Illuminate\Support\Facades\App;
  * narrow all of them. What was bound before is put back afterwards, even when the notification fails.
  *
  * An order with no record — one sold before the records existed, or while the switches were off — is notified as the default storefront,
- * which reads the platform's own currency and language settings: exactly what every order is notified as today. That is bound rather than
- * left alone so that a legacy order, whose amounts are in the platform's money, is not notified in the money of whichever market the
- * sending request happens to be serving. While storefronts are off the order's record is not even read, and nothing is bound at all.
+ * which reads the platform's own currency and language settings: exactly what every order is notified as today while the switches are off.
+ * That is bound rather than left alone so that a legacy order, whose amounts are in the platform's money, is not notified in the money of
+ * whichever market the sending request happens to be serving. While storefronts are off the order's record is not even read, and nothing is
+ * bound at all.
  */
 final class OrderNotificationContext
 {
     /**
-     * Runs the callback in the storefront the order was sold in, and in the language the recipient of this notification reads.
+     * Runs the callback in the storefront the order was sold in, in that order's money, and in the language the recipient of this
+     * notification reads.
+     *
+     * The money is put in force by name as well as by context, because StorefrontCurrency reads its own market first and only falls back to
+     * the storefront a context binds: a sender called from inside anything that has set a market — the money.market middleware, a panel
+     * screen scoped to one country — would otherwise price an order of one market in another's. The country is the one storefrontOf has
+     * already resolved, not a second reading of the record (StorefrontCurrency::withinOrder re-reads it), so one place decides it.
      *
      * @param string $userType the recipient, as the senders name it: customer, seller, vendor, delivery_man, promoter or admin
      */
@@ -31,9 +38,12 @@ final class OrderNotificationContext
             return $callback();
         }
 
-        return $context->serve(callback: fn () => self::inLanguage(
-            language: self::languageOf(order: $order, userType: $userType),
-            callback: $callback,
+        return $context->serve(callback: fn () => app(StorefrontCurrency::class)->within(
+            country: $context->country,
+            callback: fn () => self::inLanguage(
+                language: self::languageOf(order: $order, userType: $userType),
+                callback: $callback,
+            ),
         ));
     }
 
@@ -47,7 +57,7 @@ final class OrderNotificationContext
         $country = data_get($order, 'storefront_country');
         $resolver = StorefrontResolver::fromConfig();
 
-        return $resolver->contextOfRecordedCountry(is_string($country) ? $country : null) ?? $resolver->context();
+        return $resolver->contextOfRecordedCountry(countryCode: is_string($country) ? $country : null) ?? $resolver->context();
     }
 
     /**
@@ -56,8 +66,9 @@ final class OrderNotificationContext
      * requirement I1-03, and the body of a push is already written in the recipient's language, so its title and the e-mail about the same
      * order now agree with it instead of answering in whatever language the sending process settled on.
      *
-     * A promoter is not listed: the sender finds the promoter behind the customer itself, through the referral record, and the customer's
-     * language is not the promoter's.
+     * Two recipients are deliberately not listed, and both answer the platform's own language, as they always have. A promoter is reached
+     * behind the customer, through the referral record, and the customer's language is not the promoter's. An admin is platform staff, who
+     * reads the platform's panel, not a market's.
      */
     private static function languageOf(object|array $order, string $userType): ?string
     {
@@ -75,18 +86,21 @@ final class OrderNotificationContext
      * Binds both languages a sender may ask the request for — the application locale an API request answers with, and the session language a
      * web request answers with — and puts both back. getDefaultLanguage() reads the session, and a queue worker's session outlives the job
      * that filled it, so without this a queued notification is written in whatever language the worker last settled on.
+     *
+     * Both are put back even for a recipient who has chosen no language and so has nothing bound for them, because the senders themselves
+     * move the language: getDefaultLanguage() writes the session language when it is empty, and translate() rewrites the locale on every
+     * call (on an /api request it reads the locale back, so the locale walks sa -> ar -> es over successive sends). A notification about one
+     * order may not decide the language of the next one, whoever it was addressed to.
      */
     private static function inLanguage(?string $language, Closure $callback): mixed
     {
-        if ($language === null) {
-            return $callback();
-        }
-
         $previousLocale = App::getLocale();
         $previousRequestLanguage = session('local');
 
-        App::setLocale($language);
-        session()->put('local', $language);
+        if ($language !== null) {
+            App::setLocale($language);
+            session()->put('local', $language);
+        }
 
         try {
             return $callback();
