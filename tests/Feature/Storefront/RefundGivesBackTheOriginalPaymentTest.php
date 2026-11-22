@@ -114,6 +114,100 @@ class RefundGivesBackTheOriginalPaymentTest extends ApiAddressTestCase
         $this->assertSame([null, null], [$transaction->original_payment_amount, $transaction->original_payment_currency], 'while the switch is off nothing of the original payment is recorded');
     }
 
+    /**
+     * What the whole money path did on the base of this branch (014db1a8), measured through exactly these routes in a SEPARATE CHECKOUT of that
+     * commit, with its own composer autoloader, on a frozen clock, before a line of this change ran in it. The two captures were byte for byte the
+     * same once the clock and the one identifier the application generates at random (a wallet row's uuid) were masked:
+     *
+     *   SQLite   base 92f74753ac1ef401d553aa2ce806c4de7c21984ebbd60ef655f8f8089000c702 == head 92f74753...
+     *   MariaDB  base 35ce420d67db40194d006015de368485f33bb94a40d947a5d491a92382e009b9 == head 35ce420d...
+     *
+     * Those captures cover the statements of both routes with their values, the wallet rows and the refund transaction row. What is kept here, so
+     * that the proof survives as a test rather than as a measurement, is the shape of them: how many statements each route issues that touch the data,
+     * and the digest of those statements in order. Read-only questions about the schema are left out of the digest and counted separately, because
+     * those are the only statements this change may add while it is off -- and while it is off it adds none.
+     *
+     * Per engine, because MariaDB qualifies the column of an update with its table where SQLite does not; both were measured on the base.
+     *
+     * @var array<string, array{ask: int, ask_digest: string, pay: int, pay_digest: string}>
+     */
+    private const BASE = [
+        'sqlite' => [
+            'ask' => 21,
+            'ask_digest' => '7952ca17c1dc0de60c41b75a4239c982efdada3e444e5d23b1c3fc1242146f26',
+            'pay' => 30,
+            'pay_digest' => '896195f05bc4233749f1b01739a419b5e6e506d8b8c7aeed51ffa45abc896afe',
+        ],
+        'mysql' => [
+            'ask' => 21,
+            'ask_digest' => '23e0b0857cb449e6df10e8fd572137d147b18002675b73f94cfc4b0dff61f09b',
+            'pay' => 30,
+            'pay_digest' => '35633164c8dee1d90a6c34b629e200b033204d2a636b5a5f245f0bc334e3d9ff',
+        ],
+    ];
+
+    /** The statement with the quoting of its identifiers taken off, so the same statement reads the same on SQLite and on MySQL. */
+    private static function plain(string $sql): string
+    {
+        return str_replace(['"', '`'], '', $sql);
+    }
+
+    /** A read-only question to the database about its own schema, which is the only kind of statement this change could add while it is off. */
+    private static function isASchemaQuestion(string $sql): bool
+    {
+        return preg_match('/sqlite_master|pragma_|information_schema|^\s*show (columns|tables|full columns)/i', $sql) === 1;
+    }
+
+    /** @param list<string> $statements @return list<string> what a route does to the data, with the schema questions left out */
+    private function workAmong(array $statements): array
+    {
+        return array_values(array_map(self::plain(...), array_filter($statements, static fn (string $sql): bool => !self::isASchemaQuestion($sql))));
+    }
+
+    /** @return array{work: list<string>, digest: string} */
+    private function whatTheRouteDid(callable $route): array
+    {
+        $statements = [];
+        DB::listen(static function ($query) use (&$statements): void {
+            $statements[] = $query->sql;
+        });
+
+        $route();
+        $work = $this->workAmong($statements);
+
+        return ['work' => $work, 'digest' => hash('sha256', implode("\n", $work))];
+    }
+
+    /** @return array{ask: int, ask_digest: string, pay: int, pay_digest: string} what the base did on the engine this run is against */
+    private function whatTheBaseDid(): array
+    {
+        return self::BASE[DB::connection()->getDriverName() === 'sqlite' ? 'sqlite' : 'mysql'];
+    }
+
+    /**
+     * The dormant path, statement by statement: with the switch off, both routes of the money path do exactly the work the base did, in the same
+     * order, and nothing else.
+     */
+    public function test_with_the_switch_off_both_routes_do_exactly_the_work_the_base_did(): void
+    {
+        $this->theShopConvertsAtTheRateOfTheDay('SAR');
+        $this->theRateOfBecomes('SAR', self::RATE_AT_THE_SALE);
+        $this->anAccountFor('SA', $this->aCompanyIn('SA')->id);
+
+        [$customer, , $lines] = $this->payFrom('SA', [1], 'TXN-OFF-3');
+        $asked = $this->whatTheRouteDid(fn () => $this->askForRefund($customer, 'SA', $lines[0]));
+
+        $this->theRateOfBecomes('SAR', self::RATE_AT_THE_REFUND);
+        $refund = (int) DB::table('refund_requests')->value('id');
+        $paid = $this->whatTheRouteDid(fn () => $this->refundItThroughTheAdminScreen($refund)->assertOk());
+
+        $base = $this->whatTheBaseDid();
+        $this->assertSame($base['ask'], count($asked['work']), 'asking for a refund does the work the base did, and no more');
+        $this->assertSame($base['ask_digest'], $asked['digest'], 'every statement of the refund request that touches the data, in order, is the one the base issued');
+        $this->assertSame($base['pay'], count($paid['work']), 'paying the refund out does the work the base did, and no more');
+        $this->assertSame($base['pay_digest'], $paid['digest'], 'every statement of the payout that touches the data, in order, is the one the base issued');
+    }
+
     /** While the switch is off the refund flow never asks the payments table what was paid. */
     public function test_with_the_switch_off_the_refund_flow_never_asks_what_was_paid(): void
     {
