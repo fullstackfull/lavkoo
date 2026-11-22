@@ -85,6 +85,11 @@ class GatewayRefusesACurrencyItCannotTakeTest extends PaymentCurrencyTestCase
             ->assertJsonPath('message', translate('this_payment_method_cannot_take_payments_in_your_currency') . ' (SAR)');
 
         $this->assertNothingWasWritten();
+        $this->assertSame(
+            GatewayCurrencyDecision::NOT_DECLARED,
+            app(GatewayCurrencySupport::class)->decide(gateway: self::ONE_CURRENCY_GATEWAY, currencyCode: 'SAR')->reason,
+            'the refusal is recorded under the wrong reason'
+        );
     }
 
     public function test_the_payment_start_refuses_the_website_with_a_message_and_the_payment_page(): void
@@ -218,6 +223,10 @@ class GatewayRefusesACurrencyItCannotTakeTest extends PaymentCurrencyTestCase
             ->assertJsonPath('message', translate('this_payment_method_cannot_take_payments_in_your_currency') . ' (SAR)');
 
         $this->assertNothingWasWritten(ordersTheTestMade: 1);
+        $this->assertNull(
+            DB::table('order_edit_histories')->value('order_due_payment_method'),
+            'the refused due payment was written onto the edit history anyway'
+        );
     }
 
     public function test_an_order_edits_due_payment_still_goes_through_for_a_gateway_that_can(): void

@@ -111,7 +111,10 @@ abstract class PaymentCurrencyTestCase extends TestCase
     /** @return array{currency: string, amount: float} what the gateway was asked to take. */
     protected function theCharge(): array
     {
-        $row = DB::table('payment_requests')->first();
+        // Exactly one, so a figure is never read off whichever of several rows came back first.
+        $rows = DB::table('payment_requests')->get();
+        $this->assertCount(1, $rows, 'the charge was read with ' . $rows->count() . ' payment rows in the table');
+        $row = $rows->first();
 
         return ['currency' => (string) $row->currency_code, 'amount' => (float) $row->payment_amount];
     }
