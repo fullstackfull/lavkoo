@@ -2,7 +2,6 @@
 
 namespace Tests\Feature\MyFatoorah;
 
-use App\Models\LegalEntity;
 use App\Models\MyFatoorahPaymentAttempt;
 use App\Models\MyFatoorahWebhookEvent;
 use App\Models\PaymentGatewayAccount;
@@ -11,13 +10,10 @@ use App\Services\MyFatoorah\GatewayConfigRepository;
 use App\Services\MyFatoorah\PaymentInitiationService;
 use App\Services\Payments\GatewayAccountDirectory;
 use App\Services\Payments\GatewayAccountRegistry;
-use App\Services\Payments\GatewayAccountSecrets;
 use App\Services\Payments\PaymentAccountBinding;
-use App\Services\Storefront\LegalEntityRegistry;
 use App\Services\Storefront\StorefrontResolver;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use Tests\Support\RestoresLanguageFiles;
 
@@ -40,7 +36,7 @@ use Tests\Support\RestoresLanguageFiles;
  * The payment under test is taken through the Kuwait account, stamped by the production writer, so "another company's payment" is a fact of the
  * fixture and not an assumption. Every delivery here is a real POST to the real route; the signatures are computed by the production verifier.
  */
-class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends MyFatoorahTestCase
+class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends CompanyAccountsTestCase
 {
     use RestoresLanguageFiles;
 
@@ -87,10 +83,7 @@ class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends MyFatoorahTestCase
 
     protected function tearDown(): void
     {
-        Schema::dropIfExists('payment_gateway_accounts');
-        Schema::dropIfExists('legal_entities');
-        app(LegalEntityRegistry::class)->flush();
-        app(GatewayAccountRegistry::class)->flush();
+        $this->dropTheCompanyAndAccountTables();
         $this->restoreLanguageFiles();
 
         parent::tearDown();
@@ -192,6 +185,92 @@ class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends MyFatoorahTestCase
         $this->assertSame([], $this->paidPayments());
         $this->assertSame(0, $this->successHookCalls());
         $this->assertSame(0, MyFatoorahWebhookEvent::count());
+    }
+
+    /**
+     * THE SHIPPED CONFIGURATION: a gateway the owner has not listed per company has no notification address at all.
+     *
+     * `gcc.storefronts.payment_accounts.gateways` is a hardcoded list with no environment override, and this gateway is NOT on it as the branch ships —
+     * only Paymob is, because Paymob is the one gateway wired end to end. A server on the day the master flag is turned on is therefore in exactly this
+     * configuration, and in it this address must answer nothing: the owner's list is the switch, and a gateway off the list is read from the one
+     * platform row everywhere, notification address included.
+     *
+     * This test sets the list back to the SHIPPED value rather than to a list of its own, and every other thing about the delivery is right: the account's
+     * own secret, its own address, its own stamped payment, an event its scope takes. The owner's list is the only objection left, so it has to carry the
+     * refusal on its own. (The stamp was written while the gateway was listed, which is the state a server reaches by narrowing the list after payments
+     * have been taken — an account and its list are both edited in place.)
+     */
+    public function test_a_company_address_answers_nothing_while_its_gateway_is_not_one_the_owner_lists(): void
+    {
+        $this->assertNotContains(
+            GatewayConfigRepository::KEY,
+            $this->shippedGatewayList,
+            'this test measures the shipped list, and the shipped list has grown to include this gateway: the premise is gone, and whoever added it owes'
+            . ' this file a test of the state that replaces it',
+        );
+
+        config(['gcc.storefronts.payment_accounts.gateways' => $this->shippedGatewayList]);
+        app(GatewayAccountRegistry::class)->flush();
+
+        $this->fakePaid();
+        $payload = $this->webhookPayload($this->attempt->external_identifier);
+        $before = $this->attemptRow();
+
+        $this->deliverTo($this->kuwait, $payload, $this->signatureFor($payload, self::KUWAIT_WEBHOOK_SECRET))
+            ->assertStatus(401)
+            ->assertJsonPath('message', 'Unauthorized request');
+
+        $this->assertSame([], $this->paidPayments(), 'a gateway the owner has not listed settles nothing at a company address');
+        $this->assertSame(0, $this->successHookCalls());
+        $this->assertSame(0, MyFatoorahWebhookEvent::count(), 'and records nothing');
+        $this->assertEquals($before, $this->attemptRow(), 'and writes no column of the attempt');
+    }
+
+    /**
+     * A payment that carries NO stamp belongs to no company account, and a company's address refuses it rather than treating it as its own.
+     *
+     * This is every payment placed before the switch was thrown: the stamp is written when a payment starts, so a payment that started earlier has none
+     * and belongs to the platform-wide address. The delivery here is otherwise perfect — this account's own secret, its own address — and an unstamped
+     * payment is the one thing wrong with it, so the question has to fail CLOSED on a missing stamp and not open.
+     */
+    public function test_a_delivery_naming_a_payment_that_carries_no_stamp_is_refused(): void
+    {
+        $unstamped = $this->anAttemptOfAPaymentWithNoStamp();
+        $this->fakePaid(attempt: $unstamped);
+        $payload = $this->webhookPayload($unstamped->external_identifier);
+        $before = $this->attemptRowOf($unstamped);
+
+        $this->deliverTo($this->kuwait, $payload, $this->signatureFor($payload, self::KUWAIT_WEBHOOK_SECRET))
+            ->assertStatus(401)
+            ->assertJsonPath('message', 'Unauthorized request');
+
+        $this->assertSame([], $this->paidPayments(), 'an unstamped payment is not this account\'s to settle');
+        $this->assertSame(0, $this->successHookCalls());
+        $this->assertSame(0, MyFatoorahWebhookEvent::count());
+        $this->assertEquals($before, $this->attemptRowOf($unstamped), 'and not one column of it was written');
+    }
+
+    /**
+     * The other shape of a missing stamp: the attempt is there and the payment row it names is not.
+     *
+     * There is then nothing to read a stamp from, so the account the payment was taken through is unknowable rather than this one, and the answer is the
+     * same refusal. Reached by a payment row deleted or pruned after its attempt was created, and it has to fail closed for the same reason: an unknown
+     * owner is not this account.
+     */
+    public function test_a_delivery_naming_an_attempt_whose_payment_row_is_gone_is_refused(): void
+    {
+        $this->fakePaid();
+        DB::table('payment_requests')->where('id', $this->attempt->payment_request_id)->delete();
+        $payload = $this->webhookPayload($this->attempt->external_identifier);
+        $before = $this->attemptRow();
+
+        $this->deliverTo($this->kuwait, $payload, $this->signatureFor($payload, self::KUWAIT_WEBHOOK_SECRET))
+            ->assertStatus(401)
+            ->assertJsonPath('message', 'Unauthorized request');
+
+        $this->assertSame(0, $this->successHookCalls());
+        $this->assertSame(0, MyFatoorahWebhookEvent::count(), 'nothing of an attempt whose owner cannot be read was recorded');
+        $this->assertEquals($before, $this->attemptRow(), 'and not one column of it was written');
     }
 
     /** The platform-wide secret is not a company's secret, and a company's address does not fall back to it. */
@@ -453,59 +532,6 @@ class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends MyFatoorahTestCase
         return MyFatoorahPaymentAttempt::query()->where('payment_request_id', $payment)->firstOrFail();
     }
 
-    private function installTheCompanyAndAccountTables(): void
-    {
-        Schema::dropIfExists('payment_gateway_accounts');
-        Schema::dropIfExists('legal_entities');
-
-        foreach (['2026_11_27_100000_create_legal_entities_table.php', '2026_11_28_100000_create_payment_gateway_accounts_table.php'] as $migration) {
-            (require database_path('migrations/' . $migration))->up();
-        }
-    }
-
-    private function turnCompanyAccountsOn(): void
-    {
-        config([
-            'gcc.storefronts.enabled' => true,
-            'gcc.storefronts.legal_entities.enabled' => true,
-            'gcc.storefronts.payment_accounts.enabled' => true,
-            'gcc.storefronts.payment_accounts.gateways' => [GatewayConfigRepository::KEY, 'paymob_accept'],
-            'gcc.storefronts.countries.AE.active' => true,
-            'gcc.storefronts.countries.KW.active' => true,
-            'gcc.storefronts.countries.QA.active' => true,
-        ]);
-        app(LegalEntityRegistry::class)->flush();
-        app(GatewayAccountRegistry::class)->flush();
-    }
-
-    private function anAccountFor(string $country, ?string $webhookSecret, string $token, string $gateway = GatewayConfigRepository::KEY): PaymentGatewayAccount
-    {
-        $company = LegalEntity::create([
-            'country' => $country,
-            'legal_name' => "Lavkoo {$country} Trading Co.",
-            'invoice_series_key' => "INV-{$country}",
-            'status' => true,
-        ]);
-
-        $account = PaymentGatewayAccount::create([
-            'storefront_country' => $country,
-            'gateway' => $gateway,
-            'environment' => 'test',
-            'legal_entity_id' => (int) $company->id,
-            'webhook_path_token' => $token,
-            'status' => true,
-        ]);
-
-        if ($webhookSecret !== null) {
-            app(GatewayAccountSecrets::class)->put(account: $account, secrets: [GatewayAccountSecrets::WEBHOOK_SECRET => $webhookSecret]);
-        }
-
-        app(LegalEntityRegistry::class)->flush();
-        app(GatewayAccountRegistry::class)->flush();
-
-        return $account->refresh();
-    }
-
     /**
      * The additional data a payment of this account's market carries, written by the production writer inside that market's storefront.
      *
@@ -551,9 +577,34 @@ class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends MyFatoorahTestCase
         return $contents;
     }
 
+    /**
+     * An attempt of a payment that carries no stamp at all, created by the real initiation service.
+     *
+     * `makePaymentRequest()` writes the additional data a payment of this installation carried before per-company accounts existed, so the absence of the
+     * stamp is the default state of the table and not something switched off here.
+     */
+    private function anAttemptOfAPaymentWithNoStamp(): MyFatoorahPaymentAttempt
+    {
+        $payment = $this->makePaymentRequest();
+        app(PaymentInitiationService::class)->start(PaymentRequest::find($payment));
+
+        $this->assertNull(
+            app(PaymentAccountBinding::class)->of(payment: (array) DB::table('payment_requests')->where('id', $payment)->first()),
+            'the payment under test has to carry no stamp at all',
+        );
+
+        return MyFatoorahPaymentAttempt::query()->where('payment_request_id', $payment)->firstOrFail();
+    }
+
     /** Every column of the attempt under test, so "not one column was written" is a single comparison. */
     private function attemptRow(): object
     {
         return DB::table('myfatoorah_payment_attempts')->where('id', $this->attempt->id)->firstOrFail();
+    }
+
+    /** Every column of any attempt, for the tests that work on a second one. */
+    private function attemptRowOf(MyFatoorahPaymentAttempt $attempt): object
+    {
+        return DB::table('myfatoorah_payment_attempts')->where('id', $attempt->id)->firstOrFail();
     }
 }
