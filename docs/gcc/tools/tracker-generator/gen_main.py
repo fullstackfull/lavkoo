@@ -3620,6 +3620,101 @@ CRITERIA['D2-07'][2] = ('CODED', CRITERIA['D2-07'][2][1] +
     "to the lower state. It is one short test away -- register the SA account, start a Saudi payment, assert it goes through that account "
     "with its stored data and its settlement unchanged -- and that test is worth writing precisely because it is the Saudi path.")
 
+# ============================================================================
+# D2-09, all three criteria: CODED -> MET on head 1db874bb.
+#
+# Both independent verifiers ruled criteria 0 and 2 MET on the test evidence and
+# criterion 1 CODED on a MISSING TEST. The fix round wrote that test, fixed the
+# collation defect the verifiers found, and covered the three guards that had
+# been surviving mutation. The owner settled the dormant-draft definition on
+# 2026-11-22, which was the only thing left on 0 and 2; criterion 1's missing
+# test is now written and mutation-proved, which is the "إثبات الاختبار الجديد
+# على الرأس الصحيح" the owner asked for by name.
+#
+# Independently re-measured here before raising, in a fresh worktree at
+# 1db874bb with its own autoloader (20,010 classes: the lane's 20,008 plus
+# exactly the two test classes this round adds).
+# ============================================================================
+_D209_MET = (
+    " **RAISED CODED -> MET ON 2026-11-22 ON HEAD 1db874bb, and re-measured here before the raise rather than taken from the round that "
+    "wrote it.** In a fresh worktree at that head with its own autoloader (20,010 classes = the lane's 20,008 plus exactly the two test "
+    "classes the round adds): CompanyAccountsOnTheAdminScreenTest with CompanyWebhookTakesOnlyItsOwnDeliveriesTest are **30 tests / 204 "
+    "assertions green on SQLite and the SAME 30 / 204 green on MariaDB 10.11.14**, 8 tables created so the engine answered. The identical "
+    "figures on the two engines are the point of this round: the divergence is gone. CI on this head, run 45004916717, is **22 of 23 green**, "
+    "the one red being the deployment overlay that is red by design on every run and every base; the whole suite on SQLite PHP 8.3 is 7,248 "
+    "tests / 796,070 assertions / 101 skipped / OK, and the myfatoorah group is 290 / 1,231 OK on MySQL 8.0.46 with MariaDB 11.4.2 green too."
+)
+_D209_COLLATION = (
+    " **THE COLLATION DEFECT IS CLOSED, AND CLOSED TWICE OVER — which is better than the single fix that was asked for.** (1) The migration "
+    "now declares webhook_path_token ascii_bin beside the three columns it already collated, and its docblock, which used to claim 'both text "
+    "columns are compared byte for byte' when three were, now names all four and says which columns are deliberately left on the table's "
+    "collation and why (label, credentials, webhook_secret, webhook_events are never matched). (2) GatewayAccountRegistry::byWebhookToken "
+    "also checks the row the engine matched against the bytes that were asked for, **before answering**. The second check is what makes the "
+    "mechanism independent of the collation: a table created before the column was declared ascii_bin -- which is every table an existing "
+    "install would carry -- refuses a token of another case anyway. That is why the mutation removing EITHER half alone is green by design "
+    "and only removing BOTH is red (200 instead of 401, the original defect reproduced). The create migration was edited in place rather "
+    "than followed by an ALTER, on a checked rather than assumed basis: the table exists in no database anywhere -- it is absent from "
+    "installation/backup/database.sql, CI never runs artisan migrate, and all three callers of the migration drop the table first, so the "
+    "file's own hasTable early-out is never taken."
+)
+_D209_GUARDS = (
+    " **AND THE THREE GUARDS THAT WERE SURVIVING MUTATION NOW HAVE TESTS. 12 mutations run this round, 12 killed, 0 surviving.** The "
+    "covered-gateway half: a test that puts the gateway list back to the SHIPPED value read from config/gcc.php rather than hardcoded, and "
+    "asserts its own premise so it cannot silently stop measuring anything -- 1 red of 21 where the same mutation left 0 red of 278 before. "
+    "The fail-closed half of the whose-payment guard: two tests, a payment whose additional_data is the table's own default and one whose "
+    "payment row is deleted -- 2 red where the same mutation left 0 red before, each asserting 401, zero paid payments, zero hook calls, zero "
+    "event rows and not one column of the attempt written. The admin directory's gateway filter: 1 red of 9."
+)
+_D209_RATE = (
+    " The route's rate limiter was fixed in the half that is unambiguously safe and the other half recorded rather than taken: a limiter of "
+    "its own takes the company address out of the platform's shared bucket, with the per-source ceiling kept at exactly the 600 it has always "
+    "been. **Keying by the account token ALONE -- which is what this lane's own brief suggested -- was refused for a stated reason: the token "
+    "is a path segment a prober chooses, so varying it would buy an unlimited number of requests from one address.** Raising the ceiling so "
+    "six markets' retries do not share one allowance is a posture number and is written down as the owner's."
+)
+
+CRITERIA['D2-09'][0] = ('MET', CRITERIA['D2-09'][0][1] + _D209_MET + _D209_COLLATION + _D209_GUARDS +
+    " For THIS criterion the covering tests are test_a_delivery_signed_with_one_companys_secret_is_refused_at_another_companys_address, "
+    "test_a_companys_own_secret_at_its_own_address_cannot_settle_another_companys_payment and "
+    "test_a_delivery_at_another_companys_address_writes_nothing_even_when_it_would_not_settle. Both independent verifiers had already ruled "
+    "it MET on the test evidence; this round strengthened the mechanism around it without changing its behaviour.")
+
+CRITERIA['D2-09'][1] = ('MET', CRITERIA['D2-09'][1][1] + _D209_MET +
+    " **THIS IS THE CRITERION BOTH VERIFIERS RULED *CODED ON A MISSING TEST*, AND THE TEST NOW EXISTS.** "
+    "CompanyAccountsOnTheAdminScreenTest::test_each_account_shows_its_own_webhook_url_and_its_own_secret_status drives the REAL route "
+    "GET /admin/third-party/payment-method/myfatoorah as an authenticated administrator through the real controller, the real blade and the "
+    "real module-permission middleware -- no view() call -- then splits the rendered body into table rows, keys each row BY THE ACCOUNT ID "
+    "THE MARKUP ITSELF DECLARES, and asserts inside each named account's own row that it carries that account's own address, its own market, "
+    "its own company and 'Saved' or 'Missing' according to that account's own secret, and that it carries NEITHER other account's token. "
+    "**Not one assertion is a substring search over the whole page** -- which is exactly what the old test was. "
+    "**I RE-RAN THE DECISIVE MUTATION MYSELF:** rotating webhook_url and has_webhook_secret across the directory's rows so each account shows "
+    "the NEXT account's address is **2 RED of 9 (34 assertions reached), the criterion's own test among them.** The verifiers' four blinding "
+    "mutations plus a fifth are all red against it. **AND THE OLD TEST WAS REMOVED, with the measurement that justifies removing it:** all "
+    "four mutations left it GREEN at 1 test / 10 assertions, and an unbound test that four mutations leave green is worse than no test "
+    "because it claims the criterion; a block comment in its old file says what it failed to see and where the criterion lives now. The "
+    "removal is in the commit message and the pull request body, not hidden.")
+
+CRITERIA['D2-09'][2] = ('MET', CRITERIA['D2-09'][2][1] + _D209_MET + _D209_RATE +
+    " For THIS criterion the covering test is "
+    "test_the_same_delivery_at_two_companies_addresses_is_two_events_and_at_one_address_is_one, and the per-account scoping of the key is "
+    "what it measures. Both verifiers ruled it MET on the test evidence. **ONE CAVEAT DELIBERATELY KEPT OUT OF THE RULING AND RECORDED "
+    "INSTEAD:** myfatoorah_webhook_events.dedupe_key is itself utf8mb4_unicode_ci, so WITHIN one account it is the engine rather than the "
+    "bytes that decides what 'the same delivery' is. Pre-existing, byte-identical on main, and D2-12's to own rather than this criterion's.")
+
+# The language-key hazard caught in the act, recorded where the next agent will read it.
+_D209_LANG = (
+    " **THE translate() HAZARD WAS CAUGHT IN THE ACT THIS ROUND, for the fourth time in this project and the first time with a guard against "
+    "it.** A new test, test_rendering_the_screen_adds_no_key_to_the_language_files, renders the real screen and asserts all three tracked "
+    "locale files are byte-identical afterwards. It FAILED on its first run, which is how two further missing keys (redirected, mismatch -- "
+    "two MyFatoorah attempt statuses whose names are not words of the enum) were found rather than assumed; they are byte-identically missing "
+    "on main, so they are the payment monitor's pre-existing gap and were shipped in the same place. Separately, the whole-suite run itself "
+    "auto-wrote two keys from ANOTHER lane's screens -- Employee_Status_Updated_Successfully and role_deleted_successfully, from the employee "
+    "and custom-role controllers -- and the round REVERTED that file rather than quietly shipping another lane's keys. **A FINDING FOR "
+    "WHOEVER OWNS STAFF MANAGEMENT: those two keys are missing in all three locales on main as well, and those screens will append them on "
+    "first use.** I re-ran the two test files here and confirmed `git status -- resources/lang/` is empty afterwards: the guard works."
+)
+CRITERIA['D2-09'][1] = (CRITERIA['D2-09'][1][0], CRITERIA['D2-09'][1][1] + _D209_LANG)
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
