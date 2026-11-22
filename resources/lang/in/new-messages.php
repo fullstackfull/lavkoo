@@ -369,4 +369,5 @@ return [
 	"cdn" => "CDN",
 	"shoppers" => "Shoppers",
 	"unavailable" => "Unavailable",
+	'this_payment_method_cannot_take_payments_in_your_currency' => 'This payment method cannot take payments in your currency',
 ];

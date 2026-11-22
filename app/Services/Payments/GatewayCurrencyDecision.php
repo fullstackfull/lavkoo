@@ -9,7 +9,7 @@ namespace App\Services\Payments;
  * is switched off, or this installation prices in one currency and converts nothing -- answers false, so
  * no caller needs a condition of its own and the switch lives in one place.
  */
-final class GatewayCurrencyDecision
+final readonly class GatewayCurrencyDecision
 {
     /** The gateway's declared currency list does not contain the one the customer is being charged in. */
     public const NOT_DECLARED = 'not_declared';
@@ -18,10 +18,10 @@ final class GatewayCurrencyDecision
     public const CURRENCY_INACTIVE = 'currency_inactive';
 
     private function __construct(
-        private readonly bool $isRefused,
-        public readonly string $gateway,
-        public readonly ?string $currencyCode,
-        public readonly ?string $reason,
+        private bool $isRefused,
+        public string $gateway,
+        public ?string $currencyCode,
+        public ?string $reason,
     ) {
     }
 
@@ -48,6 +48,6 @@ final class GatewayCurrencyDecision
     {
         $message = translate('this_payment_method_cannot_take_payments_in_your_currency');
 
-        return $this->currencyCode === null || $this->currencyCode === '' ? $message : $message . ' (' . $this->currencyCode . ')';
+        return $this->currencyCode === null ? $message : $message . ' (' . $this->currencyCode . ')';
     }
 }

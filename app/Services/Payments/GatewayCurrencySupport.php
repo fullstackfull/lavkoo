@@ -25,6 +25,19 @@ use App\Models\Currency;
  * currency as it stands. There is no silent substitution there to refuse, and refusing would turn a
  * working payment into a dead one, so this answers "allowed" for that money model whatever the switch
  * says.
+ *
+ * ONE CODE, JUDGED AND CHARGED. chargedCurrencyCode() is the only place the currency is read off the
+ * request, and the three callers hand its answer BOTH to the question here and to the conversion. The
+ * first round asked the question about an upper-cased code while the conversion was still given the raw
+ * one, and the legacy resolver's own lookup is case-sensitive: `sar` was judged takeable as SAR and then
+ * charged as KWD 31 on a cart worth SAR 375 (measured; found by Reviewer A). One code, read once, ends
+ * that.
+ *
+ * A GATEWAY THAT DECLARES NOTHING IS NOT JUDGED. `mercadopago_pix` has a start route and no entry in
+ * the declared-currency map at all, so a question asked of it refuses every currency there is and a
+ * gateway an operator configured stops taking money (measured; found by both reviewers). The platform
+ * has no claim about what such a gateway takes, exactly as it has none about a request that names no
+ * currency, so the answer is the same: allowed, and the catalogue hole is recorded instead.
  */
 final class GatewayCurrencySupport
 {
@@ -45,16 +58,42 @@ final class GatewayCurrencySupport
     }
 
     /**
+     * The currency this payment is being charged in: the one the question below is asked about AND the
+     * one the three callers hand to the conversion, so the code judged and the code charged are one
+     * string and cannot drift apart.
+     *
+     * SWITCHED OFF, THIS IS THE EXPRESSION THE CALLERS ALREADY HAD -- the posted field or the session,
+     * untouched -- so a shipped installation reads exactly what it read before. Switched on it is
+     * normalised, and a request that names no currency at all falls back to the currency the store
+     * prices in by default: the shipped customer app's own checkout sends no `current_currency_code`
+     * (measured against the Flutter payload; found by Reviewer A), and leaving that unjudged let the
+     * resolver pick the gateway's first active declared currency and charge BDT 11,000 for a cart worth
+     * SAR 375 with the refusal switched ON.
+     */
+    public function chargedCurrencyCode(\ArrayAccess|array $request): mixed
+    {
+        $named = $request['current_currency_code'] ?? session('currency_code');
+
+        if (!$this->answersFor($request)) {
+            return $named;
+        }
+
+        $code = is_scalar($named) ? strtoupper(trim((string) $named)) : '';
+
+        return $code === '' ? $this->storeDefaultCurrencyCode() : $code;
+    }
+
+    /**
      * The answer for a payment the customer is starting, read off the request the middleware left.
      *
      * The gateway and the currency are taken from the request HERE and nowhere else, so the question is
-     * asked about exactly the currency the conversion further down would have used. Reading them at each
-     * call site instead would let one of the three drift and judge a currency that was never charged.
+     * asked about exactly the currency the conversion further down is given. Reading them at each call
+     * site instead would let one of the three drift and judge a currency that was never charged.
      */
-    public function decideForRequest(object|array $request): GatewayCurrencyDecision
+    public function decideForRequest(\ArrayAccess|array $request): GatewayCurrencyDecision
     {
         $gateway = $request['payment_method'] ?? null;
-        $currency = $request['current_currency_code'] ?? session('currency_code');
+        $currency = $this->chargedCurrencyCode($request);
 
         // A posted field can be an array, and this must never be the thing that turns that into a 500:
         // anything that is not a plain value is "no answer", which leaves the payment exactly where it
@@ -63,6 +102,20 @@ final class GatewayCurrencySupport
             gateway: is_scalar($gateway) ? (string) $gateway : null,
             currencyCode: is_scalar($currency) ? (string) $currency : null,
         );
+    }
+
+    /** Is there a question to answer at all -- the switch on, and a money model that converts? */
+    private function answersFor(\ArrayAccess|array $request): bool
+    {
+        return $this->enabled() && getWebConfig(name: 'currency_model') === 'multi_currency';
+    }
+
+    /** The code of the currency the store prices in by default, or null if it has none to read. */
+    private function storeDefaultCurrencyCode(): ?string
+    {
+        $code = Currency::where('id', getWebConfig(name: 'system_default_currency'))->value('code');
+
+        return is_scalar($code) ? strtoupper(trim((string) $code)) : null;
     }
 
     /**
@@ -83,6 +136,12 @@ final class GatewayCurrencySupport
 
         if (!$this->enabled() || $code === '' || $gateway === '' || getWebConfig(name: 'currency_model') !== 'multi_currency') {
             return GatewayCurrencyDecision::allow(gateway: $gateway, currencyCode: $code === '' ? null : $code);
+        }
+
+        // A gateway with no entry in the declared-currency map makes no claim this can test, so there is
+        // no claim to contradict. Judging it anyway refuses every currency there is.
+        if ($this->catalog->declaresNoCurrency(gateway: $gateway)) {
+            return GatewayCurrencyDecision::allow(gateway: $gateway, currencyCode: $code);
         }
 
         if (!$this->catalog->declaresCurrency(gateway: $gateway, currencyCode: $code)) {

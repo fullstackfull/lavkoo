@@ -144,4 +144,17 @@ class PaymentGatewayCatalog
 
         return array_key_exists(strtoupper(trim($currencyCode)), $declared);
     }
+
+    /**
+     * Is this gateway absent from the declared-currency map, or present with an empty list?
+     *
+     * Then it makes no claim about which currencies it takes, and a question about one of them has no
+     * answer here. `mercadopago_pix` is the measured instance: a start route and no currency entry, which
+     * the test beside this one pins. Asked through canonicalKey(), so an older spelling reads its real
+     * gateway's declaration rather than looking like a gateway that declares nothing.
+     */
+    public function declaresNoCurrency(string $gateway): bool
+    {
+        return $this->getPaymentGatewaySupportedCurrencies(self::canonicalKey(trim($gateway))) === [];
+    }
 }

@@ -7790,4 +7790,5 @@ return [
 	'last_Updated_Stock' => 'Last Updated Stock',
 	'current_Stock	' => 'Current Stock	',
 	'The_last_name_field_is_required.' => 'The last name field is required.',
+	'this_payment_method_cannot_take_payments_in_your_currency' => 'This payment method cannot take payments in your currency',
 ];

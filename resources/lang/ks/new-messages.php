@@ -2897,4 +2897,5 @@ return [
 	'cart_empty_warning' => 'Cart empty warning',
 	'Discounted_Products' => 'Discounted Products',
 	'يجب_أن_يكون_الحد_الأدنى_لكمية_الطلب_موجبًا!' => 'يجب أن يكون الحد الأدنى لكمية الطلب موجبًا!',
+	'this_payment_method_cannot_take_payments_in_your_currency' => 'وسيلة الدفع هذه لا تقبل الدفع بعملتك',
 ];

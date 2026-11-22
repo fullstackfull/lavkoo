@@ -16,8 +16,16 @@ trait RestoresLanguageFiles
 
     protected function rememberLanguageFiles(): void
     {
-        foreach (['en', 'sa', 'ae'] as $locale) {
+        // Every locale directory git tracks, not only the three a test was once seen to dirty: a refusal
+        // rendered with `lang: bd` rewrites resources/lang/bd/new-messages.php whole (var_export
+        // normalisation, 530 lines), and a trait that only remembered en/sa/ae left that in the tree
+        // (measured; found by Reviewer B).
+        foreach (['ae', 'bd', 'en', 'es', 'in', 'ks', 'sa'] as $locale) {
             $path = base_path("resources/lang/{$locale}/new-messages.php");
+            if (!is_file($path)) {
+                continue;
+            }
+
             $contents = (string) file_get_contents($path);
             if (str_starts_with($contents, "<?php\n") && str_ends_with($contents, "];\n")) {
                 $this->languageFileCopies[$path] = $contents;

@@ -757,6 +757,10 @@ trait OrderEditManager
                 'status' => false,
                 'message' => $currencyDecision->message(),
                 'redirect_link' => null,
+                // Named so the app controller can answer 403 rather than the 401 it gives a dead session:
+                // the customer app clears the login token on ANY 401, so an ordinary refusal would sign
+                // them out mid-payment (measured in the Flutter client; found by both reviewers).
+                'refusal' => 'payment-currency',
             ];
         }
 
@@ -827,7 +831,9 @@ trait OrderEditManager
     private function resolvePaymentAmount($amount, $paymentMethod, $request): array
     {
         if (getWebConfig('currency_model') === 'multi_currency') {
-            $currentCurrency = $request->current_currency_code ?? session('currency_code');
+            // The code the refusal in payEditOrderDueByDigitalPayment() judged, so the due amount goes out
+            // in the currency that was allowed. Switched off, the same value as the expression it replaces.
+            $currentCurrency = app(GatewayCurrencySupport::class)->chargedCurrencyCode($request);
             $currency_code = $this->getPaymentGatewayCurrencyCode($paymentMethod, $currentCurrency);
             $convertedAmount = usdToAnotherCurrencyConverter(currencyCode: $currency_code, amount: $amount);
             return [$convertedAmount, $currency_code];

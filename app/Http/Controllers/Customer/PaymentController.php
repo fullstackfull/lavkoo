@@ -468,7 +468,9 @@ class PaymentController extends Controller
 
         $currency_model = getWebConfig(name: 'currency_model');
         if ($currency_model == 'multi_currency') {
-            $currentCurrency = $request['current_currency_code'] ?? session('currency_code');
+            // The code the refusal at the entry point judged, so the currency charged is the one that was
+            // allowed. Switched off this is the expression that was here before, unchanged.
+            $currentCurrency = app(GatewayCurrencySupport::class)->chargedCurrencyCode($request);
             $currency_code = $this->getPaymentGatewayCurrencyCode(key: $request['payment_method'], currentCurrency: $currentCurrency);
             $paymentAmount = usdToAnotherCurrencyConverter(currencyCode: $currency_code, amount: $paymentAmount);
         } else {
@@ -564,7 +566,8 @@ class PaymentController extends Controller
         $paymentAmount = $request['amount'];
         $currency_model = getWebConfig(name: 'currency_model');
         if ($currency_model == 'multi_currency') {
-            $currentCurrency = $request['current_currency_code'] ?? session('currency_code');
+            // Same one code, judged above and charged here.
+            $currentCurrency = app(GatewayCurrencySupport::class)->chargedCurrencyCode($request);
             $currency_code = $this->getPaymentGatewayCurrencyCode(key: $request['payment_method'], currentCurrency: $currentCurrency);
             $paymentAmount = usdToAnotherCurrencyConverter(currencyCode: $currency_code, amount: Convert::usdPaymentModule($request['amount'], $currentCurrency));
         } else {
