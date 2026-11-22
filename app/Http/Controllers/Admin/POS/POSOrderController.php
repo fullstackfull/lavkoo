@@ -98,13 +98,17 @@ class POSOrderController extends BaseController
      */
     public function placeOrder(Request $request): JsonResponse
     {
-        $amount = $request['amount'];
         $fulfillment = $request['fulfillment'] == 'delivery' ? 'delivery' : 'instant';
         // Cash for a delivery order is collected on delivery, so the tendered
         // amount is neither required nor recorded here — same as a web COD order.
         $paidAmount = ($request['type'] == 'cash' && $fulfillment == 'instant') ? ($request['paid_amount'] ?? 0) : null;
         $cartId = session(SessionKey::CURRENT_USER);
-        $condition = $this->POSService->checkConditions(amount: $amount, paidAmount: $paidAmount);
+        // The posted `amount` decides none of the money below any more; $saleAmount does. It is still what the
+        // tendered cash is measured against, because that comparison is between two figures the panel itself produced
+        // — the total it displayed and the cash the cashier says was handed over — and the panel's cart summary still
+        // adds its lines up in floats. Measuring the cash against the server's figure instead would refuse a cashier
+        // who tendered exactly what the panel showed.
+        $condition = $this->POSService->checkConditions(amount: $request['amount'], paidAmount: $paidAmount);
         if ($condition == 'true') {
             return response()->json();
         }
@@ -116,12 +120,30 @@ class POSOrderController extends BaseController
         if ($userId == 0 && $checkProductTypeDigital) {
             return response()->json(['checkProductTypeForWalkingCustomer' => true, 'message' => translate('To_order_digital_product') . ',' . translate('_kindly_fill_up_the_“Add_New_Customer”_form') . '.']);
         }
+        // What the sale costs is the server's own figure: worked out from the cart the server holds and the prices in
+        // the database, and added up in whole minor units. App\Services\Pos\PosSaleTotal says why neither half of
+        // that is optional — `amount` was a figure the browser posted, and the panel's own addition loses a minor unit
+        // to binary floats on ordinary carts.
+        //
+        // It is settled HERE, before the transaction, because the balance a wallet sale is refused on and the money it
+        // then takes have to be the same figure, and that refusal happens outside the transaction. This locks nothing
+        // and writes nothing, so it changes neither which rows the transaction locks nor the order it does its work
+        // in: the ordered product lock is still the first thing inside it, the debit still comes after that lock, and
+        // the order id is still chosen inside it after the lock. It reads the product rows once more, unlocked; the
+        // read inside the transaction stays where it is, after the lock, so the rows the sale is WRITTEN from are
+        // still the locked ones.
+        $saleAmount = $this->cartService->getPosSaleTotal(
+            cartName: $cartId,
+            customerId: $userId,
+            products: $this->getCartProductsForPricing(cartId: $cartId),
+        )->amount();
+
         // The debit itself is made inside the sale's transaction below. A sale this panel refuses for want of stock must not
         // leave the customer's wallet lighter, which is what a debit taken before the stock was checked would do.
         $payByWallet = $request['type'] == 'wallet' && $userId != 0;
         if ($payByWallet) {
             $customerBalance = $this->customerRepo->getFirstWhere(params: ['id' => $userId]) ?? 0;
-            if ($customerBalance['wallet_balance'] < currencyConverter(amount: $amount)) {
+            if ($customerBalance['wallet_balance'] < currencyConverter(amount: $saleAmount)) {
                 ToastMagic::error(translate('need_Sufficient_Amount_Balance'));
                 return response()->json();
             }
@@ -134,7 +156,7 @@ class POSOrderController extends BaseController
 
         if (count($cartListSession) > 0) {
             try {
-                $orderId = OrderManager::writeOrderRetryingOnDuplicateId(function () use ($request, $cartId, $cartListSession, $cart, $taxConfig, $userId, $amount, $paidAmount, $fulfillment, $payByWallet) {
+                $orderId = OrderManager::writeOrderRetryingOnDuplicateId(function () use ($request, $cartId, $cartListSession, $cart, $taxConfig, $userId, $saleAmount, $paidAmount, $fulfillment, $payByWallet) {
                 // Every product of the sale is locked here, in ascending id order, before a line is priced or taken. See
                 // InventoryService::lockProductsForSale for why the order is the point.
                 $this->inventoryService->lockProductsForSale(productIds: $cartListSession->pluck('id')->all());
@@ -145,7 +167,7 @@ class POSOrderController extends BaseController
                 // REPEATABLE READ snapshot the order id is then checked against, so an overlapping sale's order was invisible
                 // and its id was chosen again.
                 if ($payByWallet) {
-                    $this->createWalletTransaction(user_id: $userId, amount: floatval($amount), transaction_type: 'order_place', reference: 'order_place_in_pos');
+                    $this->createWalletTransaction(user_id: $userId, amount: $saleAmount, transaction_type: 'order_place', reference: 'order_place_in_pos');
                 }
 
                 $products = $this->productRepo->getListWithScope(whereIn: ['id' => $cartListSession->pluck('id')->toArray()], relations: ['clearanceSale' => function ($query) {
@@ -239,9 +261,9 @@ class POSOrderController extends BaseController
                 $order = $this->orderService->getPOSOrderData(
                     orderId: $orderId,
                     cart: $cart,
-                    amount: $amount,
+                    amount: $saleAmount,
                     totalTaxAmount: $totalTaxAmount,
-                    paidAmount: $paidAmount ?? ($request['type'] == 'cash' ? 0 : $amount),
+                    paidAmount: $paidAmount ?? ($request['type'] == 'cash' ? 0 : $saleAmount),
                     paymentType: $request['type'],
                     addedBy: 'admin',
                     userId: $userId,
@@ -321,6 +343,23 @@ class POSOrderController extends BaseController
             'totalHoldOrders' => $totalHoldOrders,
             'view' => view('admin-views.pos.partials._view-hold-orders', compact('totalHoldOrders', 'cartItems'))->render(),
         ]);
+    }
+
+    /**
+     * The products of a cart, carrying the clearance sale the pricing helpers read off them.
+     *
+     * The same read the sale's own transaction makes, so the figure the sale is priced at before the transaction and
+     * the rows it is written from inside one are priced by the same rule.
+     */
+    private function getCartProductsForPricing(string $cartId): Collection|LengthAwarePaginator
+    {
+        return $this->productRepo->getListWithScope(
+            whereIn: ['id' => $this->cartService->filterSessionCartList(cart: session($cartId))->pluck('id')->toArray()],
+            relations: ['clearanceSale' => function ($query) {
+                return $query->active();
+            }],
+            dataLimit: 'all',
+        );
     }
 
     /**

@@ -10,6 +10,10 @@ const FLAT = 'flat';
 const FLAG = 'flag';
 const GT = 'gt';
 const DEFAULT_DATA_LIMIT = 25;
+/* The most decimal places a currency may be shown and charged in. Six is the storage scale
+   App\Services\OperationalCosts\Support\Money already rounds money to, and three is as far as any
+   live currency goes (KWD, BHD, OMR). */
+const MAX_CURRENCY_DECIMAL_POINTS = 6;
 const MIN = 'min';
 const MULTI_CURRENCY = 'multi_currency';
 const NUMERIC = 'numeric';

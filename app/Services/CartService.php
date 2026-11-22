@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\SessionKey;
+use App\Services\Pos\PosSaleTotal;
 use App\Traits\CalculatorTrait;
 use App\Utils\CartManager;
 use Carbon\Carbon;
@@ -398,6 +399,62 @@ class CartService
             'couponDiscount' => $couponDiscount,
             'extraDiscount' => $extraDiscount
         ];
+    }
+
+    /**
+     * What the cart the SERVER holds comes to, added up in whole minor units.
+     *
+     * The tills used to charge `$request['amount']`: a figure the browser posted, compared against the customer's
+     * wallet and debited from it. The cart is in the session and the prices are in the database, so the server can
+     * work the figure out itself, and this is where it does — once, from the same per-line calculation the panel's
+     * own cart summary uses, so no second pricing rule is introduced.
+     *
+     * The lines are the ones the sale itself writes: `filterSessionCartList` in the same order, a line whose product
+     * is no longer there skipped exactly as the sale's own loop skips it. The discount base is the one the sale uses
+     * too, which counts only the lines belonging to the customer being served.
+     *
+     * @param string $cartName the session key the cart lives under
+     * @param int $customerId the customer the sale is for, 0 for a walk-in
+     * @param Collection|\Illuminate\Database\Eloquent\Collection $products the products of the cart, already read
+     */
+    public function getPosSaleTotal(string $cartName, int $customerId, $products): PosSaleTotal
+    {
+        $cartList = $this->filterSessionCartList(cart: session($cartName));
+        $totalDiscountedPrice = $this->getCartTotalDiscountPrice(session($cartName), $products, $customerId);
+
+        $total = PosSaleTotal::inDefaultCurrency();
+        foreach ($cartList as $cartItem) {
+            if (!is_array($cartItem)) {
+                continue;
+            }
+            $product = $products->firstWhere('id', $cartItem['id']);
+            if (!$product) {
+                continue;
+            }
+
+            $lineCalculation = $this->getCartSubtotalCalculation(
+                product: $product,
+                cartItem: $cartItem,
+                totalDiscountedPrice: $totalDiscountedPrice,
+                cartName: $cartName,
+            );
+            $total = $total->plusLine(
+                lineSubtotal: $lineCalculation['productSubtotal'],
+                appliedTaxAmount: $lineCalculation['appliedTaxAmount'],
+            );
+        }
+
+        // The cart's own discounts, resolved against the INTEGER subtotal: a percentage extra discount is a share of
+        // what the lines come to, and the float sum is what it used to be a share of.
+        $cartDiscounts = $this->getTotalCalculation(
+            subTotalCalculation: ['subtotal' => $total->lineSubtotalInBaseCurrency()],
+            cartName: $cartName,
+        );
+
+        return $total->lessCartDiscounts(
+            couponDiscount: $cartDiscounts['couponDiscount'],
+            extraDiscount: $cartDiscounts['extraDiscount'],
+        );
     }
 
     public function customerOnHoldStatus($status): void

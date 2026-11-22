@@ -67,6 +67,56 @@ if (!function_exists('currencyConverter')) {
     }
 }
 
+if (!function_exists('defaultCurrencyRate')) {
+    /**
+     * The multiplier from the base figures the store holds to the system default currency.
+     *
+     * Exactly one in single-currency mode, so a figure multiplied by it is unchanged. Lifted out of
+     * usdToDefaultCurrency because the point-of-sale total has to add a sale up in whole minor units and then
+     * convert once; reading the rate here means it reads the SAME rate rather than a second copy of it.
+     *
+     * @return float
+     */
+    function defaultCurrencyRate(): float
+    {
+        if (getWebConfig('currency_model') != MULTI_CURRENCY) {
+            return 1.0;
+        }
+
+        if (session()->has('default')) {
+            $default = session('default');
+        } else {
+            $default = Currency::find(getWebConfig('system_default_currency'))->exchange_rate;
+            session()->put('default', $default);
+        }
+
+        if (session()->has('usd')) {
+            $usd = session('usd');
+        } else {
+            $usd = exchangeRate(USD);
+            session()->put('usd', $usd);
+        }
+
+        return $default / $usd;
+    }
+}
+
+if (!function_exists('defaultCurrencyDecimalPoints')) {
+    /**
+     * How many decimal places the system default currency is shown and charged in.
+     *
+     * The platform has ONE notion of a currency's exponent: this business setting. The currencies table carries a
+     * name, a symbol, a code and an exchange rate, and no decimal places, so a three-decimal Gulf currency (KWD,
+     * BHD, OMR) is served by setting this to 3 rather than by anything the currency row itself says.
+     *
+     * @return int
+     */
+    function defaultCurrencyDecimalPoints(): int
+    {
+        return max(0, min(MAX_CURRENCY_DECIMAL_POINTS, (int) (getWebConfig('decimal_point_settings') ?? 2)));
+    }
+}
+
 if (!function_exists('usdToDefaultCurrency')) {
     /**
      * system usd currency to default convert
@@ -75,31 +125,9 @@ if (!function_exists('usdToDefaultCurrency')) {
      */
     function usdToDefaultCurrency(float|int|null $amount = 0): float|int
     {
-        $currencyModel = getWebConfig('currency_model');
-        if ($currencyModel == MULTI_CURRENCY) {
-            if (session()->has('default')) {
-                $default = session('default');
-            } else {
-                $default = Currency::find(getWebConfig('system_default_currency'))->exchange_rate;
-                session()->put('default', $default);
-            }
+        $value = $amount * defaultCurrencyRate();
 
-            if (session()->has('usd')) {
-                $usd = session('usd');
-            } else {
-                $usd = exchangeRate(USD);
-                session()->put('usd', $usd);
-            }
-
-            $rate = $default / $usd;
-
-            $value = $amount * $rate;
-        } else {
-            $value = $amount;
-        }
-
-        $decimals = getWebConfig('decimal_point_settings') ?? 2;
-        $factor = pow(10, $decimals);
+        $factor = pow(10, defaultCurrencyDecimalPoints());
         return floor($value * $factor) / $factor;
     }
 }
