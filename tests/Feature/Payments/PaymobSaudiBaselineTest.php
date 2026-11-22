@@ -27,7 +27,23 @@ use Tests\TestCase;
  */
 class PaymobSaudiBaselineTest extends TestCase
 {
-    use BuildsMyFatoorahSchema;
+    use BuildsMyFatoorahSchema {
+        makePaymentRequest as makeSharedPaymentRequest;
+    }
+
+    /** The key this shop stores Paymob's settings and its payments under. */
+    private const GATEWAY = 'paymob_accept';
+
+    /**
+     * A payment OF THIS GATEWAY. The shared fixture makes a `fatoorah` payment, which was good enough while the callback
+     * settled whatever the session named; a Paymob confirmation now settles only a Paymob payment
+     * (GatewayConfirmations::thePaymentItSettles), which is the point of the fix, so these tests make their own
+     * gateway's payments. The shared fixture's default is untouched: four MyFatoorah suites rely on it.
+     */
+    protected function makePaymentRequest(array $overrides = []): string
+    {
+        return $this->makeSharedPaymentRequest(array_merge(['payment_method' => self::GATEWAY], $overrides));
+    }
 
     private const HMAC_SECRET = 'paymob-test-hmac-secret';
 
@@ -282,39 +298,38 @@ class PaymobSaudiBaselineTest extends TestCase
         $this->assertSame(0, (int) DB::table('payment_requests')->where('id', $id)->value('is_paid'));
     }
 
-    public function test_a_valid_return_opened_twice_currently_runs_the_success_hook_twice(): void
+    public function test_a_valid_return_opened_twice_settles_once_and_runs_the_success_hook_once(): void
     {
         /*
-         * PINNED AS IT IS, AND IT LOOKS WRONG. The callback has no guard of its own: a second valid
-         * return updates the row again and calls the success hook again. What stops a SECOND ORDER on
-         * the live platform is a guard inside the hook, and that guard is on an unmerged branch, not
-         * here. So this test records today's behaviour rather than the behaviour anyone wants, and the
-         * day a replay guard lands this is the test that must be rewritten -- deliberately, not by
-         * accident.
+         * REWRITTEN DELIBERATELY, which is what the characterisation above it asked for. The replay guard has landed:
+         * GatewayConfirmations registers the gateway's own transaction reference under a unique key, inside the same
+         * database transaction as the settlement, so the second arrival of one confirmation settles nothing and runs no
+         * success hook. The first still settles and still answers payment-success; the second answers a failure, because
+         * it decided nothing. (Cherry-picked from the hotfix line: d7b340ad.)
          */
         $id = $this->makePaymentRequest();
         $payload = $this->aSignedReturn();
 
         $this->theReturnArrivesFor($id, $payload)->assertRedirectContains('payment-success');
-        $this->theReturnArrivesFor($id, $payload)->assertRedirectContains('payment-success');
+        $this->theReturnArrivesFor($id, $payload)->assertRedirectContains('payment-fail');
 
-        $this->assertSame(2, myfatoorah_test_effect_count('order'), 'a replay guard has landed in the callback; this characterisation wants rewriting');
+        $this->assertSame(1, myfatoorah_test_effect_count('order'), 'one confirmation of one transaction settles one payment, once');
         $this->assertSame(1, (int) DB::table('payment_requests')->where('id', $id)->value('is_paid'));
     }
 
-    public function test_the_transaction_id_recorded_is_currently_the_payments_own_id_and_not_paymobs(): void
+    public function test_the_transaction_id_recorded_is_paymobs_own_reference(): void
     {
         /*
-         * ALSO PINNED AS IT IS. The callback writes `transaction_id` = the payment's own id, so
-         * Paymob's transaction reference -- `id` in the return, 987654 here -- is never stored. Nothing
-         * then links a settled payment to the provider's own record, which is what a reconciliation
-         * would need (D2-16). Recorded here so the gap is measured rather than argued about.
+         * THE GAP THIS PINNED IS CLOSED, so the pin now records the answer rather than the gap. The callback used to
+         * write `transaction_id` = the payment's own id, which linked a settled payment to nothing on the provider's
+         * side and left a reconciliation (D2-16) no reference to work from. It now stores what Paymob calls its own
+         * transaction -- `id` in the return, 987654 here. (Cherry-picked from the hotfix line: d7b340ad.)
          */
         $id = $this->makePaymentRequest();
 
         $this->theReturnArrivesFor($id, $this->aSignedReturn(['id' => '987654']));
 
-        $this->assertSame($id, DB::table('payment_requests')->where('id', $id)->value('transaction_id'));
-        $this->assertNotSame('987654', DB::table('payment_requests')->where('id', $id)->value('transaction_id'));
+        $this->assertSame('987654', DB::table('payment_requests')->where('id', $id)->value('transaction_id'));
+        $this->assertNotSame($id, DB::table('payment_requests')->where('id', $id)->value('transaction_id'));
     }
 }
