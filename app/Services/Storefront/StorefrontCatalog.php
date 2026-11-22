@@ -31,6 +31,9 @@ final class StorefrontCatalog
     /** How long a "no" is remembered, so a worker started before the migration notices it without a restart. A "yes" lasts for the process. */
     private const NEGATIVE_ANSWER_SECONDS = 30;
 
+    /** How many cart groups one country lookup asks for: every engine has a cap on the placeholders of a single statement. */
+    private const CART_GROUPS_PER_QUERY = 500;
+
     /** @var array{value: bool, at: int}|null */
     private static ?array $columnAnswer = null;
 
@@ -129,18 +132,56 @@ final class StorefrontCatalog
         return [...StorefrontContext::keysForEveryStorefront($key), self::unboundKey($key)];
     }
 
-    /** The country the products of a cart group belong to, for a link that must open the storefront the cart was made in. Null while storefronts are off. */
+    /**
+     * The country of a cart group, for a link that must open the storefront the cart was made in: a link opens one storefront, so the first
+     * row of the group names it, as a lookup of one group always did, and a first row that belongs to no country still names none. Null
+     * while storefronts are off.
+     */
     public static function countryOfCartGroup(string $cartGroupId): ?string
     {
-        if (!config('gcc.storefronts.enabled') || !self::columnReady()) {
-            return null;
+        $firstRow = self::countriesOfCartGroups(cartGroupIds: [$cartGroupId])[$cartGroupId][0] ?? '';
+
+        return $firstRow === '' ? null : $firstRow;
+    }
+
+    /**
+     * The countries the products of each cart group belong to, in one query for all of them and in the order of the group's rows. A legacy
+     * cart group can hold the rows of two countries (CartManager::cartGroupsSharedWithOtherStorefronts), so a caller that has to judge the
+     * storefronts of many carts, such as the marketing stop, sees every country a group names and asks once instead of once per cart. A row
+     * whose product belongs to no country is the empty string, which is what such a first row always answered. Empty while storefronts are off.
+     *
+     * @param list<string> $cartGroupIds
+     * @return array<string, list<string>> cart group id => the countries its rows name, the first row's first
+     */
+    public static function countriesOfCartGroups(array $cartGroupIds): array
+    {
+        $ids = array_values(array_unique(array_map('strval', $cartGroupIds)));
+
+        if ($ids === [] || !config('gcc.storefronts.enabled') || !self::columnReady()) {
+            return [];
         }
 
-        return DB::table('carts')
-            ->join(self::TABLE, self::TABLE . '.id', '=', 'carts.product_id')
-            ->where('carts.cart_group_id', $cartGroupId)
-            ->orderBy('carts.id')
-            ->value(self::TABLE . '.' . self::COLUMN);
+        $countries = [];
+
+        foreach (array_chunk($ids, self::CART_GROUPS_PER_QUERY) as $chunk) {
+            $rows = DB::table('carts')
+                ->join(self::TABLE, self::TABLE . '.id', '=', 'carts.product_id')
+                ->whereIn('carts.cart_group_id', $chunk)
+                ->orderBy('carts.id')
+                ->get(['carts.cart_group_id', self::TABLE . '.' . self::COLUMN]);
+
+            foreach ($rows as $row) {
+                $cartGroupId = (string) $row->cart_group_id;
+                $country = (string) ($row->{self::COLUMN} ?? '');
+                $countries[$cartGroupId] ??= [];
+
+                if (!in_array($country, $countries[$cartGroupId], true)) {
+                    $countries[$cartGroupId][] = $country;
+                }
+            }
+        }
+
+        return $countries;
     }
 
     /** Whether the admin tools see a product's country: storefronts are on and the products migration has run. */

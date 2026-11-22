@@ -21,6 +21,9 @@ use Illuminate\Support\Facades\Mail;
  *    uniquely on (cart_group_id, stage). A second run cannot repeat a message even if the first
  *    run died halfway.
  *  - A per-run `--limit` caps the blast radius while the schedule is being tuned.
+ *  - A cart whose storefront may not sell is skipped before anything is written for it, so it is reminded
+ *    once the storefront sells again. The storefront is asked again just before each send, because a stop
+ *    can be made while a run is under way.
  *
  * Schedule it hourly once configured; the idle threshold, not the cron frequency, decides when a
  * cart is old enough to chase.
@@ -85,8 +88,15 @@ class SendAbandonedCartReminders extends Command
 
         $sent = 0;
         $failed = 0;
+        $skipped = 0;
 
         foreach ($selected as $row) {
+            if ($service->isStoppedByItsStorefront(cartGroupId: $row['cart_group_id'])) {
+                $skipped++;
+
+                continue;
+            }
+
             // Written first, and inside its own try: the unique key on (cart_group_id, stage) is
             // what stops a repeat, so it has to exist before the mail can possibly go out. If the
             // insert loses a race, another worker already claimed this cart — skip it silently.
@@ -119,7 +129,12 @@ class SendAbandonedCartReminders extends Command
             }
         }
 
-        $this->info(sprintf('Sent %d reminder(s).%s', $sent, $failed ? " {$failed} failed." : ''));
+        $this->info(sprintf(
+            'Sent %d reminder(s).%s%s',
+            $sent,
+            $failed ? " {$failed} failed." : '',
+            $skipped ? " {$skipped} left for later: their storefront may not sell." : ''
+        ));
 
         return $failed && !$sent ? self::FAILURE : self::SUCCESS;
     }
