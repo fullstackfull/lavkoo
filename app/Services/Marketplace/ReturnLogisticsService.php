@@ -190,7 +190,7 @@ class ReturnLogisticsService
             $this->audit?->record(
                 action: 'returns.received',
                 subject: ['type' => 'return_shipment', 'id' => $rma->id],
-                after: ['restocked' => $restocked, 'balance_after' => $balanceAfter, 'restocked_units' => $restocked ? $restockedUnits : 0, 'clamped' => $clamped],
+                after: ['restocked' => $restocked, 'balance_after' => $balanceAfter, 'restocked_units' => $restocked ? $restockedUnits : 0, 'clamped' => $restocked ? $clamped : null],
             );
 
             return [

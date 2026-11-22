@@ -304,6 +304,26 @@ class RestockThroughTheRealRoutesTest extends AdminPagesTestCase
         $this->assertSame(5, (int) $rma->fresh()->qty, 'what the operator typed is kept on the return itself');
     }
 
+    public function test_a_return_that_points_at_no_order_line_still_restocks_its_whole_quantity(): void
+    {
+        // The returns queue lets a return name a product and no line (ReturnLogisticsController::store makes
+        // order_details_id optional). There is no line, so there is no budget to bound it and nothing to clamp.
+        $this->soldLine(2);
+        $rma = ReturnShipment::create([
+            'reference' => 'RMA-no-line', 'product_id' => self::PRODUCT, 'qty' => 4,
+            'status' => ReturnShipment::STATUS_AUTHORIZED, 'restock' => true,
+        ]);
+
+        $this->receiveThroughThePanel($rma);
+
+        $this->assertSame([
+            'current_stock' => 54,
+            'variant_qty' => null,
+            'movements' => [[StockMovement::TYPE_RETURN, 4, 54, null]],
+        ], $this->reading(), 'a return with no line behaves exactly as it did before: its own quantity, no cap, no note');
+        $this->assertSame(ReturnShipment::STATUS_RESTOCKED, $rma->fresh()->status);
+    }
+
     public function test_the_seller_app_is_told_the_same_thing_the_panel_is(): void
     {
         $lineId = $this->soldLine(2);
