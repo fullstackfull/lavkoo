@@ -660,6 +660,30 @@ class OrderRepository implements OrderRepositoryInterface
                 $fromFlag = $restoring ? 1 : 0;
                 $toFlag = $restoring ? 0 : 1;
 
+                // The line is locked before the budget is read so a return receipt cannot spend the same
+                // units between the reading and the claim; the receipt takes the same locks in the same order.
+                if (!$this->orderDetail->where('id', $detail['id'])->lockForUpdate()->first()) {
+                    return;
+                }
+
+                // Restoring puts back only what a return has not already put back; re-taking takes the whole
+                // line, because a re-opened line is live for all of its units again. See
+                // OrderManager::getStockUpdateOnOrderStatusChange. This is the copy the admin and vendor
+                // panels run, so the fix has to be here too or the panel keeps the defect.
+                $units = $restoring
+                    ? app(RestockBudget::class)->unspentUnitsOf($detail['id'], $detail['qty'])
+                    : max(0, (int) $detail['qty']);
+
+                // A restore that puts nothing back must not take the line's claim with it: the flag said the
+                // units were on the shelf while they were still with the customer, so the next re-open took
+                // them off a second time and the shelf lost the line's quantity every cycle. Same as
+                // OrderManager::getStockUpdateOnOrderStatusChange.
+                if ($restoring && $units === 0) {
+                    $this->orderDetail->where('id', $detail['id'])->update(['delivery_status' => $status]);
+
+                    return;
+                }
+
                 $flipped = $this->orderDetail->where(['id' => $detail['id'], 'is_stock_decreased' => $fromFlag])
                     ->update(['is_stock_decreased' => $toFlag, 'delivery_status' => $status]);
 
@@ -672,15 +696,8 @@ class OrderRepository implements OrderRepositoryInterface
                     return;
                 }
 
-                // Restoring puts back only what a return has not already put back; re-taking takes the whole
-                // line, because a re-opened line is live for all of its units again. See
-                // OrderManager::getStockUpdateOnOrderStatusChange. This is the copy the admin and vendor
-                // panels run, so the fix has to be here too or the panel keeps the defect.
-                $units = $restoring
-                    ? app(RestockBudget::class)->unspentUnitsOf($detail['id'], $detail['qty'])
-                    : max(0, (int) $detail['qty']);
                 if ($units === 0) {
-                    return;
+                    return;   // a line of no units to re-take
                 }
 
                 $type = $detail['variant'];

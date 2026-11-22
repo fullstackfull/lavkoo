@@ -2,9 +2,11 @@
 
 namespace Tests\Feature\Inventory;
 
+use App\Models\Order;
 use App\Models\ReturnShipment;
 use App\Models\Seller;
 use App\Models\StockMovement;
+use App\Utils\OrderManager;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -189,6 +191,15 @@ class RestockThroughTheRealRoutesTest extends AdminPagesTestCase
         ]);
     }
 
+    /** The shelf and the line's claim on it: [products.current_stock, order_details.is_stock_decreased]. */
+    protected function shelfAndClaim(int $lineId): array
+    {
+        return [
+            (int) DB::table('products')->where('id', self::PRODUCT)->value('current_stock'),
+            (int) DB::table('order_details')->where('id', $lineId)->value('is_stock_decreased'),
+        ];
+    }
+
     /** The three figures that matter: current_stock, the variant's quantity, and the return movements as [qty_change, balance_after, note]. */
     protected function reading(?string $variant = null): array
     {
@@ -318,25 +329,58 @@ class RestockThroughTheRealRoutesTest extends AdminPagesTestCase
         $this->assertSame(50, $this->reading()['current_stock']);
     }
 
-    public function test_marking_a_re_opened_line_returned_again_currently_puts_nothing_back(): void
+    public function test_going_round_the_cycle_again_puts_nothing_back_but_never_drains_the_shelf(): void
     {
-        // A known limitation, pinned so it is visible rather than surprising. RestockBudget reads
-        // return_shipments, which is a record over all time and not of the current cycle: once a line has
-        // been re-opened, the units those returns put back have left the shelf again, and nothing records
-        // that. So a second trip round the cycle restores nothing where it should restore three.
+        // A known limitation and a defect that grew out of it, so both are pinned here. RestockBudget reads
+        // return_shipments, a record over all time and not of the current cycle: once a line has been
+        // re-opened, the units its returns put back have left the shelf again and nothing records that, so a
+        // second trip round the cycle restores nothing where it should restore three. That is the limitation,
+        // and it is in the safe direction -- the shelf understates what it holds, which cannot oversell.
         //
-        // The error is in the safe direction -- the shelf understates what it holds, which cannot oversell,
-        // where the old code overstated it (3 out, 6 back). Fixing it properly needs the current cycle to be
-        // recorded, which is the movement log the status writer does not yet write (see the PR body).
+        // The DEFECT was what that restore of nothing did to the line's claim. is_stock_decreased is the claim
+        // on the line's units: 1 means they are off the shelf. The status writer flipped it to 0 before it
+        // knew it had nothing to put back, so the record said the units were on the shelf while they were with
+        // the customer -- and the NEXT re-open took them off a second time. Round and round, the shelf lost
+        // the line's quantity every cycle, without bound: 53, 50, 50, 47, 47, 44, 41. Now the claim is left
+        // where it is, so the shelf stops at 50 and the re-open that follows finds the claim already taken and
+        // moves nothing.
+        //
+        // Fixing the limitation itself needs the current cycle recorded, which is the movement log the status
+        // writer does not yet write (see the PR body).
         $lineId = $this->soldLine(3);
         $this->receiveThroughThePanel($this->authorizedReturn(3, $lineId));
-        $this->changeStatusThroughThePanel('processing');
-        $this->assertSame(50, $this->reading()['current_stock']);
+        $this->assertSame(53, $this->reading()['current_stock']);
 
-        $this->changeStatusThroughThePanel('returned');
+        for ($cycle = 1; $cycle <= 4; $cycle++) {
+            $this->changeStatusThroughThePanel('processing');
+            $this->assertSame([50, 1], $this->shelfAndClaim($lineId), "cycle {$cycle}: the line is live for three units again, so three are off the shelf");
 
-        $this->assertSame(50, $this->reading()['current_stock'], 'should be 53: the three units are with the customer again and are coming back a second time');
-        $this->assertSame(0, (int) DB::table('order_details')->where('id', $lineId)->value('is_stock_decreased'), 'the marker is right even though the units are not');
+            $this->changeStatusThroughThePanel('returned');
+            $this->assertSame(
+                [50, 1],
+                $this->shelfAndClaim($lineId),
+                "cycle {$cycle}: nothing is put back (the limitation), and the claim stays with the line so the "
+                . 'next re-open cannot take the same units off the shelf a second time',
+            );
+        }
+    }
+
+    public function test_the_rest_api_copy_of_the_status_writer_never_drains_the_shelf_either(): void
+    {
+        // OrderManager::getStockUpdateOnOrderStatusChange is the copy the REST API controllers run (customer
+        // cancel, v2/v3 seller, delivery man) and it had the same defect. Driven directly, because no HTTP
+        // route in this fixture reaches it; the panel's copy is driven through its route above.
+        $lineId = $this->soldLine(3, stock: 10);
+        $this->receiveThroughThePanel($this->authorizedReturn(3, $lineId));
+        $this->assertSame(13, $this->reading()['current_stock']);
+
+        for ($cycle = 1; $cycle <= 3; $cycle++) {
+            OrderManager::getStockUpdateOnOrderStatusChange(Order::findOrFail(self::ORDER), 'processing');
+            $this->assertSame([10, 1], $this->shelfAndClaim($lineId), "cycle {$cycle}: re-opened");
+
+            OrderManager::getStockUpdateOnOrderStatusChange(Order::findOrFail(self::ORDER), 'returned');
+            $this->assertSame([10, 1], $this->shelfAndClaim($lineId), "cycle {$cycle}: returned again");
+        }
     }
 
     // ---- (c) a return for more units than the line held --------------------------------------------------------------------

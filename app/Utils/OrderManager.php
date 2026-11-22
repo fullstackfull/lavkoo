@@ -116,6 +116,26 @@ class OrderManager
                 $fromFlag = $restoring ? 1 : 0;
                 $toFlag = $restoring ? 0 : 1;
 
+                // The line is locked before the budget below is read, so a return receipt cannot spend the
+                // same units between the reading and the claim; the receipt takes the same two locks in the
+                // same order (order_details, then products).
+                if (!OrderDetail::where('id', $detail['id'])->lockForUpdate()->first()) {
+                    return;
+                }
+
+                $units = self::unitsThisStatusChangeMoves($detail, $restoring);
+
+                // A RESTORE THAT PUTS NOTHING BACK MUST NOT TAKE THE LINE'S CLAIM WITH IT. The flag is the
+                // claim on the line's units: 1 means they are off the shelf. Flipping it for a restore of
+                // nothing said they were back when they were not, so the next re-open took them off a second
+                // time and the shelf lost the line's quantity on every sell -> return -> re-open -> return
+                // round, without bound. The status is still recorded; only the claim is left where it is.
+                if ($restoring && $units === 0) {
+                    OrderDetail::where('id', $detail['id'])->update(['delivery_status' => $status]);
+
+                    return;
+                }
+
                 $flipped = OrderDetail::where(['id' => $detail['id'], 'is_stock_decreased' => $fromFlag])
                     ->update(['is_stock_decreased' => $toFlag, 'delivery_status' => $status]);
 
@@ -128,21 +148,8 @@ class OrderManager
                     return;
                 }
 
-                // RESTORING puts back only what a return has not already put back. This writer used to move
-                // the whole line however much of it had come back through a received return, so a partial
-                // return followed by marking the order returned put four units back for three that left. The
-                // line's quantity is a budget shared with the return receipt (RestockBudget); the flag above
-                // still guards the repeat, and this guards the overlap.
-                //
-                // RE-TAKING takes the whole line, NOT the remainder. A re-opened line is live for all of its
-                // units again, so all of them are committed to the customer again whatever came back earlier.
-                // Bounding this direction by the budget too left the shelf saying it held units that an open
-                // order had already promised -- an oversell, which is the one error this must not make.
-                $units = $restoring
-                    ? app(RestockBudget::class)->unspentUnitsOf($detail['id'], $detail['qty'])
-                    : max(0, (int) $detail['qty']);
                 if ($units === 0) {
-                    return;
+                    return;   // a line of no units to re-take
                 }
 
                 // Adjust the specific variant's quantity under the same lock.
@@ -171,6 +178,27 @@ class OrderManager
                 }
             });
         }
+    }
+
+    /**
+     * How many units this status change may move for one line.
+     *
+     * RESTORING puts back only what a return has not already put back. This writer used to move the whole
+     * line however much of it had come back through a received return, so a partial return followed by
+     * marking the order returned put four units back for three that left. The line's quantity is a budget
+     * shared with the return receipt (RestockBudget); the is_stock_decreased claim still guards the repeat,
+     * and this guards the overlap.
+     *
+     * RE-TAKING takes the whole line, NOT the remainder. A re-opened line is live for all of its units
+     * again, so all of them are committed to the customer again whatever came back earlier. Bounding this
+     * direction by the budget too left the shelf saying it held units that an open order had already
+     * promised -- an oversell, which is the one error this must not make.
+     */
+    private static function unitsThisStatusChangeMoves(array|object $detail, bool $restoring): int
+    {
+        return $restoring
+            ? app(RestockBudget::class)->unspentUnitsOf($detail['id'], $detail['qty'])
+            : max(0, (int) $detail['qty']);
     }
 
     public static function getWalletManageOnOrderStatusChange($order, $received_by): void
