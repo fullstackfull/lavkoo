@@ -559,7 +559,13 @@ class GatewayRefusesACurrencyItCannotTakeTest extends PaymentCurrencyTestCase
         // store's default code and the legacy resolver is handed a string rather than the array it would
         // have passed to array_key_exists(). Switched off it is passed through exactly as today.
         $this->assertFalse($support->decideForRequest(['payment_method' => ['x'], 'current_currency_code' => 'SAR'])->refused());
-        $this->assertSame('SAR', $support->chargedCurrencyCode(['payment_method' => self::ONE_CURRENCY_GATEWAY, 'current_currency_code' => ['SAR']]));
+
+        // The store prices in TAKA here, and the unusable field holds 'SAR', so only the store's default
+        // can produce the answer: an assertion against a default that happened to equal the field's own
+        // contents would not have shown which of the two was read.
+        $this->setSetting('system_default_currency', 3);
+        $this->assertSame('BDT', $support->chargedCurrencyCode(['payment_method' => self::ONE_CURRENCY_GATEWAY, 'current_currency_code' => ['SAR']]));
+        $this->assertSame('BDT', $support->chargedCurrencyCode(['payment_method' => self::ONE_CURRENCY_GATEWAY]));
     }
 
     public function test_the_currency_is_read_off_the_request_in_one_place_and_a_lower_case_code_is_the_same_code(): void
@@ -778,6 +784,29 @@ class GatewayRefusesACurrencyItCannotTakeTest extends PaymentCurrencyTestCase
         ])->assertStatus(401)->assertJsonPath('message', translate('Order_not_found'));
     }
 
+    /**
+     * A failure that comes out of the SAME method by the other route keeps its 401: a due amount of zero
+     * makes generate_link throw, and that return carries no refusal name. Without this the mapping could
+     * answer 403 for every failure and nothing would notice.
+     *
+     * Its own test method, not an extra request in the one above: `orders.id` is not auto-increment in
+     * the real-engine test schema, so a second order in one method collides on MariaDB with
+     * "Duplicate entry '0' for key 'PRIMARY'" (measured -- SQLite tolerated it and MariaDB did not).
+     */
+    public function test_a_due_payment_that_fails_for_another_reason_keeps_the_401_it_always_had(): void
+    {
+        $this->aMultiCurrencyStore();
+        $this->switchTheRefusalOn();
+        $customer = $this->makeCustomer();
+        $order = $this->anOrderWithADueAmount($customer->id, due: 0);
+
+        $this->asCustomer($customer)->postJson(self::EDIT_DUE_APP, [
+            'order_id' => $order->id, 'payment_method' => self::GATEWAY_THAT_TAKES_RIYAL, 'current_currency_code' => 'SAR',
+        ])->assertStatus(401);
+
+        $this->assertSame(0, $this->paymentRequests());
+    }
+
     // ------------------------------------- the session half of the one read (mutation S1)
 
     /**
@@ -794,13 +823,17 @@ class GatewayRefusesACurrencyItCannotTakeTest extends PaymentCurrencyTestCase
         $address = $this->makeLegacyAddress($customer->id);
         $this->aCartReadyToPay($customer->id);
 
-        $response = $this->actingAs($customer, 'customer')->withSession(['currency_code' => 'SAR'])
+        // TAKA in the session, RIYAL as the store's default, and a gateway that declares the Riyal and
+        // not the Taka. So only the session can produce this refusal: judged against the store default
+        // instead, this very request would be ALLOWED. The first attempt at this test put the same code
+        // in both places and the mutation that deletes the session read still passed.
+        $response = $this->actingAs($customer, 'customer')->withSession(['currency_code' => 'BDT'])
             ->post(self::WEB_PAYMENT, [
-                'payment_method' => self::ONE_CURRENCY_GATEWAY, 'payment_platform' => 'web', 'address_id' => $address->id,
+                'payment_method' => self::GATEWAY_THAT_TAKES_RIYAL, 'payment_platform' => 'web', 'address_id' => $address->id,
             ]);
 
         $response->assertRedirect(route('checkout-payment'));
-        $this->assertTheCustomerWasTold();
+        $this->assertTheCustomerWasTold(currency: 'BDT');
         $this->assertNothingWasWritten();
     }
 
@@ -952,12 +985,12 @@ class GatewayRefusesACurrencyItCannotTakeTest extends PaymentCurrencyTestCase
      * The website's refusals say why. A redirect on its own is indistinguishable from a page reload, so
      * the flashed message is read out of the session the request left behind.
      */
-    private function assertTheCustomerWasTold(): void
+    private function assertTheCustomerWasTold(string $currency = 'SAR'): void
     {
         $told = array_column(session('toastr::messages') ?? [], 'message');
 
         $this->assertContains(
-            translate('this_payment_method_cannot_take_payments_in_your_currency') . ' (SAR)',
+            translate('this_payment_method_cannot_take_payments_in_your_currency') . ' (' . $currency . ')',
             $told,
             'the customer was sent back without being told why'
         );
