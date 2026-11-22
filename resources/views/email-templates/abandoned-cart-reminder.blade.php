@@ -99,10 +99,10 @@ $opposite = $direction === 'rtl' ? 'left' : 'right';
     <div class="foot">
         {{ $companyName }}@if ($companyEmail) &middot; {{ $companyEmail }} @endif<br>
         {{ translate('you_are_receiving_this_because_you_left_items_in_your_cart_on_our_store') }}
-        @if (!empty($unsubscribeUrl))
-            <br>
-            <a href="{{ $unsubscribeUrl }}">{{ translate('unsubscribe_from_these_reminders') }}</a>
-        @endif
+@if (!empty($unsubscribeUrl))
+        <br>
+        <a href="{{ $unsubscribeUrl }}">{{ translate('unsubscribe_from_these_reminders') }}</a>
+@endif
     </div>
 </div>
 </body>

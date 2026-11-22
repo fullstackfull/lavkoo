@@ -16,9 +16,13 @@ use Illuminate\Support\Facades\Schema;
  * Every test here fails if flag-off behaviour moves. The feature ships off, Saudi Arabia is the only market the store
  * sells in today, and the whole value of the flag is that the day this merges nothing changes for anybody.
  *
- * What is measured, not asserted by inspection: the recipients a reminder run selects, the SQL it runs (counted and
- * compared statement for statement against a run made with this branch's gate code removed from the path), the text
- * of the message, and whether a consent row is written by the newsletter form.
+ * What is measured, not asserted by inspection: the recipients a reminder run selects, the SQL it runs, the bytes of
+ * the message a person reads, and whether a consent row is written by the newsletter form.
+ *
+ * WHAT IS NOT HERE, because an independent review caught this file claiming it: there is no second run of the same
+ * command against main inside these tests, and there cannot be — a PHPUnit process runs one checkout. Each test below
+ * says exactly which property it pins. The two-head comparison IS made, by hand, in a second worktree at
+ * c5c04b7b, and the figures belong in the pull request where they can be dated, not in a docblock that will go stale.
  */
 class MarketingConsentDormancyTest extends MarketingConsentTestCase
 {
@@ -94,11 +98,10 @@ class MarketingConsentDormancyTest extends MarketingConsentTestCase
     }
 
     /**
-     * The SQL of a reminder run, statement for statement.
+     * The SQL of a reminder run: no statement names the consent table, and none reads the address book.
      *
-     * The comparison is against the SAME run with the gate's own code taken out of the path (the service's
-     * `$consentRequired` is false either way when the switch is off, so the second run is the first run's baseline):
-     * what this pins is that NO extra statement appears — not a consent read, not an address read for a market.
+     * NOT a statement-for-statement comparison against main — nothing in this process can run main's code. What it
+     * pins is the two tables this branch could have added a read of, and that the run queried at all.
      */
     public function test_with_the_switch_off_a_reminder_run_reads_no_consent_and_no_market(): void
     {
@@ -126,9 +129,23 @@ class MarketingConsentDormancyTest extends MarketingConsentTestCase
         $this->assertCount(0, $addressReads, 'The address book was read to resolve a market with the switch off.');
     }
 
-    /** The message itself: with the gate off the reminder has no unsubscribe link, because it has none on main today. */
-    public function test_with_the_switch_off_the_reminder_email_is_the_email_main_sends(): void
+    /**
+     * THE BYTES OF THE MESSAGE, not a null on a property.
+     *
+     * This test used to be called "the reminder email is the email main sends" and assert one thing:
+     * `assertNull($mail->unsubscribeUrl)`. Both reviews rendered the mailable in two worktrees and found the dormant
+     * body was NOT main's: the @if block left 8 bytes of indentation behind on the footer's closing tag. Harmless in a
+     * mail client; not harmless as evidence, since a test named for byte-identity would have passed through any amount
+     * of change to the dormant message.
+     *
+     * So the message is RENDERED, and the footer — the one region this branch touches — is pinned byte for byte, in
+     * the spelling main has at c5c04b7b. The template now opens and closes the conditional inside the existing line,
+     * so with the switch off it adds nothing at all: measured at 2897 bytes on both heads, identical but for the
+     * recovery link's own signature.
+     */
+    public function test_with_the_switch_off_the_rendered_reminder_is_byte_for_byte_the_footer_main_renders(): void
     {
+        $this->setDefaultCurrency();
         $this->switchAbandonedCartRemindersOn();
         $customer = $this->makeCustomer(email: 'dormant-mail@example.test');
         $this->makeAbandonedCart(customerId: (int) $customer->id, groupId: 'group-dormant-mail');
@@ -139,9 +156,27 @@ class MarketingConsentDormancyTest extends MarketingConsentTestCase
         Mail::assertSent(AbandonedCartReminderMail::class, function (AbandonedCartReminderMail $mail): bool {
             $this->assertNull($mail->unsubscribeUrl, 'The reminder carries an unsubscribe link with the switch off.');
 
+            $html = $mail->render();
+            $this->assertStringNotContainsString('unsubscribe', $html);
+
+            // main at c5c04b7b, exactly: two lines of content and the closing tag at its own indentation.
+            $this->assertStringContainsString(
+                "        {$this->companyLine()}<br>\n"
+                . "        You are receiving this because you left items in your cart on our store\n"
+                . "    </div>",
+                $html,
+                'The dormant message is not the message main renders, down to its whitespace.'
+            );
+
             return true;
         });
         Mail::assertSent(AbandonedCartReminderMail::class, 1);
+    }
+
+    /** The footer's first line as the template builds it, so the byte comparison is about this branch's change only. */
+    private function companyLine(): string
+    {
+        return (string) getWebConfig(name: 'company_name');
     }
 
     /** The newsletter form, driven through its real route, writes what it has always written and nothing more. */
