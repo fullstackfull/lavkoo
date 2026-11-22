@@ -327,6 +327,33 @@ class ThePlatformAddressConfirmsWhatExpectsItTest extends CompanyAccountsTestCas
         $this->assertSame(2, $this->attemptLookupsIn($queries), 'the question\'s lookup and then the processor\'s');
     }
 
+    /**
+     * THE POLICY IS COMPLETE ON ITS OWN while the rule is off, and does not lean on its caller having asked first.
+     *
+     * The route asks whether the rule is in force before it looks a payment up, so that an installation which has not turned it on pays no read for a
+     * question nobody is asking. That is a saving, not the rule. `mayConfirm()` has to answer correctly by itself, because the next caller may not ask
+     * first — and a policy that enforced whenever it was called would enforce on an installation that had never turned it on.
+     *
+     * Measured with the registry ON and only the switch off, so what is isolated is the switch and nothing else, on a payment that positively expects
+     * another address.
+     */
+    public function test_the_policy_answers_yes_on_its_own_while_the_rule_is_off(): void
+    {
+        config(['gcc.storefronts.payment_accounts.one_confirmation_address' => false]);
+        $attempt = $this->anAttemptStampedWith($this->kuwait);
+        $payment = (array) $this->paymentRow($attempt);
+
+        $this->assertTrue(app(GatewayAccountRegistry::class)->isEnabled(), 'the registry is on, so the switch is the only thing off');
+        $this->assertTrue(
+            app(PaymentAccountBinding::class)->expectsAnAddressOtherThan(payment: $payment, address: route('myfatoorah.webhook')),
+            'the payment positively expects another address',
+        );
+        $this->assertTrue(
+            app(ConfirmationAddresses::class)->mayConfirm(address: route('myfatoorah.webhook'), payment: $payment),
+            'and the policy answers yes anyway, with nobody having asked it whether the rule is in force',
+        );
+    }
+
     /** A delivery naming no attempt of ours is unaffected: another installation on the same merchant login, recorded and acted on in no way. */
     public function test_a_delivery_that_names_no_payment_of_ours_is_unaffected(): void
     {
