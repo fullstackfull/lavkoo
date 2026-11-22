@@ -662,7 +662,8 @@ class OrderRepository implements OrderRepositoryInterface
 
                 // The line is locked before the budget is read so a return receipt cannot spend the same
                 // units between the reading and the claim; the receipt takes the same locks in the same order.
-                if (!$this->orderDetail->where('id', $detail['id'])->lockForUpdate()->first()) {
+                // The query builder, not the model: see OrderManager::getStockUpdateOnOrderStatusChange.
+                if (!DB::table('order_details')->where('id', $detail['id'])->lockForUpdate()->first()) {
                     return;
                 }
 

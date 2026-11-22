@@ -119,7 +119,10 @@ class OrderManager
                 // The line is locked before the budget below is read, so a return receipt cannot spend the
                 // same units between the reading and the claim; the receipt takes the same two locks in the
                 // same order (order_details, then products).
-                if (!OrderDetail::where('id', $detail['id'])->lockForUpdate()->first()) {
+                // Read with the query builder and not the model: OrderDetail eager-loads its storage
+                // relation on every hydration, which this does not need and which needs a table a stock
+                // writer has no business requiring.
+                if (!DB::table('order_details')->where('id', $detail['id'])->lockForUpdate()->first()) {
                     return;
                 }
 
