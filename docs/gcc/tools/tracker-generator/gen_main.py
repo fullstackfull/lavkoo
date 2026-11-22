@@ -3246,6 +3246,18 @@ CRITERIA['D1-06'][3] = ('MISSING', 'Two-decimal rounding in Convert and in the c
     'open owner decision.')
 EXTRA_LINKS.setdefault('D1-06', []).append({'repo': 'lavkoo', 'pr': 153, 'sha': 'b7ea97b6'})
 
+# D2-09. The CI of head 450f5940 is now read job by job. Evidence only: no state moves, and the one thing left in the way of MET is a
+# definition the owner has to settle, not a test that is missing.
+for _i, _test in ((0, 'test_a_companys_own_secret_at_its_own_address_cannot_settle_another_companys_payment and '
+    'test_a_delivery_signed_with_one_companys_secret_is_refused_at_another_companys_address'),
+    (1, 'test_the_admin_screen_shows_each_accounts_own_webhook_url_and_secret_status, '
+    'test_the_screen_does_not_write_an_accounts_stored_value_into_the_language_files and '
+    'test_the_admin_screen_is_unchanged_while_per_company_accounts_are_off'),
+    (2, 'test_the_same_delivery_at_two_companies_addresses_is_two_events_and_at_one_address_is_one and '
+    'test_ten_copies_of_one_delivery_at_one_address_settle_once')):
+    _state, _ev = CRITERIA['D2-09'][_i]
+    CRITERIA['D2-09'][_i] = (_state, _ev + ' \u2014\u2014 ' + 'CI READ JOB BY JOB, 2026-11-22, run 44950487867 on head 450f5940: 22 of 23 jobs success, the one failure being \u201cDeployment overlay (artifact, deploys nothing)\u201d, which is red by design on every run and every base. The SQLite jobs run the WHOLE suite (vendor/bin/phpunit --display-skipped, no filter and no testsuite), and both PHP 8.2 and PHP 8.3 are green, so all 17 tests of tests/Feature/MyFatoorah/CompanyWebhookTakesOnlyItsOwnDeliveriesTest ran and passed on this head; Strict-mode MariaDB 11.4.2, Storefront and Address on MySQL 8 and MariaDB 11.4.2, and the sales-channel groups are green as well. Worth recording because it corrects something I said earlier: the pre-existing TorodShipmentDiscoveryTest failure did NOT fail on this run, so that red is CALENDAR-DEPENDENT and not permanent \u2014 its fixture takes the purchase time from the clock. ' + 'The tests of this criterion inside that green suite: ' + _test + '. ' + 'NOT RAISED TO MET BY ME, and the reason is now a DEFINITION rather than a missing test: what stands in the way is the sentence \u201ca draft on main, dormant by default\u201d, since the named test that covers this criterion has now passed in a named green job on a named head. The owner should rule whether a draft that is dormant by default can be MET, because other criteria of this same tracker (D1-04 index 2 and D1-05 index 4) were ruled MET on exactly that footing, so the tracker is inconsistent with itself. I have deliberately not resolved that in my own favour: this branch is my own lanes\u2019 work, and a raise to MET is the one direction that must not rest on the word of whoever did the work.')
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
