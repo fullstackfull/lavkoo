@@ -302,7 +302,11 @@ class M5aznProductImporter
      */
     private function variationData(array $variants, FieldMap $map, ProviderConfig $config): array
     {
-        $attribute = Attribute::withoutGlobalScope('translate')->firstOrCreate(['name' => $config->string('variant_attribute_name', 'Option')]);
+        // A lookup that may write must see the whole table: narrowed to one storefront's attributes (B-12), firstOrCreate would
+        // miss the central row and add a second one under the same name.
+        $attribute = Attribute::withoutGlobalScope('translate')
+            ->withoutGlobalScope('storefront_visibility')
+            ->firstOrCreate(['name' => $config->string('variant_attribute_name', 'Option')]);
         $options = [];
         $variation = [];
         $total = 0;

@@ -138,16 +138,32 @@ class SixCountryChannelMatcherTest extends TestCase
     {
         $this->scopeCodesByCountry();
         $accounts = [
-            'a Trendyol account of the Turkish marketplace' => $this->account('trendyol', ['storefront_code' => '']),
-            'a noon account of Egypt' => $this->account('noon', ['country_code' => 'eg']),
+            'a Trendyol account whose storefront is not set' => $this->account('trendyol', ['storefront_code' => '']),
             'an Amazon account of the Saudi and the UAE marketplaces' => $this->account('amazon', ['region' => 'eu', 'marketplace_ids' => ['A17E79C6D8DWNP', 'A2VIGQ35RCS4UG']], ['A17E79C6D8DWNP', 'A2VIGQ35RCS4UG']),
-            'an Amazon account of an unknown marketplace' => $this->account('amazon', ['region' => 'eu', 'marketplace_ids' => ['ARBP9OOSHTCHU']], ['ARBP9OOSHTCHU']),
+            'an Amazon account of a marketplace the list does not know' => $this->account('amazon', ['region' => 'eu', 'marketplace_ids' => ['A000NOTAMARKET']], ['A000NOTAMARKET']),
         ];
         $failures = [];
         foreach ($accounts as $name => $account) {
             $this->matrixCase($failures, true, app(ChannelAccountCountry::class)->of($account) === null, "{$name}: no country");
             $row = $this->sync($account);
             $this->matrixCase($failures, true, $row->status === SalesChannelProductMapping::CONFLICT && $row->product_id === null && $row->suggested_product_id === null, "{$name}: a conflict, nothing linked on a guess");
+        }
+
+        $this->assertMatrixHolds($failures);
+    }
+
+    public function test_with_the_switch_on_an_account_of_a_country_outside_the_six_is_proposed_none_of_them(): void
+    {
+        $this->scopeCodesByCountry();
+        $accounts = [
+            'a noon account of Egypt' => $this->account('noon', ['country_code' => 'eg']),
+            'an Amazon account of the Egyptian marketplace' => $this->account('amazon', ['region' => 'eu', 'marketplace_ids' => ['ARBP9OOSHTCHU']], ['ARBP9OOSHTCHU']),
+            'a Trendyol account of the Turkish storefront' => $this->account('trendyol', ['storefront_code' => 'TR']),
+        ];
+        $failures = [];
+        foreach ($accounts as $name => $account) {
+            $row = $this->sync($account);
+            $this->matrixCase($failures, true, $row->status === SalesChannelProductMapping::UNMAPPED && $row->product_id === null && $row->suggested_product_id === null, "{$name}: none of the six is proposed");
         }
 
         $this->assertMatrixHolds($failures);

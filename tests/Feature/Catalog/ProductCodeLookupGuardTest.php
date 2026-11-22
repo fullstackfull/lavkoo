@@ -7,8 +7,8 @@ use Tests\Support\ProductCodeLookupScanner;
 use Tests\TestCase;
 
 /**
- * Every place the platform looks a product up, filters or validates it by its SKU or barcode is either routed through ProductCodeScope or listed
- * here with the survey site it belongs to and why it stays as it is. A new lookup added without its country in mind fails this test, which is what
+ * Every place the platform looks a product up, filters or validates it by its SKU, its barcode or a **variant SKU** is either routed through
+ * ProductCodeScope or listed here with the survey site it belongs to and why it stays as it is. A new lookup added without its country in mind fails this test, which is what
  * keeps a code that names one product in one country from silently naming two in another.
  *
  * The table is exact: a file whose count differs, or that no longer holds a lookup, fails too, so it cannot rot into a list nobody reads.
@@ -56,6 +56,18 @@ class ProductCodeLookupGuardTest extends TestCase
             'count' => 12, 'sites' => ['C2', 'C3', 'C4', 'C5', 'C6', 'C7'], 'routed' => true,
             'reason' => 'The list queries of the panels: LIKE filters of lists a person reads and pickers. The order-edit picker is narrowed by the storefront_country filter through ProductCodeScope::restrictToCountry; the rest are lists (id-keyed) or pickers whose rows name the country (see LABELLED_BY).',
         ],
+        'app/Services/Catalog/ProductVariantSku.php' => [
+            'count' => 2, 'sites' => ['A11'], 'routed' => true,
+            'reason' => 'The variant SKU gate and the till lookup: both narrow to the product\'s country through ProductCodeScope::restrictToCountry, and both confirm the SKU by decoding the stored list.',
+        ],
+        'app/Services/Fulfillment/Readiness/Compatibility/InventorySection.php' => [
+            'count' => 2, 'sites' => [], 'routed' => false,
+            'reason' => 'Not a product lookup by a code: a read-only diagnostic that asks whether a sampled row has a variation list at all, and never resolves a product from a SKU.',
+        ],
+        'app/Services/SellerAutomation/Triggers/SelectsSimpleProducts.php' => [
+            'count' => 1, 'sites' => [], 'routed' => false,
+            'reason' => 'Not a product lookup by a code: a rule that picks a seller\'s products WITHOUT variants, by the list being empty; it never resolves a product from a SKU.',
+        ],
         'app/Repositories/RestockProductRepository.php' => [
             'count' => 1, 'sites' => ['C8'], 'routed' => false,
             'reason' => 'The restock list filters by the product\'s code (a list a person reads; every action is keyed by the row id).',
@@ -77,7 +89,7 @@ class ProductCodeLookupGuardTest extends TestCase
             'reason' => 'The stock page filter (code LIKE): a list a person reads.',
         ],
         'app/Services/SalesChannels/Sync/ProductMatcher.php' => [
-            'count' => 3, 'sites' => ['D1'], 'routed' => true,
+            'count' => 5, 'sites' => ['D1'], 'routed' => true,
             'reason' => 'The channel listing proposal matches SKU, barcode and variant SKU; ProductCodeScope::restrictToCountry keeps it to the account\'s country when that is known.',
         ],
         'app/Services/SellerCenter/Lists/InventoryList.php' => [
@@ -323,6 +335,8 @@ class ProductCodeLookupGuardTest extends TestCase
             'a unique rule on a column' => '<?php class A { function f() { return [\'code\' => \'required|unique:products,code,5\']; } }',
             'a unique rule object' => '<?php class A { function f() { return Rule::unique(\'products\', \'code\'); } }',
             'a nullsafe chain' => '<?php class A { function f($c) { return Product::query()?->where(\'code\', $c)->first(); } }',
+            'a variant SKU filter' => '<?php class A { function f($s) { return Product::where(\'variation\', \'like\', "%".$s."%")->get(); } }',
+            'a variant SKU filter on the table' => '<?php class A { function f($s) { return DB::table(\'products\')->where(\'variation\', \'like\', $s)->get(); } }',
         ];
 
         foreach ($sources as $name => $source) {

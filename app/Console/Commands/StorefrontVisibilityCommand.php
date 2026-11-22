@@ -6,19 +6,19 @@ use App\Services\Storefront\StorefrontVisibility;
 use Illuminate\Console\Command;
 
 /**
- * Reads and writes the mapping that decides what a storefront shows (B-13, B-15, B-16), for an operator who has no admin screen for it
- * yet. It only ever writes the mapping: no central row of a category, a brand, a banner, a coupon or a campaign is touched, and clearing
+ * Reads and writes the mapping that decides what a storefront shows (B-12, B-13, B-15, B-16), for an operator who has no admin screen for it
+ * yet. It only ever writes the mapping: no central row of a category, a brand, a banner, a coupon, a campaign or an attribute is touched, and clearing
  * the storefronts of an entity restores it everywhere.
  */
 class StorefrontVisibilityCommand extends Command
 {
     protected $signature = 'storefront:visibility
-        {entity-type : category, brand, banner, coupon, flash_deal, deal_of_the_day, clearance_sale or experience_campaign}
+        {entity-type : category, brand, banner, coupon, flash_deal, deal_of_the_day, clearance_sale, experience_campaign or attribute}
         {entity-id : the id of the central row}
         {storefronts?* : the storefront countries the mapping names; none at all removes the mapping}
         {--show : print the storefronts the mapping names and write nothing}';
 
-    protected $description = 'Show or set the storefronts an entity is hidden in (a category or a brand) or assigned to (a banner, a coupon, a deal, a clearance sale or a campaign)';
+    protected $description = 'Show or set the storefronts an entity is hidden in (a category or a brand) or assigned to (a banner, a coupon, a deal, a clearance sale, a campaign or an attribute)';
 
     public function handle(): int
     {

@@ -17,10 +17,12 @@ use Illuminate\Support\Facades\Schema;
  * Two entity types, two different rules, kept apart on purpose:
  *
  *  - {@see MODE_HIDDEN} (category, brand) — visible everywhere until a row hides it in one storefront. No row is today's behaviour.
- *  - {@see MODE_ASSIGNED} (banner, coupon, deal, clearance sale, campaign) — a storefront shows its own plus the unassigned ones: an
- *    entity with no row at all is shown everywhere, and one with any row is shown only where its rows name.
+ *  - {@see MODE_ASSIGNED} (banner, coupon, deal, clearance sale, campaign, attribute) — a storefront shows its own plus the unassigned
+ *    ones: an entity with no row at all is shown everywhere, and one with any row is shown only where its rows name.
  *
- * A fifth entity type costs one line of {@see ENTITY_MODES} and the trait on its model, not a table.
+ * A further entity type costs one line of {@see ENTITY_MODES} and the trait on its model, not a table — that is what the attribute type
+ * (B-12) cost on the storefront side. A panel screen that works on one country's catalogue while belonging to no storefront names the
+ * country instead, through {@see offeredIn()}; that is the one thing the storefront-request narrowing could not express.
  *
  * Nothing is narrowed while storefronts are switched off, for the admin and vendor panels, the seller APIs, a queue or a console
  * command, before this migration has run, or — so the live storefront keeps the queries it has today — while no mapping row exists for
@@ -50,6 +52,8 @@ final class StorefrontVisibility
 
     public const EXPERIENCE_CAMPAIGN = 'experience_campaign';
 
+    public const ATTRIBUTE = 'attribute';
+
     /** What a mapping row means for each entity type. Read this twice before adding one: the two modes are opposite defaults. */
     private const ENTITY_MODES = [
         self::CATEGORY => self::MODE_HIDDEN,
@@ -60,6 +64,7 @@ final class StorefrontVisibility
         self::DEAL_OF_THE_DAY => self::MODE_ASSIGNED,
         self::CLEARANCE_SALE => self::MODE_ASSIGNED,
         self::EXPERIENCE_CAMPAIGN => self::MODE_ASSIGNED,
+        self::ATTRIBUTE => self::MODE_ASSIGNED,
     ];
 
     /** How long the table's presence and the mapped entity types are remembered, so a worker notices a migration or a first mapping without a restart. */
@@ -105,11 +110,44 @@ final class StorefrontVisibility
             return $query;
         }
 
-        $idColumn ??= $query->qualifyColumn($query->getModel()->getKeyName());
+        return self::narrowFor(
+            query: $query,
+            entityType: $entityType,
+            idColumn: $idColumn ?? $query->qualifyColumn($query->getModel()->getKeyName()),
+            country: $country,
+        );
+    }
 
-        return self::ENTITY_MODES[$entityType] === self::MODE_HIDDEN
-            ? self::narrowToVisible(query: $query, entityType: $entityType, idColumn: $idColumn, country: $country)
-            : self::narrowToAssigned(query: $query, entityType: $entityType, idColumn: $idColumn, country: $country);
+    /**
+     * Narrows a list to what a *named* storefront offers, rather than to the one the request is served from (B-12).
+     *
+     * The admin and vendor panels belong to no storefront on purpose — that is what keeps every central row reachable there — so a panel
+     * screen that works on one country's catalogue, such as the attribute picker on a product form, has no storefront to be narrowed by.
+     * It names the country instead. Same mapping, same two modes, same predicate: no second table and no second scope.
+     *
+     * Rows whose ids are in $alwaysOffered are kept whatever the mapping says, so an entity a row already carries is never dropped from
+     * the form that edits it. Nothing is narrowed while the mechanism is dormant, nor for a country that is not configured, and then the
+     * query is handed back exactly as it came in — ids and all.
+     *
+     * @param list<int|string> $alwaysOffered
+     */
+    public static function offeredIn(Builder $query, string $entityType, string $country, array $alwaysOffered = []): Builder
+    {
+        $country = self::narrowedCountryOf(entityType: $entityType, country: $country);
+
+        if ($country === null) {
+            return $query;
+        }
+
+        $idColumn = $query->qualifyColumn($query->getModel()->getKeyName());
+
+        return $query->where(static function (Builder $offered) use ($entityType, $idColumn, $country, $alwaysOffered): void {
+            self::narrowFor(query: $offered, entityType: $entityType, idColumn: $idColumn, country: $country);
+
+            if ($alwaysOffered !== []) {
+                $offered->orWhereIn($idColumn, $alwaysOffered);
+            }
+        });
     }
 
     /**
@@ -194,11 +232,38 @@ final class StorefrontVisibility
     /** The storefront whose answer this query must give, or null when nothing is narrowed for this entity type. */
     private static function narrowedCountry(string $entityType): ?string
     {
-        if (!isset(self::ENTITY_MODES[$entityType]) || !self::isTracked()) {
+        return self::narrows($entityType) ? StorefrontCatalog::country() : null;
+    }
+
+    /**
+     * The storefront a caller named, on the same two conditions a storefront request is narrowed by. A country that is not configured
+     * narrows nothing, so a stale or mistyped code shows the whole list instead of an empty one.
+     */
+    private static function narrowedCountryOf(string $entityType, string $country): ?string
+    {
+        if (!self::narrows($entityType)) {
             return null;
         }
 
-        return in_array($entityType, self::mappedEntityTypes(), true) ? StorefrontCatalog::country() : null;
+        $country = strtoupper(trim($country));
+
+        return in_array($country, StorefrontResolver::fromConfig()->configuredCountries(), true) ? $country : null;
+    }
+
+    /** Whether this entity type is narrowed at all: the mechanism is tracked and the type has at least one mapping row. */
+    private static function narrows(string $entityType): bool
+    {
+        return isset(self::ENTITY_MODES[$entityType])
+            && self::isTracked()
+            && in_array($entityType, self::mappedEntityTypes(), true);
+    }
+
+    /** The entity type's own rule, the one place the two opposite modes are chosen between. */
+    private static function narrowFor(Builder $query, string $entityType, string $idColumn, string $country): Builder
+    {
+        return self::ENTITY_MODES[$entityType] === self::MODE_HIDDEN
+            ? self::narrowToVisible(query: $query, entityType: $entityType, idColumn: $idColumn, country: $country)
+            : self::narrowToAssigned(query: $query, entityType: $entityType, idColumn: $idColumn, country: $country);
     }
 
     /** @return list<string> */

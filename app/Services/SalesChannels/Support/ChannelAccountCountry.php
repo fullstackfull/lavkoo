@@ -4,6 +4,7 @@ namespace App\Services\SalesChannels\Support;
 
 use App\Enums\SalesChannels\SalesChannel;
 use App\Models\SalesChannelAccount;
+use App\Services\Catalog\ProductCodeScope;
 use App\Services\Storefront\ProductCountry;
 
 /**
@@ -19,14 +20,65 @@ final class ChannelAccountCountry
     /** The setting each channel keeps the country of an account under. */
     private const SETTINGS = ['trendyol' => 'storefront_code', 'noon' => 'country_code'];
 
-    /** The marketplace ids Amazon publishes for the Gulf countries it sells in. */
-    private const AMAZON_MARKETPLACES = ['A17E79C6D8DWNP' => 'SA', 'A2VIGQ35RCS4UG' => 'AE'];
+    /**
+     * The marketplace ids Amazon publishes, by the country each one sells in. The two Gulf ones are the countries this platform has storefronts
+     * for; the rest are listed so that an account of one of them is recognised as selling somewhere we have no catalogue, rather than read as
+     * "country unknown" and matched against every country's products.
+     */
+    private const AMAZON_MARKETPLACES = [
+        'A17E79C6D8DWNP' => 'SA',
+        'A2VIGQ35RCS4UG' => 'AE',
+        'ARBP9OOSHTCHU' => 'EG',
+        'A33AVAJ2PDY3EV' => 'TR',
+        'ATVPDKIKX0DER' => 'US',
+        'A2EUQ1WTGCTBG2' => 'CA',
+        'A1AM78C64UM0Y8' => 'MX',
+        'A2Q3Y263D00KWC' => 'BR',
+        'A1F83G8C2ARO7P' => 'GB',
+        'A1PA6795UKMFR9' => 'DE',
+        'A13V1IB3VIYZZH' => 'FR',
+        'APJ6JRA9NG5V4' => 'IT',
+        'A1RKKUPIHCS9HS' => 'ES',
+        'A1805IZSGTT6HS' => 'NL',
+        'A2NODRKZP88ZB9' => 'SE',
+        'A1C3SOZRARQ6R3' => 'PL',
+        'A21TJRUUN4KGV' => 'IN',
+        'A1VC38T7YXB528' => 'JP',
+        'A19VAU5U5O7RUS' => 'SG',
+        'A39IBJ37TRP1C6' => 'AU',
+    ];
+
+    public function __construct(private readonly ProductCodeScope $codeScope)
+    {
+    }
 
     public function of(SalesChannelAccount $account): ?string
     {
-        $code = $account->channel === SalesChannel::Amazon->value ? $this->amazonCountry($account) : $this->settingCountry($account);
+        $code = $this->countryOf($account);
 
         return in_array($code, ProductCountry::options(), true) ? $code : null;
+    }
+
+    /**
+     * Whether the account says it sells in a country the platform has no storefront for — an Amazon marketplace outside the Gulf, a Turkish
+     * Trendyol storefront, a noon country we do not serve. Nothing of ours can be its listing, so it is narrowed to no product at all rather
+     * than left to match every country's.
+     */
+    public function sellsWhereWeHaveNoCatalogue(SalesChannelAccount $account): bool
+    {
+        if (!$this->codeScope->enabled()) {
+            return false;
+        }
+
+        $code = $this->countryOf($account);
+
+        return $code !== '' && !in_array($code, ProductCountry::options(), true);
+    }
+
+    /** The country the account's own settings name, whether or not this platform has a storefront for it. Empty when they name none, or two. */
+    private function countryOf(SalesChannelAccount $account): string
+    {
+        return $account->channel === SalesChannel::Amazon->value ? $this->amazonCountry($account) : $this->settingCountry($account);
     }
 
     private function settingCountry(SalesChannelAccount $account): string

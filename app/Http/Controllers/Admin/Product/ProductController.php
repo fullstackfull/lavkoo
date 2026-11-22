@@ -41,9 +41,14 @@ use App\Services\DigitalProductFileService;
 use App\Services\Fulfillment\ProductFormProviderSelection;
 use App\Services\Fulfillment\ProviderStockOwnership;
 use App\Services\ProductService;
+use App\Services\Storefront\ProductCountry;
 use App\Traits\FileManagerTrait;
 use App\Traits\ProductTrait;
 use App\Services\Catalog\ProductCodeScope;
+use App\Services\Catalog\ProductCopy;
+use App\Services\Catalog\ProductCopyRefused;
+use App\Services\Catalog\ProductCopyToCountry;
+use App\Services\Storefront\StorefrontCatalog;
 use App\Utils\CartManager;
 use App\Utils\ProductManager;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
@@ -99,6 +104,7 @@ class ProductController extends BaseController
         private readonly ShopRepositoryInterface                    $shopRepo,
         private readonly ProductService                             $productService,
         private readonly DigitalProductFileService                  $digitalFiles,
+        private readonly ProductCopyToCountry                       $productCopyToCountry,
     )
     {
         $this->middleware(ScopeProductsToStaffCountries::class);
@@ -173,7 +179,11 @@ class ProductController extends BaseController
         $brandSetting = getWebConfig(name: 'product_brand');
         $digitalProductSetting = getWebConfig(name: 'digital_product');
         $colors = $this->colorRepo->getList(orderBy: ['name' => 'desc'], dataLimit: 'all');
-        $attributes = $this->attributeRepo->getList(orderBy: ['name' => 'desc'], dataLimit: 'all');
+        $attributes = $this->attributeRepo->getListOfferedIn(
+            storefrontCountry: ProductCountry::countryOfForm(requestedCountry: old('storefront_country')),
+            orderBy: ['name' => 'desc'],
+            dataLimit: 'all',
+        );
         $languages = getWebConfig(name: 'pnc_language') ?? null;
         $defaultLanguage = $languages[0];
         $digitalProductFileTypes = ['audio', 'video', 'document', 'software'];
@@ -266,6 +276,50 @@ class ProductController extends BaseController
         }
     }
 
+    /**
+     * Puts the same product in a second country, deliberately: an explicit target that is never the source's own country, the code, the barcode
+     * and the variant SKUs kept only where they are free, image files of the copy's own, no stock and no price carried, and an audit line. The
+     * admin lands on the copy's edit form, because the copy still needs its price, and is told there what the copy could not carry.
+     */
+    public function copyToCountry(Request $request, string|int $id): RedirectResponse
+    {
+        $product = $this->productRepo->getFirstWhereWithoutGlobalScope(params: ['id' => $id]);
+        if (!$product) {
+            ToastMagic::error(translate('product_not_found') . '!');
+
+            return redirect()->route('admin.products.product-gallery');
+        }
+
+        try {
+            $made = $this->productCopyToCountry->copy(source: $product, targetCountry: $request->input(StorefrontCatalog::COLUMN));
+        } catch (ProductCopyRefused $refused) {
+            ToastMagic::error($refused->getMessage());
+
+            return back();
+        }
+
+        ToastMagic::success(translate('the_copy_was_made_without_the_stock_or_the_price_of_the_original_set_them_here'));
+        if (!$made->carriedEverythingItCould()) {
+            ToastMagic::warning($this->whatTheCopyCouldNotCarry(made: $made));
+        }
+
+        return redirect()->route('admin.products.update', ['id' => $made->product->id]);
+    }
+
+    /** What the admin has to put back by hand: a variant SKU the target country already uses, and an image file that could not be read. */
+    private function whatTheCopyCouldNotCarry(ProductCopy $made): string
+    {
+        $notices = [];
+        if ($made->variantSkusNotKept !== []) {
+            $notices[] = translate('a_variation_sku_the_target_country_already_uses_was_cleared_on_the_copy') . ': ' . implode(', ', $made->variantSkusNotKept);
+        }
+        if ($made->imagesNotCopied !== []) {
+            $notices[] = translate('an_image_file_could_not_be_read_and_was_not_copied') . ': ' . implode(', ', $made->imagesNotCopied);
+        }
+
+        return implode(' ', $notices);
+    }
+
     public function getUpdateView(string|int $id): View|RedirectResponse
     {
         $taxData = $this->getTaxSystemType();
@@ -287,7 +341,12 @@ class ProductController extends BaseController
         $digitalProductSetting = getWebConfig(name: 'digital_product');
         $languages = getWebConfig(name: 'pnc_language') ?? null;
         $colors = $this->colorRepo->getList(orderBy: ['name' => 'desc'], dataLimit: 'all');
-        $attributes = $this->attributeRepo->getList(orderBy: ['name' => 'desc'], dataLimit: 'all');
+        $attributes = $this->attributeRepo->getListOfferedIn(
+            storefrontCountry: ProductCountry::countryOfForm(product: $product),
+            alwaysOffered: $this->productService->getProductAttributeIds(product: $product),
+            orderBy: ['name' => 'desc'],
+            dataLimit: 'all',
+        );
         $defaultLanguage = $languages[0];
         $digitalProductFileTypes = ['audio', 'video', 'document', 'software'];
         $digitalProductAuthors = $this->authorRepo->getListWhere(dataLimit: 'all');

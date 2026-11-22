@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Services\Catalog\ProductCodeScope;
+use App\Services\Catalog\ProductVariantSku;
 use App\Services\Storefront\ProductCountry;
 use App\Traits\CalculatorTrait;
 use App\Traits\ResponseHandler;
@@ -71,6 +72,19 @@ class ProductAddRequest extends Request
         return $rules + ProductCountry::newProductRules();
     }
 
+    /**
+     * A variant's SKU names one variant inside the product's country: it may not be repeated among the product's own variants, and it may not
+     * be one a product of that country already holds. Dormant with the scope, so a form that saves today goes on saving.
+     */
+    private function refuseVariantSkusAlreadyInUse(Validator $validator): void
+    {
+        app(ProductVariantSku::class)->guard(
+            validator: $validator,
+            request: $this,
+            country: $this->countryOfNewProduct(codeScope: app(ProductCodeScope::class)),
+        );
+    }
+
     /** The country the add action saves the product in: the admin's choice while countries are tracked, the default of the table for everything else. */
     private function countryOfNewProduct(ProductCodeScope $codeScope): string
     {
@@ -100,6 +114,7 @@ class ProductAddRequest extends Request
         return [
             function (Validator $validator) {
                 $this->validateBrandEntitlement($validator);
+                $this->refuseVariantSkusAlreadyInUse($validator);
 
 
                 $disallowedExtensions = getDisallowedExtensionsListArray();
