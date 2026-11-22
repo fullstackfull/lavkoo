@@ -23,7 +23,11 @@ trait BuildsPanelOrderEditTables
             'shipping_method_id' => 'id', 'delivery_man_id' => 'id', 'deliveryman_assigned_at' => 'dateTime', 'is_shipping_free' => 'flag', 'edited_status' => 'flag',
         ]);
         $this->addColumnsThatAreMissing(table: 'order_details', columns: [
-            'discount_type' => 'string', 'digital_file_after_sell' => 'string', 'shipping_method_id' => 'id', 'refund_started_at' => 'dateTime', 'is_stock_decreased' => 'flag',
+            'discount_type' => 'string', 'digital_file_after_sell' => 'string', 'shipping_method_id' => 'id', 'refund_started_at' => 'dateTime',
+            // Production defaults this one to 1 (2021_04_17_134848_add_column_to_order_details_stock): the units of a sold line ARE off the
+            // shelf. Seeded 0, the order-edit writer reads "these units are already back" and skips the give-back before it takes the new
+            // quantity, so an edit took the line's stock a second time.
+            'is_stock_decreased' => 'flagOn',
             'refund_request' => 'amount',
         ]);
 
@@ -126,7 +130,7 @@ trait BuildsPanelOrderEditTables
         });
     }
 
-    /** @param array<string, string> $columns the type of each column to add: string, amount, id, dateTime or flag */
+    /** @param array<string, string> $columns the type of each column to add: string, amount, id, dateTime, flag (default off) or flagOn (default on) */
     private function addColumnsThatAreMissing(string $table, array $columns): void
     {
         foreach ($columns as $column => $type) {
@@ -141,6 +145,7 @@ trait BuildsPanelOrderEditTables
                     'id' => $blueprint->unsignedBigInteger($column)->nullable(),
                     'dateTime' => $blueprint->dateTime($column)->nullable(),
                     'flag' => $blueprint->boolean($column)->default(false),
+                    'flagOn' => $blueprint->boolean($column)->default(true),
                 };
             });
         }

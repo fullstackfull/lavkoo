@@ -66,7 +66,9 @@ trait BuildsSellerApiOrders
             $table->string('variant')->nullable();
             $table->text('variation')->nullable();
             $table->string('delivery_status')->default('pending');
-            $table->boolean('is_stock_decreased')->default(false);
+            // Production defaults this to 1: the units of a sold line are off the shelf. Seeded 0, the order-edit writer skips the give-back
+            // and the edit takes the line's stock a second time.
+            $table->boolean('is_stock_decreased')->default(true);
             $table->integer('refund_request')->default(0);
             $table->timestamps();
         });
