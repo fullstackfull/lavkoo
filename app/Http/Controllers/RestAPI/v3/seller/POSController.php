@@ -19,6 +19,7 @@ use App\Services\Address\CheckoutAddressGuard;
 use App\Services\Address\OrderAddressService;
 use App\Services\PasswordResetService;
 use App\Services\Storefront\OrderStorefrontSnapshot;
+use App\Services\Storefront\StorefrontCurrency;
 use App\Models\User;
 use App\Traits\API\v3\VendorPOSManagement;
 use App\Traits\CustomerTrait;
@@ -285,7 +286,9 @@ class POSController extends Controller
         $couponDiscountAmount = $request['coupon_discount_amount'];
         $couponCode = $request['coupon_code'];
         $paymentMethod = $request['payment_method'];
-        $paidAmount = currencyConverter(amount: $request['paid_amount'] ?? 0);
+        // The wallet holds one balance in the platform's own money until the balances are per market (GCC-15), so what is taken out of it is
+        // converted as it always was. What the ORDER records is a different question, answered below in the order's own money.
+        $walletPayment = currencyConverter(amount: $request['paid_amount'] ?? 0);
         // Same lifecycle contract as the panel POS: a delivery-fulfillment sale
         // starts pending and, when paid in cash, is stored as a COD/unpaid
         // order settled through the standard status machinery.
@@ -320,8 +323,8 @@ class POSController extends Controller
 
         if ($paymentMethod == 'wallet' && $customerId != 0) {
             $customerBalance = $this->customerRepo->getFirstWhere(params: ['id' => $customerId]) ?? 0;
-            if ($customerBalance['wallet_balance'] >= $paidAmount) {
-                $this->createWalletTransaction(user_id: $customerId, amount: floatval($paidAmount), transaction_type: 'order_place', reference: 'order_place_in_pos');
+            if ($customerBalance['wallet_balance'] >= $walletPayment) {
+                $this->createWalletTransaction(user_id: $customerId, amount: floatval($walletPayment), transaction_type: 'order_place', reference: 'order_place_in_pos');
             } else {
                 return response()->json([
                     'need_balance' => true,
@@ -388,6 +391,20 @@ class POSController extends Controller
         $deliveryShippingResponsibility = $fulfillment == 'delivery' ? getWebConfig(name: 'shipping_method') : null;
         $deliveryAddressSnapshot = $this->orderAddresses->snapshot(address: $deliveryShippingAddress);
 
+        // The lines are already saved raw, in the money their storefront trades in, and the order is stamped from them below as "every amount
+        // here is in that currency at rate one". These two were the only amounts converted into the platform's base unit on the way in, so one
+        // order carried amounts in two units: a ten-dinar coupon was stored as 2.67 and a reader of the order's own currency printed 2.666KD,
+        // a figure nobody was charged. Stored in the till's own money they are in the unit the rest of the order is in. A till of the default
+        // storefront, and a shop with storefront currencies off, convert exactly as before.
+        $storefrontSnapshot = app(OrderStorefrontSnapshot::class);
+        $tillMoney = app(StorefrontCurrency::class)->within(
+            country: $storefrontSnapshot->countryOfMoney(orderId: $generateOrderID),
+            callback: fn (): array => [
+                'paid_amount' => currencyConverter(amount: $request['paid_amount'] ?? 0),
+                'discount_amount' => currencyConverter(amount: $couponDiscountAmount ?? 0),
+            ],
+        );
+
         $orderData = [
             'id' => $generateOrderID,
             'customer_id' => $customerId,
@@ -409,8 +426,8 @@ class POSController extends Controller
             'init_order_amount' => $cartsTotalAmount,
             'total_tax_amount' => $request['total_tax_amount'] ?? 0,
             'tax_type' => $taxConfig['SystemTaxVatType'],
-            'paid_amount' => $isCashOnDelivery ? 0 : $paidAmount,
-            'discount_amount' => currencyConverter(amount: $couponDiscountAmount ?? 0),
+            'paid_amount' => $isCashOnDelivery ? 0 : $tillMoney['paid_amount'],
+            'discount_amount' => $tillMoney['discount_amount'],
             'coupon_code' => $couponCode ?? null,
             'discount_type' => (isset($carts['coupon_code']) && $carts['coupon_code']) ? 'coupon_discount' : NULL,
             'coupon_discount_bearer' => $carts['coupon_bearer'] ?? 'inhouse',
@@ -422,7 +439,6 @@ class POSController extends Controller
         // The till writes its lines before the order row exists, so the order is stamped from them here
         // and the lines take that currency afterwards. Asked any earlier, a line would read an order
         // that is not there yet and record nothing.
-        $storefrontSnapshot = app(OrderStorefrontSnapshot::class);
         $storefrontSnapshot->record(orderId: $generateOrderID);
         $storefrontSnapshot->stampMoneyRows(table: 'order_details', orderId: $generateOrderID);
 

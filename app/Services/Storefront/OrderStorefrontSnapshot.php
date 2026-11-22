@@ -44,11 +44,11 @@ final class OrderStorefrontSnapshot
 
     public function record(int|string $orderId): void
     {
-        if (!$this->storefrontCurrency->isEnabled() || !$this->columnReady(table: 'orders', column: self::COLUMN) || !StorefrontCatalog::tracksProductCountry()) {
+        if (!$this->columnReady(table: 'orders', column: self::COLUMN)) {
             return;
         }
 
-        $country = $this->countryOfLines(orderId: $orderId);
+        $country = $this->countryOfMoney(orderId: $orderId);
 
         if ($country === null) {
             return;
@@ -102,6 +102,22 @@ final class OrderStorefrontSnapshot
             self::CURRENCY => $code,
             self::RATE => $order->{self::RATE},
         ]);
+    }
+
+    /**
+     * The storefront whose money an order's amounts are counted in, as {@see record()} reads it: the one country the products of its lines
+     * belong to, or null when there is none, more than one, or nothing is recorded on this platform at all.
+     *
+     * A writer that saves an amount of its own alongside the lines — a till saving what was paid and what the coupon took off — asks this so it
+     * can store that amount in the same unit as the lines it has just written, which is the unit the order's record then says they are all in.
+     */
+    public function countryOfMoney(int|string $orderId): ?string
+    {
+        if (!$this->storefrontCurrency->isEnabled() || !StorefrontCatalog::tracksProductCountry()) {
+            return null;
+        }
+
+        return $this->countryOfLines(orderId: $orderId);
     }
 
     /** The one country the products of the order's lines belong to, or null when there is none or more than one. */
