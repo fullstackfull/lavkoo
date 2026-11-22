@@ -122,8 +122,10 @@ class ThePlatformAddressConfirmsWhatExpectsItTest extends CompanyAccountsTestCas
      * Saudi Arabia's included. For all of them the platform address is where the gateway was told to deliver, so it is where the confirmation arrives,
      * and declining it would leave real money unconfirmed.
      *
-     * The three legacy spellings of "nothing stored" are each put through the same real route, because a row written before this feature existed can
-     * hold any of them.
+     * Five spellings of "nothing a record can be read out of" are each put through the same real route, because a row written before this feature
+     * existed, or by something that is not this application, can hold any of them: the additional data a payment of this installation carries, no
+     * additional data at all, text that is not readable at all, a list where a record would be, and the key itself present but holding something that
+     * is not a record. `PaymentAccountBinding::of()` answers null for every one, and null is an OLD payment.
      *
      * @return array<string, array{mixed}>
      */
@@ -133,6 +135,8 @@ class ThePlatformAddressConfirmsWhatExpectsItTest extends CompanyAccountsTestCas
             'the additional data a payment of this installation carries' => [json_encode(['customer_id' => 7, 'order_note' => null])],
             'no additional data at all' => [null],
             'additional data that is not readable as a record' => ['not-json-at-all'],
+            'a list where a record would be' => [json_encode([1, 2])],
+            'the key present but holding no record' => [json_encode(['gcc_payment_account' => 'not-a-record'])],
         ];
     }
 
@@ -219,6 +223,36 @@ class ThePlatformAddressConfirmsWhatExpectsItTest extends CompanyAccountsTestCas
             ->assertJsonPath('status', 'settled');
 
         $this->assertSame([$attempt->payment_request_id], $this->paidPayments());
+    }
+
+    /**
+     * A STORED VALUE THAT IS NOT TEXT BUT IS NOT EMPTY EITHER — a number — reads as an address, and this is what that costs.
+     *
+     * `PaymentTransactionRecord::text()` casts an int or a float to a string, which the exchange rate it shares that helper with needs; so a stored
+     * `0` under this key reads as the address "0" rather than as no address. No writer of this application produces it. Pinned rather than guessed,
+     * and pinned in both directions, because the direction is the whole question: the PUBLIC address refuses it, as it refuses any address that is not
+     * its own — and the payment is NOT stranded, because its company address keys on the ACCOUNT the payment was stamped with and still confirms it.
+     *
+     * So this shape is treated exactly as a real company address is. That is why it is recorded here as a measured consequence and not as a defect to
+     * fix: changing `text()` would change how the exchange rate is read on a financial record, for a shape nothing writes.
+     */
+    public function test_a_stored_number_reads_as_an_address_and_its_company_address_still_confirms_it(): void
+    {
+        $attempt = $this->anAttemptStampedWith($this->kuwait);
+        $this->replaceTheRecordedAddressOf($attempt, with: 0);
+        $this->fakePaidFor($attempt);
+
+        $this->assertSame('0', $this->theAddressExpectedBy($attempt), 'a number reads as an address, not as none');
+
+        $this->deliverToThePlatformAddress($attempt)->assertStatus(401);
+
+        $this->assertSame([], $this->paidPayments(), 'the public address refuses an address that is not its own');
+
+        $this->deliverToTheCompanyAddress($this->kuwait, $attempt, self::KUWAIT_WEBHOOK_SECRET)
+            ->assertOk()
+            ->assertJsonPath('status', 'settled');
+
+        $this->assertSame([$attempt->payment_request_id], $this->paidPayments(), 'and nothing is stranded: its own address confirms it');
     }
 
     /** A payment of one company is not confirmed at another company's address either. The addresses are the account's, and the account is the stamp's. */

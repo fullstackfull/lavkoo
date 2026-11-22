@@ -145,6 +145,11 @@ final class PaymentAccountBinding
      *   address. `additional_data` is a JSON column this application is not the only writer of, so the shape is reachable without this class producing
      *   it, and it means the same thing: no address was recorded, so the platform address is what the payment expects.
      *
+     * A stored NUMBER is the one shape that goes the other way: `PaymentTransactionRecord::text()` casts an int or a float to a string, which the
+     * exchange rate it shares that helper with needs, so a stored `0` reads as the address "0" and this answers TRUE for a platform address. Nothing
+     * writes it, and it costs nothing: such a payment is treated exactly as one carrying a real company address, so its own account's address still
+     * confirms it and it is not stranded. Pinned in both directions by a test rather than left to be worked out.
+     *
      * The comparison is the address text as recorded against the address text now. It cannot turn a company address into the platform one — a recorded
      * value only ever came from a per-account route and the platform addresses are routes of their own — so a change of host or scheme can only make a
      * company-bound payment answer TRUE, which is the safe direction. The caller gives the address because each gateway has a public address of its
