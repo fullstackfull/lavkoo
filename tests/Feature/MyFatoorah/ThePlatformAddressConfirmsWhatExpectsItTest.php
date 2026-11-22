@@ -15,7 +15,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
-use Tests\Support\RestoresLanguageFiles;
 
 /**
  * A payment expects one confirmation address, and that address, and only it, confirms that payment (GCC-21, stage C).
@@ -30,6 +29,10 @@ use Tests\Support\RestoresLanguageFiles;
  * and each of them is a payment this address must keep confirming; each has a test of its own below, and
  * App\Services\Payments\PaymentAccountBinding::expectsAnAddressOtherThan() names what each one means.
  *
+ * Tests\Support\RestoresLanguageFiles is deliberately NOT used: this file renders no Blade and calls translate() nowhere, and the three tracked
+ * `new-messages.php` files are byte-identical before and after it runs (measured, md5). Whoever renders a view from here owes the file that trait,
+ * with its restore wired into tearDown.
+ *
  * Nothing here is arranged by hand that production writes. The stamps come from App\Services\Payments\PaymentAccountBinding inside the market's own
  * storefront, the attempts from the real initiation service, the signatures from the production verifier, and every delivery is a real POST to the
  * real route. The one exception is named where it occurs: the third stored shape is a shape of the JSON column that no writer of this application
@@ -37,8 +40,6 @@ use Tests\Support\RestoresLanguageFiles;
  */
 class ThePlatformAddressConfirmsWhatExpectsItTest extends CompanyAccountsTestCase
 {
-    use RestoresLanguageFiles;
-
     private const PLATFORM_WEBHOOK_SECRET = 'test-webhook-secret';
 
     private const KUWAIT_WEBHOOK_SECRET = 'kuwait-account-webhook-secret';
@@ -51,7 +52,6 @@ class ThePlatformAddressConfirmsWhatExpectsItTest extends CompanyAccountsTestCas
     {
         parent::setUp();
 
-        $this->rememberLanguageFiles();
         $this->configureGateway(webhookSecret: self::PLATFORM_WEBHOOK_SECRET);
         $this->installTheCompanyAndAccountTables();
         $this->turnCompanyAccountsOn();
