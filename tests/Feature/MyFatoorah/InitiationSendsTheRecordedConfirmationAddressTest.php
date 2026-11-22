@@ -23,13 +23,19 @@ use Illuminate\Support\Facades\Http;
  *   a payment carrying no stamp sends EXACTLY the platform address it sent before this change, byte for byte. That is every payment on a shipped
  *   configuration, because `config('gcc.storefronts.payment_accounts.gateways')` ships as Paymob alone and a gateway that is not on it stamps nothing;
  *
- *   a payment stamped with a company account sends THAT account's own address, and not the platform one;
+ *   a payment stamped with a company account OF THIS GATEWAY sends THAT account's own address, and not the platform one;
  *
- *   and with the gateway list the repository actually ships, the company case cannot arise at all — asserted, not assumed.
+ *   a payment stamped with an account of ANOTHER gateway sends the platform address, because an account is notified at an address of its own only at
+ *   the gateway that address serves — and on the shipped list the only account an installation can have is of another gateway;
+ *
+ *   and with the gateway list the repository actually ships, this gateway is stamped with nothing at all — asserted, not assumed.
  */
 class InitiationSendsTheRecordedConfirmationAddressTest extends CompanyAccountsTestCase
 {
     private const KUWAIT_TOKEN = 'the-kuwait-notification-token';
+
+    /** Every top-level key of the body this gateway is sent, so a value added or dropped beside the address under test cannot pass unseen. */
+    private const THE_BODY_KEYS = ['Order', 'IntegrationUrls', 'Language', 'NotificationOption', 'PaymentExpiry', 'MetaData', 'Customer'];
 
     protected function setUp(): void
     {
@@ -131,11 +137,35 @@ class InitiationSendsTheRecordedConfirmationAddressTest extends CompanyAccountsT
     }
 
     /**
+     * A payment stamped with an account of ANOTHER gateway is told the platform address, and never that account's.
+     *
+     * An account is notified at an address of its own only at the gateway that address serves, so a payment taken through an account of any other
+     * gateway records none and this gateway's initiation sends the platform address. Without that, a payment stamped with a PAYMOB account — and
+     * Paymob is the one gateway the owner's shipped list holds, so it is the only account a shipped installation can have — would have had this
+     * gateway's invoice created with the Paymob account's address on it. That address answers 401 to every delivery of this gateway, by construction
+     * and not by configuration, so the confirmation of that payment could never arrive anywhere.
+     */
+    public function test_a_payment_stamped_with_another_gateways_account_sends_the_platform_address(): void
+    {
+        $account = $this->anAccountFor(country: 'KW', webhookSecret: 'kuwait-webhook-secret', token: 'the-paymob-account-token', gateway: 'paymob_accept');
+        $payment = $this->makePaymentRequest(['additional_data' => $this->stampedForTheMarketOf($account, gateway: 'paymob_accept')]);
+
+        $this->assertSame((int) $account->id, $this->theRecordOf($payment)?->accountId, 'the payment is stamped with the other gateway account');
+        $this->assertNull($this->theRecordOf($payment)?->confirmationAddress, 'which is notified at no address of its own, so none was recorded');
+
+        app(PaymentInitiationService::class)->start(PaymentRequest::find($payment));
+
+        $this->assertSame(route('myfatoorah.webhook'), $this->theAddressSent());
+        $this->assertStringNotContainsString('the-paymob-account-token', (string) $this->theAddressSent(), 'the other account address was not what the gateway was told');
+    }
+
+    /**
      * The dormancy pin, asserted rather than assumed: with the gateway list config/gcc.php SHIPS, this gateway is configured from the one platform
      * settings row, a payment of it is stamped with nothing, and the platform address is what the gateway is told.
      *
      * That list is Paymob alone. Until this gateway joins it — which, as the config says, is the same change that makes it read its api_key from the
-     * account — the company branch of this stage cannot arise on a shipped installation at all.
+     * account — this gateway's payments are stamped with nothing whatsoever. That is one of the two halves of "no company address is sent on a shipped
+     * installation"; the other is the test above it, where a PAYMOB account IS stamped on a payment and is still notified at no address of its own.
      */
     public function test_with_the_gateway_list_the_repository_ships_a_payment_sends_the_platform_address(): void
     {
@@ -166,10 +196,14 @@ class InitiationSendsTheRecordedConfirmationAddressTest extends CompanyAccountsT
 
         $body = Http::recorded()->map(static fn (array $pair): array => $pair[0]->data())->last();
 
+        $this->assertSame(self::THE_BODY_KEYS, array_keys($body), 'the whole body, key for key and in the order it was in');
         $this->assertSame(['Redirection', 'Webhook'], array_keys($body['IntegrationUrls']), 'the two addresses, in the order they were in');
         $this->assertStringContainsString('myfatoorah/callback', (string) $body['IntegrationUrls']['Redirection']);
         $this->assertSame(150.0, $body['Order']['Amount']);
         $this->assertSame('SAR', $body['Order']['Currency']);
+        $this->assertSame('EN', $body['Language'], 'and every other value the same line sends beside the address');
+        $this->assertSame('LINK', $body['NotificationOption']);
+        $this->assertSame(['UDF1', 'UDF2', 'UDF3'], array_keys($body['MetaData']));
     }
 
     /** The outgoing notification address of the last request MyFatoorah was sent. */
@@ -202,13 +236,13 @@ class InitiationSendsTheRecordedConfirmationAddressTest extends CompanyAccountsT
      * App\Services\Payments\PaymentAccountBinding is the same writer every gateway's payment goes through (App\Traits\Payment::generate_link calls it),
      * so the stamp these tests rest on is the one production writes and not a shape invented here.
      */
-    private function stampedForTheMarketOf(PaymentGatewayAccount $account): string
+    private function stampedForTheMarketOf(PaymentGatewayAccount $account, string $gateway = GatewayConfigRepository::KEY): string
     {
         $stamped = StorefrontResolver::fromConfig()
             ->context(explicitChoice: (string) $account->storefront_country)
             ->serve(static fn (): array => app(PaymentAccountBinding::class)->record(
                 additionalData: ['customer_id' => 7, 'order_note' => null],
-                gateway: GatewayConfigRepository::KEY,
+                gateway: $gateway,
                 currencyCode: 'SAR',
             ));
 

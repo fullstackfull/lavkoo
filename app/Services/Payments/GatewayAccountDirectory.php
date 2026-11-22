@@ -3,6 +3,7 @@
 namespace App\Services\Payments;
 
 use App\Models\PaymentGatewayAccount;
+use App\Services\MyFatoorah\GatewayConfigRepository;
 use App\Services\Storefront\LegalEntityRegistry;
 use Illuminate\Container\Attributes\Singleton;
 
@@ -18,6 +19,15 @@ use Illuminate\Container\Attributes\Singleton;
 #[Singleton]
 final class GatewayAccountDirectory
 {
+    /**
+     * The one gateway whose notifications the per-account address reads.
+     *
+     * POST /api/payments/account/{account}/webhook hands a delivery to ONE gateway's processor (App\Http\Controllers\Api\PaymentAccountWebhookController),
+     * and refuses an account of any other gateway before the body is read at all. So that address is an address for an account of this gateway, and an
+     * account of any other gateway is notified at no address of its own.
+     */
+    private const GATEWAY_SERVED_AT_THAT_ADDRESS = GatewayConfigRepository::KEY;
+
     public function __construct(
         private readonly GatewayAccountRegistry $registry,
         private readonly GatewayAccountSecrets $secrets,
@@ -47,9 +57,20 @@ final class GatewayAccountDirectory
         return $accounts->map(fn (PaymentGatewayAccount $account): array => $this->rowOf(account: $account))->all();
     }
 
-    /** The address this account's notifications are delivered to, or null for an account with no token: an account without one receives none. */
+    /**
+     * The address this account's notifications are delivered to, or null for an account that is notified at no address of its own.
+     *
+     * Null for an account with no token, because an account without one receives nothing. Null as well for an account of a gateway that is not the one
+     * served at that address: that address refuses such an account outright, so the URL would be an address at which this account is told nothing. The
+     * one gateway the owner's shipped list holds is Paymob, which sends no server-to-server notification at all -- its confirmation is the customer's
+     * return to a platform-wide address -- so a payment taken through a Paymob account records no address and expects the platform one (GCC-21).
+     */
     public function webhookUrlOf(PaymentGatewayAccount $account): ?string
     {
+        if ((string) $account->gateway !== self::GATEWAY_SERVED_AT_THAT_ADDRESS) {
+            return null;
+        }
+
         $token = (string) $account->webhook_path_token;
 
         return $token === '' ? null : route('payments.account.webhook', ['account' => $token]);

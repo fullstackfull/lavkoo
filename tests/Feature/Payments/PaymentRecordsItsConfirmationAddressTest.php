@@ -10,8 +10,10 @@ use App\Http\Middleware\NoIndexThemePreview;
 use App\Http\Middleware\RecordAnalytics;
 use App\Http\Middleware\RecordHttpTelemetry;
 use App\Models\PaymentGatewayAccount;
+use App\Services\MyFatoorah\GatewayConfigRepository;
 use App\Services\Payments\GatewayAccountDirectory;
 use App\Services\Payments\PaymentAccountBinding;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Tests\Support\BuildsCompanyGatewayAccounts;
@@ -22,6 +24,11 @@ use Tests\TestCase;
  *
  * Nothing refuses anything on the strength of this record: the platform address consulting it is a later stage the owner ordered to come after the
  * initiation side is bound. What is asserted here is only what is WRITTEN DOWN and how it is READ BACK.
+ *
+ * WHICH ACCOUNTS HAVE AN ADDRESS OF THEIR OWN. The per-account address POST /api/payments/account/{account}/webhook is served by one gateway's
+ * processor and refuses an account of any other gateway outright, so only an account of THAT gateway is notified at an address of its own. An account
+ * of any other gateway — Paymob, the one gateway the owner's shipped list holds, which sends no server-to-server notification at all — records no
+ * address and expects its gateway's platform-wide one. Both halves are asserted here, the second against the SHIPPED list.
  *
  * Every payment is started by App\Traits\Payment::generate_link(), the one place all fourteen gateways start a payment, so the address asserted is the
  * one the production writer recorded and not one arranged by the test.
@@ -60,12 +67,12 @@ class PaymentRecordsItsConfirmationAddressTest extends TestCase
         parent::tearDown();
     }
 
-    /** A payment started against a company account records THAT ACCOUNT's own notification address. */
+    /** A payment started against a company account of the gateway notified at that address records THAT ACCOUNT's own address. */
     public function test_a_payment_started_against_a_company_account_records_that_accounts_own_address(): void
     {
-        $account = $this->anAccountFor(country: 'KW', secrets: ['secret_key' => 'kuwait-key'], webhookToken: 'the-kuwait-token');
+        $account = $this->aNotifiedAccountFor(country: 'KW', token: 'the-kuwait-token');
 
-        $payment = $this->aPaymentStartedIn(country: 'KW', currency: 'SAR', amount: 12.5);
+        $payment = $this->aPaymentOfTheNotifiedGatewayIn(country: 'KW');
 
         $this->assertSame(
             app(GatewayAccountDirectory::class)->webhookUrlOf(account: $account),
@@ -78,6 +85,55 @@ class PaymentRecordsItsConfirmationAddressTest extends TestCase
     }
 
     /**
+     * An account of a gateway that is notified at no address of its own records NONE, and expects its gateway's platform-wide address.
+     *
+     * This is the case a SHIPPED installation is made of. Paymob is the one gateway the owner's list holds, and Paymob is told no notification address
+     * at all: its confirmation is the customer's return to a platform-wide address. The per-account address is not this account's either — that address
+     * serves one gateway's processor and refuses an account of any other before it reads the body, which is asserted here by posting to the very
+     * address this account's token would have formed.
+     *
+     * So recording that address would be writing an address this payment's confirmation cannot arrive at onto a financial record, for the only gateway
+     * a shipped installation can reach. The account is still the account the payment is taken through, and its credentials are still its own.
+     */
+    public function test_an_account_of_a_gateway_notified_at_no_address_of_its_own_records_none(): void
+    {
+        $account = $this->anAccountFor(country: 'KW', secrets: ['secret_key' => 'kuwait-key'], webhookToken: 'the-kuwait-token');
+
+        $payment = $this->aPaymentStartedIn(country: 'KW', currency: 'SAR', amount: 12.5);
+
+        $this->assertSame((int) $account->id, $this->theRecordOf($payment)?->accountId, 'the payment is taken through that account');
+        $this->assertSame(self::PAYMOB, $this->theRecordOf($payment)?->gateway, 'at the gateway the owner shipped on the list');
+        $this->assertNull($this->theRecordOf($payment)?->confirmationAddress, 'and records no address of its own');
+        $this->assertSame(self::THE_PLATFORM_ADDRESS, $this->theAddressExpectedBy($payment), 'so what it expects is the platform address');
+        $this->assertNull(app(GatewayAccountDirectory::class)->webhookUrlOf(account: $account), 'that address is not this account\'s');
+        $this->post(route('payments.account.webhook', ['account' => 'the-kuwait-token']))
+            ->assertUnauthorized();
+    }
+
+    /**
+     * With the gateway list config/gcc.php SHIPS, NO payment records an address at all — asserted against the list read out of the config.
+     *
+     * The one gateway on that list is notified at no address of its own, and the gateway that would have one is not on the list, so it is stamped with
+     * nothing whatsoever. Stage A is therefore inert on a shipped installation twice over, and not only because the master flag is off.
+     */
+    public function test_with_the_gateway_list_the_repository_ships_no_payment_records_an_address(): void
+    {
+        config(['gcc.storefronts.payment_accounts.gateways' => $this->shippedGatewayList]);
+        $this->anAccountFor(country: 'KW', secrets: ['secret_key' => 'kuwait-key'], webhookToken: 'the-kuwait-token');
+        $this->aNotifiedAccountFor(country: 'AE', token: 'the-emirates-token');
+        $this->forgetWhatWasRemembered();
+
+        $this->assertContains(self::PAYMOB, $this->shippedGatewayList, 'the shipped list holds the gateway that is notified nowhere of its own');
+        $this->assertNotContains(GatewayConfigRepository::KEY, $this->shippedGatewayList, 'and not the one that would have an address');
+
+        $shipped = $this->theRecordOf($this->aPaymentStartedIn(country: 'KW', currency: 'SAR', amount: 12.5));
+
+        $this->assertNotNull($shipped, 'the gateway on the shipped list is stamped');
+        $this->assertNull($shipped->confirmationAddress, 'and records no address');
+        $this->assertNull($this->theRecordOf($this->aPaymentOfTheNotifiedGatewayIn(country: 'AE')), 'the gateway that is not on the list is stamped with nothing');
+    }
+
+    /**
      * The case the whole shape of this record exists for: the account is EDITED, DISABLED and then DELETED, and what the payment recorded does not
      * move by one byte.
      *
@@ -87,8 +143,8 @@ class PaymentRecordsItsConfirmationAddressTest extends TestCase
      */
     public function test_an_account_edited_disabled_and_deleted_leaves_the_recorded_address_byte_for_byte_unchanged(): void
     {
-        $account = $this->anAccountFor(country: 'KW', secrets: ['secret_key' => 'kuwait-key'], webhookToken: 'the-kuwait-token');
-        $payment = $this->aPaymentStartedIn(country: 'KW', currency: 'SAR', amount: 12.5);
+        $account = $this->aNotifiedAccountFor(country: 'KW', token: 'the-kuwait-token');
+        $payment = $this->aPaymentOfTheNotifiedGatewayIn(country: 'KW');
         $recorded = (string) $this->theRecordOf($payment)?->confirmationAddress;
         $storedBefore = (string) DB::table('payment_requests')->where('id', $payment->id)->value('additional_data');
 
@@ -108,22 +164,35 @@ class PaymentRecordsItsConfirmationAddressTest extends TestCase
         $this->assertSame($recorded, $this->theAddressExpectedBy($payment), 'a company-bound payment does not become platform-confirmable by a deletion');
     }
 
-    /** Write-once, as the rest of the stamp is: a second pass over a payment that already carries one changes nothing, whatever the account says now. */
+    /**
+     * Write-once, as the rest of the stamp is: a second pass over a payment that already carries one changes nothing, whatever the account says now.
+     *
+     * Asserted TWO ways, because one of them alone cannot see the guard. The returned array being identical is true even with the guard removed, since
+     * the union that merges the stamp keeps the key that is already there; what only the guard can give is that the second pass does not look the
+     * account up AT ALL. So the queries it issues are counted, and they are none: an already-stamped payment is returned untouched without re-resolving
+     * the market, the account, the company or the rate. Remove the early return and the same call resolves all four.
+     */
     public function test_the_recorded_address_is_written_once_and_a_second_pass_does_not_move_it(): void
     {
-        $account = $this->anAccountFor(country: 'KW', secrets: ['secret_key' => 'kuwait-key'], webhookToken: 'the-kuwait-token');
-        $payment = $this->aPaymentStartedIn(country: 'KW', currency: 'SAR', amount: 12.5);
+        $account = $this->aNotifiedAccountFor(country: 'KW', token: 'the-kuwait-token');
+        $payment = $this->aPaymentOfTheNotifiedGatewayIn(country: 'KW');
         $stored = (array) json_decode((string) DB::table('payment_requests')->where('id', $payment->id)->value('additional_data'), true);
 
         $account->forceFill(['webhook_path_token' => 'a-token-typed-later'])->save();
         $this->forgetWhatWasRemembered();
 
+        $queries = [];
+        DB::listen(static function (QueryExecuted $query) use (&$queries): void {
+            $queries[] = $query->sql;
+        });
+
         $again = $this->inStorefront('KW', static fn (): array => app(PaymentAccountBinding::class)->record(
             additionalData: $stored,
-            gateway: self::PAYMOB,
+            gateway: GatewayConfigRepository::KEY,
             currencyCode: 'SAR',
         ));
 
+        $this->assertSame([], $queries, 'a payment that already carries a stamp is returned without a second look at the account');
         $this->assertSame($stored, $again, 'the writer leaves a payment that already carries a stamp exactly as it is');
         $this->assertSame(
             route('payments.account.webhook', ['account' => 'the-kuwait-token']),
@@ -175,11 +244,11 @@ class PaymentRecordsItsConfirmationAddressTest extends TestCase
      */
     public function test_an_account_with_no_address_of_its_own_records_none_and_expects_the_platform_address(): void
     {
-        $account = $this->anAccountFor(country: 'KW', secrets: ['secret_key' => 'kuwait-key'], webhookToken: 'a-token-that-is-about-to-go');
+        $account = $this->aNotifiedAccountFor(country: 'KW', token: 'a-token-that-is-about-to-go');
         PaymentGatewayAccount::query()->whereKey($account->id)->update(['webhook_path_token' => '']);
         $this->forgetWhatWasRemembered();
 
-        $payment = $this->aPaymentStartedIn(country: 'KW', currency: 'SAR', amount: 12.5);
+        $payment = $this->aPaymentOfTheNotifiedGatewayIn(country: 'KW');
 
         $this->assertSame((int) $account->id, $this->theRecordOf($payment)?->accountId, 'the payment is still taken through the account');
         $this->assertNull($this->theRecordOf($payment)?->confirmationAddress, 'and records no address of its own');
@@ -189,11 +258,11 @@ class PaymentRecordsItsConfirmationAddressTest extends TestCase
     /** Two companies' payments record two different addresses, so the record is per account and not per installation. */
     public function test_two_companies_payments_record_their_own_two_addresses(): void
     {
-        $this->anAccountFor(country: 'KW', secrets: ['secret_key' => 'kuwait-key'], webhookToken: 'the-kuwait-token');
-        $this->anAccountFor(country: 'AE', secrets: ['secret_key' => 'emirates-key'], webhookToken: 'the-emirates-token');
+        $this->aNotifiedAccountFor(country: 'KW', token: 'the-kuwait-token');
+        $this->aNotifiedAccountFor(country: 'AE', token: 'the-emirates-token');
 
-        $kuwait = $this->theRecordOf($this->aPaymentStartedIn(country: 'KW', currency: 'SAR', amount: 12.5))?->confirmationAddress;
-        $emirates = $this->theRecordOf($this->aPaymentStartedIn(country: 'AE', currency: 'SAR', amount: 12.5))?->confirmationAddress;
+        $kuwait = $this->theRecordOf($this->aPaymentOfTheNotifiedGatewayIn(country: 'KW'))?->confirmationAddress;
+        $emirates = $this->theRecordOf($this->aPaymentOfTheNotifiedGatewayIn(country: 'AE'))?->confirmationAddress;
 
         $this->assertSame(route('payments.account.webhook', ['account' => 'the-kuwait-token']), $kuwait);
         $this->assertSame(route('payments.account.webhook', ['account' => 'the-emirates-token']), $emirates);
@@ -205,13 +274,30 @@ class PaymentRecordsItsConfirmationAddressTest extends TestCase
     {
         $company = $this->aCompanyIn('KW');
         $this->aCurrency(code: 'KWD', rate: 0.307);
-        $account = $this->anAccountFor(country: 'KW', secrets: ['secret_key' => 'kuwait-key'], company: (int) $company->id, webhookToken: '');
+        $account = $this->anAccountFor(country: 'KW', secrets: ['secret_key' => 'kuwait-key'], company: (int) $company->id, webhookToken: 'the-kuwait-token');
 
         $record = $this->theRecordOf($this->aPaymentStartedIn(country: 'KW', currency: 'KWD', amount: 12.5));
 
         $this->assertSame((int) $account->id, $record?->accountId);
         $this->assertNull($record?->confirmationAddress);
         $this->assertTrue((bool) $record?->isComplete(), 'the market, the company, the account and the rate are what D2-10 asks for');
+    }
+
+    /** An account of the gateway whose notifications the per-account address reads, which is the only kind of account notified at an address of its own. */
+    private function aNotifiedAccountFor(string $country, string $token): PaymentGatewayAccount
+    {
+        return $this->anAccountFor(
+            country: $country,
+            secrets: ['api_key' => "{$country}-api-key"],
+            gateway: GatewayConfigRepository::KEY,
+            webhookToken: $token,
+        );
+    }
+
+    /** A payment of that gateway, started through App\Traits\Payment::generate_link as every one of the fourteen gateways starts one. */
+    private function aPaymentOfTheNotifiedGatewayIn(string $country): object
+    {
+        return $this->aPaymentStartedIn(country: $country, currency: 'SAR', amount: 12.5, gateway: GatewayConfigRepository::KEY);
     }
 
     /** @return array<string, mixed> */
