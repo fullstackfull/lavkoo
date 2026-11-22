@@ -119,6 +119,11 @@ class InventoryService
      *    there and an affected-row count of zero is the refusal;
      *  - the SPECIFIC variant is guarded as well as the product total, because one variant's stock can mask another's shortfall
      *    past a total-only check;
+     *  - a line of fewer than one unit is refused: `current_stock >= -4` is true of every row, so a negative quantity would
+     *    walk straight through the conditional decrement, ADD stock, and log the addition as a sale;
+     *  - a product that has variants must name one of them, and the one it names must exist on the product: a line naming
+     *    none, or naming a variant the product no longer has, would otherwise be taken off the total with no variant check at
+     *    all, leaving the variant quantities no longer summing to `current_stock`;
      *  - a refusal throws, so the caller's transaction rolls back and the sale leaves the stock exactly as it was;
      *  - the movement row records the balance the decrement actually produced, never a floored stand-in.
      *
@@ -143,9 +148,16 @@ class InventoryService
 
         $rejects = $stockPolicy !== self::POLICY_ALLOW_OVERSELL;
 
-        if ($variant !== null && $variant !== '') {
-            $this->takeFromVariant(product: $product, variant: $variant, quantity: $quantity, rejects: $rejects);
+        if ($quantity < 1) {
+            // Not a shortfall the shelf can answer: a line of nothing, or of fewer than nothing, is not a sale at all.
+            throw new InsufficientStockException(
+                productId: $productId,
+                productName: $product->name,
+                requested: $quantity,
+            );
         }
+
+        $this->takeFromVariant(product: $product, variant: (string) $variant, quantity: $quantity, rejects: $rejects);
 
         if ($rejects) {
             $taken = Product::where('id', $productId)
@@ -180,6 +192,12 @@ class InventoryService
      * The subtraction is the real one, not one floored at zero: a floor would leave the variant quantities no longer summing to
      * `current_stock`, which is the same kind of untruth as a movement row whose balance does not follow from its change.
      *
+     * A product with no variants has nothing here to take and returns. A product that HAS variants must name one that exists
+     * on it: an unmatched line (a variant renamed off the product while it sat in a cashier's cart, or no variant named at
+     * all) is refused rather than taken off the total, because the total is the sum of the variants and taking from one
+     * without the other is the shortfall this method exists to catch. The type is compared as a string, as the two writers
+     * this rule was taken from compare it, so a variant whose `type` arrived from a data import as a number still matches.
+     *
      * @throws InsufficientStockException
      */
     private function takeFromVariant(Product $product, string $variant, int $quantity, bool $rejects): void
@@ -189,9 +207,11 @@ class InventoryService
             return;
         }
 
+        $matched = false;
         $updated = [];
         foreach ($variations as $entry) {
-            if (is_array($entry) && ($entry['type'] ?? null) === $variant) {
+            if (is_array($entry) && (string) ($entry['type'] ?? null) === $variant) {
+                $matched = true;
                 $entry['qty'] = (int) ($entry['qty'] ?? 0) - $quantity;
                 if ($entry['qty'] < 0 && $rejects) {
                     throw new InsufficientStockException(
@@ -202,6 +222,14 @@ class InventoryService
                 }
             }
             $updated[] = $entry;
+        }
+
+        if (!$matched && $rejects) {
+            throw new InsufficientStockException(
+                productId: $product->id,
+                productName: $product->name,
+                requested: $quantity,
+            );
         }
 
         Product::where('id', $product->id)->update(['variation' => json_encode($updated)]);

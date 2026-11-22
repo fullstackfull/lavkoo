@@ -128,6 +128,118 @@ class PosTillStockTest extends PosTillTestCase
         $this->assertSame(0, StockMovement::query()->count());
     }
 
+    // ---- a line that is not a sale at all ------------------------------------------------------------------------------
+
+    /**
+     * A negative quantity walked straight through the conditional decrement, because `current_stock >= -4` is true of every
+     * row: the shelf GAINED four units, the customer was charged, and the movement row recorded the addition as a sale of
+     * +4. It is reachable with no crafting — the till's own add-to-cart refuses a quantity of zero or less only on the branch
+     * that updates an existing line, so the first add of a negative quantity is accepted — which is why this test posts it
+     * through that route rather than writing the cart itself.
+     */
+    #[DataProvider('tills')]
+    public function test_a_line_of_fewer_than_one_unit_is_refused_and_never_adds_stock(string $till): void
+    {
+        $this->shelfProduct(id: 636, stock: 5, till: $till);
+        $added = $this->addToCartAtTill($till, ['id' => 636, 'quantity' => -4]);
+
+        $this->assertSame(200, $added['http']);
+        $lines = array_values(array_filter((array) $added['cart'], 'is_array'));
+        $this->assertSame(-4, $lines[0]['quantity'], 'the till accepted the line, which is the point');
+
+        $response = $this->placeSaleAtTill($till, amount: 100.0);
+
+        $response->assertJson(['stockShortfall' => true]);
+        $this->assertSame([
+            'orders' => 0,
+            'order_details' => 0,
+            'charged' => null,
+            'current_stock' => 5,
+            'movements' => [],
+        ], $this->readings(636), 'nothing sold, nothing charged, and above all nothing added to the shelf');
+    }
+
+    // ---- a variant the product does not have ---------------------------------------------------------------------------
+
+    /**
+     * The variant guard only ever looked at a variant it MATCHED. A line naming one the product no longer has matched
+     * nothing, so the guard did not fire and the units came off the product total instead: four Red sold from a product
+     * holding no Red at all, and the variant quantities left summing to 10 against a shelf of 7.
+     *
+     * The way in is ordinary: a seller edits a product's colours while a line sits in a cashier's held basket. The cart is
+     * written directly here because the add-to-cart route cannot produce it — it checks the variant against the product as it
+     * is at the time — so the rename has to happen after the line is in the basket.
+     */
+    #[DataProvider('tills')]
+    public function test_a_variant_the_product_no_longer_has_is_refused_and_not_taken_off_the_total(string $till): void
+    {
+        $this->shelfProduct(id: 637, stock: 10, till: $till, variation: json_encode([
+            ['type' => 'Red', 'price' => 100, 'qty' => 4],
+            ['type' => 'Blue', 'price' => 100, 'qty' => 6],
+        ]));
+        $this->givenCartAtTill($till, [637 => ['quantity' => 3, 'variant' => 'Red', 'variations' => ['color' => 'Red']]]);
+        DB::table('products')->where('id', 637)->update(['variation' => json_encode([
+            ['type' => 'Crimson', 'price' => 100, 'qty' => 4],
+            ['type' => 'Blue', 'price' => 100, 'qty' => 6],
+        ])]);
+
+        $response = $this->placeSaleAtTill($till, amount: 300.0);
+
+        $response->assertJson(['stockShortfall' => true]);
+        $this->assertSame(0, Order::query()->count());
+        $this->assertSame(10, (int) Product::query()->whereKey(637)->value('current_stock'), 'the total is the sum of the variants and no variant was sold');
+        $this->assertSame(['Crimson' => 4, 'Blue' => 6], $this->variantQuantities(637));
+        $this->assertSame(10, array_sum($this->variantQuantities(637)), 'the variants still sum to the stock');
+        $this->assertSame(0, StockMovement::query()->count());
+    }
+
+    /**
+     * The same hole from the other side: a product that HAS variants, on a line that names none. `makeVariation` returns the
+     * empty string when no colour or choice is posted, and the add-to-cart stock check reads `'' != null` as false in PHP and
+     * falls through to its total-only branch, so the line is accepted — and the sale then took eight units off a product
+     * whose largest variant held six, leaving the variants summing to 10 against a shelf of 2.
+     */
+    #[DataProvider('tills')]
+    public function test_a_product_with_variants_is_not_sold_on_a_line_that_names_none(string $till): void
+    {
+        $this->shelfProduct(id: 638, stock: 10, till: $till, variation: json_encode([
+            ['type' => 'Red', 'price' => 100, 'qty' => 4],
+            ['type' => 'Blue', 'price' => 100, 'qty' => 6],
+        ]));
+        $added = $this->addToCartAtTill($till, ['id' => 638, 'quantity' => 8]);
+
+        $this->assertSame(200, $added['http']);
+        $lines = array_values(array_filter((array) $added['cart'], 'is_array'));
+        $this->assertSame('', $lines[0]['variant'], 'the till accepted a varianted line naming no variant');
+
+        $response = $this->placeSaleAtTill($till, amount: 800.0);
+
+        $response->assertJson(['stockShortfall' => true]);
+        $this->assertSame(0, Order::query()->count());
+        $this->assertSame(10, (int) Product::query()->whereKey(638)->value('current_stock'));
+        $this->assertSame(10, array_sum($this->variantQuantities(638)), 'the variants still sum to the stock');
+    }
+
+    /**
+     * A variant whose `type` arrived as a number, which a data import or a hand edit leaves. The first round of this slice
+     * tightened the comparison to `===`, which silently stopped matching it: the units came off the total and the variant was
+     * left alone, which is the hole above, introduced by this branch's own change. The two writers the rule was taken from
+     * (`generateOrder` and the status-change restock) both compare loosely, so the comparison is made on the string.
+     */
+    #[DataProvider('tills')]
+    public function test_a_variant_whose_type_is_a_number_is_still_matched_and_still_guarded(string $till): void
+    {
+        $this->shelfProduct(id: 639, stock: 10, till: $till, variation: '[{"type":32,"price":100,"qty":1},{"type":"34","price":100,"qty":9}]');
+        $this->givenCartAtTill($till, [639 => ['quantity' => 4, 'variant' => '32']]);
+
+        $response = $this->placeSaleAtTill($till, amount: 400.0);
+
+        $response->assertJson(['stockShortfall' => true], 'one unit of variant 32 cannot answer a line of four');
+        $this->assertSame(0, Order::query()->count());
+        $this->assertSame(10, (int) Product::query()->whereKey(639)->value('current_stock'));
+        $this->assertSame(['32' => 1, '34' => 9], $this->variantQuantities(639));
+    }
+
     // ---- the ledger describes what happened ----------------------------------------------------------------------------
 
     #[DataProvider('tills')]
