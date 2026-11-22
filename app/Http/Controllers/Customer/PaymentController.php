@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Customer;
 
 use App\Services\Payments\CheckoutCurrency;
 use App\Services\Marketplace\PaymentRoutingService;
+use Illuminate\Support\Facades\Schema;
+use function App\Utils\payment_gateways;
 use App\Enums\Address\AddressChannel;
 use App\Events\OrderEditDuePaymentEvent;
 use App\Services\Address\OrderAddressService;
@@ -246,7 +248,17 @@ class PaymentController extends Controller
     /** Does an active routing rule hide the chosen gateway for this order's amount and destination? */
     private function routingHidesTheChosenMethod(string $method, float $amount, int|string|null $addressId): bool
     {
-        if ($method === '') {
+        /*
+         * ASK NOTHING BEFORE THERE IS ANYTHING TO ASK WITH. Until the routing-rules table exists no
+         * rule can exist either, so the answer is already known -- and reading the offered gateway
+         * list to work that out would add a query to EVERY payment start, and throw wherever
+         * addon_settings is not there. (It is always there on the platform; it is not always there in
+         * a test that builds only the tables its own feature touches, which is how this was found.)
+         *
+         * This is the same shape as the routing service's own guard, kept here as well so the cost is
+         * not paid before the feature is in use.
+         */
+        if ($method === '' || !Schema::hasTable('payment_routing_rules')) {
             return false;
         }
 
