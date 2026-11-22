@@ -229,7 +229,8 @@ class SellerSelfApprovalTest extends TestCase
         DB::purge();
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage("Refusing to drop every table of 'lavkoo_production'");
+        // See ReviewVisibilityTest: the refusal, the database it names and both conditions, not one support trait's verb.
+        $this->expectExceptionMessageMatches("/Refusing to drop[^']*'lavkoo_production'.*must contain 'test'.*must be 'testing'/s");
 
         $this->buildSellerSchema();
     }

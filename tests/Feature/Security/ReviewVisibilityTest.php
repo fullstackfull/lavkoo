@@ -217,7 +217,10 @@ class ReviewVisibilityTest extends TestCase
         $this->app['env'] = $environment;
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage("Refusing to drop every table of '{$database}'");
+        // Several test-support traits carry this same guard, each with its own verb ("drop tables in", "drop tables of", "drop every table
+        // of"). What matters is that it refuses, that it names the database it refused, and that it states both conditions, so the assertion
+        // reads those three and not one trait's phrasing.
+        $this->expectExceptionMessageMatches("/Refusing to drop[^']*'" . preg_quote($database, '/') . "'.*must contain 'test'.*must be 'testing'/s");
 
         $this->buildCoreSchema();
     }
