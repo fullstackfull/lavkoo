@@ -17,7 +17,7 @@ As of 2026-11-22. Generated from the independent assessment of every requirement
 | [A. Six-country base and customer identity](tracker/axis-a-six-country-base-and-customer-identity.md) | 37 | 173 | 91 | 24 | 58 | 66% | 53% | 9% | all |
 | [B. Catalogue and products](tracker/axis-b-catalogue-and-products.md) | 18 | 91 | 44 | 32 | 15 | 84% | 48% | 0% | all |
 | [C. Inventory and fulfillment](tracker/axis-c-inventory-and-fulfillment.md) | 18 | 94 | 65 | 9 | 20 | 79% | 69% | 30% | all |
-| [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 179 | 87 | 44 | 48 | 73% | 49% | 8% | all |
+| [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 179 | 87 | 47 | 45 | 75% | 49% | 8% | all |
 | [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 88 | 37 | 11 | 40 | 55% | 42% | 7% | all |
 | [F. Themes and brand](tracker/axis-f-themes-and-brand.md) | 16 | 77 | 42 | 13 | 22 | 71% | 55% | 4% | all |
 | [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 102 | 59 | 13 | 30 | 71% | 58% | 15% | all |
@@ -27,7 +27,7 @@ As of 2026-11-22. Generated from the independent assessment of every requirement
 | [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 104 | 40 | 30 | 34 | 67% | 38% | 3% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 45 | 18 | 31 | 67% | 48% | 7% | all |
 | [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 311 | 105 | 119 | 87 | 72% | 34% | 3% | all |
-| **All axes (pooled)** | **359** | **1753** | **822** | **396** | **535** | **69%** | **47%** | **8%** | |
+| **All axes (pooled)** | **359** | **1753** | **822** | **399** | **532** | **70%** | **47%** | **8%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -51,7 +51,7 @@ Chosen from the table of requirements, not from the pull request list: each one 
 
 - **Blocks:** orders with the right currency; prices that are the same in the app and on the web; wallets, coupons, shipping and tax that agree with the order.
 - **Where it stands:** GCC-05 (draft PR 87, slices 1 to 4 and most of slice 5, off by default) makes a non-default storefront single-currency in its own currency with the right decimals, records the storefront and currency on the order, refuses a gateway that cannot take that currency, makes the admin product screens work in the product's country, gives the storefront its own minimum order and free-delivery threshold (never the platform's riyal figure), prices its shipping from the product alone, lets the panel edit of an order read all of these in the order's money, and gives a coupon its storefront (stored, narrowed on every customer finder, and typed in the storefront's currency through the admin routes). Still reading the platform's one currency: the admin coupon form, list and export, coupon budgets, the tax snapshot, refunds in the original currency, channel prices, invoices, e-mails and exports, and both apps' other formatters (the customer app has the price formatter and the currency it sends, lavkooapp #8 and #9).
-- **Measured:** 20 requirements (2 not started), 100 criteria of which 41 MISSING (41%) as the assessors read it; slices 3 and 4 of PR 87 came after and are in the cards as updates. Requirements: B-02, B-03, D1-05, D1-06, D1-07, D1-10, D2-05, D2-10, E-16, H1-08, H1-09, H1-14, H2-08, I1-12, I1-14, J-05, K-10, L-08, M2-07, C-15.
+- **Measured:** 20 requirements (2 not started), 100 criteria of which 38 MISSING (38%) as the assessors read it; slices 3 and 4 of PR 87 came after and are in the cards as updates. Requirements: B-02, B-03, D1-05, D1-06, D1-07, D1-10, D2-05, D2-10, E-16, H1-08, H1-09, H1-14, H2-08, I1-12, I1-14, J-05, K-10, L-08, M2-07, C-15.
 - **First executable step:** Step 9 of the GCC-05 slice 5 plan on PR 87: the country select and currency labels on the admin coupon form, and the coupon list, quick view and export in the coupon's own money; then the readiness lines (step 10) and the tax and refund snapshot.
 
 ### Gap 2. Wallet and loyalty are one global balance
@@ -111,7 +111,6 @@ Executable on an isolated branch without production access, ordered by the prior
 | P1 | [E-13](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 5 | Refunds, return amounts and cancellations paid to the wallet | Branch on PR 15 once the owner approves: conditional UPDATE claims inside the customer lock for RF-01, RF-03 and RF-04, refund id as reference, one transaction in updateRefundStatus, and un-skip the four RefundConcurrencyTest case |
 | P1 | [A2-13](tracker/axis-a-six-country-base-and-customer-identity.md) | NOT STARTED | 4 | Marketing consents scoped by storefront, company and channel | New branch off PR 43 (gcc/p1-legal-acceptance-receipts): additive migration customer_marketing_consents and app/Services/Consent/MarketingConsentRecorder.php mirroring StorefrontLegalAcceptanceRecorder (write-once, withdrawal rows |
 | P1 | [C-15](tracker/axis-c-inventory-and-fulfillment.md) | NOT STARTED | 4 | Country defaults of the fulfillment config and adapters (SAR and Saudi assumptions) | Test-only characterization on a branch from main: tests/Feature/Fulfillment/FulfillmentMoneyThreeDecimalsTest pins what a KWD 12.345 cash-on-delivery order does today (held, or rounded to two decimals) so the later fix flips it; a |
-| P1 | [D1-10](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 4 | Historical refunds in the original currency and merchant account | Read the CI of PR 101 and PR 103; with the owner's rule on refunds across currency movements, wire RefundFromOriginalPayment into the refund flow behind its own default-off switch, and route a refund through the merchant account o |
 | P1 | [D2-03](tracker/axis-d-orders-checkout-and-payments.md) | NOT STARTED | 4 | Tabby and Tamara reviewed; BNPL gateways only after owner approval and provider confirmati | After D2-05: list Tabby and Tamara in the gateway capability registry with confirmed=false for all six markets, and test that an unconfirmed gateway is never listed or accepted; build no adapter until Q-09 is answered. |
 | P1 | [E-14](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 4 | Loyalty redeem and earn: atomic conversion, one formula, one rule | Branch on PR 10: add one canonical points-to-USD helper (LF-1) used by CustomerManager, CustomerTrait and the web preview, one earn-rule service for admin, vendor, seller API and delivery-man deliveries, and a refund_order floor p |
 | P1 | [E-15](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 4 | Referral rewards: once, to the referrer, one amount | On a branch from main merge PR 29 with PR 55 (both change OrderManager.php) and run the Referral, Address and Concurrency groups; once D15, D16 and D19 are decided, implement them with one test per path; credit through the market  |
@@ -119,6 +118,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | P1 | [A1-03](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 3 | Default storefront (GCC-19): Saudi Arabia first, changeable by the admin | On the activation branch of A1-02 add gcc:storefront:default {country} and a Business Setup field (security review) that accepts only a configured, active, sellable market. In lavkooapp#7's branch make StorefrontConfig.resolve use |
 | P1 | [A1-05](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 3 | Website paths /sa /ae /kw /qa /bh /om serve their market | Branch gcc/p1-storefront-path-routing stacked on #64: a global middleware, active only with the flag on, that strips an active market's prefix before routing and binds the storefront, plus URL generation that re-adds the prefix (U |
 | P1 | [A1-06](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 3 | Manual store choice outranks IP and is kept | Branch gcc/p1-storefront-web-choice stacked on #64: a web chooser in both themes (Default and Aster built separately, as the auction-ui rule says) that writes a first-party cookie only on an explicit POST; ResolveStorefront reads  |
+| P1 | [A1-14](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 3 | Jobs, queue payloads, scheduled tasks and CLI: context carried, never leaked | On #64 add a StorefrontAwareJob trait that stores the storefront code when a job is dispatched inside a storefront request and runs handle() inside StorefrontContext::serve, applied first to SendEmailJob and the queued order liste |
 
 ## 7. Index of all requirements
 
@@ -225,7 +225,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [D1-07](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 5/2/1 | Order tax snapshot by country and selling company |
 | [D1-08](tracker/axis-d-orders-checkout-and-payments.md) | MERGED | 3/1/0 | Address snapshot on every order |
 | [D1-09](tracker/axis-d-orders-checkout-and-payments.md) | MERGED | 3/1/0 | Fulfillment source frozen on each order line |
-| [D1-10](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 0/3/4 | Historical refunds in the original currency and merchant account |
+| [D1-10](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 0/6/1 | Historical refunds in the original currency and merchant account |
 | [D1-11](tracker/axis-d-orders-checkout-and-payments.md) | IMPLEMENTED IN DRAFT | 2/2/0 | Operations on placed orders survive store state and run once |
 | [D1-12](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 2/2/1 | Multi-vendor and sub-order behaviour kept inside one storefront and company |
 | [D1-13](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 3/2/1 | Checkout and order concurrency: stock locks and order numbers |

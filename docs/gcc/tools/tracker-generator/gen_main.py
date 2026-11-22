@@ -3258,6 +3258,123 @@ for _i, _test in ((0, 'test_a_companys_own_secret_at_its_own_address_cannot_sett
     _state, _ev = CRITERIA['D2-09'][_i]
     CRITERIA['D2-09'][_i] = (_state, _ev + ' \u2014\u2014 ' + 'CI READ JOB BY JOB, 2026-11-22, run 44950487867 on head 450f5940: 22 of 23 jobs success, the one failure being \u201cDeployment overlay (artifact, deploys nothing)\u201d, which is red by design on every run and every base. The SQLite jobs run the WHOLE suite (vendor/bin/phpunit --display-skipped, no filter and no testsuite), and both PHP 8.2 and PHP 8.3 are green, so all 17 tests of tests/Feature/MyFatoorah/CompanyWebhookTakesOnlyItsOwnDeliveriesTest ran and passed on this head; Strict-mode MariaDB 11.4.2, Storefront and Address on MySQL 8 and MariaDB 11.4.2, and the sales-channel groups are green as well. Worth recording because it corrects something I said earlier: the pre-existing TorodShipmentDiscoveryTest failure did NOT fail on this run, so that red is CALENDAR-DEPENDENT and not permanent \u2014 its fixture takes the purchase time from the clock. ' + 'The tests of this criterion inside that green suite: ' + _test + '. ' + 'NOT RAISED TO MET BY ME, and the reason is now a DEFINITION rather than a missing test: what stands in the way is the sentence \u201ca draft on main, dormant by default\u201d, since the named test that covers this criterion has now passed in a named green job on a named head. The owner should rule whether a draft that is dormant by default can be MET, because other criteria of this same tracker (D1-04 index 2 and D1-05 index 4) were ruled MET on exactly that footing, so the tracker is inconsistent with itself. I have deliberately not resolved that in my own favour: this branch is my own lanes\u2019 work, and a raise to MET is the one direction that must not rest on the word of whoever did the work.')
 
+# ---------------------------------------------------------------------------
+# D1-10, 2026-11-22. PR 154 (draft, head 06fcfaf5, base main): a refund names the
+# merchant account and the company that took the payment, and the flow can give back
+# the share of the original payment behind two switches that are both off. Two
+# independent reviewers read the pre-fix head 1b99cc29 and BOTH ruled it DEFECTIVE;
+# thirteen findings, eleven repaired, one refuted with the measurement that refutes it,
+# one recorded. Rulings below default to the LOWER of the three readings.
+_D110_HEAD = ("PR 154 (draft, head 06fcfaf5, base main; the merge of PR 101's gcc/p1-refund-from-original-payment d100dd01 "
+    "with gcc/core-payment-accounts 450f5940 — neither parent merged, so the work of this slice alone is `git diff edfefa0b..06fcfaf5`). "
+    "Two independent reviewers read the pre-fix head 1b99cc29 in their own worktrees on both engines and BOTH ruled it DEFECTIVE: "
+    "thirteen findings, eleven repaired in one fix round, one refuted with the measurement that refutes it, two recorded unchanged. "
+    "CI on 06fcfaf5: 23 check runs, every one read to completion, 22 green; the single red is "
+    "'Deployment overlay (artifact, deploys nothing)', red by design on every run and every base. "
+    "Both whole-suite SQLite jobs green, 'Storefront tests' green on MySQL 8 and MariaDB 11.4.2, strict-mode MariaDB green. ")
+
+CRITERIA_SPLIT['D1-10'][0][1] = (CRITERIA_SPLIT['D1-10'][0][1][0], 'CODED', _D110_HEAD +
+    "BEFORE, measured through the real routes and not a unit stub — POST /api/v1/cart/add, POST /api/v1/digital-payment (where "
+    "production's PaymentAccountBinding writes the stamp), the gateway's own success hook digital_payment_success(), then "
+    "POST /api/v1/customer/order/refund-store — the refund row carried NO column naming the merchant account; legal_entity_id is "
+    "the company that SOLD, copied from the order by PR 101, and read null in the accounts-off run while a paid payment plainly existed. "
+    "AFTER: payment_gateway_account_id and payment_legal_entity_id on refund_requests and refund_transactions "
+    "(migration 2026_12_04_100000: nullable, no default, nothing backfilled, Schema::hasTable and Schema::hasColumn guarded, no index, "
+    "no foreign key, down() refusing for EITHER column while a refund carries one). App\\Services\\Payments\\OrderPaymentAccount finds "
+    "the order's own payment by orders.transaction_ref = payment_requests.transaction_id among the paid ones and reads the stamp through "
+    "PaymentAccountBinding::of(); two paid payments under one reference answer nothing rather than pick one. "
+    "App\\Services\\Storefront\\RefundOrderMoney, which already assembles the refund record, puts the two values on the row, so the "
+    "customer refund request (web and API) and the administrator's refund transaction take them from one place. Two columns and not one "
+    "because the company that SOLD and the company whose merchant account TOOK the money are two facts, and they come apart as soon as one "
+    "company's account takes another market's money (legal_entities.country is UNIQUE, so that is the realistic shape and the shape the test drives). "
+    "Driven by test_a_refund_of_a_paid_order_names_the_account_and_the_company_that_took_the_payment for the request and "
+    "test_the_refund_transaction_records_the_payment_it_gives_back_and_the_account_that_took_it for the transaction through the real "
+    "administrator route. CODED and NOT MET on both reviewers' ruling and the lane's own, for a reason no test in the repository could see: "
+    "orders.transaction_ref is varchar(30) (the width App\\Services\\Monitoring\\Panels\\PaymentsPanel pins as REFERENCE_WIDTH, with its own "
+    "reference_too_long finding flag) against payment_requests.transaction_id varchar(100), and the shared fixture "
+    "tests/Support/BuildsApiAddressSchema.php declared it varchar(255) — WIDER THAN PRODUCTION. Narrowed to 30 and driven end to end with a "
+    "32-character OPP/HyperPay-shaped reference: MariaDB kept 30 of the 32 characters in the order and all 32 in the payment, the join found "
+    "nothing, original_payment_amount, original_payment_currency, payment_gateway_account_id and payment_legal_entity_id all came back NULL and "
+    "the buyer was paid the base figure; SQLite does not enforce the width and matched. The mechanism FAILS SAFE — silent, not wrong — so the "
+    "criterion holds for a gateway whose references fit in thirty characters and not for one whose do not, and a criterion whose coverage "
+    "depended on a fixture being wider than production is not MET. Widening a core column of the installed SQL dump that every order path writes "
+    "is NOT done here, and matching on a truncated prefix would risk binding a refund to the WRONG payment, which is the defect this round closed; "
+    "recorded as the obstacle. Both new test files: 41 tests / 190 assertions green on SQLite and 41 / 191 on MariaDB 10.11.14 (36 tables in "
+    "information_schema for the test database, so the real server answered); the wide selection (Storefront, Marketplace, Payments, Unit/Payments, "
+    "Wallet) 902 / 3062 and 902 / 3059, the only errors two pre-existing bcmath ones this container cannot run and CI can.")
+
+CRITERIA_SPLIT['D1-10'][1][1] = (CRITERIA_SPLIT['D1-10'][1][1][0], 'CODED', _D110_HEAD +
+    "The flow now REACHES the computation: App\\Services\\Storefront\\RefundPayout::forRefund issues a statement that "
+    "RefundStatusService::whatTheRefundGivesBack and RefundTransactionService consume, so an approved refund credits the share of the original "
+    "payment instead of usdToDefaultCurrency of the stored amount. Behind TWO switches, both off: "
+    "gcc.storefronts.refunds.from_original_payment (GCC_REFUND_FROM_ORIGINAL_PAYMENT — `git grep` returns exactly one line, config/gcc.php:93, "
+    "env(..., false), set in no .env or .env.example) and, added in the fix round after a reviewer measured the money changing while NO account "
+    "was recorded, gcc.storefronts.payment_accounts.enabled: isEnabled() is now `config(self::SETTING, false) && $this->accounts->isEnabled()`, "
+    "in that order, so a platform recording no merchant account issues no statement at all. Dormancy PROVED, not asserted: a SEPARATE checkout of "
+    "the base at its own path with the vendor/composer hardlink BROKEN and composer dump-autoload run in each tree (20,018 classes against 20,026, "
+    "so neither can load the other's), both driven on a frozen clock through the same real routes — a real paid gateway order, a real customer refund "
+    "request, a real rate change and the administrator's real refund route — with every statement AND ITS VALUES plus the wallet rows and the refund "
+    "transaction row captured and digested: base == head on SQLite (92f74753...) and on MariaDB (b64485b5...), `diff` of the two capture files EMPTY, "
+    "the only mask the application's own Str::uuid(). Nine mutations applied by a harness that reverts automatically: eight caught on the first run; "
+    "the ninth SURVIVED because the lane's own test was the defect (a sibling refund's share is linear, so counting one that moved no money moves the "
+    "window and never its width) and was fixed in a commit that says so, after which it is caught. The real engine earned its place twice: a first "
+    "draft selected additional_data unconditionally and SQLite PASSED FIFTEEN TESTS FOR THE WRONG REASON — a double-quoted identifier it cannot "
+    "resolve is reinterpreted as a STRING LITERAL, so the stamp decoded to nothing and no market was ever compared — while MariaDB refused the column "
+    "outright; the column is now asked for before it is selected. Still CODED and not MET on all three readings, any one reason sufficing: off by "
+    "default behind two switches; 2 of the 6 money paths that return money are wired; four reachable shapes answer null and keep the OLD figure rather "
+    "than the paid one (an order edited since it was paid for, an order paid twice, a reference whose orders are not one cart, a reference too long for "
+    "its column); and the refund-time rate is still an input to what the buyer RECEIVES, through currencyConverter in the wallet sink, so "
+    "'not re-converted' is true of the figure and of each payout at its own moment, not of a balance held across later rate moves.")
+
+CRITERIA.setdefault('D1-10', {})[2] = ('MISSING',
+    "PARTIAL after PR 154 (draft, head 06fcfaf5), and still MISSING because the act the criterion names has no code at all. 2 of the 3 things it "
+    "names hold: the refund NAMES the merchant account and the company that took the payment, and the payout is WORKED OUT FROM that payment and "
+    "RECORDED AGAINST that account. That second part was REFUTED by a reviewer, who measured a real paid Saudi order of company 1 whose reference was "
+    "also carried by an Emirati order of company 2: refund_transactions recorded original_payment_amount 2857.14 AED and the DIRHAM company's account "
+    "and company, while refund_requests for the SAME refund named the riyal company's — two rows of one refund naming two companies, and a share of a "
+    "payment that buyer never made. Repaired in the fix round by App\\Services\\Payments\\PaymentBelongsToOrder, used by the amount and by the "
+    "account: the payment's stamp must name the market the order was sold from, and the orders carrying the reference must be one cart (one selling "
+    "company, one market, one order group, none edited). Mutations N1, N2 and N8 kill each half. The money still does NOT LEAVE through that account, "
+    "and no change on this branch can make it: verified independently twice — Paymob, the one gateway wired end to end for per-company accounts, has "
+    "no outbound refund call anywhere in this codebase, and the one real outbound refund, App\\Services\\MyFatoorah\\RefundService::request, reads "
+    "its credentials from the single platform settings row through GatewayConfigRepository::forMode, with config/gcc.php deliberately excluding "
+    "MyFatoorah from payment_accounts.gateways and naming the prior change that would fix it. One reviewer ruled 1 of 3 rather than 2 of 3 (the "
+    "middle part being the one they refuted before it was repaired); the lower reading is what is recorded. A refund of a payment that carries NO "
+    "stamp — every payment taken before per-company accounts were switched on — still changes the money while naming no account, because refusing "
+    "those would deny the fix to exactly the historical orders it was built for: the owner's. Whether a refund may ONLY EVER return to the original "
+    "merchant account is also the owner's, and unmade.")
+
+CRITERIA_SPLIT['D1-10'][3][1] = (CRITERIA_SPLIT['D1-10'][3][1][0], 'CODED', _D110_HEAD +
+    "A SINGLE payout returns exactly what was paid: after a rate change (375.00 SAR of 375.00 SAR, where the conversion of today credits 125 base "
+    "units and the flow credited 100), after a decimals-and-rate change (375.00 at rate 4.2, exact to the twenty decimals DECIMAL(40,20) holds), and "
+    "after a SETTINGS change from several currencies down to one (375.00 SAR, where the base gives 100.00) — all three measured on both engines "
+    "through the real routes. That last shape was added in the fix round because a reviewer read it as a 3.75x overpayment: REFUTED with the "
+    "measurement that refutes it — under single_currency currencyConverter and usdToDefaultCurrency are both the IDENTITY, so a stored unit IS a unit "
+    "of the default currency, which is exactly how wallet_balance is compared against cart order_amounts in placeOrderByWallet; the review compared "
+    "raw base units across a settings change that redefines the unit. With the switch off the same buyer is 275.00 SAR SHORT. The COVERAGE GAP the "
+    "review found was real — no test on the branch ran the mechanism under single_currency at all — and two new tests close it. Still CODED and not "
+    "MET: off by default behind two switches; a payment in a currency the wallet cannot reach is DECLINED by design and only the amount owed is "
+    "recorded; and a refund paid in PARTS is exact per part and NOT in composite. The branch's own headline claim that 3.333 + 3.334 + 3.333 = 10.000 "
+    "KWD was read off a RECORD column: both reviewers checked the WALLET and the buyer held 1.3332 + 1.8522222222222 + 0.606 = 3.7914222222222 base "
+    "units, worth 20.853 KWD at the last rate against the 10.000 KWD paid. THE CLAIM WAS WRONG AND THE CODE WAS NOT: each part is exactly its share "
+    "at the rate in force when it is paid, the base is further out still (3.0 base units, 16.5 KWD) so the change is an improvement in both, but "
+    "calling the composite exact on evidence that never read a wallet was indefensible. The row is struck through where it stood and the table "
+    "rewritten with two columns, 'Recorded as owed' and 'Handed to the buyer', and the test now asserts the three wallet figures at their own payout "
+    "rates beside the record figures so the distinction cannot be lost again. Of the two shapes the criterion's own wording names — an exchange-rate "
+    "change and a settings change — both hold for a single payout; the multi-part case does not, and the question it raises is new and the owner's: "
+    "is a refund owed the money AT THE MOMENT IT IS PAID, or the purchasing power of the original payment? Until balances are per market (GCC-15) "
+    "there is no third answer.")
+
+EXTRA_LINKS.setdefault('D1-10', []).append({'repo': 'lavkoo', 'pr': 154, 'sha': '06fcfaf5'})
+
+NEXT_CURRENT['D1-10'] = ("Criterion 4 is the only one left without code and it cannot be built on this branch: no gateway in the codebase has an "
+    "outbound per-account refund call. The owner's unmade decisions gate the rest — whether a refund returns the original amount or the amount at "
+    "today's rate, whether it may only ever return to the original merchant account, what 'what the buyer paid' means for money that left a wallet, "
+    "whether an order edit's return amount is a refund at all, and whether a refund paid in parts is owed the money at each payout or the purchasing "
+    "power of the original payment. The two engineering items that need no decision: record what a payment COVERED when the payment is taken, instead "
+    "of re-deriving it at refund time (which would also let an edited order and an order paid twice be refunded exactly, which they now are not), and "
+    "make MyFatoorah's outbound refund read an account's api_key instead of the single platform settings row.")
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
