@@ -176,6 +176,14 @@ class RestockThroughTheRealRoutesTest extends AdminPagesTestCase
         $this->post(route('admin.marketplace.returns.receive', $rma->id))->assertRedirect();
     }
 
+    /** The returns queue authorising a return: POST admin/marketplace/returns/store, exactly the form's own fields. */
+    protected function authorizeThroughThePanel(array $fields): ReturnShipment
+    {
+        $this->post(route('admin.marketplace.returns.store'), $fields + ['qty' => 1, 'restock' => 1])->assertRedirect();
+
+        return ReturnShipment::orderByDesc('id')->firstOrFail();
+    }
+
     protected function authorizedReturn(int $quantity, int $lineId): ReturnShipment
     {
         return ReturnShipment::create([
@@ -436,6 +444,83 @@ class RestockThroughTheRealRoutesTest extends AdminPagesTestCase
         $this->assertSame([50, 1], $this->shelfAndClaim($lineId));
         $this->assertSame(ReturnShipment::STATUS_RECEIVED, $third->fresh()->status);
         $this->assertCount(2, $this->reading()['movements'], 'the two receipts that put units back, and no third row');
+    }
+
+    // ---- the route a person creates a return on --------------------------------------------------------------------------
+
+    public function test_a_return_authorized_in_the_panel_puts_back_what_left_the_shelf_and_no_more(): void
+    {
+        // The returns queue's form (admin-views/marketplace/returns.blade.php) offers an order and a product
+        // and NO line, so every return authorised by hand carried order_details_id = null -- and with no line
+        // there is no budget, no cap and no claim. The receipt put its typed quantity on the shelf and the
+        // order status writer then put the whole line back on top of it: 50 -> 53 -> 56 for three units that
+        // left. The whole mechanism was dormant on the one route that creates returns by hand.
+        $lineId = $this->soldLine(3, variant: 'Red', variations: [['type' => 'Red', 'price' => 10, 'sku' => 'R', 'qty' => 20]]);
+
+        $rma = $this->authorizeThroughThePanel(['order_id' => self::ORDER, 'product_id' => self::PRODUCT, 'qty' => 3]);
+
+        $this->assertSame($lineId, (int) $rma->order_details_id, 'the order and the product name exactly one line, so the return is for that line');
+
+        $this->receiveThroughThePanel($rma);
+        $this->assertSame(['current_stock' => 53, 'variant_qty' => 23, 'movements' => [[StockMovement::TYPE_RETURN, 3, 53, null]]], $this->reading('Red'));
+
+        $this->changeStatusThroughThePanel('returned');
+
+        $this->assertSame(
+            ['current_stock' => 53, 'variant_qty' => 23, 'movements' => [[StockMovement::TYPE_RETURN, 3, 53, null]]],
+            $this->reading('Red'),
+            'three units left the shelf and three came back -- not six, and the variant moves with current_stock',
+        );
+        $this->assertSame([53, 0], $this->shelfAndClaim($lineId));
+    }
+
+    public function test_a_line_belonging_to_another_order_is_not_the_line_a_return_is_for(): void
+    {
+        // Nothing validated the line id, so a mistyped one clamped this return against a stranger's line and
+        // flipped THAT order's claim -- after which the stranger's own return could restore nothing.
+        $lineId = $this->soldLine(3);
+        DB::table('orders')->insert([
+            'id' => 701, 'customer_id' => 1, 'is_guest' => 1, 'order_status' => 'confirmed', 'payment_status' => 'paid',
+            'payment_method' => 'cash_on_delivery', 'seller_is' => 'admin', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $strangersLine = (int) DB::table('order_details')->insertGetId([
+            'order_id' => 701, 'product_id' => self::PRODUCT, 'qty' => 1, 'price' => 10, 'is_stock_decreased' => 1,
+            'delivery_status' => 'confirmed', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $rma = $this->authorizeThroughThePanel([
+            'order_id' => self::ORDER, 'order_details_id' => $strangersLine, 'product_id' => self::PRODUCT, 'qty' => 3,
+        ]);
+
+        $this->assertSame($lineId, (int) $rma->order_details_id, "a line id from order 701 is not used for a return on order 700");
+
+        $this->receiveThroughThePanel($rma);
+
+        $this->assertSame([53, 0], $this->shelfAndClaim($lineId), 'the three units of this order came back, uncapped by a stranger of quantity one');
+        $this->assertSame(1, (int) DB::table('order_details')->where('id', $strangersLine)->value('is_stock_decreased'), "the other order's claim on its own unit is untouched");
+    }
+
+    public function test_two_lines_of_one_product_in_one_order_are_left_alone_rather_than_guessed_at(): void
+    {
+        $this->soldLine(3, variant: 'Red');
+        DB::table('order_details')->insert([
+            'order_id' => self::ORDER, 'product_id' => self::PRODUCT, 'qty' => 2, 'price' => 10, 'variant' => 'Blue',
+            'is_stock_decreased' => 1, 'delivery_status' => 'confirmed', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $rma = $this->authorizeThroughThePanel(['order_id' => self::ORDER, 'product_id' => self::PRODUCT, 'qty' => 1]);
+
+        $this->assertNull($rma->order_details_id, 'the order and the product do not name one line, so none is chosen');
+    }
+
+    public function test_a_return_naming_only_a_product_reaches_into_no_order(): void
+    {
+        // A product on its own must not be attached to whatever order happens to hold the only line of it.
+        $this->soldLine(3);
+
+        $rma = $this->authorizeThroughThePanel(['product_id' => self::PRODUCT, 'qty' => 1]);
+
+        $this->assertNull($rma->order_details_id);
     }
 
     // ---- (c) a return for more units than the line held --------------------------------------------------------------------

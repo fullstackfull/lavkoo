@@ -38,7 +38,7 @@ class ReturnLogisticsService
         $rma = ReturnShipment::create([
             'reference' => $this->nextReference(),
             'order_id' => $data['order_id'] ?? null,
-            'order_details_id' => $data['order_details_id'] ?? null,
+            'order_details_id' => $this->lineThisReturnIsFor($data),
             'refund_request_id' => $data['refund_request_id'] ?? null,
             'product_id' => $data['product_id'] ?? null,
             'seller_id' => $data['seller_id'] ?? null,
@@ -315,6 +315,59 @@ class ReturnLogisticsService
 
             return null;
         }
+    }
+
+    /**
+     * The order line a return is for, identified rather than trusted.
+     *
+     * Everything that bounds a restock hangs off this one column: with no line there is no budget, no cap,
+     * no clamp and no claim, so the receipt puts its typed quantity on the shelf and the order status writer
+     * then puts the WHOLE line back on top of it -- three units out, six back. And the returns queue's own
+     * form offers an order and a product and no line (admin-views/marketplace/returns.blade.php), so every
+     * return a person authorised in the panel carried none: the whole mechanism was dormant on the only
+     * route that creates returns by hand.
+     *
+     * So the line is identified from the order and the product when exactly one line matches, which is the
+     * ordinary case; an order with two lines of one product is left alone rather than guessed at.
+     *
+     * A line id that was given but belongs to a DIFFERENT order is not used. It clamped the restock against
+     * a stranger's line and flipped that order's stock marker, so the stranger's own return could never
+     * restore anything.
+     */
+    private function lineThisReturnIsFor(array $data): int|string|null
+    {
+        $given = $data['order_details_id'] ?? null;
+        $orderId = $data['order_id'] ?? null;
+
+        if (!Schema::hasTable('order_details')) {
+            return $given;
+        }
+
+        if ($given) {
+            $belongsToThisOrder = !$orderId || OrderDetail::where('order_id', $orderId)->whereKey($given)->exists();
+
+            return $belongsToThisOrder ? $given : $this->theOnlyLineFor($orderId, $data['product_id'] ?? null);
+        }
+
+        return $this->theOnlyLineFor($orderId, $data['product_id'] ?? null);
+    }
+
+    /**
+     * The line an order and a product name between them, when they name exactly one.
+     *
+     * Both are needed: a product on its own would reach into whatever order happens to hold the only line
+     * of it, and an order on its own says nothing about which of its lines came back. Two lines of one
+     * product in one order are left alone rather than guessed at.
+     */
+    private function theOnlyLineFor(int|string|null $orderId, int|string|null $productId): int|string|null
+    {
+        if (!$orderId || !$productId) {
+            return null;
+        }
+
+        $matching = OrderDetail::where('order_id', $orderId)->where('product_id', $productId)->limit(2)->pluck('id');
+
+        return $matching->count() === 1 ? $matching->first() : null;
     }
 
     /**
