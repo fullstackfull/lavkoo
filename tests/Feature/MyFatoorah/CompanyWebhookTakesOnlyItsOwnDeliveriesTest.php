@@ -12,8 +12,12 @@ use App\Services\Payments\GatewayAccountDirectory;
 use App\Services\Payments\GatewayAccountRegistry;
 use App\Services\Payments\PaymentAccountBinding;
 use App\Services\Storefront\StorefrontResolver;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\TestResponse;
 use Tests\Support\RestoresLanguageFiles;
 
@@ -283,6 +287,38 @@ class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends CompanyAccountsTestCas
         $this->assertSame(0, MyFatoorahWebhookEvent::count());
     }
 
+    /**
+     * A company's address is rate limited in a bucket of its own, not in the platform address'.
+     *
+     * Deliveries come from the gateway's own hosts, so under one bucket keyed by source address a retry storm at one market's address spends the
+     * allowance of every other market and of the platform address with it. Two limits, and both matter: one per account token, so each address has an
+     * allowance of its own, and one per source address at the ceiling it has always had, because the token is what a prober chooses and keying by the
+     * token alone would let one be varied for an unlimited number of requests.
+     */
+    public function test_a_company_address_is_limited_in_its_own_bucket_and_still_under_the_ceiling_for_its_source(): void
+    {
+        $this->assertContains('throttle:payment-account-webhooks', $this->theAddressRoute()->gatherMiddleware(), 'the company address no longer has a limiter of its own');
+        $this->assertNotContains('throttle:myfatoorah-webhooks', $this->theAddressRoute()->gatherMiddleware(), 'and no longer shares the platform address\' bucket');
+
+        $limits = $this->limitsFor(token: 'kuwait-webhook-token', from: '203.0.113.7');
+        $byKey = [];
+
+        foreach ($limits as $limit) {
+            $byKey[(string) $limit->key] = $limit->maxAttempts;
+        }
+
+        $this->assertSame(
+            ['account:kuwait-webhook-token' => 600, 'ip:203.0.113.7' => 600],
+            $byKey,
+            'one allowance per account and the ceiling for the source address it has always had',
+        );
+
+        $another = $this->limitsFor(token: 'saudi-webhook-token', from: '203.0.113.7');
+
+        $this->assertNotSame((string) $limits[0]->key, (string) $another[0]->key, 'two accounts from one address do not share an allowance');
+        $this->assertSame((string) $limits[1]->key, (string) $another[1]->key, 'while the ceiling for that address still covers both');
+    }
+
     /** An address nobody holds, and an address whose account has been disabled, are the same flat 401. */
     public function test_an_unknown_or_disabled_account_address_is_refused_with_the_same_401(): void
     {
@@ -496,6 +532,26 @@ class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends CompanyAccountsTestCas
         return view('admin-views.third-party.payment-method.partials._company-gateway-accounts', [
             'gatewayAccounts' => app(GatewayAccountDirectory::class)->rows(gateway: GatewayConfigRepository::KEY),
         ])->render();
+    }
+
+    private function theAddressRoute(): \Illuminate\Routing\Route
+    {
+        foreach (Route::getRoutes()->getRoutes() as $route) {
+            if ($route->getName() === 'payments.account.webhook') {
+                return $route;
+            }
+        }
+
+        $this->fail('there is no route named payments.account.webhook');
+    }
+
+    /** What the route's own limiter answers for a delivery of this token from this address. @return list<Limit> */
+    private function limitsFor(string $token, string $from): array
+    {
+        $request = Request::create('/api/payments/account/' . $token . '/webhook', 'POST', server: ['REMOTE_ADDR' => $from]);
+        $request->setRouteResolver(fn (): \Illuminate\Routing\Route => $this->theAddressRoute()->bind($request));
+
+        return array_values((array) (RateLimiter::limiter('payment-account-webhooks'))($request));
     }
 
     private function deliverTo(PaymentGatewayAccount $account, array $payload, string $signature): TestResponse

@@ -32,8 +32,11 @@ Route::post('myfatoorah/webhook', [MyFatoorahWebhookController::class, 'receive'
 |
 | Outside the `api` middleware group for the same reason as the address above: that group records a telemetry row per request and these bodies carry a
 | cardholder name and a masked card number.
+|
+| Its own rate limiter, not the platform address': a named limiter's bucket carries its own name, so a storm here no longer spends the allowance of the
+| address above, and each company's address has an allowance of its own inside the ceiling for the source address (App\Providers\RouteServiceProvider).
 */
 Route::post('payments/account/{account}/webhook', [PaymentAccountWebhookController::class, 'receive'])
-    ->middleware('throttle:myfatoorah-webhooks')
+    ->middleware('throttle:payment-account-webhooks')
     ->where('account', '[A-Za-z0-9_-]{1,64}')
     ->name('payments.account.webhook');

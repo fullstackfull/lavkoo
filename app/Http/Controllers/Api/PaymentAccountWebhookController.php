@@ -36,9 +36,16 @@ use Illuminate\Support\Facades\Log;
  * address does nothing at all until a company has an account with a token and a secret of its own.
  *
  * The rest of the treatment is deliberately the same as the platform address': one flat 401 for every refusal so a prober learns nothing from the
- * difference, a body cap, an event type whose signature cannot be computed refused rather than acted on, and the delivery recorded under a dedupe key
- * before any work, so one delivery is processed once (D2-12). The key is scoped to the account, so two companies' accounts on one merchant login do not
- * swallow each other's deliveries.
+ * difference, a body cap, an event type whose signature cannot be computed refused rather than acted on, and a delivery that reaches the processor
+ * recorded under a dedupe key before any work, so one delivery is processed once (D2-12). The key is scoped to the account, so two companies' accounts
+ * on one merchant login do not swallow each other's deliveries.
+ *
+ * ONLY a delivery that reaches the processor is recorded. The four answers above it — the three questions and the account's event scope — are
+ * given before it, so none of them leaves a row behind: the processor is the only writer of the event table, by design, and this address adds no second
+ * writer to it. For the three refusals that is the point, since a row keyed to another company's delivery is itself a trace on this installation. For
+ * the event scope it is a consequence worth naming: an authentic delivery this account is not registered for is answered 200, which tells the gateway
+ * to stop retrying, and leaves nothing an operator could later audit. Whether such a delivery should be recorded with a result of its own is the
+ * owner's call, and it is written down as open on the pull request rather than decided here.
  *
  * Outside the `api` middleware group, as the platform address is: that group writes a telemetry row per request and these bodies carry a cardholder
  * name and a masked card number.
@@ -86,7 +93,8 @@ class PaymentAccountWebhookController extends Controller
         }
 
         if (!$this->inScope(payload: $payload, account: $resolved)) {
-            // Authentic, and not something this account is registered for. Recorded as out of scope and acted on in no way.
+            // Authentic, and not something this account is registered for: acted on in no way, and recorded in no way either — the processor is
+            // the only writer of the event table and this answer comes before it. The note on the class says what that leaves unaudited.
             return response()->json(['success' => true, 'status' => 'out_of_scope'], 200);
         }
 
@@ -135,12 +143,17 @@ class PaymentAccountWebhookController extends Controller
     /**
      * Does this delivery name a payment this account took?
      *
-     * Asked before the delivery is recorded and before anything reads or writes the attempt, so a delivery about another company's payment leaves no
-     * trace on that company's row — a write there is a cross-tenant write whether or not it settles anything.
+     * Asked before the delivery is recorded and before anything WRITES the attempt, so a delivery about another company's payment leaves no trace on
+     * that company's row — a write there is a cross-tenant write whether or not it settles anything. Measured with this question removed: thirteen
+     * columns of the attempt and three of its payment row are written, counting each table's updated_at (twelve and two without them).
+     *
+     * NOT before anything reads it. This question is itself two reads of those same rows, and it has to be: the identifier a notification names the
+     * attempt by carries no company, so the attempt is read by that indexed identifier and then its payment row by its key, and the stamp on the
+     * payment row is what says whose it is. Reading them is how the owner is found; writing them is what a delivery of another company's must not do.
      *
      * The payment behind the attempt must carry this account's stamp, which is the account the payment was STARTED against and is never re-derived, so
-     * an account edited or disabled since does not change the answer. Two reads answer it (the attempt by its indexed identifier, then its payment row
-     * by its key), so the attempts table needs no column of its own for this.
+     * an account edited or disabled since does not change the answer. Those two reads are both indexed, so the attempts table needs no column of its
+     * own for this.
      *
      * A delivery that names no attempt of ours passes: it is this account's own authentic delivery about an invoice that is not ours — most often
      * another installation on the same merchant login — and the processor records it and acts on nothing. A payment carrying NO stamp was taken through
