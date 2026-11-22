@@ -368,6 +368,8 @@ class OrderManager
                 'updated_at' => now(),
             ]);
 
+            app(OrderStorefrontSnapshot::class)->stampMoneyRows(table: 'order_transactions', orderId: $order['id']);
+
             $wallet = AdminWallet::where('admin_id', 1)->first();
             $wallet->commission_earned += $commission;
             if ($shipping_model === 'inhouse_shipping' && !$order['is_shipping_free']) {
@@ -1748,7 +1750,13 @@ class OrderManager
                 vendorCart: $vendorWiseCart
             );
 
-            app(OrderStorefrontSnapshot::class)->record(orderId: $order_id);
+            // The lines are saved, the order is stamped once from the country they belong to, and only
+            // then do the money rows take that currency. The order cannot be stamped before its lines
+            // exist, so a line that asked for the order's currency as it was inserted would read an
+            // order that was still empty — which is exactly how this read came back NULL every time.
+            $storefrontSnapshot = app(OrderStorefrontSnapshot::class);
+            $storefrontSnapshot->record(orderId: $order_id);
+            $storefrontSnapshot->stampMoneyRows(table: 'order_details', orderId: $order_id);
 
             $order = Order::with('customer', 'seller.shop', 'details')->find($order_id);
             
@@ -2254,6 +2262,8 @@ Log::warning('Delivery Syria: parcel saved successfully', [
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
+
+            app(OrderStorefrontSnapshot::class)->stampMoneyRows(table: 'order_transactions', orderId: $order['id']);
 
             OrderManager::getCheckOrCreateAdminWallet();
             AdminWallet::where(['admin_id' => 1])->increment('pending_amount', $order['order_amount']);
@@ -2859,8 +2869,12 @@ Log::warning('Delivery Syria: parcel saved successfully', [
     {
         $order = Order::with('seller')->with('shipping')->where('id', $id)->first();
         $invoiceSettings = getWebConfig('invoice_settings');
-        $mpdf_view = \View::make(VIEW_FILE_NAMES['order_invoice'], compact('order', 'invoiceSettings'));
-        return self::storePdf(view: $mpdf_view, filePrefix: 'order_invoice_', filePostfix: $order['id'], pdfType: 'invoice', requestFrom: 'web');
+
+        return app(StorefrontCurrency::class)->withinOrderCurrency(order: $order, callback: function () use ($order, $invoiceSettings): string {
+            $mpdf_view = \View::make(VIEW_FILE_NAMES['order_invoice'], compact('order', 'invoiceSettings'));
+
+            return self::storePdf(view: $mpdf_view, filePrefix: 'order_invoice_', filePostfix: $order['id'], pdfType: 'invoice', requestFrom: 'web');
+        });
     }
 
 

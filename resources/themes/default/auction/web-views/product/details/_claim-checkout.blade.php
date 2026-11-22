@@ -1,4 +1,5 @@
 @extends("auction.layouts.auction-app")
+@use('App\Services\Storefront\StorefrontCurrency')
 
 @section('title', translate('Auction Claim Checkout'))
 
@@ -14,7 +15,10 @@
         @csrf
         <input type="hidden" name="auction_product_id" value="{{ $auctionProduct->id }}">
         <input type="hidden" name="payment_platform" value="web">
-        <input type="hidden" name="current_currency_code" value="{{ session('currency_code') ?? getCurrencyCode() }}">
+        {{-- The currency this claim is paid in, which the payment path is told. The page carries no currency-model guard, so this
+             expression is the whole of its decision: it asks the same question the checkout and the v1 endpoints ask (GCC-05), and
+             no longer depends on the session having been normalised for it. Off the markets the pick stands exactly as before. --}}
+        <input type="hidden" name="current_currency_code" value="{{ app(StorefrontCurrency::class)->purchaseCurrencyCode(picked: session('currency_code') ?? getCurrencyCode()) }}">
         <input type="hidden" name="external_redirect_link" value="{{ route('auction.claim.payment.success', $auctionProduct->slug) }}">
         <input type="hidden" name="billing_same_as_shipping" id="billing_same_as_shipping_input" value="1">
 

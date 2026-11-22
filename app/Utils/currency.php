@@ -330,7 +330,12 @@ if (!function_exists('getCurrencyCode')) {
         }
 
         if ($type == 'web') {
-            $currencyCode = session('currency_code');
+            // The session holds the currency a visitor is being shown, and loadCurrency() is what puts it there. getCurrencySymbol() calls it
+            // before reading the same session; this reader did not, and returned null against a ": string" return type. The customer's invoice
+            // template asks for the code before any converter has run, so that document was an error page instead. Only this one branch reads
+            // the session, so only this one branch loads it.
+            loadCurrency();
+            $currencyCode = (string) session('currency_code');
         } else {
             if (session()->has('system_default_currency_info')) {
                 $currencyCode = session('system_default_currency_info')->code;
@@ -340,6 +345,25 @@ if (!function_exists('getCurrencyCode')) {
             }
         }
         return $currencyCode;
+    }
+}
+
+if (!function_exists('orderMoney')) {
+    /**
+     * One amount of one order, written in the money that order was sold in: the figure that was charged and the currency it was charged in.
+     *
+     * For the documents that list many orders at once — the order, report and list exports — where one currency cannot be put in force for the
+     * whole page because each row is its own sale. An order that records no currency reads exactly as it read before: the same two helpers, in
+     * the same order, with the same arguments. A row whose order is missing is written exactly as it was written before too.
+     *
+     * @param object|array<string, mixed>|null $order
+     */
+    function orderMoney(object|array|null $order, string|int|float|null $amount = 0): string
+    {
+        return app(StorefrontCurrency::class)->withinOrderCurrency(
+            order: $order,
+            callback: fn (): string => setCurrencySymbol(amount: usdToDefaultCurrency(amount: $amount), currencyCode: getCurrencyCode()),
+        );
     }
 }
 

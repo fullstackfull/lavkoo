@@ -21,6 +21,7 @@ use App\Services\Address\CheckoutAddressGuard;
 use App\Services\Address\OrderAddressService;
 use App\Services\PasswordResetService;
 use App\Services\Storefront\OrderStorefrontSnapshot;
+use App\Services\Storefront\StorefrontCurrency;
 use App\Models\User;
 use App\Traits\API\v3\VendorPOSManagement;
 use App\Traits\CustomerTrait;

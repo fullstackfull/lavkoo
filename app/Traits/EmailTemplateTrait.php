@@ -8,6 +8,7 @@ use App\Models\EmailTemplate;
 use Exception;
 use Illuminate\Support\Facades\Mail;
 use App\Services\EmailTemplateService;
+use App\Services\Storefront\StorefrontCurrency;
 
 trait EmailTemplateTrait
 {
@@ -68,7 +69,13 @@ trait EmailTemplateTrait
             $data['send-mail'] = true;
             if ($template['status'] == 1) {
                 try {
-                    Mail::to($sendMailTo)->send(new SendMail($data, $template, $socialMedia));
+                    // A mail about an order is written by a queue worker, which has no storefront and no session, so every figure in it would
+                    // otherwise be the platform's default currency at today's rate. The order's own record says what it was sold in; a mail that
+                    // is about no order (a password reset, a registration) carries none and is written exactly as it was.
+                    app(StorefrontCurrency::class)->withinOrderCurrency(
+                        order: $data['order'] ?? [],
+                        callback: fn (): mixed => Mail::to($sendMailTo)->send(new SendMail($data, $template, $socialMedia)),
+                    );
                 } catch (Exception $exception) {
                 }
             }

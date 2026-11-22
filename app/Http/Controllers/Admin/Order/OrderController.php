@@ -74,6 +74,7 @@ use App\Contracts\Repositories\DeliveryCountryCodeRepositoryInterface;
 use App\Contracts\Repositories\DeliveryManTransactionRepositoryInterface;
 use App\Contracts\Repositories\LoyaltyPointTransactionRepositoryInterface;
 use App\Contracts\Repositories\OrderExpectedDeliveryHistoryRepositoryInterface;
+use App\Services\Storefront\StorefrontCurrency;
 
 class OrderController extends BaseController
 {
@@ -618,10 +619,12 @@ class OrderController extends BaseController
             $logo = $this->businessSettingRepo->getFirstWhere(params: ['type' => 'company_web_logo'])?->value ?? '';
             $this->businessSettingRepo->updateOrInsert(type: 'company_web_logo_png', value: is_array($logo) ? json_encode($logo) : $logo);
         }
-        $mpdfView = PdfView::make('admin-views.order.invoice',
-            compact('order', 'vendor', 'companyPhone', 'companyEmail', 'companyName', 'companyWebLogo', 'invoiceSettings')
-        );
-        $this->generatePdf(view: $mpdfView, filePrefix: 'order_invoice_', filePostfix: $order['id'], pdfType: 'invoice');
+        app(StorefrontCurrency::class)->withinOrderCurrency(order: $order, callback: function () use ($order, $vendor, $companyPhone, $companyEmail, $companyName, $companyWebLogo, $invoiceSettings): void {
+            $mpdfView = PdfView::make('admin-views.order.invoice',
+                compact('order', 'vendor', 'companyPhone', 'companyEmail', 'companyName', 'companyWebLogo', 'invoiceSettings')
+            );
+            $this->generatePdf(view: $mpdfView, filePrefix: 'order_invoice_', filePostfix: $order['id'], pdfType: 'invoice');
+        });
     }
 
     public function updateStatus(

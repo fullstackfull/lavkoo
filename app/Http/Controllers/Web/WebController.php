@@ -650,13 +650,12 @@ class WebController extends Controller
             'address_id' => session('address_id'),
             'billing_address_id' => session('billing_address_id'),
             'bring_change_amount' => $request['bring_change_amount'] ?? 0,
-            // Both fixes of this column, which two branches wrote separately and which compose:
-            // the storefront's own currency wins where one is in force, because a visitor's pick outlives the storefront it
-            // was made on and a Kuwaiti order was storing its dinars labelled SAR; and where no storefront currency is in
-            // force, CheckoutCurrency::forOrder decides, which is what also handles single-currency mode -- session
-            // ('currency_code') alone is null before a customer has picked anything and wrote the column empty.
-            'bring_change_amount_currency' => $this->storefrontCurrency->currencyCodeInForce()
-                ?? CheckoutCurrency::forOrder(session('currency_code')),
+            // One question, asked the same way by this route and by the two v1 endpoints that write the same column: the
+            // storefront's own currency where one is in force, and otherwise the visitor's pick exactly as this route has
+            // always stored it -- INCLUDING when there is no pick and the column stays empty. Falling back to the platform
+            // default here instead would answer for the default storefront too, which is the dormancy
+            // StorefrontCodOrderCurrencyTest::test_the_default_storefront_stores_exactly_what_it_stored_before pins.
+            'bring_change_amount_currency' => $this->storefrontCurrency->purchaseCurrencyCode(picked: session('currency_code')),
         ]);
 
         // generateOrder() returns an empty list when the order was refused inside its transaction —

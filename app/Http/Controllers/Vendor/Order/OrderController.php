@@ -67,6 +67,7 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use App\Services\Marketplace\SellerOrderBreakdownService;
 use App\Services\Marketplace\SellerOrderTimelineService;
+use App\Services\Storefront\StorefrontCurrency;
 
 class OrderController extends BaseController
 {
@@ -435,10 +436,12 @@ class OrderController extends BaseController
         $relations = ['details', 'customer', 'shipping', 'seller'];
         $order = $this->orderRepo->getFirstWhere(params: $params, relations: $relations);
         $invoiceSettings = getWebConfig(name: 'invoice_settings');
-        $mpdf_view = PdfView::make('vendor-views.order.invoice',
-            compact('order', 'vendor', 'companyPhone', 'companyEmail', 'companyName', 'companyWebLogo', 'invoiceSettings')
-        );
-        $this->generatePdf(view: $mpdf_view, filePrefix: 'order_invoice_', filePostfix: $order['id'], pdfType: 'invoice');
+        app(StorefrontCurrency::class)->withinOrderCurrency(order: $order, callback: function () use ($order, $vendor, $companyPhone, $companyEmail, $companyName, $companyWebLogo, $invoiceSettings): void {
+            $mpdf_view = PdfView::make('vendor-views.order.invoice',
+                compact('order', 'vendor', 'companyPhone', 'companyEmail', 'companyName', 'companyWebLogo', 'invoiceSettings')
+            );
+            $this->generatePdf(view: $mpdf_view, filePrefix: 'order_invoice_', filePostfix: $order['id'], pdfType: 'invoice');
+        });
     }
 
     public function getView(string|int $id, DeliveryCountryCodeService $service, OrderService $orderService): View|RedirectResponse

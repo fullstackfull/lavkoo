@@ -43,6 +43,14 @@ final class StorefrontCurrency
     /** The business settings a storefront answers for itself while it trades in its own currency. */
     public const OVERRIDDEN_SETTINGS = [...self::CURRENCY_SETTINGS, ...self::AMOUNT_SETTINGS, ...self::CLOSED_SETTINGS];
 
+    /**
+     * The settings an order's own record answers while that order's figures are printed. The platform's default currency is deliberately not one
+     * of them: loadCurrency() reads it and writes its answer into the session, so a reader who opened a Kuwaiti invoice would be left looking at
+     * the rest of the site in dinars. The model and the decimals are all the converters and the formatters need; the code and the symbol come
+     * from {@see currencyCodeInForce()} and {@see symbolInForce()}, which write nothing.
+     */
+    private const ORDER_CURRENCY_SETTINGS = ['currency_model', 'decimal_point_settings'];
+
     /** No minimum, no free delivery, no top-up (a maximum of zero refuses every amount) and a closed wallet: a value that cannot be in the wrong currency. */
     public const NEUTRAL_AMOUNT = '0';
 
@@ -64,6 +72,12 @@ final class StorefrontCurrency
 
     private ?string $market = null;
 
+    /** The currency an order was sold in while its own figures are being printed; nothing else may answer for those figures. */
+    private ?Currency $orderCurrency = null;
+
+    /** @var array<string, Currency|false> the currency row of a code, false when there is none: an order's record is read once per document, not once per figure */
+    private array $currencyOfCode = [];
+
     public function isEnabled(): bool
     {
         return (bool) config('gcc.storefronts.currency.enabled') && StorefrontResolver::fromConfig()->isEnabled();
@@ -80,6 +94,10 @@ final class StorefrontCurrency
             return null;
         }
 
+        if ($this->orderCurrency !== null && in_array($setting, self::ORDER_CURRENCY_SETTINGS, true)) {
+            return $this->orderSettingOf(setting: $setting, currency: $this->orderCurrency);
+        }
+
         $storefront = $this->inForce();
 
         if ($storefront === null) {
@@ -87,12 +105,98 @@ final class StorefrontCurrency
         }
 
         return match ($setting) {
-            'system_default_currency' => (int) $storefront['currency']->id,
-            'currency_model' => self::SINGLE_CURRENCY_MODEL,
-            'decimal_point_settings' => $this->decimalsOf($storefront['currency']->code),
+            'system_default_currency', 'currency_model', 'decimal_point_settings' => $this->currencySettingOf(setting: $setting, currency: $storefront['currency']),
             'minimum_order_amount', 'free_delivery_over_amount' => $this->amountOf(country: $storefront['country'], setting: $setting, currencyCode: $storefront['currency']->code),
             default => self::NEUTRAL_AMOUNT,
         };
+    }
+
+    /**
+     * What a setting answers while an ORDER's own currency is in force: the single-currency model, so a stored amount is printed as it was
+     * stored, and the decimals of that currency only where ISO 4217 names them. For every other currency the operator's own
+     * decimal_point_settings stands, because that is the number of decimals every surface has always printed this order's amounts with, and
+     * forcing two would drop the third decimal off an amount that was charged with three: a riyal invoice of a shop set to three decimals
+     * would understate 10.555 as 10.55, since usdToDefaultCurrency() floors at whatever decimal count is in force.
+     *
+     * A storefront's own money (above) keeps answering decimalsOf(), so the behaviour already shipped for B-17 does not move.
+     */
+    private function orderSettingOf(string $setting, Currency $currency): string|int|null
+    {
+        return $setting === 'currency_model' ? self::SINGLE_CURRENCY_MODEL : $this->configuredDecimalsOf($currency->code);
+    }
+
+    /** What the three currency settings answer while one currency is in force: that currency, shown as it is stored, with its own decimals. */
+    private function currencySettingOf(string $setting, Currency $currency): string|int
+    {
+        return match ($setting) {
+            'system_default_currency' => (int) $currency->id,
+            'currency_model' => self::SINGLE_CURRENCY_MODEL,
+            default => $this->decimalsOf($currency->code),
+        };
+    }
+
+    /**
+     * Runs the callback in the money an order was sold in, as the order's own record names it, so a document of that order states the figures
+     * that were charged and the currency they were charged in: the invoice, the order e-mail and the exports read this.
+     *
+     * The record is the authority, not the request: the e-mail is written by a queue worker that has no storefront and no session at all, and
+     * an invoice or an export is read in a panel that sees every country, so neither can be allowed to re-convert a sold amount at today's rate
+     * and label it with today's currency. It is not read through the storefront switch either — an order charged in dinars was charged in
+     * dinars whatever the settings say afterwards — and the currency row is read whether or not it is still active, because whether a currency
+     * may still be sold in says nothing about what an order was already sold for.
+     *
+     * An order that records no currency (every order placed before the snapshot columns, and the default storefront on a platform that converts
+     * from a base currency), and a row whose order has gone, run the callback untouched: every such document is what it was, byte for byte.
+     */
+    public function withinOrderCurrency(object|array|null $order, Closure $callback): mixed
+    {
+        $currency = $this->currencyRecordedOn($order);
+
+        if ($currency === null) {
+            return $callback();
+        }
+
+        $previous = $this->orderCurrency;
+        $this->orderCurrency = $currency;
+
+        try {
+            return $callback();
+        } finally {
+            $this->orderCurrency = $previous;
+        }
+    }
+
+    /**
+     * The currency an order's own figures are in, from the order's record, or null when that record cannot be honoured.
+     *
+     * currency_rate is the rate that turns a stored amount into that currency. Every order recorded so far holds its amounts in its own
+     * currency, so its rate is one, and that is the only rate a document is printed under: what any other rate means for a stored amount is an
+     * open decision, and an order is not re-scaled by a guess. An unknown currency code is left alone for the same reason.
+     */
+    private function currencyRecordedOn(object|array|null $order): ?Currency
+    {
+        $code = data_get($order, 'currency_code');
+        $rate = data_get($order, 'currency_rate');
+
+        if (!is_string($code) || trim($code) === '' || !is_numeric($rate) || abs((float) $rate - 1.0) > 0.0) {
+            return null;
+        }
+
+        return $this->currencyOf(strtoupper(trim($code)));
+    }
+
+    /** The currency row of a code, active or not, or null when the platform has no such currency. */
+    private function currencyOf(string $currencyCode): ?Currency
+    {
+        $this->currenciesTableExists ??= Schema::hasTable('currencies');
+
+        if (!$this->currenciesTableExists) {
+            return null;
+        }
+
+        $this->currencyOfCode[$currencyCode] ??= Currency::query()->whereRaw('UPPER(code) = ?', [$currencyCode])->first() ?? false;
+
+        return $this->currencyOfCode[$currencyCode] ?: null;
     }
 
     /**
@@ -167,6 +271,19 @@ final class StorefrontCurrency
         }
 
         return $country;
+    }
+
+    /**
+     * The currency a purchase is made in: the storefront's own while it trades in its own currency, and otherwise the code the caller would
+     * have used anyway — the visitor's pick, the field the client sent, or the platform's default, each exactly as that surface reads it today.
+     *
+     * The checkout page, the order that is written and the payment that is taken all ask this one question, so none of them can name a currency
+     * another of them is not in: a pick a visitor made on one market cannot label an order of a market that trades in different money. While no
+     * storefront trades in its own currency the answer is the caller's own value, unchanged, including when that value is nothing.
+     */
+    public function purchaseCurrencyCode(?string $picked): ?string
+    {
+        return $this->currencyCodeInForce() ?? $picked;
     }
 
     /** The symbol of that currency, or null while the platform's own settings stand. Read by getCurrencySymbol() so no surface prints another storefront's sign. */
@@ -288,7 +405,15 @@ final class StorefrontCurrency
 
     public function decimalsOf(string $currencyCode): int
     {
-        return (int) (config('gcc.storefronts.currency.decimals')[strtoupper($currencyCode)] ?? self::DEFAULT_DECIMALS);
+        return $this->configuredDecimalsOf($currencyCode) ?? self::DEFAULT_DECIMALS;
+    }
+
+    /** The decimals the configuration names for a currency (ISO 4217 gives the dinar and the rial three), or null where it names none. */
+    private function configuredDecimalsOf(string $currencyCode): ?int
+    {
+        $decimals = config('gcc.storefronts.currency.decimals')[strtoupper($currencyCode)] ?? null;
+
+        return $decimals === null ? null : (int) $decimals;
     }
 
     /**
@@ -349,7 +474,7 @@ final class StorefrontCurrency
 
     private function currencyInForce(): ?Currency
     {
-        return $this->inForce()['currency'] ?? null;
+        return $this->orderCurrency ?? $this->inForce()['currency'] ?? null;
     }
 
     /** @return array{country: string, currency: Currency}|null the storefront whose money is in force and its currency, or null while the platform's settings stand */

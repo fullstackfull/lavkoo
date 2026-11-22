@@ -117,7 +117,9 @@ class CustomerOrderMarketAnswerTest extends ApiAddressTestCase
         'POST api/v1/customer/order/deliveryman-review/update',
         'POST api/v1/customer/order/deliveryman-reviews/submit',
         'GET|HEAD api/v1/products/review/{product_id}/{order_id}',
-        'GET|HEAD api/v1/customer/order/digital-product-download/{id}',
+        // The optional {fileName?} segment comes from the digital-file lane (routes/rest_api/v1/api.php:439); the route is the same
+        // one and stays in the same list, only its spelling moved.
+        'GET|HEAD api/v1/customer/order/digital-product-download/{id}/{fileName?}',
         'GET|HEAD api/v1/customer/order/digital-product-download-otp-verify',
         'POST api/v1/customer/order/digital-product-download-otp-resend',
     ];

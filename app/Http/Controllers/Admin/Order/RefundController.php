@@ -20,6 +20,7 @@ use App\Http\Requests\Admin\RefundStatusRequest;
 use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Services\RefundStatusService;
 use App\Services\RefundTransactionService;
+use App\Services\Storefront\OrderStorefrontSnapshot;
 use App\Traits\CustomerTrait;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Contracts\View\View;
@@ -142,6 +143,7 @@ class RefundController extends BaseController
                 $this->vendorWalletRepo->updateWhere(params: ['seller_id' => $order['seller_id']], data: ['total_earning' => $sellerWallet['total_earning'] - $refund['amount']]);
             }
             $this->refundTransactionRepo->add(data: $refundTransactionService->getData(request: $request, refund: $refund, order: $order));
+            app(OrderStorefrontSnapshot::class)->stampMoneyRows(table: 'refund_transactions', orderId: $refund['order_id']);
 
             // Reverse the marketplace's side of the refund on the vendor ledger.
             //

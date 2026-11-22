@@ -52,6 +52,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Modules\Auction\app\Services\AuctionAccountDeletionGuardService;
 use function App\Utils\payment_gateways;
+use App\Services\Storefront\OrderStorefrontSnapshot;
+use App\Services\Storefront\StorefrontCurrency;
 
 class UserProfileController extends Controller
 {
@@ -939,6 +941,7 @@ class UserProfileController extends Controller
             $refundRequest->images = $images;
         }
         $refundRequest->save();
+        app(OrderStorefrontSnapshot::class)->stampMoneyRows(table: 'refund_requests', orderId: $orderDetails->order_id);
 
         $orderDetails->refund_request = 1;
         $orderDetails->save();
@@ -968,8 +971,10 @@ class UserProfileController extends Controller
             abort(404);
         }
         $invoiceSettings = getWebConfig(name: 'invoice_settings');
-        $mpdf_view = \View::make(VIEW_FILE_NAMES['order_invoice'], compact('order', 'invoiceSettings'));
-        $this->generatePdf(view: $mpdf_view, filePrefix: 'order_invoice_', filePostfix: $order['id'], pdfType: 'invoice', requestFrom: 'web');
+        app(StorefrontCurrency::class)->withinOrderCurrency(order: $order, callback: function () use ($order, $invoiceSettings): void {
+            $mpdf_view = \View::make(VIEW_FILE_NAMES['order_invoice'], compact('order', 'invoiceSettings'));
+            $this->generatePdf(view: $mpdf_view, filePrefix: 'order_invoice_', filePostfix: $order['id'], pdfType: 'invoice', requestFrom: 'web');
+        });
     }
 
     public function refund_details($id)

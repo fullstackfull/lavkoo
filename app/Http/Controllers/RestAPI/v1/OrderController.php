@@ -14,6 +14,8 @@ use App\Services\DigitalProductFileService;
 use App\Services\Customer\WalletOrderDebit;
 use App\Services\Fulfillment\CheckoutCodGuard;
 use App\Services\Fulfillment\CustomerFulfillmentPresenter;
+use App\Services\Storefront\OrderStorefrontSnapshot;
+use App\Services\Storefront\StorefrontCurrency;
 use App\Http\Requests\API\v1\RefundStoreRequest;
 use App\Models\Cart;
 use App\Models\Currency;
@@ -63,6 +65,7 @@ class OrderController extends Controller
         private readonly StorefrontAddressService $storefrontAddresses,
         private readonly DigitalProductFileService $digitalFiles,
         private readonly DigitalFileAddressService $digitalFileAddresses,
+        private readonly StorefrontCurrency $storefrontCurrency,
     )
     {
     }
@@ -255,12 +258,11 @@ class OrderController extends Controller
             }
         }
 
-        $currency_model = getWebConfig(name: 'currency_model');
-        if ($currency_model == 'multi_currency') {
-            $currencyCode = CheckoutCurrency::forOrder($request->current_currency_code);
-        } else {
-            $currencyCode = CheckoutCurrency::platformDefault();
-        }
+        // One answer to what currency this purchase is in, shared with the website's own checkout: the money of the storefront the
+        // request is served from while it trades in its own, and otherwise the code this endpoint has always used.
+        $pickedByTheClient = getWebConfig(name: 'currency_model') == 'multi_currency' ? $request->current_currency_code : null;
+        $currencyCode = $this->storefrontCurrency->purchaseCurrencyCode(picked: $pickedByTheClient)
+            ?? CheckoutCurrency::platformDefault();
 
         $orderIds = OrderManager::generateOrder(data: [
             'is_guest' => $user == 'offline' ? 1 : 0,
@@ -635,6 +637,7 @@ class OrderController extends Controller
         }
 
         $refund_request->save();
+        app(OrderStorefrontSnapshot::class)->stampMoneyRows(table: 'refund_requests', orderId: $orderDetails->order_id);
         $orderDetails->update(['refund_request' => 1]);
         $order = Order::find($orderDetails->order_id);
 
