@@ -141,9 +141,10 @@ final class PaymentAccountBinding
      *   every payment of the one gateway the owner's shipped list holds. It belongs to a company account and still expects the platform address,
      *   because its gateway has no other to be told about. `toStored()` leaves the key out rather than storing a null.
      *
-     *   A STAMP WHOSE ADDRESS IS NOT USABLE TEXT — an empty string, a null or a non-string under the key, which `PaymentTransactionRecord` reads as no
-     *   address. `additional_data` is a JSON column this application is not the only writer of, so the shape is reachable without this class producing
-     *   it, and it means the same thing: no address was recorded, so the platform address is what the payment expects.
+     *   A STAMP WHOSE ADDRESS IS NOT USABLE TEXT — an empty string, a stored null, a list or a boolean under the key, which
+     *   `PaymentTransactionRecord` reads as no address. `additional_data` is a JSON column this application is not the only writer of, so the shape is
+     *   reachable without this class producing it, and it means the same thing: no address was recorded, so the platform address is what the payment
+     *   expects. A stored NUMBER is NOT one of these — see below.
      *
      * A stored NUMBER is the one shape that goes the other way: `PaymentTransactionRecord::text()` casts an int or a float to a string, which the
      * exchange rate it shares that helper with needs, so a stored `0` reads as the address "0" and this answers TRUE for a platform address. Nothing
