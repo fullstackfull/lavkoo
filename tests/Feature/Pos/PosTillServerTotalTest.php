@@ -182,12 +182,25 @@ class PosTillServerTotalTest extends PosTillTestCase
         PosSaleTotal::inDefaultCurrency()->plusLine(lineSubtotal: 93000000000.0, appliedTaxAmount: 0);
     }
 
-    /** The same door, for a figure that is not a number at all. */
+    /**
+     * The same door, for a figure that is not a number at all.
+     *
+     * INF and NAN are BOTH needed, and the mutation round is what showed it: the magnitude bound catches INF on its
+     * own, so removing the `is_finite()` guard left every test green until NAN was here. `abs(NAN) > x` is false, so
+     * NAN walks straight past a magnitude check and `(int) NAN` is 0 — a line of unknown cost priced at nothing.
+     */
     public function test_a_line_that_is_not_a_number_is_refused(): void
     {
         $this->expectException(InvalidArgumentException::class);
 
         PosSaleTotal::inDefaultCurrency()->plusLine(lineSubtotal: INF, appliedTaxAmount: 0);
+    }
+
+    public function test_a_line_whose_cost_is_not_a_number_at_all_is_refused(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        PosSaleTotal::inDefaultCurrency()->plusLine(lineSubtotal: NAN, appliedTaxAmount: 0);
     }
 
     /**
@@ -207,6 +220,24 @@ class PosTillServerTotalTest extends PosTillTestCase
         PosSaleTotal::inDefaultCurrency()
             ->plusLine(lineSubtotal: $justInsideTheLineBound, appliedTaxAmount: 0)
             ->plusLine(lineSubtotal: $justInsideTheLineBound, appliedTaxAmount: 0);
+    }
+
+    /**
+     * And in the other direction, which the mutation round caught: a bound that only checks the positive side leaves
+     * the negative side to overflow into a float and a TypeError.
+     *
+     * A line of fewer than one unit gives a negative subtotal, so a cart of two such lines is the shape that reaches
+     * it — not a cart a cashier rings up, but the same class of input the per-line bound exists for.
+     */
+    public function test_a_cart_whose_negative_lines_together_are_too_large_to_count_is_refused(): void
+    {
+        $justInsideTheLineBound = PHP_INT_MAX / (10 ** 8) - 1;
+
+        $this->expectException(InvalidArgumentException::class);
+
+        PosSaleTotal::inDefaultCurrency()
+            ->plusLine(lineSubtotal: -$justInsideTheLineBound, appliedTaxAmount: 0)
+            ->plusLine(lineSubtotal: -$justInsideTheLineBound, appliedTaxAmount: 0);
     }
 
     /**
@@ -949,6 +980,31 @@ class PosTillServerTotalTest extends PosTillTestCase
         $this->assertSame([['debit' => 15000, 'balance' => 75000]], $this->walletRowsInMinorUnits());
     }
 
+    /**
+     * An EXPIRED clearance sale does not discount the sale, and this is what makes reviewer B's R13 a real mutation
+     * rather than a no-op.
+     *
+     * Dropping the `clearanceSale` relation from `getCartProductsForPricing` does NOT stop the price being
+     * discounted: Eloquent lazy-loads the relation when `app/Utils/currency.php` reads `$product['clearanceSale']`,
+     * so the row is still found — but WITHOUT the `->active()` scope the eager load applies. So the mutation's real
+     * effect is that a clearance sale whose window has closed starts discounting again, and the till undercharges.
+     * The test with an ACTIVE clearance above cannot see that; this one can.
+     */
+    #[DataProvider('tills')]
+    public function test_a_clearance_sale_whose_window_has_closed_does_not_discount_the_sale(string $till): void
+    {
+        $this->walletCustomer(id: 64, balance: 900.0);
+        $this->shelfProduct(id: 755, stock: 100, till: $till, price: 100.0);
+        $this->givenClearanceSale(productId: 755, till: $till, discount: 25.0, expired: true);
+        $this->givenCartAtTill($till, [755 => ['quantity' => 2, 'price' => 100.0]], customerId: 64);
+
+        $this->placeSaleAtTill($till, amount: 200.0, extra: ['type' => 'wallet', 'customer_id' => 64]);
+
+        $this->assertSame(['success'], $this->toastTypes());
+        $this->assertSame(20000, $this->chargedMinorUnits(), 'full price: the offer is over');
+        $this->assertSame([['debit' => 20000, 'balance' => 70000]], $this->walletRowsInMinorUnits());
+    }
+
     // ---- a wallet sale that took nothing is not a sale ------------------------------------------------------------
 
     /**
@@ -1103,8 +1159,12 @@ class PosTillServerTotalTest extends PosTillTestCase
         return $cartId;
     }
 
-    /** An active clearance sale taking a percentage off one product, which the pricing helpers read off the row. */
-    private function givenClearanceSale(int $productId, string $till, float $discount): void
+    /**
+     * A clearance sale taking a percentage off one product, which the pricing helpers read off the row.
+     *
+     * With `$expired` the setup's window has closed, which the relation's own `active()` scope is what excludes.
+     */
+    private function givenClearanceSale(int $productId, string $till, float $discount, bool $expired = false): void
     {
         $setupBy = $till === self::ADMIN_TILL ? 'admin' : 'vendor';
         $setupId = DB::table('stock_clearance_setups')->insertGetId([
@@ -1115,8 +1175,8 @@ class PosTillServerTotalTest extends PosTillTestCase
             'discount_type' => 'percentage',
             'discount_amount' => $discount,
             'offer_active_time' => 'always',
-            'duration_start_date' => now()->subDay(),
-            'duration_end_date' => now()->addDay(),
+            'duration_start_date' => $expired ? now()->subDays(10) : now()->subDay(),
+            'duration_end_date' => $expired ? now()->subDays(5) : now()->addDay(),
             'created_at' => now(),
             'updated_at' => now(),
         ]);
