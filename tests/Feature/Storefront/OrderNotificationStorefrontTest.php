@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Storefront;
 
+use App\Events\OrderEditDuePaymentEvent;
 use App\Events\OrderEditEvent;
 use App\Events\OrderEditReturnPaymentEvent;
 use App\Events\OrderStatusEvent;
@@ -106,7 +107,7 @@ class OrderNotificationStorefrontTest extends OrderNotificationTestCase
         $this->assertSame('KWD', DB::table('orders')->where('id', self::KW_ORDER)->value('currency_code'), 'which is the currency the order records');
     }
 
-    public function test_the_refund_the_edit_and_the_return_payment_listeners_each_build_their_push_in_the_storefront_of_the_order(): void
+    public function test_the_refund_the_edit_and_the_return_payment_listeners_each_build_their_push_in_the_language_of_the_orders_recipient(): void
     {
         $this->switchStorefrontsOn();
         $order = $this->sellOrderIn(country: 'KW', orderId: self::KW_ORDER, orderColumns: [
@@ -132,12 +133,16 @@ class OrderNotificationStorefrontTest extends OrderNotificationTestCase
         }
     }
 
-    public function test_a_refund_notifies_the_seller_of_the_order_in_the_sellers_own_language(): void
+    /**
+     * The seller and the buyer of one order read different languages, so a notification to the seller that took the buyer's language, or the
+     * other way round, shows in the title of the push that left. Both recipients are on the same order and the same refund.
+     */
+    public function test_a_refund_notifies_the_seller_in_the_sellers_language_and_the_buyer_in_the_buyers(): void
     {
         $this->switchStorefrontsOn();
         $order = $this->sellOrderIn(country: 'KW', orderId: self::KW_ORDER, orderColumns: [
-            'customer_id' => $this->customerWhoReadsArabic()->id,
-            'seller_id' => $this->sellerWhoReadsArabic()->id,
+            'customer_id' => $this->makeCustomer(['cm_firebase_token' => 'customer-device', 'app_language' => 'en'])->id,
+            'seller_id' => $this->sellerWhoReads('sa')->id,
             'seller_is' => 'seller',
         ]);
 
@@ -149,7 +154,109 @@ class OrderNotificationStorefrontTest extends OrderNotificationTestCase
         $this->assertSame(self::TITLE_IN_ARABIC, $pushes[0]['message']['notification']['title'], 'the seller is written to in the language the seller reads');
         $this->assertSame('Order ' . self::KW_ORDER . ' was refunded to the buyer', $pushes[0]['message']['notification']['body']);
         $this->assertSame('customer-device', $pushes[1]['message']['token']);
-        $this->assertSame(self::TITLE_IN_ARABIC, $pushes[1]['message']['notification']['title']);
+        $this->assertSame(self::TITLE_IN_ENGLISH, $pushes[1]['message']['notification']['title'], 'and the buyer in the buyer\'s, which is not the seller\'s');
+    }
+
+    /** The refund branch for a request the platform turned down, which sends its own key to the buyer. */
+    public function test_a_rejected_refund_notifies_the_buyer_in_the_buyers_own_language(): void
+    {
+        $this->switchStorefrontsOn();
+        $order = $this->sellOrderIn(country: 'KW', orderId: self::KW_ORDER, orderColumns: [
+            'customer_id' => $this->customerWhoReadsArabic()->id,
+            'seller_is' => 'admin',
+        ]);
+
+        event(new RefundEvent(status: 'rejected', order: $order, refund: ['id' => 5], orderDetails: null));
+
+        $push = $this->theOnePushSent();
+        $this->assertSame('customer-device', $push['message']['token']);
+        $this->assertSame(self::TITLE_IN_ARABIC, $push['message']['notification']['title']);
+        $this->assertSame('Order ' . self::KW_ORDER . ' refund was rejected', $push['message']['notification']['body']);
+    }
+
+    /**
+     * The second e-mail the order-placed flow sends: OrderManager raises one for the buyer and one for the shop, whose userType is 'vendor'
+     * unless the shop is the platform itself. That recipient's own language has to be bound as the seller's is.
+     */
+    public function test_the_order_received_email_of_a_vendor_is_written_in_the_language_the_vendor_reads(): void
+    {
+        Mail::fake();
+        $this->switchStorefrontsOn();
+        $this->seedEmailTemplate(templateName: 'order-received', userType: 'vendor', titleInEnglish: 'A new order', titleInArabic: 'طلب جديد');
+        $order = $this->sellOrderIn(country: 'KW', orderId: self::KW_ORDER, orderColumns: [
+            'customer_id' => $this->makeCustomer(['cm_firebase_token' => 'customer-device', 'app_language' => 'en'])->id,
+            'seller_id' => $this->sellerWhoReads('sa')->id,
+            'seller_is' => 'seller',
+        ]);
+
+        $this->placeOrderMailFor($order, userType: 'vendor', templateName: 'order-received');
+
+        $this->assertSame('طلب جديد', $this->titleOfTheEmailSent());
+    }
+
+    /**
+     * A promoter is reached behind the buyer, through the referral record, and reads the platform's own language: the buyer's language is
+     * not theirs. This promoter has chosen none, so the sender falls back to the language of the sending process, which must still be the
+     * platform's and not the buyer's.
+     */
+    public function test_a_promoters_push_about_a_buyers_order_is_written_in_the_platform_language_not_the_buyers(): void
+    {
+        $this->switchStorefrontsOn();
+        $buyer = $this->customerWhoReadsArabic();
+        $this->promoterWhoReads(customerId: $buyer->id, language: null);
+        $order = $this->sellOrderIn(country: 'KW', orderId: self::KW_ORDER, orderColumns: ['customer_id' => $buyer->id]);
+
+        event(new OrderStatusEvent(key: 'your_referred_customer_has_been_place_order', type: 'promoter', order: $order));
+
+        $push = $this->theOnePushSent();
+        $this->assertSame('promoter-device', $push['message']['token']);
+        $this->assertSame(
+            str_replace('{orderId}', (string) self::KW_ORDER, self::REFERRAL_TEXT_IN_ENGLISH),
+            $push['message']['notification']['body'],
+            'the promoter is told in the platform language, although the buyer reads Arabic',
+        );
+    }
+
+    /**
+     * The due-payment listener's own wrap. Its one production dispatcher raises a key that PushNotificationTrait's map does not hold, so no
+     * push has ever left it and no test of that path can tell a wrapped listener from an unwrapped one (the fact is pinned next door, in
+     * OrderNotificationTodayTest). The event and the listener here are the real ones; only the key is one the map does hold, which is what
+     * makes the wrap itself measurable. The missing entry stays I1-03's work: adding it would start sending a notification that has never
+     * been sent.
+     */
+    public function test_the_due_payment_listener_builds_its_push_in_the_language_of_the_recipient_for_a_key_the_platform_can_send(): void
+    {
+        $this->switchStorefrontsOn();
+        $order = $this->sellOrderIn(country: 'KW', orderId: self::KW_ORDER, orderColumns: [
+            'customer_id' => $this->customerWhoReadsArabic()->id,
+        ]);
+
+        event(new OrderEditDuePaymentEvent(notification: (object) ['key' => 'order_edit_message', 'type' => 'customer', 'order' => $order]));
+
+        $push = $this->theOnePushSent();
+        $this->assertSame('customer-device', $push['message']['token']);
+        $this->assertSame(self::TITLE_IN_ARABIC, $push['message']['notification']['title']);
+    }
+
+    /**
+     * A recipient row whose language is blank. Nothing a sender writes differs — every reader of a blank language falls back to the humanised
+     * key or the untranslated row — so this is asserted at the service's own seam, where the blank is visible: what must not happen is a
+     * blank locale and a blank session language being bound around the send (review A F8, review B F6).
+     */
+    public function test_a_recipient_whose_language_is_blank_has_nothing_bound_for_them(): void
+    {
+        $this->switchStorefrontsOn();
+        App::setLocale('en');
+
+        foreach (['', '   '] as $blank) {
+            $bound = OrderNotificationContext::within(
+                order: ['storefront_country' => 'KW', 'customer' => ['app_language' => $blank]],
+                userType: 'customer',
+                callback: static fn (): array => ['locale' => App::getLocale(), 'session' => session('local')],
+            );
+
+            $this->assertSame(['locale' => 'en', 'session' => null], $bound, var_export($blank, true));
+        }
     }
 
     /**

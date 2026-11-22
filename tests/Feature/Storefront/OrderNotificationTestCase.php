@@ -47,6 +47,11 @@ abstract class OrderNotificationTestCase extends ApiAddressTestCase
 
     protected const DELIVERY_MAN_TEXT = 'Order {orderId} is assigned to you';
 
+    /** What a promoter is told about the order of a customer they referred, in the platform's language and in Arabic. */
+    protected const REFERRAL_TEXT_IN_ENGLISH = 'Your referred customer placed order {orderId}';
+
+    protected const REFERRAL_TEXT_IN_ARABIC = 'عميلك طلب {orderId}';
+
     protected const KW_ORDER = 9101;
 
     protected const SA_ORDER = 9102;
@@ -57,6 +62,7 @@ abstract class OrderNotificationTestCase extends ApiAddressTestCase
     protected const CHARGE_CONVERTED_TO_THE_PLATFORM_CURRENCY = '112.5';
 
     protected const CHARGE_AS_THE_ORDER_HOLDS_IT = '30';
+
 
     /** Measured on the base branch, with the listeners unwrapped: what a customer order push costs the database. */
     protected const QUERIES_OF_A_CUSTOMER_PUSH = 5;
@@ -91,6 +97,7 @@ abstract class OrderNotificationTestCase extends ApiAddressTestCase
         });
         Schema::table('referral_customers', static function (Blueprint $table): void {
             $table->unsignedBigInteger('refer_by')->nullable();
+            $table->boolean('ordered_notify')->default(false);
         });
         Schema::table('orders', static fn (Blueprint $table) => $table->decimal('deliveryman_charge', 16, 2)->nullable());
         Schema::create('delivery_men', static function (Blueprint $table): void {
@@ -153,8 +160,19 @@ abstract class OrderNotificationTestCase extends ApiAddressTestCase
     /** The e-mail the platform sends when an order is placed, with an Arabic title for the market that reads Arabic. */
     protected function seedOrderPlacedEmailTemplate(string $titleInEnglish, string $titleInArabic): void
     {
+        $this->seedEmailTemplate(
+            templateName: 'order-place',
+            userType: 'customer',
+            titleInEnglish: $titleInEnglish,
+            titleInArabic: $titleInArabic,
+        );
+    }
+
+    /** Any of the platform's e-mail templates, with an Arabic title row beside the English one. */
+    protected function seedEmailTemplate(string $templateName, string $userType, string $titleInEnglish, string $titleInArabic): void
+    {
         $template = EmailTemplate::create([
-            'template_name' => 'order-place', 'user_type' => 'customer', 'title' => $titleInEnglish,
+            'template_name' => $templateName, 'user_type' => $userType, 'title' => $titleInEnglish,
             'body' => 'Order {orderId} is on its way', 'status' => 1,
         ]);
         Translation::create([
@@ -220,6 +238,12 @@ abstract class OrderNotificationTestCase extends ApiAddressTestCase
         NotificationMessage::create(['user_type' => 'customer', 'key' => 'order_edit_message', 'message' => 'Order {orderId} was edited', 'status' => 1]);
         NotificationMessage::create(['user_type' => 'seller', 'key' => 'order_edit_due_payment_message', 'message' => 'Order {orderId} has a payment due', 'status' => 1]);
         NotificationMessage::create(['user_type' => 'seller', 'key' => 'order_refunded_message', 'message' => 'Order {orderId} was refunded to the buyer', 'status' => 1]);
+        NotificationMessage::create(['user_type' => 'customer', 'key' => 'refund_request_canceled_message', 'message' => 'Order {orderId} refund was rejected', 'status' => 1]);
+        $referral = NotificationMessage::create(['user_type' => 'customer', 'key' => 'your_referred_customer_has_been_place_order', 'message' => self::REFERRAL_TEXT_IN_ENGLISH, 'status' => 1]);
+        Translation::create([
+            'translationable_type' => NotificationMessage::class, 'translationable_id' => $referral->id,
+            'locale' => 'sa', 'key' => 'message', 'value' => self::REFERRAL_TEXT_IN_ARABIC,
+        ]);
     }
 
     /** The push service as the platform configures it: a service account in the business settings, Google's token endpoint and FCM both answering. */
@@ -297,12 +321,29 @@ abstract class OrderNotificationTestCase extends ApiAddressTestCase
 
     protected function sellerWhoReadsArabic(): object
     {
+        return $this->sellerWhoReads('sa');
+    }
+
+    /** A seller whose own language is whatever is asked for, so a seller notification that read the customer's language instead would show. */
+    protected function sellerWhoReads(?string $language): object
+    {
         $id = DB::table('sellers')->insertGetId([
             'f_name' => 'Hamad', 'status' => 'approved', 'email' => 'seller@example.test',
-            'cm_firebase_token' => 'seller-device', 'app_language' => 'sa', 'created_at' => now(), 'updated_at' => now(),
+            'cm_firebase_token' => 'seller-device', 'app_language' => $language, 'created_at' => now(), 'updated_at' => now(),
         ]);
 
         return (object) ['id' => $id];
+    }
+
+    /** The promoter behind a customer, as the referral record names them: the sender finds this one itself, through refer_by. */
+    protected function promoterWhoReads(int $customerId, ?string $language): User
+    {
+        $promoter = $this->makeCustomer(['cm_firebase_token' => 'promoter-device', 'app_language' => $language, 'f_name' => 'Faisal', 'l_name' => 'Al Harbi']);
+        DB::table('referral_customers')->insert([
+            'user_id' => $customerId, 'refer_by' => $promoter->id, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        return $promoter;
     }
 
     protected function deliveryMan(int $id, string $token, ?string $language): object
@@ -324,13 +365,14 @@ abstract class OrderNotificationTestCase extends ApiAddressTestCase
     }
 
     /** The order-placed e-mail as OrderManager raises it, through the queued listener. */
-    protected function placeOrderMailFor(Order $order): void
+    protected function placeOrderMailFor(Order $order, string $userType = 'customer', string $templateName = 'order-place'): void
     {
         event(new OrderPlacedEvent(email: 'buyer@example.test', data: [
             'subject' => 'order placed', 'title' => 'order placed', 'userName' => 'Noura',
-            'userType' => 'customer', 'templateName' => 'order-place', 'order' => $order, 'orderId' => $order->id,
+            'userType' => $userType, 'templateName' => $templateName, 'order' => $order, 'orderId' => $order->id,
         ]));
     }
+
 
     protected function theOnePushSent(): Request
     {
