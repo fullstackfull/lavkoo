@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Storefront;
 
+use App\Models\Order;
 use App\Services\Storefront\OrderStorefrontSnapshot;
 use App\Services\Storefront\StorefrontCatalog;
 use App\Services\Storefront\StorefrontResolver;
@@ -10,6 +11,8 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
+use RecursiveDirectoryIterator;
+use RecursiveIteratorIterator;
 use RuntimeException;
 use Tests\Support\BuildsStorefrontCatalog;
 use Tests\TestCase;
@@ -24,6 +27,14 @@ class OrderStorefrontSnapshotTest extends TestCase
     use BuildsStorefrontCatalog;
 
     private const ORDER = 9001;
+
+    private const SNAPSHOT_COLUMNS = ['storefront_country', 'currency_code', 'currency_rate'];
+
+    /** The column that says an amount is stored in the currency the order names. The other two share their names with columns of other tables. */
+    private const RATE_COLUMN = 'currency_rate';
+
+    /** Where a writer of a column of the orders table could live: the application, its modules, its migrations, its routes and its configuration. */
+    private const APPLICATION_DIRECTORIES = ['app', 'Modules', 'database', 'routes', 'config'];
 
     protected function setUp(): void
     {
@@ -300,5 +311,49 @@ class OrderStorefrontSnapshotTest extends TestCase
         $this->assertFalse(Schema::hasColumn('orders', 'storefront_country'));
         $this->assertFalse(Schema::hasColumn('orders', 'currency_code'));
         $this->assertFalse(Schema::hasColumn('orders', 'currency_rate'));
+    }
+
+    /**
+     * What makes the rate of an order one or nothing, and never another number: this service is the only writer there is. No PHP file of the
+     * application outside it and the migration that adds the column so much as names the rate, and none of the three columns may be filled from
+     * a request, so a second writer, in a panel, a console command, an importer or a module, has to name the column here or open the model up to
+     * it. Either way this test says so, and what a record means, an amount stored as it is in the currency the order names, stops resting on a
+     * sentence.
+     */
+    public function test_this_service_is_the_only_place_in_the_application_that_names_the_rate_column(): void
+    {
+        $naming = [];
+
+        foreach ($this->applicationSources() as $path) {
+            if (str_contains((string) file_get_contents(base_path($path)), self::RATE_COLUMN)) {
+                $naming[] = $path;
+            }
+        }
+
+        sort($naming);
+
+        $this->assertSame([
+            'app/Services/Storefront/OrderStorefrontSnapshot.php',
+            'database/migrations/2026_11_26_100000_add_storefront_snapshot_to_orders_table.php',
+        ], $naming);
+        $this->assertSame([], array_intersect(self::SNAPSHOT_COLUMNS, (new Order())->getFillable()), 'none of the three may be filled from a request');
+    }
+
+    /** @return list<string> every PHP file of the application, as a path from the root of the repository */
+    private function applicationSources(): array
+    {
+        $paths = [];
+
+        foreach (self::APPLICATION_DIRECTORIES as $directory) {
+            $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(base_path($directory), RecursiveDirectoryIterator::SKIP_DOTS));
+
+            foreach ($files as $file) {
+                if ($file->isFile() && $file->getExtension() === 'php') {
+                    $paths[] = $directory . '/' . str_replace(base_path($directory) . '/', '', $file->getPathname());
+                }
+            }
+        }
+
+        return $paths;
     }
 }

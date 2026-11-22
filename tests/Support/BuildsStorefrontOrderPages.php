@@ -9,8 +9,8 @@ use Illuminate\Support\Facades\Schema;
 
 /**
  * What the customer's order pages (the order details and the invoice) read besides the order itself, so the real templates can be
- * rendered with an order whose address copies are exactly what a test says: the currency of the store, the order lines and
- * payments (none), and the payment settings the page asks about.
+ * rendered with an order whose address copies and order lines are exactly what a test says: the currency of the store, the order
+ * lines and payments, and the payment settings the page asks about.
  *
  * Like the other schema builders this is INFERRED from the models and the code that reads it, not from the installation dump.
  */
@@ -38,6 +38,7 @@ trait BuildsStorefrontOrderPages
             $table->decimal('price', 16, 2)->default(0);
             $table->decimal('tax', 16, 2)->default(0);
             $table->decimal('discount', 16, 2)->default(0);
+            $table->longText('product_details')->nullable();
             $table->timestamps();
         });
 
@@ -83,6 +84,19 @@ trait BuildsStorefrontOrderPages
         ]);
 
         return Order::findOrFail($id);
+    }
+
+    /**
+     * A line of an order, with the copy of the product the pages print when the product itself is gone. Both pages loop over the lines
+     * and print the money of each, so an order without one renders neither item row.
+     */
+    protected function addOrderLine(int $orderId, string $productName, float $price, int $quantity, int $id = 1): void
+    {
+        DB::table('order_details')->insert([
+            'id' => $id, 'order_id' => $orderId, 'seller_id' => 1, 'qty' => $quantity, 'price' => $price, 'tax' => 0, 'discount' => 0,
+            'product_details' => json_encode(['id' => $id, 'name' => $productName, 'slug' => 'a-product'], JSON_UNESCAPED_UNICODE),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
     }
 
     protected function renderOrderDetails(Order $order): string
