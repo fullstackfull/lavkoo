@@ -168,6 +168,11 @@ class ThePlatformAddressConfirmsWhatExpectsItTest extends CompanyAccountsTestCas
      * of. `toStored()` leaves the key out rather than storing a null, and the account is a Paymob one here for exactly that reason.
      *
      * A refusal keyed on "this payment has a company account" instead of on "this payment expects another address" would strand every one of them.
+     *
+     * THE COMBINATION IS CONSTRUCTED, and the shape is not. The stamp is a Paymob account's, because that is the only writer of this application that
+     * produces a record with no address in it; the delivery is driven at THIS gateway's address, which a Paymob payment never reaches. What makes the
+     * conclusion hold anyway is that the rule reads the record and not the gateway, so the shape is what is under test and the route is only how it is
+     * reached. The file labels its other two constructed cases and did not label this one; reviewer B of the stage-C round found that.
      */
     public function test_a_payment_whose_stamp_carries_no_address_is_still_confirmed_at_the_platform_address(): void
     {
@@ -297,6 +302,16 @@ class ThePlatformAddressConfirmsWhatExpectsItTest extends CompanyAccountsTestCas
      * recorded address still naming the old token. Had the company address been held to the recorded text as well, this payment would have been
      * refused at the only address that now resolves, and refused at the platform address too. That is the shape of a stranded payment, and it is why
      * this stage changes one of the two addresses and not both.
+     *
+     * AND THE DELIVERY THE GATEWAY ACTUALLY MAKES, which is the half the first round of this stage left out. Stage B sends the RECORDED address to
+     * the gateway, so a retyped token means the gateway goes on delivering to the OLD one. Measuring a manual replay at the new address said nothing
+     * about that delivery: reviewer A of the stage-C round measured that it was refused at the old address AND at the platform address, which is a
+     * stranded payment and is now the lever provider's `retyped` row. Both deliveries are measured here, and the claim the file makes about the
+     * asymmetry is the one that is measured.
+     *
+     * The 401 at the old address is read directly as well as asserted. `PaymentAccountWebhookController` answers the same flat 401 for an unresolved
+     * token and for a bad signature, so an assertion on the status alone passes whichever applies while its message names one; reviewer B found that.
+     * `byWebhookToken()` answering null is the reason, measured.
      */
     public function test_a_company_address_still_confirms_its_payment_after_its_token_is_retyped(): void
     {
@@ -310,7 +325,13 @@ class ThePlatformAddressConfirmsWhatExpectsItTest extends CompanyAccountsTestCas
         $this->assertTrue(app(ConfirmationAddresses::class)->isEnforced(), 'with the rule in force');
         $this->assertSame($recorded, $this->theAddressExpectedBy($attempt), 'the record still names the old token');
         $this->assertStringContainsString('kuwait-webhook-token', $recorded);
-        $this->post($recorded, [], ['MyFatoorah-Signature' => 'anything'])->assertUnauthorized('the old address no longer resolves an account');
+        $this->assertNull(
+            app(GatewayAccountRegistry::class)->byWebhookToken(token: 'kuwait-webhook-token'),
+            'the old token resolves no account, which is WHY the old address refuses',
+        );
+        $this->deliverToTheAddressTheGatewayWasGiven($recorded, $attempt)
+            ->assertStatus(401)
+            ->assertJsonPath('message', 'Unauthorized request');
 
         $this->deliverToTheCompanyAddress($this->kuwait->refresh(), $attempt, self::KUWAIT_WEBHOOK_SECRET)
             ->assertOk()
@@ -375,8 +396,14 @@ class ThePlatformAddressConfirmsWhatExpectsItTest extends CompanyAccountsTestCas
         $this->assertSame(1, $this->attemptLookupsIn($queries), 'the processor\'s own lookup, and nothing asked on top of it');
     }
 
-    /** THE RULE ON: a refusal costs one lookup by reference and writes nothing — no event row, no column of the attempt, nothing. */
-    public function test_with_the_rule_on_a_refusal_costs_one_read_and_writes_nothing(): void
+    /**
+     * THE RULE ON: a refusal costs ONE ATTEMPT LOOKUP and writes nothing — no event row, no column of the attempt, nothing.
+     *
+     * One attempt lookup, not one query: a refusal issues three, the addon settings, the attempt by its external identifier, and the payment row the
+     * question reads to find out what address it expects. The assertion counts the lookup by reference, which is the read the question costs and the
+     * one the rule being off saves. The name said "one read" and reviewer B of the stage-C round was right that a published test name is API.
+     */
+    public function test_with_the_rule_on_a_refusal_costs_one_attempt_lookup_and_writes_nothing(): void
     {
         $attempt = $this->anAttemptStampedWith($this->kuwait);
         $this->fakePaidFor($attempt);
@@ -389,6 +416,38 @@ class ThePlatformAddressConfirmsWhatExpectsItTest extends CompanyAccountsTestCas
             array_values(array_filter($queries, static fn (string $sql): bool => str_starts_with($sql, 'insert') || str_starts_with($sql, 'update'))),
             'and answered before anything was written',
         );
+    }
+
+    /**
+     * THE QUESTION IS ASKED AFTER THE SIGNATURE, and that half of the ordering claim was held by nothing.
+     *
+     * The docblock on the route says the question is asked after the signature and before the processor. The "before the processor" half is held: take
+     * the question away and this file goes red. The "after the signature" half was not — reviewer A of the stage-C round moved the question above the
+     * signature block and every test of this branch stayed green.
+     *
+     * It matters because the question is two database reads. Asked before the signature, an unsigned delivery naming any reference at all would cost
+     * an attempt lookup and a payment-row read before anything had authenticated it, so the ordering is the thing that keeps an unauthenticated
+     * delivery from reading a row. Measured as the count the question is made of: a WRONGLY signed delivery naming a company-bound payment issues ZERO
+     * attempt lookups, with the rule in force.
+     */
+    public function test_a_wrongly_signed_delivery_reads_no_attempt_at_all(): void
+    {
+        $attempt = $this->anAttemptStampedWith($this->kuwait);
+        $this->fakePaidFor($attempt);
+        $before = $this->theWorld($attempt);
+
+        $this->assertTrue(app(ConfirmationAddresses::class)->isEnforced(), 'with the rule in force');
+        $this->assertNotNull($this->theRecordOf($attempt)?->confirmationAddress, 'on a payment the question would refuse');
+
+        $payload = $this->webhookPayload((string) $attempt->external_identifier);
+        $queries = $this->queriesWhile(fn (): TestResponse => $this->postJson(
+            '/api/myfatoorah/webhook',
+            $payload,
+            ['MyFatoorah-Signature' => $this->signatureFor($payload, 'a-secret-that-is-not-ours')],
+        )->assertStatus(401));
+
+        $this->assertSame(0, $this->attemptLookupsIn($queries), 'nothing of ours is read before the delivery has authenticated');
+        $this->assertEquals($before, $this->theWorld($attempt));
     }
 
     /**
