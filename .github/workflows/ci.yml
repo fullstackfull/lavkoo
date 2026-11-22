@@ -91,7 +91,7 @@ jobs:
       fail-fast: false
       matrix:
         engine: ['MySQL 8', 'MariaDB 11.4.2']
-        group: ['Fulfillment + security tests', 'Address tests', 'Storefront tests', 'Catalog tests', 'Staff scope tests', 'Checkout, payment and permission tests', 'Saudi baseline pack', 'Report pagination tests', 'Notification and localization tests', 'Wallet tests', 'Marketplace and ledger tests']
+        group: ['Fulfillment + security tests', 'Address tests', 'Storefront tests', 'Catalog tests', 'Staff scope tests', 'Checkout, payment and permission tests', 'Saudi baseline pack', 'Report pagination tests', 'Notification and localization tests', 'Wallet tests', 'Marketplace and ledger tests', 'Marketing consent tests']
         include:
           - engine: MySQL 8
             image: mysql:8.0
@@ -142,6 +142,8 @@ jobs:
             # (Schema::dropAllTables) on a real engine, so sharing a job's database with another suite would take that suite's tables away.
             # The races these accounts have are in tests/Feature/Concurrency, which the sales-channel job below runs on both engines.
             paths: tests/Feature/Wallet
+          - group: Marketing consent tests
+            paths: tests/Feature/Marketing
     services:
       mysql:
         image: ${{ matrix.image }}
@@ -424,3 +426,4 @@ jobs:
         run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Feature/StrictModeTest.php tests/Feature/SalesChannels tests/Feature/OperationalCosts tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Wallet tests/Feature/Loyalty tests/Feature/Api tests/Feature/Auth tests/Feature/Blog tests/Feature/Cart tests/Feature/Checkout tests/Feature/Coupon tests/Feature/Inventory tests/Feature/Marketplace tests/Feature/Payment tests/Feature/Payments tests/Feature/Permissions tests/Feature/Pos tests/Feature/Referral tests/Feature/Refund tests/Feature/Web tests/Unit/Architecture tests/Unit/Customer tests/Unit/Http tests/Unit/Marketplace tests/Unit/PlatformAdmin tests/Unit/Security tests/Unit/Utils tests/Unit/Wallet --display-skipped
         # tests/Feature/Wallet is LAST: it starts from an empty database, so anything after it would find its own tables gone.
         run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Feature/StrictModeTest.php tests/Feature/SalesChannels tests/Feature/OperationalCosts tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Wallet --display-skipped
+        run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Feature/StrictModeTest.php tests/Feature/SalesChannels tests/Feature/OperationalCosts tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Marketing --display-skipped

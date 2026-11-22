@@ -390,6 +390,13 @@ Route::group(['prefix' => 'cart', 'as' => 'cart.', 'namespace' => 'Web'], functi
         ->middleware('signed');
 });
 
+// The unsubscribe link inside a marketing e-mail. Outside every auth group on purpose: it is opened from a mail client by
+// somebody who is not signed in. `signed` is what makes the token safe to act on, and the token itself carries no account id
+// and no address — see App\Services\Marketing\MarketingUnsubscribeLink.
+Route::get('marketing/unsubscribe/{token}', [\App\Http\Controllers\Web\MarketingUnsubscribeController::class, 'unsubscribe'])
+    ->name('marketing.unsubscribe')
+    ->middleware('signed');
+
 Route::group(['prefix' => 'coupon', 'as' => 'coupon.', 'namespace' => 'Web'], function () {
     Route::controller(CouponController::class)->group(function () {
         Route::post('apply', 'apply')->name('apply');

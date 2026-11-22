@@ -59,8 +59,8 @@ class PaymentRoutingRule extends Model
          * matching nothing would switch off a rule somebody wrote; treating it as matching everything
          * would hide a gateway in every market. Keeping today's answer is the only change-free option.
          */
-        $ruleCountry = AddressCountry::isoCode($this->country);
-        $destination = AddressCountry::isoCode($country);
+        $ruleCountry = AddressCountry::anyCountryIsoCode($this->country);
+        $destination = AddressCountry::anyCountryIsoCode($country);
 
         if ($ruleCountry !== null && $destination !== null) {
             return $ruleCountry === $destination;

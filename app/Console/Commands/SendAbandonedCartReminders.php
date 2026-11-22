@@ -4,6 +4,8 @@ namespace App\Console\Commands;
 
 use App\Mail\AbandonedCartReminderMail;
 use App\Models\AbandonedCartReminder;
+use App\Services\Marketing\MarketingConsent;
+use App\Services\Marketing\MarketingUnsubscribeLink;
 use App\Services\Retention\AbandonedCartService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
@@ -119,6 +121,7 @@ class SendAbandonedCartReminders extends Command
                 Mail::to($row['email'])->send(new AbandonedCartReminderMail(
                     reminder: $reminder,
                     recoveryUrl: $service->recoveryUrl(reminder: $reminder),
+                    unsubscribeUrl: $this->unsubscribeUrl(reminder: $reminder, market: $row['market'] ?? null),
                 ));
                 $sent++;
             } catch (\Throwable $exception) {
@@ -137,6 +140,51 @@ class SendAbandonedCartReminders extends Command
         ));
 
         return $failed && !$sent ? self::FAILURE : self::SUCCESS;
+    }
+
+
+    /**
+     * The unsubscribe link for this reminder, or null while the consent gate is switched off.
+     *
+     * Null while it is off is deliberate: with the gate off this message has to be exactly the message the store sends
+     * today, down to its text, and there is nothing yet that could record the withdrawal the link would promise.
+     *
+     * THE MARKET IS THE SWITCH HERE, and it is the only one. AbandonedCartService::findAbandoned puts a market on the
+     * row it returns only when the gate is on, so a null market IS "the gate is off"; asking the gate again in this
+     * method was a condition that could not change the answer, and a mutation removing it stayed green, so it is gone
+     * rather than left in to look careful. What keeps the two in step is
+     * MarketingConsentDormancyTest::test_with_the_switch_off_the_reminder_email_is_the_email_main_sends.
+     *
+     * The market is also the one the selection already asked the gate about — not resolved again here. A guest's
+     * reminder row does not keep their guest id (a guest id is not a user id), so resolving it a second time from the
+     * row silently fell back to the home market and the link offered to unsubscribe a market the person is not in.
+     */
+    private function unsubscribeUrl(AbandonedCartReminder $reminder, ?string $market): ?string
+    {
+        if ($market === null) {
+            return null;
+        }
+
+        // Not `is_guest ? null : customer_id`: findAbandoned already writes null there for a guest, so that ternary
+        // could not change the answer for any input and a mutation removing it stayed green. The line that looks
+        // careful and is not goes, the same way the previous round removed its twin three lines up.
+        $customerId = $reminder->customer_id;
+
+        if ($customerId) {
+            return MarketingUnsubscribeLink::forCustomer(
+                customerId: (int) $customerId,
+                market: $market,
+                channel: MarketingConsent::CHANNEL_EMAIL,
+                purpose: MarketingConsent::PURPOSE_ABANDONED_CART,
+            );
+        }
+
+        return MarketingUnsubscribeLink::forEmail(
+            email: (string) $reminder->email,
+            market: $market,
+            channel: MarketingConsent::CHANNEL_EMAIL,
+            purpose: MarketingConsent::PURPOSE_ABANDONED_CART,
+        );
     }
 
     /** Console output is logged and screen-shared; addresses do not need to be in it in full. */

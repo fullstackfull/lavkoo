@@ -32,6 +32,10 @@ use App\Models\ShippingMethod;
 use App\Models\ShippingType;
 use App\Models\Shop;
 use App\Models\Subscription;
+use App\Services\Marketing\MarketingConsent;
+use App\Services\Marketing\MarketingConsentGate;
+use App\Services\Marketing\MarketingConsentRecorder;
+use App\Services\Marketing\MarketingMarket;
 use App\Models\OrderDetail;
 use App\Models\Review;
 use App\Models\Brand;
@@ -1597,10 +1601,78 @@ class WebController extends Controller
             $newSubscription->save();
             Toastr::success(translate('Your_subscription_successfully_done'));
         }
+        $this->recordNewsletterConsent(email: $request['subscription_email']);
         if (str_contains(url()->previous(), 'checkout-complete') || str_contains(url()->previous(), 'web-payment')) {
             return redirect()->route('home');
         }
         return back();
+    }
+
+    /**
+     * The one place on main where a customer states a marketing choice of their own: the newsletter box.
+     *
+     * `subscriptions` holds an e-mail address and nothing else — no customer, no market, no text, no way to withdraw —
+     * so while the consent gate is on the choice is ALSO written as a consent decision, which does carry all of those.
+     * The `subscriptions` row is still written exactly as before, so nothing that reads that table changes.
+     *
+     * CALLED FOR AN ADDRESS THAT IS ALREADY SUBSCRIBED TOO, which it was not before: the duplicate check on
+     * `subscriptions` meant that somebody who had unsubscribed through the link could never state a choice again, in
+     * the only form that exists — an independent review drove three real POSTs and measured the second and third
+     * writing nothing. The `subscriptions` row and the toast an administrator's visitor sees are untouched either way;
+     * what changes is that a signed-in customer can now agree again after withdrawing.
+     *
+     * Nothing is written when the answer in force is already a grant, so subscribing twice still records once.
+     *
+     * A SIGNED-IN CUSTOMER'S CHOICE IS A GRANT; AN ANONYMOUS VISITOR'S IS A CLAIM. The form asks nothing of whoever
+     * types the address, so a stranger can enter somebody else's — see MarketingConsentRecorder::claimForEmail.
+     *
+     * With the gate off this writes nothing at all.
+     */
+    private function recordNewsletterConsent(string $email): void
+    {
+        $gate = app(MarketingConsentGate::class);
+
+        if (!$gate->enabled()) {
+            return;
+        }
+
+        $customer = auth('customer')->user();
+        $customerId = $customer ? (int) $customer->id : null;
+        $market = $customerId ? MarketingMarket::forCustomer(customerId: $customerId) : MarketingMarket::homeMarket();
+
+        $alreadyAnswered = $gate->choiceAlreadyRecorded(
+            customerId: $customerId,
+            email: $customerId ? null : $email,
+            market: $market,
+            channel: MarketingConsent::CHANNEL_EMAIL,
+            purpose: MarketingConsent::PURPOSE_NEWSLETTER,
+        );
+
+        if ($alreadyAnswered) {
+            return;
+        }
+
+        $recorder = app(MarketingConsentRecorder::class);
+
+        if ($customerId) {
+            $recorder->grantForCustomer(
+                customerId: $customerId,
+                market: $market,
+                channel: MarketingConsent::CHANNEL_EMAIL,
+                purpose: MarketingConsent::PURPOSE_NEWSLETTER,
+                source: MarketingConsent::SOURCE_NEWSLETTER_FORM,
+            );
+
+            return;
+        }
+
+        $recorder->claimForEmail(
+            email: $email,
+            market: $market,
+            channel: MarketingConsent::CHANNEL_EMAIL,
+            purpose: MarketingConsent::PURPOSE_NEWSLETTER,
+            source: MarketingConsent::SOURCE_NEWSLETTER_FORM,
+        );
     }
 
     public function review_list_product(Request $request): JsonResponse
