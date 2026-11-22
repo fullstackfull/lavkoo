@@ -2,11 +2,19 @@
 
 namespace Tests\Support;
 
+use App\Http\Controllers\RestAPI\v3\seller\OrderController as SellerOrderController;
+use App\Http\Controllers\RestAPI\v3\seller\POSController;
+use App\Http\Controllers\Vendor\Order\OrderEditController;
+use App\Models\Order;
+use App\Models\Seller;
 use App\Models\User;
 use App\Services\Storefront\OrderStorefrontSnapshot;
+use App\Services\Storefront\PaymentStorefront;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use RuntimeException;
 
 /**
  * The world of the money rows of an order (D1-06): the order currency world of {@see BuildsOrderCurrencySurfaces}, the two refund tables and the
@@ -17,6 +25,14 @@ use Illuminate\Support\Facades\Schema;
  */
 trait BuildsOrderMoneyRowCurrency
 {
+    /** The seller whose till places a sale, and whose id an edited line is saved under. */
+    private const TILL_SELLER = 1;
+
+    /** The Kuwaiti product of the storefront catalog, and the second one an edit adds a line for. */
+    private const KUWAITI_CATALOG_PRODUCT = 3;
+
+    private const SECOND_KUWAITI_CATALOG_PRODUCT = 7;
+
     /**
      * What the refund and delivery routes read besides the order: the two refund tables, the status trail, the line's own refund and stock
      * flags, and the wallets a shop has before it takes its first order.
@@ -98,8 +114,18 @@ trait BuildsOrderMoneyRowCurrency
                 // the delivery route's conditional flip is written to find it that way. Defaulting it to 0
                 // would send that route down the branch that takes the stock a second time.
                 $table->boolean('is_stock_decreased')->default(true);
+                // Written by the order edit, which saves a line of its own on an order that is already placed.
+                $table->string('digital_file_after_sell')->nullable();
             });
         }
+
+        if (DB::table('sellers')->where('id', self::TILL_SELLER)->doesntExist()) {
+            DB::table('sellers')->insert(['id' => self::TILL_SELLER, 'status' => 'approved']);
+        }
+
+        // A seller has a shop before they take their first order, and the writer that records a handed-over
+        // cash sale reads it to know which shop the money belongs to.
+        DB::table('shops')->updateOrInsert(['seller_id' => self::TILL_SELLER], ['author_type' => 'vendor', 'name' => 'The till shop']);
     }
 
     /** The wallets of the shop and of its one in-house seller, which exist in a running shop before any order is placed. */
@@ -247,6 +273,111 @@ trait BuildsOrderMoneyRowCurrency
         $this->approveTheRefund($this->fileRefundOn($order, $order->customer));
 
         return $order;
+    }
+
+    /**
+     * A sale at the seller's own till, placed through the point-of-sale method of the seller app's API with a request signed in as the seller the
+     * way that API's middleware signs one in. The till is the one order writer that saves its lines before the order row exists, and the one that
+     * takes two of its amounts from what the seller typed rather than from the cart.
+     *
+     * @param array<string, mixed> $overrides
+     */
+    protected function sellAtTheTill(int $productId, array $overrides = []): object
+    {
+        $line = ['id' => $productId, 'variant' => null, 'quantity' => 1, 'price' => 30, 'discounted_price' => 30, 'discount' => 0, 'applied_tax_amount' => 0, 'coupon_discount' => 0, 'extra_discount' => 0, 'variation' => []];
+        $input = $overrides + [
+            'customer_id' => 0,
+            'cart' => [],
+            'modified_cart' => [$line],
+            'extra_discount' => 0,
+            'extra_discount_type' => null,
+            'coupon_discount_amount' => 10,
+            'coupon_code' => null,
+            'payment_method' => 'card',
+            'paid_amount' => 30,
+            'fulfillment' => 'instant',
+            'total_tax_amount' => 0,
+        ];
+
+        $request = Request::create('/api/v3/seller/pos/place-order', 'POST', [], [], [], ['CONTENT_TYPE' => 'application/json'], (string) json_encode($input));
+        $request['seller'] = (new Seller())->forceFill(['id' => self::TILL_SELLER]);
+
+        $response = app(POSController::class)->place_order($request);
+
+        if ($response->getStatusCode() !== 200) {
+            throw new RuntimeException('The till refused the sale: ' . $response->getContent());
+        }
+
+        return DB::table('orders')->latest('id')->first();
+    }
+
+    /**
+     * An order edited the way a panel edits one: the vendor panel's own edit controller, which is where the trait that writes the lines is used.
+     * The lines given are the lines the order is left with, so a product that was not on the order is a line the edit creates.
+     *
+     * @param list<array<string, mixed>> $lines
+     */
+    protected function editTheLinesOf(object $order, array $lines): void
+    {
+        app(OrderEditController::class)->addAndUpdateProductsInOrderDetails(
+            order: Order::with('details')->findOrFail($order->id),
+            editedOrder: $lines,
+            taxSummary: [],
+        );
+    }
+
+    /**
+     * A sale paid by card, placed where production places one: the gateway's success hook, which runs in a request of the gateway's own with no
+     * storefront of its own and builds the order from what the payment recorded. A card sale, unlike a cash one, writes its payment transaction
+     * inside the checkout rather than at delivery.
+     */
+    protected function payByCardFrom(string $country, int $productId): object
+    {
+        $customer = $this->makeCustomer();
+        $this->fillTheCartFrom($customer, $country, $productId);
+        $this->flushHeaders();
+
+        $additionalData = ['customer_id' => $customer->id, 'is_guest' => 0, 'payment_mode' => 'web', 'order_note' => null, 'coupon_code' => null, 'address_id' => null, 'billing_address_id' => null, PaymentStorefront::KEY => $country];
+
+        digital_payment_success([
+            'is_paid' => 1,
+            'payment_method' => 'card',
+            'transaction_id' => 'tr-' . $productId,
+            'additional_data' => json_encode($additionalData),
+        ]);
+
+        return DB::table('orders')->latest('id')->first();
+    }
+
+    /**
+     * A seller delivering their own cash sale from the seller app, which is one of the three callers of the branch that writes an
+     * order_transactions row when a cash-on-delivery order is handed over (the panel's own delivery writes it from the order repository
+     * instead, so the two are different writers of the same table).
+     */
+    protected function deliverAsTheSeller(object $order): void
+    {
+        $request = Request::create('/api/v3/seller/orders/order-detail-status', 'POST', [], [], [], ['CONTENT_TYPE' => 'application/json'], (string) json_encode(['id' => $order->id, 'order_status' => 'delivered']));
+        $request['seller'] = (new Seller())->forceFill(['id' => self::TILL_SELLER]);
+
+        $response = app(SellerOrderController::class)->order_detail_status($request);
+
+        if ($response->getStatusCode() !== 200) {
+            throw new RuntimeException('The seller app refused the delivery: ' . $response->getContent());
+        }
+    }
+
+    /** A second product of the Kuwaiti catalog, so that an edit of a Kuwaiti order has a line it can add. */
+    protected function addASecondKuwaitiProduct(): void
+    {
+        $existing = (array) DB::table('products')->where('id', self::KUWAITI_CATALOG_PRODUCT)->sole();
+
+        DB::table('products')->insert(['id' => self::SECOND_KUWAITI_CATALOG_PRODUCT, 'slug' => 'paracetamol-kw-2', 'code' => 'SKU-KW-2'] + $existing);
+    }
+
+    /** One line of an order edit, as the edit screens hand them over. */
+    protected function editedLine(int $productId, string $variant = ''): array
+    {
+        return ['product_id' => $productId, 'variant' => $variant, 'qty' => 1, 'price' => 30, 'discount' => 0, 'seller_id' => self::TILL_SELLER, 'product_type' => 'physical', 'tax_model' => 'exclude'];
     }
 
     /** Approves a refund the way an administrator approves one, from the panel's own route. */

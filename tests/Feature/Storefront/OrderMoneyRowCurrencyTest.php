@@ -34,6 +34,8 @@ class OrderMoneyRowCurrencyTest extends ApiAddressTestCase
 
     private const KUWAITI_PRODUCT = 3;
 
+    private const SECOND_KUWAITI_PRODUCT = 7;
+
     private const SAUDI_PRODUCT = 1;
 
     /** Thirty dinars, charged, stored as thirty. The platform's own default currency, which no money row of this order may name. */
@@ -150,6 +152,126 @@ class OrderMoneyRowCurrencyTest extends ApiAddressTestCase
                 $table . ' labelled an amount of dinars with the currency of the platform settings',
             );
         }
+    }
+
+    /**
+     * The till is the one writer whose lines exist before the order row does, so the ORDER it stamps them from is one it has just stamped itself.
+     * Stamping in the other order leaves every line of a till sale without a currency, which nothing else here would notice.
+     */
+    public function test_the_lines_of_a_till_sale_record_the_currency_the_till_sold_in(): void
+    {
+        $order = $this->sellAtTheTill(productId: self::KUWAITI_PRODUCT);
+
+        $this->assertSame(self::SOLD_IN, $order->currency_code, 'the till stamps the order from the one country its lines belong to');
+
+        $line = DB::table('order_details')->where('order_id', $order->id)->sole();
+
+        $this->assertSame(self::SOLD_IN, $line->currency_code, 'and the line takes that currency afterwards, not before the order exists');
+        $this->assertSame(1.0, (float) $line->currency_rate);
+    }
+
+    /**
+     * Every amount of a till sale in ONE unit. The till takes its lines from the cart and stores them as they were typed, but what was paid and
+     * what the coupon took off came through a converter into the platform's base unit, so a ten-dinar coupon was stored as 2.67 on an order
+     * stamped "every amount here is in dinars at rate one" — and a reader of that record printed 2.666KD, a figure nobody was charged.
+     */
+    public function test_a_till_sale_stores_every_amount_in_the_currency_the_order_records(): void
+    {
+        $order = $this->sellAtTheTill(productId: self::KUWAITI_PRODUCT);
+
+        $this->assertSame(self::SOLD_IN, $order->currency_code);
+        $this->assertSame(30.0, (float) $order->order_amount, 'the cart total, as the lines hold it');
+        $this->assertSame(30.0, (float) DB::table('order_details')->where('order_id', $order->id)->value('price'), 'the line, as the till typed it');
+        $this->assertSame(10.0, (float) $order->discount_amount, 'the ten dinars the coupon took off, not the 2.67 a conversion to the platform base makes of them');
+        $this->assertSame(30.0, (float) $order->paid_amount, 'and the thirty dinars that were handed over, not 8');
+    }
+
+    /**
+     * DORMANCY of the same sale. A till of the default storefront records no order currency, so nothing about what it stores may move: its two
+     * typed amounts go on being converted exactly as they were.
+     */
+    public function test_a_till_sale_of_the_default_storefront_stores_what_it_always_stored(): void
+    {
+        $order = $this->sellAtTheTill(productId: self::SAUDI_PRODUCT);
+
+        $this->assertNull($order->currency_code, 'the default storefront of a converting platform records no currency');
+        // To two decimals, which is as many as a money column of this schema holds: what is measured is that the
+        // two typed amounts are still divided by the platform's rate, not that a rounding is reproduced exactly.
+        $this->assertSame(round(10 / 3.75, 2), round((float) $order->discount_amount, 2), 'the coupon is converted to the platform base, as it always was');
+        $this->assertSame(round(30 / 3.75, 2), round((float) $order->paid_amount, 2), 'and so is what was paid');
+        $this->assertNotSame(10.0, (float) $order->discount_amount, 'a till of the default storefront stores no amount as it was typed');
+    }
+
+    /**
+     * A non-cash sale writes its payment transaction inside the checkout rather than at delivery, which is a second writer of the same table and
+     * a second place the order's currency has to reach.
+     */
+    public function test_the_payment_transaction_a_non_cash_checkout_writes_records_dinars(): void
+    {
+        $order = $this->payByCardFrom(country: 'KW', productId: self::KUWAITI_PRODUCT);
+
+        $transaction = DB::table('order_transactions')->where('order_id', $order->id)->sole();
+
+        $this->assertSame(self::SOLD_IN, $transaction->currency_code, 'the transaction the checkout itself wrote names the order\'s currency');
+        $this->assertSame(1.0, (float) $transaction->currency_rate);
+    }
+
+    /**
+     * The panel's delivery and the seller app's delivery write the same table from two different places. The seller app's is the branch a
+     * courier's app uses too, and it is the one that runs when a cash sale is handed over away from the panel.
+     */
+    public function test_the_payment_transaction_a_seller_writes_on_delivering_a_cash_sale_records_dinars(): void
+    {
+        $order = $this->sellAtTheTill(productId: self::KUWAITI_PRODUCT, overrides: ['customer_id' => $this->makeCustomer()->id, 'fulfillment' => 'delivery', 'payment_method' => 'cash', 'paid_amount' => 0]);
+
+        $this->deliverAsTheSeller($order);
+
+        $transaction = DB::table('order_transactions')->where('order_id', $order->id)->sole();
+
+        $this->assertSame(self::SOLD_IN, $transaction->currency_code, 'the row the seller app wrote names the order\'s own currency');
+        $this->assertSame(1.0, (float) $transaction->currency_rate);
+    }
+
+    /**
+     * An edit adds a line to an order that is already stamped, and the writer it adds it with records no currency of its own: an edited Kuwaiti
+     * order ended with some lines naming the dinar and some naming nothing, in the very column this records what an amount is counted in.
+     */
+    public function test_a_line_an_edit_adds_to_a_stamped_order_records_that_order_s_currency(): void
+    {
+        $order = $this->placeOrderFrom(country: 'KW', productId: self::KUWAITI_PRODUCT);
+        $this->addASecondKuwaitiProduct();
+
+        $this->editTheLinesOf($order, [$this->editedLine(self::KUWAITI_PRODUCT), $this->editedLine(self::SECOND_KUWAITI_PRODUCT)]);
+
+        $lines = DB::table('order_details')->where('order_id', $order->id)->get();
+
+        $this->assertCount(2, $lines, 'the edit kept one line and added one');
+        $this->assertSame([], $lines->whereNull('currency_code')->pluck('product_id')->all(), 'the edit left a line of a stamped order without a currency');
+        $this->assertSame([self::SOLD_IN], $lines->pluck('currency_code')->unique()->values()->all());
+    }
+
+    /**
+     * What an amount is counted in is written once. A row that already carries a currency is never rewritten, so a second call — a retried
+     * transaction, a second edit, a backfill — records the same thing once and cannot relabel an amount that is already labelled.
+     */
+    public function test_a_money_row_that_already_carries_a_currency_is_never_relabelled(): void
+    {
+        $order = $this->placeOrderFrom(country: 'KW', productId: self::KUWAITI_PRODUCT);
+        $this->addASecondKuwaitiProduct();
+        $this->editTheLinesOf($order, [$this->editedLine(self::KUWAITI_PRODUCT), $this->editedLine(self::SECOND_KUWAITI_PRODUCT)]);
+
+        $labelled = DB::table('order_details')->where('order_id', $order->id)->orderBy('id')->value('id');
+        DB::table('order_details')->where('id', $labelled)->update(['currency_code' => 'AED', 'currency_rate' => 1]);
+        DB::table('order_details')->where('id', '!=', $labelled)->where('order_id', $order->id)->update(['currency_code' => null, 'currency_rate' => null]);
+
+        app(OrderStorefrontSnapshot::class)->stampMoneyRows(table: 'order_details', orderId: $order->id);
+
+        $this->assertSame('AED', DB::table('order_details')->where('id', $labelled)->value('currency_code'), 'a row that already said what its amount is counted in was overwritten');
+        $this->assertSame(
+            [self::SOLD_IN],
+            DB::table('order_details')->where('order_id', $order->id)->where('id', '!=', $labelled)->pluck('currency_code')->unique()->values()->all(),
+            'and the row that said nothing took the order\'s currency',
+        );
     }
 
     /**

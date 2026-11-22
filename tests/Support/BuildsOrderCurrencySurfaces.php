@@ -110,6 +110,38 @@ trait BuildsOrderCurrencySurfaces
     }
 
     /**
+     * Moves a sale to the one vendor, so the surfaces that only ever show a vendor their own orders can show it: the vendor panel's invoice, the
+     * seller app's invoice and the panel's own download of that vendor's orders. What the order was sold in is not touched.
+     */
+    protected function sellTheOrderToTheVendor(object $order, int $vendorId = 1): object
+    {
+        if (DB::table('sellers')->where('id', $vendorId)->doesntExist()) {
+            DB::table('sellers')->insert(['id' => $vendorId, 'status' => 'approved']);
+        }
+        DB::table('shops')->updateOrInsert(['seller_id' => $vendorId], ['author_type' => 'vendor', 'name' => 'The vendor shop']);
+
+        // The tax number the vendor templates print beside the shop. A real sellers table has it; the catalog
+        // world builds the table with the few columns its own tests read.
+        if (!Schema::hasColumn('sellers', 'gst')) {
+            Schema::table('sellers', fn ($table) => $table->string('gst')->nullable());
+        }
+
+        DB::table('orders')->where('id', $order->id)->update(['seller_id' => $vendorId, 'seller_is' => 'seller']);
+        DB::table('order_details')->where('order_id', $order->id)->update(['seller_id' => $vendorId]);
+
+        return $order;
+    }
+
+    /** The vendor's own panel, signed in as that vendor signs in. */
+    protected function openTheVendorPanel(int $vendorId = 1): static
+    {
+        $this->asAFreshVisitor();
+        $this->actingAs(\App\Models\Seller::findOrFail($vendorId), 'seller');
+
+        return $this;
+    }
+
+    /**
      * The order e-mail, switched on the way an operator switches it on: a mail service with a status, and the two templates the checkout sends.
      * Without it a checkout sends nothing at all, and the document this measures does not exist.
      */
@@ -253,6 +285,18 @@ trait BuildsOrderCurrencySurfaces
         } finally {
             ob_end_clean();
         }
+    }
+
+    /**
+     * One amount written in an order's own money, through the two helpers every one of these templates calls, with the order read back out of
+     * the database as a surface reads it.
+     *
+     * For a figure with more decimals than a test database's money column can hold: usdToDefaultCurrency() FLOORS at whatever decimal count is
+     * in force, and production stores these amounts to more than two decimals, so this is where the lost halala shows.
+     */
+    protected function moneyOfThatOrder(object $order, string|int|float $amount): string
+    {
+        return orderMoney(order: DB::table('orders')->where('id', $order->id)->first(), amount: $amount);
     }
 
     /** Every amount the document prints, with the currency it is labelled with, in the order they appear. */
