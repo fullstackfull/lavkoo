@@ -5,7 +5,6 @@ namespace App\Console\Commands;
 use App\Mail\AbandonedCartReminderMail;
 use App\Models\AbandonedCartReminder;
 use App\Services\Marketing\MarketingConsent;
-use App\Services\Marketing\MarketingConsentGate;
 use App\Services\Marketing\MarketingUnsubscribeLink;
 use App\Services\Retention\AbandonedCartService;
 use Carbon\Carbon;
@@ -144,14 +143,19 @@ class SendAbandonedCartReminders extends Command
      * Null while it is off is deliberate: with the gate off this message has to be exactly the message the store sends
      * today, down to its text, and there is nothing yet that could record the withdrawal the link would promise.
      *
-     * The market is the one the selection already resolved and asked the gate about — not resolved again here. A
-     * guest's reminder row does not keep their guest id (a guest id is not a user id), so resolving it a second time
-     * from the row would silently fall back to the home market and the link would offer to unsubscribe a market the
-     * person is not in.
+     * THE MARKET IS THE SWITCH HERE, and it is the only one. AbandonedCartService::findAbandoned puts a market on the
+     * row it returns only when the gate is on, so a null market IS "the gate is off"; asking the gate again in this
+     * method was a condition that could not change the answer, and a mutation removing it stayed green, so it is gone
+     * rather than left in to look careful. What keeps the two in step is
+     * MarketingConsentDormancyTest::test_with_the_switch_off_the_reminder_email_is_the_email_main_sends.
+     *
+     * The market is also the one the selection already asked the gate about — not resolved again here. A guest's
+     * reminder row does not keep their guest id (a guest id is not a user id), so resolving it a second time from the
+     * row silently fell back to the home market and the link offered to unsubscribe a market the person is not in.
      */
     private function unsubscribeUrl(AbandonedCartReminder $reminder, ?string $market): ?string
     {
-        if ($market === null || !app(MarketingConsentGate::class)->enabled()) {
+        if ($market === null) {
             return null;
         }
 

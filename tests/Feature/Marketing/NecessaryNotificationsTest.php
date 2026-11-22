@@ -119,17 +119,19 @@ class NecessaryNotificationsTest extends MarketingConsentTestCase
 
         $this->assertSame(
             [
-                // The gate itself, and the one place that writes decisions.
+                // The two senders that ask it directly, on the screen and in the web action.
                 'app/Http/Controllers/Admin/CartMarketingController.php',
                 'app/Http/Controllers/Web/WebController.php',
-                'app/Console/Commands/SendAbandonedCartReminders.php',
+                // The gate itself, and the selection that asks it for the abandoned-cart run.
                 'app/Services/Marketing/MarketingConsentGate.php',
                 'app/Services/Retention/AbandonedCartService.php',
                 // Names the class in a comment explaining that the gate also waits for the table.
                 'config/marketing.php',
             ],
             $this->sortedForComparison(paths: $callers),
-            'Something new asks the marketing consent gate. A necessary notification must never depend on it.'
+            'Something new asks the marketing consent gate. A necessary notification must never depend on it. '
+            . 'SendAbandonedCartReminders is deliberately NOT here: the gate is asked once by the selection, and the '
+            . 'command only carries the market that selection resolved.'
         );
     }
 
