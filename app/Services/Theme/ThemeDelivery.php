@@ -593,8 +593,9 @@ $blocks = $row->blocks
             'colors'     => $settings['colors'] ?? [],
             'typography' => $settings['typography'] ?? [],
             'layout'     => $settings['layout'] ?? [],
+            // A logo is a path and its size is a number: the size a merchant sets must reach the app, which draws the logo at that size.
             'branding'   => $this->absolutize(array_map(
-                fn ($value) => is_string($value) && $value !== '' ? $value : null,
+                fn ($value) => (is_string($value) && $value !== '') || is_int($value) || is_float($value) ? $value : null,
                 $settings['branding'] ?? [],
             )),
         ];
@@ -659,7 +660,18 @@ $blocks = $row->blocks
             return $stamp;
         }
 
-        return $stamp === null ? $version->checksum : $version->checksum . '-' . $stamp;
+        return implode('-', array_filter([$version->checksum, $this->sharedIdentityStamp($version), $stamp], static fn (?string $part): bool => $part !== null));
+    }
+
+    /**
+     * The stamp of the shared identity a theme of another storefront inherits (F-12), so that what the app asks and what it is delivered move when the identity does, though the version of the theme does
+     * not. Null for a theme that inherits nothing, which keeps every stamp it had.
+     */
+    private function sharedIdentityStamp(ThemeVersion $version): ?string
+    {
+        $shared = app(StorefrontThemeResolver::class)->sharedIdentityBeneath(version: $version);
+
+        return $shared === [] ? null : 'i' . substr(hash('crc32b', json_encode($shared)), 0, 8);
     }
 
     private function campaignStamp(?string $page = 'home'): ?string
@@ -686,6 +698,9 @@ $blocks = $row->blocks
             $viewer->channel(),
             $viewer->device,
             $viewer->audience(),
+            // The channel decides which sections a client is sent (SectionVisibility), and the response already says it varies by X-UI-Channel: without it in the key the client that asks
+            // first decides what the others get, and a section kept for the seller app is sent to the customer app.
+            $viewer->channel(),
             // The matched segment SET joins the key (§64–65): what varies the response must vary
             // the cache. Bounded by the segments actually defined, not by customers — two repeat
             // buyers share one entry, and no customer data is ever IN a shared value.

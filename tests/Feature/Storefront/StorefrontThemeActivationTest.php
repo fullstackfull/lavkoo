@@ -57,6 +57,19 @@ class StorefrontThemeActivationTest extends TestCase
         $this->assertSame(['Emirati', 'Saudi'], $this->activeThemeNames());
     }
 
+    public function test_activating_a_theme_again_after_another_took_its_place_leaves_the_storefront_with_that_theme_active(): void
+    {
+        $saudi = $this->giveTheme(name: 'Saudi', active: true);
+        $festive = $this->giveTheme(name: 'Saudi festive');
+        $manager = app(ThemeManager::class);
+        $manager->activate($festive);
+
+        $activated = $manager->activate($saudi);
+
+        $this->assertTrue($activated->is_active, 'the theme the merchant switched back to');
+        $this->assertSame(['Saudi'], $this->activeThemeNames());
+    }
+
     public function test_activating_a_theme_deactivates_the_other_themes_of_its_own_storefront_only(): void
     {
         $this->giveTheme(name: 'Saudi', active: true);

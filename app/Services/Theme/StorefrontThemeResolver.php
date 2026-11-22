@@ -48,10 +48,8 @@ final class StorefrontThemeResolver
             return Theme::query()->where('is_active', true)->first();
         }
 
-        $storefronts = StorefrontResolver::fromConfig();
-        $default = $storefronts->defaultCountry();
-        // While storefronts are off the only storefront is the default one, whatever a payment callback bound the request to: the page caches key on it the same way.
-        $country = $storefronts->isEnabled() ? StorefrontContext::current()->country : $default;
+        $country = $this->requestStorefront();
+        $default = $this->defaultStorefront();
 
         return $this->activeThemeOf(storefront: $country) ?? ($country === $default ? null : $this->activeThemeOf(storefront: $default));
     }
@@ -59,9 +57,45 @@ final class StorefrontThemeResolver
     /** The published version of the active theme, which is what a customer is shown. */
     public function publishedVersion(): ?ThemeVersion
     {
-        $theme = $this->activeTheme();
+        return $this->publishedVersionOf(theme: $this->activeTheme());
+    }
 
-        return $theme === null ? null : ThemeVersion::query()->where('theme_id', $theme->id)->published()->first();
+    /**
+     * The design identity every storefront shares (F-12): the settings of the default storefront's published theme, which a theme of another storefront lays its own settings over, key by key, so that it
+     * overrides the keys it sets and inherits the rest. Empty for a theme of the default storefront, which is the identity, for a version that belongs to no theme, for every theme while themes are not
+     * kept by storefront, and while the default storefront has nothing published.
+     *
+     * @return array<string, mixed>
+     */
+    public function sharedIdentityBeneath(?ThemeVersion $version): array
+    {
+        if ($version === null || !$this->keepsThemesByStorefront()) {
+            return [];
+        }
+
+        $theme = $version->theme;
+        if ($theme === null || $this->storefrontOf(theme: $theme) === $this->defaultStorefront()) {
+            return [];
+        }
+
+        $shared = $this->publishedVersionOf(theme: $this->activeThemeOf(storefront: $this->defaultStorefront()))?->settings;
+
+        return is_array($shared) ? $shared : [];
+    }
+
+    /**
+     * Whether a version may be previewed on this request (F-07): while themes are kept by storefront, only a version of a theme of the storefront the request is served from, so a preview token or a
+     * session preview of one storefront's draft is ignored on every other storefront, as a foreign token is. A theme that names no country is the default storefront's. Any version while they are not.
+     */
+    public function mayPreview(ThemeVersion $version): bool
+    {
+        if (!$this->keepsThemesByStorefront()) {
+            return true;
+        }
+
+        $theme = $version->theme;
+
+        return $theme !== null && $this->storefrontOf(theme: $theme) === $this->requestStorefront();
     }
 
     /** The themes activating this one competes with: every theme while themes are not kept by storefront, else those of its storefront. */
@@ -159,6 +193,11 @@ final class StorefrontThemeResolver
         return [self::COLUMN => $isAnotherConfiguredStorefront ? $requestedCountry : null];
     }
 
+    private function publishedVersionOf(?Theme $theme): ?ThemeVersion
+    {
+        return $theme === null ? null : ThemeVersion::query()->where('theme_id', $theme->id)->published()->first();
+    }
+
     private function activeThemeOf(string $storefront): ?Theme
     {
         return $this->themesOf(storefront: $storefront)->where('is_active', true)->orderBy('id')->first();
@@ -179,6 +218,12 @@ final class StorefrontThemeResolver
     private function defaultStorefront(): string
     {
         return StorefrontResolver::fromConfig()->defaultCountry();
+    }
+
+    /** The storefront the request is served from. While storefronts are off the only storefront is the default one, whatever a payment callback bound the request to: the page caches key on it the same way. */
+    private function requestStorefront(): string
+    {
+        return StorefrontResolver::fromConfig()->isEnabled() ? StorefrontContext::current()->country : $this->defaultStorefront();
     }
 
     private function columnReady(): bool
