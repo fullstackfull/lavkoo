@@ -378,23 +378,58 @@ class ThePlatformAddressConfirmsWhatExpectsItTest extends CompanyAccountsTestCas
         $this->assertSame(1, $this->successHookCalls());
     }
 
-    /** The address the rule is applied at is the gateway's own platform-wide route, and not some other value the controller made up. */
-    public function test_the_address_the_rule_is_applied_at_is_this_gateways_platform_route(): void
+    /**
+     * THE ADDRESS THIS ROUTE HOLDS ITSELF TO IS ITS OWN, and that is measured rather than read off the source.
+     *
+     * A payment whose RECORDED address is this route's own is confirmed here. Nothing else about the delivery differs from the one that is refused
+     * above — same account, same signature, same body — so if the route compared the record against any other value, this payment would be refused
+     * too. That is what makes the refusal above a statement about which address this is and not merely about a record being present.
+     *
+     * CONSTRUCTED, for the reason the third stored shape is: no writer of this application records a platform address, because the value only ever
+     * comes from a per-account route. The stamp is the production writer's and only the one value under the one key is replaced.
+     */
+    public function test_a_payment_that_recorded_this_very_address_is_confirmed_here(): void
     {
         $attempt = $this->anAttemptStampedWith($this->kuwait);
+        $this->replaceTheRecordedAddressOf($attempt, with: route('myfatoorah.webhook'));
+        $this->fakePaidFor($attempt);
 
-        $this->assertTrue(
-            app(ConfirmationAddresses::class)->mayConfirm(
-                address: (string) $this->theAddressExpectedBy($attempt),
-                payment: (array) $this->paymentRow($attempt),
-            ),
-            'the recorded address may confirm it',
-        );
-        $this->assertFalse(
-            app(ConfirmationAddresses::class)->mayConfirm(address: route('myfatoorah.webhook'), payment: (array) $this->paymentRow($attempt)),
-            'and the platform route may not',
-        );
-        $this->assertSame('/api/myfatoorah/webhook', '/' . ltrim(parse_url(route('myfatoorah.webhook'), PHP_URL_PATH) ?? '', '/'));
+        $this->assertSame(route('myfatoorah.webhook'), $this->theAddressExpectedBy($attempt), 'the payment expects this address');
+        $this->assertTrue(app(ConfirmationAddresses::class)->isEnforced(), 'with the rule in force');
+
+        $this->deliverToThePlatformAddress($attempt)
+            ->assertOk()
+            ->assertJsonPath('status', 'settled');
+
+        $this->assertSame([$attempt->payment_request_id], $this->paidPayments());
+    }
+
+    /**
+     * An attempt whose payment ROW is gone behaves exactly as it does today, with the rule on.
+     *
+     * The rule reads the payment to find out what address it expects, and there is no payment to read. That is not a payment expecting another
+     * address, so this address does not decline it on the rule's account, and what happens to it is whatever happened before: the verification finds no
+     * amount to agree with and answers "mismatch", recording the delivery and settling nothing. The same literal answer with the rule on and with it
+     * off, which is the claim. A company's own address refuses this case instead, and that asymmetry is right: a public address declining it would be
+     * a behaviour change on a path this stage is not about, and there is no company to hand it to.
+     *
+     * @return array<string, array{bool}>
+     */
+    #[DataProvider('theSwitch')]
+    public function test_an_attempt_whose_payment_row_is_gone_behaves_as_it_does_today(bool $switch): void
+    {
+        config(['gcc.storefronts.payment_accounts.one_confirmation_address' => $switch]);
+        $attempt = $this->anAttemptStampedWith($this->kuwait);
+        $this->fakePaidFor($attempt);
+        DB::table('payment_requests')->where('id', $attempt->payment_request_id)->delete();
+
+        $this->deliverToThePlatformAddress($attempt)
+            ->assertOk()
+            ->assertJsonPath('status', 'mismatch');
+
+        $this->assertSame([], $this->paidPayments(), 'there is nothing to pay');
+        $this->assertSame(0, $this->successHookCalls());
+        $this->assertSame(1, MyFatoorahWebhookEvent::count(), 'recorded, as it is today');
     }
 
     private function theOneAddressRuleIsOn(): void

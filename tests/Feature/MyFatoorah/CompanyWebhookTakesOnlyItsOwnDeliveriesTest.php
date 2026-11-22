@@ -260,6 +260,29 @@ class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends CompanyAccountsTestCas
         $this->deliverTo($this->kuwait, $payload, $signature)->assertStatus(401);
     }
 
+    /**
+     * For an account of the gateway the SHIPPED list holds, the answer was null before this condition was added and is null after it.
+     *
+     * The exact scope of what that one line moved, measured rather than described: the gateway on the account already decided this case, so the owner's
+     * list added to it changes nothing here. What the list changes is the case above — an account of the gateway that is OFF the list — and that
+     * account is the one the route refuses. Both halves together are the whole of the difference.
+     */
+    public function test_an_account_of_the_shipped_gateway_was_named_no_address_before_this_condition_and_is_named_none_now(): void
+    {
+        $paymob = $this->anAccountFor(country: 'QA', webhookSecret: 'qatar-paymob-webhook-secret', token: 'qatar-paymob-token', gateway: 'paymob_accept');
+
+        $this->assertContains('paymob_accept', $this->shippedGatewayList, 'the premise is that this gateway is the one that ships');
+        $this->assertNull(
+            app(GatewayAccountDirectory::class)->webhookUrlOf(account: $paymob),
+            'on the list and served by another address: the gateway on the account decides it, as it did before',
+        );
+
+        config(['gcc.storefronts.payment_accounts.gateways' => $this->shippedGatewayList]);
+        app(GatewayAccountRegistry::class)->flush();
+
+        $this->assertNull(app(GatewayAccountDirectory::class)->webhookUrlOf(account: $paymob->refresh()), 'and under the shipped list, still none');
+    }
+
     /** The row an operator is shown carries the same answer, so a screen cannot print an address the route refuses. */
     public function test_the_operator_row_carries_no_address_for_a_gateway_the_owner_has_not_listed(): void
     {

@@ -73,8 +73,12 @@ final class GatewayAccountDirectory
      *
      * The one gateway the owner's shipped list holds is Paymob, which sends no server-to-server notification at all -- its confirmation is the
      * customer's return to a platform-wide address -- so a payment taken through a Paymob account records no address and expects the platform one
-     * (GCC-21). On the shipped configuration the owner's list and the gateway on the account disagree for every account that could have an address, so
-     * this answers null there whichever of the two is asked, and adding the first changes nothing a shipped installation can see.
+     * (GCC-21).
+     *
+     * WHAT ADDING THE FIRST CONDITION MOVED, exactly. For an account of the gateway the shipped list HOLDS the answer was null before and is null now:
+     * the second condition already said so. The answer changes for an account of the gateway that is OFF the list, which used to be named an address
+     * and now is not -- and that is the account the route refuses, so the address it was named was one at which it is told nothing. On a shipped
+     * installation nothing of this is observable at all, because per-company accounts are off and `rows()` is then empty.
      */
     public function webhookUrlOf(PaymentGatewayAccount $account): ?string
     {
