@@ -4,6 +4,10 @@ namespace App\Console\Commands;
 
 use App\Mail\AbandonedCartReminderMail;
 use App\Models\AbandonedCartReminder;
+use App\Services\Marketing\MarketingConsent;
+use App\Services\Marketing\MarketingConsentGate;
+use App\Services\Marketing\MarketingMarket;
+use App\Services\Marketing\MarketingUnsubscribeLink;
 use App\Services\Retention\AbandonedCartService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
@@ -110,6 +114,7 @@ class SendAbandonedCartReminders extends Command
                 Mail::to($row['email'])->send(new AbandonedCartReminderMail(
                     reminder: $reminder,
                     recoveryUrl: $this->recoveryUrl($reminder),
+                    unsubscribeUrl: $this->unsubscribeUrl($reminder),
                 ));
                 $sent++;
             } catch (\Throwable $exception) {
@@ -132,6 +137,37 @@ class SendAbandonedCartReminders extends Command
     private function recoveryUrl(AbandonedCartReminder $reminder): string
     {
         return URL::signedRoute('cart.recover', ['reminder' => $reminder->id], now()->addDays(30));
+    }
+
+    /**
+     * The unsubscribe link for this reminder, or null while the consent gate is switched off.
+     *
+     * Null while it is off is deliberate: with the gate off this message has to be exactly the message the store sends
+     * today, down to its text, and there is nothing yet that could record the withdrawal the link would promise.
+     */
+    private function unsubscribeUrl(AbandonedCartReminder $reminder): ?string
+    {
+        if (!app(MarketingConsentGate::class)->enabled()) {
+            return null;
+        }
+
+        $customerId = $reminder->is_guest ? null : $reminder->customer_id;
+
+        if ($customerId) {
+            return MarketingUnsubscribeLink::forCustomer(
+                customerId: (int) $customerId,
+                market: MarketingMarket::forCustomer(customerId: (int) $customerId),
+                channel: MarketingConsent::CHANNEL_EMAIL,
+                purpose: MarketingConsent::PURPOSE_ABANDONED_CART,
+            );
+        }
+
+        return MarketingUnsubscribeLink::forEmail(
+            email: (string) $reminder->email,
+            market: MarketingMarket::forCustomer(customerId: $reminder->customer_id ? (int) $reminder->customer_id : null, isGuest: true),
+            channel: MarketingConsent::CHANNEL_EMAIL,
+            purpose: MarketingConsent::PURPOSE_ABANDONED_CART,
+        );
     }
 
     /** Console output is logged and screen-shared; addresses do not need to be in it in full. */

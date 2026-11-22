@@ -7,6 +7,9 @@ use App\Models\Cart;
 use App\Models\Order;
 use App\Models\ShippingAddress;
 use App\Models\User;
+use App\Services\Marketing\MarketingConsent;
+use App\Services\Marketing\MarketingConsentGate;
+use App\Services\Marketing\MarketingMarket;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
@@ -33,9 +36,16 @@ use Illuminate\Support\Facades\Schema;
  *  5. **Not already reminded at this stage**, which is what makes the command safe to re-run.
  *  6. **Still buyable.** A cart whose products are deactivated or deleted is a dead link; sending
  *     it invites the customer to a 404.
+ *  7. **Allowed to be written to.** Only while the marketing consent gate is switched on. With it off this rule is
+ *     not applied and not even asked about: no consent row is read and no market is resolved, so the recipients and
+ *     the queries are exactly what they were before the gate existed.
  */
 class AbandonedCartService
 {
+    public function __construct(private readonly MarketingConsentGate $consentGate)
+    {
+    }
+
     /**
      * Guest reminders are a separate, explicit decision, not a volume knob.
      *
@@ -118,8 +128,11 @@ class AbandonedCartService
         $minimum = $this->minimumCartValue();
         $includeGuests = $this->includesGuests();
 
+        // Asked once, not once per cart: with the gate off the closure below never touches consent at all.
+        $consentRequired = $this->consentGate->enabled();
+
         return $rows->groupBy('cart_group_id')
-            ->map(function (Collection $lines, string $groupId) use ($alreadySent, $minimum, $includeGuests) {
+            ->map(function (Collection $lines, string $groupId) use ($alreadySent, $minimum, $includeGuests, $consentRequired) {
                 if ($alreadySent->has($groupId)) {
                     return null;
                 }
@@ -148,6 +161,10 @@ class AbandonedCartService
                     return null;
                 }
 
+                if ($consentRequired && !$this->mayRemind(customerId: $first->customer_id, isGuest: $isGuest, email: $email)) {
+                    return null;
+                }
+
                 return [
                     'cart_group_id' => $groupId,
                     'customer_id' => $isGuest ? null : (int) $first->customer_id,
@@ -161,6 +178,32 @@ class AbandonedCartService
             ->filter()
             ->sortByDesc('last_activity')
             ->values();
+    }
+
+    /**
+     * Has this person agreed to a cart reminder by e-mail in their own market?
+     *
+     * A registered customer is asked about by account, so the answer follows them whatever address they used. A guest
+     * has no account, so the address they typed is the subject — which is also the only thing an unsubscribe link in
+     * that message can name.
+     */
+    private function mayRemind($customerId, bool $isGuest, string $email): bool
+    {
+        if ($isGuest || !$customerId) {
+            return $this->consentGate->allowsEmail(
+                email: $email,
+                market: MarketingMarket::forCustomer(customerId: $customerId ? (int) $customerId : null, isGuest: true),
+                channel: MarketingConsent::CHANNEL_EMAIL,
+                purpose: MarketingConsent::PURPOSE_ABANDONED_CART,
+            );
+        }
+
+        return $this->consentGate->allowsCustomer(
+            customerId: (int) $customerId,
+            market: MarketingMarket::forCustomer(customerId: (int) $customerId),
+            channel: MarketingConsent::CHANNEL_EMAIL,
+            purpose: MarketingConsent::PURPOSE_ABANDONED_CART,
+        );
     }
 
     /**

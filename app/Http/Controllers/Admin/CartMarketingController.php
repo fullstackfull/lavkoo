@@ -6,6 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Models\Cart;
 use App\Models\User;
 use App\Models\NotificationTemplateMapping;
+use App\Services\Marketing\MarketingConsent;
+use App\Services\Marketing\MarketingConsentGate;
+use App\Services\Marketing\MarketingMarket;
 use Illuminate\View\View;
 use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
@@ -103,12 +106,27 @@ if (!$mapping) {
 }
 
     $chatwoot = app(\App\Services\ChatwootService::class);
+    $consentGate = app(MarketingConsentGate::class);
+    // Asked once: with the gate off no consent row is read and this send is what it has always been.
+    $consentRequired = $consentGate->enabled();
 
     $sent = 0;
     $failed = 0;
+    $skipped = 0;
     $errors = [];
 
     foreach ($validated['customer_ids'] as $customerId) {
+
+        if ($consentRequired && !$consentGate->allowsCustomer(
+            customerId: (int) $customerId,
+            market: MarketingMarket::forCustomer(customerId: (int) $customerId),
+            channel: MarketingConsent::CHANNEL_WHATSAPP,
+            purpose: MarketingConsent::PURPOSE_CART_MARKETING,
+        )) {
+            // Not an error: an administrator picking a customer who has not agreed is told, and nothing is sent.
+            $skipped++;
+            continue;
+        }
 
         try {
 
@@ -237,11 +255,17 @@ if (!$mapping) {
         );
 }
 
+// Nothing is appended while the consent gate is off, where $skipped can only be 0: the message an administrator
+// reads today stays the message they read.
+$skippedNote = $skipped > 0
+    ? " {$skipped} customer(s) were skipped because they have not agreed to WhatsApp marketing."
+    : '';
+
 return redirect()
     ->route('admin.integrations.cart-marketing.index')
     ->with(
         'success',
-        "Cart marketing sent successfully to {$sent} customer(s)."
+        "Cart marketing sent successfully to {$sent} customer(s)." . $skippedNote
     );
 }
 

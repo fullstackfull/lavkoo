@@ -22,6 +22,7 @@ class AbandonedCartReminderMail extends Mailable
     public function __construct(
         public AbandonedCartReminder $reminder,
         public string $recoveryUrl,
+        public ?string $unsubscribeUrl = null,
     ) {
     }
 
@@ -37,6 +38,7 @@ class AbandonedCartReminderMail extends Mailable
                 'reminder' => $this->reminder,
                 'lines' => $lines,
                 'recoveryUrl' => $this->recoveryUrl,
+                'unsubscribeUrl' => $this->unsubscribeUrl,
             ]);
     }
 }

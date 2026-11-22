@@ -26,6 +26,10 @@ use App\Models\ShippingMethod;
 use App\Models\ShippingType;
 use App\Models\Shop;
 use App\Models\Subscription;
+use App\Services\Marketing\MarketingConsent;
+use App\Services\Marketing\MarketingConsentGate;
+use App\Services\Marketing\MarketingConsentRecorder;
+use App\Services\Marketing\MarketingMarket;
 use App\Models\OrderDetail;
 use App\Models\Review;
 use App\Models\Brand;
@@ -1586,12 +1590,53 @@ class WebController extends Controller
             $newSubscription = new Subscription;
             $newSubscription->email = $request['subscription_email'];
             $newSubscription->save();
+            $this->recordNewsletterConsent(email: $request['subscription_email']);
             Toastr::success(translate('Your_subscription_successfully_done'));
         }
         if (str_contains(url()->previous(), 'checkout-complete') || str_contains(url()->previous(), 'web-payment')) {
             return redirect()->route('home');
         }
         return back();
+    }
+
+    /**
+     * The one place on main where a customer states a marketing choice of their own: the newsletter box.
+     *
+     * `subscriptions` holds an e-mail address and nothing else — no customer, no market, no text, no way to withdraw —
+     * so while the consent gate is on the choice is ALSO written as a consent decision, which does carry all of those.
+     * The `subscriptions` row is still written exactly as before, so nothing that reads that table changes.
+     *
+     * With the gate off this writes nothing at all.
+     */
+    private function recordNewsletterConsent(string $email): void
+    {
+        if (!app(MarketingConsentGate::class)->enabled()) {
+            return;
+        }
+
+        $customer = auth('customer')->user();
+
+        $recorder = app(MarketingConsentRecorder::class);
+
+        if ($customer) {
+            $recorder->grantForCustomer(
+                customerId: (int) $customer->id,
+                market: MarketingMarket::forCustomer(customerId: (int) $customer->id),
+                channel: MarketingConsent::CHANNEL_EMAIL,
+                purpose: MarketingConsent::PURPOSE_NEWSLETTER,
+                source: MarketingConsent::SOURCE_NEWSLETTER_FORM,
+            );
+
+            return;
+        }
+
+        $recorder->grantForEmail(
+            email: $email,
+            market: MarketingMarket::homeMarket(),
+            channel: MarketingConsent::CHANNEL_EMAIL,
+            purpose: MarketingConsent::PURPOSE_NEWSLETTER,
+            source: MarketingConsent::SOURCE_NEWSLETTER_FORM,
+        );
     }
 
     public function review_list_product(Request $request): JsonResponse
