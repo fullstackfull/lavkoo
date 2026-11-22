@@ -83,8 +83,8 @@ final readonly class PosSaleTotal
     {
         return new self(
             exponent: $this->exponent,
-            guardedSubtotal: $this->guardedSubtotal + $this->toGuarded($lineSubtotal),
-            guardedTax: $this->guardedTax + $this->toGuarded($appliedTaxAmount),
+            guardedSubtotal: $this->addGuarded($this->guardedSubtotal, $this->toGuarded($lineSubtotal)),
+            guardedTax: $this->addGuarded($this->guardedTax, $this->toGuarded($appliedTaxAmount)),
             guardedDiscounts: $this->guardedDiscounts,
             lineCount: $this->lineCount + 1,
         );
@@ -100,7 +100,10 @@ final readonly class PosSaleTotal
             exponent: $this->exponent,
             guardedSubtotal: $this->guardedSubtotal,
             guardedTax: $this->guardedTax,
-            guardedDiscounts: $this->guardedDiscounts + $this->toGuarded($couponDiscount) + $this->toGuarded($extraDiscount),
+            guardedDiscounts: $this->addGuarded(
+                $this->addGuarded($this->guardedDiscounts, $this->toGuarded($couponDiscount)),
+                $this->toGuarded($extraDiscount),
+            ),
             lineCount: $this->lineCount,
         );
     }
@@ -213,5 +216,23 @@ final readonly class PosSaleTotal
         }
 
         return (int) round($amount * $factor);
+    }
+
+    /**
+     * Two figures on the guarded grid, added without leaving the integers.
+     *
+     * The per-line bound above is not enough on its own, which I found by attacking my own fix for reviewer A's F5:
+     * PHP does not WRAP an integer overflow, it turns the sum into a float, and a float handed to this class's
+     * int-typed constructor raises a TypeError — which the till would answer with a 500 the cashier never sees, since
+     * neither panel script has an `error:` callback. Measured on two lines each just inside the per-line bound. So
+     * the bound this class claims is now the bound it keeps for a cart of any number of lines, not only for one.
+     */
+    private function addGuarded(int $running, int $addition): int
+    {
+        if ($addition > 0 ? $running > PHP_INT_MAX - $addition : $running < PHP_INT_MIN - $addition) {
+            throw new InvalidArgumentException('This cart costs more than the sale can be counted in.');
+        }
+
+        return $running + $addition;
     }
 }

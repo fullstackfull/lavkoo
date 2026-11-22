@@ -191,6 +191,25 @@ class PosTillServerTotalTest extends PosTillTestCase
     }
 
     /**
+     * And the same door for a CART too large to count, not only a line.
+     *
+     * I found this by attacking my own fix for reviewer A's F5: the per-line bound is not enough, because PHP does not
+     * wrap an integer overflow — it turns the sum into a float, and a float handed to this class's int-typed
+     * constructor raises a TypeError, which the till would answer with a 500 nobody sees. Two lines each just inside
+     * the per-line bound are enough to reach it.
+     */
+    public function test_a_cart_whose_lines_together_are_too_large_to_count_is_refused(): void
+    {
+        $justInsideTheLineBound = PHP_INT_MAX / (10 ** 8) - 1;
+
+        $this->expectException(InvalidArgumentException::class);
+
+        PosSaleTotal::inDefaultCurrency()
+            ->plusLine(lineSubtotal: $justInsideTheLineBound, appliedTaxAmount: 0)
+            ->plusLine(lineSubtotal: $justInsideTheLineBound, appliedTaxAmount: 0);
+    }
+
+    /**
      * And the till itself answers that refusal in a shape the panel can show, rather than a 500 nobody sees.
      *
      * Neither panel's place-order $.post defines an `error:` callback (reviewer B, F6), so an exception out of this
