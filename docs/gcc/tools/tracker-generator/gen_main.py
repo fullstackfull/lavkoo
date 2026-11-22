@@ -3550,6 +3550,76 @@ _p[2] = (_t, 'MET', _ev + _EV1_MEASURED +
     "one 100.00 top-up plus the one bonus; 325.0 is what a second credit and a second bonus produce. So a bonus applied twice, and equally a "
     "bonus halved or doubled on the one row, fails that assertion." + _EV1_NOVERIFY)
 
+# ============================================================================
+# D2-07, D2-08 and D2-10: the owner's MET definition of 2026-11-22 applied to
+# the payment-accounts family, on runs and mutations made HERE.
+#
+# Four criteria raised, two held back, and the two held back are held for
+# reasons that are NOT dormancy -- which is the whole point of reading each one
+# instead of sweeping the family. Reading the TESTS rather than their NAMES is
+# what separated them: one test's name is its criterion's wording verbatim
+# while its body tests the narrower half.
+# ============================================================================
+_D207_RUN = (
+    " **RAISED CODED -> MET ON 2026-11-22 under the owner's MET definition of that date.** Measured here on the named head e866118c, "
+    "not read off this record: PaymentBelongsToACompanyAccountTest, CompanyGatewaySecretsStayApartTest and CompanyAccountsAreDormantTest "
+    "together are **43 tests / 176 assertions green on SQLite and the same 43 / 176 green on MariaDB 10.11.14**, with 10 tables created in "
+    "the scratch database so the engine answered."
+)
+_D207_MUT = (
+    " **AND THE GREEN WAS TESTED.** GatewayAccountRegistry::forStorefront() was mutated to always answer null -- no company account is ever "
+    "resolved, so every payment falls back to the platform settings row, which is the defect this family exists to prevent -- and the set "
+    "went **7 RED (6 failures and 1 error) of 43**: the Kuwait-credentials test, the account-freeze test, the payment-names-its-company "
+    "test, the record-still-reads-the-same test, the test-and-live-do-not-cross test, one-company's-secret-not-reachable-through-another's, "
+    "and the sandbox-environment test. The file was restored from a copy taken before the edit, not with git checkout."
+)
+_D207_NOVERIFY = (
+    " Unchanged by the raise: still a draft, still dormant by default, no merge, no deploy, no key rotated. config/gcc.php still ships its "
+    "gateway list hardcoded with no environment override, so reaching this code at all needs a source change and not a switch."
+)
+
+CRITERIA['D2-07'][0] = ('MET', CRITERIA['D2-07'][0][1] + _D207_RUN + _D207_MUT +
+    " For THIS criterion the discriminating test is test_a_kuwait_payment_starts_against_the_kuwait_accounts_credentials_and_never_the_saudi_accounts, "
+    "which is red under that mutation. The Paymob-only scope stated above is unchanged and is not cured by the raise: the criterion is met "
+    "for the gateway the shipped list holds." + _D207_NOVERIFY)
+
+CRITERIA['D2-07'][3] = ('MET', CRITERIA['D2-07'][3][1] + _D207_RUN +
+    " **THE UNIQUE-KEY CLAIM WAS CHECKED RATHER THAN BELIEVED, because a key is a migration and a migration is easy to get wrong.** The "
+    "migration's unique index on (storefront_country, gateway, environment) was turned into a plain index, and "
+    "test_a_storefront_has_at_most_one_account_per_gateway_and_environment is **red on SQLite AND red on MariaDB**. Note that the "
+    "forStorefront mutation above leaves this test green, and correctly so: a database key does not care how the application resolves an "
+    "account. Two different mutations for two different mechanisms." + _D207_NOVERIFY)
+
+CRITERIA['D2-08'][3] = ('MET', CRITERIA['D2-08'][3][1] + _D207_RUN + _D207_MUT +
+    " Both halves of this criterion's wording carry their own test and both are red under that mutation: "
+    "test_a_credential_is_stored_encrypted_and_is_nowhere_in_the_clear with "
+    "test_one_companys_secret_is_not_reachable_through_another_companys_account for the per-account half, and "
+    "test_the_test_and_the_live_credentials_of_one_market_do_not_cross for the test-and-live half." + _D207_NOVERIFY)
+
+CRITERIA['D2-10'][2] = ('MET', CRITERIA['D2-10'][2][1] + _D207_RUN + _D207_MUT +
+    " For THIS criterion the discriminating tests are test_a_payment_names_its_market_its_company_its_account_and_the_rate_in_force and "
+    "test_the_record_still_reads_the_same_after_the_settings_that_produced_it_have_changed, both red under that mutation." + _D207_NOVERIFY)
+
+# The two that are NOT raised, and why each is a different reason from dormancy.
+CRITERIA['D2-07'][1] = ('CODED', CRITERIA['D2-07'][1][1] +
+    " **2026-11-22, THE OWNER'S MET DEFINITION DOES NOT REACH THIS ONE, and the reason is not dormancy.** The criterion names three verbs "
+    "-- verification, settlement AND refund -- and the refund still reads the single platform settings row. "
+    "test_an_attempt_keeps_its_account_after_the_account_is_edited_or_disabled is green on both engines and red under the forStorefront "
+    "mutation, so the covered half is real and discriminating; the third verb has no test because it has no code. A definition about "
+    "dormancy cannot raise a criterion whose wording is two thirds covered. (The refund-through-the-original-account work is PR 154 on a "
+    "DIFFERENT branch and is not in this head, so it does not close this either.)")
+
+CRITERIA['D2-07'][2] = ('CODED', CRITERIA['D2-07'][2][1] +
+    " **2026-11-22: HELD BACK ON A GAP FOUND BY READING THE TEST INSTEAD OF ITS NAME.** The test "
+    "test_the_existing_saudi_row_works_unchanged_as_the_sa_account_with_no_data_change carries this criterion's wording verbatim and is "
+    "green on both engines -- but its body registers **NO account at all**. It asserts the DORMANT case: a Saudi payment carries no stamp, "
+    "the platform settings row is byte-for-byte untouched, and the outgoing Authorization header carries the platform key. "
+    "CompanyAccountsAreDormantTest::test_a_saudi_payment_starts_settles_and_credits_exactly_as_it_does_today says the same thing again. So "
+    "the criterion's 'works unchanged ... with no data change' half is proved and its '**as the SA account**' half is NOT ASSERTED ANYWHERE: "
+    "the only test that registers a Saudi account is the Kuwait one, and what that asserts is the KUWAITI payment's behaviour. Defaulting "
+    "to the lower state. It is one short test away -- register the SA account, start a Saudi payment, assert it goes through that account "
+    "with its stored data and its settlement unchanged -- and that test is worth writing precisely because it is the Saudi path.")
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
