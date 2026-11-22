@@ -833,8 +833,9 @@ trait OrderEditManager
         if (getWebConfig('currency_model') === 'multi_currency') {
             // The code the refusal in payEditOrderDueByDigitalPayment() judged, so the due amount goes out
             // in the currency that was allowed. Switched off, the same value as the expression it replaces.
-            $currentCurrency = app(GatewayCurrencySupport::class)->chargedCurrencyCode($request);
-            $currency_code = $this->getPaymentGatewayCurrencyCode($paymentMethod, $currentCurrency);
+            $currencySupport = app(GatewayCurrencySupport::class);
+            $currentCurrency = $currencySupport->chargedCurrencyCode($request);
+            $currency_code = $this->getPaymentGatewayCurrencyCode($currencySupport->chargedGatewayKey($request), $currentCurrency);
             $convertedAmount = usdToAnotherCurrencyConverter(currencyCode: $currency_code, amount: $amount);
             return [$convertedAmount, $currency_code];
         }

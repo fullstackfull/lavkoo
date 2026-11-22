@@ -745,8 +745,20 @@ class GatewayRefusesACurrencyItCannotTakeTest extends PaymentCurrencyTestCase
         $this->assertSame(['currency' => 'USD', 'amount' => 100.0], $this->theCharge());
     }
 
-    /** An alias still reads its real gateway's declaration, so it is not mistaken for one that declares nothing. */
-    public function test_an_older_spelling_of_a_gateway_is_judged_as_the_gateway_it_is(): void
+    /**
+     * An older spelling of a gateway is judged as the gateway it is -- AND charged as it.
+     *
+     * My own second reading of the fix found the same trap as Reviewer A's F2, in the other argument.
+     * The question canonicalises `my_fatoorah` to `fatoorah` and so judges a Riyal takeable; the legacy
+     * resolver does not canonicalise, looks `my_fatoorah` up in the declared-currency map, finds nothing,
+     * and falls through to USD. Measured through this route with the switch ON before the fix: allowed,
+     * and charged USD 100 on a cart worth SAR 375 -- a judgement about one currency and a charge in
+     * another, which is the thing this requirement forbids.
+     *
+     * Only the currency lookup is canonicalised. The payment row still records the method the customer
+     * posted, which is asserted, because an older payment link names that spelling.
+     */
+    public function test_an_older_spelling_of_a_gateway_is_judged_and_charged_as_the_gateway_it_is(): void
     {
         $this->aMultiCurrencyStore();
         $this->switchTheRefusalOn();
@@ -756,6 +768,20 @@ class GatewayRefusesACurrencyItCannotTakeTest extends PaymentCurrencyTestCase
         $this->assertFalse($catalog->declaresNoCurrency(gateway: 'my_fatoorah'), 'an alias looks like a gateway that declares nothing');
         $this->assertFalse(app(GatewayCurrencySupport::class)->decide(gateway: 'my_fatoorah', currencyCode: 'SAR')->refused());
         $this->assertTrue(app(GatewayCurrencySupport::class)->decide(gateway: 'my_fatoorah', currencyCode: 'BDT')->refused());
+
+        $this->startsAppPayment('my_fatoorah', 'SAR')->assertOk();
+        $this->assertSame(['currency' => 'SAR', 'amount' => 375.0], $this->theCharge(), 'an older spelling was charged in a currency nobody chose');
+        $this->assertSame('my_fatoorah', DB::table('payment_requests')->value('payment_method'), 'the payment row stopped recording the spelling the customer posted');
+    }
+
+    /** Switched off, that same request still falls through to the dollar exactly as it does today. */
+    public function test_with_the_switch_off_an_older_spelling_still_falls_through_to_the_dollar(): void
+    {
+        // Measured on a worktree at 222fe1eb through this route: USD 100 for a cart worth SAR 375.
+        $this->aMultiCurrencyStore();
+
+        $this->startsAppPayment('my_fatoorah', 'SAR')->assertOk();
+        $this->assertSame(['currency' => 'USD', 'amount' => 100.0], $this->theCharge());
     }
 
     // --------------------------- the refusal must not sign the customer out (both reviewers)

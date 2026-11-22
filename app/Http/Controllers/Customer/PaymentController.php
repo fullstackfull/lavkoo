@@ -470,8 +470,9 @@ class PaymentController extends Controller
         if ($currency_model == 'multi_currency') {
             // The code the refusal at the entry point judged, so the currency charged is the one that was
             // allowed. Switched off this is the expression that was here before, unchanged.
-            $currentCurrency = app(GatewayCurrencySupport::class)->chargedCurrencyCode($request);
-            $currency_code = $this->getPaymentGatewayCurrencyCode(key: $request['payment_method'], currentCurrency: $currentCurrency);
+            $currencySupport = app(GatewayCurrencySupport::class);
+            $currentCurrency = $currencySupport->chargedCurrencyCode($request);
+            $currency_code = $this->getPaymentGatewayCurrencyCode(key: $currencySupport->chargedGatewayKey($request), currentCurrency: $currentCurrency);
             $paymentAmount = usdToAnotherCurrencyConverter(currencyCode: $currency_code, amount: $paymentAmount);
         } else {
             $default = getWebConfig(name: 'system_default_currency');
@@ -566,9 +567,10 @@ class PaymentController extends Controller
         $paymentAmount = $request['amount'];
         $currency_model = getWebConfig(name: 'currency_model');
         if ($currency_model == 'multi_currency') {
-            // Same one code, judged above and charged here.
-            $currentCurrency = app(GatewayCurrencySupport::class)->chargedCurrencyCode($request);
-            $currency_code = $this->getPaymentGatewayCurrencyCode(key: $request['payment_method'], currentCurrency: $currentCurrency);
+            // Same one code and the same one gateway, judged above and charged here.
+            $currencySupport = app(GatewayCurrencySupport::class);
+            $currentCurrency = $currencySupport->chargedCurrencyCode($request);
+            $currency_code = $this->getPaymentGatewayCurrencyCode(key: $currencySupport->chargedGatewayKey($request), currentCurrency: $currentCurrency);
             $paymentAmount = usdToAnotherCurrencyConverter(currencyCode: $currency_code, amount: Convert::usdPaymentModule($request['amount'], $currentCurrency));
         } else {
             $default = getWebConfig(name: 'system_default_currency');

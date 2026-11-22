@@ -74,13 +74,37 @@ final class GatewayCurrencySupport
     {
         $named = $request['current_currency_code'] ?? session('currency_code');
 
-        if (!$this->answersFor($request)) {
+        if (!$this->answers()) {
             return $named;
         }
 
         $code = is_scalar($named) ? strtoupper(trim((string) $named)) : '';
 
         return $code === '' ? $this->storeDefaultCurrencyCode() : $code;
+    }
+
+    /**
+     * The gateway key this payment is judged AND charged under.
+     *
+     * The same trap as the currency, in the other argument: the question canonicalises an older gateway
+     * spelling and the legacy resolver does not, so `my_fatoorah` with a Riyal was judged takeable --
+     * fatoorah declares SAR -- and then charged in USD, because the resolver looked `my_fatoorah` up in
+     * the declared-currency map, found nothing, and fell through. Switched off this is the raw key the
+     * callers already passed, so a shipped installation is unmoved; switched on the question and the
+     * conversion are given the same gateway.
+     *
+     * Only the CURRENCY LOOKUP is affected. The payment row's `payment_method` and the route the
+     * customer is sent to are built from the request elsewhere and still carry the spelling they posted.
+     */
+    public function chargedGatewayKey(\ArrayAccess|array $request): mixed
+    {
+        $posted = $request['payment_method'] ?? null;
+
+        if (!$this->answers() || !is_scalar($posted)) {
+            return $posted;
+        }
+
+        return PaymentGatewayCatalog::canonicalKey(trim((string) $posted));
     }
 
     /**
@@ -105,7 +129,7 @@ final class GatewayCurrencySupport
     }
 
     /** Is there a question to answer at all -- the switch on, and a money model that converts? */
-    private function answersFor(\ArrayAccess|array $request): bool
+    private function answers(): bool
     {
         return $this->enabled() && getWebConfig(name: 'currency_model') === 'multi_currency';
     }
