@@ -3715,6 +3715,57 @@ _D209_LANG = (
 )
 CRITERIA['D2-09'][1] = (CRITERIA['D2-09'][1][0], CRITERIA['D2-09'][1][1] + _D209_LANG)
 
+# ---------------------------------------------------------------------------
+# C-11, 2026-11-22: the three restock shapes the tracker pinned as defects now have
+# named tests that pass, and the fixes they cover are on one branch.
+# ---------------------------------------------------------------------------
+
+CRITERIA.setdefault('C-11', {})[5] = ('MET',
+    "RAISED FROM MISSING TO MET, 2026-11-22, on head 1b1df46725a0f3870323f6d3dec3312ea10e5a88 of "
+    "gcc/p1-restock-never-exceeds-what-left-the-shelf (draft PR 155, base main c5c04b7b). The criterion names three shapes and "
+    "this head has a NAMED test for each, driven through the routes a person actually works on rather than through a service "
+    "picked out of them. (a) Reopening a cancelled line: "
+    "RestockThroughTheRealRoutesTest::test_re_opening_a_cancelled_line_through_the_panel_never_drives_the_variant_below_zero, "
+    "::test_re_opening_a_line_after_a_return_takes_all_of_its_units_off_the_shelf_again, "
+    "::test_going_round_the_cycle_again_puts_nothing_back_but_never_drains_the_shelf, and "
+    "StockHoldsCharacterizationTest::test_re_opening_a_cancelled_line_floors_both_current_stock_and_the_variant_at_zero. "
+    "(b) A partial return followed by the order being marked returned: "
+    "RestockThroughTheRealRoutesTest::test_a_partial_return_then_the_order_marked_returned_puts_back_exactly_what_left_the_shelf "
+    "and StockHoldsCharacterizationTest::test_a_partial_return_then_marking_the_order_returned_restocks_exactly_what_left_the_shelf. "
+    "(c) A return above the line's quantity: "
+    "RestockThroughTheRealRoutesTest::test_a_return_above_the_lines_quantity_is_a_shape_the_panel_can_create_and_it_is_clamped "
+    "and ::test_a_return_for_more_units_than_the_line_held_restocks_the_lines_quantity_and_says_so. "
+    "CI READ ONCE, JOB BY JOB, on that head: run 45020153971, 21 check runs, 19 SUCCESS; the only failure is 'Deployment overlay "
+    "(artifact, deploys nothing)', red by design on every run and every base. BOTH full-suite SQLite jobs (PHP 8.2 and PHP 8.3) "
+    "are green on this head and they run the whole suite with no filter, so every test named above ran and passed; the "
+    "concurrency groups on MySQL 8.0 and MariaDB 11.4.2 are green too, which is where the raced copies of these same shapes live "
+    "(RestockBudgetConcurrencyTest, ReturnReceiptConcurrencyTest). "
+    "WHAT THE ROUND OWNED ABOUT ITSELF, recorded because it bears on what this state is worth: its first attempt at these fixes "
+    "INTRODUCED a regression that two independent reviewers found and the round then reproduced through the panel's own status "
+    "route - a re-open/return cycle that drained three units of the shelf per cycle, without bound (through POST admin/orders/status: "
+    "53/0, then 50/1, 50/0, 47/1, 47/0, 44/1 and on, and the same through the REST API copy). The fix computes the units BEFORE the "
+    "conditional is_stock_decreased flip and locks the line before the budget is read. Two further commits of that round exist only "
+    "to close defects in the round's own tests that its own mutations found. "
+    "WHAT IS NOT CLAIMED. The branch is a DRAFT and nothing is merged or deployed; this state rests on the owner's definition of "
+    "2026-11-22 (a named test covering the behaviour, passing on a named commit, counts even while the work is in a draft and the "
+    "feature is off by default) and says nothing about release. Two things the round could NOT close are recorded rather than "
+    "hidden: the restore budget reconstructs what reached the shelf from the operator's typed quantity, because return_shipments "
+    "HAS NO MIGRATION IN THIS REPOSITORY and restocked_units cannot be persisted here; and whether a NON-RESTOCKABLE return should "
+    "reduce the line's restore budget is an owner decision about what a write-off means, not a coding one.")
+
+CRITERIA['C-11'][1] = ('CODED',
+    "GenerateOrderStockTest; PR 18 de1270f, Tests SQLite 8.2/8.3. "
+    "STAYS CODED, 2026-11-22, on a reason that is now MEASURED rather than assumed. The clause holding it back is 'products are "
+    "locked in ascending id order': the job that runs GenerateOrderStockTest is a SQLite job, and SQLite's grammar compiles "
+    "lockForUpdate() to nothing at all, so no assertion there can see the clause. Measured from the other side on 2026-11-22, on "
+    "gcc/p1-pos-refuses-over-quantity: dropping lockProductsForSale() altogether left every till test green on SQLite AND on "
+    "MariaDB 11.4 against a six-worker race for the last three units. What refuses the oversell is the CONDITIONAL DECREMENT, "
+    "which is atomic at the row level and needs no lock; the ordered lock is there so two multi-line sales cannot take rows in "
+    "opposite order and deadlock, and a single-line race cannot show that. Raising this criterion needs either a real-engine CI "
+    "group running tests/Feature/Checkout or a deadlock test with deterministic interleaving. Neither exists, and that - not "
+    "dormancy - is why this is not MET.")
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]

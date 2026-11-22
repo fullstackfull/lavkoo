@@ -16,7 +16,7 @@ As of 2026-11-22. Generated from the independent assessment of every requirement
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---|
 | [A. Six-country base and customer identity](tracker/axis-a-six-country-base-and-customer-identity.md) | 37 | 173 | 91 | 24 | 58 | 66% | 53% | 9% | all |
 | [B. Catalogue and products](tracker/axis-b-catalogue-and-products.md) | 18 | 91 | 44 | 32 | 15 | 84% | 48% | 0% | all |
-| [C. Inventory and fulfillment](tracker/axis-c-inventory-and-fulfillment.md) | 18 | 94 | 65 | 9 | 20 | 79% | 69% | 30% | all |
+| [C. Inventory and fulfillment](tracker/axis-c-inventory-and-fulfillment.md) | 18 | 94 | 66 | 9 | 19 | 80% | 70% | 30% | all |
 | [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 179 | 94 | 40 | 45 | 75% | 53% | 8% | all |
 | [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 88 | 39 | 9 | 40 | 55% | 44% | 7% | all |
 | [F. Themes and brand](tracker/axis-f-themes-and-brand.md) | 16 | 77 | 42 | 13 | 22 | 71% | 55% | 4% | all |
@@ -27,7 +27,7 @@ As of 2026-11-22. Generated from the independent assessment of every requirement
 | [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 104 | 40 | 30 | 34 | 67% | 38% | 3% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 45 | 18 | 31 | 67% | 48% | 7% | all |
 | [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 311 | 105 | 119 | 87 | 72% | 34% | 3% | all |
-| **All axes (pooled)** | **359** | **1753** | **831** | **390** | **532** | **70%** | **47%** | **8%** | |
+| **All axes (pooled)** | **359** | **1753** | **832** | **390** | **531** | **70%** | **47%** | **8%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -203,7 +203,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [C-08](tracker/axis-c-inventory-and-fulfillment.md) | MERGED | 5/0/0 | Reservations with idempotent holds retained |
 | [C-09](tracker/axis-c-inventory-and-fulfillment.md) | MERGED | 5/0/0 | Transactional outbox for stock changes retained |
 | [C-10](tracker/axis-c-inventory-and-fulfillment.md) | MERGED | 6/0/0 | Fulfillment adapters, provider preflight and kill switches retained |
-| [C-11](tracker/axis-c-inventory-and-fulfillment.md) | IN PROGRESS | 4/1/1 | Idempotency, concurrency and oversell protection of stock writers |
+| [C-11](tracker/axis-c-inventory-and-fulfillment.md) | IN PROGRESS | 5/1/0 | Idempotency, concurrency and oversell protection of stock writers |
 | [C-12](tracker/axis-c-inventory-and-fulfillment.md) | IN PROGRESS | 2/0/3 | Room for country-specific fulfillment providers (UAE, Kuwait, Bahrain, Qatar, Oman) |
 | [C-13](tracker/axis-c-inventory-and-fulfillment.md) | IMPLEMENTED IN DRAFT | 2/1/0 | No second inventory engine: country separation on the existing row |
 | [C-14](tracker/axis-c-inventory-and-fulfillment.md) | IN PROGRESS | 5/0/1 | Fulfillment provider kept separate from sales channel; one source feeds every marketplace |
