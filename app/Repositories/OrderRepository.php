@@ -672,10 +672,13 @@ class OrderRepository implements OrderRepositoryInterface
                     return;
                 }
 
-                // Only what a return has not already put back, and the variant floored on re-deduct —
-                // see OrderManager::getStockUpdateOnOrderStatusChange. This is the copy the admin and
-                // vendor panels run, so the fix has to be here too or the panel keeps the defect.
-                $units = app(RestockBudget::class)->unspentUnitsOf($detail['id'], $detail['qty']);
+                // Restoring puts back only what a return has not already put back; re-taking takes the whole
+                // line, because a re-opened line is live for all of its units again. See
+                // OrderManager::getStockUpdateOnOrderStatusChange. This is the copy the admin and vendor
+                // panels run, so the fix has to be here too or the panel keeps the defect.
+                $units = $restoring
+                    ? app(RestockBudget::class)->unspentUnitsOf($detail['id'], $detail['qty'])
+                    : max(0, (int) $detail['qty']);
                 if ($units === 0) {
                     return;
                 }

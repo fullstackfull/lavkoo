@@ -128,13 +128,19 @@ class OrderManager
                     return;
                 }
 
-                // Only what a return has not already put back. This writer used to move the whole line
-                // however much of it had come back through a received return, so a partial return followed
-                // by marking the order returned put four units back for three that left. The line's
-                // quantity is a budget shared with the return receipt (RestockBudget); the flag above
-                // still guards the repeat, and this guards the overlap. Both directions use the same
-                // figure, so re-opening the line takes back exactly what this writer gave.
-                $units = app(RestockBudget::class)->unspentUnitsOf($detail['id'], $detail['qty']);
+                // RESTORING puts back only what a return has not already put back. This writer used to move
+                // the whole line however much of it had come back through a received return, so a partial
+                // return followed by marking the order returned put four units back for three that left. The
+                // line's quantity is a budget shared with the return receipt (RestockBudget); the flag above
+                // still guards the repeat, and this guards the overlap.
+                //
+                // RE-TAKING takes the whole line, NOT the remainder. A re-opened line is live for all of its
+                // units again, so all of them are committed to the customer again whatever came back earlier.
+                // Bounding this direction by the budget too left the shelf saying it held units that an open
+                // order had already promised -- an oversell, which is the one error this must not make.
+                $units = $restoring
+                    ? app(RestockBudget::class)->unspentUnitsOf($detail['id'], $detail['qty'])
+                    : max(0, (int) $detail['qty']);
                 if ($units === 0) {
                     return;
                 }

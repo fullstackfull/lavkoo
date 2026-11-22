@@ -207,6 +207,25 @@ class StockHoldsCharacterizationTest extends TestCase
         $this->assertSame(1, $this->stockFlag());
     }
 
+    public function test_re_opening_a_line_whose_units_partly_came_back_takes_all_of_them_off_the_shelf_again(): void
+    {
+        $this->storeProduct(self::PRODUCT, stock: 50);
+        $this->storeOrder(self::ORDER, self::PRODUCT, 3);
+        app(ReturnLogisticsService::class)->receive($this->returnFor(1, $this->lineId()));
+        $this->changeStatus('returned');
+        $this->assertSame(53, $this->stock());
+
+        $this->changeStatus('processing');
+
+        $this->assertSame(
+            50,
+            $this->stock(),
+            'the order is live for three units again, so three come off the shelf. Restoring is bounded by what returns '
+            . 'already put back; re-taking is not, or the shelf would offer units an open order has already promised',
+        );
+        $this->assertSame(1, $this->stockFlag());
+    }
+
     // ---- return receipt (app/Services/Marketplace/ReturnLogisticsService.php:82-148) --------------------------------------------
 
     public function test_a_whole_line_return_received_after_the_order_was_marked_returned_does_not_restock_again(): void

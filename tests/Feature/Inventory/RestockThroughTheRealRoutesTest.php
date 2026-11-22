@@ -140,7 +140,7 @@ class RestockThroughTheRealRoutesTest extends AdminPagesTestCase
     }
 
     /** One paid order of `$quantity` units that have already left the shelf (is_stock_decreased = 1). */
-    private function soldLine(int $quantity, int $stock = 50, ?string $variant = null, ?array $variations = null): int
+    protected function soldLine(int $quantity, int $stock = 50, ?string $variant = null, ?array $variations = null): int
     {
         DB::table('products')->insert([
             'id' => self::PRODUCT, 'name' => 'Product', 'added_by' => 'admin', 'product_type' => 'physical',
@@ -161,7 +161,7 @@ class RestockThroughTheRealRoutesTest extends AdminPagesTestCase
     }
 
     /** The panel's order status change: POST admin/orders/status. */
-    private function changeStatusThroughThePanel(string $status): void
+    protected function changeStatusThroughThePanel(string $status): void
     {
         $this->post(route('admin.orders.status'), ['id' => self::ORDER, 'order_status' => $status])
             ->assertOk()
@@ -169,12 +169,12 @@ class RestockThroughTheRealRoutesTest extends AdminPagesTestCase
     }
 
     /** The returns queue receiving goods: POST admin/marketplace/returns/{id}/receive. */
-    private function receiveThroughThePanel(ReturnShipment $rma): void
+    protected function receiveThroughThePanel(ReturnShipment $rma): void
     {
         $this->post(route('admin.marketplace.returns.receive', $rma->id))->assertRedirect();
     }
 
-    private function authorizedReturn(int $quantity, int $lineId): ReturnShipment
+    protected function authorizedReturn(int $quantity, int $lineId): ReturnShipment
     {
         return ReturnShipment::create([
             'reference' => 'RMA-' . $quantity . '-' . $lineId,
@@ -190,7 +190,7 @@ class RestockThroughTheRealRoutesTest extends AdminPagesTestCase
     }
 
     /** The three figures that matter: current_stock, the variant's quantity, and the return movements as [qty_change, balance_after, note]. */
-    private function reading(?string $variant = null): array
+    protected function reading(?string $variant = null): array
     {
         $product = DB::table('products')->where('id', self::PRODUCT)->first();
         $variations = json_decode((string) $product->variation, true) ?: [];
@@ -285,6 +285,58 @@ class RestockThroughTheRealRoutesTest extends AdminPagesTestCase
         // And the status writer, finding the marker already taken, adds nothing.
         $this->changeStatusThroughThePanel('returned');
         $this->assertSame(53, $this->reading()['current_stock']);
+    }
+
+    // ---- re-opening a line whose units have partly or wholly come back ------------------------------------------------------
+
+    public function test_re_opening_a_line_after_a_return_takes_all_of_its_units_off_the_shelf_again(): void
+    {
+        $lineId = $this->soldLine(3);
+        $this->receiveThroughThePanel($this->authorizedReturn(1, $lineId));
+        $this->changeStatusThroughThePanel('returned');
+        $this->assertSame(53, $this->reading()['current_stock']);
+
+        $this->changeStatusThroughThePanel('processing');
+
+        $this->assertSame(
+            50,
+            $this->reading()['current_stock'],
+            'the order is live for three units again, so three come off the shelf -- bounding this direction by what '
+            . 'returns had put back would leave the shelf offering units an open order has already promised',
+        );
+        $this->assertSame(1, (int) DB::table('order_details')->where('id', $lineId)->value('is_stock_decreased'));
+    }
+
+    public function test_re_opening_a_line_whose_whole_quantity_came_back_takes_all_of_it_off_the_shelf_again(): void
+    {
+        $lineId = $this->soldLine(3);
+        $this->receiveThroughThePanel($this->authorizedReturn(3, $lineId));
+        $this->assertSame(53, $this->reading()['current_stock']);
+
+        $this->changeStatusThroughThePanel('processing');
+
+        $this->assertSame(50, $this->reading()['current_stock']);
+    }
+
+    public function test_marking_a_re_opened_line_returned_again_currently_puts_nothing_back(): void
+    {
+        // A known limitation, pinned so it is visible rather than surprising. RestockBudget reads
+        // return_shipments, which is a record over all time and not of the current cycle: once a line has
+        // been re-opened, the units those returns put back have left the shelf again, and nothing records
+        // that. So a second trip round the cycle restores nothing where it should restore three.
+        //
+        // The error is in the safe direction -- the shelf understates what it holds, which cannot oversell,
+        // where the old code overstated it (3 out, 6 back). Fixing it properly needs the current cycle to be
+        // recorded, which is the movement log the status writer does not yet write (see the PR body).
+        $lineId = $this->soldLine(3);
+        $this->receiveThroughThePanel($this->authorizedReturn(3, $lineId));
+        $this->changeStatusThroughThePanel('processing');
+        $this->assertSame(50, $this->reading()['current_stock']);
+
+        $this->changeStatusThroughThePanel('returned');
+
+        $this->assertSame(50, $this->reading()['current_stock'], 'should be 53: the three units are with the customer again and are coming back a second time');
+        $this->assertSame(0, (int) DB::table('order_details')->where('id', $lineId)->value('is_stock_decreased'), 'the marker is right even though the units are not');
     }
 
     // ---- (c) a return for more units than the line held --------------------------------------------------------------------
