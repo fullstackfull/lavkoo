@@ -650,6 +650,40 @@ class RestockThroughTheRealRoutesTest extends AdminPagesTestCase
         $this->assertSame(ReturnShipment::STATUS_RESTOCKED, $rma->fresh()->status);
     }
 
+    // ---- the shape of the column the restock writes to --------------------------------------------------------------------
+
+    public function test_a_status_change_leaves_the_variation_column_in_the_shape_it_found_it(): void
+    {
+        // products.variation is an object keyed by variant name in some installations and a list in others.
+        // The status writers rebuilt it as a list, so the keyed kind lost its keys -- and the return receipt
+        // beside them deliberately preserves them (ReturnReceiptTest pins that), so one event written by two
+        // writers left the column in two different shapes.
+        $this->soldLine(3, variant: 'Red-L');
+        DB::table('products')->where('id', self::PRODUCT)->update([
+            'variation' => json_encode(['blue' => ['type' => 'Blue-M', 'qty' => 5], 'red' => ['type' => 'Red-L', 'qty' => 4]]),
+        ]);
+
+        $this->changeStatusThroughThePanel('canceled');
+
+        $this->assertSame(
+            '{"blue":{"type":"Blue-M","qty":5},"red":{"type":"Red-L","qty":7}}',
+            (string) DB::table('products')->where('id', self::PRODUCT)->value('variation'),
+            'the keys survive and the returned units land on the right option',
+        );
+    }
+
+    public function test_a_status_change_leaves_a_list_of_variations_a_list(): void
+    {
+        $this->soldLine(3, variant: 'Red-L', variations: [['type' => 'Blue-M', 'qty' => 5], ['type' => 'Red-L', 'qty' => 4]]);
+
+        $this->changeStatusThroughThePanel('canceled');
+
+        $this->assertSame(
+            '[{"type":"Blue-M","qty":5},{"type":"Red-L","qty":7}]',
+            (string) DB::table('products')->where('id', self::PRODUCT)->value('variation'),
+        );
+    }
+
     // ---- the fourth writer of the same shelf: the order edit screen -------------------------------------------------------
 
     /**

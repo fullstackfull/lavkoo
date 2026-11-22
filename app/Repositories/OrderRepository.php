@@ -700,13 +700,14 @@ class OrderRepository implements OrderRepositoryInterface
                     return;   // a line of no units to re-take
                 }
 
+                // The options keep their own keys: see OrderManager::getStockUpdateOnOrderStatusChange.
                 $type = $detail['variant'];
                 $variations = [];
-                foreach (json_decode($product['variation'], true) ?? [] as $variation) {
+                foreach (json_decode($product['variation'], true) ?? [] as $key => $variation) {
                     if ($type == $variation['type']) {
                         $variation['qty'] = $restoring ? ($variation['qty'] + $units) : max(0, $variation['qty'] - $units);
                     }
-                    $variations[] = $variation;
+                    $variations[$key] = $variation;
                 }
                 $this->product->where(['id' => $product['id']])->update(['variation' => json_encode($variations)]);
 

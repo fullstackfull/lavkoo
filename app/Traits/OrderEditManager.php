@@ -288,14 +288,15 @@ trait OrderEditManager
             $product = Product::where('id', $productId)->lockForUpdate()->first();
             if (!$product) {return;}
 
+            // The options keep their own keys: see OrderManager::getStockUpdateOnOrderStatusChange.
             $variationData = [];
-            foreach (json_decode($product['variation'], true) ?? [] as $var) {
+            foreach (json_decode($product['variation'], true) ?? [] as $key => $var) {
                 if ($variant !== null && $variant === ($var['type'] ?? null)) {
                     // Floored on the way down for the same reason current_stock is below: an out-of-band
                     // stock edit between the sale and the edit drove the variant's quantity negative.
                     $var['qty'] = $mode === 'increment' ? ($var['qty'] ?? 0) + $qty : max(0, ($var['qty'] ?? 0) - $qty);
                 }
-                $variationData[] = $var;
+                $variationData[$key] = $var;
             }
             Product::where('id', $product['id'])->update(['variation' => json_encode($variationData)]);
 

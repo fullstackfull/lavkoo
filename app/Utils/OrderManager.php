@@ -152,16 +152,20 @@ class OrderManager
                     return;   // a line of no units to re-take
                 }
 
-                // Adjust the specific variant's quantity under the same lock.
+                // Adjust the specific variant's quantity under the same lock. The options keep their own
+                // keys: this column is an object keyed by variant name in some installations and a list in
+                // others, and rebuilding it as a list destroyed the keys of the first kind -- a shape the
+                // storefront and the seller app read, and one the return receipt beside this deliberately
+                // preserves.
                 $type = $detail['variant'];
                 $variationData = [];
-                foreach (json_decode($product['variation'], true) ?? [] as $var) {
+                foreach (json_decode($product['variation'], true) ?? [] as $key => $var) {
                     if ($type == $var['type']) {
                         // Floored on re-deduct for the same reason current_stock is below: an out-of-band
                         // stock edit while the order sat cancelled used to drive the variant JSON negative.
                         $var['qty'] = $restoring ? ($var['qty'] + $units) : max(0, $var['qty'] - $units);
                     }
-                    $variationData[] = $var;
+                    $variationData[$key] = $var;
                 }
                 Product::where(['id' => $product['id']])->update(['variation' => json_encode($variationData)]);
 
