@@ -30,7 +30,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
@@ -135,25 +134,30 @@ class POSOrderController extends BaseController
 
         if (count($cartListSession) > 0) {
             try {
-                $orderId = DB::transaction(function () use ($request, $cartId, $cartListSession, $cart, $taxConfig, $userId, $amount, $paidAmount, $fulfillment, $payByWallet) {
-                if ($payByWallet) {
-                    $this->createWalletTransaction(user_id: $userId, amount: floatval($amount), transaction_type: 'order_place', reference: 'order_place_in_pos');
-                }
-
+                $orderId = OrderManager::writeOrderRetryingOnDuplicateId(function () use ($request, $cartId, $cartListSession, $cart, $taxConfig, $userId, $amount, $paidAmount, $fulfillment, $payByWallet) {
                 // Every product of the sale is locked here, in ascending id order, before a line is priced or taken. See
                 // InventoryService::lockProductsForSale for why the order is the point.
                 $this->inventoryService->lockProductsForSale(productIds: $cartListSession->pluck('id')->all());
+
+                // The debit comes after that lock, not before it. Two reasons, both measured: the lock is this sale's only
+                // ordered lock, and taking the customer's row first put the two in an order nothing else follows; and the
+                // debit's unlocked read of the customer was the transaction's first consistent read, which fixed the
+                // REPEATABLE READ snapshot the order id is then checked against, so an overlapping sale's order was invisible
+                // and its id was chosen again.
+                if ($payByWallet) {
+                    $this->createWalletTransaction(user_id: $userId, amount: floatval($amount), transaction_type: 'order_place', reference: 'order_place_in_pos');
+                }
 
                 $products = $this->productRepo->getListWithScope(whereIn: ['id' => $cartListSession->pluck('id')->toArray()], relations: ['clearanceSale' => function ($query) {
                     return $query->active();
                 }], dataLimit: 'all');
                 $totalDiscountedPrice = $this->cartService->getCartTotalDiscountPrice(session($cartId), $products, $userId);
 
-                $orderId = 100000 + $this->orderRepo->getList()->count() + 1;
-                $order = $this->orderRepo->getFirstWhere(params: ['id' => $orderId]);
-                if ($order) {
-                    $orderId = $this->orderRepo->getList(orderBy: ['id' => 'DESC'])->first()->id + 1;
-                }
+                // Counting the rows and adding one picks the SAME number for two sales that overlap, and the second insert
+                // dies on the primary key: a lawful sale lost to a 500. generateNewOrderID is the web checkout's own picker,
+                // written for that crash, and its read is a locking one, so the second sale waits and reads the id the first
+                // one just wrote.
+                $orderId = OrderManager::generateNewOrderID();
                 $totalTaxAmount = 0;
                 foreach ($cartListSession as $item) {
                     if (is_array($item)) {

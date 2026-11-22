@@ -130,6 +130,61 @@ class PosStockConcurrencyTest extends TestCase
         $this->assertSame(0, $balance);
     }
 
+    /**
+     * Two sales that BOTH fit must both go through. The till chose its order id by counting the rows and adding one, so two
+     * overlapping sales picked the same number and the second died on the primary key: measured here before the change as one
+     * HTTP 500 in three runs out of three, a lawful sale lost to a crash. The wallet shape is the worse one, because
+     * `createWalletTransaction`'s unlocked read of the customer is the first statement of the transaction and pins the
+     * snapshot the id is then read from.
+     */
+    public function test_two_wallet_sales_for_one_customer_at_once_both_go_through_and_debit_once_each(): void
+    {
+        $this->shelfProduct(stock: 50);
+        DB::table('users')->insert(['id' => 42, 'f_name' => 'Sara', 'l_name' => 'Alharbi', 'email' => 'sara@example.test',
+            'phone' => '0551112222', 'wallet_balance' => 1000.0, 'created_at' => now(), 'updated_at' => now()]);
+
+        $reports = ConcurrentRunner::run('pos.place_sale', array_fill(0, 2, [
+            'till' => 'admin', 'product' => self::PRODUCT, 'quantity' => 3, 'amount' => 300.0, 'seller' => 0,
+            'type' => 'wallet', 'customer' => 42,
+        ]));
+
+        $this->assertEveryWorkerAnswered($reports);
+        foreach ($reports as $index => $report) {
+            $this->assertSame(200, (int) $report['result']['status'], "sale {$index} was lost to a server error");
+        }
+        $this->assertSame(2, Order::query()->count(), 'two sales the shelf and the wallet could both cover are two sales');
+        $this->assertSame(2, DB::table('order_details')->count());
+        $this->assertSame(2, DB::table('wallet_transactions')->count(), 'one debit each, not one lost');
+        $this->assertSame(400.0, (float) DB::table('users')->where('id', 42)->value('wallet_balance'), '1000 less 300 twice');
+        $this->assertSame(44, (int) Product::query()->whereKey(self::PRODUCT)->value('current_stock'));
+        $this->assertSame(2, StockMovement::query()->where('product_id', self::PRODUCT)->count());
+    }
+
+    /** The same lost sale with no wallet and no shared product: two cash sales over different shelves still shared an id. */
+    public function test_two_cash_sales_over_different_products_at_once_both_go_through(): void
+    {
+        $this->shelfProduct(stock: 50);
+        DB::table('products')->insert(['id' => 702, 'name' => 'Other shelf', 'slug' => 'other-shelf', 'code' => 'OTHER',
+            'added_by' => 'admin', 'user_id' => 0, 'seller_id' => 1, 'seller_is' => 'admin', 'product_type' => 'physical',
+            'current_stock' => 50, 'unit_price' => 100, 'variation' => json_encode([]), 'choice_options' => json_encode([]),
+            'colors' => json_encode([]), 'images' => json_encode([]), 'created_at' => now(), 'updated_at' => now()]);
+
+        $reports = ConcurrentRunner::run('pos.place_sale', [
+            ['till' => 'admin', 'product' => self::PRODUCT, 'quantity' => 2, 'amount' => 200.0, 'seller' => 0],
+            ['till' => 'admin', 'product' => 702, 'quantity' => 2, 'amount' => 200.0, 'seller' => 0],
+        ]);
+
+        $this->assertEveryWorkerAnswered($reports);
+        foreach ($reports as $index => $report) {
+            $this->assertSame(200, (int) $report['result']['status'], "sale {$index} was lost to a server error");
+        }
+        $this->assertSame(2, Order::query()->count());
+        $this->assertSame(2, DB::table('order_details')->count());
+        $this->assertSame([100001, 100002], Order::query()->orderBy('id')->pluck('id')->map(fn ($id): int => (int) $id)->all(), 'two sales, two ids');
+        $this->assertSame(48, (int) Product::query()->whereKey(self::PRODUCT)->value('current_stock'));
+        $this->assertSame(48, (int) Product::query()->whereKey(702)->value('current_stock'));
+    }
+
     public function test_a_till_and_a_vendor_till_racing_over_the_same_product_never_oversell_it(): void
     {
         $this->shelfProduct(stock: 2, till: 'seller');

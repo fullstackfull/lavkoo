@@ -556,7 +556,91 @@ class PosTillStockTest extends PosTillTestCase
         $this->assertLessThan($firstWriteAt, $lockAt, 'the products are locked before the first one of them is written, not after');
     }
 
+    /**
+     * The order id is READ UNDER A LOCK, not counted.
+     *
+     * `100000 + orders->count() + 1` picks the same number for two overlapping sales, and the second insert dies on the
+     * primary key. The retry in `OrderManager::writeOrderRetryingOnDuplicateId` catches the consequence, which is why a race
+     * cannot tell the two pickers apart — with the retry in place, counting still ends up with two orders. So the picker is
+     * pinned here instead: the sale reads `order_details` to choose its id, under a lock on a real engine, before it writes
+     * the order. The counting picker reads `orders` and takes no lock, so it fails this.
+     */
+    #[DataProvider('tills')]
+    public function test_the_order_id_is_read_from_the_order_lines_under_a_lock_before_the_order_is_written(string $till): void
+    {
+        $this->shelfProduct(id: 644, stock: 10, till: $till);
+        $this->givenCartAtTill($till, [644 => 2]);
+
+        $statements = $this->recordStatementsWhile(fn () => $this->placeSaleAtTill($till, amount: 200.0));
+
+        $readAt = $this->firstStatementMatching($statements, static fn (string $sql): bool => str_contains($sql, 'from "order_details"'));
+        $insertAt = $this->firstStatementMatching($statements, static fn (string $sql): bool => str_starts_with($sql, 'insert into "orders"'));
+        $this->assertNotNull($readAt, 'the sale reads the order lines to choose its id');
+        $this->assertNotNull($insertAt, 'the sale writes an order');
+        $this->assertLessThan($insertAt, $readAt, 'it chooses the id before it writes the order');
+
+        if (DB::connection()->getDriverName() !== 'sqlite') {
+            $this->assertStringContainsStringIgnoringCase('for update', $statements[$readAt]['sql'], 'and it reads it under a lock');
+        }
+    }
+
+    /**
+     * The wallet debit comes after the product lock, not before it.
+     *
+     * Two reasons, neither of which a race test can show, because the retry above absorbs the symptom: the products are this
+     * sale's only ordered lock and taking the customer's row first put the two in an order nothing else follows; and the
+     * debit's unlocked read of the customer was the transaction's first consistent read, which fixed the REPEATABLE READ
+     * snapshot the order id is then checked against — so an overlapping sale's order was invisible and its id chosen again.
+     */
+    public function test_the_wallet_debit_comes_after_the_products_are_locked(): void
+    {
+        $this->walletCustomer(id: 45, balance: 900);
+        $this->shelfProduct(id: 645, stock: 10, till: self::ADMIN_TILL);
+        $this->givenWalletCartAtTill(self::ADMIN_TILL, customerId: 45, productId: 645, quantity: 3);
+
+        $statements = $this->recordStatementsWhile(fn () => $this->actingAtTill(self::ADMIN_TILL)
+            ->post($this->placeOrderUrl(self::ADMIN_TILL), ['amount' => 300.0, 'type' => 'wallet', 'fulfillment' => 'instant']));
+
+        $this->assertSame(['success'], $this->toastTypes(), 'a lawful wallet sale, so both statements are really made');
+        $lockAt = $this->firstStatementMatching($statements, static fn (string $sql): bool => str_contains($sql, 'from "products"')
+            && str_contains($sql, 'order by "id" asc'));
+        $walletAt = $this->firstStatementMatching($statements, static fn (string $sql): bool => str_starts_with($sql, 'update "users"'));
+        $this->assertNotNull($lockAt, 'the sale locks its products');
+        $this->assertNotNull($walletAt, 'the sale debits the wallet');
+        $this->assertLessThan($walletAt, $lockAt, 'the products are locked before the customer row is written');
+    }
+
     // ---- helpers -------------------------------------------------------------------------------------------------------
+
+    /**
+     * Every statement the application made while $work ran, with MySQL's backticks normalised to the quoting both grammars
+     * can be matched against.
+     *
+     * @return list<array{sql: string, bindings: array<int|string, mixed>}>
+     */
+    private function recordStatementsWhile(callable $work): array
+    {
+        $statements = [];
+        DB::listen(function ($query) use (&$statements) {
+            $statements[] = ['sql' => str_replace('`', '"', $query->sql), 'bindings' => $query->bindings];
+        });
+
+        $work();
+
+        return $statements;
+    }
+
+    /** @param list<array{sql: string, bindings: array<int|string, mixed>}> $statements */
+    private function firstStatementMatching(array $statements, callable $matches): ?int
+    {
+        foreach ($statements as $index => $statement) {
+            if ($matches($statement['sql'])) {
+                return $index;
+            }
+        }
+
+        return null;
+    }
 
     private function walletCustomer(int $id, float $balance): void
     {

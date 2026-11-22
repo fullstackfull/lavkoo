@@ -55,12 +55,12 @@ final class PosOperations
             method: 'POST',
             parameters: [
                 'amount' => $args['amount'],
-                'type' => 'cash',
+                'type' => (string) ($args['type'] ?? 'cash'),
                 'fulfillment' => 'instant',
                 'paid_amount' => $args['amount'],
             ],
         );
-        self::seedCartIntoTheSession($request, (int) $args['product'], (int) $args['quantity']);
+        self::seedCartIntoTheSession($request, (int) $args['product'], (int) $args['quantity'], (int) ($args['customer'] ?? 0));
 
         $response = app(Kernel::class)->handle($request);
 
@@ -93,9 +93,9 @@ final class PosOperations
      * instead does not work: the `session()` helper the controller calls reads the one the middleware started, so the cart
      * would arrive empty.
      */
-    private static function seedCartIntoTheSession(Request $request, int $productId, int $quantity): void
+    private static function seedCartIntoTheSession(Request $request, int $productId, int $quantity, int $customerId = 0): void
     {
-        $cartId = 'walk-in-customer-1';
+        $cartId = $customerId > 0 ? 'saved-customer-' . $customerId : 'walk-in-customer-1';
         $session = app('session.store');
         $session->start();
         $session->put(SessionKey::CURRENT_USER, $cartId);
@@ -110,7 +110,7 @@ final class PosOperations
             'variant' => null,
             'variations' => [],
             'productType' => 'physical',
-            'customerId' => 0,
+            'customerId' => $customerId,
             'thumbnail' => null,
             'maximum_order_quantity' => 1000,
             'add_to_cart_time' => now(),
