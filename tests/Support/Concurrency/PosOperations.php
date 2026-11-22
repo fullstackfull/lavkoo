@@ -85,7 +85,8 @@ final class PosOperations
     }
 
     /**
-     * One cart line in the session the request will be served with, as the till's own add-to-cart route leaves it.
+     * One cart line in the session the request will be served with, written directly rather than through the add-to-cart
+     * route: a worker process posts one request and the race is in the place-order, not in the cart.
      *
      * It is written through the application's own session store and handler and the request is given its id in a cookie,
      * because `StartSession` resolves that same store and reads the id from the cookie. Handing the request a store of its own

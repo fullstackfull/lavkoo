@@ -34,12 +34,17 @@ use Tests\TestCase;
  * Base for the tests that drive the two point-of-sale tills through their own routes.
  *
  * Both panels place a sale with a POST the panel's own JavaScript makes: `admin/pos/order-place` and `vendor/pos/order-place`.
- * The cart the sale is placed from lives in the session, which is where the till's own add-to-cart route puts it, so these
- * tests build it through that route and then post the sale — no service is called directly, and nothing builds the state the
- * guard under test is supposed to detect.
+ * No service is called directly and nothing builds the state the guard under test is supposed to detect.
+ *
+ * The cart the sale is placed from lives in the session. Two helpers put it there. `addToCartAtTill()` drives the till's own
+ * add-to-cart route, which is where the panel's own cart comes from, and is what the tests of a quantity or a variant the
+ * cashier could actually enter use. `givenCartAtTill()` writes the cart into the session directly, for the states that route
+ * cannot produce — a variant renamed off the product after the line was added, a line for a product since deleted — and it
+ * writes the keys `CartService::addCartDataOnSession` writes.
  *
  * The heavy request middleware of the panels is switched off, as the panel address tests do; the authentication guard and the
- * controller are not.
+ * controller are not. `AdminMiddleware`, `SellerMiddleware`, `SellerStaffAccessMiddleware`, `ActivationCheckMiddleware` and
+ * `ModulePermissionMiddleware` are among those switched off, so these tests say nothing about who may reach the two routes.
  */
 abstract class PosTillTestCase extends TestCase
 {
@@ -125,6 +130,20 @@ abstract class PosTillTestCase extends TestCase
         ]);
     }
 
+    /**
+     * Adds a line through the till's OWN add-to-cart route, which is where the panel's cart comes from.
+     *
+     * @param array<string, mixed> $body the request body the panel's JavaScript posts (id, quantity, colour, choices)
+     * @return array{http: int, cart: mixed}
+     */
+    protected function addToCartAtTill(string $till, array $body, string $cartId = 'walk-in-customer-1'): array
+    {
+        $this->withSession([SessionKey::CURRENT_USER => $cartId, SessionKey::CART_NAME => [$cartId]]);
+        $response = $this->actingAtTill($till)->post($this->addToCartUrl($till), $body);
+
+        return ['http' => $response->status(), 'cart' => session($cartId)];
+    }
+
     /** Puts the cart in the session the way the till's own page does: a walk-in customer and one line per product. */
     protected function givenCartAtTill(string $till, array $lines): string
     {
@@ -143,16 +162,17 @@ abstract class PosTillTestCase extends TestCase
                 'variations' => is_array($line) ? ($line['variations'] ?? []) : [],
                 'productType' => 'physical',
                 'customerId' => 0,
-                'thumbnail' => null,
+                'customerOnHold' => false,
+                'image' => null,
                 'maximum_order_quantity' => 1000,
-                'add_to_cart_time' => now(),
             ];
         }
 
+        // The real writer leaves one top-level `add_to_cart_time` beside the numeric line entries, not one per line.
         $this->withSession([
             SessionKey::CURRENT_USER => $cartId,
             SessionKey::CART_NAME => [$cartId],
-            $cartId => $cart,
+            $cartId => $cart + ['add_to_cart_time' => now()],
         ]);
 
         return $cartId;
