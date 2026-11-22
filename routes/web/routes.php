@@ -479,7 +479,12 @@ try {
 }
 
 if (!$isGatewayPublished) {
-    Route::group(['prefix' => 'payment'], function () {
+    // Every gateway return and callback below is public: a gateway, not a browser with a session, is
+    // what calls it, and twelve of them stand the CSRF check down for that reason. None of them
+    // carried a limit, so the whole group is throttled per source address here rather than route by
+    // route, where the next gateway added would be forgotten. The limiter and its reasoning are in
+    // RouteServiceProvider::configureRateLimiting().
+    Route::group(['prefix' => 'payment', 'middleware' => 'throttle:public-payment-endpoints'], function () {
 
         //SSLCOMMERZ
         Route::group(['prefix' => 'sslcommerz', 'as' => 'sslcommerz.'], function () {
