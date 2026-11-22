@@ -60,14 +60,27 @@ final class GatewayAccountDirectory
     /**
      * The address this account's notifications are delivered to, or null for an account that is notified at no address of its own.
      *
-     * Null for an account with no token, because an account without one receives nothing. Null as well for an account of a gateway that is not the one
-     * served at that address: that address refuses such an account outright, so the URL would be an address at which this account is told nothing. The
-     * one gateway the owner's shipped list holds is Paymob, which sends no server-to-server notification at all -- its confirmation is the customer's
-     * return to a platform-wide address -- so a payment taken through a Paymob account records no address and expects the platform one (GCC-21).
+     * The same three conditions the address itself applies, so the definition and the route agree rather than nearly agreeing
+     * (App\Http\Controllers\Api\PaymentAccountWebhookController::readsNotificationsOf and the token in the path):
+     *
+     *   THE OWNER'S LIST — a gateway the owner has not listed is read from the one platform row everywhere, notification address included. The route
+     *   refuses an account of such a gateway before the body is read; without this condition here, the directory named an address at which the account
+     *   is told nothing, and GCC-21 would record that address onto a payment as the address its confirmation is expected at.
+     *
+     *   THE GATEWAY ON THE ACCOUNT — this address hands a delivery to ONE gateway's processor and refuses an account of any other outright.
+     *
+     *   A TOKEN — an account without one is named by no address, so it receives nothing.
+     *
+     * The one gateway the owner's shipped list holds is Paymob, which sends no server-to-server notification at all -- its confirmation is the
+     * customer's return to a platform-wide address -- so a payment taken through a Paymob account records no address and expects the platform one
+     * (GCC-21). On the shipped configuration the owner's list and the gateway on the account disagree for every account that could have an address, so
+     * this answers null there whichever of the two is asked, and adding the first changes nothing a shipped installation can see.
      */
     public function webhookUrlOf(PaymentGatewayAccount $account): ?string
     {
-        if ((string) $account->gateway !== self::GATEWAY_SERVED_AT_THAT_ADDRESS) {
+        $gateway = (string) $account->gateway;
+
+        if (!$this->registry->covers(gateway: $gateway) || $gateway !== self::GATEWAY_SERVED_AT_THAT_ADDRESS) {
             return null;
         }
 

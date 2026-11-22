@@ -230,6 +230,53 @@ class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends CompanyAccountsTestCas
     }
 
     /**
+     * The address the directory NAMES and the address the route SERVES are the same address, for a gateway the owner has not listed.
+     *
+     * The route already refuses such an account outright (the test above). The directory used to name one all the same: it asked which gateway the
+     * account belongs to and not whether that gateway is on the owner's list, so an operator's screen showed an address at which the account is told
+     * nothing, and GCC-21 would have recorded that address onto a payment as the address its confirmation is expected at. Both halves are measured
+     * here for the SAME account, in both states of the list, so the claim is that the two agree and not merely that each answers something.
+     */
+    public function test_the_directory_names_an_address_only_where_the_route_serves_one(): void
+    {
+        $payload = $this->webhookPayload($this->attempt->external_identifier);
+        $signature = $this->signatureFor($payload, self::KUWAIT_WEBHOOK_SECRET);
+        $this->fakePaid();
+
+        $this->assertNotNull(
+            app(GatewayAccountDirectory::class)->webhookUrlOf(account: $this->kuwait),
+            'while the gateway is on the list the directory names this account an address',
+        );
+        $this->deliverTo($this->kuwait, $payload, $signature)->assertOk();
+
+        config(['gcc.storefronts.payment_accounts.gateways' => $this->shippedGatewayList]);
+        app(GatewayAccountRegistry::class)->flush();
+
+        $this->assertNotContains(GatewayConfigRepository::KEY, $this->shippedGatewayList, 'the premise of the second half is the shipped list');
+        $this->assertNull(
+            app(GatewayAccountDirectory::class)->webhookUrlOf(account: $this->kuwait->refresh()),
+            'and off the list it names none, which is what the route answers',
+        );
+        $this->deliverTo($this->kuwait, $payload, $signature)->assertStatus(401);
+    }
+
+    /** The row an operator is shown carries the same answer, so a screen cannot print an address the route refuses. */
+    public function test_the_operator_row_carries_no_address_for_a_gateway_the_owner_has_not_listed(): void
+    {
+        config(['gcc.storefronts.payment_accounts.gateways' => $this->shippedGatewayList]);
+        app(GatewayAccountRegistry::class)->flush();
+
+        $rows = app(GatewayAccountDirectory::class)->rows();
+
+        $this->assertNotSame([], $rows, 'the accounts are still listed');
+        $this->assertSame(
+            [],
+            array_values(array_filter($rows, static fn (array $row): bool => $row['webhook_url'] !== null)),
+            'and not one of them is shown an address',
+        );
+    }
+
+    /**
      * A payment that carries NO stamp belongs to no company account, and a company's address refuses it rather than treating it as its own.
      *
      * This is every payment placed before the switch was thrown: the stamp is written when a payment starts, so a payment that started earlier has none
