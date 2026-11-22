@@ -3,6 +3,7 @@
 namespace App\Services\Marketplace;
 
 use App\Exceptions\InsufficientStockException;
+use App\Exceptions\SaleNotRecordedException;
 use App\Models\Product;
 use App\Models\Seller;
 
@@ -125,7 +126,9 @@ class InventoryService
      *    none, or naming a variant the product no longer has, would otherwise be taken off the total with no variant check at
      *    all, leaving the variant quantities no longer summing to `current_stock`;
      *  - a refusal throws, so the caller's transaction rolls back and the sale leaves the stock exactly as it was;
-     *  - the movement row records the balance the decrement actually produced, never a floored stand-in.
+     *  - the movement row records the balance the decrement actually produced, never a floored stand-in, and a movement that
+     *    cannot be written refuses the sale: `record()` is deliberately non-throwing for the procurement path, but a sale whose
+     *    history is missing is exactly what this method exists to prevent.
      *
      * `$stockPolicy` carries the same two values and the same meaning as generateOrder's: 'reject' (every unpaid path) or
      * 'allow_oversell' (the post-payment path only, where the money is already taken). Nothing new is introduced here.
@@ -174,7 +177,7 @@ class InventoryService
             Product::where('id', $productId)->decrement('current_stock', $quantity);
         }
 
-        $this->record(
+        $movement = $this->record(
             productId: $productId,
             type: StockMovement::TYPE_SALE,
             qtyChange: -$quantity,
@@ -183,6 +186,12 @@ class InventoryService
             referenceId: $referenceId,
             sellerId: $this->sellerOfSale($product),
         );
+
+        if ($movement === null) {
+            // record() swallows its own failures by design. For a sale that is the one thing we cannot allow: the stock has
+            // just moved and nothing says so. Throwing rolls the whole sale back, which is recoverable; an unlogged sale is not.
+            throw new SaleNotRecordedException(productId: $productId, productName: $product->name, quantity: $quantity);
+        }
     }
 
     /**

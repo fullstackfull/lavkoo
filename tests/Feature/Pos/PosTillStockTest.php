@@ -9,6 +9,7 @@ use App\Models\Product;
 use App\Models\StockMovement;
 use App\Services\Marketplace\InventoryService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Mockery;
 use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
@@ -330,6 +331,26 @@ class PosTillStockTest extends PosTillTestCase
         $movement = StockMovement::query()->where('product_id', 641)->sole();
         $this->assertNull($movement->seller_id, 'a platform sale is not some seller\'s');
         $this->assertSame(0, app(InventoryService::class)->recent(productId: 641, sellerId: 1)->total(), 'and shop 1 is not handed it');
+    }
+
+    /**
+     * `record()` is non-throwing by design, for the procurement receipt path where a missing log line must never roll back
+     * goods that have arrived. For a sale the trade runs the other way: a sale that moved stock and said nothing cannot be
+     * found again by anyone counting the shelf. Measured before this change: with the ledger table gone a lawful sale
+     * returned 200 with a success toast, wrote the order and took the stock, and left no row anywhere.
+     */
+    public function test_a_sale_whose_movement_cannot_be_written_is_not_committed_at_all(): void
+    {
+        $this->shelfProduct(id: 642, stock: 10, till: self::ADMIN_TILL);
+        $this->givenCartAtTill(self::ADMIN_TILL, [642 => 3]);
+        Schema::drop('stock_movements');
+
+        $response = $this->placeSaleAtTill(self::ADMIN_TILL, amount: 300.0);
+
+        $this->assertSame(500, $response->status(), 'the sale failed rather than committing unrecorded');
+        $this->assertSame(0, Order::query()->count());
+        $this->assertSame(0, DB::table('order_details')->count());
+        $this->assertSame(10, (int) Product::query()->whereKey(642)->value('current_stock'), 'the stock did not move');
     }
 
     // ---- one transaction -----------------------------------------------------------------------------------------------
