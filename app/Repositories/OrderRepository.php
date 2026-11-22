@@ -16,6 +16,7 @@ use App\Models\Shop;
 use App\Models\Transaction;
 use App\Services\Fulfillment\FulfillmentHooks;
 use App\Services\SalesChannels\Dispatch\ChannelOrderMarker;
+use App\Services\Storefront\OrderStorefront;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Database\Eloquent\Collection;
@@ -364,6 +365,9 @@ class OrderRepository implements OrderRepositoryInterface
             )->when(isset($filters['whereIn_payment_status']) && $filters['whereIn_payment_status'] !== 'all', function ($query) use ($filters) {
                     $query->whereIn('payment_status', $filters['whereIn_payment_status']);
                 }
+            )->when(isset($filters['storefront_country']), function ($query) use ($filters) {
+                    app(OrderStorefront::class)->narrow(orders: $query, country: $filters['storefront_country']);
+                }
             )->when(!empty($whereIn), function ($query) use ($whereIn) {
                 foreach ($whereIn as $column => $values) {
                     if (is_array($values) && !empty($values)) {
@@ -597,11 +601,13 @@ class OrderRepository implements OrderRepositoryInterface
         }
 
         // Scope the target order to the actor. A seller may only touch orders that belong to them;
-        // without this seller_id filter the raw order_id let one seller edit any order in the system.
+        // without this seller_id filter the raw order_id let one seller edit any order in the system, and the
+        // in-house shop's orders carry seller_id 1 too, so a seller's order is also one with seller_is 'seller'.
         // Admin (userType 'admin') is unscoped by design.
         $orderWhere = ['id' => $request['order_id']];
         if ($userType === 'seller') {
             $orderWhere['seller_id'] = $userId;
+            $orderWhere['seller_is'] = 'seller';
         }
 
         try {

@@ -29,6 +29,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 use InvalidArgumentException;
+use App\Services\Catalog\ProductCodeScope;
 
 /**
  * Torod Point: matching our products to the warehouse's, and our cities to its cities, explicitly.
@@ -297,8 +298,9 @@ class TorodMatchingController extends Controller
     public function productSearch(Request $request): JsonResponse
     {
         $term = (string) $request->query('q');
+        $codeScope = app(ProductCodeScope::class);
 
-        return response()->json(DB::table('products')
+        return response()->json($codeScope->restrictToCountry(query: DB::table('products'), country: $codeScope->countryOfProviderProducts())
             ->where('added_by', 'admin')->where('product_type', 'physical')
             ->where(static fn ($query) => $query->where('name', 'like', "%{$term}%")->orWhere('code', 'like', "%{$term}%")->orWhere('barcode', 'like', "%{$term}%"))
             ->limit(20)->get(['id', 'name', 'code', 'barcode', 'fulfillment_provider']));

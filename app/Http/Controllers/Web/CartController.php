@@ -14,6 +14,7 @@ use App\Models\RestockProductCustomer;
 use App\Models\Shop;
 use App\Models\Wishlist;
 use App\Services\RestockProductService;
+use App\Services\Storefront\StorefrontCatalog;
 use App\Utils\CustomerManager;
 use App\Utils\Helpers;
 use App\Http\Controllers\Controller;
@@ -62,7 +63,7 @@ class CartController extends Controller
         $discountedUnitPrice = 0;
         $color_name = '';
         $requestQuantity = $request['quantity'];
-        $product = Product::with(['digitalVariation', 'clearanceSale' => function ($query) {
+        $product = Product::active()->with(['digitalVariation', 'clearanceSale' => function ($query) {
             return $query->active();
         }])->where(['id' => $request['id']])->first();
         abort_if(!$product, 404);
@@ -472,7 +473,16 @@ class CartController extends Controller
         ])->first();
 
         if (isset($cart) == false) {
-            $cart = Cart::find($request->id);
+            // The row being changed has to be this customer's own row of this product: its price is taken from the product asked for.
+            $cart = Cart::where([
+                'id' => $request->id,
+                'product_id' => $request['product_id'],
+                'customer_id' => $user == 'offline' ? session('guest_id') : $user->id,
+                'is_guest' => $user == 'offline' ? 1 : '0',
+            ])->first();
+            if (!$cart) {
+                return ['status' => 0, 'message' => translate('Product_is_unavailable')];
+            }
             $cart['color'] = $request->has('color') ? $request['color'] : null;
             $cart['choices'] = json_encode($choices);
 
@@ -591,7 +601,10 @@ class CartController extends Controller
 
     function update_variation(Request $request)
     {
-        $product = Product::where(['id' => $request['product_id']])->first();
+        $product = Product::active()->where(['id' => $request['product_id']])->first();
+        if (!$product || !StorefrontCatalog::offers(product: $product)) {
+            return ['status' => 0, 'message' => translate('Product_is_unavailable')];
+        }
         if ($product['product_type'] == 'digital') {
             return self::addToCartDigitalProduct($request, $product);
         } else {
@@ -650,6 +663,9 @@ class CartController extends Controller
     {
         $user = Helpers::getCustomerInformation();
         $product = $this->productRepo->getWebFirstWhereActive(params: ['id' => $request['id']]);
+        if (!$product && !StorefrontCatalog::offers(product: Product::find($request['id']))) {
+            return response()->json(['status' => 'error', 'message' => translate('Product_is_unavailable')], 200);
+        }
         $restockRequest = $this->restockProductRepo->updateOrCreate(params: ['product_id' => $request['id'], 'variant' => $request['product_variation_code']], value: [
             'product_id' => $request['id'],
             'variant' => $request['product_variation_code'],

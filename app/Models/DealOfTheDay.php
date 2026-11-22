@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Utils\Helpers;
+use App\Utils\RequestArea;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -55,7 +56,7 @@ class DealOfTheDay extends Model
 
     public function getTitleAttribute($title): string|null
     {
-        if (strpos(url()->current(), '/admin') || strpos(url()->current(), '/vendor') || strpos(url()->current(), '/seller')) {
+        if (RequestArea::isPanel()) {
             return $title;
         }
 
@@ -67,7 +68,7 @@ class DealOfTheDay extends Model
         parent::boot();
         static::addGlobalScope('translate', function (Builder $builder) {
             $builder->with(['translations' => function ($query) {
-                if (strpos(url()->current(), '/api')){
+                if (RequestArea::isApi()){
                     return $query->where('locale', App::getLocale());
                 }else{
                     return $query->where('locale', Helpers::default_lang());

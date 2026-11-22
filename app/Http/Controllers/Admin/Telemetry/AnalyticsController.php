@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin\Telemetry;
 use App\Services\Marketplace\SellerOperationsOverview;
 use App\Services\Analytics\Support\AnalyticsPolicy;
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Models\Banner;
 use App\Services\Analytics\Reporting\AnalyticsNavigation;
 use App\Services\Analytics\AnalyticsPermissionService;
@@ -33,6 +34,7 @@ class AnalyticsController extends BaseController
         private readonly CampaignService $campaigns,
         private readonly AnalyticsPermissionService $permissions,
     ) {
+        $this->middleware(ScopeOrdersToStaffCountries::class);
     }
 
     /**

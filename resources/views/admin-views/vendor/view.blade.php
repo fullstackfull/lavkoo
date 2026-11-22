@@ -392,7 +392,7 @@
             </div>
         </div>
 
-        @if ($seller['status'] != 'pending')
+        @if ($seller['status'] != 'pending' && !app(\App\Services\Staff\StaffCountryScope::class)->restricts())
             <div class="card mt-3">
                 <div class="card-body">
                     <div class="row justify-content-between align-items-center g-2 mb-3">

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Services\Storefront\CouponCountry;
 use Brian2694\Toastr\Facades\Toastr;
 
 class CouponService
@@ -62,7 +63,7 @@ class CouponService
             ];
         }
 
-        return $data;
+        return $data + CouponCountry::attributesOfNewCoupon(requestedCountry: $request['storefront_country']);
     }
 
     public function getUpdateData(object $request): array
@@ -120,7 +121,7 @@ class CouponService
     public function checkConditions(object $request): bool
     {
         if ($request['coupon_type'] == 'discount_on_purchase' && $request['discount_type'] == 'amount' && $request['discount'] > $request['min_purchase']) {
-            Toastr::error(translate('the_minimum_purchase_amount_must_be_greater_than_discount_amount'));
+            Toastr::error(translate('The_minimum_purchase_amount_must_be_greater_than_discount_amount'));
             return false;
         } elseif ($request['discount_type'] == 'percentage' && $request['discount'] >= 100) {
             Toastr::error(translate('when_discount_type percentage,discount_amount_will_be_less_than_100'));

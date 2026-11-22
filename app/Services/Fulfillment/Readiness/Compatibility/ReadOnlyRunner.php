@@ -25,7 +25,7 @@ final class ReadOnlyRunner
 
         $refusal = $this->refusal($name, $options);
         if ($refusal !== null) {
-            return new CompatibilityReport(checks: [$refusal], environment: ['app_env' => app()->environment()], sample: 0, readOnlyProof: null, refused: true);
+            return new CompatibilityReport(checks: [$refusal], environment: ['app_env' => app()->environment()], sample: 0, readOnlyProof: null, refused: true, scope: $options->scope);
         }
 
         $previous = DB::getDefaultConnection();
@@ -45,6 +45,7 @@ final class ReadOnlyRunner
                 environment: $this->environment($name, $probe),
                 sample: $options->sample,
                 readOnlyProof: ['session_locked' => $lockedDuringRun, 'statements' => count($probe->statements()), 'write_statements' => count($probe->writeStatements())],
+                scope: $options->scope,
             );
         } finally {
             DB::setDefaultConnection($previous);

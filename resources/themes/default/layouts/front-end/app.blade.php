@@ -380,13 +380,14 @@
     }
 
     @php($cookie = $web_config['cookie_setting'] ? json_decode($web_config['cookie_setting']['value'], true):null)
+    let cookie_text = @js((string) ($cookie ? $cookie['cookie_text'] : ''));
     let cookie_content = `
         <div class="cookie-section">
             <div class="container">
                 <div class="d-flex flex-wrap align-items-center justify-content-between column-gap-4 row-gap-3">
                     <div class="text-wrapper">
                         <h5 class="title">{{ translate("Your_Privacy_Matter")}}</h5>
-                        <div>{{ $cookie ? $cookie['cookie_text'] : '' }}</div>
+                        <div class="cookie-text"></div>
                     </div>
                     <div class="btn-wrapper">
                         <button class="btn bg-dark text-white cursor-pointer" id="cookie-reject">{{ translate("no_thanks")}}</button>
@@ -411,7 +412,7 @@
         } else if (document.cookie.indexOf("6valley_cookie_consent=reject") !== -1) {
             $('#cookie-section').hide();
         } else{
-            $('#cookie-section').html(cookie_content).show();
+            $('#cookie-section').html(cookie_content).show().find('.cookie-text').text(cookie_text);
         }
     });
 </script>

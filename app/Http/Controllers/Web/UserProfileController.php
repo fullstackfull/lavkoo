@@ -17,6 +17,7 @@ use App\Models\OrderStatusHistory;
 use App\Models\SupportTicketConv;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\StorefrontAddressService;
+use App\Services\Fulfillment\Support\SaudiPhone;
 use App\Services\OrderStatusHistoryService;
 use App\Traits\PdfGenerator;
 use App\Http\Controllers\Controller;
@@ -37,6 +38,7 @@ use App\Models\User;
 use App\Utils\CustomerManager;
 use App\Utils\Helpers;
 use App\Utils\ImageManager;
+use App\Services\Storefront\RefundOrderMoney;
 use App\Utils\OrderManager;
 use Brian2694\Toastr\Facades\Toastr;
 use Carbon\Carbon;
@@ -51,6 +53,8 @@ use function App\Utils\payment_gateways;
 class UserProfileController extends Controller
 {
     use CommonTrait, PdfGenerator;
+
+    public const VERIFIED_TRACKING_ORDER_SESSION_KEY = 'verified_tracking_order_id';
 
     public function __construct(
         private Order                                              $order,
@@ -744,13 +748,11 @@ class UserProfileController extends Controller
                 return redirect()->route('track-order.index', ['order_id' => $request['order_id']]);
             }
 
-            $userInfo = User::where('phone', $request['phone_number'])->orWhere('phone', 'like', "%{$request['phone_number']}%")->first();
-
             if ($order && $order->is_guest) {
                 $orderExist = $this->storefrontAddresses->orderWasPlacedWithPhone(order: $order, phone: $request['phone_number']) ? $order : null;
-            } elseif ($userInfo) {
-                $orderExist = Order::with('latestEditHistory')->where('id', $request['order_id'])->whereHas('details', function ($query) use ($userInfo) {
-                    $query->where('customer_id', $userInfo->id);
+            } elseif ($order && $this->storefrontAddresses->orderBelongsToCustomerWithPhone(order: $order, phone: $request['phone_number'])) {
+                $orderExist = Order::with('latestEditHistory')->where('id', $request['order_id'])->whereHas('details', function ($query) use ($order) {
+                    $query->where('customer_id', $order->customer_id);
                 })->first();
             } else {
                 Toastr::error(translate('invalid_Order_Id_or_phone_Number'));
@@ -783,6 +785,7 @@ class UserProfileController extends Controller
             }
             $isOrderOnlyDigital = self::getCheckIsOrderOnlyDigital($orderExist);
             $orderDetails = $orderExist;
+            session([self::VERIFIED_TRACKING_ORDER_SESSION_KEY => $orderExist->id]);
             return view(VIEW_FILE_NAMES['track_order'], compact(
                 'orderDetails',
                 'user_phone',
@@ -823,7 +826,7 @@ class UserProfileController extends Controller
     {
         // Ownership scope: a customer may only cancel their OWN order (prevents cancelling/restocking
         // arbitrary orders by guessing sequential ids).
-        $order = Order::where(['id' => $id, 'customer_id' => auth('customer')->id()])->first();
+        $order = Order::where('id', $id)->ownedByCustomer(customerId: auth('customer')->id())->first();
         if (!$order) {
             Toastr::error(translate('order_not_found'));
             return back();
@@ -851,7 +854,7 @@ class UserProfileController extends Controller
         $user = auth('customer')->user();
 
         // Ownership: the refund-request form exposes another customer's order line otherwise.
-        if (!$orderDetails || !Order::where('id', $orderDetails->order_id)->where('customer_id', $user->id)->exists()) {
+        if (!$orderDetails || !Order::where('id', $orderDetails->order_id)->ownedByCustomer(customerId: $user->id)->exists()) {
             abort(404);
         }
 
@@ -892,7 +895,7 @@ class UserProfileController extends Controller
 
         // Ownership: a customer may only file a refund against a line of their OWN order. Without this
         // a customer could refund another customer's order line by passing its order_details_id.
-        if (!$orderDetails || !Order::where('id', $orderDetails->order_id)->where('customer_id', $user->id)->exists()) {
+        if (!$orderDetails || !Order::where('id', $orderDetails->order_id)->ownedByCustomer(customerId: $user->id)->exists()) {
             Toastr::error(translate('order_not_found'));
             return back();
         }
@@ -909,6 +912,9 @@ class UserProfileController extends Controller
         $refundRequest->product_id = $orderDetails->product_id;
         $refundRequest->order_id = $orderDetails->order_id;
         $refundRequest->refund_reason = $request->refund_reason;
+        foreach (app(RefundOrderMoney::class)->of(order: Order::find($orderDetails->order_id), table: 'refund_requests') as $column => $value) {
+            $refundRequest->{$column} = $value;
+        }
 
         if ($request->file('images')) {
             $images = [];
@@ -942,7 +948,7 @@ class UserProfileController extends Controller
             ->where('id', $id)
             ->where(function ($query) {
                 auth('customer')->check()
-                    ? $query->where('customer_id', auth('customer')->id())
+                    ? $query->ownedByCustomer(customerId: auth('customer')->id())
                     : $query->where(['customer_id' => session('guest_id'), 'is_guest' => 1]);
             })
             ->first();
@@ -958,7 +964,7 @@ class UserProfileController extends Controller
     {
         $order_details = OrderDetail::find($id);
         // Ownership: the order line (price/qty/discount/tax) must belong to the requesting customer.
-        if (!$order_details || !Order::where('id', $order_details->order_id)->where('customer_id', auth('customer')->id())->exists()) {
+        if (!$order_details || !Order::where('id', $order_details->order_id)->ownedByCustomer(customerId: auth('customer')->id())->exists()) {
             abort(404);
         }
         $refund = RefundRequest::with(['product', 'order'])->where('customer_id', auth('customer')->id())
@@ -1018,7 +1024,7 @@ class UserProfileController extends Controller
 
     public function user_coupons(Request $request): View
     {
-        $coupons = Coupon::active()->with('seller')
+        $coupons = Coupon::active()->forStorefront()->with('seller')
             ->whereIn('customer_id', [auth('customer')->id(), '0'])
             ->whereDate('start_date', '<=', date('Y-m-d'))
             ->whereDate('expire_date', '>=', date('Y-m-d'))

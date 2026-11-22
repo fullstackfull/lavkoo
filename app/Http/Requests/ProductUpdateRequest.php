@@ -3,15 +3,16 @@
 namespace App\Http\Requests;
 
 use App\Contracts\Repositories\ProductRepositoryInterface;
+use App\Rules\StoredFileNames;
 use App\Traits\CalculatorTrait;
 use App\Traits\ResponseHandler;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
-use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
 
 use App\Http\Requests\Concerns\ChecksBrandEntitlement;
+use App\Services\Catalog\ProductCodeScope;
 
 class ProductUpdateRequest extends FormRequest
 {
@@ -46,6 +47,8 @@ class ProductUpdateRequest extends FormRequest
     public function rules(): array
     {
         $product = $this->productRepo->getFirstWhere(['id' => $this->route('id')]);
+        $codeScope = app(ProductCodeScope::class);
+        $country = $codeScope->countryOfProduct($product);
 
         return [
             'name' => 'required',
@@ -58,22 +61,26 @@ class ProductUpdateRequest extends FormRequest
             'discount' => 'required|gt:-1',
             'shipping_cost' => 'required_if:product_type,==,physical|gt:-1',
             'minimum_order_qty' => 'required|numeric|min:1',
-   'code' => [
-    'required',
-    'regex:/^[a-zA-Z0-9]+$/',
-    'max:20',
-    Rule::unique('products', 'code')->ignore($product->id, 'id'),
-],
-            // The barcode comes off a box, not from us: optional, and unique so two products can
-            // never answer the same scan.
+            'code' => [
+                'required',
+                'regex:/^[a-zA-Z0-9]+$/',
+                'max:20',
+                $codeScope->uniqueRuleForCode(country: $country, ignoreProductId: $product->id),
+            ],
+            // The barcode comes off a box, not from us: optional, and unique inside the product's country, so
+            // two products of one country can never answer the same scan.
             'barcode' => [
                 'nullable',
                 'regex:/^[a-zA-Z0-9\-]+$/',
                 'max:64',
-                Rule::unique('products', 'barcode')->ignore($product->id, 'id'),
+                $codeScope->uniqueRuleForBarcode(country: $country, ignoreProductId: $product->id),
             ],
             'video_url' => 'nullable|url',
-        ];
+            'existing_thumbnail' => [new StoredFileNames()],
+            'existing_images' => [new StoredFileNames()],
+            'existing_preview_file' => [new StoredFileNames()],
+            'existing_meta_image' => [new StoredFileNames()],
+        ] + StoredFileNames::forColorImages(fields: array_keys($this->all()));
     }
 
     public function messages(): array

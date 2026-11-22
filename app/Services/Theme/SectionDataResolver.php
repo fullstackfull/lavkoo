@@ -676,7 +676,7 @@ class SectionDataResolver
                     ->whereDate('start_date', '<=', date('Y-m-d'))
                     ->whereNotIn('id', array_filter(array_map('intval', $exclude))))
                 ->whereDate('end_date', '>=', date('Y-m-d'))
-                ->withCount('products')
+                ->withCount('activeProducts as products_count')
                 ->orderByDesc('id')
                 ->first();
 
@@ -845,6 +845,7 @@ class SectionDataResolver
     public function coupons(int $limit): Collection
     {
         return $this->safely(fn () => \App\Models\Coupon::where('status', 1)
+            ->forStorefront()
             ->whereDate('start_date', '<=', date('Y-m-d'))
             ->whereDate('expire_date', '>=', date('Y-m-d'))
             ->whereIn('coupon_type', ['discount_on_purchase', 'free_delivery'])

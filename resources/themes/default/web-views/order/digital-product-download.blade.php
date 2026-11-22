@@ -79,10 +79,10 @@
 
                                                 @if($productDetails['digital_product_type'] == 'ready_product')
                                                     <?php
-                                                        $checkFilePath = storageLink('product/digital-product', $productDetails['digital_file_ready'], ($productDetails['storage_path'] ?? 'public'));
+                                                        $checkFilePath = app(\App\Services\DigitalFileAddressService::class)->answerForTheBuyer(orderDetail: $orderDetail);
                                                         $filePath = $checkFilePath['path'];
                                                         $fileExist = $checkFilePath['status'] == 200;
-                                                        $fileName = $productDetails['digital_file_ready'];
+                                                        $fileName = $checkFilePath['key'];
                                                     ?>
                                                     @if ($fileExist)
                                                         <span class="btn p-0 getDownloadFileUsingFileUrl" data-toggle="tooltip" title="{{ translate('download') }}" data-file-path="{{ $filePath }}">
@@ -96,9 +96,9 @@
                                                 @elseif($productDetails['digital_product_type'] == 'ready_after_sell')
                                                     @if($orderDetail->digital_file_after_sell)
                                                         <?php
-                                                            $checkFilePath = $orderDetail->digital_file_after_sell_full_url;
+                                                            $checkFilePath = app(\App\Services\DigitalFileAddressService::class)->answerForTheBuyer(orderDetail: $orderDetail);
                                                             $filePath = $checkFilePath['path'];
-                                                            $fileName = $orderDetail['digital_file_after_sell'];
+                                                            $fileName = $checkFilePath['key'];
                                                             $fileExist = $checkFilePath['status'] == 200;
                                                         ?>
                                                         <span class="btn p-0 getDownloadFileUsingFileUrl" data-toggle="tooltip" title="{{ translate('download') }}" data-file-path="{{ $filePath }}">

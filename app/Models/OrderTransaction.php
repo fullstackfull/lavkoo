@@ -2,6 +2,9 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\StaffCountryOrderScope;
+use App\Services\Staff\StaffCountryScope;
+use App\Traits\HidesCustomerBalances;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -33,6 +36,7 @@ use Modules\TaxModule\app\Models\OrderTax;
  */
 class OrderTransaction extends Model
 {
+    use HidesCustomerBalances;
     /**
      * The attributes that are mass assignable.
      *
@@ -77,6 +81,11 @@ class OrderTransaction extends Model
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
+
+    protected static function booted(): void
+    {
+        static::addGlobalScope(new StaffCountryOrderScope(subject: StaffCountryScope::SUBJECT_ORDER_TRANSACTIONS, orderIdColumn: 'order_id'));
+    }
 
     public function seller(): BelongsTo
     {

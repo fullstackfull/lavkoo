@@ -96,7 +96,6 @@ class ApiUnmigratedStoreTest extends ApiAddressTestCase
             'is_paid' => 1, 'payment_method' => 'ssl_commerz', 'transaction_id' => 'TXN-1',
             'additional_data' => json_encode(['customer_id' => $customer->id, 'is_guest' => 0, 'is_guest_in_order' => 0, 'order_note' => null, 'payment_mode' => 'web', 'new_customer_id' => 0, 'address_id' => $address->id]),
         ]);
-        @unlink(storage_path('logs/order_generate_test.txt'));
 
         $this->assertSame((string) ShippingAddress::find($address->id), DB::table('orders')->value('shipping_address_data'));
 

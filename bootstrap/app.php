@@ -7,6 +7,7 @@ use App\Http\Middleware\APILocalizationMiddleware;
 use App\Http\Middleware\CustomerMiddleware;
 use App\Http\Middleware\DatabaseRefreshMiddleware;
 use App\Http\Middleware\DeliveryManAuth;
+use App\Http\Middleware\EnsureLegacySellerTokenIsApproved;
 use App\Http\Middleware\GuestMiddleware;
 use App\Http\Middleware\InstallationMiddleware;
 use App\Http\Middleware\MaintenanceModeMiddleware;
@@ -122,6 +123,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'maintenance_mode' => MaintenanceModeMiddleware::class,
             'delivery_man_auth' => DeliveryManAuth::class,
             'seller_api_auth' => SellerApiAuthMiddleware::class,
+            'legacy_seller_approved' => EnsureLegacySellerTokenIsApproved::class,
             // Enforced on the route, never by hiding a menu item.
             'seller_can' => \App\Http\Middleware\EnsureSellerPermission::class,
             'seller_owner' => \App\Http\Middleware\EnsureSellerIsOwner::class,
@@ -130,6 +132,19 @@ return Application::configure(basePath: dirname(__DIR__))
             'apiGuestCheck' => APIGuestMiddleware::class,
             'logUserBrowsingNavigation' => \App\Http\Middleware\LogUserBrowsingNavigationMiddleware::class,
             'detectMobile' => \App\Http\Middleware\DetectMobile::class,
+            // Adopted only by the new-sale routes the storefront legal gate covers (GCC-11). Elsewhere the Saudi storefront is untouched.
+            'storefront' => \App\Http\Middleware\ResolveStorefront::class,
+            'storefront.vary' => \App\Http\Middleware\VaryByStorefront::class,
+            'storefront.sellable' => \App\Http\Middleware\EnsureStorefrontMaySell::class,
+            // The platform admin API (GCC-20): the door in front of every route of it, and the check of its own bearer token.
+            'platform_admin' => \App\Http\Middleware\PlatformAdminGate::class,
+            'platform_admin_auth' => \App\Http\Middleware\AuthenticatePlatformAdmin::class,
+            'platform_admin_can' => \App\Http\Middleware\EnsurePlatformAdminCapability::class,
+            // Adopted only by the routes that browse a storefront, never by the ones that serve what a customer already has (I2-14, I2-16).
+            'storefront.available' => \App\Http\Middleware\EnsureStorefrontIsAvailable::class,
+            'storefront.wallet' => \App\Http\Middleware\EnsureWalletIsOpenInStorefront::class,
+            // Adopted by the admin screens that work on the products of one country, so their money is that country's (GCC-05).
+            'money.market' => \App\Http\Middleware\ScopeMoneyToMarket::class,
         ]);
     })
     // The schedule itself lives in App\Console\ScheduleDefinition, so the monitoring page can

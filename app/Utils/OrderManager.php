@@ -2,6 +2,7 @@
 
 namespace App\Utils;
 
+use App\Services\Storefront\StorefrontCurrency;
 use App\Services\Analytics\Analytics;
 use App\Events\OrderEditDuePaymentEvent;
 use App\Models\OrderDetailsRewards;
@@ -10,6 +11,7 @@ use App\Models\OrderStatusHistory;
 use App\Models\ShippingMethod;
 use Carbon\Carbon;
 use App\Models\Cart;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use App\Models\Shop;
 use App\Models\User;
 use App\Models\Admin;
@@ -43,14 +45,19 @@ use Illuminate\Support\Facades\Log;
 use App\Models\DigitalProductVariation;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
 use App\Services\DeliverySyria\DeliverySyriaClient;
+use App\Services\Customer\CustomerBalanceLock;
+use App\Services\Wallet\WalletOverdraft;
+use App\Services\Wallet\WalletPaymentRefused;
 use App\Services\DeliverySyria\DeliverySyriaRateCalculator;
 use App\Models\DeliverySyriaGovernorateRate;
 use App\Models\DeliverySyriaParcel;
 use App\Services\Fulfillment\FulfillmentHooks;
 use App\Services\Fulfillment\OrderItemOwnershipSnapshotter;
+use App\Services\Storefront\OrderStorefrontSnapshot;
 use App\Services\SalesChannels\Dispatch\ChannelOrderMarker;
 use App\Enums\Address\AddressChannel;
 use App\Services\Address\OrderAddressService;
+use App\Services\Referral\ReferralRewardService;
 
 
 use App\Services\DeliverySyria\DeliverySyriaConfigService;
@@ -499,6 +506,16 @@ class OrderManager
         );
     }
 
+    /** How many checkouts of the customer used the coupon: the orders of one checkout share a group and count once. */
+    public static function countCouponUses(int|string $customerId, mixed $couponCode): int
+    {
+        return Order::where(['customer_id' => $customerId, 'coupon_code' => $couponCode])
+            ->select('order_group_id')
+            ->groupBy('order_group_id')
+            ->get()
+            ->count();
+    }
+
     public static function getTotalCouponAmount($request, $couponCode): array
     {
         $user = Helpers::getCustomerInformation($request);
@@ -508,10 +525,10 @@ class OrderManager
                 'messages' => translate('Coupon_not_applicable'),
             ];
         }
-        $couponLimit = Order::where(['customer_id' => $user['id'], 'coupon_code' => $couponCode])
-            ->groupBy('order_group_id')->get()->count();
+        $couponLimit = self::countCouponUses(customerId: $user['id'], couponCode: $couponCode);
 
         $firstCoupon = Coupon::where(['code' => $couponCode])
+            ->forStorefront()
             ->where('status', 1)
             ->whereDate('start_date', '<=', date('Y-m-d'))
             ->whereDate('expire_date', '>=', date('Y-m-d'))->first();
@@ -666,10 +683,10 @@ class OrderManager
             ];
         }
 
-        $couponLimit = Order::where(['customer_id' => $user['id'], 'coupon_code' => $couponCode])
-            ->groupBy('order_group_id')->get()->count();
+        $couponLimit = self::countCouponUses(customerId: $user['id'], couponCode: $couponCode);
 
         $firstCoupon = Coupon::where(['code' => $couponCode])
+            ->forStorefront()
             ->where('status', 1)
             ->whereDate('start_date', '<=', date('Y-m-d'))
             ->whereDate('expire_date', '>=', date('Y-m-d'))->first();
@@ -730,7 +747,7 @@ class OrderManager
 
     public static function getCustomerInfoForOrder($data): array
     {
-        $customer = Helpers::getCustomerInformation($data['requestObj'] ?? request()->all());
+        $customer = Helpers::getCustomerInformation($data['requestObj'] ?? request());
         $isGuest = ($customer == 'offline') ? 1 : 0;
         if (isset($data['is_guest'])) {
             $isGuest = $data['is_guest'] ?? 0;
@@ -858,6 +875,9 @@ class OrderManager
             if ($referralCustomer->customer_discount_amount_type === 'percentage') {
                 return ($groupAmount * $discountAmount) / 100;
             }
+            if (app(StorefrontCurrency::class)->currencyCodeInForce() !== null) {
+                return 0;
+            }
             return ($discountAmount * $groupAmount) / $totalAmount;
         }
         return 0;
@@ -874,11 +894,16 @@ class OrderManager
             $isFirstOrder = Order::where(['customer_id' => $order['customer_id'], 'order_status' => 'delivered', 'payment_status' => 'paid'])->count();
             $referredByUser = User::where(['id' => $customer['referred_by']])->first();
             if ($isFirstOrder == 1 && isset($customer->referred_by) && isset($referredByUser)) {
-                self::createWalletTransaction(
-                    user_id: $referredByUser['id'],
-                    amount: usdToDefaultCurrency(amount: $refEarningExchangeRate),
-                    transaction_type: 'add_fund_by_admin',
-                    reference: 'earned_by_referral'
+                app(ReferralRewardService::class)->creditOnce(
+                    refereeId: $customer['id'],
+                    beneficiaryId: $referredByUser['id'],
+                    orderId: $order['id'],
+                    credit: fn () => self::createWalletTransaction(
+                        user_id: $referredByUser['id'],
+                        amount: usdToDefaultCurrency(amount: $refEarningExchangeRate),
+                        transaction_type: 'add_fund_by_admin',
+                        reference: 'earned_by_referral'
+                    ),
                 );
             }
         }
@@ -888,21 +913,21 @@ class OrderManager
     {
         $cartListQuery = CartManager::getCartListQuery(type: 'checked');
         $cartListQueryGroup = $cartListQuery?->groupBy('cart_group_id');
-        $checkReferralDiscount = OrderManager::checkCustomerReferralDiscount(request: ($data['requestObj'] ?? request()->all()));
+        $checkReferralDiscount = OrderManager::checkCustomerReferralDiscount(request: ($data['requestObj'] ?? request()));
         $onlyProductPriceGrandTotal = CartManager::getOnlyCartProductPriceGrandTotal(type: 'checked');
 
         $shippingModel = getWebConfig(name: 'shipping_method');
         $adminShipping = ShippingType::where('seller_id', 0)->first();
 
         $couponCode = $data['coupon_code'] ?? session('coupon_code');
-        $totalCouponDiscountInfo = OrderManager::getTotalCouponAmount(request: ($data['requestObj'] ?? request()->all()), couponCode: $couponCode);
+        $totalCouponDiscountInfo = OrderManager::getTotalCouponAmount(request: ($data['requestObj'] ?? request()), couponCode: $couponCode);
         $totalCouponDiscount = $totalCouponDiscountInfo['discount'] ?? 0;
 
         $vendorWiseCartList = [];
         foreach ($cartListQueryGroup as $groupId => $cartListQueryGroupItem) {
 
             $couponInfo = OrderManager::getGroupWiseCouponArray(
-                request: ($data['requestObj'] ?? request()->all()),
+                request: ($data['requestObj'] ?? request()),
                 couponCode: $couponCode,
                 applicableAmount: $totalCouponDiscountInfo['total_cart_amount'] ?? 0,
                 discountAmount: $totalCouponDiscountInfo['discount'] ?? 0,
@@ -1274,7 +1299,7 @@ class OrderManager
             foreach ($vendorCart['applied_tax_cart_list'] as $cartItem) {
                 if ($cartItem['seller_id'] == $cartSingleItem['seller_id'] && $cartItem['seller_is'] == $cartSingleItem['seller_is']) {
                     $appliedTaxAmount = collect($vendorCart['applied_tax_cart_list'])->where('cart_id', $cartSingleItem['id'])->sum('applied_tax_amount') ?? 0;
-                    foreach ($cartItem['applied_tax_ids'] as $taxItem) {
+                    foreach ($cartItem['cart_id'] == $cartSingleItem['id'] ? $cartItem['applied_tax_ids'] : [] as $taxItem) {
                         if ($taxItem) {
                             $appliedTaxRate += $taxItem['tax_rate'];
                         }
@@ -1523,8 +1548,8 @@ class OrderManager
             'order_type' => 'order',
             'quantity' => $data['quantity'] ?? 0,
             'tax_id' => $taxRate['id'],
-            'taxable_id' => '',
-            'taxable_type' => '',
+            'taxable_id' => null,
+            'taxable_type' => null,
             'seller_id' => $data['seller_id'] ?? 0,
             'seller_type' => $data['seller_type'] ?? 'admin',
             'system_tax_setup_id' => $systemTaxVat->id,
@@ -1571,6 +1596,16 @@ class OrderManager
         // strictly worse than an oversold line a human can reconcile. See generateOrder's callers.
         $stockPolicy = ($data['stock_policy'] ?? 'reject') === 'allow_oversell' ? 'allow_oversell' : 'reject';
 
+        // A wallet checkout pays inside this transaction: the debit is written with the order, and a refused debit rolls the order
+        // back. Debiting after the commit would leave a paid order behind whenever the debit is refused.
+        $walletPayment = isset($data['walletPayment'])
+            ? [
+                'customerId' => $data['walletPayment']['customerId'],
+                'amount' => (float) $data['walletPayment']['amount'],
+                'amountInUsd' => (bool) ($data['walletPayment']['amountInUsd'] ?? false),
+            ]
+            : null;
+
         // Order ids are chosen by generateNewOrderID(), not by the database, so two checkouts that
         // start together can pick the same number and the second insert dies on the primary key.
         // Observed on the running store: "Duplicate entry '100002' for key 'PRIMARY'" — a hard 500
@@ -1580,7 +1615,7 @@ class OrderManager
         for ($idCollisionAttempt = 1; ; $idCollisionAttempt++) {
         try {
             DB::transaction(function () use (
-                $vendorWiseCartList, $taxConfig, $getCustomerInfo, $orderGroupId, $data, $stockPolicy,
+                $vendorWiseCartList, $taxConfig, $getCustomerInfo, $orderGroupId, $data, $stockPolicy, $walletPayment,
                 &$orderPlacedIds, &$orderPlacedNotificationEvents, &$orderPlacedMailEvents
             ) {
                 // Reset per attempt. DB::transaction retries on deadlock, and these accumulate —
@@ -1588,6 +1623,12 @@ class OrderManager
                 $orderPlacedIds = [];
                 $orderPlacedNotificationEvents = [];
                 $orderPlacedMailEvents = [];
+
+                // The customer row is locked before any product row, and the wallet writer locks the same row again. Every wallet
+                // checkout therefore takes its locks in one order, customer then stock, and two of them cannot wait on each other.
+                if ($walletPayment !== null) {
+                    User::query()->lockForUpdate()->find($walletPayment['customerId']);
+                }
 
                 // Lock every product in the order up front, ordered by id. Two carts holding the
                 // same two products in opposite orders would otherwise each hold the row the other
@@ -1606,43 +1647,29 @@ class OrderManager
             $order_id = OrderManager::generateNewOrderID();
             $orderPlacedIds[] = $order_id;
 
-            $appliedTaxAmount = 0;
-            $appliedTaxRate = 0;
             foreach ($vendorWiseCart['applied_tax_cart_list'] as $cartItem) {
-                if ($cartItem['seller_id'] == $vendorWiseCart['seller_id'] && $cartItem['seller_is'] == $vendorWiseCart['seller_is']) {
-                    $appliedTaxAmount = collect($vendorWiseCart['applied_tax_cart_list'])->where('cart_id', $cartItem['cart_id'])->sum('applied_shipping_cost_tax') ?? 0;
-                    foreach ($cartItem['applied_shipping_cost_tax_ids'] as $taxIdGroup) {
-                        foreach ($taxIdGroup['tax_ids'] as $taxId) {
-                            $taxItem = $taxConfig['taxVats']->firstWhere('id', $taxId);
-                            if ($taxItem) {
-                                $appliedTaxRate += $taxItem['tax_rate'];
-                            }
-                        }
-                    }
-                }
-            }
+                $shippingTaxes = collect($cartItem['applied_shipping_cost_tax_ids'])
+                    ->flatMap(static fn ($taxGroup): array => collect($taxGroup['tax_ids'])
+                        ->map(static fn ($taxId): array => ['group' => $taxGroup['name'], 'tax' => $taxConfig['taxVats']->firstWhere('id', $taxId)])
+                        ->all())
+                    ->filter(static fn (array $shippingTax): bool => (bool) $shippingTax['tax']);
+                $shippingTaxRate = $shippingTaxes->sum(static fn (array $shippingTax) => $shippingTax['tax']['tax_rate']);
 
-            foreach (collect($vendorWiseCart['applied_tax_cart_list'])->pluck('applied_shipping_cost_tax_ids')->toArray() as $taxGroups) {
-                foreach ($taxGroups as $taxGroup) {
-                    foreach ($taxGroup['tax_ids'] as $taxId) {
-                        $taxItem = $taxConfig['taxVats']->firstWhere('id', $taxId);
-                        if ($taxItem) {
-                            self::getAddOrderTaxDetails(
-                                systemTaxVat: $taxConfig['SystemTaxVat'],
-                                taxRate: $taxItem,
-                                orderId: $order_id,
-                                data: [
-                                    'tax_amount' => ($appliedTaxAmount > 0 && $appliedTaxRate > 0) ? ($appliedTaxAmount * $taxItem['tax_rate']) / $appliedTaxRate : 0,
-                                    'before_tax_amount' => $vendorWiseCart['order_amount_with_tax'] - $vendorWiseCart['total_tax_amount'],
-                                    'after_tax_amount' => $vendorWiseCart['order_amount_with_tax'],
-                                    'quantity' => 0,
-                                    'seller_id' => $vendorWiseCart['seller_id'],
-                                    'seller_type' => $vendorWiseCart['seller_is'],
-                                ],
-                                taxOn: $taxGroup['name'],
-                            );
-                        }
-                    }
+                foreach ($shippingTaxes as $shippingTax) {
+                    self::getAddOrderTaxDetails(
+                        systemTaxVat: $taxConfig['SystemTaxVat'],
+                        taxRate: $shippingTax['tax'],
+                        orderId: $order_id,
+                        data: [
+                            'tax_amount' => ($cartItem['applied_shipping_cost_tax'] > 0 && $shippingTaxRate > 0) ? ($cartItem['applied_shipping_cost_tax'] * $shippingTax['tax']['tax_rate']) / $shippingTaxRate : 0,
+                            'before_tax_amount' => $vendorWiseCart['order_amount_with_tax'] - $vendorWiseCart['total_tax_amount'],
+                            'after_tax_amount' => $vendorWiseCart['order_amount_with_tax'],
+                            'quantity' => 0,
+                            'seller_id' => $vendorWiseCart['seller_id'],
+                            'seller_type' => $vendorWiseCart['seller_is'],
+                        ],
+                        taxOn: $shippingTax['group'],
+                    );
                 }
             }
 
@@ -1665,6 +1692,8 @@ class OrderManager
                 orderId: $order_id,
                 vendorCart: $vendorWiseCart
             );
+
+            app(OrderStorefrontSnapshot::class)->record(orderId: $order_id);
 
             $order = Order::with('customer', 'seller.shop', 'details')->find($order_id);
             
@@ -1730,6 +1759,13 @@ class OrderManager
                 customer: $getCustomerInfo['customer'],
             );
         }
+
+                if ($walletPayment !== null) {
+                    $walletDebit = CustomerManager::create_wallet_transaction($walletPayment['customerId'], $walletPayment['amount'], 'order_place', 'order payment', amountInUsd: $walletPayment['amountInUsd']);
+                    if ($walletDebit === false) {
+                        throw new WalletPaymentRefused(customerId: $walletPayment['customerId'], amount: $walletPayment['amount']);
+                    }
+                }
             }, attempts: 3);
 
             break;
@@ -2041,7 +2077,7 @@ Log::warning('Delivery Syria: parcel saved successfully', [
 }
 
 
-        $user = Helpers::getCustomerInformation(($data['requestObj'] ?? request()->all()));
+        $user = Helpers::getCustomerInformation(($data['requestObj'] ?? request()));
 
         $notificationSent = false;
         foreach ($orderPlacedIds as $orderPlacedId) {
@@ -2049,14 +2085,14 @@ Log::warning('Delivery Syria: parcel saved successfully', [
                 $getOrder = Order::where('id', $orderPlacedId)->first();
                 $referralUser = ReferralCustomer::where('user_id', $user['id'])->first();
                 if ($referralUser && $referralUser->is_used != 1 && $referralUser->ordered_notify != 1) {
-                    $orderPlacedNotificationEvents[] = [
+                    $orderPlacedNotificationEvents[] = [[
                         'notification' => true,
                         'notificationData' => (object)[
                             'key' => 'your_referred_customer_has_been_place_order',
                             'type' => 'promoter',
                             'order' => $getOrder,
                         ],
-                    ];
+                    ]];
                 }
                 $notificationSent = true;
             }
@@ -2299,53 +2335,51 @@ Log::warning('Delivery Syria: parcel saved successfully', [
     public static function createWalletTransaction($user_id, float $amount, $transaction_type, $reference, $payment_data = []): bool|WalletTransaction
     {
         if (BusinessSetting::where('type', 'wallet_status')->first()->value != 1) return false;
-        $user = User::find($user_id);
-        $currentBalance = $user->wallet_balance;
 
-        $walletTransaction = new WalletTransaction();
-        $walletTransaction->user_id = $user->id;
-        $walletTransaction->transaction_id = \Str::uuid();
-        $walletTransaction->reference = $reference;
-        $walletTransaction->transaction_type = $transaction_type;
-        $walletTransaction->payment_method = isset($payment_data['payment_method']) ? $payment_data['payment_method'] : null;
+        return CustomerBalanceLock::apply($user_id, function (User $user) use ($amount, $transaction_type, $reference, $payment_data) {
+            $currentBalance = $user->wallet_balance;
 
-        $debit = 0.0;
-        $credit = 0.0;
-        $addFundToWalletBonus = 0;
+            $walletTransaction = new WalletTransaction();
+            $walletTransaction->user_id = $user->id;
+            $walletTransaction->transaction_id = \Str::uuid();
+            $walletTransaction->reference = $reference;
+            $walletTransaction->transaction_type = $transaction_type;
+            $walletTransaction->payment_method = isset($payment_data['payment_method']) ? $payment_data['payment_method'] : null;
 
-        if (in_array($transaction_type, ['add_fund_by_admin', 'add_fund', 'order_refund', 'loyalty_point'])) {
-            $credit = $amount;
-            if ($transaction_type == 'add_fund') {
-                $walletTransaction->admin_bonus = Helpers::add_fund_to_wallet_bonus(Convert::usd($amount ?? 0));
-                $addFundToWalletBonus = Helpers::add_fund_to_wallet_bonus(Convert::usd($amount ?? 0));
-            } else if ($transaction_type == 'loyalty_point') {
-                $credit = (($amount / BusinessSetting::where('type', 'loyalty_point_exchange_rate')->first()->value) * Convert::default(1));
+            $debit = 0.0;
+            $credit = 0.0;
+            $addFundToWalletBonus = 0;
+
+            if (in_array($transaction_type, ['add_fund_by_admin', 'add_fund', 'order_refund', 'loyalty_point'])) {
+                $credit = $amount;
+                if ($transaction_type == 'add_fund') {
+                    $walletTransaction->admin_bonus = Helpers::add_fund_to_wallet_bonus(Convert::usd($amount ?? 0));
+                    $addFundToWalletBonus = Helpers::add_fund_to_wallet_bonus(Convert::usd($amount ?? 0));
+                } else if ($transaction_type == 'loyalty_point') {
+                    $credit = (($amount / BusinessSetting::where('type', 'loyalty_point_exchange_rate')->first()->value) * Convert::default(1));
+                }
+            } else if ($transaction_type == 'order_place') {
+                $debit = $amount;
             }
-        } else if ($transaction_type == 'order_place') {
-            $debit = $amount;
-        }
 
-        $creditAmount = currencyConverter($credit);
-        $debitAmount = currencyConverter($debit);
-        $walletTransaction->credit = $creditAmount;
-        $walletTransaction->debit = $debitAmount;
-        $walletTransaction->balance = $currentBalance + $creditAmount - $debitAmount;
-        $walletTransaction->created_at = now();
-        $walletTransaction->updated_at = now();
-        $user->wallet_balance = $currentBalance + $addFundToWalletBonus + $creditAmount - $debitAmount;
+            $creditAmount = currencyConverter($credit);
+            $debitAmount = currencyConverter($debit);
+            if (WalletOverdraft::refuses($currentBalance, $debitAmount)) {
+                return false;
+            }
+            $walletTransaction->credit = $creditAmount;
+            $walletTransaction->debit = $debitAmount;
+            $walletTransaction->balance = $currentBalance + $creditAmount - $debitAmount;
+            $walletTransaction->created_at = now();
+            $walletTransaction->updated_at = now();
+            $user->wallet_balance = $currentBalance + $addFundToWalletBonus + $creditAmount - $debitAmount;
 
-        try {
-            DB::beginTransaction();
             $user->save();
             $walletTransaction->save();
-            DB::commit();
+
             if (in_array($transaction_type, ['loyalty_point', 'order_place', 'add_fund_by_admin'])) return $walletTransaction;
             return true;
-        } catch (Exception $ex) {
-            info($ex);
-            DB::rollback();
-            return false;
-        }
+        });
     }
 
     public static function generateOrderAgain($request): array
@@ -2775,6 +2809,20 @@ Log::warning('Delivery Syria: parcel saved successfully', [
     }
 
 
+    /**
+     * The one cart line that stands for a cart group in the checkout validation: the first checked line by id, as the statement returned it when
+     * it was `select *` with a bare GROUP BY, which a server enforcing ONLY_FULL_GROUP_BY refuses. Which lines of the group the stock check should
+     * cover is a separate question; this keeps what it did.
+     */
+    public static function firstCheckedCartLineOfGroup(string|int $groupId): EloquentCollection
+    {
+        return Cart::whereHas('product', function ($query) {
+            return $query->active();
+        })->with(['product' => function ($query) {
+            return $query->active();
+        }])->where(['cart_group_id' => $groupId, 'is_checked' => 1])->orderBy('id')->limit(1)->get();
+    }
+
     public static function checkValidationForCheckoutPages(Request $request): array
     {
         $response['status'] = 1;
@@ -2826,11 +2874,7 @@ Log::warning('Delivery Syria: parcel saved successfully', [
                 }
             }
 
-            $cartList = Cart::whereHas('product', function ($query) {
-                return $query->active();
-            })->with(['product' => function ($query) {
-                return $query->active();
-            }])->groupBy('cart_group_id')->where(['cart_group_id' => $groupId, 'is_checked' => 1])->get();
+            $cartList = self::firstCheckedCartLineOfGroup(groupId: $groupId);
             $productStockCheck = CartManager::product_stock_check($cartList);
             if (!$productStockCheck) {
                 $productStockStatus = false;

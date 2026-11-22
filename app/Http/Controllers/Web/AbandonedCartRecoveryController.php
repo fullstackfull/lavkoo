@@ -32,6 +32,9 @@ class AbandonedCartRecoveryController extends Controller
             return redirect()->route('home');
         }
 
+        // The signed link names the storefront the cart was made in; the page it leads to has to be served from it as well.
+        $storefront = is_string($request->query('storefront')) ? ['storefront' => $request->query('storefront')] : [];
+
         // First click only. A second visit is the same person opening the mail twice, and
         // overwriting the timestamp would misreport when the message actually worked.
         if (!$record->clicked_at) {
@@ -51,9 +54,9 @@ class AbandonedCartRecoveryController extends Controller
 
             // shop-cart requires a signed-in customer when guest checkout is disabled, which would
             // strand a guest at a login form. The home page shows the cart panel either way.
-            return redirect()->route('home');
+            return redirect()->route('home', $storefront);
         }
 
-        return redirect()->route('shop-cart');
+        return redirect()->route('shop-cart', $storefront);
     }
 }

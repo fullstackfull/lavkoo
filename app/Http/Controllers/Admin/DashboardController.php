@@ -14,7 +14,9 @@ use App\Contracts\Repositories\RestockProductRepositoryInterface;
 use App\Contracts\Repositories\VendorRepositoryInterface;
 use App\Contracts\Repositories\VendorWalletRepositoryInterface;
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Services\DashboardService;
+use App\Utils\Helpers;
 use Carbon\Carbon;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
@@ -23,6 +25,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Schema;
+use App\Services\Staff\StaffCountryScope;
 use Modules\Auction\app\Enums\OwnerType;
 use Modules\Auction\app\Enums\PaymentStatus;
 use Modules\Auction\app\Models\AuctionParticipant;
@@ -45,6 +48,7 @@ class DashboardController extends BaseController
         private readonly ChattingRepositoryInterface          $chattingRepo,
     )
     {
+        $this->middleware(ScopeOrdersToStaffCountries::class);
     }
 
     /**
@@ -70,7 +74,8 @@ class DashboardController extends BaseController
             dataLimit: DASHBOARD_DATA_LIMIT,
         );
         $topRatedDeliveryMan = $this->deliveryManRepo->getTopRatedList(filters: ['seller_id' => 0, 'sort_by' => 'rating'], relations: ['deliveredOrders', 'rating', 'review'], dataLimit: 'all')->take(DASHBOARD_DATA_LIMIT);
-        $topVendorByEarning = $this->vendorWalletRepo->getListWhere(orderBy: ['total_earning' => 'desc'], filters: [['column' => 'total_earning', 'operator' => '>', 'value' => 0]], relations: ['seller.shop'])->take(DASHBOARD_DATA_LIMIT);
+        $walletFiguresHidden = app(StaffCountryScope::class)->restricts();
+        $topVendorByEarning = $walletFiguresHidden ? collect() : $this->vendorWalletRepo->getListWhere(orderBy: ['total_earning' => 'desc'], filters: [['column' => 'total_earning', 'operator' => '>', 'value' => 0]], relations: ['seller.shop'])->take(DASHBOARD_DATA_LIMIT);
         $topVendorListByWishlist = $this->vendorRepo->getTopVendorListByWishlist(relations: ['shop'], dataLimit: 'all')->take(DASHBOARD_DATA_LIMIT);
 
         if (empty(session('statistics_type'))) {
@@ -78,7 +83,7 @@ class DashboardController extends BaseController
         }
 
         $data = self::getOrderStatusData();
-        $admin_wallet = $this->adminWalletRepo->getFirstWhere(params: ['admin_id' => 1]);
+        $admin_wallet = $walletFiguresHidden ? null : $this->adminWalletRepo->getFirstWhere(params: ['admin_id' => 1]);
 
         $from = now()->startOfYear()->format('Y-m-d');
         $to = now()->endOfYear()->format('Y-m-d');
@@ -110,9 +115,10 @@ class DashboardController extends BaseController
             'getTotalCustomerCount' => $getTotalCustomerCount,
             'getTotalVendorCount' => $this->vendorRepo->getListWhere(dataLimit: 'all')->count(),
             'getTotalDeliveryManCount' => $this->deliveryManRepo->getListWhere(filters: ['seller_id' => 0], dataLimit: 'all')->count(),
+            'wallet_figures_hidden' => $walletFiguresHidden,
         ];
 
-        $data = array_merge($data, $this->getAdminAuctionWalletStats());
+        $data = array_merge($data, $walletFiguresHidden ? ['auction_wallet_visible' => false] : $this->getAdminAuctionWalletStats());
 
         return view('admin-views.system.dashboard', compact('data', 'inHouseEarning', 'vendorEarning', 'commissionEarn', 'inHouseOrderEarningArray', 'vendorOrderEarningArray', 'label', 'dateType'));
     }
@@ -356,8 +362,12 @@ class DashboardController extends BaseController
 
     public function getRealTimeActivities(): JsonResponse
     {
-        $newOrder = $this->orderRepo->getListWhere(filters: ['checked' => 0], dataLimit: 'all')->count();
-        $restockProductList = $this->restockProductRepo->getListWhere(filters: ['added_by' => 'in_house'], dataLimit: 'all')->groupBy('product_id');
+        $newOrder = Helpers::module_permission_check(mod_name: 'orders')
+            ? $this->orderRepo->getListWhere(filters: ['checked' => 0], dataLimit: 'all')->count()
+            : 0;
+        $restockProductList = Helpers::module_permission_check(mod_name: 'catalog')
+            ? $this->restockProductRepo->getListWhere(filters: ['added_by' => 'in_house'], dataLimit: 'all')->groupBy('product_id')
+            : collect();
         $restockProduct = [];
         if (count($restockProductList) == 1) {
             $products = $this->restockProductRepo->getListWhere(orderBy: ['updated_at' => 'desc'], filters: ['added_by' => 'in_house'], relations: ['product'], dataLimit: 'all');
@@ -377,16 +387,19 @@ class DashboardController extends BaseController
                 'route' => route('admin.products.request-restock-list')
             ];
         }
-        $chatting = $this->chattingRepo->getListWhereNotNull(
-            filters: ['admin_id' => 0, 'seen_by_admin' => 0, 'notification_receiver' => 'admin', 'seen_notification' => 0],
-            whereNotNull: ['admin_id'],
-        )->count();
+        $chatting = 0;
+        if (Helpers::module_permission_check(mod_name: 'people')) {
+            $chatting = $this->chattingRepo->getListWhereNotNull(
+                filters: ['admin_id' => 0, 'seen_by_admin' => 0, 'notification_receiver' => 'admin', 'seen_notification' => 0],
+                whereNotNull: ['admin_id'],
+            )->count();
 
-        $this->chattingRepo->updateListWhereNotNull(
-            filters: ['admin_id' => 0, 'seen_by_admin' => 0, 'notification_receiver' => 'admin', 'seen_notification' => 0],
-            whereNotNull: ['admin_id'],
-            data: ['seen_notification' => 1]
-        );
+            $this->chattingRepo->updateListWhereNotNull(
+                filters: ['admin_id' => 0, 'seen_by_admin' => 0, 'notification_receiver' => 'admin', 'seen_notification' => 0],
+                whereNotNull: ['admin_id'],
+                data: ['seen_notification' => 1]
+            );
+        }
 
         return response()->json([
             'success' => 1,

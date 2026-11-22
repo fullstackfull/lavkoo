@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use App\Services\Catalog\ProductCodeScope;
 
 class ProductRepository implements ProductRepositoryInterface
 {
@@ -71,7 +72,7 @@ class ProductRepository implements ProductRepositoryInterface
 
     public function getFirstWhereWithoutGlobalScope(array $params, array $relations = []): ?Model
     {
-        return $this->product->withoutGlobalScopes()->where($params)->with($relations)->first();
+        return $this->product->withoutGlobalScope('translate')->where($params)->with($relations)->first();
     }
 
     public function getFirstWhereActive(array $params, array $relations = []): ?Model
@@ -277,6 +278,9 @@ class ProductRepository implements ProductRepositoryInterface
                     ->when(isset($filters['seller_id']), function ($query) use ($filters) {
                         return $query->where(['user_id' => $filters['seller_id']]);
                     });
+            })
+            ->when(isset($filters['storefront_country']), function ($query) use ($filters) {
+                return app(ProductCodeScope::class)->restrictToCountry(query: $query, country: $filters['storefront_country']);
             })
             ->when(isset($filters['brand_id']), function ($query) use ($filters) {
                 return $query->where(['brand_id' => $filters['brand_id']]);
@@ -638,6 +642,13 @@ class ProductRepository implements ProductRepositoryInterface
         })->when(isset($filters['user_id']), function ($query) use ($filters) {
             return $query->where('user_id', $filters['user_id']);
         })->pluck('id');
+    }
+
+    public function addArrayAndGetIds(array $data): array
+    {
+        cacheRemoveByType(type: 'products');
+
+        return DB::transaction(static fn (): array => array_map(static fn (array $row): int => (int) DB::table('products')->insertGetId($row), $data));
     }
 
     public function addArray(array $data): bool

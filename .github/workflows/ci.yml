@@ -44,8 +44,9 @@ jobs:
   tests-sqlite:
     name: Tests, SQLite (PHP ${{ matrix.php }})
     runs-on: ubuntu-latest
-    # The whole suite is now about 4,700 tests: 14 minutes on one runner, more than 20 on another, so the limit leaves room.
-    timeout-minutes: 45
+    # The whole suite took 14 minutes on one runner, 37 on another (run 293) and 45 minutes 16 seconds on a third (run 334, PHP 8.3, which this job's old ceiling of 45 minutes cancelled);
+    # it has grown by about a thousand tests since. The ceiling is the one the MySQL sales-channel jobs already have.
+    timeout-minutes: 110
     strategy:
       fail-fast: false
       matrix:
@@ -79,18 +80,18 @@ jobs:
           EXPECT_DB_DRIVER: sqlite
         run: sudo -E env "PATH=$PATH" vendor/bin/phpunit --display-skipped tests/Unit/Deploy
 
-  # The engines: MySQL 8 and MariaDB 11.4.2 (the version the pilot server runs: docs/integrations/pilot-deployment.md), each with two sets of tests, each job against its own
+  # The engines: MySQL 8 and MariaDB 11.4.2 (the version the pilot server runs: docs/integrations/pilot-deployment.md), each with three sets of tests (the storefront set is small and runs the products migration on both engines), each job against its own
   # database: the address tests build their tables with the real migrations, which a real engine does slowly, and the two sets together ran past the limit of one job (about 35 minutes
   # on a runner; each set takes about 15 to 20). A MariaDB image answers to the MARIADB_* names; both sets are given so the same service block serves both.
   tests-mysql:
     name: ${{ matrix.group }}, ${{ matrix.engine }}
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         engine: ['MySQL 8', 'MariaDB 11.4.2']
-        group: ['Fulfillment + security tests', 'Address tests']
+        group: ['Fulfillment + security tests', 'Address tests', 'Storefront tests', 'Catalog tests', 'Staff scope tests', 'Checkout, payment and permission tests', 'Saudi baseline pack']
         include:
           - engine: MySQL 8
             image: mysql:8.0
@@ -104,6 +105,21 @@ jobs:
             paths: tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Security tests/Feature/CiDatabaseTest.php
           - group: Address tests
             paths: tests/Feature/Address
+          - group: Storefront tests
+            # Also the platform admin API tests: the SQL they run for orders, products and refund requests has to meet a real engine, MariaDB included.
+            paths: tests/Unit/Storefront tests/Feature/Storefront tests/Feature/PlatformAdmin
+          - group: Catalog tests
+            paths: tests/Feature/Catalog
+          - group: Staff scope tests
+            paths: tests/Feature/StaffScope
+          - group: Checkout, payment and permission tests
+            # The directories the checkout, referral, refund, POS, coupon and permission pull requests add. They ran only on SQLite, which reads an unknown
+            # double-quoted name as a string and accepts a bare GROUP BY; on MySQL 8 they gave 34 failures, all fixtures SQLite had hidden.
+            paths: tests/Feature/Api tests/Feature/Auth tests/Feature/Blog tests/Feature/Cart tests/Feature/Checkout tests/Feature/Coupon tests/Feature/Inventory tests/Feature/Marketplace tests/Feature/Payment tests/Feature/Payments tests/Feature/Permissions tests/Feature/Pos tests/Feature/Referral tests/Feature/Refund tests/Feature/Web tests/Unit/Architecture tests/Unit/Customer tests/Unit/Http tests/Unit/Marketplace tests/Unit/PlatformAdmin tests/Unit/Security tests/Unit/Utils tests/Unit/Wallet
+          # The named gate of the Saudi store (master tracker M2-01): the golden answers of the checkout, recorded from main, on both real engines. The pack is also in the
+          # Address group; this job is the one a branch protection rule can require by name.
+          - group: Saudi baseline pack
+            paths: tests/Feature/Address/SaudiGoldenResponsesTest.php
     services:
       mysql:
         image: ${{ matrix.image }}
@@ -146,6 +162,25 @@ jobs:
       - name: Tests against real MySQL (locks, unique keys, collation, JSON, decimals, timestamps)
         # -c phpunit.mysql.xml: phpunit.xml pins SQLite with <server> entries, which override this job's DB_* variables.
         run: vendor/bin/phpunit -c phpunit.mysql.xml ${{ matrix.paths }} --display-skipped
+
+  # Refuses a pull request that changes or deletes an existing golden answer of the Saudi baseline pack (tests/Fixtures/SaudiGolden). It may add new ones. A change the owner
+  # approved says so in the title of its pull request ([saudi-baseline-change]). The rule is the script's, which a test runs against real git histories.
+  saudi-baseline-expectations:
+    name: Saudi baseline expectations unchanged
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: No existing golden answer is changed or deleted
+        env:
+          # The title goes through the environment, never through the shell text of the step.
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash .github/scripts/saudi-baseline-guard.sh
 
   # Refuses a change that adds a credential, a private key, an environment file, a database dump or the phone number or e-mail
   # address of what looks like a real person. It reads only the lines the change adds and never prints what it matched.
@@ -251,7 +286,10 @@ jobs:
             #
             # These tests start several PHP processes at the same instant against this database and skip on SQLite, so this job
             # is the only place they run at all -- the stock, shipment, return-decision and Odoo races included.
-            paths: tests/Feature/Concurrency
+            #
+            # The wallet and loyalty tests ride here: their row locks and their rollbacks only mean something on a real engine.
+            # CiDatabaseTest makes a job that fell back to SQLite fail instead of skipping every race test in green.
+            paths: tests/Feature/Concurrency tests/Feature/Wallet tests/Feature/Loyalty tests/Feature/CiDatabaseTest.php
           - group: myfatoorah
             # Its own job since PR #12. It used to ride along with the sales-channel group, and that group then reached the 110-minute ceiling on MySQL 8 and was cancelled:
             # the two suites had grown into more than one runner's hour and a half together (82 minutes on MariaDB for the same set). Nothing is skipped by splitting them —
@@ -354,4 +392,4 @@ jobs:
       - name: Environment
         run: cp .env.example .env
       - name: Tests with the database connection in strict mode
-        run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Feature/StrictModeTest.php tests/Feature/SalesChannels tests/Feature/OperationalCosts tests/Unit/Fulfillment tests/Feature/Fulfillment --display-skipped
+        run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Feature/StrictModeTest.php tests/Feature/SalesChannels tests/Feature/OperationalCosts tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Wallet tests/Feature/Loyalty tests/Feature/Api tests/Feature/Auth tests/Feature/Blog tests/Feature/Cart tests/Feature/Checkout tests/Feature/Coupon tests/Feature/Inventory tests/Feature/Marketplace tests/Feature/Payment tests/Feature/Payments tests/Feature/Permissions tests/Feature/Pos tests/Feature/Referral tests/Feature/Refund tests/Feature/Web tests/Unit/Architecture tests/Unit/Customer tests/Unit/Http tests/Unit/Marketplace tests/Unit/PlatformAdmin tests/Unit/Security tests/Unit/Utils tests/Unit/Wallet --display-skipped

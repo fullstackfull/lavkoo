@@ -24,6 +24,11 @@ class VendorWalletRepository implements VendorWalletRepositoryInterface
         return $this->vendorWallet->with($relations)->where($params)->first();
     }
 
+    public function getFirstWhereForUpdate(array $params): ?Model
+    {
+        return $this->vendorWallet->where($params)->lockForUpdate()->first();
+    }
+
     public function getList(array $orderBy = [], array $relations = [], int|string $dataLimit = DEFAULT_DATA_LIMIT, ?int $offset = null): Collection|LengthAwarePaginator
     {
         $query = $this->vendorWallet->with($relations)

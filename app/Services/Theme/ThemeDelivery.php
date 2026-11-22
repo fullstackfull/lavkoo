@@ -2,9 +2,9 @@
 
 namespace App\Services\Theme;
 
-use App\Models\Theme;
 use App\Models\ThemeSection;
 use App\Models\ThemeVersion;
+use App\Services\Storefront\StorefrontContext;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
 
@@ -33,6 +33,9 @@ class ThemeDelivery
 {
     private const CACHE_PREFIX = 'theme_delivery_';
     private const CACHE_TTL = 600;
+
+    /** What the compatibility report says about a section withheld from a channel that has no renderer behind it (the seller app today). */
+    private const NO_RENDERER_FOR_CHANNEL = 'no_renderer_exists_for_this_channel';
 
     public function __construct(
         private readonly SectionRegistry $registry,
@@ -76,7 +79,7 @@ class ThemeDelivery
         }
 
         try {
-            return Cache::remember(self::CACHE_PREFIX . 'revision', self::CACHE_TTL, function () use ($empty) {
+            return Cache::remember(StorefrontContext::current()->scopedCacheKey(self::CACHE_PREFIX . 'revision'), self::CACHE_TTL, function () use ($empty) {
                 $version = $this->publishedVersion();
                 if ($version === null) {
                     return $empty;
@@ -126,8 +129,10 @@ class ThemeDelivery
             $assignments = $this->assignments($page, $viewer);
 
             return Cache::remember(
-                self::CACHE_PREFIX . $page . '_' . $this->fingerprint($viewer)
-                    . $this->campaignKeyPart($page) . $this->experimentKeyPart($assignments),
+                StorefrontContext::current()->scopedCacheKey(
+                    self::CACHE_PREFIX . $page . '_' . $this->fingerprint($viewer)
+                        . $this->campaignKeyPart($page) . $this->experimentKeyPart($assignments),
+                ),
                 self::CACHE_TTL,
                 fn () => $this->build($page, $viewer, null, $assignments),
             );
@@ -156,15 +161,25 @@ class ThemeDelivery
         }
     }
 
-    /** Drop every cached delivery — called on publish, alongside the storefront's own flush. */
-    public function flush(): void
+    /**
+     * Drop every cached delivery — called on publish, alongside the storefront's own flush. For the storefronts given only (F-02), or for every storefront when none is given.
+     *
+     * @param list<string>|null $storefronts
+     */
+    public function flush(?array $storefronts = null): void
     {
-        Cache::forget(self::CACHE_PREFIX . 'revision');
+        $keysOf = static fn (string $key): array => $storefronts === null ? StorefrontContext::keysForEveryStorefront($key) : StorefrontContext::keysForStorefronts(countries: $storefronts, key: $key);
+
+        foreach ($keysOf(self::CACHE_PREFIX . 'revision') as $key) {
+            Cache::forget($key);
+        }
 
         // Per-client payloads are keyed by a capability fingerprint nobody enumerates, so they
         // cannot be forgotten one by one. They carry the revision in their key instead: a publish
         // moves the revision, which strands every old entry to expire on its own TTL.
-        Cache::forget(self::CACHE_PREFIX . 'home_index');
+        foreach ($keysOf(self::CACHE_PREFIX . 'home_index') as $key) {
+            Cache::forget($key);
+        }
     }
 
     /**
@@ -218,6 +233,10 @@ class ThemeDelivery
         $sections = [];
         $withheld = [];
 
+        // A channel with no renderer behind it is the honest empty answer (ComponentCapabilityRegistry::servableToChannel): the page is never composed for it, and the types it
+        // would have been sent are named in the report, the way a type an app cannot draw is.
+        $channelDrawsNothing = $this->capabilities->servableToChannel($viewer->channel(), $viewer) === [];
+
         // Experiment assignments for this viewer (Phase 3.5): a settings patch per targeted
         // section uuid, resolved by payload() so the cache key and this content agree; the
         // preview path passes none and resolves here. Empty on any failure — control is the
@@ -241,6 +260,11 @@ class ThemeDelivery
                 continue;
             }
 
+            if ($channelDrawsNothing) {
+                $withheld[$row->type] ??= self::NO_RENDERER_FOR_CHANNEL;
+                continue;
+            }
+
             // A type this client cannot draw is recorded and skipped. Recorded, because "the app
             // shows 9 of my 11 sections" needs an answer, and the response is the only place a
             // support conversation can get one.
@@ -259,7 +283,7 @@ class ThemeDelivery
         // capability withholding. Any failure serves the base payload unchanged (§37).
         try {
             $campaigns = app(\App\Services\Commerce\CampaignResolver::class);
-            $overrides = $campaigns->overridesFor($page);
+            $overrides = $channelDrawsNothing ? [] : $campaigns->overridesFor($page);
 
             if ($overrides !== []) {
                 $sections = $campaigns->splice(
@@ -657,6 +681,9 @@ $blocks = $row->blocks
             // different pages, and an activation must never serve the old theme from cache.
             (string) $this->revision()['checksum'] . '#' . $this->revision()['revision'],
             $viewer->platform,
+            // Two apps are both `platform: app`; a section restricted to one channel is delivered to that channel's viewers and not the other's, so the channel is part of the key
+            // or the app that warms the cache first decides what the other is sent.
+            $viewer->channel(),
             $viewer->device,
             $viewer->audience(),
             // The matched segment SET joins the key (§64–65): what varies the response must vary
@@ -688,12 +715,27 @@ $blocks = $row->blocks
                 $section->is_visible, $section->settings,
                 $section->starts_at?->toIso8601String(), $section->ends_at?->toIso8601String(),
                 $section->platforms, $section->audience,
+                ...$this->channelRestrictionOf($section),
                 $section->blocks->map(fn ($block) => [
                     $block->type, $block->sort_order, $block->is_visible, $block->settings,
                 ])->all(),
             ])->all();
 
         return substr(hash('sha256', json_encode([$version->settings, $structure])), 0, 32);
+    }
+
+    /**
+     * The channel restriction of a section as it joins the checksum: nothing for a section that is not restricted, so republishing content that never had one gives the checksum it always gave,
+     * and the channels in one order otherwise, so naming the same channels in another order is not a change. A change of the channels alone moves the checksum (F-03).
+     *
+     * @return list<array{channels: list<string>}>
+     */
+    private function channelRestrictionOf(ThemeSection $section): array
+    {
+        $channels = Channel::tokens($section->channels);
+        sort($channels);
+
+        return $channels === [] ? [] : [['channels' => $channels]];
     }
 
     /** @return array<string, mixed> */
@@ -714,15 +756,7 @@ $blocks = $row->blocks
 
     private function publishedVersion(): ?ThemeVersion
     {
-        $theme = Theme::query()->where('is_active', true)->first();
-        if ($theme === null) {
-            return null;
-        }
-
-        return ThemeVersion::query()
-            ->where('theme_id', $theme->id)
-            ->where('status', ThemeVersion::STATUS_PUBLISHED)
-            ->first();
+        return app(StorefrontThemeResolver::class)->publishedVersion();
     }
 
     private function tablesReady(): bool

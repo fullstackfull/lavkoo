@@ -34,8 +34,9 @@ class SellerOrderTimelineService
     public function timelineFor(int|string $orderId, int|string $sellerId): ?array
     {
         $details = Schema::hasTable('order_details')
-            ? OrderDetail::withoutEagerLoads()
-                ->where(['order_id' => $orderId, 'seller_id' => $sellerId])
+            ? OrderDetail::ofSeller(sellerId: $sellerId)
+                ->withoutEagerLoads()
+                ->where('order_id', $orderId)
                 ->get(['id'])
             : collect();
 

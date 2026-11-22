@@ -18,6 +18,8 @@ use App\Models\Review;
 use App\Models\RobotsMetaContent;
 use App\Models\Seller;
 use App\Models\ShippingType;
+use App\Services\Storefront\StorefrontCurrency;
+use App\Services\Storefront\StorefrontLegalPages;
 use App\Models\Shop;
 use App\Models\StockClearanceProduct;
 use App\Models\StockClearanceSetup;
@@ -66,7 +68,7 @@ trait CacheManagerTrait
 
     public function cacheProductsColorsArray()
     {
-        return Cache::remember(CACHE_FOR_ALL_PRODUCTS_COLOR_LIST, CACHE_FOR_3_HOURS, function () {
+        return Cache::remember(storefrontCacheKey(key: CACHE_FOR_ALL_PRODUCTS_COLOR_LIST), CACHE_FOR_3_HOURS, function () {
             return ProductManager::getProductsColorsArray();
         });
     }
@@ -81,7 +83,7 @@ trait CacheManagerTrait
     public function cacheShopTable()
     {
         $productReviews = $this->cacheProductsReviews();
-        return Cache::remember(CACHE_SHOP_TABLE, CACHE_FOR_3_HOURS, function () use ($productReviews) {
+        return Cache::remember(storefrontCacheKey(key: CACHE_SHOP_TABLE), CACHE_FOR_3_HOURS, function () use ($productReviews) {
             return Shop::active()
                 ->withCount(['products' => function ($query) {
                     $query->active();
@@ -125,15 +127,17 @@ trait CacheManagerTrait
 
     public function cacheInHouseShippingType()
     {
-        return Cache::remember(CACHE_FOR_IN_HOUSE_SHIPPING_TYPE, CACHE_FOR_3_HOURS, function () {
+        $stored = Cache::remember(CACHE_FOR_IN_HOUSE_SHIPPING_TYPE, CACHE_FOR_3_HOURS, function () {
             $adminShipping = ShippingType::where(['seller_id' => 0])->first();
-            return isset($adminShipping) ? $adminShipping->shipping_type : 'order_wise';
+            return isset($adminShipping) ? $adminShipping->getRawOriginal('shipping_type') : 'order_wise';
         });
+
+        return app(StorefrontCurrency::class)->shippingTypeInForce($stored);
     }
 
     public function cacheMainCategoriesList()
     {
-        return Cache::remember(CACHE_MAIN_CATEGORIES_LIST, CACHE_FOR_3_HOURS, function () {
+        return Cache::remember(storefrontCacheKey(key: CACHE_MAIN_CATEGORIES_LIST), CACHE_FOR_3_HOURS, function () {
             return Category::with(['product' => function ($query) {
                 return $query->active()->withCount(['orderDetails']);
             }])->withCount(['product' => function ($query) {
@@ -152,7 +156,7 @@ trait CacheManagerTrait
 
     public function cacheHomeCategoriesList()
     {
-        $homeCategories = Cache::remember(CACHE_HOME_CATEGORIES_LIST, CACHE_FOR_3_HOURS, function () {
+        $homeCategories = Cache::remember(storefrontCacheKey(key: CACHE_HOME_CATEGORIES_LIST), CACHE_FOR_3_HOURS, function () {
             $homeCategories = Category::whereHas('product', function ($query) {
                 return $query->active();
             })->with(['product' => function ($query) {
@@ -201,14 +205,14 @@ trait CacheManagerTrait
 
     public function cachePriorityWiseBrandList()
     {
-        return Cache::remember(CACHE_PRIORITY_WISE_BRANDS_LIST, CACHE_FOR_3_HOURS, function () {
+        return Cache::remember(storefrontCacheKey(key: CACHE_PRIORITY_WISE_BRANDS_LIST), CACHE_FOR_3_HOURS, function () {
             return BrandManager::getActiveBrandWithCountingAndPriorityWiseSorting();
         });
     }
 
     public function cacheInHouseAllProducts()
     {
-        return Cache::remember(CACHE_FOR_IN_HOUSE_ALL_PRODUCTS, CACHE_FOR_3_HOURS, function () {
+        return Cache::remember(storefrontCacheKey(key: CACHE_FOR_IN_HOUSE_ALL_PRODUCTS), CACHE_FOR_3_HOURS, function () {
             return Product::active()->with(['reviews', 'rating'])->withCount('reviews')->where(['added_by' => 'admin'])->get();
         });
     }
@@ -225,7 +229,7 @@ trait CacheManagerTrait
 
     public function cacheClearanceSaleProductsCount()
     {
-        return Cache::remember(CACHE_FOR_CLEARANCE_SALE_PRODUCTS_COUNT, CACHE_FOR_3_HOURS, function () {
+        return Cache::remember(storefrontCacheKey(key: CACHE_FOR_CLEARANCE_SALE_PRODUCTS_COUNT), CACHE_FOR_3_HOURS, function () {
             return StockClearanceProduct::active()->whereHas('product', function ($query) {
                 return $query->active();
             })->count();
@@ -266,7 +270,7 @@ trait CacheManagerTrait
     {
         $inHouseProducts = $this->cacheInHouseAllProducts();
         $productReviews = $this->cacheProductsReviews();
-        return Cache::remember(CACHE_FOR_HOME_PAGE_TOP_VENDORS_LIST, CACHE_FOR_3_HOURS, function () use ($inHouseProducts, $productReviews) {
+        return Cache::remember(storefrontCacheKey(key: CACHE_FOR_HOME_PAGE_TOP_VENDORS_LIST), CACHE_FOR_3_HOURS, function () use ($inHouseProducts, $productReviews) {
             $topVendorsList = Shop::active()
                 ->withCount(['products' => function ($query) {
                     $query->active();
@@ -302,6 +306,7 @@ trait CacheManagerTrait
                 });
 
             $inHouseCoupon = Coupon::where(['added_by' => 'admin', 'coupon_bearer' => 'inhouse', 'status' => 1])
+                ->forStorefront()
                 ->whereDate('start_date', '<=', date('Y-m-d'))
                 ->whereDate('expire_date', '>=', date('Y-m-d'))->get();
 
@@ -329,7 +334,7 @@ trait CacheManagerTrait
 
     public function cacheHomePageMoreVendorsList()
     {
-        return Cache::remember(CACHE_FOR_HOME_PAGE_MORE_VENDORS_LIST, CACHE_FOR_3_HOURS, function () {
+        return Cache::remember(storefrontCacheKey(key: CACHE_FOR_HOME_PAGE_MORE_VENDORS_LIST), CACHE_FOR_3_HOURS, function () {
             $productReviews = $this->cacheProductsReviews();
             return Seller::approved()
                 ->with(['shop' => function ($query) {
@@ -359,7 +364,7 @@ trait CacheManagerTrait
 
     public function cacheHomePageJustForYouProductList()
     {
-        return Cache::remember(CACHE_FOR_HOME_PAGE_JUST_FOR_YOU_PRODUCT_LIST, CACHE_FOR_3_HOURS, function () {
+        return Cache::remember(storefrontCacheKey(key: CACHE_FOR_HOME_PAGE_JUST_FOR_YOU_PRODUCT_LIST), CACHE_FOR_3_HOURS, function () {
             return Product::active()->with(['clearanceSale' => function ($query) {
                     $query->active();
                 },
@@ -376,7 +381,7 @@ trait CacheManagerTrait
 
     public function cacheHomePageRandomSingleProductItem()
     {
-        return Cache::remember(CACHE_FOR_RANDOM_SINGLE_PRODUCT, now()->addMinutes(10), function () {
+        return Cache::remember(storefrontCacheKey(key: CACHE_FOR_RANDOM_SINGLE_PRODUCT), now()->addMinutes(10), function () {
             return $this->product->active()->with(['clearanceSale' =>function ($query) {
                 return $query->active();
             }])->where('discount', '>', 0)->inRandomOrder()->first();
@@ -385,7 +390,7 @@ trait CacheManagerTrait
 
     public function cacheMostDemandedProductItem()
     {
-        return Cache::remember(CACHE_FOR_MOST_DEMANDED_PRODUCT_ITEM, CACHE_FOR_3_HOURS, function () {
+        return Cache::remember(storefrontCacheKey(key: CACHE_FOR_MOST_DEMANDED_PRODUCT_ITEM), CACHE_FOR_3_HOURS, function () {
             return MostDemanded::where('status', 1)->with(['product' => function ($query) {
                 $query->withCount('wishList', 'orderDetails', 'orderDelivered', 'reviews');
             }])->whereHas('product', function ($query) {
@@ -396,21 +401,22 @@ trait CacheManagerTrait
 
     public function cacheTopRatedProductList()
     {
-        return Cache::remember(CACHE_FOR_HOME_PAGE_TOP_RATED_PRODUCT_LIST, CACHE_FOR_3_HOURS, function () {
+        return Cache::remember(storefrontCacheKey(key: CACHE_FOR_HOME_PAGE_TOP_RATED_PRODUCT_LIST), CACHE_FOR_3_HOURS, function () {
             return Product::active()->with(['seller.shop', 'clearanceSale' =>function ($query) {
                 return $query->active();
             }])
                 ->whereHas('reviews', function ($query) {
                     return $query->select('product_id', DB::raw('AVG(rating) as average_rating'))->groupBy('product_id');
                 })
-                ->orderByDesc(DB::raw('(SELECT AVG(rating) FROM reviews WHERE reviews.product_id = products.id)'))
+                ->withAvg('reviews', 'rating')
+                ->orderByDesc('reviews_avg_rating')
                 ->paginate(10);
         });
     }
 
     public function cacheBestSellProductList()
     {
-        return Cache::remember(CACHE_FOR_HOME_PAGE_BEST_SELL_PRODUCT_LIST, CACHE_FOR_3_HOURS, function () {
+        return Cache::remember(storefrontCacheKey(key: CACHE_FOR_HOME_PAGE_BEST_SELL_PRODUCT_LIST), CACHE_FOR_3_HOURS, function () {
             return Product::active()
                 ->with(['reviews', 'seller.shop', 'clearanceSale' => function ($query) {
                     return $query->active();
@@ -426,7 +432,7 @@ trait CacheManagerTrait
 
     public function cacheHomePageLatestProductList()
     {
-        return Cache::remember(CACHE_FOR_HOME_PAGE_LATEST_PRODUCT_LIST, CACHE_FOR_3_HOURS, function () {
+        return Cache::remember(storefrontCacheKey(key: CACHE_FOR_HOME_PAGE_LATEST_PRODUCT_LIST), CACHE_FOR_3_HOURS, function () {
             $latestProductsList = Product::active()->with(['seller.shop', 'flashDealProducts.flashDeal', 'clearanceSale' => function ($query) {
                 return $query->active();
             }])->orderBy('id', 'desc')->take(10)->get();
@@ -539,8 +545,10 @@ trait CacheManagerTrait
 
     public function cacheBusinessPagesTable()
     {
-        return Cache::remember(CACHE_FOR_BUSINESS_PAGES_LIST, CACHE_FOR_3_HOURS, function () {
-            return BusinessPage::where('status', 1)->with(['banner'])->get();
+        $storefrontPages = app(StorefrontLegalPages::class);
+
+        return Cache::remember($storefrontPages->listCacheKey(), $storefrontPages->listCacheLifetime(), function () use ($storefrontPages) {
+            return $storefrontPages->listShownInStorefront(BusinessPage::where('status', 1)->with(['banner'])->get());
         });
     }
 

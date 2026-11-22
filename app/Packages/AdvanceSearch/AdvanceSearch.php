@@ -7,6 +7,8 @@ namespace App\Packages\AdvanceSearch;
 use Illuminate\Http\JsonResponse;
 use stdClass;
 use App\Models\Translation;
+use App\Services\Staff\StaffCountryScope;
+use App\Services\Staff\StaffSearchHits;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\File;
@@ -20,8 +22,12 @@ class AdvanceSearch
     use ModelsWithRoutesTrait;
     use AdminMenuWithRoutesTrait;
 
+    public const PAGE_TYPE = 'page';
+
     protected string $keyword = '';
     protected string $type = '';
+    private ?array $staffCountries = null;
+    private bool $staffCountriesAreKnown = false;
 
     public function __construct(string $type = '', ?string $keyword = null)
     {
@@ -29,6 +35,16 @@ class AdvanceSearch
         $this->keyword = $keyword ?? '';
     }
 
+
+    /** The names of the groups a search comes back in: the menu, the pages of the route index and one for each searched table. */
+    public function getResultTypes(): array
+    {
+        return array_values(array_unique([
+            ...array_column($this->adminMenuWithRoutes(), 'type'),
+            self::PAGE_TYPE,
+            ...array_keys($this->getModels()),
+        ]));
+    }
 
     public function searchAllList(): array
     {
@@ -192,7 +208,7 @@ class AdvanceSearch
                     "productNames" => [],
                     "items_count" => 1,
                     "priority" => 2,
-                    "type" => 'page',
+                    "type" => self::PAGE_TYPE,
                 ];
             }
         }
@@ -212,6 +228,17 @@ class AdvanceSearch
         } else {
             return 'backend-basic';
         }
+    }
+
+    /** The countries a restricted employee works with, when this is the search of the admin header; null for everyone else. */
+    private function staffCountries(): ?array
+    {
+        if (!$this->staffCountriesAreKnown) {
+            $this->staffCountries = $this->type === 'admin' ? app(StaffCountryScope::class)->countriesOf(admin: auth('admin')->user()) : null;
+            $this->staffCountriesAreKnown = true;
+        }
+
+        return $this->staffCountries;
     }
 
     public function getCacheTimeoutByDays(int $days = 3): int
@@ -320,7 +347,7 @@ class AdvanceSearch
                             return false;
                         })->values();
 
-
+                        $filteredItems = app(StaffSearchHits::class)->keep(hits: $filteredItems, model: $table['model'], countries: $this->staffCountries());
 
                         //  search result output
                         if ($filteredItems->count() > 0) {

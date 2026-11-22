@@ -23,7 +23,14 @@ class PhoneOrEmailVerificationRepository implements PhoneOrEmailVerificationRepo
 
     public function getFirstWhere(array $params, array $relations = []): ?Model
     {
-        return $this->phoneOrEmailVerification->with($relations)->where($params)->first();
+        $query = $this->phoneOrEmailVerification->with($relations);
+
+        if (array_key_exists('token', $params)) {
+            $query->holdingToken($params['token']);
+            unset($params['token']);
+        }
+
+        return $query->where($params)->first();
     }
 
     public function getList(array $orderBy = [], array $relations = [], int|string $dataLimit = DEFAULT_DATA_LIMIT, ?int $offset = null): Collection|LengthAwarePaginator

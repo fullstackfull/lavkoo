@@ -15,6 +15,7 @@ use App\Http\Controllers\RestAPI\v3\seller\OrderController;
 use App\Http\Controllers\RestAPI\v3\seller\OrderEditController;
 use App\Http\Controllers\RestAPI\v3\seller\POSCartController;
 use App\Http\Controllers\RestAPI\v3\seller\POSController;
+use App\Http\Controllers\RestAPI\v3\seller\ProductBarcodeSheetController;
 use App\Http\Controllers\RestAPI\v3\seller\ProductController;
 use App\Http\Controllers\RestAPI\v3\seller\RefundController;
 use App\Http\Controllers\RestAPI\v3\seller\SellerAnalyticsController;
@@ -28,6 +29,7 @@ use App\Http\Controllers\RestAPI\v3\seller\SellerIntegrationController;
 use App\Http\Controllers\RestAPI\v3\seller\SellerInventoryController;
 use App\Http\Controllers\RestAPI\v3\seller\SellerController;
 use App\Http\Controllers\RestAPI\v3\seller\SellerPayoutController;
+use App\Http\Controllers\RestAPI\v3\seller\SellerPrincipalController;
 use App\Http\Controllers\RestAPI\v3\seller\SellerActionCenterController;
 use App\Http\Controllers\RestAPI\v3\seller\SellerReportController;
 use App\Http\Controllers\RestAPI\v3\seller\SellerReturnController;
@@ -69,6 +71,9 @@ Route::group(['namespace' => 'RestAPI\v3\seller', 'prefix' => 'v3/seller', 'midd
         });
     });
 
+    // Opened by the app in the phone's browser, which holds no token: the signature of the link says which seller's product it is for, and for how long.
+    Route::get('products/barcode/sheet', [ProductBarcodeSheetController::class, 'show'])->middleware('signed:relative')->name('seller-barcode-sheet');
+
     Route::group(['middleware' => ['seller_api_auth']], function () {
         Route::controller(SellerController::class)->group(function () {
             // The caller's own session and their own shop's public face: available to whoever
@@ -76,7 +81,8 @@ Route::group(['namespace' => 'RestAPI\v3\seller', 'prefix' => 'v3/seller', 'midd
             // member unable to see which shop they are signed in to.
             Route::put('language-change', 'language_change');
             Route::get('seller-info', 'getSellerInfo');
-            Route::put('cm-firebase-token', 'update_cm_firebase_token');
+            // The phone that receives the shop's order and chat alerts is one column of the owner's row: a staff member's phone would replace it.
+            Route::put('cm-firebase-token', 'update_cm_firebase_token')->middleware('seller_owner');
             Route::get('shop-info', 'shop_info');
             Route::get('seller-delivery-man', 'seller_delivery_man');
 
@@ -162,6 +168,8 @@ Route::group(['namespace' => 'RestAPI\v3\seller', 'prefix' => 'v3/seller', 'midd
                     Route::get('most-popular-product', 'most_popular_products');
                     Route::get('get-product-images/{id}', 'getProductImages');
                     Route::get('stock-limit-status', 'getStockLimitStatus');
+                    Route::get('digital-file/{id}/{fileName?}', 'downloadDigitalFile')->name('seller-api.v3.products.digital-file');
+                    Route::get('digital-variation-file/{id}/{fileName?}', 'downloadDigitalVariationFile')->name('seller-api.v3.products.digital-variation-file');
                     Route::get('digital-author-list', 'getDigitalProductsAuthorList');
                     Route::get('digital-publishing-house-list', 'getDigitalPublishingHouseList');
                     Route::post('restock-request-list', 'getRestockRequestList');
@@ -194,6 +202,7 @@ Route::group(['namespace' => 'RestAPI\v3\seller', 'prefix' => 'v3/seller', 'midd
             Route::controller(OrderController::class)->group(function () {
                 Route::middleware('seller_can:orders.view,orders.manage')->group(function () {
                     Route::post('list', 'list');
+                    Route::get('digital-file/{id}/{fileName?}', 'downloadDigitalFile')->name('seller-api.v3.orders.digital-file');
                     // Ahead of the catch-all `/{id}`, which would otherwise swallow it.
                     Route::get('{id}/invoice', 'invoice')->whereNumber('id');
                     // Declared before the catch-all `{id}` below, which would otherwise swallow it.
@@ -534,6 +543,12 @@ Route::group(['namespace' => 'RestAPI\v3\seller', 'prefix' => 'v3/seller', 'midd
             // is open to anyone who may see the shop; changing it needs staff.manage, which is the
             // permission that can grant every other permission and so is the one that matters most.
             Route::group(['prefix' => 'security'], function () {
+                // Who is signed in. Asked by anybody who holds a credential of the shop, with no permission: an app that cannot ask who it is cannot
+                // know which of its screens to draw. It is outside the group below, which is for the people who manage the team.
+                Route::controller(SellerPrincipalController::class)->group(function () {
+                    Route::get('me', 'me');
+                });
+
                 Route::controller(SellerSecurityController::class)->group(function () {
                     // Reading is gated as deliberately as writing. The audit trail carries the
                     // before and after of a bank-details change, and the team list carries every

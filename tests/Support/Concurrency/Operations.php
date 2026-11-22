@@ -25,6 +25,14 @@ final class Operations
             'layers_from_purchase_orders' => PurchaseOrderOperations::layersFromPurchaseOrders($args),
             'layer_purchase_order_tranche' => PurchaseOrderOperations::layerTranche($args),
             'stock.ingest_many' => StockOperations::ingestMany($args),
+            'wallet.repository' => WalletOperations::writeThroughRepository($args),
+            'wallet.customer_manager' => WalletOperations::writeThroughCustomerManager($args),
+            'wallet.order_manager' => WalletOperations::writeThroughOrderManager($args),
+            'wallet.customer_trait' => WalletOperations::writeThroughCustomerTrait($args),
+            'loyalty.repository' => LoyaltyOperations::creditThroughRepository($args),
+            'loyalty.customer_manager' => LoyaltyOperations::creditThroughCustomerManager($args),
+            'loyalty.convert' => LoyaltyOperations::convertToWallet($args),
+            'wallet.pay_edit_due' => WalletOperations::payEditOrderDue($args),
             default => (self::$registered[$name] ?? throw new InvalidArgumentException("Unknown concurrent operation: {$name}"))($args, $index),
         };
     }

@@ -7,6 +7,7 @@ use App\Contracts\Repositories\CustomerRepositoryInterface;
 use App\Contracts\Repositories\DeliveryCountryCodeRepositoryInterface;
 use App\Contracts\Repositories\OrderEditHistoryRepositoryInterface;
 use App\Enums\GlobalConstant;
+use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Http\Requests\Admin\VendorAddRequest;
 use App\Services\DeliveryCountryCodeService;
 use App\Services\OrderEditService;
@@ -16,7 +17,6 @@ use Exception;
 use App\Enums\WebConfigKey;
 use App\Traits\CommonTrait;
 use Illuminate\Support\Facades\Session;
-use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use App\Services\ShopService;
 use App\Traits\PaginatorTrait;
@@ -32,7 +32,11 @@ use App\Exports\VendorOrderListExport;
 use App\Exports\VendorWithdrawRequest;
 use App\Events\VendorRegistrationEvent;
 use App\Http\Controllers\BaseController;
+use App\Models\Admin;
 use App\Events\WithdrawStatusUpdateEvent;
+use App\Models\SellerWallet;
+use App\Models\WithdrawRequest;
+use Illuminate\Support\Facades\DB;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use App\Contracts\Repositories\ShopRepositoryInterface;
 use App\Contracts\Repositories\OrderRepositoryInterface;
@@ -90,6 +94,7 @@ class VendorController extends BaseController
 
     )
     {
+        $this->middleware(ScopeOrdersToStaffCountries::class);
     }
 
     /**
@@ -127,14 +132,13 @@ class VendorController extends BaseController
     public function add(VendorAddRequest $request): JsonResponse
     {
 
-        $adminEmail = $this->adminRepo->getFirstWhere(['admin_role_id' => 1]);
-        if ($adminEmail && isset($adminEmail['email']) && $request['email'] === $adminEmail['email']) {
+        if (Admin::masterAdminUsesEmail($request['email'])) {
             return response()->json([
                 'error' => 1,
                 'message' => translate('Email_already_exist_please_try_another_email'),
             ]);
         }
-        $vendor = $this->vendorRepo->add(data: $this->vendorService->getAddData($request));
+        $vendor = $this->vendorRepo->add(data: $this->vendorService->getAddData(request: $request, createdByAdmin: true));
         $this->shopRepo->add($this->shopService->getAddShopDataForRegistration(request: $request, vendorId: $vendor['id']));
         $this->vendorWalletRepo->add($this->vendorService->getInitialWalletData(vendorId: $vendor['id']));
         $data = [
@@ -158,8 +162,8 @@ class VendorController extends BaseController
      * Delegates to updateStatus() per vendor. That method picks a different email
      * template for each transition — a pending vendor being approved gets
      * "registration approved", an active one being suspended gets "account
-     * suspended" — and suspending also rotates the vendor's auth token so their
-     * session dies. None of that may be duplicated here.
+     * suspended" — and the vendor model rotates the auth token on any change of
+     * status so their session dies. None of that may be duplicated here.
      *
      * Its RedirectResponse is discarded: this endpoint answers with JSON, and the
      * per-vendor toasts it flashes are replaced by one aggregate result.
@@ -216,7 +220,6 @@ class VendorController extends BaseController
         } else if ($request['status'] == "rejected") {
             ToastMagic::info(translate('Vendor_has_been_rejected_successfully'));
         } else if ($request['status'] == "suspended") {
-            $this->vendorRepo->update(id: $request['id'], data: ['auth_token' => Str::random(80)]);
             ToastMagic::info(translate('Vendor_has_been_suspended_successfully'));
         }
         if ($vendor['status'] == 'pending') {
@@ -771,38 +774,54 @@ class VendorController extends BaseController
             return redirect()->route('admin.vendors.withdraw_list');
         }
 
+        $isDecided = DB::transaction(function () use ($withdraw, $id, $request, $withdrawData) {
+            $wallet = SellerWallet::where('seller_id', $withdraw['seller_id'])->lockForUpdate()->first();
+            $pendingRequest = WithdrawRequest::where(['id' => $id, 'seller_id' => $withdraw['seller_id'], 'approved' => 0])->lockForUpdate()->first();
+            if (!$pendingRequest || WithdrawRequest::where(['id' => $id, 'approved' => 0])->update($withdrawData) !== 1) {
+                return false;
+            }
+
+            if ($request['approved'] == 1) {
+                $wallet->withdrawn += $pendingRequest['amount'];
+                $wallet->pending_withdraw -= $pendingRequest['amount'];
+                $wallet->save();
+
+                // Consolidation bridge: mirror the legacy payout into the vendor ledger so the ledger is the
+                // single record of ALL money that has left, and its withdrawable() accounts for legacy
+                // withdrawals too — closing the double-withdraw gap between the two channels. The legacy
+                // amount is stored in USD; the ledger is in base currency, so convert. Idempotent on the
+                // withdraw-request id (VendorLedger::record dedupes on entry+reference). This can only lower
+                // ledger withdrawable, never raise it, so it can never enable an over-payment.
+                app(\App\Services\Marketplace\VendorLedger::class)->record(
+                    sellerId: $withdraw['seller_id'],
+                    entryType: \App\Models\VendorLedgerEntry::TYPE_PAYOUT,
+                    debit: (float) usdToDefaultCurrency($pendingRequest['amount']),
+                    status: \App\Models\VendorLedgerEntry::STATUS_PAID,
+                    referenceType: 'legacy_withdraw',
+                    referenceId: $id,
+                    description: 'Legacy withdraw request #' . $id . ' paid',
+                );
+            } else {
+                $wallet->total_earning += $pendingRequest['amount'];
+                $wallet->pending_withdraw -= $pendingRequest['amount'];
+                $wallet->save();
+            }
+
+            return true;
+        });
+        if (!$isDecided) {
+            ToastMagic::warning(translate('this_withdraw_request_has_already_been_processed'));
+            return redirect()->route('admin.vendors.withdraw_list');
+        }
+
         if (isset($withdraw->seller->cm_firebase_token) && $withdraw->seller->cm_firebase_token) {
             event(new WithdrawStatusUpdateEvent(key: 'withdraw_request_status_message', type: 'seller', lang: $withdraw->deliveryMan?->app_language ?? getDefaultLanguage(), status: $request['approved'], fcmToken: $withdraw->seller?->cm_firebase_token));
         }
 
         if ($request['approved'] == 1) {
-            $this->vendorWalletRepo->getFirstWhere(params: ['seller_id' => $withdraw['seller_id']])->increment('withdrawn', $withdraw['amount']);
-            $this->vendorWalletRepo->getFirstWhere(params: ['seller_id' => $withdraw['seller_id']])->decrement('pending_withdraw', $withdraw['amount']);
-
-            // Consolidation bridge: mirror the legacy payout into the vendor ledger so the ledger is the
-            // single record of ALL money that has left, and its withdrawable() accounts for legacy
-            // withdrawals too — closing the double-withdraw gap between the two channels. The legacy
-            // amount is stored in USD; the ledger is in base currency, so convert. Idempotent on the
-            // withdraw-request id (VendorLedger::record dedupes on entry+reference). This can only lower
-            // ledger withdrawable, never raise it, so it can never enable an over-payment.
-            app(\App\Services\Marketplace\VendorLedger::class)->record(
-                sellerId: $withdraw['seller_id'],
-                entryType: \App\Models\VendorLedgerEntry::TYPE_PAYOUT,
-                debit: (float) usdToDefaultCurrency($withdraw['amount']),
-                status: \App\Models\VendorLedgerEntry::STATUS_PAID,
-                referenceType: 'legacy_withdraw',
-                referenceId: $id,
-                description: 'Legacy withdraw request #' . $id . ' paid',
-            );
-
-            $this->withdrawRequestRepo->update(id: $id, data: $withdrawData);
             ToastMagic::success(translate('Vendor_Payment_has_been_approved_successfully'));
             return redirect()->route('admin.vendors.withdraw_list');
         }
-
-        $this->vendorWalletRepo->getFirstWhere(params: ['seller_id' => $withdraw['seller_id']])->increment('total_earning', $withdraw['amount']);
-        $this->vendorWalletRepo->getFirstWhere(params: ['seller_id' => $withdraw['seller_id']])->decrement('pending_withdraw', $withdraw['amount']);
-        $this->withdrawRequestRepo->update(id: $id, data: $withdrawData);
 
         ToastMagic::info(translate('Vendor_Payment_request_has_been_Denied_successfully'));
         return redirect()->route('admin.vendors.withdraw_list');
@@ -853,9 +872,6 @@ public function destroy(int $id): RedirectResponse
         if ($seller->status === 'approved') {
             // تحديث الحالة إلى معلق
             $this->vendorRepo->update(id: $id, data: ['status' => 'suspended']);
-            
-            // تدوير رمز المصادقة (auth_token) لمنع البائع من الدخول فوراً (نفس منطق دالة updateStatus)
-            $this->vendorRepo->update(id: $id, data: ['auth_token' => \Illuminate\Support\Str::random(80)]);
         }
 
         // 2. تنفيذ الحذف الناعم للبائع (سواء كان معلقاً الآن أو معلقاً أصلاً)

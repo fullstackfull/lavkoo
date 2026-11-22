@@ -17,7 +17,7 @@
                         <div class="media-body d-flex flex-column gap-1">
                             <h5 class="product-id" hidden="">1</h5>
                             <h4 class="mb-1 product-name line-1">
-                                {{$product['name']}}
+                                {{$product['name']}}{{ app(\App\Services\Catalog\ProductCodeScope::class)->countryTag(product: $product) }}
 
                             </h4>
                             <input type="hidden" name="productIds[]" value="{{ $product->id }}">

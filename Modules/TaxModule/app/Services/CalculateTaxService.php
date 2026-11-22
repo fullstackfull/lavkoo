@@ -26,7 +26,7 @@ class CalculateTaxService
     ): array
     {
         $systemTaxVat = SystemTaxSetup::with('additionalData')
-            ->when($countryCode, fn($query) => $query->where('country_code', $countryCode))
+            ->when($countryCode, fn($query) => $query->where('country_code', $countryCode), fn($query) => $query->ofThePlatform())
             ->where('tax_payer', $taxPayer)
             ->where('is_active', 1)
             ->first();

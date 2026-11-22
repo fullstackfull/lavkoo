@@ -8,147 +8,117 @@ use App\Models\OrderEditHistory;
 use App\Models\ShippingAddress;
 use App\Models\User;
 use App\Services\Address\OrderAddressService;
+use App\Services\Payments\PaymentSettlementScope;
+use App\Services\Storefront\PaymentStorefront;
+use App\Services\Storefront\StorefrontTax;
 use App\Utils\Convert;
 use App\Utils\CustomerManager;
 use App\Utils\OrderManager;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Modules\TaxModule\app\Models\SystemTaxSetup;
 use Modules\TaxModule\app\Models\Tax;
 
 if (!function_exists('digital_payment_success')) {
+    /** The gateway reports back in a request that names no storefront, so the order is built in the storefront the payment was started in. */
     function digital_payment_success($paymentData): void
     {
-        if (isset($paymentData) && $paymentData['is_paid'] == 1) {
-            $additionalData = json_decode($paymentData['additional_data'], true);
+        $additionalData = json_decode((string) ($paymentData['additional_data'] ?? ''), true);
 
-            $addCustomer = null;
-            $newCustomerInfo = $additionalData['new_customer_info'] ?? null;
-
-            if ($newCustomerInfo) {
-                $checkCustomer = User::where(['email' => $newCustomerInfo['email']])->orWhere(['phone' => $newCustomerInfo['phone']])->first();
-                if (!$checkCustomer) {
-                    $addCustomer = User::create([
-                        'name' => $newCustomerInfo['name'],
-                        'f_name' => $newCustomerInfo['name'],
-                        'l_name' => $newCustomerInfo['l_name'],
-                        'email' => $newCustomerInfo['email'],
-                        'phone' => $newCustomerInfo['phone'],
-                        'is_active' => 1,
-                        'password' => bcrypt($newCustomerInfo['password']),
-                        'referral_code' => $newCustomerInfo['referral_code'],
-                    ]);
-                } else {
-                    $addCustomer = $checkCustomer;
-                }
-                session()->put('newRegisterCustomerInfo', $addCustomer);
-
-                if ($additionalData['is_guest']) {
-                    $addressId = $additionalData['address_id'] ?? null;
-                    $billingAddressId = $additionalData['billing_address_id'] ?? null;
-                    ShippingAddress::where(['customer_id' => $additionalData['customer_id'], 'is_guest' => 1, 'id' => $addressId])
-                        ->update(['customer_id' => $addCustomer['id'], 'is_guest' => 0]);
-                    ShippingAddress::where(['customer_id' => $additionalData['customer_id'], 'is_guest' => 1, 'id' => $billingAddressId])
-                        ->update(['customer_id' => $addCustomer['id'], 'is_guest' => 0]);
-                }
-            }
-
-            session()->put('payment_mode', $additionalData['payment_mode'] ?? 'web');
-
-            if (isset($additionalData['is_guest']) && $additionalData['is_guest'] == 0) {
-                $user = User::where(['id' => $additionalData['customer_id']])->first();
-                request()->merge(['user' => $user]);
-            }
-
-
-
-$customerId = $additionalData['customer_id'] ?? null;
-
-/*
- * Guest checkout:
- * بعض بوابات الدفع ترجع بعد انتهاء Session
- * و customer_id داخل additional_data قد يكون null.
- *
- * عنوان الشحن الخاص بالضيف يحتفظ بالـ guest/customer id
- * الذي استُخدم لإنشاء السلة.
- */
-if (
-    ($additionalData['is_guest_in_order'] ?? 0) == 1
-    && empty($customerId)
-) {
-
-    $addressId = $additionalData['address_id'] ?? null;
-
-    if ($addressId) {
-        $customerId = ShippingAddress::where('id', $addressId)
-            ->value('customer_id');
-    }
-}
-
-if (
-    ($additionalData['is_guest_in_order'] ?? 0) == 1
-    && empty($customerId)
-) {
-    throw new \RuntimeException(
-        'Guest customer ID could not be resolved for digital payment.'
-    );
-}
-
-/*
- * Paymera callback is a new server request and does not have
- * the browser checkout session.
- * Restore guest checkout context before OrderManager reads the cart.
- */
-if (($additionalData['is_guest_in_order'] ?? 0) == 1) {
-
-    session()->put('guest_id', $customerId);
-
-    if (!empty($additionalData['address_id'])) {
-        session()->put('address_id', $additionalData['address_id']);
-    }
-
-    if (!empty($additionalData['billing_address_id'])) {
-        session()->put(
-            'billing_address_id',
-            $additionalData['billing_address_id']
+        PaymentStorefront::within(
+            additionalData: is_array($additionalData) ? $additionalData : [],
+            callback: static fn () => digital_payment_place_orders($paymentData),
         );
     }
 }
-  
 
-$requestObj = [
-    'customer_id' => $customerId,
-    'is_guest' => $additionalData['is_guest'] ?? 0,
+if (!function_exists('digital_payment_place_orders')) {
+    function digital_payment_place_orders($paymentData): void
+    {
+        if (!isset($paymentData) || $paymentData['is_paid'] != 1) {
+            return;
+        }
 
-    'guest_id' => ($additionalData['is_guest_in_order'] ?? 0)
-        ? $customerId
-        : null,
+        // A gateway delivers a callback more than once and a recovery asks again: one payment builds one order.
+        if (PaymentSettlementScope::hasOrderFor(transactionId: $paymentData['transaction_id'] ?? null)) {
+            return;
+        }
 
-    'payment_request_from' =>
-        $additionalData['payment_mode'] ?? 'web',
-];
+        $additionalData = json_decode($paymentData['additional_data'], true);
 
-request()->merge($requestObj);
+        $newCustomer = null;
+        $newCustomerInfo = $additionalData['new_customer_info'] ?? null;
 
+        if ($newCustomerInfo) {
+            $newCustomer = User::where(['email' => $newCustomerInfo['email']])->orWhere(['phone' => $newCustomerInfo['phone']])->first()
+                ?? User::create([
+                    'name' => $newCustomerInfo['name'],
+                    'f_name' => $newCustomerInfo['name'],
+                    'l_name' => $newCustomerInfo['l_name'],
+                    'email' => $newCustomerInfo['email'],
+                    'phone' => $newCustomerInfo['phone'],
+                    'is_active' => 1,
+                    'password' => bcrypt($newCustomerInfo['password']),
+                    'referral_code' => $newCustomerInfo['referral_code'],
+                ]);
 
+            if ($additionalData['is_guest']) {
+                foreach ([$additionalData['address_id'] ?? null, $additionalData['billing_address_id'] ?? null] as $guestAddressId) {
+                    ShippingAddress::where(['customer_id' => $additionalData['customer_id'], 'is_guest' => 1, 'id' => $guestAddressId])
+                        ->update(['customer_id' => $newCustomer['id'], 'is_guest' => 0]);
+                }
+            }
+        }
+
+        session()->put('payment_mode', $additionalData['payment_mode'] ?? 'web');
+
+        $customerId = $additionalData['customer_id'] ?? null;
+        $isGuestInOrder = ($additionalData['is_guest_in_order'] ?? 0) == 1;
+
+        // Some gateways call back once the session is gone, and a guest's customer_id can then be missing from the payment.
+        // The address of a guest keeps the id the cart was made under.
+        if ($isGuestInOrder && empty($customerId) && !empty($additionalData['address_id'])) {
+            $customerId = ShippingAddress::where('id', $additionalData['address_id'])->value('customer_id');
+        }
+
+        if ($isGuestInOrder && empty($customerId)) {
+            throw new \RuntimeException('Guest customer ID could not be resolved for digital payment.');
+        }
+
+        // Who pays comes from the stored payment alone. The request that delivers the callback names nobody: it can be a gateway's
+        // server call, a replay, the browser of another customer, or one of many payments a recovery settles in one process.
+        $registeredPayer = isset($additionalData['is_guest']) && $additionalData['is_guest'] == 0
+            ? User::where(['id' => $customerId])->first()
+            : null;
+        $guestId = $registeredPayer === null && !empty($customerId) ? $customerId : null;
+
+        $requestObj = [
+            'customer_id' => $customerId,
+            'is_guest' => $additionalData['is_guest'] ?? 0,
+            'guest_id' => $guestId,
+            'payment_request_from' => $additionalData['payment_mode'] ?? 'web',
+        ];
+        request()->merge($requestObj + ['user' => $registeredPayer]);
+
+        $settlement = new PaymentSettlementScope(
+            registeredPayer: $registeredPayer,
+            guestId: $guestId,
+            addressId: $additionalData['address_id'] ?? null,
+            billingAddressId: $additionalData['billing_address_id'] ?? null,
+            newCustomer: $newCustomer,
+        );
+
+        $settlement->run(function () use ($additionalData, $paymentData, $newCustomer, $customerId, $isGuestInOrder, $requestObj) {
             $orderIds = OrderManager::generateOrder(data: [
-
-
-
-
-
-            
-                'is_guest' => $additionalData['is_guest_in_order'] ?? 0,
-               'guest_id' => ($additionalData['is_guest_in_order'] ?? 0)
-    ? $customerId
-    : null,
-
-'customer_id' => $customerId,
+                'is_guest' => $isGuestInOrder ? 1 : 0,
+                'guest_id' => $isGuestInOrder ? $customerId : null,
+                'customer_id' => $customerId,
                 'order_status' => 'confirmed',
                 'payment_method' => $paymentData['payment_method'],
                 'payment_status' => 'paid',
                 'transaction_ref' => $paymentData['transaction_id'],
-                'new_customer_id' => $addCustomer ? $addCustomer['id'] : ($additionalData['new_customer_id'] ?? null),
-                'newCustomerRegister' => $addCustomer,
+                'new_customer_id' => $newCustomer ? $newCustomer['id'] : ($additionalData['new_customer_id'] ?? null),
+                'newCustomerRegister' => $newCustomer,
 
                 'order_note' => $additionalData['order_note'],
                 'coupon_code' => $additionalData['coupon_code'] ?? null,
@@ -167,40 +137,14 @@ request()->merge($requestObj);
                 'stock_policy' => 'allow_oversell',
             ]);
 
-
-file_put_contents(
-    storage_path('logs/order_generate_test.txt'),
-
-    "customer_id: " . var_export($customerId ?? null, true) . "\n"
-    . "guest_id: " . var_export(
-        ($additionalData['is_guest_in_order'] ?? 0)
-            ? ($customerId ?? null)
-            : null,
-        true
-    ) . "\n"
-    . "is_guest: " . var_export(
-        $additionalData['is_guest_in_order'] ?? 0,
-        true
-    ) . "\n"
-    . "address_id: " . var_export(
-        $additionalData['address_id'] ?? null,
-        true
-    ) . "\n"
-    . "orderIds: " . var_export($orderIds, true) . "\n"
-    . "--------------------------\n",
-
-    FILE_APPEND
-);
-
-
-
-
-
+            if ($orderIds === []) {
+                Log::critical('A paid payment was settled without building an order.', ['transaction_id' => $paymentData['transaction_id'], 'customer_id' => $customerId]);
+            }
 
             foreach ($orderIds as $orderId) {
                 OrderManager::generateReferBonusForFirstOrder(orderId: $orderId);
             }
-        }
+        });
     }
 }
 
@@ -715,7 +659,8 @@ if (!function_exists('getCheckAddonPublishedStatus')) {
 if (!function_exists('getTaxModuleSystemTypesConfig')) {
     function getTaxModuleSystemTypesConfig($getTaxVatList = true, $tax_payer = 'vendor'): array
     {
-        $cacheKey = "tax_system_type_{$tax_payer}_" . ($getTaxVatList ? 'with_vat' : 'no_vat');
+        $storefrontTax = app(StorefrontTax::class);
+        $cacheKey = $storefrontTax->cacheKey(payer: $tax_payer, withVat: $getTaxVatList);
 
         $cacheKeys = Cache::get('cache_tax_system_types_and_config', []);
         if (!in_array($cacheKey, $cacheKeys)) {
@@ -723,15 +668,9 @@ if (!function_exists('getTaxModuleSystemTypesConfig')) {
             Cache::put('cache_tax_system_types_and_config', $cacheKeys, 60 * 60 * 24 * 7);
         }
 
-        return Cache::remember($cacheKey, now()->addMinutes(30), function () use ($getTaxVatList, $tax_payer) {
+        return Cache::remember($cacheKey, now()->addMinutes(30), function () use ($getTaxVatList, $tax_payer, $storefrontTax) {
             if (getCheckAddonPublishedStatus('TaxModule')) {
-                $systemTaxVat = SystemTaxSetup::where('is_active', 1)
-                    ->with(['additionalData' => function ($query) {
-                        return $query->where('is_active', 1);
-                    }])
-                    ->where('tax_payer', $tax_payer)
-                    ->where('is_default', 1)
-                    ->first();
+                $systemTaxVat = $storefrontTax->setupInForce(payer: $tax_payer);
 
                 if (!$systemTaxVat) {
                     $systemTaxVat = SystemTaxSetup::create([

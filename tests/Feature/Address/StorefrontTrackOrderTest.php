@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Address;
 
+use App\Http\Controllers\Web\UserProfileController;
 use App\Models\ShippingAddress;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -9,8 +10,9 @@ use Illuminate\Support\Facades\Schema;
 use Tests\Support\BuildsStorefrontOrderPages;
 
 /**
- * Looking a guest order up by its number and phone (track-order/result): the phone the order was placed with opens it, whatever
- * became of the saved address it was made from.
+ * Looking an order up by its number and phone (track-order/result): the phone the order was placed with opens a guest order, whatever
+ * became of the saved address it was made from, and the phone of the customer who placed it opens a registered customer's order. A
+ * piece of that phone, or a pattern that matches it, opens nothing.
  */
 class StorefrontTrackOrderTest extends StorefrontTestCase
 {
@@ -47,6 +49,15 @@ class StorefrontTrackOrderTest extends StorefrontTestCase
             'id' => $id, 'customer_id' => 9, 'is_guest' => 1, 'order_type' => 'default_type', 'order_status' => 'pending', 'payment_status' => 'paid',
             'shipping_address' => $shippingAddressId, 'shipping_address_data' => $shipping === null ? null : json_encode($shipping), 'created_at' => now(), 'updated_at' => now(),
         ]);
+    }
+
+    private function placeCustomerOrder(int $id, string $customerPhone, ?int $customerId = null): int
+    {
+        $customer = $this->makeCustomer(array_filter(['id' => $customerId, 'phone' => $customerPhone]));
+        $this->makeOrderKeeping(shipping: ['phone' => '+966559999999', 'address' => 'Street'], customerId: $customer->id, id: $id);
+        DB::table('order_details')->insert(['order_id' => $id, 'qty' => 1, 'price' => 10, 'created_at' => now(), 'updated_at' => now()]);
+
+        return $customer->id;
     }
 
     private function track(int $orderId, ?string $phone): \Illuminate\Testing\TestResponse
@@ -117,5 +128,134 @@ class StorefrontTrackOrderTest extends StorefrontTestCase
 
         $this->track(304, '+966551234567')->assertOk()->assertSee('TRACKING PAGE OF ORDER 304');
         $this->track(304, '+966550000000')->assertRedirect();
+    }
+
+    public function test_the_phone_a_customer_registered_with_opens_the_order_they_placed(): void
+    {
+        $this->placeCustomerOrder(400, '+966551234567');
+
+        $this->track(400, '+966551234567')->assertOk()->assertSee('TRACKING PAGE OF ORDER 400');
+        $this->track(400, '551234567')->assertOk()->assertSee('TRACKING PAGE OF ORDER 400');
+    }
+
+    public function test_the_same_saudi_number_written_another_way_opens_the_order_of_the_customer(): void
+    {
+        $this->placeCustomerOrder(401, '+966551234567');
+
+        $this->track(401, '0551234567')->assertOk()->assertSee('TRACKING PAGE OF ORDER 401');
+        $this->track(401, '00966 55 123 4567')->assertOk();
+        $this->track(401, '0551234568')->assertRedirect();
+    }
+
+    public function test_the_phone_without_the_trunk_zero_the_customer_registered_with_opens_their_order(): void
+    {
+        $this->placeCustomerOrder(id: 406, customerPhone: '+9630912345678');
+
+        $this->track(orderId: 406, phone: '+963912345678')->assertOk()->assertSee('TRACKING PAGE OF ORDER 406');
+        $this->track(orderId: 406, phone: '+9630912345679')->assertRedirect();
+        $this->track(orderId: 406, phone: '+963')->assertRedirect();
+    }
+
+    public function test_a_phone_registered_in_digits_of_another_script_is_not_opened_by_its_country_code_alone(): void
+    {
+        $this->placeCustomerOrder(id: 407, customerPhone: '+971٥٠١٢٣٤٥٦٧');
+
+        $this->track(orderId: 407, phone: '+971')->assertRedirect();
+        $this->track(orderId: 407, phone: '+971501234567')->assertOk()->assertSee('TRACKING PAGE OF ORDER 407');
+    }
+
+    public function test_a_phone_registered_in_digits_of_a_script_that_is_not_read_opens_nothing(): void
+    {
+        $this->placeCustomerOrder(id: 408, customerPhone: '+880১৭১২৩৪৫৬৭৮');
+
+        $this->track(orderId: 408, phone: '+880')->assertRedirect();
+        $this->track(orderId: 408, phone: '+8801712345678')->assertRedirect();
+    }
+
+    public function test_a_piece_of_the_phone_or_a_pattern_opens_nothing(): void
+    {
+        $this->placeCustomerOrder(402, '+966551234567');
+
+        foreach (['%', '_', '%%%%', '+9665%', '+96655', '551234', '1234567', '+96655123456_'] as $notThePhone) {
+            $this->track(402, $notThePhone)->assertRedirect(route('track-order.index', ['order_id' => 402, 'phone_number' => $notThePhone]));
+        }
+    }
+
+    public function test_the_phone_of_another_customer_opens_nothing(): void
+    {
+        $this->placeCustomerOrder(403, '+966551234567');
+        $this->makeCustomer(['phone' => '+966550000000']);
+
+        $this->track(403, '+966550000000')->assertRedirect();
+    }
+
+    public function test_a_phone_of_another_country_opens_the_order_by_its_digits_and_not_by_a_piece(): void
+    {
+        $this->placeCustomerOrder(404, '+15005550006');
+
+        $this->track(404, '+15005550006')->assertOk()->assertSee('TRACKING PAGE OF ORDER 404');
+        $this->track(404, '+1 (500) 555-0006')->assertOk();
+        $this->track(404, '5550006')->assertRedirect();
+        $this->track(404, '%')->assertRedirect();
+    }
+
+    public function test_an_order_that_does_not_exist_opens_for_nobody(): void
+    {
+        $this->makeCustomer(['phone' => '+966551234567']);
+
+        $this->track(405, '+966551234567')->assertRedirect();
+        $this->track(405, '%')->assertRedirect();
+    }
+
+    public function test_opening_an_order_with_its_phone_marks_it_verified_for_this_session(): void
+    {
+        $this->placeGuestOrder(307, ['phone' => '+966551234567', 'address' => 'Street']);
+
+        $this->track(307, '+966551234567')->assertOk()->assertSessionHas(UserProfileController::VERIFIED_TRACKING_ORDER_SESSION_KEY, 307);
+    }
+
+    public function test_a_wrong_phone_or_unknown_order_marks_nothing_verified(): void
+    {
+        $this->placeGuestOrder(308, ['phone' => '+966551234567', 'address' => 'Street']);
+
+        $this->track(308, '+966550000000')->assertRedirect()->assertSessionMissing(UserProfileController::VERIFIED_TRACKING_ORDER_SESSION_KEY);
+        $this->track(999999, '+966551234567')->assertRedirect()->assertSessionMissing(UserProfileController::VERIFIED_TRACKING_ORDER_SESSION_KEY);
+    }
+
+    public function test_a_registered_customers_full_phone_opens_their_order_and_marks_it_verified(): void
+    {
+        $this->placeCustomerOrder(id: 310, customerId: 21, customerPhone: '+966551234567');
+
+        $this->track(310, '+966551234567')->assertOk()->assertSee('TRACKING PAGE OF ORDER 310')
+            ->assertSessionHas(UserProfileController::VERIFIED_TRACKING_ORDER_SESSION_KEY, 310);
+    }
+
+    public function test_a_registered_customers_phone_written_another_way_still_opens_their_order(): void
+    {
+        $this->placeCustomerOrder(id: 311, customerId: 22, customerPhone: '+966551234567');
+
+        $this->track(311, '055 123 4567')->assertOk()->assertSessionHas(UserProfileController::VERIFIED_TRACKING_ORDER_SESSION_KEY, 311);
+    }
+
+    public function test_part_of_a_registered_customers_phone_opens_nothing_and_marks_nothing_verified(): void
+    {
+        $this->placeCustomerOrder(id: 312, customerId: 23, customerPhone: '+966551234567');
+
+        $response = $this->track(312, '4567');
+
+        $response->assertSessionMissing(UserProfileController::VERIFIED_TRACKING_ORDER_SESSION_KEY);
+        $response->assertRedirect(route('track-order.index', ['order_id' => 312, 'phone_number' => '4567']));
+        $response->assertDontSee('TRACKING PAGE OF ORDER 312');
+    }
+
+    public function test_another_customers_full_phone_opens_nothing_and_marks_nothing_verified(): void
+    {
+        $this->placeCustomerOrder(id: 313, customerId: 24, customerPhone: '+966551234567');
+        DB::table('users')->insert(['id' => 25, 'f_name' => 'Other', 'phone' => '+9665512345', 'created_at' => now(), 'updated_at' => now()]);
+
+        $response = $this->track(313, '+9665512345');
+
+        $response->assertSessionMissing(UserProfileController::VERIFIED_TRACKING_ORDER_SESSION_KEY);
+        $response->assertRedirect(route('track-order.index', ['order_id' => 313, 'phone_number' => '+9665512345']));
     }
 }

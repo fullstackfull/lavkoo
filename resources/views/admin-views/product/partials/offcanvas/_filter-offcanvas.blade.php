@@ -31,6 +31,9 @@
                 if (request('type') == 'vendor' && (!in_array(request('request_status', ''), [1]))) {
                     $filterSections = ['sorting', 'product_type', 'brand', 'category'];
                 }
+                if (\App\Services\Storefront\ProductCountry::isTracked()) {
+                    $filterSections[] = 'storefront_country';
+                }
             @endphp
 
             @if(request()->has('request_status'))

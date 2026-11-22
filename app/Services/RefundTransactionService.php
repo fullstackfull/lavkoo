@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Services\Storefront\RefundOrderMoney;
+
 class RefundTransactionService
 {
     public function getData(object $request, object $refund, object $order): array
@@ -19,7 +21,7 @@ class RefundTransactionService
             'transaction_type' => 'Refund',
             'order_details_id' => $refund['order_details_id'],
             'refund_id' => $refund['id'],
-        ];
+        ] + app(RefundOrderMoney::class)->of(order: $order, table: 'refund_transactions');
     }
 
     public function getPDFData(string $companyPhone, string $companyEmail, string $companyName, string $companyWebLogo, object $refundTransactions): array

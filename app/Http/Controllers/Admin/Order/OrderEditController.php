@@ -8,6 +8,7 @@ use App\Contracts\Repositories\OrderDetailsRewardsRepositoryInterface;
 use App\Contracts\Repositories\ProductRepositoryInterface;
 use App\Contracts\Repositories\PublishingHouseRepositoryInterface;
 use App\Services\CartService;
+use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Services\OrderEditService;
 use App\Services\ProductService;
 use App\Traits\OrderEditManager;
@@ -54,6 +55,7 @@ use App\Contracts\Repositories\DeliveryCountryCodeRepositoryInterface;
 use App\Contracts\Repositories\DeliveryManTransactionRepositoryInterface;
 use App\Contracts\Repositories\LoyaltyPointTransactionRepositoryInterface;
 use App\Contracts\Repositories\OrderExpectedDeliveryHistoryRepositoryInterface;
+use App\Services\Catalog\ProductCodeScope;
 
 class OrderEditController extends BaseController
 {
@@ -92,6 +94,7 @@ class OrderEditController extends BaseController
         private readonly OrderDetailsRewardsRepositoryInterface          $orderDetailsRewardsRepo,
     )
     {
+        $this->middleware(ScopeOrdersToStaffCountries::class);
     }
 
     public function index(?Request $request, ?string $type = null): View|Collection|LengthAwarePaginator|null|callable|RedirectResponse|JsonResponse
@@ -109,6 +112,7 @@ class OrderEditController extends BaseController
         $filters = [
             'added_by' => $order['seller_is'] == 'admin' ? 'in_house' : $order['seller_is'],
             'seller_id' => $order['seller_is'] == 'admin' ? '' : $order['seller_id'],
+            'storefront_country' => app(ProductCodeScope::class)->countryOfOrder(orderId: $order['id']),
         ];
 
         $products = $this->productRepo->getListWithScope(

@@ -17,6 +17,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 use Maatwebsite\Excel\Facades\Excel;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -156,7 +157,8 @@ class WithdrawController extends BaseController
         $withdrawRequests = $this->withdrawRequestRepo->getListWhere(
             filters: [
                 'vendorId' => $vendorId,
-                'status' => $request['status']
+                'status' => $request['status'],
+                'whereNull' => 'delivery_man_id',
             ],
             relations: ['seller'],
             dataLimit: getWebConfig('pagination_limit')
@@ -175,16 +177,29 @@ class WithdrawController extends BaseController
     public function closeWithdrawRequest(string|int $id): RedirectResponse
     {
         // Scope the lookup to the signed-in seller: without it, passing another seller's request id
-        // credited THIS seller's wallet with that request's amount (cross-vendor wallet theft).
-        $withdrawRequest = $this->withdrawRequestRepo->getFirstWhere(params: ['id' => $id, 'seller_id' => auth('seller')->id()]);
+        // credited THIS seller's wallet with that request's amount (cross-vendor wallet theft). A delivery man's request carries the
+        // seller's id too, but it is paid out of the driver's wallet, so it is not the seller's to close.
+        $withdrawRequest = $this->withdrawRequestRepo->getFirstWhere(params: ['id' => $id, 'seller_id' => auth('seller')->id(), 'delivery_man_id' => null]);
         if (!$withdrawRequest) {
             ToastMagic::error(message: translate('invalid_withdraw_request'));
             return redirect()->back();
         }
-        $wallet = $this->vendorWalletRepo->getFirstWhere(params: ['seller_id' => auth('seller')->id()]);
-        if ($withdrawRequest['approved'] == 0) {
-            $totalEarning = $wallet['total_earning'] + $withdrawRequest['amount'];
-            $pendingWithdraw = $wallet['pending_withdraw'] - $withdrawRequest['amount'];
+        $isClosed = $withdrawRequest['approved'] == 0 && DB::transaction(function () use ($withdrawRequest) {
+            $wallet = $this->vendorWalletRepo->getFirstWhereForUpdate(params: ['seller_id' => auth('seller')->id()]);
+            $pendingRequest = $this->withdrawRequestRepo->getFirstWhereForUpdate(
+                params: ['id' => $withdrawRequest['id'], 'seller_id' => auth('seller')->id(), 'approved' => 0]
+            );
+            if (!$pendingRequest) {
+                return false;
+            }
+            $isRequestDeleted = $this->withdrawRequestRepo->delete(
+                params: ['id' => $withdrawRequest['id'], 'seller_id' => auth('seller')->id(), 'approved' => 0]
+            );
+            if (!$isRequestDeleted) {
+                return false;
+            }
+            $totalEarning = $wallet['total_earning'] + $pendingRequest['amount'];
+            $pendingWithdraw = $wallet['pending_withdraw'] - $pendingRequest['amount'];
             $this->vendorWalletRepo->update(
                 id: $wallet['id'],
                 data: $this->vendorWalletService->getVendorWalletData(
@@ -192,7 +207,9 @@ class WithdrawController extends BaseController
                     pendingWithdraw: $pendingWithdraw
                 )
             );
-            $this->withdrawRequestRepo->delete(['id' => $withdrawRequest['id']]);
+            return true;
+        });
+        if ($isClosed) {
             ToastMagic::success(message: translate('withdraw_request_closed') . '!');
         } else {
             ToastMagic::error(message: translate('invalid_withdraw_request'));
@@ -209,7 +226,8 @@ class WithdrawController extends BaseController
             searchValue: requestString('searchValue') ?: null,
             filters: [
                 'vendorId' => $vendorId,
-                'status' => $request['status']
+                'status' => $request['status'],
+                'whereNull' => 'delivery_man_id',
             ],
             relations: ['seller'],
             dataLimit: 'all'

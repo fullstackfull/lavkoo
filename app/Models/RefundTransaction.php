@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\StaffCountryRefundScope;
+use App\Services\Staff\StaffCountryScope;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -41,6 +43,10 @@ class RefundTransaction extends Model
         'created_at',
         'updated_at',
         'refund_id',
+        'storefront_country',
+        'currency_code',
+        'currency_rate',
+        'legal_entity_id',
     ];
 
     protected $casts = [
@@ -57,6 +63,11 @@ class RefundTransaction extends Model
         'transaction_type' => 'string',
         'refund_id' => 'string'
     ];
+
+    protected static function booted(): void
+    {
+        static::addGlobalScope(new StaffCountryRefundScope(subject: StaffCountryScope::SUBJECT_REFUND_TRANSACTIONS));
+    }
 
     public function orderDetails(): BelongsTo
     {

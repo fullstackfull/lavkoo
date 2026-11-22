@@ -4,6 +4,7 @@ namespace App\Traits;
 
 use App\Events\OrderEditDuePaymentEvent;
 use App\Events\OrderEditEvent;
+use App\Exceptions\WalletDebitRefusedException;
 use App\Library\Payer;
 use App\Library\Payment as PaymentInfo;
 use App\Library\Receiver;
@@ -23,11 +24,14 @@ use App\Models\ShippingMethod;
 use App\Models\ShippingType;
 use App\Models\User;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
+use App\Services\OrderEditService;
+use App\Services\Storefront\StorefrontCurrency;
 use App\Utils\CartManager;
 use App\Utils\CustomerManager;
 use App\Utils\Helpers;
 use App\Utils\OrderManager;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 use Modules\TaxModule\app\Models\OrderTax;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
 
@@ -92,6 +96,11 @@ trait OrderEditManager
 
     public static function checkFreeDeliveryOrderAmountArray(object|array $request = [], object|array $order = [], object|array $editedOrder = [], object|array $data = []): array
     {
+        return app(StorefrontCurrency::class)->withinOrder(order: $order, callback: fn (): array => self::freeDeliveryOrderAmountArrayInOrderMoney(request: $request, order: $order, editedOrder: $editedOrder, data: $data));
+    }
+
+    private static function freeDeliveryOrderAmountArrayInOrderMoney(object|array $request = [], object|array $order = [], object|array $editedOrder = [], object|array $data = []): array
+    {
         $freeDeliveryData = [
             'amount' => 0, // free delivery amount
             'percentage' => 0, // completed percentage
@@ -147,6 +156,11 @@ trait OrderEditManager
 
     public static function getEditOrderTotalShippingCost($order, $editedOrder): float|int
     {
+        return app(StorefrontCurrency::class)->withinOrder(order: $order, callback: fn (): float|int => self::editOrderTotalShippingCostInOrderMoney(order: $order, editedOrder: $editedOrder));
+    }
+
+    private static function editOrderTotalShippingCostInOrderMoney($order, $editedOrder): float|int
+    {
         $shippingMethod = getWebConfig(name: 'shipping_method');
         $adminShipping = ShippingType::where('seller_id', 0)->first();
 
@@ -182,8 +196,10 @@ trait OrderEditManager
         foreach (collect($order->details ?? []) as $detail) {
             $this->adjustProductStock($detail['product_id'] ?? null, $detail['variant'] ?? null, (int)($detail['qty'] ?? 0), 'increment');
         }
-        $keepIds = [];
-        $totalPrice = 0;
+        // A line without a product is kept as it is, with its rewards: it is never written, and it counts in the total the rewards are shared over.
+        $linesWithoutProduct = collect($order->details ?? [])->filter(fn ($detail) => empty($detail['product_id']));
+        $keepIds = $linesWithoutProduct->pluck('id')->all();
+        $totalPrice = $linesWithoutProduct->sum(fn ($detail) => $detail['price'] * $detail['qty'] - $detail['discount']);
         $rewardsData = [];
         $taxList = collect($taxSummary['applied_tax_cart_list'] ?? []);
         $now = Carbon::now();
@@ -299,11 +315,31 @@ trait OrderEditManager
         });
     }
 
+    /** The pages and the routes that print the summary's total read it from a refused summary too: it names the total the order holds, since nothing was priced. */
+    private function getRefusedEditOrderSummary(object|array $order, string $message): array
+    {
+        return ['status' => 'error', 'message' => $message, 'order_amount' => $order['order_amount'] ?? 0];
+    }
+
     public function generateEditOrderSummary(object|array $request = [], object|array $order = [], object|array $editedOrder = [], object|array $data = []): array
     {
+        if (!app(OrderEditService::class)->areEditedLinesAllowedOnOrder(order: $order, editedLines: $editedOrder)) {
+            return $this->getRefusedEditOrderSummary(order: $order, message: translate('Product_is_unavailable'));
+        }
+
+        $linesWithoutProductRefusal = app(OrderEditService::class)->getRefusalOfLinesWithoutProduct(order: $order, editedLines: $editedOrder);
+        if ($linesWithoutProductRefusal !== null) {
+            return $this->getRefusedEditOrderSummary(order: $order, message: $linesWithoutProductRefusal);
+        }
+
         $productList = Product::whereIn('id', collect($editedOrder)->pluck('product_id')->toArray())->get();
 
         foreach ($editedOrder as $details) {
+            // A line without a product takes no stock: the edit keeps it as it is.
+            if (empty($details['product_id'])) {
+                continue;
+            }
+
             $product = json_decode($details['product_details'] ?? '', true);
             $activeProduct = $productList?->firstWhere('id', $details['product_id']) ?? $product;
             $currentStock = max(0, $activeProduct['current_stock']);
@@ -322,10 +358,7 @@ trait OrderEditManager
             }
 
             if ($currentStock <= 0) {
-                return [
-                    'status' => 'error',
-                    'message' => translate('Out of stock'),
-                ];
+                return $this->getRefusedEditOrderSummary(order: $order, message: translate('Out of stock'));
             }
         }
 
@@ -377,7 +410,7 @@ trait OrderEditManager
             $orderDueAmount = $orderAmount - $initOrderAmount;
         }
 
-        $taxConfig = self::getTaxSystemType();
+        $taxConfig = self::getTaxSystemTypeOfOrder(order: $order);
 
         $adminCommission = (float)str_replace(",", "", Helpers::seller_sales_commission($order['seller_is'], $order['seller_id'], $couponSummary['total_cart_amount']));
 
@@ -433,6 +466,11 @@ trait OrderEditManager
 
     public function checkEditOrderMinimumOrderAmount(object|array $order = [], int|float|null $totalCartAmount = 0, object|array $data = []): array
     {
+        return app(StorefrontCurrency::class)->withinOrder(order: $order, callback: fn (): array => $this->minimumOrderAmountOfEditInOrderMoney(order: $order, totalCartAmount: $totalCartAmount, data: $data));
+    }
+
+    private function minimumOrderAmountOfEditInOrderMoney(object|array $order = [], int|float|null $totalCartAmount = 0, object|array $data = []): array
+    {
         $status = 'success';
         $amount = 0;
         $message = translate('Minimum_Order_Amount_Requirement_Completed');
@@ -470,6 +508,19 @@ trait OrderEditManager
         ];
     }
 
+    /**
+     * The page's rule for offering the edit (OrderEditService::checkIsOrderEditable), asked of the writer too: the routes of the vendor panel and of
+     * the seller app take any order of the seller, whatever its page would offer. An edit that does not say it is the admin's is held to the sellers' rule.
+     *
+     * @return array{status: bool, message: string}
+     */
+    private function checkOrderIsEditableByTheEditor(object $order, object|array $data): array
+    {
+        $order->loadMissing(['details', 'latestEditHistory']);
+
+        return app(OrderEditService::class)->checkIsOrderEditable(order: $order, type: ($data['edit_by'] ?? null) === 'admin' ? 'admin' : 'vendor');
+    }
+
     public function generateEditOrder(object|array $request = [], object|array $order = [], object|array $editedOrder = [], object|array $data = []): array
     {
         // Admin panel, vendor panel and seller API all save an edit through here. A provider-owned line cannot be
@@ -479,10 +530,13 @@ trait OrderEditManager
             return ['status' => 'error', 'message' => $providerBlock];
         }
 
-        $editOrderSummary = $this->generateEditOrderSummary(request: $request, order: $order, editedOrder: $editedOrder, data: $data);
+        // Nor can an order the page does not offer the edit for (its status, its type, only digital products, the sellers' switch, an unpaid offline payment).
+        $editable = $this->checkOrderIsEditableByTheEditor(order: $order, data: $data);
+        if (!$editable['status']) {
+            return ['status' => 'error', 'message' => $editable['message']];
+        }
 
-        $orderData = $editOrderSummary['order_data'];
-        $couponSummary = $editOrderSummary['coupon_summary'];
+        $editOrderSummary = $this->generateEditOrderSummary(request: $request, order: $order, editedOrder: $editedOrder, data: $data);
 
         if ($editOrderSummary['status'] != 'success') {
             return [
@@ -490,6 +544,9 @@ trait OrderEditManager
                 'message' => $editOrderSummary['message'],
             ];
         }
+
+        $orderData = $editOrderSummary['order_data'];
+        $couponSummary = $editOrderSummary['coupon_summary'];
 
         $minimumOrderAmount = $this->checkEditOrderMinimumOrderAmount(order: $order, totalCartAmount: $couponSummary['total_cart_amount'], data: $data);
         if ($minimumOrderAmount['status'] == 'error') {
@@ -513,11 +570,27 @@ trait OrderEditManager
             }
         }
 
-        $taxConfig = self::getTaxSystemType();
+        DB::transaction(function () use ($order, $editedOrder, $editOrderSummary, $data) {
+            $this->writeEditedOrder(order: $order, editedOrder: $editedOrder, editOrderSummary: $editOrderSummary, data: $data);
+            DB::afterCommit(fn () => $this->dispatchOrderEditNotifications(order: $order, data: $data));
+        });
+
+        return [
+            'status' => 'success',
+            'message' => translate('Order_Edit_Successfully'),
+        ];
+    }
+
+    /** Every write of a saved edit, for the caller to make as one: an edit that fails halfway must leave the order, its lines, its stock and its records as they were. */
+    private function writeEditedOrder(object $order, object|array $editedOrder, array $editOrderSummary, object|array $data): void
+    {
+        $orderData = $editOrderSummary['order_data'];
+
+        $taxConfig = self::getTaxSystemTypeOfOrder(order: $order);
         OrderTax::where('order_id', $order['id'])->where('tax_for', 'tax_for_orders')->delete();
         self::updateEditOrderTaxAmount(order: $order, taxConfig: $taxConfig, taxSummary: $editOrderSummary['tax_summary']);
 
-        Order::where('id', $order->id)->update($editOrderSummary['order_data']);
+        Order::where('id', $order->id)->update($orderData);
 
         self::addAndUpdateProductsInOrderDetails(order: $order, editedOrder: $editedOrder, taxSummary: $editOrderSummary['tax_summary']);
 
@@ -544,7 +617,11 @@ trait OrderEditManager
             'delivery_charge' => $orderData['shipping_cost'] - $orderData['extra_discount'],
             'tax' => $orderData['total_tax_amount'],
         ]);
+    }
 
+    /** Sent once the edit is committed: a listener, or a queued job, that ran before it would read an order that is not edited yet, or never will be. */
+    private function dispatchOrderEditNotifications(object $order, object|array $data): void
+    {
         $orderEditNotificationEvent = OrderManager::getEditOrderNotificationInfo(
             vendorType: $order['seller_is'],
             vendorId: $order['seller_id'],
@@ -558,11 +635,6 @@ trait OrderEditManager
                 event(new OrderEditEvent(notification: $orderEditEvent['notificationData']));
             }
         }
-
-        return [
-            'status' => 'success',
-            'message' => translate('Order_Edit_Successfully'),
-        ];
     }
 
     public function updateEditOrderTaxAmount(object|array $request = [], object|array $order = [], object|array|null $taxConfig = [], object|array $taxSummary = []): void
@@ -639,7 +711,7 @@ trait OrderEditManager
 
     public function calculateEditOrderTaxAmount(object|array $request = [], object|array $order = [], object|array $editedOrder = [], object|array $couponSummary = [], object|array $data = []): array
     {
-        $taxConfig = self::getTaxSystemType();
+        $taxConfig = self::getTaxSystemTypeOfOrder(order: $order);
 
         $totalDiscountOnProduct = 0;
         if ($data['is_shipping_free'] == 1) {
@@ -662,14 +734,15 @@ trait OrderEditManager
             if ($editedItem['active_product']) {
                 $totalDiscountPrice = ($editedItem['price'] - $editedItem['discount']) * $editedItem['qty'];
                 $appliedDiscountAmount = $totalDiscountOnProduct > 0 ? ($totalDiscountOnProduct * $totalDiscountPrice) / $totalDiscountProductPrice : 0;
-                $appliedTaxAmount = CartManager::getAppliedTaxAmount(
+                // A line without a product keeps the tax the order stored for it, none: an edit of an order whose such line carries tax is refused.
+                $appliedTaxAmount = empty($editedItem['product_id']) ? 0 : CartManager::getAppliedTaxAmount(
                     product: $editedItem['active_product'],
                     taxConfig: $taxConfig,
                     totalDiscountedPrice: $totalDiscountPrice,
                     appliedDiscountedAmount: $appliedDiscountAmount,
                 );
 
-                $appliedTaxIds = CartManager::getAppliedTaxIds(
+                $appliedTaxIds = empty($editedItem['product_id']) ? [] : CartManager::getAppliedTaxIds(
                     product: $editedItem['active_product'],
                     taxConfig: $taxConfig
                 );
@@ -708,32 +781,56 @@ trait OrderEditManager
         return $data;
     }
 
+    /**
+     * Pays the due of an edited order from the customer's own wallet, completely or not at all.
+     *
+     * The order row is locked and its due read again under the lock, so a second submission, or a concurrent one, finds nothing left
+     * to pay and debits nothing. The debit, the order, its edit history and the admin wallet are written in one transaction: a debit
+     * the wallet refuses leaves all of them as they were. Only the customer who owns the order may pay its due.
+     *
+     * @return array{status: bool, message: string}
+     */
     public function payEditOrderDueByCustomerWallet(object|array $order, object|array $customer): array
     {
-        if (($customer['wallet_balance'] ?? 0) < $order['edit_due_amount']) {
-            return [
-                'status' => false,
-                'message' => translate('Insufficient_Wallet_Balance')
-            ];
+        try {
+            return DB::transaction(function () use ($order, $customer) {
+                $lockedOrder = Order::query()
+                    ->where(['id' => $order['id'], 'customer_id' => $customer['id'], 'is_guest' => 0])
+                    ->lockForUpdate()
+                    ->first();
+                if (!$lockedOrder) {
+                    return ['status' => false, 'message' => translate('Order_not_found')];
+                }
+
+                $dueAmount = (float) $lockedOrder['edit_due_amount'];
+                if ($dueAmount <= 0) {
+                    return ['status' => false, 'message' => translate('No_due_amount_to_pay')];
+                }
+                if (($customer['wallet_balance'] ?? 0) < $dueAmount) {
+                    return ['status' => false, 'message' => translate('Insufficient_Wallet_Balance')];
+                }
+
+                $debit = CustomerManager::create_wallet_transaction($customer['id'], $dueAmount, 'due_payment_for_order', 'reduce_wallet_amount', ['payment_method' => 'wallet']);
+                if ($debit === false) {
+                    throw new WalletDebitRefusedException(customerId: $customer['id']);
+                }
+
+                AdminWallet::where(['admin_id' => 1])->increment('pending_amount', $dueAmount);
+                OrderEditHistory::where('id', $lockedOrder->latestEditHistory?->id)->update([
+                    'order_due_payment_status' => 'paid',
+                    'order_due_payment_method' => 'wallet',
+                ]);
+                Order::where('id', $lockedOrder['id'])->update([
+                    'edit_due_amount' => 0,
+                    'order_amount' => $lockedOrder['order_amount'] + $dueAmount,
+                    'payment_status' => 'paid'
+                ]);
+
+                return ['status' => true, 'message' => translate('Payment_Successful')];
+            });
+        } catch (WalletDebitRefusedException) {
+            return ['status' => false, 'message' => translate('Insufficient_Wallet_Balance')];
         }
-        CustomerManager::create_wallet_transaction($customer['id'], $order['edit_due_amount'], 'due_payment_for_order', 'reduce_wallet_amount', ['payment_method' => 'wallet']);
-        AdminWallet::where(['admin_id' => 1])->increment('pending_amount', $order['edit_due_amount']);
-        OrderEditHistory::where('id', $order?->latestEditHistory?->id)->update([
-            'order_due_payment_status' => 'paid',
-            'order_due_payment_method' => 'wallet',
-        ]);
-
-        Order::where('id', $order['id'])->update([
-            'edit_due_amount' => 0,
-            'order_amount' => $order['order_amount'] + $order['edit_due_amount'],
-            'payment_status' => 'paid'
-        ]);
-
-
-        return [
-            'status' => true,
-            'message' => translate('Payment_Successful')
-        ];
     }
 
     public function payEditOrderDueByDigitalPayment(object|array $request, object|array $order, object|array|string $customer): array

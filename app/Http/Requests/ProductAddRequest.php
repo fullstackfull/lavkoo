@@ -2,6 +2,8 @@
 
 namespace App\Http\Requests;
 
+use App\Services\Catalog\ProductCodeScope;
+use App\Services\Storefront\ProductCountry;
 use App\Traits\CalculatorTrait;
 use App\Traits\ResponseHandler;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -9,6 +11,7 @@ use Illuminate\Validation\Validator;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
 
 use App\Http\Requests\Concerns\ChecksBrandEntitlement;
+use App\Rules\StoredFileNames;
 
 class ProductAddRequest extends Request
 {
@@ -36,6 +39,8 @@ class ProductAddRequest extends Request
      */
     public function rules(): array
     {
+        $codeScope = app(ProductCodeScope::class);
+        $country = $this->countryOfNewProduct(codeScope: $codeScope);
         $rules = [
             'name' => 'required',
             'category_id' => 'required',
@@ -46,19 +51,30 @@ class ProductAddRequest extends Request
             'unit_price' => 'required' . '|' . 'numeric' . '|' . 'gt' . ':0',
             'discount' => 'required' . '|' . 'gt' . ':-1',
             'shipping_cost' => 'required_if' . ':' . 'product_type' . ',==,' . 'physical' . '|' . 'gt' . ':-1',
-       'code' => 'required|regex:/^[a-zA-Z0-9]+$/|unique:products,code',
-            // The barcode comes off a box, not from us: optional, and unique so two products can
-            // never answer the same scan.
-            'barcode' => 'nullable|regex:/^[a-zA-Z0-9\-]+$/|max:64|unique:products,barcode',
+            'code' => ['required', 'regex:/^[a-zA-Z0-9]+$/', $codeScope->uniqueRuleForCode(country: $country)],
+            // The barcode comes off a box, not from us: optional, and unique inside the country the product is
+            // saved in, so two products of one country can never answer the same scan.
+            'barcode' => ['nullable', 'regex:/^[a-zA-Z0-9\-]+$/', 'max:64', $codeScope->uniqueRuleForBarcode(country: $country)],
             'minimum_order_qty' => 'required' . '|' . 'numeric' . '|' . 'min' . ':1',
             'video_url' => 'nullable|url',
-        ];
+            // The names of files that were uploaded earlier (a copy from the product gallery posts them back): each is one plain name.
+            'existing_thumbnail' => [new StoredFileNames()],
+            'existing_images' => [new StoredFileNames()],
+            'existing_preview_file' => [new StoredFileNames()],
+            'existing_meta_image' => [new StoredFileNames()],
+        ] + StoredFileNames::forColorImages(fields: array_keys($this->all()));
 
         if (!isset($this['existing_thumbnail'])) {
             $rules['image'] = 'required';
         }
 
-        return $rules;
+        return $rules + ProductCountry::newProductRules();
+    }
+
+    /** The country the add action saves the product in: the admin's choice while countries are tracked, the default of the table for everything else. */
+    private function countryOfNewProduct(ProductCodeScope $codeScope): string
+    {
+        return $codeScope->countryOfNewProduct(addedBy: $this->is('admin/*') ? 'admin' : 'seller', requestedCountry: $this->input('storefront_country'));
     }
 
     public function messages(): array

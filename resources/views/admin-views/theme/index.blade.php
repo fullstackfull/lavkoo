@@ -2,7 +2,11 @@
 
 @section('title', translate('Theme_Management'))
 
+@use('App\Services\Storefront\ProductCountry')
+@use('App\Services\Theme\StorefrontThemeResolver')
+
 @section('content')
+    @php $storefrontThemes = app(StorefrontThemeResolver::class); @endphp
     <div class="content container-fluid">
         <div class="d-flex justify-content-between align-items-center gap-3 mb-3">
             <h2 class="h1 mb-0 text-capitalize">{{ translate('Theme_Management') }}</h2>
@@ -23,6 +27,8 @@
             </span>
         </div>
 
+        @include('admin-views.theme.partials._storefronts-served')
+
         <div class="row g-3">
             {{-- Create theme --}}
             <div class="col-lg-4">
@@ -39,6 +45,7 @@
                                 <label class="form-label">{{ translate('description') }}</label>
                                 <input type="text" name="description" class="form-control" value="{{ old('description') }}">
                             </div>
+                            @include('admin-views.theme.partials._storefront-field')
                             <button type="submit" class="btn btn-primary">{{ translate('create') }}</button>
                         </form>
                         <hr>
@@ -141,6 +148,9 @@
                                             <small class="text-muted"><code dir="ltr">{{ $theme->slug }}</code></small>
                                             @if($theme->is_system)
                                                 <span class="badge badge-soft-secondary">{{ translate('system') }}</span>
+                                            @endif
+                                            @if($storefrontThemes->keepsThemesByStorefront())
+                                                <span class="badge badge-soft-primary" dir="ltr" data-theme-storefront="{{ $storefrontThemes->storefrontOf(theme: $theme) }}">{{ ProductCountry::label(country: $storefrontThemes->storefrontOf(theme: $theme)) }}</span>
                                             @endif
 
                                             {{-- Said here, where there is width to say it, and before the

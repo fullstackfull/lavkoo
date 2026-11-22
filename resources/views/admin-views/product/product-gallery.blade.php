@@ -122,7 +122,7 @@
                                 </div>
                                 <div class="d-flex flex-column justify-content-between gap-3">
                                     <div>
-                                        <h3 class="text-capitalize mb-3 line-1">{{ $product['name'] }}</h3>
+                                        <h3 class="text-capitalize mb-3 line-1">{{ $product['name'] }}{{ app(\App\Services\Catalog\ProductCodeScope::class)->countryTag(product: $product) }}</h3>
                                         <h4 class="text-capitalize mb-2">{{ translate('General_Information') }}</h4>
                                         <table class="fs-12">
                                             <tbody>

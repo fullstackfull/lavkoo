@@ -10,6 +10,8 @@ use App\Contracts\Repositories\StorageRepositoryInterface;
 use App\Enums\Address\AddressChannel;
 use App\Events\CustomerRegistrationEvent;
 use App\Events\DigitalProductDownloadEvent;
+use App\Exceptions\PosSaleReplayedException;
+use App\Exceptions\WalletDebitRefusedException;
 use App\Http\Controllers\Controller;
 use App\Models\BusinessSetting;
 use App\Models\Category;
@@ -18,6 +20,7 @@ use App\Models\Product;
 use App\Services\Address\CheckoutAddressGuard;
 use App\Services\Address\OrderAddressService;
 use App\Services\PasswordResetService;
+use App\Services\Storefront\OrderStorefrontSnapshot;
 use App\Models\User;
 use App\Traits\API\v3\VendorPOSManagement;
 use App\Traits\CustomerTrait;
@@ -30,6 +33,8 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
+use App\Services\Catalog\ProductCodeScope;
+use Illuminate\Support\Collection;
 
 class POSController extends Controller
 {
@@ -204,20 +209,42 @@ class POSController extends Controller
     public function get_product_by_barcode(Request $request): JsonResponse
     {
         $seller = $request->seller;
-        $product = Product::withCount('reviews')->where([
-            'added_by' => 'seller',
-            'user_id' => $seller->id,
-            'code' => $request->code
-        ])->with(['clearanceSale' => function ($query) {
-            return $query->active()->with(['setup']);
-        }])->first();
+        $codeScope = app(ProductCodeScope::class);
+        $requestedCountry = $request->query('country');
+        if (!$codeScope->isScanCountryAllowed($requestedCountry)) {
+            return response()->json(['errors' => [['code' => 'country', 'message' => translate('the_country_must_be_one_of_the_configured_storefront_countries')]]], 422);
+        }
+
+        $products = $codeScope->scan(
+            ownedProducts: Product::withCount('reviews')->where([
+                'added_by' => 'seller',
+                'user_id' => $seller->id,
+            ])->with(['clearanceSale' => function ($query) {
+                return $query->active()->with(['setup']);
+            }]),
+            code: $request->code,
+            country: $codeScope->countryOfScan($requestedCountry),
+        );
+        if ($products->count() > 1) {
+            return $this->ambiguousCodeResponse(products: $products);
+        }
 
         $final_product = array();
-        if ($product) {
-            $final_product = Helpers::product_data_formatting($product, false);
+        if ($products->isNotEmpty()) {
+            $final_product = Helpers::product_data_formatting($products->first(), false);
         }
 
         return response()->json($final_product, 200);
+    }
+
+    /** A scanned code that more than one product answers to is never settled by picking one: the app is told which products it could be. */
+    private function ambiguousCodeResponse(Collection $products): JsonResponse
+    {
+        return response()->json(['errors' => [[
+            'code' => 'ambiguous_code',
+            'message' => translate('the_scanned_code_matches_more_than_one_product'),
+            'candidates' => $products->map(fn (Product $product): array => ['id' => $product->id, 'name' => $product->name, 'country' => $product->storefront_country])->values()->all(),
+        ]]], 409);
     }
 
     public function product_list(Request $request): JsonResponse
@@ -257,7 +284,7 @@ class POSController extends Controller
         return response()->json($data, 200);
     }
 
-    public function isDigitalProductExist($cartList): bool
+    public function isDigitalProductExist($cartList, int|string $sellerId): bool
     {
         $cartIDs = [];
         $isDigitalProduct = false;
@@ -267,7 +294,7 @@ class POSController extends Controller
             }
         }
 
-        if (!empty($cartIDs) && Product::whereIn('id', $cartIDs)->where(['product_type' => 'digital'])->count() > 0) {
+        if (!empty($cartIDs) && Product::ofSeller(sellerId: $sellerId)->whereIn('id', $cartIDs)->where(['product_type' => 'digital'])->count() > 0) {
             $isDigitalProduct = true;
         }
         return $isDigitalProduct;
@@ -283,13 +310,23 @@ class POSController extends Controller
         $extraDiscountType = $request['extra_discount_type'];
         $couponDiscountAmount = $request['coupon_discount_amount'];
         $couponCode = $request['coupon_code'];
-        $paymentMethod = $request['payment_method'];
-        $paidAmount = currencyConverter(amount: $request['paid_amount'] ?? 0);
+        $paymentMethodValidator = Validator::make($request->all(), ['payment_method' => 'nullable|string']);
+        if ($paymentMethodValidator->fails()) {
+            return response()->json(['errors' => Helpers::validationErrorProcessor($paymentMethodValidator)], 422);
+        }
+        $paymentMethod = is_string($request['payment_method']) ? strtolower(trim($request['payment_method'])) : null;
+        $tenderedAmount = floatval($request['paid_amount'] ?? 0);
         // Same lifecycle contract as the panel POS: a delivery-fulfillment sale
         // starts pending and, when paid in cash, is stored as a COD/unpaid
         // order settled through the standard status machinery.
         $fulfillment = $request['fulfillment'] == 'delivery' ? 'delivery' : 'instant';
-        $isCashOnDelivery = $fulfillment == 'delivery' && $paymentMethod == 'cash';
+        $isCashOnDelivery = $fulfillment == 'delivery' && $paymentMethod === 'cash';
+
+        if ($paymentMethod === 'wallet' && $customerId == 0) {
+            return response()->json(['errors' => [
+                ['code' => 'customer_id', 'message' => translate('select_customer_is_required')],
+            ]], 403);
+        }
 
         $taxConfig = self::getTaxSystemType();
 
@@ -300,12 +337,16 @@ class POSController extends Controller
             ]);
         }
 
-        $isDigitalProduct = self::isDigitalProductExist(cartList: $carts);
+        $isDigitalProduct = self::isDigitalProductExist(cartList: $carts, sellerId: $seller->id);
         if ($customerId == 0 && $isDigitalProduct) {
             return response()->json([
                 'checkProductTypeForWalkingCustomer' => true,
                 'message' => translate('To_order_digital_product') . ',' . translate('_kindly_fill_up_the_“Add_New_Customer”_form') . '.'
             ]);
+        }
+
+        if ($unavailableProductResponse = $this->unavailableProductResponse(modifiedCart: $request['modified_cart'], sellerId: $seller->id)) {
+            return $unavailableProductResponse;
         }
 
         $deliveryShippingAddress = $fulfillment == 'delivery' ? $this->orderAddresses->latestSavedAddress(customerId: $customerId) : null;
@@ -317,106 +358,121 @@ class POSController extends Controller
             }
         }
 
-        if ($paymentMethod == 'wallet' && $customerId != 0) {
+        $idempotencyKey = $this->idempotencyKeyOf(request: $request);
+        if ($idempotencyKey !== null && strlen($idempotencyKey) > 191) {
+            return response()->json(['message' => 'Idempotency-Key must be 191 characters or fewer.'], 422);
+        }
+        if ($idempotencyKey !== null && ($placedOrderId = $this->placedOrderIdOf(sellerId: $seller->id, key: $idempotencyKey)) !== null) {
+            return response()->json(['order_id' => $placedOrderId], 200);
+        }
+
+        $orderTotal = self::cartsTotalAmount(modifiedCart: $request['modified_cart'] ?: []);
+        if ($paymentMethod === 'wallet' && $orderTotal <= 0) {
+            return response()->json(['errors' => [
+                ['code' => 'paid_amount', 'message' => translate('You cannot place an order with an amount of zero. Please enter a valid amount.')],
+            ]], 403);
+        }
+        $payByWallet = $paymentMethod === 'wallet' && $customerId != 0;
+        if ($payByWallet) {
             $customerBalance = $this->customerRepo->getFirstWhere(params: ['id' => $customerId]) ?? 0;
-            if ($customerBalance['wallet_balance'] >= $paidAmount) {
-                $this->createWalletTransaction(user_id: $customerId, amount: floatval($paidAmount), transaction_type: 'order_place', reference: 'order_place_in_pos');
-            } else {
-                return response()->json([
-                    'need_balance' => true,
-                    'message' => translate('need_Sufficient_Amount_Balance')
-                ]);
+            if ($customerBalance['wallet_balance'] < currencyConverter(amount: $orderTotal)) {
+                return $this->walletBalanceNeededResponse();
             }
         }
-
-        $cartsTotalAmount = 0;
-        $generateOrderID = self::getOrderNewId();
-
-        if ($request['modified_cart']) {
-            foreach ($request['modified_cart'] as $cartItem) {
-                if (is_array($cartItem)) {
-                    $product = Product::where(['id' => $cartItem['id']])->with(['digitalVariation', 'clearanceSale' => function ($query) {
-                        return $query->active();
-                    }])->withCount('reviews')->first();
-                    if (!$product || $cartItem['quantity'] > $product['current_stock']) {
-                        return response()->json([
-                            'product_not_available' => true,
-                            'message' => $product['name'] . ' ' . translate('not_available_for_order_place')
-                        ]);
-                    }
-                }
-            }
-
-            foreach ($request['modified_cart'] as $cartItem) {
-                if (is_array($cartItem)) {
-                    $product = Product::where(['id' => $cartItem['id']])->with(['digitalVariation', 'clearanceSale' => function ($query) {
-                        return $query->active();
-                    }])->withCount('reviews')->first();
-                    if ($product) {
-                        $getProductArray = self::getOrderDetailsAddData(cartItem: $cartItem, product: $product);
-                        $cartsTotalAmount += $cartItem['discounted_price'] * $cartItem['quantity'];
-                        $cartsTotalAmount += $cartItem['applied_tax_amount'] * $cartItem['quantity'];
-                        $cartsTotalAmount -= $cartItem['coupon_discount'] ?? 0;
-                        $cartsTotalAmount -= $cartItem['extra_discount'] ?? 0;
-
-                        $orderDetailsData = [
-                            'order_id' => $generateOrderID,
-                            'product_id' => $cartItem['id'],
-                            'product_details' => $getProductArray['product'],
-                            'qty' => $cartItem['quantity'],
-                            'price' => $cartItem['price'],
-                            'seller_id' => $product['user_id'],
-                            'tax' => $cartItem['applied_tax_amount'] * $cartItem['quantity'],
-                            'tax_model' => $taxConfig['is_included'] ? 'include' : 'exclude',
-                            'discount' => $cartItem['discount'] * $cartItem['quantity'],
-                            'discount_type' => 'discount_on_product',
-                            'delivery_status' => $fulfillment == 'delivery' ? 'pending' : 'delivered',
-                            'payment_status' => $isCashOnDelivery ? 'unpaid' : 'paid',
-                            'variant' => $getProductArray['variant'],
-                            'variation' => json_encode($cartItem['variation']),
-                            'created_at' => now(),
-                            'updated_at' => now()
-                        ];
-                        self::getProductStockCalculate(cartItem: $cartItem, product: $product, orderId: $generateOrderID);
-                        DB::table('order_details')->insert($orderDetailsData);
-                    }
-                }
-            }
+        if ($paymentMethod == 'cash' && !$isCashOnDelivery && round($tenderedAmount, 6) < round($orderTotal, 6)) {
+            return response()->json(['message' => translate('paid_amount_is_less_than_total_amount')], 403);
         }
+        $amountPaid = $payByWallet ? currencyConverter(amount: $orderTotal) : currencyConverter(amount: $tenderedAmount);
 
-        $deliveryShippingResponsibility = $fulfillment == 'delivery' ? getWebConfig(name: 'shipping_method') : null;
-        $deliveryAddressSnapshot = $this->orderAddresses->snapshot(address: $deliveryShippingAddress);
+        try {
+            $generateOrderID = DB::transaction(function () use ($request, $seller, $customerId, $carts, $extraDiscount, $extraDiscountType, $couponDiscountAmount, $couponCode, $paymentMethod, $orderTotal, $amountPaid, $fulfillment, $isCashOnDelivery, $taxConfig, $deliveryShippingAddress, $payByWallet, $idempotencyKey) {
+                if ($idempotencyKey !== null && !$this->claimIdempotencyKey(sellerId: $seller->id, key: $idempotencyKey)) {
+                    throw new PosSaleReplayedException(orderId: (int) $this->placedOrderIdOf(sellerId: $seller->id, key: $idempotencyKey, lock: true));
+                }
+                if ($payByWallet && $this->createWalletTransaction(user_id: $customerId, amount: floatval($orderTotal), transaction_type: 'order_place', reference: 'order_place_in_pos') === false) {
+                    throw new WalletDebitRefusedException(customerId: $customerId);
+                }
 
-        $orderData = [
-            'id' => $generateOrderID,
-            'customer_id' => $customerId,
-            'customer_type' => 'customer',
-            'payment_status' => $isCashOnDelivery ? 'unpaid' : 'paid',
-            'order_status' => $fulfillment == 'delivery' ? 'pending' : 'delivered',
-            'seller_id' => $seller->id,
-            'seller_is' => 'seller',
-            'payment_method' => $isCashOnDelivery ? 'cash_on_delivery' : $paymentMethod,
-            'order_type' => 'POS',
-            'shipping_address' => $deliveryShippingAddress?->id,
-            'shipping_address_data' => $deliveryAddressSnapshot ? json_encode($deliveryAddressSnapshot) : null,
-            'shipping_responsibility' => $deliveryShippingResponsibility,
-            'verification_code' => $fulfillment == 'delivery' ? rand(100000, 999999) : '0',
-            'checked' => 1,
-            'extra_discount' => $extraDiscount ?? 0,
-            'extra_discount_type' => $extraDiscountType ?? null,
-            'order_amount' => $cartsTotalAmount,
-            'init_order_amount' => $cartsTotalAmount,
-            'total_tax_amount' => $request['total_tax_amount'] ?? 0,
-            'tax_type' => $taxConfig['SystemTaxVatType'],
-            'paid_amount' => $isCashOnDelivery ? 0 : $paidAmount,
-            'discount_amount' => currencyConverter(amount: $couponDiscountAmount ?? 0),
-            'coupon_code' => $couponCode ?? null,
-            'discount_type' => (isset($carts['coupon_code']) && $carts['coupon_code']) ? 'coupon_discount' : NULL,
-            'coupon_discount_bearer' => $carts['coupon_bearer'] ?? 'inhouse',
-            'created_at' => now(),
-            'updated_at' => now(),
-        ];
-        DB::table('orders')->insertGetId($orderData);
+                $generateOrderID = self::getOrderNewId();
+
+                if ($request['modified_cart']) {
+                    // Ascending product id, as generateOrder locks: two sales never lock the same product rows in opposite orders.
+                    foreach (collect($request['modified_cart'])->sortBy('id') as $cartItem) {
+                        if (is_array($cartItem)) {
+                            $product = $this->ownedCartProduct(cartItem: $cartItem, sellerId: $seller->id);
+                            if ($product) {
+                                $getProductArray = self::getOrderDetailsAddData(cartItem: $cartItem, product: $product);
+
+                                $orderDetailsData = [
+                                    'order_id' => $generateOrderID,
+                                    'product_id' => $cartItem['id'],
+                                    'product_details' => $getProductArray['product'],
+                                    'qty' => $cartItem['quantity'],
+                                    'price' => $cartItem['price'],
+                                    'seller_id' => $product['user_id'],
+                                    'tax' => $cartItem['applied_tax_amount'] * $cartItem['quantity'],
+                                    'tax_model' => $taxConfig['is_included'] ? 'include' : 'exclude',
+                                    'discount' => $cartItem['discount'] * $cartItem['quantity'],
+                                    'discount_type' => 'discount_on_product',
+                                    'delivery_status' => $fulfillment == 'delivery' ? 'pending' : 'delivered',
+                                    'payment_status' => $isCashOnDelivery ? 'unpaid' : 'paid',
+                                    'variant' => $getProductArray['variant'],
+                                    'variation' => json_encode($cartItem['variation']),
+                                    'created_at' => now(),
+                                    'updated_at' => now()
+                                ];
+                                self::getProductStockCalculate(cartItem: $cartItem, product: $product, orderId: $generateOrderID);
+                                DB::table('order_details')->insert($orderDetailsData);
+                            }
+                        }
+                    }
+                }
+
+                $deliveryShippingResponsibility = $fulfillment == 'delivery' ? getWebConfig(name: 'shipping_method') : null;
+                $deliveryAddressSnapshot = $this->orderAddresses->snapshot(address: $deliveryShippingAddress);
+
+                $orderData = [
+                    'id' => $generateOrderID,
+                    'customer_id' => $customerId,
+                    'customer_type' => 'customer',
+                    'payment_status' => $isCashOnDelivery ? 'unpaid' : 'paid',
+                    'order_status' => $fulfillment == 'delivery' ? 'pending' : 'delivered',
+                    'seller_id' => $seller->id,
+                    'seller_is' => 'seller',
+                    'payment_method' => $isCashOnDelivery ? 'cash_on_delivery' : $paymentMethod,
+                    'order_type' => 'POS',
+                    'shipping_address' => $deliveryShippingAddress?->id,
+                    'shipping_address_data' => $deliveryAddressSnapshot ? json_encode($deliveryAddressSnapshot) : null,
+                    'shipping_responsibility' => $deliveryShippingResponsibility,
+                    'verification_code' => $fulfillment == 'delivery' ? rand(100000, 999999) : '0',
+                    'checked' => 1,
+                    'extra_discount' => $extraDiscount ?? 0,
+                    'extra_discount_type' => $extraDiscountType ?? null,
+                    'order_amount' => $orderTotal,
+                    'init_order_amount' => $orderTotal,
+                    'total_tax_amount' => $request['total_tax_amount'] ?? 0,
+                    'tax_type' => $taxConfig['SystemTaxVatType'],
+                    'paid_amount' => $isCashOnDelivery ? 0 : $amountPaid,
+                    'discount_amount' => currencyConverter(amount: $couponDiscountAmount ?? 0),
+                    'coupon_code' => $couponCode ?? null,
+                    'discount_type' => (isset($carts['coupon_code']) && $carts['coupon_code']) ? 'coupon_discount' : NULL,
+                    'coupon_discount_bearer' => $carts['coupon_bearer'] ?? 'inhouse',
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ];
+                DB::table('orders')->insertGetId($orderData);
+                app(OrderStorefrontSnapshot::class)->record(orderId: $generateOrderID);
+                if ($idempotencyKey !== null) {
+                    $this->recordIdempotencyKeyOrder(sellerId: $seller->id, key: $idempotencyKey, orderId: $generateOrderID);
+                }
+
+                return $generateOrderID;
+            });
+        } catch (WalletDebitRefusedException) {
+            return $this->walletBalanceNeededResponse();
+        } catch (PosSaleReplayedException $exception) {
+            return response()->json(['order_id' => $exception->orderId], 200);
+        }
 
         if ($isDigitalProduct) {
             $order = Order::with(['details.productAllStatus', 'customer'])->find($generateOrderID);
@@ -434,6 +490,84 @@ class POSController extends Controller
         return response()->json(['order_id' => $generateOrderID], 200);
     }
 
+    private function unavailableProductResponse(mixed $modifiedCart, int|string $sellerId): ?JsonResponse
+    {
+        foreach ($modifiedCart ?: [] as $cartItem) {
+            if (!is_array($cartItem)) {
+                continue;
+            }
+
+            $product = $this->ownedCartProduct(cartItem: $cartItem, sellerId: $sellerId);
+            if (!$product || $cartItem['quantity'] > $product['current_stock']) {
+                return response()->json([
+                    'product_not_available' => true,
+                    'message' => trim(($product['name'] ?? '') . ' ' . translate('not_available_for_order_place'))
+                ]);
+            }
+        }
+
+        return null;
+    }
+
+    private function ownedCartProduct(array $cartItem, int|string $sellerId): ?Product
+    {
+        return Product::ofSeller(sellerId: $sellerId)->where(['id' => $cartItem['id']])->with(['digitalVariation', 'clearanceSale' => function ($query) {
+            return $query->active();
+        }])->withCount('reviews')->first();
+    }
+
+    /** The total of the seller app's lines in the store currency. The sale is charged this, not the amount the client says it was paid. */
+    private static function cartsTotalAmount(array $modifiedCart): float
+    {
+        $total = 0;
+        foreach (collect($modifiedCart)->sortBy('id') as $cartItem) {
+            if (is_array($cartItem)) {
+                $total += $cartItem['discounted_price'] * $cartItem['quantity'];
+                $total += $cartItem['applied_tax_amount'] * $cartItem['quantity'];
+                $total -= $cartItem['coupon_discount'] ?? 0;
+                $total -= $cartItem['extra_discount'] ?? 0;
+            }
+        }
+
+        return $total;
+    }
+
+    private function idempotencyKeyOf(Request $request): ?string
+    {
+        $key = trim((string) $request->header('Idempotency-Key', ''));
+
+        return $key === '' ? null : $key;
+    }
+
+    private function placedOrderIdOf(int $sellerId, string $key, bool $lock = false): ?int
+    {
+        $sale = DB::table('pos_sale_idempotency_keys')->where(['seller_id' => $sellerId, 'idempotency_key' => $key]);
+        $orderId = $lock ? $sale->lockForUpdate()->value('order_id') : $sale->value('order_id');
+
+        return $orderId === null ? null : (int) $orderId;
+    }
+
+    /** False when a sale already holds the key, whether that sale has been written or another request is still writing it. */
+    private function claimIdempotencyKey(int $sellerId, string $key): bool
+    {
+        return DB::table('pos_sale_idempotency_keys')->insertOrIgnore([
+            'seller_id' => $sellerId, 'idempotency_key' => $key, 'order_id' => null, 'created_at' => now(), 'updated_at' => now(),
+        ]) === 1;
+    }
+
+    private function recordIdempotencyKeyOrder(int $sellerId, string $key, int $orderId): void
+    {
+        DB::table('pos_sale_idempotency_keys')->where(['seller_id' => $sellerId, 'idempotency_key' => $key])->update(['order_id' => $orderId, 'updated_at' => now()]);
+    }
+
+    private function walletBalanceNeededResponse(): JsonResponse
+    {
+        return response()->json([
+            'need_balance' => true,
+            'message' => translate('need_Sufficient_Amount_Balance')
+        ]);
+    }
+
     public function get_invoice(Request $request):JsonResponse
     {
         $seller = $request->seller;
@@ -442,7 +576,7 @@ class POSController extends Controller
             return response()->json(['message' => translate('access_denied!')], 403);
         }
 
-        $orders = Order::with('details', 'shipping')->where(['seller_id' => $seller['id']])->find($request['id']);
+        $orders = Order::with('details', 'shipping')->where(['seller_id' => $seller['id'], 'seller_is' => 'seller'])->find($request['id']);
         if ($orders) {
             foreach ($orders['details'] as $order) {
                 $order['product_details'] = Helpers::product_data_formatting(json_decode($order['product_details'], true));

@@ -29,7 +29,15 @@ class ConcurrentOperationsAreRegisteredTest extends TestCase
         'mirror_managed_shipment',
         'layers_from_purchase_orders',
         'layer_purchase_order_tranche',
+        'wallet.pay_edit_due',
         'stock.ingest_many',
+        'wallet.repository',
+        'wallet.customer_manager',
+        'wallet.order_manager',
+        'wallet.customer_trait',
+        'loyalty.repository',
+        'loyalty.customer_manager',
+        'loyalty.convert',
     ];
 
     /**
