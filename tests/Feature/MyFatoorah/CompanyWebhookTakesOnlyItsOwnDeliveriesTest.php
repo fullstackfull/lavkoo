@@ -261,6 +261,52 @@ class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends CompanyAccountsTestCas
     }
 
     /**
+     * The fourth condition, and the one the earlier version of this method did not apply: a DEACTIVATED account is named no address.
+     *
+     * `GatewayAccountRegistry::byWebhookToken()` resolves an active row and no other, so the route answers 401 at the address a deactivated account's
+     * token spells. The directory went on naming that address, and the operator row went on carrying it, so the one screen that tells an operator
+     * where this account is reached said it was reached somewhere it is not. Measured for the SAME account in both states of its own flag, both
+     * halves each time, so the claim is that the two agree.
+     *
+     * It is not only a screen. GCC-21 reads this method to decide whether the address a payment recorded is still an address that payment can be
+     * confirmed at, so an address named for an account that is told nothing would be read as live. Found by reviewer B of the stage-C round.
+     */
+    public function test_the_directory_names_no_address_for_a_deactivated_account(): void
+    {
+        $payload = $this->webhookPayload($this->attempt->external_identifier);
+        $signature = $this->signatureFor($payload, self::KUWAIT_WEBHOOK_SECRET);
+        $this->fakePaid();
+
+        $this->assertNotNull(app(GatewayAccountDirectory::class)->webhookUrlOf(account: $this->kuwait), 'while it is active it is named an address');
+        $this->assertNotNull(app(GatewayAccountRegistry::class)->byWebhookToken(token: (string) $this->kuwait->webhook_path_token), 'and the route resolves it');
+
+        PaymentGatewayAccount::query()->whereKey($this->kuwait->id)->update(['status' => false]);
+        app(GatewayAccountRegistry::class)->flush();
+
+        $this->assertNull(
+            app(GatewayAccountDirectory::class)->webhookUrlOf(account: $this->kuwait->refresh()),
+            'deactivated, it is named none -- which is what the route answers',
+        );
+        $this->assertNull(app(GatewayAccountRegistry::class)->byWebhookToken(token: (string) $this->kuwait->webhook_path_token));
+        $this->deliverTo($this->kuwait, $payload, $signature)->assertStatus(401);
+        $this->assertSame([], $this->paidPayments(), 'nothing is delivered there, so nothing is named there');
+    }
+
+    /** And the operator row carries what the method answers, so the screen and the route agree for a deactivated account too. */
+    public function test_the_operator_row_carries_no_address_for_a_deactivated_account(): void
+    {
+        PaymentGatewayAccount::query()->whereKey($this->kuwait->id)->update(['status' => false]);
+        app(GatewayAccountRegistry::class)->flush();
+
+        $row = collect(app(GatewayAccountDirectory::class)->rows(gateway: GatewayConfigRepository::KEY))
+            ->firstWhere('id', (int) $this->kuwait->id);
+
+        $this->assertNotNull($row, 'the row is still listed, because an operator has to be able to see and reactivate it');
+        $this->assertFalse($row['active']);
+        $this->assertNull($row['webhook_url'], 'and it carries no address');
+    }
+
+    /**
      * For an account of the gateway the SHIPPED list holds, the answer was null before this condition was added and is null after it.
      *
      * The exact scope of what that one line moved, measured rather than described: the gateway on the account already decided this case, so the owner's

@@ -60,8 +60,9 @@ final class GatewayAccountDirectory
     /**
      * The address this account's notifications are delivered to, or null for an account that is notified at no address of its own.
      *
-     * The same three conditions the address itself applies, so the definition and the route agree rather than nearly agreeing
-     * (App\Http\Controllers\Api\PaymentAccountWebhookController::readsNotificationsOf and the token in the path):
+     * The same FOUR conditions the address itself applies, so the definition and the route agree rather than nearly agreeing
+     * (App\Http\Controllers\Api\PaymentAccountWebhookController::readsNotificationsOf, App\Services\Payments\GatewayAccountRegistry::byWebhookToken,
+     * and the token in the path):
      *
      *   THE OWNER'S LIST — a gateway the owner has not listed is read from the one platform row everywhere, notification address included. The route
      *   refuses an account of such a gateway before the body is read; without this condition here, the directory named an address at which the account
@@ -70,6 +71,11 @@ final class GatewayAccountDirectory
      *   THE GATEWAY ON THE ACCOUNT — this address hands a delivery to ONE gateway's processor and refuses an account of any other outright.
      *
      *   A TOKEN — an account without one is named by no address, so it receives nothing.
+     *
+     *   THE ACCOUNT ACTIVE — `byWebhookToken()` resolves an active row and no other, so a deactivated account is told nothing at the address its token
+     *   spells. The earlier version of this method listed three conditions and applied three; the route applied four. An operator who deactivated an
+     *   account was still shown its address, which is the one state where the screen said a delivery would be read and the route refused it. Found by
+     *   reviewer B of the stage-C round.
      *
      * The one gateway the owner's shipped list holds is Paymob, which sends no server-to-server notification at all -- its confirmation is the
      * customer's return to a platform-wide address -- so a payment taken through a Paymob account records no address and expects the platform one
@@ -84,7 +90,7 @@ final class GatewayAccountDirectory
     {
         $gateway = (string) $account->gateway;
 
-        if (!$this->registry->covers(gateway: $gateway) || $gateway !== self::GATEWAY_SERVED_AT_THAT_ADDRESS) {
+        if (!$this->registry->covers(gateway: $gateway) || $gateway !== self::GATEWAY_SERVED_AT_THAT_ADDRESS || !$account->status) {
             return null;
         }
 
