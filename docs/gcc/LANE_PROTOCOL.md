@@ -90,3 +90,42 @@ evidence was unnecessary:
 On the measured figures: ~300 minutes per lane down to roughly 120–150, chiefly by removing
 the separate fix round's rebuild-and-re-measure and by cutting directory-group runs from
 dozens to a handful.
+
+## Measured, lane by lane
+
+The owner asked that the target not be called met until it is measured over several new
+tasks. This table is that measurement, and it is filled in as lanes finish. Wall-clock and
+agent minutes come from the lanes' own transcripts; tokens and tool calls from the run
+record.
+
+| Lane | Shape | Wall | Tokens | Tool calls | Note |
+|---|---|---|---|---|---|
+| marketing consent | old, 4 agents | 297 min | 1.62 M | 652 | broad scope |
+| order notifications | old, 4 agents | 295 min | 1.37 M | 455 | broad scope |
+| GCC-21 stages A+B | old, 4 agents | 330 min | — | — | broad scope |
+| D2-V1 refusal | old, 4 agents | **130 min** | 1.54 M | 544 | **narrow scope** |
+| J-11 push per storefront | **new, 2 agents** | **106 min** | **0.67 M** | **236** | narrow scope |
+
+**Two separate effects, and they must not be confused.** D2-V1 ran the OLD four-agent shape
+and still took 130 minutes, because its scope was one mechanism and three callers. So most
+of the fall from ~300 to ~130 is **scope, not shape**. What the new shape adds on top is
+visible in the last row: J-11 came in at 106 minutes for **less than half the tokens and
+half the tool calls** of a comparable old-shape lane. Cost is where the two-agent shape pays;
+wall-clock is mostly bought by keeping the batch narrow.
+
+Not yet enough lanes to call the 120–150 target met. It is holding on two.
+
+## One rule the first new-shape lane changed
+
+The protocol above says mutations go only on lines that move money or enforce a security
+boundary. **That is not sufficient, and J-11 proved it.** Its review pass ran eight
+mutations and three of the first five survived. The worst was a one-word change to the
+object the app actually builds, which survived 73 tests while silently stopping every
+marketing push on every existing install — because the flag-off subscription set had been
+proved only on an object a test wired by hand, never on the one the shipped app constructs.
+
+So the rule is now: mutations go on money, on security boundaries, **and on the dormancy or
+flag-off guard of anything that ships switched off** — and they are run against the object
+the application itself builds, not a hand-wired stand-in. A dormancy guard is exactly where
+a silent break reaches every existing install, which is the same reason money and security
+are on the list.

@@ -4687,6 +4687,131 @@ def load_all():
     return data
 
 
+# ---------------------------------------------------------------------------
+# J-11, push topics and notifications per storefront, in the CUSTOMER app.
+# Branch gcc/j11-push-per-storefront, head b49c6bf178ff0305aa50dc55f0ad001451ce1f0e,
+# cut from that repository's newly merged main 9743e5ed. No pull request, by the
+# owner's instruction to stop accumulating them. FOUR criteria MISSING -> CODED,
+# none MET, and the reasons are measured.
+#
+# This was the first lane run on the two-agent protocol. What the review-and-fix
+# pass earned, in its own measurement: EIGHT mutations, and THREE OF THE FIRST FIVE
+# SURVIVED. The worst was a one-word change to the object the app actually builds
+# that survived 73 tests while silently stopping every marketing push on every
+# existing install -- because the flag-off set was proved only on a subscriber a
+# test had wired with enabled: false, never on the object the shipped app
+# constructs. That is now measured on StorefrontTopicSubscriber.forDevice over real
+# preferences.
+#
+# What I checked myself: the branch head on the remote is b49c6bf1; CI run
+# 45077323190 at that head, conclusion SUCCESS, all four jobs success, with the
+# analyzer at 255 findings and 0 errors (the recorded baseline, not raised) and the
+# whole suite 902 passed with storefronts off and 960 with them on.
+# ---------------------------------------------------------------------------
+
+_J11_HEAD = ('\n\nBranch gcc/j11-push-per-storefront head b49c6bf178ff0305aa50dc55f0ad001451ce1f0e, cut from '
+             'lavkooapp main 9743e5ed; no pull request, per the owner\'s instruction. CI run 45077323190 at that '
+             'head: conclusion SUCCESS, all four jobs success -- storefront-header (which carries the four named '
+             'J-11 steps), both whole-suite jobs (902 passed with storefronts off, 960 with them on) and '
+             'analyze-whole-project at 255 findings with 0 errors, the recorded baseline and not raised. I read '
+             'the run and its job conclusions myself.')
+
+_J11_RAISES = [
+    ('J-11', 0, 'CODED',
+     'CODED. PROVED: with the flag on, the set of marketing topics an install subscribes to is exactly the '
+     'current storefront\'s own; the six markets\' topics are six distinct strings; the global sixvalley topic is '
+     'in no storefront\'s set and is unsubscribed; a market the server lists that this build does not know still '
+     'gets its own topic; and no file in lib but the one subscriber names a marketing topic, asserted as a '
+     'COMPLETE inventory. With the flag OFF the set is exactly {sixvalley}, and that is measured on THE OBJECT '
+     'THE APP BUILDS (StorefrontTopicSubscriber.forDevice over real preferences), not only on one a test wired -- '
+     'the correction the review pass forced, after a one-word mutation of that object survived 73 tests while '
+     'silently stopping every marketing push on every existing install. NOT PROVED: that a push actually reaches '
+     'one country and not another. NO REAL FIREBASE CALL IS MADE ANYWHERE: every subscribe and unsubscribe is a '
+     'recorded stand-in, so what is proved is the set of topic calls this app WOULD make, not that Firebase '
+     'honoured them. The backend publishes every marketing broadcast to the one global topic (I1-05, nothing '
+     'built), so there is no per-market publisher to measure against, and the naming rule is not agreed with the '
+     'backend -- an open owner decision. The two restock call sites join server-named topics the app never notes '
+     'down, so they are in no set and cannot be left. Named tests: test/storefront_topic_subscriber_test.dart '
+     '(21 in each flag setting), test/storefront_topics_test.dart (14 in each), '
+     'test/push_topic_inventory_test.dart (8 in each).'),
+
+    ('J-11', 1, 'CODED',
+     'CODED. PROVED with the flag on: a storefront change from Saudi Arabia to Kuwait unsubscribes sixvalley_sa '
+     'and the global topic and subscribes sixvalley_kw; the storefront the CHANGE names as previous governs; the '
+     'unsubscribes happen BEFORE the subscribe, asserted on the recorded call order, so a device is never on two '
+     'markets at once; a market the server opened since the build is left too; and a sign-out unsubscribes every '
+     'marketing topic and subscribes none. With the flag off nothing is unsubscribed on a switch or a sign-out. '
+     'NOT PROVED, two things: (a) that the real chooser and the real sign-out REACH the subscriber at runtime -- '
+     'the three wirings are pinned by a TEXT SCAN of di_container.dart and auth_repository.dart, which the '
+     'inventory test says of itself, because di_container.init() needs the whole app and clearSharedData needs a '
+     'DioClient, so neither is executed; (b) THE LEAVE IS NOT AWAITED END TO END -- the pre-existing '
+     'StorefrontSwitcher calls unawaited(changeNotifier.storefrontChanged(...)), and on a sign-out clearSharedData '
+     'awaits leaveEverything() but no caller awaits clearSharedData (api_checker.dart:22 and three sheets call it '
+     'bare). The drops do happen in the same turn and apply() re-settles at every start, so the window is '
+     'bounded, but it is a window in which a killed app leaves a device on the market it left. Named tests: '
+     'test/storefront_topic_subscriber_test.dart and test/push_topic_inventory_test.dart.'),
+
+    ('J-11', 2, 'CODED',
+     'CODED. PROVED on the REAL routing -- NotificationHelper.initialize, the real local-notification tap, the '
+     'real Firebase opened-app message, the real StorefrontSwitcher over a real StorefrontController and '
+     'StorefrontChangeNotifier -- with the flag on: an order push naming Kuwait leaves the app on Kuwait with '
+     'StorefrontScope publishing KW and opens the order by its id; the same from a system notification; a wallet '
+     'push opens the wallet in that market; a browse-only market still opens there; the market\'s currency '
+     'follows; an unlisted or current market moves nothing and still opens the order; and A MOVE THAT FAILS STILL '
+     'OPENS THE ORDER (a self-review finding: both tap paths route inside a try/catch that swallowed everything, '
+     'so an exception escaping the move would have skipped the routing and the tap would have done nothing). In '
+     'BOTH flag settings a push naming no storefront, and one whose storefront is the empty string, moves nothing '
+     'and routes exactly as before. All seven kinds of message carry their storefront through convertNotification, '
+     'which had dropped it in every one of its seven branches. NOT PROVED: the words "a push CARRIES its '
+     'storefront". NO BACKEND SENDER WRITES THE KEY, verified on backend main -- PushNotificationTrait enumerates '
+     'every key it sends and storefront is not among them, and a grep across app/Traits and app/Utils returns '
+     'nothing. The field name is the app\'s choice and no real message has ever contained it; what is proved is '
+     'that the app reads such a message correctly IF one is ever sent. AND THE COLD-START CASE IS NOT COVERED, '
+     'and is worse than the lane first claimed: SplashScreen.widget.body IS ALWAYS NULL -- main.dart reads the '
+     'initial message and hands it to MyApp(body:) and nothing reads it again, and all three constructions of '
+     'SplashScreen pass no body -- so both routing blocks are UNREACHABLE and a push that starts the app is '
+     'routed nowhere at all. That is a gap this work did not make and does not close; the tracker already records '
+     'it against this requirement. Named tests: test/push_storefront_notification_test.dart (12 on, 5 off), '
+     'test/push_storefront_target_test.dart (29 in each), with test/order_push_routing_test.dart unchanged at 12.'),
+
+    ('J-11', 4, 'CODED',
+     'CODED. PROVED, CAPTURED on the real sheet: a switch per backend channel for the current market, all off for '
+     'a person who has answered nothing, and throwing one records a decision for THAT market, channel and purpose '
+     'and no other, asserted negatively against another market, channel and purpose. Append-only: changing one\'s '
+     'mind writes a second decision and keeps the first, and the newest governs. The record\'s keys ARE the '
+     'columns of the backend\'s customer_marketing_consents, so nothing was invented. RESPECTED for the push '
+     'channel, by the sheet\'s own action rather than by assertion -- the correction the review pass forced, after '
+     'deleting the sheet\'s apply() call left all 13 tests green: agreeing joins this market\'s topic and no '
+     'other, withdrawing leaves it again, agreeing to e-mail asks the topics nothing at all, and a fresh '
+     'subscriber built from the stored preferences asks for the same topic afterwards. NOT PROVED: "RESPECTED" '
+     'for e-mail, SMS and WhatsApp -- those senders are on the server, backend main publishes NO route for a '
+     'customer to record a decision through (verified: no match for consent anywhere in its routes) and its gate '
+     'exists only on an unmerged draft, so those three answers are captured and go nowhere. Nor "per scope" in '
+     'the backend\'s full sense: its row has storefront and legal_entity_id and nothing fills either, on its side '
+     'or the app\'s, and the app records a MARKET. And the consent is PER DEVICE, not per customer: the store has '
+     'no subject, so two people sharing a phone share the answers and signing out does not clear them. Named '
+     'tests: test/marketing_consent_sheet_test.dart (15 in each flag setting) and '
+     'test/marketing_consent_store_test.dart (23 in each).'),
+]
+
+_load_all_before_j11 = load_all
+
+
+def load_all():
+    data = _load_all_before_j11()
+    pending = {(rid, idx) for rid, idx, _, _ in _J11_RAISES}
+    for rid, idx, state, evidence in _J11_RAISES:
+        for unit in data:
+            for requirement in data[unit]['reqs']:
+                if requirement['id'] == rid and idx < len(requirement['ac']):
+                    requirement['ac'][idx]['s'] = state
+                    requirement['ac'][idx]['e'] = requirement['ac'][idx]['e'] + ' // ' + evidence + _J11_HEAD
+                    pending.discard((rid, idx))
+    if pending:
+        raise SystemExit('J-11 block: these raises matched no criterion: %s' % sorted(pending))
+    return data
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]

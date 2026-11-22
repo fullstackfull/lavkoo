@@ -23,11 +23,11 @@ As of 2026-11-22. Generated from the independent assessment of every requirement
 | [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 102 | 59 | 13 | 30 | 71% | 58% | 15% | all |
 | [H. Shipping and integrations](tracker/axis-h-shipping-and-integrations.md) | 34 | 157 | 79 | 13 | 65 | 59% | 50% | 16% | all |
 | [I. Marketing, policies and operations](tracker/axis-i-marketing-policies-and-operations.md) | 37 | 185 | 86 | 47 | 52 | 72% | 46% | 3% | all |
-| [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 98 | 47 | 27 | 24 | 76% | 48% | 5% | all |
+| [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 98 | 47 | 31 | 20 | 80% | 48% | 5% | all |
 | [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 104 | 40 | 30 | 34 | 67% | 38% | 3% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 49 | 14 | 31 | 67% | 52% | 7% | all |
 | [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 311 | 106 | 118 | 87 | 72% | 34% | 3% | all |
-| **All axes (pooled)** | **359** | **1753** | **855** | **380** | **518** | **70%** | **49%** | **8%** | |
+| **All axes (pooled)** | **359** | **1753** | **855** | **384** | **514** | **71%** | **49%** | **8%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -418,7 +418,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [J-08](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 4/2/0 | Sellable gate and paused-storefront modes |
 | [J-09](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 0/4/2 | Payment and wallet flows per storefront |
 | [J-10](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 0/1/4 | Deep links, App Links and old links |
-| [J-11](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 0/1/4 | Push topics and notifications per storefront |
+| [J-11](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 0/5/0 | Push topics and notifications per storefront |
 | [J-12](tracker/axis-j-flutter-customer-app.md) | IMPLEMENTED IN DRAFT | 1/3/0 | One login across storefronts and auth security compatibility |
 | [J-13](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 1/3/0 | Order history across storefronts |
 | [J-14](tracker/axis-j-flutter-customer-app.md) | NOT STARTED | 0/0/3 | Address eligibility per storefront |
