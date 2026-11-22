@@ -23,7 +23,7 @@ class CouponController extends Controller
                 $key = searchTerms($request['search']);
                 $query->where(function ($query) use ($key) {
                     foreach ($key as $value) {
-                        $query->orWhere('title', 'like', "%{$value}%")
+                        $query->where('title', 'like', "%{$value}%")
                             ->orWhere('code', 'like', "%{$value}%")
                             ->orWhere('discount_type', 'like', "%{$value}%");
                     }
@@ -117,7 +117,7 @@ class CouponController extends Controller
 
         ]);
 
-        $coupon = Coupon::where(['added_by' => 'seller', 'coupon_bearer' => 'seller', 'seller_id' => $seller->id])->find($id);
+        $coupon = $this->findOwnCoupon(sellerId: $seller->id, id: $id);
         if (!$coupon) {
             return response()->json(['message' => translate('coupon_not_found')], 403);
         }
@@ -148,7 +148,7 @@ class CouponController extends Controller
     public function status_update(Request $request): JsonResponse
     {
         $seller = $request->seller;
-        $coupon = Coupon::where(['added_by' => 'seller', 'coupon_bearer' => 'seller', 'seller_id' => $seller->id])->find($request->id);
+        $coupon = $this->findOwnCoupon(sellerId: $seller->id, id: $request->id);
         if (!$coupon) {
             return response()->json(['message' => translate('coupon_not_found')], 403);
         }
@@ -241,6 +241,12 @@ class CouponController extends Controller
             'customers' => $customers
         );
         return response()->json($data, 200);
+    }
+
+    // seller_id 0 addresses every vendor, so such a coupon is never the vendor's own to edit or switch.
+    private function findOwnCoupon(int|string $sellerId, int|string|null $id): ?Coupon
+    {
+        return Coupon::where(['added_by' => 'seller', 'coupon_bearer' => 'seller', 'seller_id' => $sellerId])->find($id);
     }
 
 }
