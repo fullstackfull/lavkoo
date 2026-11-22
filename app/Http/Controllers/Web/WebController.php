@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Services\Payments\CheckoutCurrency;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\StorefrontAddressService;
 use App\Services\Analytics\Analytics;
@@ -635,7 +636,9 @@ class WebController extends Controller
             'address_id' => session('address_id'),
             'billing_address_id' => session('billing_address_id'),
             'bring_change_amount' => $request['bring_change_amount'] ?? 0,
-            'bring_change_amount_currency' => session('currency_code'),
+            // Was session('currency_code') alone, which is null before a customer has picked one and
+            // wrote the column empty; and it ignored single-currency mode entirely.
+            'bring_change_amount_currency' => CheckoutCurrency::forOrder(session('currency_code')),
         ]);
 
         // generateOrder() returns an empty list when the order was refused inside its transaction —

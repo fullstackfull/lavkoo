@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Customer;
 
+use App\Services\Payments\CheckoutCurrency;
 use App\Services\Marketplace\PaymentRoutingService;
 use App\Enums\Address\AddressChannel;
 use App\Events\OrderEditDuePaymentEvent;
@@ -661,13 +662,14 @@ class PaymentController extends Controller
         if ($validated['payment_method'] === 'cash_on_delivery') {
             if ($request->filled('bring_change_amount_input')) {
                 $order->bring_change_amount = $request['bring_change_amount_input'];
-                if (getWebConfig('currency_model') === 'multi_currency') {
-                    $currentCurrency = $request->current_currency_code ?? session('currency_code');
-                    $order->bring_change_amount_currency = $this->getPaymentGatewayCurrencyCode('cash_on_delivery', $currentCurrency);
-                } else {
-                    $defaultCurrency = Currency::find(getWebConfig('system_default_currency'))->code;
-                    $order->bring_change_amount_currency = $defaultCurrency;
-                }
+                // Cash is not a gateway. This used to ask the GATEWAY CAPABILITY MAP what currency a
+                // cash payment is in; `cash_on_delivery` has no entry there, so the lookup matched
+                // nothing and fell through to that map's last line, `return 'USD'` -- labelling every
+                // multi-currency cash order USD on the admin order screen, whatever the customer was
+                // shopping in. Now the same answer its three siblings already use.
+                $order->bring_change_amount_currency = CheckoutCurrency::forOrder(
+                    $request->current_currency_code ?? session('currency_code')
+                );
                 $order->save();
             }
             $orderEditHistory->update(['order_due_payment_method' => 'cash_on_delivery']);

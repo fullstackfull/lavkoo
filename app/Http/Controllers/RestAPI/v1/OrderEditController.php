@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\RestAPI\v1;
 
+use App\Services\Payments\CheckoutCurrency;
 use App\Events\DigitalProductOtpVerificationEvent;
 use App\Events\RefundEvent;
 use App\Http\Controllers\Controller;
@@ -101,9 +102,9 @@ class OrderEditController extends Controller
         ]);
         if ($request['bring_change_amount']) {
             if (getWebConfig(name: 'currency_model') == 'multi_currency') {
-                $currencyCode = $request->current_currency_code ?? Currency::find(getWebConfig(name: 'system_default_currency'))->code;
+                $currencyCode = CheckoutCurrency::forOrder($request->current_currency_code);
             } else {
-                $currencyCode = Currency::find(getWebConfig(name: 'system_default_currency'))->code;
+                $currencyCode = CheckoutCurrency::platformDefault();
             }
             Order::where('id', $order['id'])->update([
                 'bring_change_amount' => $request['bring_change_amount'] ?? 0,
