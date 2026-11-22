@@ -147,8 +147,9 @@ class POSOrderController extends BaseController
             // comparison alone does not say so: `$balance < -100` is false of every balance, so a cart discounted past
             // its own lines would pass it and then CREDIT the customer — createWalletTransaction treats `order_place`
             // as a debit, and a debit of a negative amount adds to the balance. The panel's own discount route already
-            // refuses such a cart (POSController::extraDiscount answers 'amount_low'), so this is the second line of
-            // that defence rather than the first. It is deliberately NOT applied to the sale as a whole: a line of
+            // refuses such a cart (POSController::updateDiscount answers 'amount_low' when the total would go below
+            // zero), so this is the second line of that defence rather than the first. It is deliberately NOT applied
+            // to the sale as a whole: a line of
             // fewer than one unit also comes to less than nothing, and that is refused where it belongs, by
             // InventoryService::takeForSale, with the `stockShortfall` answer the panel reads.
             if ($saleAmount <= 0) {

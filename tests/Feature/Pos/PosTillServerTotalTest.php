@@ -280,7 +280,8 @@ class PosTillServerTotalTest extends PosTillTestCase
      * customer for a cart worth less than nothing; with the server's figure and no guard it would hand them 100.00.
      *
      * The cart is crafted: the panel's own discount route refuses a discount this large
-     * (POSController::extraDiscount answers `amount_low`), so this is the second line of that defence.
+     * (POSController::updateDiscount answers `amount_low` when the total would go below zero), so this is the second
+     * line of that defence.
      */
     #[DataProvider('tills')]
     public function test_a_wallet_sale_discounted_past_nothing_is_refused_and_credits_no_one(string $till): void
