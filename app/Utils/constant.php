@@ -10,10 +10,16 @@ const FLAT = 'flat';
 const FLAG = 'flag';
 const GT = 'gt';
 const DEFAULT_DATA_LIMIT = 25;
-/* The most decimal places a currency may be shown and charged in. Six is the storage scale
+/* The most decimal places a point-of-sale sale may be added up and charged in. Six is the storage scale
    App\Services\OperationalCosts\Support\Money already rounds money to, and three is as far as any
-   live currency goes (KWD, BHD, OMR). */
+   live currency goes (KWD, BHD, OMR). Read by App\Services\Pos\PosSaleTotal, which needs its integer
+   grid bounded; deliberately NOT read by usdToDefaultCurrency, whose answer must not change for a
+   setting the admin form allows. */
 const MAX_CURRENCY_DECIMAL_POINTS = 6;
+/* Digits below a minor unit at which a money figure is rounded to shake off binary floating-point noise
+   before it is floored or cast to an integer. Far coarser than the noise (which is relative 1e-16) and far
+   finer than any money figure a till can ring up. */
+const MONEY_NOISE_DIGITS = 6;
 const MIN = 'min';
 const MULTI_CURRENCY = 'multi_currency';
 const NUMERIC = 'numeric';

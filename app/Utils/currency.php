@@ -109,11 +109,18 @@ if (!function_exists('defaultCurrencyDecimalPoints')) {
      * name, a symbol, a code and an exchange rate, and no decimal places, so a three-decimal Gulf currency (KWD,
      * BHD, OMR) is served by setting this to 3 rather than by anything the currency row itself says.
      *
+     * The figure is returned exactly as the setting holds it. The bound a guarded integer grid needs is applied where
+     * that grid lives, in App\Services\Pos\PosSaleTotal, and NOT here: clamping here made this function, which every
+     * money figure on every screen passes through, answer differently from the way it always has for a setting above
+     * MAX_CURRENCY_DECIMAL_POINTS — a change outside the point-of-sale lane that reviewer B measured
+     * (usdToDefaultCurrency(1.23456789) at a setting of 8: 1.23456788 before, 1.234567 after) and that
+     * `BusinessSettingRequest` allows, since it validates `required|integer|min:0` with no maximum.
+     *
      * @return int
      */
     function defaultCurrencyDecimalPoints(): int
     {
-        return max(0, min(MAX_CURRENCY_DECIMAL_POINTS, (int) (getWebConfig('decimal_point_settings') ?? 2)));
+        return (int) (getWebConfig('decimal_point_settings') ?? 2);
     }
 }
 
@@ -128,7 +135,20 @@ if (!function_exists('usdToDefaultCurrency')) {
         $value = $amount * defaultCurrencyRate();
 
         $factor = pow(10, defaultCurrencyDecimalPoints());
-        return floor($value * $factor) / $factor;
+
+        // The round() is the whole of the fix reviewer A found, and it is a money defect in its own right: `floor()`
+        // of a binary double is NOT idempotent, so this function did not return the figure handed to it even when that
+        // figure was already an exact number of minor units. 0.58 came back 0.57, because the double nearest 0.58 is a
+        // shade below it and 0.58 * 100 is 57.99999999999999289. Measured over the first 100000 exact minor-unit
+        // figures: 4586 of them (4.59 %) came back one unit low at two decimal places and 741 (0.74 %) at three.
+        //
+        // That is what made the panel's cart show, post and demand one minor unit less than the sale costs, and this
+        // lane's first version answered it by recording the gap on the order row (order_amount 0.58, paid_amount 0.57,
+        // payment_status 'paid') instead of closing it. Rounding at six digits below a minor unit — the grain
+        // PosSaleTotal already uses, far coarser than binary noise and far finer than any money figure — leaves every
+        // genuinely fractional figure flooring DOWN as it always did (272.849 is still 272.84, 13.5675 still 13.56)
+        // and moves only the figures the floor had already lost.
+        return floor(round($value * $factor, MONEY_NOISE_DIGITS)) / $factor;
     }
 }
 

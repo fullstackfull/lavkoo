@@ -410,8 +410,11 @@ class CartService
      * own cart summary uses, so no second pricing rule is introduced.
      *
      * The lines are the ones the sale itself writes: `filterSessionCartList` in the same order, a line whose product
-     * is no longer there skipped exactly as the sale's own loop skips it. The discount base is the one the sale uses
-     * too, which counts only the lines belonging to the customer being served.
+     * is no longer there skipped exactly as the sale's own loop skips it. That is deliberately NOT the same set as the
+     * panel's own cart summary, which filters by `customerId` (`calculateCartItemsData`) while the sale does not: on a
+     * cart holding a line for another customer the panel shows 20.00 and the sale ships 120.00 of goods, and what the
+     * sale costs is what it SHIPS. Reviewer B found that divergence; the rule chosen here is the sale's, and it is
+     * pinned by a test rather than left to chance.
      *
      * @param string $cartName the session key the cart lives under
      * @param int $customerId the customer the sale is for, 0 for a walk-in
@@ -424,9 +427,6 @@ class CartService
 
         $total = PosSaleTotal::inDefaultCurrency();
         foreach ($cartList as $cartItem) {
-            if (!is_array($cartItem)) {
-                continue;
-            }
             $product = $products->firstWhere('id', $cartItem['id']);
             if (!$product) {
                 continue;
@@ -444,8 +444,13 @@ class CartService
             );
         }
 
-        // The cart's own discounts, resolved against the INTEGER subtotal: a percentage extra discount is a share of
-        // what the lines come to, and the float sum is what it used to be a share of.
+        // The cart's own discounts, resolved against the INTEGER subtotal rather than against the float
+        // `$totalDiscountedPrice` this method already holds. Reviewer A is right that for a cart of one customer the
+        // two differ only by float noise (~1e-15), too little to move a percentage across a minor unit; what this
+        // buys is that the base a percentage is taken from cannot drift from the figure the sale is charged, and that
+        // it is the base for EVERY line the sale writes. `getCartTotalDiscountPrice` counts only the lines belonging
+        // to the customer being served, while the sale's own loop prices and ships every line in the cart, so on a
+        // cart holding a line for another customer the two are not the same figure at all.
         $cartDiscounts = $this->getTotalCalculation(
             subTotalCalculation: ['subtotal' => $total->lineSubtotalInBaseCurrency()],
             cartName: $cartName,

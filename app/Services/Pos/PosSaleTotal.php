@@ -42,13 +42,14 @@ final readonly class PosSaleTotal
      * digits is far more than any one figure contributes and still leaves a 64-bit integer room for a total of
      * 9,000,000,000,000 minor units.
      */
-    private const GUARD_DIGITS = 6;
+    private const GUARD_DIGITS = MONEY_NOISE_DIGITS;
 
     private function __construct(
         private int $exponent,
         private int $guardedSubtotal,
         private int $guardedTax,
         private int $guardedDiscounts,
+        private int $lineCount,
     )
     {
     }
@@ -58,7 +59,14 @@ final readonly class PosSaleTotal
      */
     public static function inDefaultCurrency(): self
     {
-        return new self(exponent: defaultCurrencyDecimalPoints(), guardedSubtotal: 0, guardedTax: 0, guardedDiscounts: 0);
+        // The setting is clamped HERE and not inside defaultCurrencyDecimalPoints(), because that helper feeds
+        // usdToDefaultCurrency, which every money figure on every screen passes through and whose answer must not
+        // change for a setting the admin form allows (reviewer B, F4). The bound belongs to the integer grid: below
+        // zero the exponent would multiply a sale instead of dividing it, and above MAX_CURRENCY_DECIMAL_POINTS the
+        // guarded integer runs out of 64-bit room sooner than the bound in toGuarded() admits.
+        $exponent = max(0, min(MAX_CURRENCY_DECIMAL_POINTS, defaultCurrencyDecimalPoints()));
+
+        return new self(exponent: $exponent, guardedSubtotal: 0, guardedTax: 0, guardedDiscounts: 0, lineCount: 0);
     }
 
     /**
@@ -78,6 +86,7 @@ final readonly class PosSaleTotal
             guardedSubtotal: $this->guardedSubtotal + $this->toGuarded($lineSubtotal),
             guardedTax: $this->guardedTax + $this->toGuarded($appliedTaxAmount),
             guardedDiscounts: $this->guardedDiscounts,
+            lineCount: $this->lineCount + 1,
         );
     }
 
@@ -92,6 +101,7 @@ final readonly class PosSaleTotal
             guardedSubtotal: $this->guardedSubtotal,
             guardedTax: $this->guardedTax,
             guardedDiscounts: $this->guardedDiscounts + $this->toGuarded($couponDiscount) + $this->toGuarded($extraDiscount),
+            lineCount: $this->lineCount,
         );
     }
 
@@ -107,11 +117,50 @@ final readonly class PosSaleTotal
     }
 
     /**
+     * How many cart lines the sale could actually be priced from.
+     *
+     * A cart line whose product is no longer in the catalogue is skipped, by this class's caller and by the sale's own
+     * loop alike. Zero priced lines means the sale has nothing to sell, which the seller app's till already refuses
+     * and the two panel tills did not: they wrote an order row with no lines and charged the posted figure for it.
+     */
+    public function lineCount(): int
+    {
+        return $this->lineCount;
+    }
+
+    /**
+     * The sale's TAX in whole minor units of the currency it is charged in.
+     *
+     * `orders.total_tax_amount` used to be a second float accumulation of the same per-line figures the sale's total
+     * is built from, so an order charged in whole minor units recorded a tax that was not — 13.563 on a two-decimal
+     * store (reviewer A, F4; reviewer B, F3). This is the same integer the total already holds.
+     */
+    public function taxInMinorUnits(): int
+    {
+        return $this->toMinorUnits($this->guardedTax);
+    }
+
+    /**
+     * The sale's tax as a decimal amount in the currency the sale is charged in.
+     */
+    public function taxAmount(): float
+    {
+        return $this->taxInMinorUnits() / (10 ** $this->exponent);
+    }
+
+    /**
      * The sale's cost in whole minor units of the currency it is charged in. This is the authoritative figure.
      */
     public function minorUnits(): int
     {
-        $guarded = $this->guardedSubtotal + $this->guardedTax - $this->guardedDiscounts;
+        return $this->toMinorUnits($this->guardedSubtotal + $this->guardedTax - $this->guardedDiscounts);
+    }
+
+    /**
+     * A figure on the guarded integer grid, converted once and floored to whole minor units.
+     */
+    private function toMinorUnits(int $guarded): int
+    {
         $rate = defaultCurrencyRate();
         if ($rate !== 1.0) {
             // One multiplication, rounded straight back onto the guarded integer grid, so the floor below stays
@@ -124,7 +173,9 @@ final readonly class PosSaleTotal
         $unit = 10 ** self::GUARD_DIGITS;
 
         // intdiv() truncates towards zero; a sale should never come to less than nothing, but a floor that is only a
-        // floor for positive numbers is a trap for the next reader.
+        // floor for positive numbers is a trap for the next reader. Reviewer A was right that the unguarded cast in
+        // toGuarded() used to make this branch reachable with a fractional minor unit, by overflowing to a large
+        // NEGATIVE integer; the bound added there is what shuts that door, and this stays a floor regardless.
         return $guarded >= 0 ? intdiv($guarded, $unit) : -intdiv(-$guarded + $unit - 1, $unit);
     }
 
@@ -151,6 +202,16 @@ final readonly class PosSaleTotal
             throw new InvalidArgumentException('A cart line cannot cost a figure that is not a number.');
         }
 
-        return (int) round($amount * (10 ** ($this->exponent + self::GUARD_DIGITS)));
+        $factor = 10 ** ($this->exponent + self::GUARD_DIGITS);
+
+        // The bound this class's own comment claimed and did not enforce. `is_finite()` is true of 9.3e18, and
+        // `(int) round(9.3e18)` in PHP is -9146744073709551616: reviewer A measured a cash sale of 93,000,000,000
+        // units writing orders.order_amount = -91467440737.10 and taking the stock for it, which is the very failure
+        // the non-positive wallet guard was added to prevent. A line that cannot be counted is refused, not wrapped.
+        if (abs($amount) > PHP_INT_MAX / $factor) {
+            throw new InvalidArgumentException('A cart line costs more than this sale can be counted in.');
+        }
+
+        return (int) round($amount * $factor);
     }
 }
