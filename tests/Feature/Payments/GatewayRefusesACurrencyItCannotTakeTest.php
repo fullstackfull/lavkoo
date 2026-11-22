@@ -1,0 +1,532 @@
+<?php
+
+namespace Tests\Feature\Payments;
+
+use App\Enums\GlobalConstant;
+use App\Http\Controllers\Customer\PaymentController;
+use App\Models\User;
+use App\Services\Payments\GatewayCurrencyDecision;
+use App\Services\Payments\GatewayCurrencySupport;
+use App\Services\Payments\PaymentGatewayCatalog;
+use Illuminate\Support\Facades\DB;
+
+/**
+ * A gateway payment in a currency the gateway cannot take is REFUSED, not silently turned into a
+ * different currency (D2-V1).
+ *
+ * Three places start a gateway payment, and all three resolved a currency the gateway would accept and
+ * then CONVERTED the amount into it. Measured on this repository at the base of this branch
+ * (222fe1eb), a customer browsing in Saudi Riyal who owed 375 SAR and chose SSLCommerz -- which takes
+ * Bangladeshi Taka and nothing else -- was handed to the gateway for 11,000 BDT; with the Taka row
+ * switched off, for 100 USD; and with Paystack, which takes six currencies and no Riyal, again for
+ * 100 USD. The figures below are those measurements, not remembered numbers, and the switched-off
+ * cases still assert them.
+ *
+ * Every refusal here is driven through the route the website or the phone really posts to, with the
+ * request the middleware leaves, because the one thing this guard must do is run on the real path: the
+ * routing guard on this same controller was shipped broken precisely because its tests called the
+ * service instead of the route.
+ */
+class GatewayRefusesACurrencyItCannotTakeTest extends PaymentCurrencyTestCase
+{
+    /** The payment start, as the phone posts it. */
+    private const APP_PAYMENT = '/api/v1/digital-payment';
+
+    /** The payment start, as the website posts it. */
+    private const WEB_PAYMENT = '/customer/web-payment-request';
+
+    private const ADD_FUND = '/customer/customer-add-fund-request';
+
+    private const EDIT_DUE_APP = '/api/v1/edit-order/due-payment-by-digital-payment';
+
+    private const EDIT_DUE_WEB = '/customer/customer-order-edit-pay-amount';
+
+    /** Takes Bangladeshi Taka and nothing else: cannot take a Riyal, and has exactly one declared currency. */
+    private const ONE_CURRENCY_GATEWAY = 'ssl_commerz';
+
+    /** Takes six currencies, none of them a Riyal: the other side of the count the resolver branches on. */
+    private const MANY_CURRENCY_GATEWAY = 'paystack';
+
+    /** Declares Kuwaiti Dinar and Saudi Riyal. */
+    private const GATEWAY_THAT_TAKES_RIYAL = 'fatoorah';
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->createOrderEditTables();
+    }
+
+    // ---------------------------------------------------------------- the payment start
+
+    /** @return \Illuminate\Testing\TestResponse */
+    private function startsAppPayment(string $gateway, string $browsing, array $headers = [])
+    {
+        $customer = $this->makeCustomer();
+        $address = $this->makeLegacyAddress($customer->id);
+        $this->aCartReadyToPay($customer->id);
+
+        return $this->asCustomer($customer)->withHeaders($headers)->postJson(self::APP_PAYMENT, [
+            'payment_method' => $gateway, 'payment_platform' => 'app', 'payment_request_from' => 'app',
+            'customer_id' => $customer->id, 'is_guest' => 0, 'address_id' => $address->id,
+            'current_currency_code' => $browsing,
+        ]);
+    }
+
+    public function test_the_payment_start_refuses_the_phone_and_names_the_currency_it_cannot_take(): void
+    {
+        $this->aMultiCurrencyStore();
+        $this->switchTheRefusalOn();
+
+        $response = $this->startsAppPayment(self::ONE_CURRENCY_GATEWAY, 'SAR');
+
+        $response->assertStatus(403)
+            ->assertJsonPath('errors.0.code', 'payment-currency')
+            ->assertJsonPath('message', translate('this_payment_method_cannot_take_payments_in_your_currency') . ' (SAR)');
+
+        $this->assertNothingWasWritten();
+    }
+
+    public function test_the_payment_start_refuses_the_website_with_a_message_and_the_payment_page(): void
+    {
+        $this->aMultiCurrencyStore();
+        $this->switchTheRefusalOn();
+        $customer = $this->makeCustomer();
+        $address = $this->makeLegacyAddress($customer->id);
+        $this->aCartReadyToPay($customer->id);
+
+        $response = $this->actingAs($customer, 'customer')->post(self::WEB_PAYMENT, [
+            'payment_method' => self::ONE_CURRENCY_GATEWAY, 'payment_platform' => 'web',
+            'address_id' => $address->id, 'current_currency_code' => 'SAR',
+        ]);
+
+        $response->assertRedirect(route('checkout-payment'));
+        $this->assertTheCustomerWasTold();
+        $this->assertNothingWasWritten();
+    }
+
+    public function test_the_refusal_reaches_the_phone_in_the_language_it_asked_for(): void
+    {
+        $this->aMultiCurrencyStore();
+        $this->setSetting('language', [['id' => 1, 'name' => 'Arabic', 'code' => 'sa', 'default' => 1, 'status' => 1]]);
+        $this->switchTheRefusalOn();
+
+        $response = $this->startsAppPayment(self::ONE_CURRENCY_GATEWAY, 'SAR', headers: ['lang' => 'sa']);
+
+        $response->assertStatus(403)
+            ->assertJsonPath('message', 'وسيلة الدفع هذه لا تقبل الدفع بعملتك (SAR)');
+    }
+
+    public function test_a_gateway_that_can_take_the_customers_currency_goes_through_and_the_amount_is_the_amount(): void
+    {
+        $this->aMultiCurrencyStore();
+        $this->switchTheRefusalOn();
+
+        $this->startsAppPayment(self::GATEWAY_THAT_TAKES_RIYAL, 'SAR')->assertOk()->assertJsonStructure(['redirect_link']);
+
+        $this->assertSame(['currency' => 'SAR', 'amount' => 375.0], $this->theCharge());
+    }
+
+    public function test_a_gateway_with_several_declared_currencies_and_none_of_them_the_customers_is_refused_too(): void
+    {
+        $this->aMultiCurrencyStore();
+        $this->switchTheRefusalOn();
+
+        $this->startsAppPayment(self::MANY_CURRENCY_GATEWAY, 'SAR')->assertStatus(403);
+
+        $this->assertNothingWasWritten();
+    }
+
+    // ---------------------------------------------------------------- the wallet top-up
+
+    /** @return \Illuminate\Testing\TestResponse */
+    private function topsUpTheWallet(string $gateway, string $browsing, ?User $customer = null)
+    {
+        $this->walletTopUpIsOpen();
+        $customer ??= $this->makeCustomer();
+
+        return $this->asCustomer($customer)->postJson(self::ADD_FUND, [
+            'amount' => 100, 'payment_method' => $gateway, 'payment_platform' => 'app',
+            'payment_request_from' => 'app', 'current_currency_code' => $browsing,
+        ]);
+    }
+
+    public function test_the_wallet_top_up_refuses_a_gateway_that_cannot_take_the_customers_currency(): void
+    {
+        $this->aMultiCurrencyStore();
+        $this->switchTheRefusalOn();
+        $customer = $this->makeCustomer();
+
+        $this->topsUpTheWallet(self::ONE_CURRENCY_GATEWAY, 'SAR', customer: $customer)
+            ->assertStatus(403)
+            ->assertJsonPath('message', translate('this_payment_method_cannot_take_payments_in_your_currency') . ' (SAR)');
+
+        $this->assertNothingWasWritten();
+        $this->assertSame(0.0, (float) $customer->fresh()->wallet_balance, 'the refused top-up moved the wallet');
+    }
+
+    public function test_the_websites_wallet_top_up_is_refused_with_a_message_and_the_page_it_came_from(): void
+    {
+        $this->aMultiCurrencyStore();
+        $this->walletTopUpIsOpen();
+        $this->switchTheRefusalOn();
+        $customer = $this->makeCustomer();
+
+        $response = $this->actingAs($customer, 'customer')->from('/')->post(self::ADD_FUND, [
+            'amount' => 100, 'payment_method' => self::ONE_CURRENCY_GATEWAY, 'payment_platform' => 'web',
+            'current_currency_code' => 'SAR',
+        ]);
+
+        $response->assertRedirect('/');
+        $this->assertTheCustomerWasTold();
+        $this->assertNothingWasWritten();
+        $this->assertSame(0.0, (float) $customer->fresh()->wallet_balance);
+    }
+
+    public function test_the_wallet_top_up_still_goes_through_for_a_gateway_that_can(): void
+    {
+        $this->aMultiCurrencyStore();
+        $this->switchTheRefusalOn();
+
+        $this->topsUpTheWallet(self::GATEWAY_THAT_TAKES_RIYAL, 'SAR')->assertOk()->assertJsonStructure(['redirect_link']);
+
+        $this->assertSame(['currency' => 'SAR', 'amount' => 375.0], $this->theCharge());
+    }
+
+    // ---------------------------------------------------------------- an order edit's due amount
+
+    /** @return \Illuminate\Testing\TestResponse */
+    private function paysTheDueAmount(string $gateway, string $browsing)
+    {
+        $customer = $this->makeCustomer();
+        $order = $this->anOrderWithADueAmount($customer->id);
+
+        return $this->asCustomer($customer)->postJson(self::EDIT_DUE_APP, [
+            'order_id' => $order->id, 'payment_method' => $gateway, 'payment_platform' => 'app',
+            'payment_request_from' => 'app', 'current_currency_code' => $browsing,
+        ]);
+    }
+
+    public function test_an_order_edits_due_payment_refuses_a_gateway_that_cannot_take_the_customers_currency(): void
+    {
+        $this->aMultiCurrencyStore();
+        $this->switchTheRefusalOn();
+
+        // 401 is the status this route already answers a failed due payment with; the app parses it.
+        $this->paysTheDueAmount(self::ONE_CURRENCY_GATEWAY, 'SAR')
+            ->assertStatus(401)
+            ->assertJsonPath('message', translate('this_payment_method_cannot_take_payments_in_your_currency') . ' (SAR)');
+
+        $this->assertNothingWasWritten(ordersTheTestMade: 1);
+    }
+
+    public function test_an_order_edits_due_payment_still_goes_through_for_a_gateway_that_can(): void
+    {
+        $this->aMultiCurrencyStore();
+        $this->switchTheRefusalOn();
+
+        $this->paysTheDueAmount(self::GATEWAY_THAT_TAKES_RIYAL, 'SAR')->assertOk()->assertJsonStructure(['redirect_link']);
+
+        $this->assertSame(['currency' => 'SAR', 'amount' => 150.0], $this->theCharge());
+    }
+
+    /**
+     * The website's own due-payment form. Its answer is a message and the page the customer came from --
+     * no exception, no error page -- and that is what is checked: the controller reads `redirect_link`
+     * off the answer without guarding it, so a refusal that left the key out would end in a 500.
+     */
+    public function test_the_websites_due_payment_form_is_refused_without_an_error_page(): void
+    {
+        $this->aMultiCurrencyStore();
+        $this->switchTheRefusalOn();
+        $customer = $this->makeCustomer();
+        $order = $this->anOrderWithADueAmount($customer->id);
+
+        $response = $this->actingAs($customer, 'customer')->from('/')->post(self::EDIT_DUE_WEB, [
+            'order_id' => $order->id, 'payment_method' => self::ONE_CURRENCY_GATEWAY,
+            'payment_platform' => 'web', 'current_currency_code' => 'SAR',
+        ]);
+
+        $response->assertRedirect('/');
+        $this->assertTheCustomerWasTold();
+        $this->assertNothingWasWritten(ordersTheTestMade: 1);
+    }
+
+    // ---------------------------------------------------------------- the switch off: today, unchanged
+
+    /**
+     * Every figure here was measured on a worktree at this branch's base, 222fe1eb, through these same
+     * routes. With the switch in its shipped state the three callers must still produce them -- the
+     * substitution into another currency and the fall-through to USD included.
+     */
+    public function test_with_the_switch_off_all_three_callers_convert_exactly_as_they_do_today(): void
+    {
+        $this->aMultiCurrencyStore();
+        $this->assertFalse(app(GatewayCurrencySupport::class)->enabled(), 'the refusal is not off in the shipped state');
+
+        $this->startsAppPayment(self::ONE_CURRENCY_GATEWAY, 'SAR')->assertOk();
+        $this->assertSame(['currency' => 'BDT', 'amount' => 11000.0], $this->theCharge(), 'the payment start no longer converts as it did');
+
+        DB::table('payment_requests')->delete();
+        $this->topsUpTheWallet(self::ONE_CURRENCY_GATEWAY, 'SAR')->assertOk();
+        $this->assertSame(['currency' => 'BDT', 'amount' => 11000.0], $this->theCharge(), 'the wallet top-up no longer converts as it did');
+
+        DB::table('payment_requests')->delete();
+        $this->paysTheDueAmount(self::ONE_CURRENCY_GATEWAY, 'SAR')->assertOk();
+        $this->assertSame(['currency' => 'BDT', 'amount' => 4400.0], $this->theCharge(), "an order edit's due payment no longer converts as it did");
+    }
+
+    public function test_with_the_switch_off_the_fall_through_to_usd_is_still_exactly_what_it_was(): void
+    {
+        // The Taka row switched off, so nothing the gateway declares can be priced: today's answer is USD.
+        $this->aMultiCurrencyStore(activeCodes: ['SAR', 'USD']);
+
+        $this->startsAppPayment(self::ONE_CURRENCY_GATEWAY, 'SAR')->assertOk();
+        $this->assertSame(['currency' => 'USD', 'amount' => 100.0], $this->theCharge());
+
+        DB::table('payment_requests')->delete();
+        $this->startsAppPayment(self::MANY_CURRENCY_GATEWAY, 'SAR')->assertOk();
+        $this->assertSame(['currency' => 'USD', 'amount' => 100.0], $this->theCharge());
+    }
+
+    public function test_the_switch_is_off_until_an_operator_sets_it_and_the_migration_leaves_it_off(): void
+    {
+        $this->aMultiCurrencyStore();
+        $support = app(GatewayCurrencySupport::class);
+
+        DB::table('business_settings')->where('type', GatewayCurrencySupport::SETTING)->delete();
+        $this->setSetting('unrelated_setting', 1);
+        $this->assertFalse($support->enabled(), 'with no row at all the refusal is on');
+
+        (require database_path('migrations/2026_12_02_110000_register_gateway_currency_refusal_setting.php'))->up();
+        $this->setSetting('unrelated_setting', 2);
+        $this->assertSame('0', (string) DB::table('business_settings')->where('type', GatewayCurrencySupport::SETTING)->value('value'));
+        $this->assertFalse($support->enabled(), 'the migration switched the refusal on');
+
+        $this->switchTheRefusalOn();
+        $this->assertTrue($support->enabled());
+    }
+
+    /**
+     * A settings row holding something that is not a flag at all. Every other setting on this table is
+     * read as a string or an array depending on what somebody saved, so a switch that cast whatever it
+     * found would take the payment start down with a type error on every request rather than stay off.
+     */
+    public function test_a_switch_whose_value_is_not_a_flag_leaves_the_refusal_off(): void
+    {
+        $this->aMultiCurrencyStore();
+
+        foreach ([['on' => true], '', 'yes', 0, null, [1]] as $nonsense) {
+            $this->setSetting(GatewayCurrencySupport::SETTING, $nonsense);
+            $this->assertFalse(app(GatewayCurrencySupport::class)->enabled(), 'a value that is not the flag switched the refusal on');
+        }
+
+        $this->startsAppPayment(self::ONE_CURRENCY_GATEWAY, 'SAR')->assertOk();
+        $this->assertSame(['currency' => 'BDT', 'amount' => 11000.0], $this->theCharge());
+    }
+
+    public function test_the_migration_never_overwrites_a_switch_an_operator_has_already_set(): void
+    {
+        $this->aMultiCurrencyStore();
+        $this->switchTheRefusalOn();
+
+        (require database_path('migrations/2026_12_02_110000_register_gateway_currency_refusal_setting.php'))->up();
+        $this->setSetting('unrelated_setting', 3);
+
+        $this->assertTrue(app(GatewayCurrencySupport::class)->enabled(), 'the migration turned an operator\'s switch back off');
+        $this->assertSame(1, DB::table('business_settings')->where('type', GatewayCurrencySupport::SETTING)->count());
+    }
+
+    // ---------------------------------------------------------------- a single-currency installation
+
+    /**
+     * A store that prices in one currency converts nothing, so there is no substitution to refuse. With
+     * the switch ON it must still charge the system default currency, at the amount it charges today.
+     */
+    public function test_a_single_currency_installation_is_untouched_even_with_the_switch_on(): void
+    {
+        $this->aSingleCurrencyStore();
+        $this->switchTheRefusalOn();
+
+        $this->startsAppPayment(self::ONE_CURRENCY_GATEWAY, 'SAR')->assertOk();
+        $this->assertSame(['currency' => 'SAR', 'amount' => 100.0], $this->theCharge());
+
+        DB::table('payment_requests')->delete();
+        $this->topsUpTheWallet(self::ONE_CURRENCY_GATEWAY, 'SAR')->assertOk();
+        $this->assertSame(['currency' => 'SAR', 'amount' => 100.0], $this->theCharge());
+
+        DB::table('payment_requests')->delete();
+        $this->paysTheDueAmount(self::ONE_CURRENCY_GATEWAY, 'SAR')->assertOk();
+        $this->assertSame(['currency' => 'SAR', 'amount' => 40.0], $this->theCharge());
+    }
+
+    // ---------------------------------------------------------------- the boundary the fall-through hid
+
+    /**
+     * A currency the gateway DOES declare, whose currency row the store has switched off.
+     *
+     * Today that is the quietest case of all: the resolver's first branch wants the row active, the
+     * remaining branches want an active row too, so nothing matches and the amount goes out labelled USD
+     * -- computed from a rate the store had deliberately retired. It is refused here, for the same reason
+     * as a currency the gateway never declared: there is no currency in which this charge can lawfully
+     * go out, and an amount in one the customer did not choose is exactly what must not happen.
+     */
+    public function test_a_currency_the_gateway_declares_but_the_store_has_retired_is_refused(): void
+    {
+        $this->aMultiCurrencyStore(activeCodes: ['USD']);
+        $this->switchTheRefusalOn();
+
+        $decision = app(GatewayCurrencySupport::class)->decide(gateway: self::GATEWAY_THAT_TAKES_RIYAL, currencyCode: 'SAR');
+
+        $this->assertTrue($decision->refused());
+        $this->assertSame(GatewayCurrencyDecision::CURRENCY_INACTIVE, $decision->reason);
+
+        $this->startsAppPayment(self::GATEWAY_THAT_TAKES_RIYAL, 'SAR')->assertStatus(403);
+        $this->assertNothingWasWritten();
+    }
+
+    public function test_the_same_case_with_the_switch_off_still_becomes_usd_as_it_does_today(): void
+    {
+        $this->aMultiCurrencyStore(activeCodes: ['USD']);
+
+        $this->startsAppPayment(self::GATEWAY_THAT_TAKES_RIYAL, 'SAR')->assertOk();
+
+        $this->assertSame(['currency' => 'USD', 'amount' => 100.0], $this->theCharge());
+    }
+
+    // ---------------------------------------------------------------- one question, one answer
+
+    /**
+     * The question is asked in ONE place, and the proof is mechanical: for every gateway the platform
+     * offers and every currency the store holds, the new answer allows a payment exactly when the legacy
+     * resolver was going to charge in the customer's OWN currency -- with one family of exceptions, which
+     * this names, counts and explains rather than averaging away.
+     *
+     * Every exception is a gateway that does not declare the US Dollar, asked about a customer browsing
+     * in dollars, where the resolver ran out of branches: its `else if` chain tries the customer's own
+     * currency, then a lone declared currency, then Paystack's pair, then any active declared one -- and
+     * if the branch it entered fails inside, the chain ENDS and the closing `return 'USD'` names the
+     * customer's own currency by accident. Handing dollars to a gateway that does not take dollars is
+     * the substitution this refuses, so a disagreement there is the feature working. Anywhere else one
+     * would mean two different rules about the same question, which is what must not exist.
+     *
+     * In this store that is four of the seven dollarless gateways; the other three reach a declared
+     * currency that IS active (Taka, Riyal) and so never reach the fall-through, which is why the list
+     * is asserted exactly as well as by its shape.
+     */
+    public function test_the_one_question_agrees_with_the_legacy_resolver_on_every_offered_gateway(): void
+    {
+        $this->aMultiCurrencyStore(activeCodes: ['SAR', 'USD', 'BDT']);
+        $this->switchTheRefusalOn();
+        $support = app(GatewayCurrencySupport::class);
+        $controller = app(PaymentController::class);
+        $disagreements = [];
+        $pairs = 0;
+
+        foreach (GlobalConstant::DEFAULT_PAYMENT_GATEWAYS as $gateway) {
+            foreach (['SAR', 'USD', 'BDT', 'KWD'] as $code) {
+                $resolverChargesInTheirOwnCurrency = $controller->getPaymentGatewayCurrencyCode(key: $gateway, currentCurrency: $code) === $code;
+                $allowed = !$support->decide(gateway: $gateway, currencyCode: $code)->refused();
+                if ($resolverChargesInTheirOwnCurrency !== $allowed) {
+                    $disagreements[] = $gateway . '/' . $code;
+                }
+                $pairs++;
+            }
+        }
+
+        $this->assertSame(64, $pairs, 'the sweep stopped covering the offered gateways');
+        $this->assertSame(
+            ['paystack/USD', 'senang_pay/USD', 'paytm/USD', 'mtn_cash/USD'],
+            $disagreements,
+            'the refusal and the legacy resolver differ somewhere other than the dollar fall-through'
+        );
+
+        // And the shape of it, so the claim still holds if the store's currency list changes.
+        $catalog = app(PaymentGatewayCatalog::class);
+        foreach ($disagreements as $pair) {
+            [$gateway, $code] = explode('/', $pair);
+            $this->assertSame('USD', $code, "{$pair} is a disagreement that is not about the dollar fall-through");
+            $this->assertFalse($catalog->declaresCurrency(gateway: $gateway, currencyCode: 'USD'), "{$gateway} declares the dollar, so the fall-through does not explain {$pair}");
+        }
+    }
+
+    public function test_with_the_switch_off_the_question_refuses_nothing_at_all(): void
+    {
+        $this->aMultiCurrencyStore(activeCodes: ['SAR', 'USD', 'BDT']);
+        $support = app(GatewayCurrencySupport::class);
+
+        foreach (GlobalConstant::DEFAULT_PAYMENT_GATEWAYS as $gateway) {
+            foreach (['SAR', 'USD', 'BDT', 'KWD', ''] as $code) {
+                $this->assertFalse($support->decide(gateway: $gateway, currencyCode: $code)->refused(), "{$gateway}/{$code} was refused with the switch off");
+            }
+        }
+    }
+
+    /**
+     * A payment start that names no currency. The platform does not know what the customer is being
+     * charged in, so there is no claim about their money to test and the legacy resolver decides as it
+     * always has. This is the one way the fall-through can still choose a currency with the switch on,
+     * and it is deliberate: refusing on an unknown would kill payments this feature is not about.
+     */
+    public function test_a_request_that_names_no_currency_is_left_to_the_resolver(): void
+    {
+        $this->aMultiCurrencyStore();
+        $this->switchTheRefusalOn();
+        $support = app(GatewayCurrencySupport::class);
+
+        $this->assertFalse($support->decide(gateway: self::ONE_CURRENCY_GATEWAY, currencyCode: null)->refused());
+        $this->assertFalse($support->decide(gateway: self::ONE_CURRENCY_GATEWAY, currencyCode: '  ')->refused());
+        $this->assertFalse($support->decide(gateway: '', currencyCode: 'SAR')->refused(), 'a request naming no gateway was judged');
+
+        // A posted field can be an array. That must leave the payment where it was, not become a 500.
+        $this->assertFalse($support->decideForRequest(['payment_method' => ['x'], 'current_currency_code' => 'SAR'])->refused());
+        $this->assertFalse($support->decideForRequest(['payment_method' => self::ONE_CURRENCY_GATEWAY, 'current_currency_code' => ['SAR']])->refused());
+    }
+
+    public function test_the_currency_is_read_off_the_request_in_one_place_and_a_lower_case_code_is_the_same_code(): void
+    {
+        $this->aMultiCurrencyStore();
+        $this->switchTheRefusalOn();
+        $support = app(GatewayCurrencySupport::class);
+
+        $this->assertTrue($support->decideForRequest(['payment_method' => self::ONE_CURRENCY_GATEWAY, 'current_currency_code' => 'sar'])->refused());
+        $this->assertFalse($support->decideForRequest(['payment_method' => self::GATEWAY_THAT_TAKES_RIYAL, 'current_currency_code' => ' sar '])->refused());
+    }
+
+    // ---------------------------------------------------------------- nothing half-written
+
+    /**
+     * The website's refusals say why. A redirect on its own is indistinguishable from a page reload, so
+     * the flashed message is read out of the session the request left behind.
+     */
+    private function assertTheCustomerWasTold(): void
+    {
+        $told = array_column(session('toastr::messages') ?? [], 'message');
+
+        $this->assertContains(
+            translate('this_payment_method_cannot_take_payments_in_your_currency') . ' (SAR)',
+            $told,
+            'the customer was sent back without being told why'
+        );
+    }
+
+    /**
+     * No payment row, no new order, no order line, no money movement and no stock move.
+     *
+     * `$ordersTheTestMade` is the orders the fixture itself created -- an order edit's due payment needs
+     * one to be due on -- so a refused payment adding an order of its own is still caught.
+     */
+    private function assertNothingWasWritten(int $ordersTheTestMade = 0): void
+    {
+        $this->assertSame(0, $this->paymentRequests(), 'a payment row was written for a refused payment');
+        $this->assertSame($ordersTheTestMade, DB::table('orders')->count(), 'an order was written for a refused payment');
+        $this->assertSame(0, DB::table('order_details')->count(), 'an order line was written for a refused payment');
+        $this->assertSame(0, DB::table('order_transactions')->count(), 'a money movement was recorded for a refused payment');
+
+        // Every product these tests create starts at ten, so anything else is a stock move.
+        $this->assertSame([], DB::table('products')->where('current_stock', '<>', 10)->pluck('id')->all(), 'the stock moved for a refused payment');
+
+        $this->assertSame(0.0, (float) DB::table('users')->sum('wallet_balance'), 'a wallet moved for a refused payment');
+        $this->assertSame(0, DB::table('order_status_histories')->count());
+    }
+}

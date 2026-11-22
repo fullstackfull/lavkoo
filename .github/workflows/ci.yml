@@ -90,7 +90,7 @@ jobs:
       fail-fast: false
       matrix:
         engine: ['MySQL 8', 'MariaDB 11.4.2']
-        group: ['Fulfillment + security tests', 'Address tests']
+        group: ['Fulfillment + security tests', 'Address tests', 'Payment tests']
         include:
           - engine: MySQL 8
             image: mysql:8.0
@@ -104,6 +104,13 @@ jobs:
             paths: tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Security tests/Feature/CiDatabaseTest.php
           - group: Address tests
             paths: tests/Feature/Address
+          # The payment-start tests, which until now ran on SQLite only (the whole-suite job above) and
+          # on no real engine. They are about money the gateway is asked for, and the figures they assert
+          # come out of decimal columns and of a currency lookup, so they belong on an engine that stores
+          # decimals the way the platform does. Its own group rather than appended to another: the two
+          # existing groups each take 15 to 20 minutes against a 35-minute ceiling.
+          - group: Payment tests
+            paths: tests/Feature/Payments
     services:
       mysql:
         image: ${{ matrix.image }}
