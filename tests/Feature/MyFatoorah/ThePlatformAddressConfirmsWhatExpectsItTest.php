@@ -561,6 +561,10 @@ class ThePlatformAddressConfirmsWhatExpectsItTest extends CompanyAccountsTestCas
      * green, because a recorded value that is not a live account's address is handed back to this address anyway. The comparison still has to be
      * right, and these two assertions are what holds it: of THIS address the method answers no, and of another address yes.
      *
+     * THE BATTERY BEHIND THIS FILE is 33 mutations, one line at a time, of which 31 are red and 2 are declared below. (Commit b041f061's own
+     * message says thirty-four and thirty-two; it counted the one mutation that was run twice, before and after its test was fixed, as two. The
+     * numbers here are the ones a `grep` of the driver gives, and the message is left as it was pushed rather than rewritten.)
+     *
      * TWO MUTANTS ARE DECLARED RATHER THAN KILLED, with their reasons measured. Pointing the route's question at a per-account address for a token
      * that resolves nothing leaves this file green, and is equivalent within everything reachable: a recorded value is either absent, a live
      * account's address, or neither, and in all three the outcome is the same whichever of those two addresses is compared. Pointing it at the
