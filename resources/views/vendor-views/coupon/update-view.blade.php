@@ -86,7 +86,7 @@
                                             id="discount_percent"> (%)</span></label>
                                     <input type="number" min="0" max="1000000" step=".01" name="discount"
                                            class="form-control" id="discount"
-                                           value="{{$coupon['discount_type']=='amount' ? usdToDefaultCurrency(amount: $coupon['discount']) : $coupon['discount']}}"
+                                           value="{{$coupon['discount_type']=='amount' ? usdToDefaultCurrencyForEditing(amount: $coupon['discount']) : $coupon['discount']}}"
                                            placeholder="{{ translate('ex') }}: 500" required>
                                 </div>
                                 <div class="col-md-6 col-lg-4 form-group">
@@ -97,7 +97,7 @@
                                     </label>
                                     <input type="number" min="0" max="1000000" step=".01" name="min_purchase"
                                            class="form-control" id="minimum purchase"
-                                           value="{{ usdToDefaultCurrency(amount:$coupon['min_purchase']) }}"
+                                           value="{{ usdToDefaultCurrencyForEditing(amount:$coupon['min_purchase']) }}"
                                            placeholder="{{ translate('minimum purchase') }}" required>
                                 </div>
                                 <div class="col-md-6 col-lg-4 form-group free_delivery" id="max-discount">
@@ -108,7 +108,7 @@
                                     </label>
                                     <input type="number" min="0" max="1000000" step=".01" name="max_discount"
                                            class="form-control" id="maximum discount"
-                                           value="{{ usdToDefaultCurrency(amount:$coupon['max_discount']) }}"
+                                           value="{{ usdToDefaultCurrencyForEditing(amount:$coupon['max_discount']) }}"
                                            placeholder="{{ translate('maximum discount') }}">
                                 </div>
                                 <div class="col-md-6 col-lg-4 form-group">

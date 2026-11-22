@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
+use RuntimeException;
 use Tests\Support\ApprovesStorefrontTax;
 use Tests\Support\BuildsStorefrontCatalog;
 use Tests\Support\BuildsStorefrontLegalDocuments;
@@ -217,6 +218,42 @@ class StorefrontCurrencyTest extends TestCase
         $this->assertSame('2', getWebConfig('decimal_point_settings'));
         $this->assertSame('multi_currency', DB::table('business_settings')->where('type', 'currency_model')->value('value'));
         $this->assertSame(self::SAUDI_RIYAL_ID, DB::table('business_settings')->where('type', 'system_default_currency')->value('value'));
+    }
+
+    /** @return array{code: mixed, symbol: mixed, rate: mixed} the money the converters that do not reload it read out of the session */
+    private function moneyKeptInTheSession(): array
+    {
+        return ['code' => session('currency_code'), 'symbol' => session('currency_symbol'), 'rate' => session('currency_exchange_rate')];
+    }
+
+    public function test_a_market_leaves_the_money_the_converters_keep_in_the_session_as_it_was(): void
+    {
+        loadCurrency();
+        $platformMoney = $this->moneyKeptInTheSession();
+
+        app(StorefrontCurrency::class)->within(country: 'KW', callback: fn (): string => setCurrencySymbol(amount: 1, currencyCode: getCurrencyCode()));
+
+        $this->assertSame($platformMoney, $this->moneyKeptInTheSession());
+        $this->assertSame('SAR', getCurrencyCode());
+        $this->assertSame(1 / 3.75, localToDefaultCurrency(amount: 1), 'a converter that reads the rate out of the session without reloading it answers the platform rate');
+    }
+
+    public function test_a_market_whose_work_throws_puts_back_the_market_and_the_money_of_the_one_before_it(): void
+    {
+        loadCurrency();
+        $platformMoney = $this->moneyKeptInTheSession();
+
+        $this->assertThrows(
+            fn (): mixed => app(StorefrontCurrency::class)->within(country: 'KW', callback: function (): never {
+                setCurrencySymbol(amount: 1, currencyCode: getCurrencyCode());
+
+                throw new RuntimeException('one row of the page failed');
+            }),
+            RuntimeException::class,
+        );
+
+        $this->assertSame(self::SAUDI_RIYAL_ID, getWebConfig('system_default_currency'));
+        $this->assertSame($platformMoney, $this->moneyKeptInTheSession());
     }
 
     public function test_a_setting_that_is_not_about_money_is_never_overridden(): void

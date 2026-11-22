@@ -3,6 +3,14 @@
 @section('title', translate('coupon_Add'))
 
 @section('content')
+    @php
+        use App\Services\Storefront\CouponCountry;
+
+        // A coupon's amounts are typed in the currency of its own storefront and never converted from another's, so the page is
+        // read one storefront at a time rather than one row at a time.
+        $tracksCouponCountry = CouponCountry::isTracked();
+        $couponAmounts = $tracksCouponCountry ? CouponCountry::amountsOfEach(coupons: $coupons) : [];
+    @endphp
     <div class="content container-fluid">
         <div class="mb-3">
             <h2 class="h1 mb-0 text-capitalize d-flex align-items-center gap-2">
@@ -199,6 +207,9 @@
                             </th>
                             <th>{{ translate('coupon') }}</th>
                             <th>{{ translate('coupon_type') }}</th>
+                            @if ($tracksCouponCountry)
+                                <th class="k-table__num">{{ translate('discount') }}</th>
+                            @endif
                             <th>{{ translate('duration') }}</th>
                             <th class="k-table__num">{{ translate('Limit') }}</th>
                             <th class="k-table__num">{{ translate('Total_Used') }}</th>
@@ -228,6 +239,12 @@
                                     <code class="k-text-subtle">{{ $coupon['code'] }}</code>
                                 </td>
                                 <td class="text-capitalize">{{ translate(str_replace('_', ' ', $coupon['coupon_type'])) }}</td>
+                                @if ($tracksCouponCountry)
+                                    <td class="k-table__num">
+                                        <span class="k-num">{{ $coupon['coupon_type'] === 'free_delivery' ? '—' : $couponAmounts[$coupon['id']]['discount'] }}</span>
+                                        <span class="k-text-subtle" style="display:block;font-size:var(--k-text-sm)">{{ translate('minimum_purchase') }} {{ $couponAmounts[$coupon['id']]['minimumPurchase'] }}</span>
+                                    </td>
+                                @endif
                                 <td>
                                     <span class="k-num">{{ date('d M, y', $couponStartsAt) }} – {{ date('d M, y', $couponExpiresAt) }}</span>
                                     @if ($couponExpiresAt < $today)

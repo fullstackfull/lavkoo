@@ -87,11 +87,19 @@ class CouponController extends BaseController
         $sellers = $this->vendorRepo->getListWhere(filters: ['status' => 'approved'], relations: ['shop'], dataLimit: 'all');
         $customers = $this->customerRepo->getListWhereNotIn([0]);
         $coupon = $this->couponRepo->getFirstWhere(['id' => $id]);
-        if ($coupon) {
-            return view('admin-views.coupon.edit', compact('coupon', 'customers', 'sellers'));
+        if (!$coupon) {
+            ToastMagic::error(translate('invalid_Coupon'));
+            return redirect()->route('admin.coupon.add');
         }
-        ToastMagic::error(translate('invalid_Coupon'));
-        return redirect()->route('admin.coupon.add');
+
+        // A form fills its fields in the money in force and saves what they hold, so a coupon whose storefront has lost the currency its
+        // amounts were typed in is not opened at all: the three numbers would be read, shown and saved as the platform's own money.
+        if (!CouponCountry::isInItsOwnMoney(couponId: $id)) {
+            ToastMagic::error(translate('the_currency_of_this_storefront_is_not_active_so_the_amounts_of_this_coupon_cannot_be_edited'));
+            return redirect()->route('admin.coupon.add');
+        }
+
+        return view('admin-views.coupon.edit', compact('coupon', 'customers', 'sellers'));
     }
 
     public function update(CouponUpdateRequest $request, string|int $id, CouponService $couponService): JsonResponse
@@ -101,6 +109,12 @@ class CouponController extends BaseController
                return response()->json([
                    'status' => 0,
                    'message' =>translate('The_minimum_purchase_amount_must_be_greater_than_discount_amount')
+               ]);
+           }
+           if (!CouponCountry::isInItsOwnMoney(couponId: $id)) {
+               return response()->json([
+                   'status' => 0,
+                   'message' => translate('the_currency_of_this_storefront_is_not_active_so_the_amounts_of_this_coupon_cannot_be_edited')
                ]);
            }
            $data = $couponService->getUpdateData(request: $request);
