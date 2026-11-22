@@ -61,7 +61,7 @@ class VendorProductSaleReportController extends Controller
                     });
                 });
             });
-        $orders = self::date_wise_common_filter($orders_query, $date_type, $from, $to)->groupBy('seller_id')->paginate(Helpers::pagination_limit())->appends($query_param);
+        $orders = self::date_wise_common_filter($orders_query, $date_type, $from, $to)->groupBy('seller_id')->orderBy('seller_id')->paginate(Helpers::pagination_limit())->appends($query_param);
 
         $refunds_query = RefundTransaction::where(['paid_by' => 'seller', 'transaction_type' => 'Refund'])
             ->selectRaw('payer_id, sum(amount) as total_refund_amount')

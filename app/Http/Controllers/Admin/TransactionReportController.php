@@ -57,7 +57,7 @@ class TransactionReportController extends Controller
         })->count();
 
         $query_param = ['search' => $search, 'status' => $status, 'customer_id' => $customer_id, 'date_type' => $date_type, 'from' => $from, 'to' => $to];
-        $transactions = $transactions->latest('created_at')->paginate(Helpers::pagination_limit())->appends($query_param);
+        $transactions = $transactions->latest('created_at')->latest('id')->paginate(Helpers::pagination_limit())->appends($query_param);
 
         $order_transaction_chart = self::order_transaction_chart_filter($request);
 
@@ -719,7 +719,7 @@ class TransactionReportController extends Controller
             });
 
         $expense_transactions_table = self::date_wise_common_filter($expense_transaction_query, $date_type, $from, $to);
-        $expense_transactions_table = $expense_transactions_table->latest('created_at')->paginate(20)->appends($query_param);
+        $expense_transactions_table = $expense_transactions_table->latest('created_at')->latest('id')->paginate(20)->appends($query_param);
 
         return view('admin-views.transaction.expense-list', compact('expense_transactions_table', 'expense_transaction_chart', 'search', 'from', 'to', 'date_type', 'total_expense', 'free_delivery', 'coupon_discount', 'referral_Discount'));
     }

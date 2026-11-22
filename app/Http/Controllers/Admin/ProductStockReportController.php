@@ -90,7 +90,8 @@ class ProductStockReportController extends Controller
             ->when(!empty($search), function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%");
             })
-            ->orderBy('current_stock', $sort);
+            ->orderBy('current_stock', $sort)
+            ->orderByDesc('id');
     }
 
 }
