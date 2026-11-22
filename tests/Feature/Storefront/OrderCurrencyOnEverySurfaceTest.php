@@ -327,6 +327,19 @@ class OrderCurrencyOnEverySurfaceTest extends ApiAddressTestCase
         $this->assertContains('750.00SAR', $printed, 'two sales of 100 held as base, at the riyal rate of 3.75, summed as this report has always summed them');
     }
 
+    /** And a period with no order in it keeps its summary table, rather than losing it to a loop with nothing to loop over. */
+    public function test_the_report_pdf_of_a_period_with_no_orders_still_prints_its_summary(): void
+    {
+        $this->openTheAdminPanel();
+
+        $printed = $this->moneyPrintedIn($this->captureRender(
+            'admin-views.transaction.total_orders_report_pdf',
+            fn () => $this->get(route('admin.report.order-report-pdf')),
+        ));
+
+        $this->assertSame(['0.00SAR'], $printed, 'ten zeroes in the platform currency, as the report has always shown an empty period');
+    }
+
     /**
      * DORMANCY of the decimals. A single-currency shop records its own orders in its own currency, so putting that currency in force must not
      * replace the operator's decimal_point_settings: usdToDefaultCurrency() FLOORS at whatever decimal count is in force, so an invoice forced

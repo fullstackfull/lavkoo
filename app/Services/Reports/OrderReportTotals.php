@@ -20,10 +20,17 @@ final class OrderReportTotals
     /**
      * @param Collection<int, object> $orders the orders of the period, as the report's own query returns them
      *
-     * @return list<array{order: object, totals: array<string, float|int>}> in the order the groups first appear
+     * A period with no order at all is one block of zeros belonging to no order, so the document keeps the summary table it has always shown
+     * rather than losing it.
+     *
+     * @return list<array{order: object|null, totals: array<string, float|int>}> in the order the groups first appear
      */
     public function perCurrency(Collection $orders): array
     {
+        if ($orders->isEmpty()) {
+            return [['order' => null, 'totals' => $this->totalsOf($orders)]];
+        }
+
         return $orders
             ->groupBy(fn (object $order): string => (string) ($order->currency_code ?? ''))
             ->map(fn (Collection $group): array => ['order' => $group->first(), 'totals' => $this->totalsOf($group)])
