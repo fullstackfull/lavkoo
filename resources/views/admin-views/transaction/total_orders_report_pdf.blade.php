@@ -98,6 +98,7 @@
     <tr>
         <td></td>
     </tr>
+    @foreach($data['total_blocks'] as $block)
     <tr>
         <td class="pt-0">
             <table class="bs-0 __product-table inter">
@@ -111,76 +112,77 @@
                     <td class="text-center">1</td>
                     <td>{{translate('total_Ordered_Amount')}}</td>
                     <td class="text-right">
-                        {{ setCurrencySymbol(amount: usdToDefaultCurrency(amount: $data['total_order_amount']), currencyCode: getCurrencyCode()) }}
+                        {{ orderMoney(order: $block['order'], amount: $block['totals']['order_amount']) }}
                     </td>
                 </tr>
                 <tr>
                     <td class="text-center">2</td>
                     <td>{{translate('total_Ordered_Return_Amount')}}</td>
                     <td class="text-right">
-                        {{ setCurrencySymbol(amount: usdToDefaultCurrency(amount: $data['total_order_return_amount']), currencyCode: getCurrencyCode()) }}
+                        {{ orderMoney(order: $block['order'], amount: $block['totals']['return_amount']) }}
                     </td>
                 </tr>
                 <tr>
                     <td class="text-center">3</td>
                     <td>{{translate('total_Ordered_Due_Amount')}}</td>
                     <td class="text-right">
-                        {{ setCurrencySymbol(amount: usdToDefaultCurrency(amount: $data['tota_order_due_amount']), currencyCode: getCurrencyCode()) }}
+                        {{ orderMoney(order: $block['order'], amount: $block['totals']['due_amount']) }}
                     </td>
                 </tr>
                 <tr>
                     <td class="text-center">4</td>
                     <td>{{translate('total_Product_Discount')}}</td>
                     <td class="text-right">
-                        {{setCurrencySymbol(amount: usdToDefaultCurrency(amount: $data['total_product_discount']), currencyCode: getCurrencyCode()) }}
+                        {{ orderMoney(order: $block['order'], amount: $block['totals']['product_discount']) }}
                     </td>
                 </tr>
                 <tr>
                     <td class="text-center">5</td>
                     <td>{{translate('total_Coupon_Discount')}}</td>
                     <td class="text-right">
-                        {{setCurrencySymbol(amount: usdToDefaultCurrency(amount: $data['total_coupon_discount']), currencyCode: getCurrencyCode()) }}
+                        {{ orderMoney(order: $block['order'], amount: $block['totals']['coupon_discount']) }}
                     </td>
                 </tr>
                 <tr>
                     <td class="text-center">6</td>
                     <td>{{ translate('total_Referral_Discount') }}</td>
                     <td class="text-right">
-                        {{setCurrencySymbol(amount: usdToDefaultCurrency(amount: $data['total_referral_discount']), currencyCode: getCurrencyCode()) }}
+                        {{ orderMoney(order: $block['order'], amount: $block['totals']['referral_discount']) }}
                     </td>
                 </tr>
                 <tr>
                     <td class="text-center">7</td>
                     <td>{{translate('total_Shipping_Charge')}}</td>
                     <td class="text-right">
-                        {{setCurrencySymbol(amount: usdToDefaultCurrency(amount: $data['total_delivery_charge']), currencyCode: getCurrencyCode()) }}
+                        {{ orderMoney(order: $block['order'], amount: $block['totals']['delivery_charge']) }}
                     </td>
                 </tr>
                 <tr>
                     <td class="text-center">8</td>
                     <td>{{translate('total')}} {{translate('VAT/TAX')}}</td>
                     <td class="text-right">
-                        {{setCurrencySymbol(amount: usdToDefaultCurrency(amount: $data['total_tax']), currencyCode: getCurrencyCode()) }}
+                        {{ orderMoney(order: $block['order'], amount: $block['totals']['tax']) }}
                     </td>
                 </tr>
                 <tr>
                     <td class="text-center">9</td>
                     <td>{{translate('total_Order_Commission')}}</td>
                     <td class="text-right">
-                        {{setCurrencySymbol(amount: usdToDefaultCurrency(amount: $data['total_order_commission']), currencyCode: getCurrencyCode()) }}
+                        {{ orderMoney(order: $block['order'], amount: $block['totals']['commission']) }}
                     </td>
                 </tr>
                 <tr>
                     <td class="text-center">10</td>
                     <td>{{translate('total_Deliveryman_Incentive')}}</td>
                     <td class="text-right">
-                        {{setCurrencySymbol(amount: usdToDefaultCurrency(amount: $data['total_deliveryman_incentive']), currencyCode: getCurrencyCode()) }}
+                        {{ orderMoney(order: $block['order'], amount: $block['totals']['deliveryman_incentive']) }}
                     </td>
                 </tr>
                 </tbody>
             </table>
         </td>
     </tr>
+    @endforeach
 </table>
 <br>
 <table class="">

@@ -13,6 +13,7 @@ use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 use FontLib\Table\Type\name;
 use Illuminate\Contracts\View\View as ViewResponse;
+use App\Services\Reports\OrderReportTotals;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\View;
@@ -455,28 +456,12 @@ class OrderReportController extends Controller
             });
     }
 
-    public function exportOrderReportInPDF(Request $request)
+    public function exportOrderReportInPDF(Request $request, OrderReportTotals $totals)
     {
         $dateType = $request['date_type'] ?? 'this_year';
 
         $orders = self::all_order_table_data_filter($request)->latest('created_at')->get();
         $seller = $request->has('seller_id') && $request['seller_id'] != 'inhouse' && $request['seller_id'] != 'all' ? (Seller::with('shop')->find($request['seller_id'])->f_name) : ($request['seller_id'] ?? 'all');
-
-        $totalOrderAmount = $orders->sum('order_amount') ?? 0;
-        $totalProductDiscount = $orders->sum('details_sum_discount') ?? 0;
-        $totalCouponDiscount = $orders->sum('discount_amount') ?? 0;
-        $totalReferralDiscount = $orders->sum('refer_and_earn_discount') ?? 0;
-        $totalTax = $orders->sum('total_tax_amount') ?? ($orders->sum('details_sum_tax') ?? 0);
-        $totalOrderCommission = $orders->sum('admin_commission') ?? 0;
-        $totalOrderDueAmount = $orders->sum('edit_due_amount') ?? 0;
-        $totalOrderReturnAmount = $orders->sum('edit_return_amount') ?? 0;
-
-        $totalDeliveryCharge = 0;
-        $totalDeliverymanIncentive = 0;
-        foreach ($orders as $order) {
-            $totalDeliveryCharge += ($order->shipping_cost - ($order->extra_discount_type == 'free_shipping_over_order_amount' ? $order->extra_discount : 0));
-            $totalDeliverymanIncentive += ($order->delivery_type == 'self_delivery' && $order->delivery_man_id) ? $order->deliveryman_charge : 0;
-        }
 
         $data = [
             'orders' => $orders,
@@ -491,16 +476,10 @@ class OrderReportController extends Controller
             'company_phone' => getWebConfig(name: 'company_phone'),
             'company_web_logo' => getWebConfig(name: 'company_web_logo'),
             'date_type' => $request['date_type'] ?? 'this_year',
-            'total_order_amount' => $totalOrderAmount,
-            'total_product_discount' => $totalProductDiscount,
-            'total_coupon_discount' => $totalCouponDiscount,
-            'total_referral_discount' => $totalReferralDiscount,
-            'tota_order_due_amount' => $totalOrderDueAmount,
-            'total_order_return_amount' => $totalOrderReturnAmount,
-            'total_tax' => $totalTax,
-            'total_order_commission' => $totalOrderCommission,
-            'total_delivery_charge' => $totalDeliveryCharge,
-            'total_deliveryman_incentive' => $totalDeliverymanIncentive,
+            // One summary per currency the period was sold in: the rows of this report each state their own
+            // order's money, so a single total over orders in different currencies would print a sum nobody
+            // was charged. A period whose orders record no currency is one block, exactly as before.
+            'total_blocks' => $totals->perCurrency(orders: $orders),
         ];
 
         $mpdfView = View::make('admin-views.transaction.total_orders_report_pdf', ['data' => $data]);
