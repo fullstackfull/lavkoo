@@ -4,6 +4,7 @@ namespace Tests\Support\Concurrency;
 
 use App\Models\Order;
 use App\Models\ReturnShipment;
+use App\Repositories\OrderRepository;
 use App\Services\Marketplace\ReturnLogisticsService;
 use App\Utils\OrderManager;
 
@@ -40,6 +41,23 @@ final class ReturnReceiptOperations
         usleep((int) ($args['hold_microseconds'] ?? 0));
 
         OrderManager::getStockUpdateOnOrderStatusChange($order, $status = (string) ($args['status'] ?? 'returned'));
+
+        return ['ok' => true, 'status' => $status];
+    }
+
+    /**
+     * The same status change through the OTHER copy of the writer: OrderRepository::
+     * updateStockOnOrderStatusChange, which is the one the admin and vendor panels run. The two copies
+     * diverge in coverage (the first round's mutations M9 and M10 showed it), so both are raced.
+     *
+     * @param array{order: int, hold_microseconds?: int, status?: string} $args
+     * @return array{ok: bool, status: string}
+     */
+    public static function changeOrderStatusThroughThePanelCopy(array $args): array
+    {
+        usleep((int) ($args['hold_microseconds'] ?? 0));
+
+        app(OrderRepository::class)->updateStockOnOrderStatusChange($args['order'], $status = (string) ($args['status'] ?? 'returned'));
 
         return ['ok' => true, 'status' => $status];
     }

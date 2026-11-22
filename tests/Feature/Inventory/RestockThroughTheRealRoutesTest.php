@@ -69,6 +69,12 @@ class RestockThroughTheRealRoutesTest extends AdminPagesTestCase
         Schema::create('order_details_rewards', static function (Blueprint $table): void {
             $table->id();
             $table->unsignedBigInteger('order_id')->nullable();
+            // The order-edit writer prunes this table BY LINE (OrderEditManager, whereNotIn
+            // order_details_id). Without the column, SQLite quietly read the unresolvable
+            // "order_details_id" as the STRING 'order_details_id' and the condition was always true, so
+            // four of the tests below passed for the wrong reason; MariaDB said "Unknown column". The
+            // real engine is the only one that reports this.
+            $table->unsignedBigInteger('order_details_id')->nullable();
             $table->string('reward_type')->nullable();
             $table->decimal('reward_amount', 40, 20)->default(0);
             $table->boolean('reward_delivered')->default(false);
@@ -484,6 +490,48 @@ class RestockThroughTheRealRoutesTest extends AdminPagesTestCase
         $this->assertSame([53, 0], $this->shelfAndClaim($lineId));
     }
 
+    public function test_a_partial_return_is_a_shape_the_panel_can_create_and_it_restocks_once(): void
+    {
+        // Criterion 5's case (b) end to end on production routes, without a hand-built RMA anywhere: the
+        // operator authorises a return for ONE unit of a line of three in the returns queue, receives it, and
+        // marks the order returned. Both figures come from the two routes and the quantity from the form.
+        //
+        // Until the line was identified this shape could not be created at all -- the panel's form produced
+        // no line, and the two refund-driven creators pass the line's whole quantity -- so a reviewer was
+        // right that nothing in production could make a partial return against a known line. It can now.
+        $lineId = $this->soldLine(3);
+
+        $partial = $this->authorizeThroughThePanel(['order_id' => self::ORDER, 'product_id' => self::PRODUCT, 'qty' => 1]);
+        $this->assertSame([$lineId, 1], [(int) $partial->order_details_id, (int) $partial->qty], 'a partial return of a known line, made by the form');
+
+        $this->receiveThroughThePanel($partial);
+        $this->assertSame([51, 1], $this->shelfAndClaim($lineId));
+
+        $this->changeStatusThroughThePanel('returned');
+
+        $this->assertSame([53, 0], $this->shelfAndClaim($lineId), 'three units left the shelf: one back by the receipt, two by the status writer');
+        $this->assertSame([[StockMovement::TYPE_RETURN, 1, 51, null]], $this->reading()['movements']);
+    }
+
+    public function test_a_return_above_the_lines_quantity_is_a_shape_the_panel_can_create_and_it_is_clamped(): void
+    {
+        // Criterion 5's case (c), likewise through the form: the operator types 5 against a line of 2.
+        $lineId = $this->soldLine(2);
+
+        $tooMany = $this->authorizeThroughThePanel(['order_id' => self::ORDER, 'product_id' => self::PRODUCT, 'qty' => 5]);
+        $this->assertSame([$lineId, 5], [(int) $tooMany->order_details_id, (int) $tooMany->qty]);
+
+        $this->receiveThroughThePanel($tooMany);
+
+        $this->assertSame([52, 0], $this->shelfAndClaim($lineId), 'two units left the shelf, so two came back');
+        $this->assertSame([[StockMovement::TYPE_RETURN, 2, 52, 'asked for 5, the line held 2']], $this->reading()['movements']);
+        $this->assertSame(5, (int) $tooMany->fresh()->qty, 'what the operator typed is kept on the record');
+        $this->assertContains(
+            translate('more_units_were_asked_for_than_the_line_held_only_the_lines_units_were_restocked') . ': 5 → 2',
+            $this->toastsTheOperatorSees(),
+        );
+    }
+
     public function test_a_line_belonging_to_another_order_is_not_the_line_a_return_is_for(): void
     {
         // Nothing validated the line id, so a mistyped one clamped this return against a stranger's line and
@@ -628,6 +676,32 @@ class RestockThroughTheRealRoutesTest extends AdminPagesTestCase
             $this->toastsTheOperatorSees(),
             'goods on the desk that the shelf will not take: the operator is the only one who can correct the return',
         );
+    }
+
+    public function test_one_lines_return_does_not_spend_another_lines_budget(): void
+    {
+        // The budget is keyed by the order line. Nothing asserted that, and it is the key the whole mechanism
+        // rests on: without it one line's returns would eat every other line's units, including other
+        // customers' orders of the same product.
+        $red = $this->soldLine(3, variant: 'Red');
+        $blue = (int) DB::table('order_details')->insertGetId([
+            'order_id' => self::ORDER, 'product_id' => self::PRODUCT, 'qty' => 2, 'price' => 10, 'variant' => 'Blue',
+            'is_stock_decreased' => 1, 'delivery_status' => 'confirmed', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->receiveThroughThePanel($this->authorizedReturn(3, $red));
+        $this->assertSame([53, 0], $this->shelfAndClaim($red));
+        $this->assertSame(1, (int) DB::table('order_details')->where('id', $blue)->value('is_stock_decreased'), "the other line's claim is its own");
+
+        $this->changeStatusThroughThePanel('returned');
+
+        $this->assertSame(
+            55,
+            $this->reading()['current_stock'],
+            'five units left the shelf across two lines and five came back: three through the return, two '
+            . "through the status change -- the red line's return spent only the red line's budget",
+        );
+        $this->assertSame(0, (int) DB::table('order_details')->where('id', $blue)->value('is_stock_decreased'));
     }
 
     public function test_a_return_that_points_at_no_order_line_still_restocks_its_whole_quantity(): void
