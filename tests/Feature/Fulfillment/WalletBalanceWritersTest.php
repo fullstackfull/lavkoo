@@ -6,6 +6,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
+use Tests\Support\PlatformWriteScanner;
 
 /**
  * E-03 of the master plan: a customer's balances are changed by their writers and by nothing else. The wallet balance (users.wallet_balance) has four writers and the
@@ -15,25 +16,94 @@ use RecursiveIteratorIterator;
  *
  * A new writer is added to the list below with the reason, in the same change that adds it. Until the balances are per market (GCC-15) a writer also has to take the
  * market it writes in, so the list is also the list of the places that will.
+ *
+ * Every directory that holds PHP the server runs is read, and not only app: a migration runs as root with no lock and no ledger, so a balance written there is the
+ * one write nobody can reconcile afterwards, and a Blade file is PHP too -- `@php` in one runs. Reading the migrations costs a false alarm the other way round --
+ * they do change the shape of these columns -- so the scanner is told a schema change from a write of a value by the form of the write and not by a list of files
+ * that may make one: see PlatformWriteScanner::columnWritesIn(). The tests are deliberately not read: a test sets a balance up on purpose, and its fixtures are not
+ * a path a customer's money can take.
+ *
+ * What this test says is that nobody outside the list writes these columns in a form the scanner can read. It does not say the listed writers are right -- that they
+ * take the lock and write the ledger row is other tests' subject -- and it does not say a name the file never spells is caught: a column arriving as an argument, out
+ * of config() or off a database row needs a static analyser and not a reader of text.
+ *
+ * The scanner fails open, which is what being on this list costs: a form it cannot prove harmless is reported, in a listed writer as readily as anywhere else, so a
+ * money write added to one of the four files below changes the kinds named against it and fails this test. Every form the scanner has ever been shown to miss, and the
+ * round that lost it, is asserted in NoRoundMayLoseABalanceWriteFormTest: a round that widens one reading by narrowing another goes red there.
  */
 class WalletBalanceWritersTest extends TestCase
 {
-    /** @var array<string, int> file => number of writes of users.wallet_balance */
+    /**
+     * The kind of every write of users.wallet_balance, per writer, and not how many: a count is a budget, and a file on a list with a budget of 1 may spend it on a write of
+     * another kind -- `$user->wallet_balance = $x` traded for an unlocked `update(['wallet_balance' => 0])` keeps the count at 1 and passes. Naming the kind is what makes the
+     * sentence "being on this list grants no permission" true.
+     *
+     * @var array<string, list<string>> file => the kind of each write of users.wallet_balance it makes
+     */
     private const WALLET_WRITERS = [
-        'app/Repositories/WalletTransactionRepository.php' => 1,
-        'app/Traits/CustomerTrait.php' => 1,
-        'app/Utils/CustomerManager.php' => 1,
-        'app/Utils/OrderManager.php' => 1,
+        'app/Repositories/WalletTransactionRepository.php' => ['array key given a value'],
+        'app/Traits/CustomerTrait.php' => ['assignment'],
+        'app/Utils/CustomerManager.php' => ['assignment'],
+        'app/Utils/OrderManager.php' => ['assignment'],
     ];
 
-    /** @var array<string, int> file => number of writes of users.loyalty_point */
+    /** @var array<string, list<string>> file => the kind of each write of users.loyalty_point it makes */
     private const LOYALTY_WRITERS = [
-        'app/Repositories/LoyaltyPointTransactionRepository.php' => 1,
-        'app/Utils/CustomerManager.php' => 1,
+        'app/Repositories/LoyaltyPointTransactionRepository.php' => ['assignment'],
+        'app/Utils/CustomerManager.php' => ['assignment'],
     ];
 
-    /** @var list<string> where the application's code lives */
-    private const ROOTS = ['app', 'Modules', 'routes', 'config'];
+    /**
+     * Every directory of this project that holds PHP the server runs: where the application's code lives, the migrations that can write a row before the application is ever
+     * asked to, the views (a Blade file is PHP, and `@php` in one runs), the entry points under public, and the bootstrap. A balance written in any of them is a balance written.
+     *
+     * @var list<string>
+     */
+    private const ROOTS = ['app', 'Modules', 'routes', 'config', 'database', 'resources', 'public', 'bootstrap'];
+
+    /**
+     * A file that every root holds, so that the reach of the scan is asserted and not assumed: a root that is dropped, renamed or narrowed fails this test instead of
+     * making the two above pass by reading less. Without it `database` can be taken off the list again and nothing says so.
+     *
+     * @var array<string, string> root => a file of it
+     */
+    private const A_FILE_OF_EVERY_ROOT = [
+        'app' => 'app/Utils/CustomerManager.php',
+        'Modules' => 'Modules/AI/AIProviders/AIProviderManager.php',
+        'routes' => 'routes/web/routes.php',
+        'config' => 'config/app.php',
+        'database' => 'database/migrations/2026_05_07_000001_update_all_decimal_columns_to_40_20.php',
+        'resources' => 'resources/lang/en/message.php',
+        'public' => 'public/index.php',
+        'bootstrap' => 'bootstrap/app.php',
+    ];
+
+    /**
+     * Every migration that names a balance column, and what it does with it. None of them writes a balance: this is not a list of files that are allowed to, it is the
+     * measured answer to what reading the migrations reports, asserted to be nothing. A migration that names one of these columns and is not here fails the test, so a
+     * new one is read by a person before it is read by the scanner.
+     *
+     * What that assertion is worth is exactly what PlatformWriteScanner::columnWritesIn() is worth: it says the scanner finds no write in these files, not that none is
+     * there. A form the scanner cannot read is a write a listed file can make, which is why the list is kept to the files that have to be on it.
+     *
+     * @var array<string, string> file => what it does
+     */
+    private const MIGRATIONS_THAT_NAME_A_BALANCE_COLUMN = [
+        'database/migrations/2022_05_12_104511_add_two_column_to_users_table.php' => 'adds both columns to users, and drops them again on the way down',
+        'database/migrations/2025_04_16_154104_modify_loyalty_point_column_in_users_table.php' => 'widens loyalty_point and places it after wallet_balance',
+        'database/migrations/2025_07_13_021823_modify_wallet_balance_column_in_users_table.php' => 'widens wallet_balance',
+        'database/migrations/2025_07_24_104352_create_order_details_rewards_table.php' => 'names loyalty_point in the comment of a reward_type column',
+        'database/migrations/2026_05_07_000001_update_all_decimal_columns_to_40_20.php' => '90 ALTER statements up and 90 down, widening the money columns of users, orders, order_details and carts',
+    ];
+
+    /** The column of the users table, not a table whose name begins with it: `loyalty_point_transactions` is the ledger. */
+    private const NAMES_A_BALANCE_COLUMN = '/\b(?:wallet_balance|loyalty_point)\b/';
+
+    /** Whether a file names a balance column, read as the scanner reads it: a migration that spells the name `'wallet' . '_balance'` names it, and the raw source does not say so. */
+    private static function namesABalanceColumn(string $source): bool
+    {
+        return preg_match(self::NAMES_A_BALANCE_COLUMN, PlatformWriteScanner::withNamesSpelledOut($source)) === 1;
+    }
 
     private static function root(): string
     {
@@ -41,45 +111,21 @@ class WalletBalanceWritersTest extends TestCase
     }
 
     /**
-     * Every write of one balance column in a piece of PHP source, with the comments left out: an assignment to the attribute, an array key that is given a value that
-     * is not a string (a cast or a name map is one; an update or a fill is not), an increment or a decrement, setAttribute, and raw SQL that sets the column.
+     * Every write of one balance column in a piece of PHP source. The shared scanner reads it, so that the forms a write can take -- an assignment, an array key given a
+     * value, an increment, setAttribute, raw SQL that sets or inserts the column, each of them under a name the code spells indirectly -- are defined once for every
+     * guard that asks, and a form added for one guard is seen by all of them.
      *
      * @return list<string>
      */
     public static function writesOf(string $column, string $source): array
     {
-        $code = '';
-        foreach (token_get_all($source) as $token) {
-            if (is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
-                continue;
-            }
-            $code .= is_array($token) ? $token[1] : $token;
-        }
-
-        $name = preg_quote($column, '/');
-        $patterns = [
-            'assignment' => '/->' . $name . '\s*(?:[-+*\/.]|\?\?)?=(?![=>])/',
-            'array key given a value' => '/[\'"]' . $name . '[\'"]\s*=>\s*(?![\s\'"])/',
-            'increment or decrement' => '/(?:increment|decrement)(?:Quietly)?\(\s*[\'"]' . $name . '[\'"]/',
-            'setAttribute' => '/setAttribute\(\s*[\'"]' . $name . '[\'"]/',
-            'raw SQL set' => '/\bset\b[^\'";]*\b' . $name . '\s*=/i',
-        ];
-
-        $writes = [];
-        foreach ($patterns as $kind => $pattern) {
-            $count = preg_match_all($pattern, $code);
-            if ($count) {
-                $writes = array_merge($writes, array_fill(0, $count, $kind));
-            }
-        }
-
-        return $writes;
+        return PlatformWriteScanner::columnWritesIn($source, $column);
     }
 
-    /** @return array<string, list<string>> relative path => the writes of the column found in it */
-    private function writersOf(string $column): array
+    /** @return list<string> every file the scan reads, relative to the project root, sorted */
+    private function scannedFiles(): array
     {
-        $found = [];
+        $files = [];
 
         foreach (self::ROOTS as $root) {
             $directory = self::root() . '/' . $root;
@@ -88,14 +134,39 @@ class WalletBalanceWritersTest extends TestCase
             }
 
             foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($directory, RecursiveDirectoryIterator::SKIP_DOTS)) as $file) {
-                if ($file->getExtension() !== 'php') {
-                    continue;
+                if ($file->getExtension() === 'php') {
+                    $files[] = substr($file->getPathname(), strlen(self::root()) + 1);
                 }
+            }
+        }
 
-                $writes = self::writesOf($column, (string) file_get_contents($file->getPathname()));
-                if ($writes !== []) {
-                    $found[substr($file->getPathname(), strlen(self::root()) + 1)] = $writes;
-                }
+        sort($files);
+
+        return $files;
+    }
+
+    /**
+     * A file the scan can read past without reading it: to write a balance a file has to name its column, and to name it the file has to spell `wallet` or `loyalty`, or escape a
+     * character of one. Nothing else the scanner resolves -- a constant, a list a constant holds, a concatenation, a property, the variable a loop binds -- can produce the name
+     * out of a file that holds none of those three. It is an optimisation and nothing more, and it is pinned as one: the whole scan was measured with it and without it over all
+     * 4511 files, byte-identical both ways (md5 094e7856fb41f03533b0606ebdec8038), 24.3s down to 7.8s with 4219 files skipped. The roots stay as they are; reading less is
+     * not how this test is made affordable.
+     */
+    private const NAMES_OR_ESCAPES_A_BALANCE_COLUMN = '/wallet|loyalty|\\\\x[0-9a-fA-F]|\\\\[0-7]{2}/i';
+
+    /** @return array<string, list<string>> relative path => the writes of the column found in it */
+    private function writersOf(string $column): array
+    {
+        $found = [];
+
+        foreach ($this->scannedFiles() as $file) {
+            $source = (string) file_get_contents(self::root() . '/' . $file);
+            if (preg_match(self::NAMES_OR_ESCAPES_A_BALANCE_COLUMN, $source) !== 1) {
+                continue;
+            }
+            $writes = self::writesOf($column, $source);
+            if ($writes !== []) {
+                $found[$file] = $writes;
             }
         }
 
@@ -104,15 +175,13 @@ class WalletBalanceWritersTest extends TestCase
         return $found;
     }
 
-    /** @param array<string, int> $allowed */
+    /** @param array<string, list<string>> $allowed */
     private function assertOnlyTheseWrite(string $column, array $allowed): void
     {
-        $actual = array_map('count', $this->writersOf($column));
-
         $this->assertSame(
             $allowed,
-            $actual,
-            "users.{$column} is written by code that is not on the list (or a listed writer changed the number of its writes). Go through one of the writers, which take the row "
+            $this->writersOf($column),
+            "users.{$column} is written by code that is not on the list (or a listed writer changed what kind of write it makes). Go through one of the writers, which take the row "
             . 'lock and write the ledger row, or add this one to the list with the reason.',
         );
     }
@@ -127,22 +196,68 @@ class WalletBalanceWritersTest extends TestCase
         $this->assertOnlyTheseWrite(column: 'loyalty_point', allowed: self::LOYALTY_WRITERS);
     }
 
-    public function test_the_scan_reads_the_source_it_is_meant_to_so_a_wrong_root_cannot_make_it_pass(): void
+    public function test_the_scan_reads_every_root_it_names_so_a_narrowed_root_cannot_make_it_pass(): void
     {
-        $scanned = 0;
-        foreach (self::ROOTS as $root) {
-            if (is_dir(self::root() . '/' . $root)) {
-                $scanned += iterator_count(new RecursiveIteratorIterator(new RecursiveDirectoryIterator(self::root() . '/' . $root, RecursiveDirectoryIterator::SKIP_DOTS)));
-            }
-        }
+        $this->assertSame(
+            self::ROOTS,
+            array_keys(self::A_FILE_OF_EVERY_ROOT),
+            'Every root is named with a file of it, so that the scan is known to have read it. A root added or removed is added or removed in both places.',
+        );
 
-        $this->assertGreaterThan(500, $scanned);
+        $scanned = $this->scannedFiles();
+
+        $this->assertGreaterThan(500, count($scanned));
+        foreach (self::A_FILE_OF_EVERY_ROOT as $root => $file) {
+            $this->assertDirectoryExists(self::root() . '/' . $root);
+            $this->assertContains($file, $scanned, "The scan does not read {$root}: a balance written there is invisible to this test.");
+        }
         foreach ([...array_keys(self::WALLET_WRITERS), ...array_keys(self::LOYALTY_WRITERS)] as $writer) {
             $this->assertFileExists(self::root() . '/' . $writer);
+            $this->assertContains($writer, $scanned);
         }
     }
 
-    /** @return array<string, array{string, string, int}> a source line, the column and how many writes of it the scan must find */
+    public function test_the_migrations_that_name_a_balance_column_change_its_shape_and_write_no_balance(): void
+    {
+        $naming = array_values(array_filter(
+            $this->scannedFiles(),
+            fn (string $file): bool => str_starts_with($file, 'database/migrations/')
+                && self::namesABalanceColumn((string) file_get_contents(self::root() . '/' . $file)),
+        ));
+
+        $this->assertSame(
+            array_keys(self::MIGRATIONS_THAT_NAME_A_BALANCE_COLUMN),
+            $naming,
+            'A migration names a balance column and is not on the list: say there what it does with it, and leave it off the writers above only because it writes no balance.',
+        );
+
+        foreach (array_keys(self::MIGRATIONS_THAT_NAME_A_BALANCE_COLUMN) as $migration) {
+            $source = (string) file_get_contents(self::root() . '/' . $migration);
+            $this->assertSame([], self::writesOf('wallet_balance', $source), $migration);
+            $this->assertSame([], self::writesOf('loyalty_point', $source), $migration);
+        }
+    }
+
+    public function test_a_file_that_spells_a_balance_column_indirectly_still_names_one(): void
+    {
+        $this->assertTrue(
+            self::namesABalanceColumn("<?php DB::table('users')->update(['wallet' . '_balance' => '0']);"),
+            'A migration that spells the column in pieces names it, or the list above is a list of the migrations careless enough to spell it in one.',
+        );
+        $this->assertTrue(self::namesABalanceColumn("<?php \$table->decimal('wallet_balance', 40, 20)->change();"));
+        $this->assertFalse(self::namesABalanceColumn("<?php Schema::create('loyalty_point_transactions', function () {});"));
+    }
+
+    /**
+     * A source line, the column and how many writes of it the scan must find. The cases expecting 0 are not all reads: a cast, a name map, a change to the shape of the table, a
+     * clause that only reads the column, a value that is no amount, and a plain array subscripted by a name -- each of them writes no balance, and each is pinned here.
+     *
+     * The guard fails open, so a case expecting 0 is a case where the scanner can PROVE no money moves, and nothing else. The three cases marked as the price of that are
+     * reported although nothing writes there, and they are the shape of what the alternative cost: gating them quiet is what read `DB::select("update users set wallet_balance
+     * = 0")` as no write at all. Every form that must be reported, and the round that lost it, is in NoRoundMayLoseABalanceWriteFormTest; this provider is what the reports mean.
+     *
+     * @return array<string, array{string, string, int}>
+     */
     public static function writesAndNonWrites(): array
     {
         return [
@@ -154,6 +269,91 @@ class WalletBalanceWritersTest extends TestCase
             'increment' => ["\$user->increment('wallet_balance', 5); \$user->decrementQuietly('wallet_balance', 1);", 'wallet_balance', 2],
             'setAttribute' => ["\$user->setAttribute('loyalty_point', 3);", 'loyalty_point', 1],
             'raw SQL' => ['DB::statement("update users set wallet_balance = wallet_balance - ? where id = ?");', 'wallet_balance', 1],
+            'raw SQL with the identifier in backticks' => ['DB::statement("UPDATE `users` SET `wallet_balance` = 0");', 'wallet_balance', 1],
+            'raw SQL that names the column of a joined table' => ['DB::statement("UPDATE `users` u JOIN tops t ON t.user_id = u.id SET u.`wallet_balance` = t.amount");', 'wallet_balance', 1],
+            'raw SQL that inserts the column' => ['DB::statement("INSERT INTO users (id, wallet_balance) VALUES (1, 500)");', 'wallet_balance', 1],
+            'raw SQL that upserts the column' => ['DB::statement("INSERT INTO users (id) VALUES (1) ON DUPLICATE KEY UPDATE loyalty_point = 5");', 'loyalty_point', 1],
+            'raw SQL with the column interpolated from a variable that holds it' => ["\$column = 'wallet_balance';\nDB::statement(\"update users set {\$column} = 0\");", 'wallet_balance', 1],
+            'raw SQL in a heredoc' => ["DB::unprepared(<<<SQL\nUPDATE `users` SET `wallet_balance` = 0 WHERE id > 0\nSQL);", 'wallet_balance', 1],
+            'the column named by a constant' => ["const WALLET = 'wallet_balance';\nDB::table('users')->update([self::WALLET => 0]);", 'wallet_balance', 1],
+            'the column built by concatenation' => ["DB::table('users')->update(['wallet' . '_balance' => 0]);", 'wallet_balance', 1],
+            'the column spelled with an escape sequence' => ['DB::table("users")->update(["loyalty\x5fpoint" => 0]);', 'loyalty_point', 1],
+            'the column bound by a loop over a list of columns' => ["const MONEY = ['wallet_balance', 'loyalty_point'];\nforeach (self::MONEY as \$column) { DB::table('users')->update([\$column => 0]); }", 'wallet_balance', 1],
+            'the column held by a variable' => ["\$column = 'wallet_balance';\n\$user->{\$column} = 0;", 'wallet_balance', 1],
+            'a write made by a helper and not by up()' => ["public function up(): void { \$this->zero(); }\nprivate function zero(): void { DB::table('users')->update(['wallet_balance' => 0]); }", 'wallet_balance', 1],
+            'update array whose value is a string, which a database writes as a number' => ["DB::table('users')->update(['wallet_balance' => '0']);", 'wallet_balance', 1],
+            'update array whose value is an interpolated string' => ["DB::table('users')->update(['loyalty_point' => \"{\$amount}\"]);", 'loyalty_point', 1],
+            'update array whose value is the empty string' => ["DB::table('users')->update(['wallet_balance' => '']);", 'wallet_balance', 1],
+            'update array built in a variable and handed over later' => ["\$values = ['wallet_balance' => 0];\nDB::table('users')->update(\$values);", 'wallet_balance', 1],
+            'update array built in a variable whose value is a string' => ["\$values = ['wallet_balance' => '0'];\nDB::table('users')->update(\$values);", 'wallet_balance', 1],
+            'update array built in a property whose value is a string' => ["class X { private \$values = ['loyalty_point' => '0'];\npublic function z() { DB::table('users')->update(\$this->values); } }", 'loyalty_point', 1],
+            'upsert whose value is a string' => ["DB::table('users')->upsert([['id' => 1, 'wallet_balance' => '9999']], ['id'], ['wallet_balance']);", 'wallet_balance', 1],
+            // The column named ONLY among an upsert's update columns, which is a list of names and no map. MySQL compiles it to `on duplicate key update wallet_balance =
+            // values(wallet_balance)`, and with the column absent from the rows inserted `values()` hands back its default: measured on MariaDB 10.11.14, this took a
+            // decimal(40,20) balance of 350.12345678901234567890 to NULL. One write, not two, when it is also a key.
+            'upsert naming the column only among the columns to update' => ["DB::table('users')->upsert([['id' => 1]], ['id'], ['wallet_balance']);", 'wallet_balance', 1],
+            // A helper that sets an array key by name, where the name is the second argument. `data_get` and `Arr::get` read, and are pinned at 0 below.
+            'a key set by name through data_set' => ["data_set(\$values, 'wallet_balance', 0);", 'wallet_balance', 1],
+            'a key set by name through Arr::set' => ["Arr::set(\$values, 'loyalty_point', 0);", 'loyalty_point', 1],
+            'updateOrInsert whose value is a string' => ["DB::table('users')->updateOrInsert(['id' => 1], ['wallet_balance' => '9999']);", 'wallet_balance', 1],
+            'fill whose value is a string' => ["\$user->fill(['wallet_balance' => '9999'])->save();", 'wallet_balance', 1],
+            'setRawAttributes' => ["\$user->setRawAttributes(['loyalty_point' => '5'], true);", 'loyalty_point', 1],
+            'the key qualified by its table' => ["DB::table('users')->join('tops', 'tops.user_id', '=', 'users.id')->update(['users.wallet_balance' => 0]);", 'wallet_balance', 1],
+            'the key qualified by an alias' => ["DB::table('users as u')->update(['u.wallet_balance' => 0]);", 'wallet_balance', 1],
+            'increment and setAttribute called with named arguments, which this project asks for' => ["\$user->increment(column: 'wallet_balance', amount: 5);\n\$user->decrement(column: 'wallet_balance', amount: 1);", 'wallet_balance', 2],
+            'setAttribute called with named arguments' => ["\$user->setAttribute(key: 'loyalty_point', value: 3);", 'loyalty_point', 1],
+            'offsetSet, which is what the array access of a model calls' => ["\$user->offsetSet('loyalty_point', 3);", 'loyalty_point', 1],
+            'the array access of a model' => ["\$user['wallet_balance'] = 5;\n\$user->attributes['loyalty_point'] = 1;", 'wallet_balance', 1],
+            'the rarer compound assignments' => ['$user->wallet_balance %= 100; $user->wallet_balance **= 2; $user->wallet_balance <<= 1;', 'wallet_balance', 3],
+            'an assignment with a space either side of the arrow' => ["\$user -> wallet_balance = 5;", 'wallet_balance', 1],
+            'an assignment with a newline after the arrow' => ["\$user->\n    loyalty_point = 1;", 'loyalty_point', 1],
+            'the column held by a property of the class that writes it' => ["class X { private string \$column = 'wallet_balance';\npublic function z() { DB::table('users')->update([\$this->column => 0]); } }", 'wallet_balance', 1],
+            'the column held by a static property' => ["class X { private static \$col = 'wallet_balance';\npublic function z() { DB::table('users')->update([self::\$col => 0]); } }", 'wallet_balance', 1],
+            'the column read out of a list a constant holds' => ["class X { private const MONEY = ['wallet' => 'wallet_balance'];\npublic function z() { DB::table('users')->update([self::MONEY['wallet'] => 0]); } }", 'wallet_balance', 1],
+            'raw SQL behind a block comment' => ['DB::statement("/* nightly reset */ update users set wallet_balance = 0");', 'wallet_balance', 1],
+            'raw SQL behind a comment line' => ['DB::unprepared("-- reset\nupdate users set wallet_balance = 0");', 'wallet_balance', 1],
+            'raw SQL with a semicolon inside one of its literals' => ['DB::statement("update users set remark = \'cleared; see ticket\', wallet_balance = 0");', 'wallet_balance', 1],
+            // The eight below set the balance to zero on MariaDB 10.11.14 and were each read as no write at all while the reader cut the statement at its first `where` instead of
+            // isolating the clause that assigns: in every one of them a `where` stands in front of the SET clause, inside a join subquery, inside a subselect, or inside a literal.
+            'raw SQL whose set clause follows the where of a join subquery' => ['DB::statement("update users u join (select id from tops where paid = 1) t on t.id = u.id set u.wallet_balance = 0");', 'wallet_balance', 1],
+            'raw SQL whose set clause follows a literal that spells where' => ['DB::statement("update users set remark = \'where it went\', wallet_balance = 0, loyalty_point = 1");', 'wallet_balance', 1],
+            'raw SQL whose set clause holds a subselect with a where' => ['DB::statement("update users set is_active = (select 1 from users where id > 0 limit 1), wallet_balance = 0");', 'wallet_balance', 1],
+            'raw SQL whose set clause counts rows in a subselect with a where' => ['DB::statement("update users set loyalty_point = (select count(*) from logs where ok = 1), wallet_balance = 0");', 'wallet_balance', 1],
+            'raw SQL whose join condition holds a subquery with a where' => ['DB::statement("UPDATE users u JOIN tops t ON t.id = u.id AND t.id IN (SELECT id FROM z WHERE ok = 1) SET u.wallet_balance = 0");', 'wallet_balance', 1],
+            'raw SQL that upserts from a select with a where' => ['DB::statement("insert into users (id) select id from z where ok = 1 on duplicate key update wallet_balance = 0");', 'wallet_balance', 1],
+            'raw SQL in a nowdoc whose set clause follows the where of a join subquery' => ["DB::unprepared(<<<'SQL'\nupdate users u join (select id from tops where paid = 1) t on t.id = u.id set u.wallet_balance = 0\nSQL);", 'wallet_balance', 1],
+            'raw SQL whose set clause reads a note out of a subselect with a where' => ['DB::statement("update users set remark = (select note from audit_notes where audit_notes.user_id = users.id), wallet_balance = 0, loyalty_point = 0");', 'wallet_balance', 1],
+            // A `--` that ends a line is a comment to the engine with no space after it, and asking for one left the statement behind it unread: proved writing on MariaDB 10.11.14.
+            'raw SQL behind a comment line that is only its marker' => ['DB::statement("--\nupdate users set wallet_balance = 0, loyalty_point = 0");', 'wallet_balance', 1],
+            'raw SQL behind a comment line that is only its marker and a carriage return' => ['DB::statement("--\r\nupdate users set wallet_balance = 0, loyalty_point = 0");', 'wallet_balance', 1],
+            'raw SQL built in a variable and handed to the database later' => ["\$sql = \"update users set wallet_balance = 0\";\nDB::statement(\$sql);", 'wallet_balance', 1],
+            // Three forms found by probing this reader rather than by being handed them, each measured on MariaDB 10.11.14 against a decimal(40,20) seeded at
+            // 350.12345678901234567890. The first two store 0.00000000000000000000 and were read as no write by this head's three predecessors as well.
+            'raw SQL that assigns the column with the := of a SET clause, which MariaDB takes' => ['DB::statement("update users set wallet_balance := 0");', 'wallet_balance', 1],
+            'raw SQL whose column name is concatenated in out of a constant' => ["const WALLET = 'wallet_balance';\nDB::statement(\"update users set \" . self::WALLET . \" = 0\");", 'wallet_balance', 1],
+            // The third is no write, and is proved so rather than asserted: PHP interpolates a VARIABLE in `{...}`, never a constant, so the braces and the `self::WALLET`
+            // reach the engine verbatim and MariaDB refuses the statement -- the seeded balance reads back 350.12345678901234567890.
+            'raw SQL whose column name is a constant inside braces, which PHP does not interpolate' => ["const WALLET = 'wallet_balance';\nDB::statement(\"update users set {self::WALLET} = 0\");", 'wallet_balance', 0],
+            'the column read by a := outside the clause that assigns' => ['DB::statement("select @x := wallet_balance from users");', 'wallet_balance', 0],
+            'the column read by name through data_get' => ["\$x = data_get(\$values, 'wallet_balance');", 'wallet_balance', 0],
+            'the column read by name through Arr::get' => ["\$x = Arr::get(\$values, 'loyalty_point');", 'loyalty_point', 0],
+            // No write, and proved so rather than asserted: PHP refuses an object as an array key, so this line never reaches a database at all.
+            'a DB::raw used as the array key, which PHP refuses' => ["DB::table('users')->update([DB::raw('wallet_balance') => 0]);", 'wallet_balance', 0],
+            // `DB::select` runs an UPDATE on MySQL and MariaDB and hands back no rows; so does a PDO `exec`. Neither is on any list of write methods, which is why the reading is
+            // no longer gated on one: what changes a row is the statement, and the statement is what is read.
+            'raw SQL run through DB::select, which executes it' => ['DB::select("update users set wallet_balance = 0");', 'wallet_balance', 1],
+            'raw SQL run through a PDO exec' => ['DB::connection()->getPdo()->exec("update users set loyalty_point = 0");', 'loyalty_point', 1],
+            'an update array whose value is an arm of a ternary, handed on to a writer of another file' => ["\$values = ['wallet_balance' => \$refund ? 0 : \$credit];\n\$this->writer->persist(\$values);", 'wallet_balance', 1],
+            // One statement by the time the database reads it, and read as two harmless halves -- a verb with no assignment, an assignment with no verb -- by every head before this one.
+            'raw SQL whose set clause is appended to the verb' => ["\$sql = \"update users\";\n\$sql .= \" set wallet_balance = 0\";\nDB::statement(\$sql);", 'wallet_balance', 1],
+            'raw SQL whose column is appended to its set clause' => ["\$sql = \"update users set \";\n\$sql .= \"wallet_balance = 0\";\nDB::statement(\$sql);", 'wallet_balance', 1],
+            'raw SQL that sets the column with INSERT .. SET' => ['DB::statement("insert into users set wallet_balance = 0");', 'wallet_balance', 1],
+            'raw SQL that replaces the row naming the column' => ['DB::statement("replace into users (id, wallet_balance) values (1, 0)");', 'wallet_balance', 1],
+            'raw SQL whose set clause is followed by an order and a limit' => ['DB::statement("update users set wallet_balance = 0 order by id limit 1");', 'wallet_balance', 1],
+            'raw SQL that updates the column after a read-only common table expression' => ['DB::statement("with poor as (select id from users where loyalty_point = 0) update users set wallet_balance = 0 where id in (select id from poor)");', 'wallet_balance', 1],
+            'an update array a method of the file hands back' => ["class X { private function values(): array { return ['wallet_balance' => '0']; }\npublic function z() { DB::table('users')->update(\$this->values()); } }", 'wallet_balance', 1],
+            'an update array written out inside a call that is itself handed to the write' => ["DB::table('users')->update(array_merge(\$base, ['wallet_balance' => '0']));", 'wallet_balance', 1],
+            'an update array added to a variable with the compound operator' => ["\$values = [];\n\$values += ['loyalty_point' => '0'];\nDB::table('users')->update(\$values);", 'loyalty_point', 1],
             'a read' => ['$balance = $user->wallet_balance; if ($user->wallet_balance == 0) { echo $user->wallet_balance; }', 'wallet_balance', 0],
             'a comparison' => ['if ($user->loyalty_point === 5 || $user->loyalty_point >= 3) {}', 'loyalty_point', 0],
             'a cast' => ["protected \$casts = ['wallet_balance' => 'float', 'loyalty_point' => 'float'];", 'wallet_balance', 0],
@@ -161,11 +361,53 @@ class WalletBalanceWritersTest extends TestCase
             'a comment' => ["// \$user->wallet_balance = 5;\n/* ->update(['wallet_balance' => 1]) */\n# \$user->wallet_balance -= 1;", 'wallet_balance', 0],
             'the other column' => ['$user->loyalty_point = 5;', 'wallet_balance', 0],
             'a longer name' => ['$user->total_wallet_balance = 5; $x->wallet_balance_before = 1;', 'wallet_balance', 0],
+            'a column widened by the schema builder' => ["\$table->decimal('wallet_balance', 18, 12)->change();", 'wallet_balance', 0],
+            'a column added and dropped by the schema builder' => ["\$table->float('wallet_balance')->nullable();\n\$table->dropColumn('wallet_balance');", 'wallet_balance', 0],
+            'a column widened by raw DDL' => ['DB::statement("ALTER TABLE `users` MODIFY COLUMN `wallet_balance` DECIMAL(40,20) NULL DEFAULT NULL");', 'wallet_balance', 0],
+            'a column given a default by raw DDL' => ['DB::statement("ALTER TABLE users ALTER COLUMN wallet_balance SET DEFAULT 0");', 'wallet_balance', 0],
+            'a column of a table being created' => ['DB::statement("CREATE TABLE users (id int, wallet_balance decimal(40,20))");', 'wallet_balance', 0],
+            'a column named as the position of another' => ["\$table->decimal('loyalty_point', 18, 4)->after('wallet_balance')->default(0)->nullable()->change();", 'wallet_balance', 0],
+            'a column named in the comment of another' => ["\$table->string('reward_type')->comment('coupon, loyalty_point and others')->nullable();", 'loyalty_point', 0],
+            'a table whose name begins with the column' => ["Schema::create('loyalty_point_transactions', function (Blueprint \$table) { \$table->id(); });", 'loyalty_point', 0],
+            'the shape of the tables of a constant changed in a loop' => ["const TABLES = ['users', 'wallet_transactions'];\nforeach (self::TABLES as \$name) { Schema::table(\$name, function (Blueprint \$table) { \$table->decimal('wallet_balance', 40, 20)->change(); }); }", 'wallet_balance', 0],
+            'the column read by raw SQL' => ['DB::statement("SELECT wallet_balance = 0 FROM users");', 'wallet_balance', 0],
+            'the column filtered on by the WHERE clause of a statement that writes another' => ['DB::statement("update users set is_active = 0 where wallet_balance = 0 and loyalty_point = 0");', 'wallet_balance', 0],
+            'the column filtered on by a read-only common table expression' => ['DB::select("with poor as (select id from users where wallet_balance = 0) select * from poor");', 'wallet_balance', 0],
+            // Isolating the clause that assigns, rather than cutting the clause that reads away, is what tells these four from a write: each of them names the column with an `=`
+            // in a statement that changes rows, and none of them assigns to it.
+            'the column read by the join condition of a statement that writes another' => ['DB::statement("update users u join tops t on t.wallet_balance = u.id set u.remark = 1");', 'wallet_balance', 0],
+            'the column read by an ORDER BY' => ['DB::statement("update users set remark = 1 order by wallet_balance = 0 desc limit 5");', 'wallet_balance', 0],
+            'the column read by a window expression' => ['DB::statement("insert into z (a) select sum(wallet_balance = 0) over (partition by id) from users");', 'wallet_balance', 0],
+            'the column read by the join of an INSERT .. SELECT' => ['DB::statement("insert into z (a) select t.id from z t join users u on u.wallet_balance = 0");', 'wallet_balance', 0],
+            'the column filtered on by a delete, which removes a row and assigns nothing' => ['DB::statement("delete from users where wallet_balance = 0");', 'wallet_balance', 0],
+            'a cast whose array is handed to nothing' => ["protected \$casts = ['wallet_balance' => 'float'];\n\$user->save();", 'wallet_balance', 0],
+            // The array has to reach a write whatever its value. Reading a key whose value was not a string wherever it stood counted all five of these, so a real write could be
+            // planted in any file that already held one and no count moved.
+            'a key whose value is a class' => ["\$map = ['wallet_balance' => Wallet::class];", 'wallet_balance', 0],
+            'a key whose value is a list of validation rules' => ["\$rules = ['wallet_balance' => ['required', 'numeric']];", 'wallet_balance', 0],
+            'a key whose value is the attribute itself, in a toArray' => ["class X { public function toArray(): array { return ['wallet_balance' => \$this->wallet_balance]; } }", 'wallet_balance', 0],
+            'a key whose value comes out of the environment' => ["\$config = ['wallet_balance' => env('WALLET_BALANCE', 0)];", 'wallet_balance', 0],
+            'a key whose value is a translated heading' => ["\$headings = ['wallet_balance' => translate('Wallet')];", 'wallet_balance', 0],
+            // The three below are the price of a guard that fails open, and they are cases of it and not oversights: an array of amounts handed on to a name this reader cannot
+            // follow, and a string that spells a money write, are reported because nothing here proves they move no money. A false alarm a person can read is the cheaper
+            // mistake: gating these quiet is what read `DB::select("update users set wallet_balance = 0")` as no write at all.
+            'an update array of amounts handed on to a caller, which may hand it to an update' => ["\$values = ['wallet_balance' => 0];\nreturn \$values;", 'wallet_balance', 1],
+            'an update array of amounts handed to a plain function, which may write it' => ["\$x = create(['wallet_balance' => 0]);", 'wallet_balance', 1],
+            'a plain array subscripted by a constant that holds the name' => ["class X { private const WALLET = 'wallet_balance';\npublic function z(array \$row): array { \$row[self::WALLET] = 0; return \$row; } }", 'wallet_balance', 0],
+            'a plain array subscripted by a variable that holds the name' => ["\$column = 'wallet_balance';\n\$totals[\$column] = 0;", 'wallet_balance', 0],
+            'a message that quotes a statement which writes the column' => ['Log::info("update users set wallet_balance = 0 was refused");', 'wallet_balance', 1],
+            // What the receiver requirement still earns, and where the failing open stops. A word is taken for no amount, so a word-valued array whose handing cannot be
+            // followed is quiet -- which is a declared limit and not a proof, because this application runs MySQL non-strict (config/database.php, 'strict' => false) and
+            // `set wallet_balance = 'float'` stores 0.00000000000000000000 there: measured on MariaDB 10.11.14, refused under STRICT_TRANS_TABLES, writing 0 under ''.
+            // It takes BOTH a word and an unfollowable handing: the next two cases are the same word reported by each of the other two readings.
+            'the array of a plain function whose value is a word rather than an amount' => ["\$x = create(['wallet_balance' => 'float']);", 'wallet_balance', 0],
+            'the same word handed to a method, which writes it whatever the value' => ["\$user->update(['wallet_balance' => 'float']);", 'wallet_balance', 1],
+            'the same word in a SET clause, where the reader never looks at the value' => ['DB::statement("update users set wallet_balance = \'float\'");', 'wallet_balance', 1],
         ];
     }
 
     #[DataProvider('writesAndNonWrites')]
-    public function test_the_scan_finds_every_kind_of_write_and_ignores_reads_casts_and_comments(string $line, string $column, int $expected): void
+    public function test_the_scan_finds_every_kind_of_write_and_reports_nothing_that_writes_no_balance(string $line, string $column, int $expected): void
     {
         $this->assertCount($expected, self::writesOf($column, "<?php\n" . $line . "\n"));
     }
