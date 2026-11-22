@@ -24,7 +24,7 @@ class WithdrawRequest extends FormRequest
     {
         return [
             'withdraw_method' => 'required',
-            'amount' => 'required',
+            'amount' => 'required|numeric',
         ];
     }
 }

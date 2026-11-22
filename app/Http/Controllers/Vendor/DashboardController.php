@@ -226,15 +226,17 @@ class DashboardController extends BaseController
 
         $withdrawMethod = $this->withdrawalMethodRepo->getFirstWhere(params: ['id' => $request['withdraw_method']]);
         $wallet = $this->vendorWalletRepo->getFirstWhere(params: ['seller_id' => auth('seller')->id()]);
-        if (($wallet['total_earning'] ?? 0) >= currencyConverter($request['amount']) && $request['amount'] > 0) {
+        $amountInWalletCurrency = $this->withdrawRequestService->getWithdrawAmountInWalletCurrency(requestedAmount: $request['amount']);
+        if (!is_null($amountInWalletCurrency) && ($wallet['total_earning'] ?? 0) >= $amountInWalletCurrency && $request['amount'] > 0) {
             $this->withdrawRequestRepo->add($this->withdrawRequestService->getWithdrawRequestData(
                 withdrawMethod: $withdrawMethod,
                 request: $request,
                 addedBy: 'vendor',
-                vendorId: $vendorId
+                vendorId: $vendorId,
+                amountInWalletCurrency: $amountInWalletCurrency
             ));
-            $totalEarning = $wallet['total_earning'] - currencyConverter($request['amount']);
-            $pendingWithdraw = $wallet['pending_withdraw'] + currencyConverter($request['amount']);
+            $totalEarning = $wallet['total_earning'] - $amountInWalletCurrency;
+            $pendingWithdraw = $wallet['pending_withdraw'] + $amountInWalletCurrency;
             $this->vendorWalletRepo->update(
                 id: $wallet['id'],
                 data: $this->vendorWalletService->getVendorWalletData(totalEarning: $totalEarning, pendingWithdraw: $pendingWithdraw)
@@ -271,7 +273,8 @@ class DashboardController extends BaseController
 
                 $totalEarning = $wallet['total_earning'] + $pendingRequest['amount'];
                 $pendingWithdraw = $wallet['pending_withdraw'] - $pendingRequest['amount'];
-                if (!($totalEarning >= currencyConverter($request['amount']) && $request['amount'] > 0)) {
+                $amountInWalletCurrency = $this->withdrawRequestService->getWithdrawAmountInWalletCurrency(requestedAmount: $request['amount']);
+                if (is_null($amountInWalletCurrency) || !($totalEarning >= $amountInWalletCurrency && $request['amount'] > 0)) {
                     return 'not_withdrawable';
                 }
 
@@ -281,7 +284,8 @@ class DashboardController extends BaseController
                         withdrawMethod: $withdrawMethod,
                         request: $request,
                         addedBy: 'vendor',
-                        vendorId: $vendorId
+                        vendorId: $vendorId,
+                        amountInWalletCurrency: $amountInWalletCurrency
                     ),
                 );
                 if (!$isRequestUpdated) {
@@ -291,8 +295,8 @@ class DashboardController extends BaseController
                 $this->vendorWalletRepo->update(
                     id: $wallet['id'],
                     data: [
-                        'total_earning' => $totalEarning - currencyConverter($request['amount']),
-                        'pending_withdraw' => $pendingWithdraw + currencyConverter($request['amount']),
+                        'total_earning' => $totalEarning - $amountInWalletCurrency,
+                        'pending_withdraw' => $pendingWithdraw + $amountInWalletCurrency,
                     ],
                 );
                 return 'updated';
