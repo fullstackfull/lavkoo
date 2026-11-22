@@ -57,9 +57,15 @@ class RefundPayoutTest extends TestCase
         Schema::create('orders', function (Blueprint $table): void {
             $table->unsignedBigInteger('id')->primary();
             $table->decimal('order_amount', 16, 6)->default(0);
-            $table->string('transaction_ref')->nullable();
+            // The width the installed database has; PaymentsPanel pins it and payment_requests.transaction_id is varchar(100).
+            $table->string('transaction_ref', 30)->nullable();
             $table->string('currency_code', 8)->nullable();
             $table->decimal('currency_rate', 16, 8)->nullable();
+            // What an order says about the cart it belongs to and whether it still describes the payment that paid for it.
+            $table->string('storefront_country', 2)->nullable();
+            $table->unsignedBigInteger('legal_entity_id')->nullable();
+            $table->string('order_group_id')->nullable();
+            $table->tinyInteger('edited_status')->default(0);
         });
         Schema::create('payment_requests', function (Blueprint $table): void {
             $table->string('id', 36)->primary();
@@ -117,10 +123,10 @@ class RefundPayoutTest extends TestCase
         return DB::table('orders')->where('id', 1)->first();
     }
 
-    private function paid(string $amount, string $currency, ?int $accountId = null, ?int $companyId = null, bool $isPaid = true): void
+    private function paid(string $amount, string $currency, ?int $accountId = null, ?int $companyId = null, bool $isPaid = true, string $market = 'SA'): void
     {
         $stamp = $accountId === null ? null : json_encode([PaymentAccountBinding::KEY => (new PaymentTransactionRecord(
-            market: 'SA', companyId: $companyId, company: ['legal_entity_id' => $companyId, 'country' => 'SA'], accountId: $accountId,
+            market: $market, companyId: $companyId, company: ['legal_entity_id' => $companyId, 'country' => 'SA'], accountId: $accountId,
             gateway: 'paymob_accept', environment: 'test', currency: $currency, exchangeRate: '1', recordedAt: now()->toIso8601String(),
         ))->toStored()]);
 
@@ -207,6 +213,125 @@ class RefundPayoutTest extends TestCase
 
         $this->assertSame('225.00', $payout['amount'], '40 of the order was already given back, so this refund is the rest of the payment: neither the one only asked for, nor another order\'s, nor this refund itself is counted among them');
         $this->assertFalse($payout['capped'], 'the order is given back in full, not over');
+    }
+
+    /**
+     * A refund request that was put into a paying status by a route that paid nothing is not money already given back.
+     *
+     * The vendor panel and both seller apps accept `refund_status` without moving any money: App\Http\Controllers\Vendor\RefundController::updateStatus
+     * writes the status and writes no wallet credit and no refund transaction. Counting an approved-but-unpaid sibling as given back would take its
+     * share off the refund the administrator is actually paying.
+     */
+    public function test_a_refund_that_was_approved_and_paid_nothing_is_not_money_already_given_back(): void
+    {
+        $order = $this->order('100.00', ['transaction_ref' => self::REFERENCE]);
+        $this->paid('375.00', 'SAR');
+        DB::table('refund_requests')->insert([
+            ['id' => 1, 'order_id' => 1, 'amount' => '40.00', 'status' => 'approved'],
+            ['id' => 9, 'order_id' => 1, 'amount' => '60.00', 'status' => 'pending'],
+        ]);
+
+        $payout = $this->payout()->forRefund(order: $order, refund: $this->refundOf('60.00', id: 9));
+
+        $this->assertSame('225.00', $payout['amount'], 'the approved sibling moved no money, so this refund is still its own share of the payment and not the rest of it');
+    }
+
+    // ---- the payment has to be the order's own ---------------------------------------------------------------------------------------------
+
+    /**
+     * A payment started for another market is not this order's payment, whatever reference it carries.
+     *
+     * The company is deliberately not compared: a market's gateway account may belong to another country's company, which is the shape the refund
+     * keeps two columns for.
+     */
+    public function test_a_payment_started_for_another_market_is_not_this_orders_payment(): void
+    {
+        $order = $this->order('100.00', ['transaction_ref' => self::REFERENCE, 'storefront_country' => 'SA']);
+        $this->paid('375.00', 'SAR', accountId: 4, companyId: 6, market: 'AE');
+
+        $this->assertNull($this->payout()->forRefund(order: $order, refund: $this->refundOf('10.00')), 'a payment of the dirham storefront did not pay for a riyal storefront\'s order');
+    }
+
+    /** A market's account may belong to another country's company, and that is not a disagreement. */
+    public function test_an_account_of_another_countrys_company_still_answers_for_the_order(): void
+    {
+        $order = $this->order('100.00', ['transaction_ref' => self::REFERENCE, 'storefront_country' => 'SA', 'legal_entity_id' => 5]);
+        $this->paid('375.00', 'SAR', accountId: 4, companyId: 9, market: 'SA');
+
+        $payout = $this->payout()->forRefund(order: $order, refund: $this->refundOf('10.00'));
+
+        $this->assertSame(['37.50', 4, 9], [$payout['amount'], $payout['account_id'], $payout['company_id']], 'the company that sold is 5 and the company whose account took the money is 9, and both stand');
+    }
+
+    /**
+     * Two orders of different companies that come to carry one reference are not one cart, so neither is a share of that payment.
+     *
+     * Nothing binds an order to its payment but this one mutable text column. Read as a cart, the other company's payment is shared out by stored
+     * amounts and the refund is recorded against the merchant account that took it -- money this buyer never handed over, drawn on an account that
+     * never sold to them.
+     */
+    public function test_a_reference_carried_by_another_companys_order_is_not_one_cart(): void
+    {
+        $order = $this->order('100.00', ['transaction_ref' => self::REFERENCE, 'legal_entity_id' => 1, 'order_group_id' => 'cart-1']);
+        DB::table('orders')->insert(['id' => 2, 'order_amount' => '250.00', 'transaction_ref' => self::REFERENCE, 'legal_entity_id' => 2, 'order_group_id' => 'cart-2']);
+        $this->paid('10000.00', 'SAR');
+
+        $this->assertNull($this->payout()->forRefund(order: $order, refund: $this->refundOf('10.00')));
+    }
+
+    /** The orders of one cart, which is what a payment of several orders is, are still shared among them. */
+    public function test_the_orders_of_one_cart_are_still_shared_among_them(): void
+    {
+        $order = $this->order('100.00', ['transaction_ref' => self::REFERENCE, 'legal_entity_id' => 1, 'order_group_id' => 'cart-1']);
+        DB::table('orders')->insert(['id' => 2, 'order_amount' => '300.00', 'transaction_ref' => self::REFERENCE, 'legal_entity_id' => 1, 'order_group_id' => 'cart-1']);
+        $this->paid('400.00', 'SAR');
+
+        $this->assertSame('10.00', $this->payout()->forRefund(order: $order, refund: $this->refundOf('10.00'))['amount'], '10 of the 400 the cart cost');
+    }
+
+    /**
+     * An order edited after it was paid for no longer says what its payment covered.
+     *
+     * The share is taken of the order's amount as it stands TODAY while the payment was taken THEN. An order edited down hands the next refund a share
+     * of the whole original payment, on top of the difference the edit already returned; an order edited up is paid for by a second payment that this
+     * reference does not name, and the refund gives back a share of the first payment only.
+     */
+    public function test_an_order_edited_since_it_was_paid_for_is_not_a_share_of_its_payment(): void
+    {
+        $order = $this->order('50.00', ['transaction_ref' => self::REFERENCE, 'edited_status' => 1]);
+        $this->paid('375.00', 'SAR');
+
+        $this->assertNull($this->payout()->forRefund(order: $order, refund: $this->refundOf('50.00')));
+    }
+
+    /**
+     * A cart that does not add up to the order being refunded is refused rather than taken as the order's own amount.
+     *
+     * The share's denominator is what the payment covered. When the rows under the reference total less than the order itself, the order is not part
+     * of the whole it would be taking a share of, and treating the order's own amount as that whole hands it the entire payment.
+     */
+    public function test_a_cart_smaller_than_the_order_being_refunded_is_refused(): void
+    {
+        $this->order('10.00', ['transaction_ref' => self::REFERENCE]);
+        $this->paid('375.00', 'SAR');
+        $order = (object) ['id' => 1, 'order_amount' => '100.00', 'transaction_ref' => self::REFERENCE];
+
+        $this->assertNull($this->payout()->forRefund(order: $order, refund: $this->refundOf('10.00')));
+    }
+
+    /**
+     * Nothing is answered while per-company payment accounts are off.
+     *
+     * What D1-10 asks for is a refund that gives back what was paid THROUGH THE MERCHANT ACCOUNT THAT TOOK IT. A platform that records no merchant
+     * account at all would otherwise be given the money half of that with no record of whose account the money belongs to.
+     */
+    public function test_nothing_is_answered_while_per_company_payment_accounts_are_off(): void
+    {
+        config(['gcc.storefronts.payment_accounts.enabled' => false]);
+        $order = $this->order('100.00', ['transaction_ref' => self::REFERENCE]);
+        $this->paid('375.00', 'SAR', accountId: 4, companyId: 6);
+
+        $this->assertNull($this->payout()->forRefund(order: $order, refund: $this->refundOf('10.00')));
     }
 
     /** A refund that would take more than the order is capped at the order, so the refunds of one payment can never exceed it. */
@@ -300,6 +425,17 @@ class RefundPayoutTest extends TestCase
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('Rolling this migration back would forget it');
+
+        (require database_path('migrations/2026_12_05_100000_add_original_payment_to_refund_transactions_table.php'))->down();
+    }
+
+    /** Either column on its own refuses the rollback: a currency recorded without an amount is a record too. */
+    public function test_the_rollback_is_refused_while_a_refund_records_only_the_currency_of_its_payment(): void
+    {
+        DB::table('refund_transactions')->insert(['id' => 1, 'order_id' => 1, 'amount' => '10.00', 'original_payment_currency' => 'SAR']);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('original_payment_currency');
 
         (require database_path('migrations/2026_12_05_100000_add_original_payment_to_refund_transactions_table.php'))->down();
     }

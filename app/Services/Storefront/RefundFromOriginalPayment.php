@@ -3,6 +3,7 @@
 namespace App\Services\Storefront;
 
 use App\Services\OperationalCosts\Support\Money;
+use App\Services\Payments\PaymentBelongsToOrder;
 use Illuminate\Container\Attributes\Singleton;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -19,9 +20,17 @@ use InvalidArgumentException;
  * decides. A payment that covered several orders of one cart is shared among them by their stored amounts.
  *
  * Refunds of one order add up to exactly its share of the payment: each refund is the difference of two roundings of the cumulative share, in the decimals of the currency, so
- * no minor unit is lost or made up whatever the number of refunds, and a refund that would take more than the order's amount is capped at it. Nothing is written, nothing is
- * paid and nothing in the refund flow calls this: it is the computation a refund policy would use, and the policy (the original amount, or the amount at today's rate; credit
- * notes; the merchant account it returns to) is the owner's and the finance review's to adopt.
+ * no minor unit is lost or made up whatever the number of refunds, and a refund that would take more than the order's amount is capped at it.
+ *
+ * A share is only a share while the stored amounts still describe what the payment covered. The order is joined to its payment by one mutable text column and the denominator
+ * is summed on the day of the refund, so three states answer null rather than a figure: the payment's own stamp names a market or a company that is not the order's
+ * (App\Services\Payments\PaymentBelongsToOrder); an order under the reference has been edited since it was paid for (`edited_status`), which moves the amounts the share is
+ * taken of and leaves a second payment for the difference that this reference does not name; or the orders under the reference are not one cart (more than one selling
+ * company, market or order group among them), or do not add up to at least the order being refunded. Each of those once gave back money that was never paid, or kept back
+ * money that was.
+ *
+ * Nothing is written and nothing is paid here. Which of the two figures a refund SHOULD give back, and the policy around it (the original amount, or the amount at today's
+ * rate; credit notes; the merchant account it returns to) is the owner's and the finance review's to adopt.
  */
 #[Singleton]
 final class RefundFromOriginalPayment
@@ -30,8 +39,12 @@ final class RefundFromOriginalPayment
 
     public const ORDER_RECORD = 'order_record';
 
-    public function __construct(private readonly StorefrontCurrency $currency)
-    {
+    private ?bool $paymentsHaveTheStamp = null;
+
+    public function __construct(
+        private readonly StorefrontCurrency $currency,
+        private readonly PaymentBelongsToOrder $belongsToOrder,
+    ) {
     }
 
     /**
@@ -90,17 +103,59 @@ final class RefundFromOriginalPayment
             return null;
         }
 
-        $records = DB::table('payment_requests')->where('transaction_id', $reference)->where('is_paid', 1)->limit(2)->get(['payment_amount', 'currency_code']);
-        $paid = $records->count() === 1 ? Money::ofNullable($this->plainOrNull($records->first()->payment_amount)) : null;
-        $currency = $records->count() === 1 ? strtoupper(trim((string) $records->first()->currency_code)) : '';
+        $records = DB::table('payment_requests')->where('transaction_id', $reference)->where('is_paid', 1)->limit(2)->get($this->paymentColumns());
+
+        if ($records->count() !== 1 || !$this->belongsToOrder->payment(payment: (array) $records->first(), order: $order)) {
+            return null;
+        }
+
+        $paid = Money::ofNullable($this->plainOrNull($records->first()->payment_amount));
+        $currency = strtoupper(trim((string) $records->first()->currency_code));
 
         if ($paid === null || !$paid->isPositive() || $currency === '') {
             return null;
         }
 
-        $cart = Money::of((string) DB::table('orders')->where('transaction_ref', $reference)->sum('order_amount'));
+        $cart = $this->cartUnder(reference: $reference, orderAmount: $orderAmount);
 
-        return ['currency' => $currency, 'paid' => $paid, 'whole' => $cart->max($orderAmount), 'basis' => self::GATEWAY_RECORD, 'transaction' => $reference];
+        if ($cart === null) {
+            return null;
+        }
+
+        return ['currency' => $currency, 'paid' => $paid, 'whole' => $cart, 'basis' => self::GATEWAY_RECORD, 'transaction' => $reference];
+    }
+
+    /**
+     * What is read of the payment: its money, and the stamp that says which market it was started for where the table keeps one.
+     *
+     * The column is asked for rather than assumed. A database without it is older than the stamp, so there is no market to disagree with; and asking a
+     * real server for a column it has not got is an error, where SQLite quietly answers the column's own name as a string and the test passes.
+     *
+     * @return list<string>
+     */
+    private function paymentColumns(): array
+    {
+        $columns = ['payment_amount', 'currency_code'];
+
+        if ($this->paymentsHaveTheStamp ??= Schema::hasColumn('payment_requests', 'additional_data')) {
+            $columns[] = 'additional_data';
+        }
+
+        return $columns;
+    }
+
+    /**
+     * The stored amounts the payment covered: the orders of the one cart that carries the reference, summed as they stand now.
+     *
+     * Null when they are not one cart that still describes the payment (App\Services\Payments\PaymentBelongsToOrder), or when the total is smaller than the order being
+     * refunded — which would hand that order a share of a payment larger than the whole it is a part of.
+     */
+    private function cartUnder(string $reference, Money $orderAmount): ?Money
+    {
+        $cart = $this->belongsToOrder->cartUnder(reference: $reference);
+        $whole = $cart === null ? null : Money::ofNullable($this->plainOrNull($cart->whole));
+
+        return $whole === null || !$whole->isPositive() || $whole->compareTo($orderAmount) < 0 ? null : $whole;
     }
 
     /** @return array{currency: string, paid: Money, whole: Money, basis: string, transaction: ?string}|null */

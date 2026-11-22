@@ -20,6 +20,16 @@ use Illuminate\Support\Facades\Schema;
  *
  * Two paid payments under one reference answer nothing rather than pick one, the same rule App\Services\Storefront\RefundFromOriginalPayment uses for the
  * amount, so the account and the amount of one order can never be read from two different payments.
+ *
+ * What is answered is the stamp, not an account that still exists: an account row and its company can be deleted after a payment, and the refund still
+ * records the ids the payment was taken through, because that is what took the money. It is a record and reads as one. The half of D1-10 that is not
+ * built -- a refund actually LEAVING through that account -- cannot read these ids as a routing instruction without first checking that the account is
+ * still there, and the columns carry no foreign key: PaymentAccountBinding::accountOf() is the reader that fails closed, and is what that half wants.
+ *
+ * The reference is one mutable text column and binds nothing else, so the payment has to answer for the order as well as carry its reference
+ * (PaymentBelongsToOrder): its stamp must name the market the order was sold from, and the orders carrying the reference must be one cart. A refund can
+ * otherwise come to name the merchant account of a company that never sold to this buyer. That second question is one more read of `orders` while
+ * per-company accounts are on, and it is the only statement this adds.
  */
 #[Singleton]
 final class OrderPaymentAccount
@@ -27,6 +37,7 @@ final class OrderPaymentAccount
     public function __construct(
         private readonly GatewayAccountRegistry $registry,
         private readonly PaymentAccountBinding $binding,
+        private readonly PaymentBelongsToOrder $belongsToOrder,
     ) {
     }
 
@@ -45,6 +56,16 @@ final class OrderPaymentAccount
 
         $payments = DB::table('payment_requests')->where('transaction_id', $reference)->where('is_paid', 1)->limit(2)->get(['additional_data']);
 
-        return $payments->count() === 1 ? $this->binding->of(payment: (array) $payments->first()) : null;
+        if ($payments->count() !== 1) {
+            return null;
+        }
+
+        $stamp = $this->binding->of(payment: (array) $payments->first());
+
+        if (!$this->belongsToOrder->stamp(stamp: $stamp, order: $order) || !$this->belongsToOrder->oneCartUnder(reference: $reference)) {
+            return null;
+        }
+
+        return $stamp;
     }
 }

@@ -42,6 +42,7 @@ trait BuildsTheRefundPayoutWorld
         (require database_path('migrations/2026_12_04_100000_add_payment_account_to_refund_tables.php'))->up();
         $this->installTheCompanyAndAccountTables();
         $this->buildTheAdminRefundDesk();
+        $this->addTheOrderEditColumns();
         // The shop's own earnings row, which an installation has and which the refund desk reduces by the amount of a refund.
         DB::table('admin_wallets')->updateOrInsert(['admin_id' => 1], ['inhouse_earning' => 0]);
         (require database_path('migrations/2026_12_05_100000_add_original_payment_to_refund_transactions_table.php'))->up();
@@ -50,6 +51,24 @@ trait BuildsTheRefundPayoutWorld
         config(['gcc.storefronts.currency.enabled' => false]);
         $this->forgetWhatWasRemembered();
         $this->theWalletTakesRefunds();
+    }
+
+    /**
+     * What an order edit leaves on the order, which the installed database has (database/migrations/2026_01_13_165849) and the shared fixture does not.
+     *
+     * An order edited after it was paid for no longer says what its payment covered, so the refund payout has to be able to see that it was edited.
+     */
+    protected function addTheOrderEditColumns(): void
+    {
+        if (Schema::hasColumn('orders', 'edited_status')) {
+            return;
+        }
+
+        Schema::table('orders', function (\Illuminate\Database\Schema\Blueprint $table): void {
+            $table->tinyInteger('edited_status')->default(0);
+            $table->decimal('edit_due_amount', 16, 2)->default(0);
+            $table->decimal('edit_return_amount', 16, 2)->default(0);
+        });
     }
 
     protected function dropTheRefundPayoutWorld(): void

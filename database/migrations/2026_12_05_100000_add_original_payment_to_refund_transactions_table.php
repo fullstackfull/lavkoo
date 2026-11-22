@@ -42,15 +42,22 @@ return new class extends Migration {
         }
     }
 
-    /** Dropping the columns would forget what a refund gave back of the payment it is a refund of, which cannot be worked out again once a rate has moved. */
+    /**
+     * Dropping the columns would forget what a refund gave back of the payment it is a refund of, which cannot be worked out again once a rate has moved.
+     *
+     * Each column is asked for itself, as 2026_12_04_100000 asks for each of its own: testing only the amount would let a currency recorded without one
+     * be dropped without a word.
+     */
     public function down(): void
     {
-        $recorded = Schema::hasTable(self::TABLE)
-            && Schema::hasColumn(self::TABLE, self::AMOUNT)
-            && DB::table(self::TABLE)->whereNotNull(self::AMOUNT)->exists();
+        foreach ([self::AMOUNT, self::CURRENCY] as $column) {
+            $recorded = Schema::hasTable(self::TABLE)
+                && Schema::hasColumn(self::TABLE, $column)
+                && DB::table(self::TABLE)->whereNotNull($column)->exists();
 
-        if ($recorded) {
-            throw new RuntimeException('Refunds record what they gave back of the original payment. Rolling this migration back would forget it.');
+            if ($recorded) {
+                throw new RuntimeException("Refunds record what they gave back of the original payment ({$column}). Rolling this migration back would forget it.");
+            }
         }
 
         foreach ([self::AMOUNT, self::CURRENCY] as $column) {

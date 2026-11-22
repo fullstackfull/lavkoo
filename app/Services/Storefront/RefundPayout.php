@@ -2,6 +2,7 @@
 
 namespace App\Services\Storefront;
 
+use App\Services\Payments\GatewayAccountRegistry;
 use App\Services\Payments\OrderPaymentAccount;
 use Illuminate\Container\Attributes\Singleton;
 use Illuminate\Support\Facades\DB;
@@ -21,7 +22,14 @@ use Illuminate\Support\Facades\Schema;
  * is not made here: the mechanism is built, switched off, and waiting for that ruling (docs: D1-10).
  *
  * While it is on, an order with no original payment to work from — a cash-on-delivery order, an order placed before the record existed, a payment that was
- * never marked paid, two paid payments under one reference — answers null as well, so the flow does what it always did rather than guess.
+ * never marked paid, two paid payments under one reference, a payment that belongs to another company's order, an order edited since it was paid for —
+ * answers null as well, so the flow does what it always did rather than guess.
+ *
+ * It also answers nothing while per-company payment accounts are off (`gcc.storefronts.payment_accounts.enabled`). The two switches move together on
+ * purpose: what D1-10 asks for is a refund that returns what was paid THROUGH THE MERCHANT ACCOUNT THAT TOOK IT, and a platform that records no merchant
+ * account at all would otherwise get the money half of that with no record of whose account the money belongs to. Where accounts are on but a particular
+ * payment carries no stamp — every payment taken before the switch was thrown — the money is still worked out from that payment and no account is named;
+ * whether that is right is the owner's decision and it is recorded, not taken here.
  */
 #[Singleton]
 final class RefundPayout
@@ -38,12 +46,14 @@ final class RefundPayout
     public function __construct(
         private readonly RefundFromOriginalPayment $computation,
         private readonly OrderPaymentAccount $paymentAccount,
+        private readonly GatewayAccountRegistry $accounts,
     ) {
     }
 
+    /** Both switches, in this order: the payout one is read first so that a shop with it off issues no statement and asks no question at all. */
     public function isEnabled(): bool
     {
-        return (bool) config(self::SETTING, false);
+        return (bool) config(self::SETTING, false) && $this->accounts->isEnabled();
     }
 
     /**
