@@ -47,4 +47,18 @@ final class MarketingConsent
     public const SOURCE_NEWSLETTER_FORM = 'newsletter_form';
 
     public const SOURCE_UNSUBSCRIBE_LINK = 'unsubscribe_link';
+
+    /**
+     * A market spelled the one way it is stored and compared: an upper-case ISO code.
+     *
+     * THERE IS ONE RULE AND IT LIVES HERE, because the two engines disagree about the rest. The column is utf8mb4
+     * with a case-INSENSITIVE collation on MySQL and MariaDB, where 'sa' finds a row stored as 'SA'; SQLite compares
+     * text BINARY, where it does not. Normalising on the write and leaving the read alone would therefore have made
+     * the same call answer differently on the two engines — found by self-review, not by a failing test, because no
+     * caller passes a lower-case market today.
+     */
+    public static function market(string $market): string
+    {
+        return mb_strtoupper(trim($market));
+    }
 }

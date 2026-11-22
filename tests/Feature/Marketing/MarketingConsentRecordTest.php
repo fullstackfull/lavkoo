@@ -273,6 +273,76 @@ class MarketingConsentRecordTest extends MarketingConsentTestCase
         $this->assertFalse($gate->allowsCustomer(customerId: (int) $customer->id, market: 'AE', channel: MarketingConsent::CHANNEL_EMAIL, purpose: MarketingConsent::PURPOSE_NEWSLETTER));
     }
 
+    /**
+     * A market spelled in lower case is the SAME market, on BOTH engines.
+     *
+     * This is the one place the two engines could have disagreed: the column's collation is case-insensitive on
+     * MySQL and MariaDB and BINARY on SQLite, so normalising the write and not the read would have made this call
+     * find the consent on one engine and miss it on the other. Everything now goes through
+     * MarketingConsent::market(), and this test is what would catch it going back.
+     */
+    public function test_a_market_spelled_in_lower_case_is_the_same_market_on_both_engines(): void
+    {
+        $this->switchConsentOn();
+        $customer = $this->makeCustomer(email: 'case@example.test');
+        $gate = app(MarketingConsentGate::class);
+
+        app(MarketingConsentRecorder::class)->grantForCustomer(
+            customerId: (int) $customer->id,
+            market: 'kw',
+            channel: MarketingConsent::CHANNEL_EMAIL,
+            purpose: MarketingConsent::PURPOSE_NEWSLETTER,
+            source: MarketingConsent::SOURCE_REGISTRATION,
+        );
+
+        // Stored upper case whatever was passed in.
+        $this->assertSame('KW', DB::table('customer_marketing_consents')->value('market'));
+
+        // And found whichever way it is asked for.
+        foreach (['KW', 'kw', 'Kw', ' kw '] as $asked) {
+            $this->assertTrue(
+                $gate->allowsCustomer(customerId: (int) $customer->id, market: $asked, channel: MarketingConsent::CHANNEL_EMAIL, purpose: MarketingConsent::PURPOSE_NEWSLETTER),
+                "A consent recorded for 'kw' was not found when asked for '{$asked}'."
+            );
+        }
+
+        // A different market is still a different market.
+        $this->assertFalse($gate->allowsCustomer(customerId: (int) $customer->id, market: 'qa', channel: MarketingConsent::CHANNEL_EMAIL, purpose: MarketingConsent::PURPOSE_NEWSLETTER));
+    }
+
+    /** And a withdrawal spelled in lower case stops a send recorded in upper case. */
+    public function test_a_withdrawal_spelled_in_lower_case_stops_an_upper_case_grant(): void
+    {
+        $this->switchConsentOn();
+        $customer = $this->makeCustomer(email: 'case-withdraw@example.test');
+        $recorder = app(MarketingConsentRecorder::class);
+
+        $recorder->grantForCustomer(
+            customerId: (int) $customer->id,
+            market: 'KW',
+            channel: MarketingConsent::CHANNEL_EMAIL,
+            purpose: MarketingConsent::PURPOSE_NEWSLETTER,
+            source: MarketingConsent::SOURCE_REGISTRATION,
+        );
+
+        $recorder->withdraw(
+            subjectHash: MarketingSubject::forCustomer(customerId: (int) $customer->id),
+            market: 'kw',
+            channel: MarketingConsent::CHANNEL_EMAIL,
+            purpose: MarketingConsent::PURPOSE_NEWSLETTER,
+            source: MarketingConsent::SOURCE_UNSUBSCRIBE_LINK,
+            customerId: (int) $customer->id,
+        );
+
+        $this->assertSame(2, DB::table('customer_marketing_consents')->count());
+        $this->assertFalse(app(MarketingConsentGate::class)->allowsCustomer(
+            customerId: (int) $customer->id,
+            market: 'KW',
+            channel: MarketingConsent::CHANNEL_EMAIL,
+            purpose: MarketingConsent::PURPOSE_NEWSLETTER,
+        ));
+    }
+
     public function test_the_migration_refuses_to_drop_a_table_that_holds_decisions(): void
     {
         app(MarketingConsentRecorder::class)->grantForEmail(

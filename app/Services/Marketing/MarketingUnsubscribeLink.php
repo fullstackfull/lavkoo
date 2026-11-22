@@ -85,7 +85,7 @@ final class MarketingUnsubscribeLink
 
         return [
             'subject_hash' => $payload['subject_hash'],
-            'market' => mb_strtoupper($payload['market']),
+            'market' => MarketingConsent::market($payload['market']),
             'channel' => $payload['channel'],
             'purpose' => $payload['purpose'],
             'customer_id' => isset($payload['customer_id']) ? (int) $payload['customer_id'] : null,
@@ -97,7 +97,7 @@ final class MarketingUnsubscribeLink
         $token = Crypt::encryptString((string) json_encode([
             'subject_hash' => $subjectHash,
             'customer_id' => $customerId,
-            'market' => mb_strtoupper($market),
+            'market' => MarketingConsent::market($market),
             'channel' => $channel,
             'purpose' => $purpose,
         ]));

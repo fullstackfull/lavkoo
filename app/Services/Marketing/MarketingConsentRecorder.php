@@ -125,7 +125,7 @@ final class MarketingConsentRecorder
         return CustomerMarketingConsent::create([
             'customer_id' => $customerId,
             'subject_hash' => $subjectHash,
-            'market' => mb_strtoupper($market),
+            'market' => MarketingConsent::market($market),
             'storefront' => $storefront,
             'legal_entity_id' => $legalEntityId,
             'channel' => $channel,

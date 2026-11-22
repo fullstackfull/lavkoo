@@ -70,7 +70,7 @@ final class MarketingConsentGate
     /** The policy in force for a market: what an unanswered question means there. */
     public function policyFor(string $market): string
     {
-        $perMarket = Config::get('marketing.consent.policies.' . mb_strtoupper($market));
+        $perMarket = Config::get('marketing.consent.policies.' . MarketingConsent::market($market));
         $policy = is_string($perMarket) && $perMarket !== '' ? $perMarket : Config::get('marketing.consent.default_policy');
 
         return $policy === MarketingConsent::POLICY_OPT_OUT ? MarketingConsent::POLICY_OPT_OUT : MarketingConsent::POLICY_OPT_IN;

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Marketing\MarketingConsent;
 use Illuminate\Database\Eloquent\Model;
 use RuntimeException;
 
@@ -67,7 +68,7 @@ class CustomerMarketingConsent extends Model
     {
         return static::query()
             ->where('subject_hash', $subjectHash)
-            ->where('market', $market)
+            ->where('market', MarketingConsent::market($market))
             ->where('channel', $channel)
             ->where('purpose', $purpose)
             ->orderByDesc('id')

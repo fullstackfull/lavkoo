@@ -24,7 +24,7 @@ final class MarketingMarket
     {
         $configured = Config::get('marketing.consent.home_market');
 
-        return is_string($configured) && $configured !== '' ? mb_strtoupper($configured) : 'SA';
+        return is_string($configured) && trim($configured) !== '' ? MarketingConsent::market($configured) : 'SA';
     }
 
     /** The market of a customer's newest address, or the home market when they have none that names a market. */
