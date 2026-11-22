@@ -183,7 +183,15 @@ class RefundPayoutTest extends TestCase
         $this->assertSame(30.0, (float) usdToDefaultCurrency(amount: 10.0), 'while the conversion of today says 30.00 for the same refund');
     }
 
-    /** What the earlier refunds of the order gave back is counted, and the refund being paid out is not counted twice. */
+    /**
+     * What the earlier refunds of the order gave back is counted; a refund that is only asked for is not, nor is another order's, nor is the refund
+     * being paid out itself.
+     *
+     * The last of those is the one that bites. The administrator's flow writes the refund transaction BEFORE it marks the refund refunded, so on a
+     * first pass the row is still pending and counting it or not makes no difference -- the shares are linear, and 40 to 50 is the same money as 50
+     * to 60. It makes every difference on a second pass, or on any flow that marks the row first: the amounts here take the order to its whole, so
+     * counting this refund twice puts the running total at the cap and the buyer is handed nothing at all.
+     */
     public function test_it_counts_what_the_earlier_refunds_of_the_order_gave_back_and_not_this_one(): void
     {
         $order = $this->order('100.00', ['transaction_ref' => self::REFERENCE]);
@@ -191,13 +199,14 @@ class RefundPayoutTest extends TestCase
         DB::table('refund_requests')->insert([
             ['id' => 1, 'order_id' => 1, 'amount' => '40.00', 'status' => 'refunded'],
             ['id' => 2, 'order_id' => 1, 'amount' => '25.00', 'status' => 'pending'],
-            ['id' => 9, 'order_id' => 1, 'amount' => '10.00', 'status' => 'refunded'],
+            ['id' => 9, 'order_id' => 1, 'amount' => '60.00', 'status' => 'refunded'],
             ['id' => 3, 'order_id' => 2, 'amount' => '90.00', 'status' => 'refunded'],
         ]);
 
-        $payout = $this->payout()->forRefund(order: $order, refund: $this->refundOf('10.00', id: 9));
+        $payout = $this->payout()->forRefund(order: $order, refund: $this->refundOf('60.00', id: 9));
 
-        $this->assertSame('37.50', $payout['amount'], '40 of the order was already given back: this refund is the share from 40 to 50, and neither the pending one, nor itself, nor another order\'s counts');
+        $this->assertSame('225.00', $payout['amount'], '40 of the order was already given back, so this refund is the rest of the payment: neither the one only asked for, nor another order\'s, nor this refund itself is counted among them');
+        $this->assertFalse($payout['capped'], 'the order is given back in full, not over');
     }
 
     /** A refund that would take more than the order is capped at the order, so the refunds of one payment can never exceed it. */
