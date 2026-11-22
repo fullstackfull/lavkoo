@@ -4059,6 +4059,173 @@ def load_all():
     return data
 
 
+# ---------------------------------------------------------------------------
+# A2-13 + I1-08, marketing consent and the signed unsubscribe link.
+# PR 163, branch gcc/p1-marketing-consent-and-unsubscribe, head
+# 1f1b80866b63d7f691e007f25252073c24596fed, base main c5c04b7b, DRAFT. Nine
+# commits: four built the feature, five answered two independent reviews.
+#
+# What I checked myself, at that head, rather than taking the lane's word:
+#   * run 45051782083 has head_sha 1f1b8086 and conclusion failure, 17 success
+#     / 6 failure of 23 jobs. BOTH new jobs are success: 'Marketing consent
+#     tests, MySQL 8' (job 137298271671) and '... MariaDB 11.4.2' (137298271641),
+#     every step of each one success.
+#   * the strict-mode job (137298271711) runs this directory -- I read its own
+#     command line in the log: `phpunit -c phpunit.mysql.xml
+#     tests/Feature/StrictModeTest.php tests/Feature/SalesChannels
+#     tests/Feature/OperationalCosts tests/Unit/Fulfillment
+#     tests/Feature/Fulfillment tests/Feature/Marketing` with DB_STRICT_TESTS=1
+#     on MariaDB 11.4.2 -- and finished 4135 tests / 35906 assertions with
+#     Failures: 1, Skipped: 2. The one failure, read by name out of that log, is
+#     main's own calendar-dated TorodShipmentDiscoveryTest at line 198
+#     (-'unlinked' +'needs_review'); the two skips are the pre-existing
+#     PilotServer engine skips. So the group is green on a real engine in strict
+#     mode as well, which is where this branch's char(2) column would have been
+#     caught.
+#   * .github/workflows/ci.yml at 1f1b8086 names tests/Feature/Marketing in the
+#     'Marketing consent tests' group, and the one-line diff from the reviewed
+#     head d577798f is adding that same directory to the strict-mode job.
+#   * I read tests/Feature/Marketing/NecessaryNotificationsTest.php at that head
+#     myself: setUp calls switchConsentOn() and then asserts
+#     DB::table('customer_marketing_consents')->count() === 0, and each of the
+#     five message tests fires a real event (PasswordResetEvent,
+#     DigitalProductOtpVerificationEvent, AddFundToWalletEvent, OrderStatusEvent,
+#     RefundEvent) and asserts the real send -- Mail::assertSent(SendMail::class,
+#     1) or an Http::assertSent on the FCM call. The two structural guards scan
+#     the whole application (asserting more than 500 files were read) and pin the
+#     exact caller list; that list went red in this very round when the
+#     unsubscribe controller joined it, which is the guard working rather than
+#     the guard asserted.
+# ---------------------------------------------------------------------------
+
+_CONSENT_HEAD = ('\n\nPR 163 (DRAFT) head 1f1b80866b63d7f691e007f25252073c24596fed, base main c5c04b7b. '
+                 'CI run 45051782083 on that head: both new jobs success -- Marketing consent tests, MySQL 8 '
+                 '(137298271671) and MariaDB 11.4.2 (137298271641), 114 tests / 438 assertions, 0 skipped. '
+                 'The same directory also runs inside the strict-mode job (137298271711, DB_STRICT_TESTS=1, '
+                 'MariaDB 11.4.2): 4135 / 35906 whose single failure is main\'s own calendar-dated Torod test. '
+                 'I read that job\'s own phpunit command line and its tail; I did not take the figures on trust.')
+
+_CONSENT_RAISES = [
+    ('A2-13', 0, 'CODED',
+     'CODED on PR 163. A row in customer_marketing_consents records the customer, the channel, the purpose, the text '
+     'version and the TIME THE PERSON ANSWERED (the clock is frozen and the stored instant compared, not merely '
+     'asserted non-null), and it is append-only: a withdrawal writes a new row carrying the grant\'s own text version '
+     'and hash. The row SHAPE is asserted rather than hand-read -- both named indexes and char(2)/char(64)/varchar(32)/'
+     'varchar(16) on MySQL 8 and MariaDB. NOT PROVED: "storefront" and "legal entity". Both columns exist and are '
+     'nullable and NOTHING FILLS EITHER -- main has no storefront layer and legal_entities has no migration in this '
+     'repository (see the migration-overlay handoff of 2026-11-22). "customer" is proved only for a subject who has an '
+     'account. And "never overwritten" is enforced at the Eloquent layer only: there is no trigger and no database '
+     'constraint, so a raw DB::table()->update() would write over a decision, and on a server with '
+     'explicit_defaults_for_timestamp=0 the database itself would rewrite recorded_at on any UPDATE. Named test: '
+     'tests/Feature/Marketing/MarketingConsentRecordTest.php, 20 tests / 77 assertions on SQLite, 82 on MariaDB.'),
+
+    ('A2-13', 1, 'CODED',
+     'CODED on PR 163. Withdrawing in one MARKET leaves the other markets\' consents untouched, now for the sender '
+     'that WRITES as well as the ones that read: a Kuwaiti customer\'s newsletter choice is filed under KW, and a '
+     'market the store does not sell in cannot reach the column at all. NOT PROVED: the word "storefront", in both '
+     'halves of the criterion -- there is no storefront layer on main to withdraw in, so market stands in for it. '
+     'Named tests: MarketingConsentRecordTest::test_withdrawing_in_one_market_leaves_the_other_markets_consents_'
+     'untouched and NewsletterConsentTest::test_a_kuwaiti_customers_newsletter_choice_is_filed_under_kuwait.'),
+
+    ('A2-13', 2, 'CODED',
+     'CODED on PR 163. The abandoned-cart reminder and the cart-marketing send both skip a customer with no consent '
+     'for that market, channel and purpose, driven through the real console command and the real controller, and the '
+     'reminder carries a signed unsubscribe link that WORKS: a withdrawal through that link stops the next send of the '
+     'same schedule for the PERSON, across the guest/customer boundary in both directions, and the person can agree '
+     'again afterwards. NOT PROVED: "that storefront"; "NEWSLETTERS ... skip a customer", because main has no '
+     'newsletter sender to skip anything -- what this branch does for the newsletter is record the choice, and for an '
+     'anonymous address that record is a claim, not a grant; and "carry an unsubscribe link" for the WhatsApp channel, '
+     'which has no footer to put one in. Named tests: tests/Feature/Marketing/AbandonedCartConsentTest.php (16 tests / '
+     '51 assertions) and CartMarketingConsentTest.php (7 / 23).'),
+
+    ('I1-08', 0, 'CODED',
+     'CODED on PR 163. A marketing send is skipped for a customer with no consent for that MARKET and channel, for the '
+     'e-mail channel and the WhatsApp channel, including that consent for the wrong market, the wrong channel or the '
+     'wrong purpose does not let a send through; the WhatsApp sender\'s dormancy is measured, not read. NOT PROVED: '
+     '"that STORE" (storefront). The PUSH channel is not gated at all -- a topic broadcast has no per-customer '
+     'recipient to ask about (tracker I1-05) -- and SMS has no marketing sender on main. Named tests: '
+     'AbandonedCartConsentTest::test_a_customer_without_consent_is_not_reminded and CartMarketingConsentTest::'
+     'test_a_customer_who_has_not_agreed_is_skipped_and_nothing_is_sent_to_them.'),
+
+    ('I1-08', 1, 'CODED',
+     'CODED on PR 163. Withdrawing consent stops the next send of the same schedule FOR A PERSON rather than for a '
+     'subject key: the withdrawal is recorded through the real signed link with no login, and the next run of the real '
+     'cart:remind-abandoned is stopped whether the next cart sits on the account side or the guest side of the login, '
+     'under the opt_out setting where the withdrawal is the only thing that can stop the send. NOT PROVED: the '
+     'storefront scoping, as everywhere; and "the same schedule" covers only the two schedules this application has -- '
+     'the push broadcast has no consent-aware schedule to withdraw from, so a marketing path remains whose next send a '
+     'withdrawal does not stop. The earlier round\'s claim that nothing in this wording was unproved WAS AN OVERCLAIM, '
+     'found by both reviewers and struck through in the PR body rather than deleted. Named tests: '
+     'AbandonedCartConsentTest::test_unsubscribing_as_a_customer_also_stops_the_guest_checkout_reminder, '
+     '::test_unsubscribing_as_a_guest_also_stops_the_account_reminder and '
+     '::test_withdrawing_consent_stops_the_next_send_of_the_same_schedule.'),
+
+    ('I1-08', 2, 'CODED',
+     'CODED on PR 163. The one marketing e-mail main sends carries a signed unsubscribe link -- signed in the mailable '
+     'and in the rendered HTML, opened over real HTTP with no login, recording a withdrawal idempotently and never '
+     'touching the grant -- and that withdrawal actually stops the mail (criterion 2). The route answers rather than '
+     'raises when its table is absent; the token\'s purpose guard, market guard and exact payload are proved; and the '
+     'deliberate no-expiry decision carries a test of its own. NOT PROVED: the word "EVERY", only in the sense that '
+     'main has exactly one marketing e-mail, so it is satisfied vacuously -- no second marketing e-mail is left '
+     'ungated, and the caller-list scan would turn red if one were added. Named test: '
+     'tests/Feature/Marketing/MarketingUnsubscribeLinkTest.php, 20 tests / 69 assertions.'),
+
+    ('I1-08', 3, 'MET',
+     'MET under the owner\'s definition of 2026-11-22, on PR 163 head 1f1b8086. With the gate ON, the strictest '
+     'shipped policy (opt-in in every market) and NOT ONE consent row -- the state in which a marketing send is '
+     'refused -- order status, refund, payment and BOTH one-time-code messages are each driven through their real '
+     'event and real listener to the real send, and each still goes out. I read the test myself at that head: setUp '
+     'calls switchConsentOn() and asserts the consent table is empty; the five tests fire PasswordResetEvent, '
+     'DigitalProductOtpVerificationEvent, AddFundToWalletEvent, OrderStatusEvent and RefundEvent, and assert '
+     'Mail::assertSent(SendMail::class, 1) or the FCM call itself. It discriminates against exactly what the criterion '
+     'forbids: gating any of those listeners on consent turns these tests red, and Review B measured that -- adding '
+     'the gate\'s name to PasswordResetListener turns two tests red. Two structural guards pin the complete list of '
+     'files that consult the gate and assert that no necessary-notification listener and neither shared notification '
+     'trait mentions consent at all; the caller list went red in this round when the unsubscribe controller joined it. '
+     'LIMITS, recorded not waved away: the FCM call is faked at the HTTP boundary; SMS and transactional WhatsApp are '
+     'not in the criterion\'s list; and the two structural guards are TEXT scans, so a listener that consulted the '
+     'gate indirectly through a service would pass them. Named test: '
+     'tests/Feature/Marketing/NecessaryNotificationsTest.php, 8 tests / 61 assertions.'),
+]
+
+_CONSENT_MISSING_NOTES = [
+    ('A2-13', 3,
+     ' // STILL MISSING after PR 163, and the lane said so itself. Of the four clauses only "STORE the choice in the '
+     'WEBSITE" has any code, through the newsletter box, where a customer can now also change their mind back; for an '
+     'anonymous visitor what is stored is an unverified claim rather than a grant, which is honest about what a public '
+     'form can know. Untouched: "Registration" (CustomerRegistrationRequest still has no consent field and this branch '
+     'adds none), "SHOW" (a field on either theme\'s form is a layout change the branch\'s scope forbids), "the account '
+     'page", and "the app" (two other repositories). Three of four clauses untouched, so the state does not move. '
+     'Covering test for the one clause that does exist: tests/Feature/Marketing/NewsletterConsentTest.php, 10 tests / '
+     '45 assertions.'),
+]
+
+_load_all_before_consent = load_all
+
+
+def load_all():
+    data = _load_all_before_consent()
+    pending = {(rid, idx) for rid, idx, _, _ in _CONSENT_RAISES}
+    pending_notes = {(rid, idx) for rid, idx, _ in _CONSENT_MISSING_NOTES}
+    for rid, idx, state, evidence in _CONSENT_RAISES:
+        for unit in data:
+            for requirement in data[unit]['reqs']:
+                if requirement['id'] == rid and idx < len(requirement['ac']):
+                    requirement['ac'][idx]['s'] = state
+                    requirement['ac'][idx]['e'] = requirement['ac'][idx]['e'] + ' // ' + evidence + _CONSENT_HEAD
+                    pending.discard((rid, idx))
+    for rid, idx, note in _CONSENT_MISSING_NOTES:
+        for unit in data:
+            for requirement in data[unit]['reqs']:
+                if requirement['id'] == rid and idx < len(requirement['ac']):
+                    requirement['ac'][idx]['e'] = requirement['ac'][idx]['e'] + note
+                    pending_notes.discard((rid, idx))
+    if pending or pending_notes:
+        raise SystemExit('consent block: these edits matched no criterion, so nothing was written: %s %s'
+                         % (sorted(pending), sorted(pending_notes)))
+    return data
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
