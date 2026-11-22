@@ -222,6 +222,40 @@ class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends MyFatoorahTestCase
     }
 
     /**
+     * An address is the bytes of its token, and a token that differs only in case is a different address.
+     *
+     * The route pattern accepts any letter case ([A-Za-z0-9_-]), so the case of the token in the URL is the sender's to choose, and this address is the
+     * one place an account is resolved from something a stranger types. The resolution must therefore be byte for byte: the column is ascii_bin and the
+     * lookup compares the bytes in PHP as well, so neither the engine's collation nor a future change of it decides who is authenticated.
+     *
+     * Everything else about this delivery is this account's own — its own secret, its own payment, its own event shape — so the case of the token is the
+     * only objection left, and it has to be enough on its own.
+     */
+    public function test_an_address_whose_token_differs_only_in_case_is_not_this_accounts_address(): void
+    {
+        $this->fakePaid();
+        $payload = $this->webhookPayload($this->attempt->external_identifier);
+        $signature = $this->signatureFor($payload, self::KUWAIT_WEBHOOK_SECRET);
+        $itsOwnToken = (string) $this->kuwait->webhook_path_token;
+        $before = $this->attemptRow();
+
+        $shouted = strtoupper($itsOwnToken);
+        $this->assertNotSame($itsOwnToken, $shouted, 'the token under test has to have a case to change');
+
+        $this->postJson('/api/payments/account/' . $shouted . '/webhook', $payload, ['MyFatoorah-Signature' => $signature])
+            ->assertStatus(401)
+            ->assertJsonPath('message', 'Unauthorized request');
+
+        $this->assertSame([], $this->paidPayments(), 'a token of the wrong case settles nothing');
+        $this->assertSame(0, $this->successHookCalls());
+        $this->assertSame(0, MyFatoorahWebhookEvent::count(), 'and records nothing');
+        $this->assertEquals($before, $this->attemptRow(), 'and writes no column of the attempt');
+
+        $this->deliverTo($this->kuwait, $payload, $signature)->assertOk()->assertJsonPath('status', 'settled');
+        $this->assertSame([$this->attempt->payment_request_id], $this->paidPayments(), 'while the address as it was issued still works');
+    }
+
+    /**
      * An event shape this gateway does not send is refused, whoever signed it.
      *
      * The signature is computed over the fields of a named event type, so an event type this gateway has no published field list for cannot be signed

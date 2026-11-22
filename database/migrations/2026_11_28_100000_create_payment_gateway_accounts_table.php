@@ -17,8 +17,13 @@ use Illuminate\Support\Facades\Schema;
  * this table is of no use to anybody. There is deliberately no plaintext column beside them.
  *
  * The unique key is (storefront_country, gateway, environment): a storefront has at most one account per gateway per environment, so "the live Kuwait
- * Paymob account" names one row and a second one cannot be created by accident. Both text columns are compared byte for byte on MySQL and MariaDB, as
- * PHP compares them, like `legal_entities.country`.
+ * Paymob account" names one row and a second one cannot be created by accident.
+ *
+ * EVERY COLUMN THIS APPLICATION COMPARES is ascii_bin, so MySQL and MariaDB compare it byte for byte, as PHP compares it, like `legal_entities.country`:
+ * `storefront_country`, `gateway` and `environment`, which the registry resolves an account by, and `webhook_path_token`, which it resolves an account
+ * by FROM A URL. The token is the one of the four whose value a stranger supplies, so the default collation would have let a token of another case name
+ * this account and would have made its unique key weaker than the bytes it stores. The remaining text columns -- `label`, the two ciphertext columns and
+ * `webhook_events` -- are stored and read back whole and never compared, so they keep the table's own collation and hold what an operator typed.
  */
 return new class extends Migration {
     public function up(): void
@@ -36,7 +41,7 @@ return new class extends Migration {
             $table->string('label', 191)->nullable();
             $table->text('credentials')->nullable();
             $table->text('webhook_secret')->nullable();
-            $table->string('webhook_path_token', 64)->nullable();
+            $token = $table->string('webhook_path_token', 64)->nullable();
             $table->text('webhook_events')->nullable();
             $table->boolean('status')->default(true);
             $table->timestamps();
@@ -45,6 +50,7 @@ return new class extends Migration {
                 $country->charset('ascii')->collation('ascii_bin');
                 $gateway->charset('ascii')->collation('ascii_bin');
                 $environment->charset('ascii')->collation('ascii_bin');
+                $token->charset('ascii')->collation('ascii_bin');
             }
 
             $table->unique(['storefront_country', 'gateway', 'environment'], 'pga_market_gateway_environment');

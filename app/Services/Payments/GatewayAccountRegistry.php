@@ -110,7 +110,14 @@ final class GatewayAccountRegistry
         return $account;
     }
 
-    /** The account a webhook address names, by the unguessable token in its path. Null for an unknown or disabled one. */
+    /**
+     * The account a webhook address names, by the unguessable token in its path. Null for an unknown or disabled one.
+     *
+     * The token is the only thing about an account that a stranger supplies, and this is the only reader that takes one from a URL, so the match is byte
+     * for byte twice over: the column is ascii_bin (its migration), and the row the engine matched is checked against the bytes that were asked for
+     * before it is answered. The second check is what makes the mechanism independent of the collation — a table created before the column was declared
+     * ascii_bin, or one whose collation is changed later, refuses a token of another case here rather than authenticating it.
+     */
     public function byWebhookToken(string $token): ?PaymentGatewayAccount
     {
         if (!$this->isEnabled() || !$this->tableReady() || trim($token) === '') {
@@ -124,7 +131,8 @@ final class GatewayAccountRegistry
             return $remembered['account'];
         }
 
-        $account = PaymentGatewayAccount::query()->where('webhook_path_token', $token)->where('status', true)->first();
+        $matched = PaymentGatewayAccount::query()->where('webhook_path_token', $token)->where('status', true)->first();
+        $account = $matched !== null && (string) $matched->webhook_path_token === $token ? $matched : null;
         $this->accounts[$key] = ['account' => $account, 'at' => time()];
 
         return $account;
