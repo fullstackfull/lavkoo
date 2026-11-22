@@ -130,6 +130,78 @@ class PosStockConcurrencyTest extends TestCase
         $this->assertSame(0, $balance);
     }
 
+    public function test_two_seller_app_tills_selling_the_last_unit_at_once_sell_it_once_and_refuse_the_other(): void
+    {
+        $this->shelfProduct(stock: 1, till: 'vendor');
+
+        $reports = ConcurrentRunner::run('pos.place_sale_seller_app', array_fill(0, 2, [
+            'product' => self::PRODUCT, 'quantity' => 1, 'amount' => 100.0, 'seller' => 7,
+        ]));
+
+        $this->assertEveryWorkerAnswered($reports);
+        $this->assertSame(1, Order::query()->count(), 'the last unit was sold once');
+        $this->assertSame(1, DB::table('order_details')->count());
+        $this->assertSame(0, (int) Product::query()->whereKey(self::PRODUCT)->value('current_stock'), 'the shelf is empty, not negative');
+        $this->assertSame(1, StockMovement::query()->where('product_id', self::PRODUCT)->count());
+
+        $refusals = array_filter($reports, static fn (array $report): bool => str_contains((string) ($report['result']['body'] ?? ''), 'product_not_available'));
+        $this->assertCount(1, $refusals, 'exactly one of the two seller-app tills was refused, in the shape the app already reads');
+    }
+
+    public function test_six_seller_app_tills_selling_the_last_three_units_at_once_sell_three_and_refuse_three(): void
+    {
+        $this->shelfProduct(stock: 3, till: 'vendor');
+
+        $reports = ConcurrentRunner::run('pos.place_sale_seller_app', array_fill(0, 6, [
+            'product' => self::PRODUCT, 'quantity' => 1, 'amount' => 100.0, 'seller' => 7,
+        ]));
+
+        $this->assertEveryWorkerAnswered($reports);
+        $this->assertSame(3, Order::query()->count(), 'three units, three orders');
+        $this->assertSame(3, DB::table('order_details')->count());
+        $this->assertSame(0, (int) Product::query()->whereKey(self::PRODUCT)->value('current_stock'));
+        $this->assertSame(3, StockMovement::query()->where('product_id', self::PRODUCT)->count());
+
+        $refusals = array_filter($reports, static fn (array $report): bool => str_contains((string) ($report['result']['body'] ?? ''), 'product_not_available'));
+        $this->assertCount(3, $refusals, 'the other three were told the shelf was short');
+
+        // Replay the ledger from the reading before the race and it must land on the shelf.
+        $balance = 3;
+        foreach (StockMovement::query()->where('product_id', self::PRODUCT)->orderBy('id')->get() as $movement) {
+            $balance += (int) $movement->qty_change;
+            $this->assertSame($balance, (int) $movement->balance_after, 'every row of a race still replays');
+        }
+        $this->assertSame(0, $balance);
+    }
+
+    /**
+     * Two seller-app sales that BOTH fit must both go through.
+     *
+     * `POSController::getOrderNewId()` picks the id by counting the rows and adding one, exactly as the panel tills did, so
+     * two overlapping sales pick the same number and the second dies on the primary key. The panel tills measured that as one
+     * HTTP 500 in three runs out of three. Here the id is chosen inside the transaction, after the ordered lock, and
+     * `OrderManager::writeOrderRetryingOnDuplicateId` retries the whole write when the number is taken.
+     */
+    public function test_two_seller_app_sales_that_both_fit_both_go_through_with_their_own_order_ids(): void
+    {
+        $this->shelfProduct(stock: 10, till: 'vendor');
+
+        $reports = ConcurrentRunner::run('pos.place_sale_seller_app', array_fill(0, 2, [
+            'product' => self::PRODUCT, 'quantity' => 1, 'amount' => 100.0, 'seller' => 7,
+        ]));
+
+        $this->assertEveryWorkerAnswered($reports);
+        foreach ($reports as $index => $report) {
+            $this->assertSame(200, $report['result']['status'], "worker {$index} answered " . $report['result']['status'] . ': ' . $report['result']['body']);
+            $this->assertStringContainsString('order_id', (string) $report['result']['body'], "worker {$index} did not get an order");
+        }
+        $this->assertSame(2, Order::query()->count(), 'two sales that both fit are two orders');
+        $this->assertSame(2, Order::query()->distinct()->count('id'), 'each has its own id');
+        $this->assertSame(2, DB::table('order_details')->count());
+        $this->assertSame(8, (int) Product::query()->whereKey(self::PRODUCT)->value('current_stock'));
+        $this->assertSame(2, StockMovement::query()->where('product_id', self::PRODUCT)->count());
+    }
+
     /**
      * Two sales that BOTH fit must both go through. The till chose its order id by counting the rows and adding one, so two
      * overlapping sales picked the same number and the second died on the primary key: measured here before the change as one

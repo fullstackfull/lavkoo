@@ -13,6 +13,7 @@ use App\Http\Middleware\MonitorRequest;
 use App\Http\Middleware\NoIndexThemePreview;
 use App\Http\Middleware\RecordAnalytics;
 use App\Http\Middleware\RecordHttpTelemetry;
+use App\Http\Controllers\RestAPI\v3\seller\POSController;
 use App\Models\Admin;
 use App\Models\Seller;
 use Closure;
@@ -63,6 +64,56 @@ final class PosOperations
         self::seedCartIntoTheSession($request, (int) $args['product'], (int) $args['quantity'], (int) ($args['customer'] ?? 0));
 
         $response = app(Kernel::class)->handle($request);
+
+        return [
+            'status' => $response->getStatusCode(),
+            'orders' => (int) DB::table('orders')->count(),
+            'stock' => (int) DB::table('products')->where('id', $args['product'])->value('current_stock'),
+            'movements' => (int) DB::table('stock_movements')->where('product_id', $args['product'])->count(),
+            'body' => mb_substr((string) $response->getContent(), 0, 200),
+        ];
+    }
+
+    /**
+     * Post one sale to the SELLER APP's till, the third one, behind `POST /api/v3/seller/pos/place-order`.
+     *
+     * The seller API carries no session, so the cart travels in the request body as `modified_cart` and the signed-in seller
+     * is the `seller` attribute the API middleware sets. The controller action is called with that Request, which is the
+     * pattern this repository's own v3 seller tests use; the race is therefore over the sale, not over the route guard.
+     *
+     * @param array{product: int, quantity: int, amount: float, seller: int, customer?: int, payment_method?: string} $args
+     * @return array{status: int, orders: int, stock: int, movements: int, body: string}
+     */
+    public static function placeSaleAtSellerApp(array $args): array
+    {
+        $request = Request::create(
+            uri: '/api/v3/seller/pos/place-order',
+            method: 'POST',
+            server: ['CONTENT_TYPE' => 'application/json'],
+            content: (string) json_encode([
+                'customer_id' => (int) ($args['customer'] ?? 0),
+                'cart' => [],
+                'payment_method' => (string) ($args['payment_method'] ?? 'cash'),
+                'paid_amount' => $args['amount'],
+                'fulfillment' => 'instant',
+                'total_tax_amount' => 0,
+                'modified_cart' => [[
+                    'id' => (int) $args['product'],
+                    'quantity' => (int) $args['quantity'],
+                    'price' => 100.0,
+                    'discounted_price' => 100.0,
+                    'discount' => 0,
+                    'applied_tax_amount' => 0,
+                    'coupon_discount' => 0,
+                    'extra_discount' => 0,
+                    'variant' => null,
+                    'variation' => [],
+                ]],
+            ]),
+        );
+        $request['seller'] = (new Seller())->forceFill(['id' => (int) $args['seller'], 'f_name' => 'Vendor']);
+
+        $response = app(POSController::class)->place_order($request);
 
         return [
             'status' => $response->getStatusCode(),
