@@ -19,6 +19,7 @@ use Closure;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 
 /**
  * The point-of-sale operations the till race runs, one per worker process.
@@ -65,9 +66,9 @@ final class PosOperations
 
         return [
             'status' => $response->getStatusCode(),
-            'orders' => (int) \Illuminate\Support\Facades\DB::table('orders')->count(),
-            'stock' => (int) \Illuminate\Support\Facades\DB::table('products')->where('id', $args['product'])->value('current_stock'),
-            'movements' => (int) \Illuminate\Support\Facades\DB::table('stock_movements')->where('product_id', $args['product'])->count(),
+            'orders' => (int) DB::table('orders')->count(),
+            'stock' => (int) DB::table('products')->where('id', $args['product'])->value('current_stock'),
+            'movements' => (int) DB::table('stock_movements')->where('product_id', $args['product'])->count(),
             'body' => mb_substr((string) $response->getContent(), 0, 200),
         ];
     }
