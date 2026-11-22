@@ -55,6 +55,12 @@ trait BuildsSixStorefrontCheckoutWorld
         ]);
     }
 
+    /** @return array<string, string> the header with which a request names its storefront, and no header for a request that names none */
+    protected function storefrontHeader(?string $storefront): array
+    {
+        return $storefront === null ? [] : ['X-Storefront' => $storefront];
+    }
+
     /** A checkout that prices the cart reads the use count of a coupon, which a strict SQL server refuses until PR 89 replaces its bare GROUP BY. */
     protected function skipInStrictModeUntilTheCouponCountIsFixed(): void
     {
