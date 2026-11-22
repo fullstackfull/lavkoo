@@ -1410,7 +1410,7 @@ class WebController extends Controller
         } else {
             $guestEmail = '';
             $guestPhone = '';
-            $token = rand(1000, 9999);
+            $token = random_int(1000, 9999);
 
             $orderDetailsData = OrderDetail::with('order.customer')->find($request['order_details_id']);
 
@@ -1499,7 +1499,7 @@ class WebController extends Controller
         }
 
         if ($emailServicesSmtp['status'] || $smsConfigStatus) {
-            $token = rand(1000, 9999);
+            $token = random_int(1000, 9999);
             if ($customer['email'] == '' && $customer['phone'] == '') {
                 return response()->json([
                     'status' => $status,

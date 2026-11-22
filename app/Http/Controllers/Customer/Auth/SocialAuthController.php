@@ -288,7 +288,7 @@ class SocialAuthController extends Controller
             'social_id' => $socialLoginNewCustomer['social_id'],
             'is_email_verified' => 1,
             'is_phone_verified' => 0,
-            'password' => bcrypt(rand(11111111, 99999999)),
+            'password' => bcrypt(random_int(11111111, 99999999)),
             'temporary_token' => Str::random(40),
             'app_language' => 'en',
             'email_verified_at' => now(),

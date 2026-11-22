@@ -137,7 +137,7 @@ class ForgotPasswordController extends BaseController
                 $response = "not_found";
                 $smsErrorMsg = translate('something_went_wrong.') . ' ' . translate('please_try_again_after_sometime');
 
-                $token = (config('app.mode') == 'live') ? rand(111111, 999999) : 123456;
+                $token = (config('app.mode') == 'live') ? random_int(111111, 999999) : 123456;
 
                 $firebaseOTPVerification = getWebConfig(name: 'firebase_otp_verification') ?? [];
                 if ($firebaseOTPVerification && $firebaseOTPVerification['status']) {

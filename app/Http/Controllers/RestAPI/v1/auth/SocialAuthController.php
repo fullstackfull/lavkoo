@@ -391,7 +391,7 @@ class SocialAuthController extends Controller
             'l_name' => '',
             'email' => $request['email'],
             'phone' => $request['phone'],
-            'password' => bcrypt(rand(11111111, 99999999)),
+            'password' => bcrypt(random_int(11111111, 99999999)),
             'temporary_token' => $temporaryToken,
             'email_verified_at' => now(),
             'referral_code' => Helpers::generate_referer_code(),

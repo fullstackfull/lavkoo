@@ -97,7 +97,7 @@ class ForgotPasswordController extends Controller
 
                     return response()->json(['message' => translate('please_try_again_after').' '.CarbonInterval::seconds($time)->cascade()->forHumans()], 200);
                 }else {
-                    $token = (config('app.mode') == 'live') ? rand(100000, 999999) : 123456;
+                    $token = (config('app.mode') == 'live') ? random_int(100000, 999999) : 123456;
                     $this->customerPasswordResetService->issueCode(customer: $customer, kind: CustomerPasswordResetService::PHONE, code: $token);
 
                    // SMSModule::sendCentralizedSMS($customer->phone, $token);
