@@ -91,7 +91,7 @@ jobs:
       fail-fast: false
       matrix:
         engine: ['MySQL 8', 'MariaDB 11.4.2']
-        group: ['Fulfillment + security tests', 'Address tests', 'Storefront tests', 'Catalog tests', 'Staff scope tests', 'Checkout, payment and permission tests', 'Saudi baseline pack', 'Report pagination tests', 'Notification and localization tests', 'Wallet tests', 'Marketplace and ledger tests', 'Marketing consent tests', 'Payment tests']
+        group: ['Fulfillment + security tests', 'Address tests', 'Storefront tests', 'Catalog tests', 'Staff scope tests', 'Checkout, payment and permission tests', 'Saudi baseline pack', 'Report pagination tests', 'Notification and localization tests', 'Wallet tests', 'Marketplace and ledger tests', 'Marketing consent tests', 'Payment tests', 'Fulfillment, security and customer tests']
         include:
           - engine: MySQL 8
             image: mysql:8.0
@@ -103,6 +103,10 @@ jobs:
             health: mariadb-admin ping -h 127.0.0.1 -uroot -pci-root-password
           - group: Fulfillment + security tests
             paths: tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Security tests/Feature/Payments tests/Unit/Payments tests/Feature/CiDatabaseTest.php
+          - group: Fulfillment, security and customer tests
+            # tests/Feature/Customer is the customer's two money ledgers and what closing an account does to them: a money question, so it
+            # is answered by a real engine and not only by SQLite. Its source scan (tests/Unit/Customer) reads text and touches no database.
+            paths: tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Security tests/Feature/Customer tests/Feature/CiDatabaseTest.php
           - group: Address tests
             paths: tests/Feature/Address
           - group: Storefront tests
@@ -434,3 +438,4 @@ jobs:
         # tests/Feature/Wallet is LAST: it starts from an empty database, so anything after it would find its own tables gone.
         run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Feature/StrictModeTest.php tests/Feature/SalesChannels tests/Feature/OperationalCosts tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Wallet --display-skipped
         run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Feature/StrictModeTest.php tests/Feature/SalesChannels tests/Feature/OperationalCosts tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Marketing --display-skipped
+        run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Feature/StrictModeTest.php tests/Feature/SalesChannels tests/Feature/OperationalCosts tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Customer --display-skipped

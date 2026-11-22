@@ -16,6 +16,7 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Http\Request;
 use App\Traits\PaginatorTrait;
+use App\Services\CustomerAccountDeletionService;
 use App\Services\CustomerService;
 use Illuminate\Http\JsonResponse;
 use App\Traits\EmailTemplateTrait;
@@ -70,6 +71,7 @@ class CustomerController extends BaseController
         private readonly CurrencyRepositoryInterface        $currencyRepo,
         private readonly ReferByEarnCustomerService         $referByEarnCustomerService,
         private readonly CheckoutAddressGuard               $addressGuard,
+        private readonly CustomerAccountDeletionService     $customerAccountDeletionService,
     )
     {
         $this->middleware(ScopeOrdersToStaffCountries::class);
@@ -283,6 +285,10 @@ class CustomerController extends BaseController
     }
 
     /**
+     * Closing a customer's account from the panel keeps the money and its history, exactly as the customer's own two routes do: the row
+     * that carries `wallet_balance` and `loyalty_point` is the balance record and the only parent the two ledgers have, so an account that
+     * holds money is anonymised rather than removed. Deleting the row outright stranded the ledger rows on a parent that no longer existed.
+     *
      * @param $id
      * @param CustomerService $customerService
      * @return RedirectResponse
@@ -298,7 +304,9 @@ class CustomerController extends BaseController
         }
 
         $customerService->deleteImage(data: $customer);
-        $this->customerRepo->delete(params: ['id' => $id]);
+        if ($customer) {
+            $this->customerAccountDeletionService->closeAccount(customer: $customer);
+        }
         ToastMagic::success(translate('customer_deleted_successfully'));
         return back();
     }

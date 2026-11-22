@@ -6,7 +6,7 @@ use App\Models\WalletTransaction;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Pagination\LengthAwarePaginator;
 
-interface WalletTransactionRepositoryInterface extends RepositoryInterface
+interface WalletTransactionRepositoryInterface extends AppendOnlyRepositoryInterface
 {
     /**
      * @param array $orderBy

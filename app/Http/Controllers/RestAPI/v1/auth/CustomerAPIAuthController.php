@@ -521,18 +521,6 @@ class CustomerAPIAuthController extends Controller
     }
 
 
-    public function remove_account(Request $request): JsonResponse
-    {
-        $customer = $this->customerRepo->getFirstWhere(params: ['id' => $request->user()->id]);
-        if (isset($customer)) {
-            Helpers::file_remover('customer/', $customer->image);
-            $customer->delete();
-        } else {
-            return response()->json(['status_code' => 404, 'message' => translate('Not found')], 200);
-        }
-        return response()->json(['status_code' => 200, 'message' => translate('Successfully deleted')], 200);
-    }
-
     public function firebaseAuthVerify(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [

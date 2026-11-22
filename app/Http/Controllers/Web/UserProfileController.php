@@ -18,6 +18,7 @@ use App\Models\SupportTicketConv;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\StorefrontAddressService;
 use App\Services\CustomerAccountDeletionGuardService;
+use App\Services\CustomerAccountDeletionService;
 use App\Services\Fulfillment\Support\SaudiPhone;
 use App\Services\OrderStatusHistoryService;
 use App\Services\Storefront\StorefrontPaymentMethods;
@@ -76,6 +77,7 @@ class UserProfileController extends Controller
         private readonly StorefrontAddressService                  $storefrontAddresses,
         private readonly StorefrontPaymentMethods                  $storefrontPaymentMethods,
         private readonly CustomerAccountDeletionGuardService       $accountDeletionGuard,
+        private readonly CustomerAccountDeletionService            $customerAccountDeletionService,
     )
     {
         // The address book is the signed-in customer's: nobody else can add, open, change or remove an address.
@@ -153,7 +155,7 @@ class UserProfileController extends Controller
             ImageManager::delete('/profile/' . $user['image']);
             session()->forget('wish_list');
 
-            $user->delete();
+            $this->customerAccountDeletionService->closeAccount(customer: $user);
             Toastr::info(translate('Your_account_deleted_successfully!!'));
             return redirect()->route('home');
         }

@@ -14,8 +14,12 @@ use Illuminate\Support\Facades\Schema;
 
 class DatabaseSettingController extends BaseController
 {
-    /** The tables the screen never offers: the handler empties only a table the screen would have listed. */
-    private const TABLES_THE_SCREEN_HIDES = [
+    /**
+     * The tables this screen never offers and never empties, whoever asks. Beside the settings, roles and session tables the store cannot
+     * start without, the two money ledgers are here: a wallet or a loyalty movement is a financial record, so emptying the table would
+     * destroy the history the books are made of, and no screen may do that by a tick in a list.
+     */
+    private const TABLES_NEVER_EMPTIED = [
         'addon_settings',
         'admin_roles',
         'admins',
@@ -23,6 +27,7 @@ class DatabaseSettingController extends BaseController
         'colors',
         'currencies',
         'failed_jobs',
+        'loyalty_point_transactions',
         'migrations',
         'oauth_access_tokens',
         'oauth_auth_codes',
@@ -35,6 +40,7 @@ class DatabaseSettingController extends BaseController
         'social_medias',
         'soft_credentials',
         'users',
+        'wallet_transactions',
     ];
 
     /**
@@ -45,12 +51,7 @@ class DatabaseSettingController extends BaseController
      */
     public function index(Request|null $request, ?string $type = null): View
     {
-        $tables = DB::table('information_schema.tables')
-            ->where('table_schema', DB::getDatabaseName())
-            ->pluck('TABLE_NAME')
-            ->toArray();
-
-        $tables = array_values(array_diff($tables, self::TABLES_THE_SCREEN_HIDES));
+        $tables = $this->emptiableTables();
 
         $rows = [];
         foreach ($tables as $table) {
@@ -68,9 +69,12 @@ class DatabaseSettingController extends BaseController
             return back();
         }
 
-        $tables = array_values(array_filter(
-            (array)$request['tables'],
-            static fn ($table): bool => is_string($table) && preg_match('/^[A-Za-z0-9_]+$/D', $table) === 1 && !in_array(strtolower($table), self::TABLES_THE_SCREEN_HIDES, true) && Schema::hasTable($table)
+        // Both guards. The intersect is the strong one: a name survives only if the database listed it AND
+        // TABLES_NEVER_EMPTIED allows it, so nothing a request invents can reach the TRUNCATE. The is_string filter
+        // is kept in front of it because array_intersect compares as strings and an array element would raise.
+        $tables = array_values(array_intersect(
+            array_filter((array)$request['tables'], static fn ($table): bool => is_string($table)),
+            $this->emptiableTables()
         ));
 
         if(count($tables) == 0) {
@@ -91,5 +95,22 @@ class DatabaseSettingController extends BaseController
 
         ToastMagic::success(translate('Updated_successfully'));
         return back();
+    }
+
+    /**
+     * The tables this screen offers, and the only ones it will act on: the current schema's own tables, less the ones it never empties.
+     *
+     * Both the screen and the action read this one list, so what is offered and what is accepted cannot drift apart. It is an ALLOWLIST on
+     * purpose: subtracting the protected names from whatever the request asked for compares strings, and a protected table has more than
+     * one spelling -- `<schema>.wallet_transactions` and `wallet_transactions as w` both reach the ledger while matching no protected name.
+     * Keeping only the names that are in the offered list leaves a tampered form nothing to reach.
+     *
+     * @return list<string>
+     */
+    private function emptiableTables(): array
+    {
+        $tables = Schema::getTableListing(schema: Schema::getCurrentSchemaName(), schemaQualified: false);
+
+        return array_values(array_diff($tables, self::TABLES_NEVER_EMPTIED));
     }
 }

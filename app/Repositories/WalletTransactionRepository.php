@@ -94,17 +94,6 @@ class WalletTransactionRepository implements WalletTransactionRepositoryInterfac
         return $dataLimit == 'all' ? $query->get() : $query->paginate($dataLimit)->appends(['searchValue' => $searchValue]);
     }
 
-    public function update(string $id, array $data): bool
-    {
-        return $this->walletTransaction->where('id', $id)->update($data);
-    }
-
-    public function delete(array $params): bool
-    {
-        $this->walletTransaction->where($params)->delete();
-        return true;
-    }
-
     public function addWalletTransaction(string $user_id, float $amount, string $transactionType, ?string $reference = null, array $payment_data = []): bool|WalletTransaction
     {
         if ($this->businessSetting->where('type', 'wallet_status')->first()->value != 1) return false;

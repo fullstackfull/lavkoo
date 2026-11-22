@@ -17,7 +17,13 @@ trait BuildsStorefrontCart
     use ApprovesStorefrontTax;
 
     /** What every product of this world has in common: the shop sells it itself. */
-    private const IN_HOUSE_PRODUCT = ['added_by' => 'admin', 'user_id' => 1, 'code' => 'SKU-1', 'variation' => '[]', 'images' => '[]', 'thumbnail' => 'x.png', 'category_ids' => '[]', 'discount' => 0, 'discount_type' => 'flat', 'choice_options' => '[]', 'tax' => 0, 'tax_type' => 'percent', 'tax_model' => 'exclude'];
+    /**
+     * The columns every in-house product row of this world shares. Named ..._COLUMNS, not IN_HOUSE_PRODUCT: the coupon world
+     * (BuildsCouponCheckoutWorld, which uses this trait) has an IN_HOUSE_PRODUCT of its own meaning a product ID, and PHP makes
+     * two traits defining one constant differently a FATAL in any class composing both -- which took out every test in
+     * tests/Feature/Storefront until the two names were told apart.
+     */
+    private const IN_HOUSE_PRODUCT_COLUMNS = ['added_by' => 'admin', 'user_id' => 1, 'code' => 'SKU-1', 'variation' => '[]', 'images' => '[]', 'thumbnail' => 'x.png', 'category_ids' => '[]', 'discount' => 0, 'discount_type' => 'flat', 'choice_options' => '[]', 'tax' => 0, 'tax_type' => 'percent', 'tax_model' => 'exclude'];
 
     protected function buildStorefrontCartWorld(): void
     {
@@ -67,8 +73,8 @@ trait BuildsStorefrontCart
     protected function seedTwoCountries(): void
     {
         DB::table('products')->insert([
-            self::IN_HOUSE_PRODUCT + ['id' => 1, 'name' => 'Paracetamol SA', 'slug' => 'paracetamol-sa', 'unit_price' => 100, 'current_stock' => 10, 'storefront_country' => 'SA'],
-            self::IN_HOUSE_PRODUCT + ['id' => 2, 'name' => 'Paracetamol AE', 'slug' => 'paracetamol-ae', 'unit_price' => 250, 'current_stock' => 4, 'storefront_country' => 'AE'],
+            self::IN_HOUSE_PRODUCT_COLUMNS + ['id' => 1, 'name' => 'Paracetamol SA', 'slug' => 'paracetamol-sa', 'unit_price' => 100, 'current_stock' => 10, 'storefront_country' => 'SA'],
+            self::IN_HOUSE_PRODUCT_COLUMNS + ['id' => 2, 'name' => 'Paracetamol AE', 'slug' => 'paracetamol-ae', 'unit_price' => 250, 'current_stock' => 4, 'storefront_country' => 'AE'],
         ]);
     }
 
@@ -76,7 +82,7 @@ trait BuildsStorefrontCart
     protected function seedAProductOfNoCountry(): void
     {
         DB::table('products')->insert(
-            self::IN_HOUSE_PRODUCT + ['id' => 3, 'name' => 'Paracetamol nowhere', 'slug' => 'paracetamol-nowhere', 'unit_price' => 100, 'current_stock' => 10, 'storefront_country' => ''],
+            self::IN_HOUSE_PRODUCT_COLUMNS + ['id' => 3, 'name' => 'Paracetamol nowhere', 'slug' => 'paracetamol-nowhere', 'unit_price' => 100, 'current_stock' => 10, 'storefront_country' => ''],
         );
     }
 

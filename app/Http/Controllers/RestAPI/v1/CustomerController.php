@@ -21,6 +21,7 @@ use App\Models\Wishlist;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\AddressSnapshot;
 use App\Services\CustomerAccountDeletionGuardService;
+use App\Services\CustomerAccountDeletionService;
 use App\Services\DigitalFileAddressService;
 use App\Services\Fulfillment\CustomerFulfillmentPresenter;
 use App\Services\ShippingAddressService;
@@ -58,6 +59,7 @@ class CustomerController extends Controller
         private readonly ShippingAddressService $shippingAddressService,
         private readonly DigitalFileAddressService $digitalFileAddresses,
         private readonly CustomerAccountDeletionGuardService $accountDeletionGuard,
+        private readonly CustomerAccountDeletionService $customerAccountDeletionService,
     )
     {
     }
@@ -144,7 +146,7 @@ class CustomerController extends Controller
             }
 
             $this->delete('/profile/' . $user['image']);
-            $user->delete();
+            $this->customerAccountDeletionService->closeAccount(customer: $user);
             return response()->json(['message' => 'Your account deleted successfully'], 200);
         } else {
             return response()->json(['message' => 'access_denied!!'], 403);

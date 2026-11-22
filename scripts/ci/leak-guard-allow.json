@@ -119,6 +119,12 @@
             "path": "tests/Feature/Security/FirebaseServiceWorkerTest.php",
             "line": 27,
             "reason": "The sample web key that the Firebase documentation publishes, as the fixture of the service worker test, in commit d9215e2c of pull request #63; the tip of the same pull request builds a made-up value at run time instead. It was never a credential of this shop."
+        },
+        {
+            "rule": "email-address",
+            "path": "app/Contracts/Repositories/AppendOnlyRepositoryInterface.php",
+            "line": 43,
+            "reason": "Two placeholder addresses in a documentation example of the filters array, carried verbatim into a new file when RepositoryInterface was split, in commit 9bc6a5ad. The same line sits at RepositoryInterface.php:37 on main and at OrderRepositoryInterface.php:13 on this branch, both untouched and both older than this guard, so the guard is reading a move as an addition. The next commit (e7b71e6b) writes the example without any address at all. Neither was ever anyone's address."
         }
     ]
 }
