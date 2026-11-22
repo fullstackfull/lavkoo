@@ -29,7 +29,9 @@ final class RestockBudget
     {
         $held = $this->unitsHeldBy($lineQuantity);
 
-        return $held - $this->unitsAlreadyBack($orderDetailsId, $held);
+        // Floored as well as capped. Both status writers pass this straight to increment('current_stock'),
+        // so a negative figure here would make a RESTORE take stock off the shelf.
+        return max(0, $held - $this->unitsAlreadyBack($orderDetailsId, $held));
     }
 
     /**

@@ -11240,6 +11240,7 @@ return [
 	'section_types_will_not_appear_in_the_mobile_app' => 'Section types will not appear in the mobile app',
 	'theme_activated_successfully' => 'Theme activated successfully',
 	'more_units_were_asked_for_than_the_line_held_only_the_lines_units_were_restocked' => 'More units were asked for than the order line held, so only the line\'s units were put back on the shelf',
+	'some_of_the_lines_units_were_already_back_so_only_the_rest_were_restocked' => 'Some of this line\'s units were already back on the shelf, so only the rest were put back',
 	'return_received_and_restocked' => 'Return received and restocked',
 	'return_authorized' => 'Return authorized',
 ];

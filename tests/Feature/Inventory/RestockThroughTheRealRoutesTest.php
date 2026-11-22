@@ -5,6 +5,7 @@ namespace Tests\Feature\Inventory;
 use App\Models\Order;
 use App\Models\ReturnShipment;
 use App\Models\Seller;
+use App\Services\Marketplace\ReturnLogisticsService;
 use App\Models\StockMovement;
 use App\Utils\OrderManager;
 use Illuminate\Database\Schema\Blueprint;
@@ -197,6 +198,15 @@ class RestockThroughTheRealRoutesTest extends AdminPagesTestCase
             'status' => ReturnShipment::STATUS_AUTHORIZED,
             'restock' => true,
         ]);
+    }
+
+    /** The text of the toasts the last request flashed -- what the operator actually reads. */
+    protected function toastsTheOperatorSees(): array
+    {
+        return array_map(
+            static fn (array $toast): string => (string) ($toast['message'] ?? ''),
+            array_values((array) session('laravel-toaster-magic::messages', [])),
+        );
     }
 
     /** The shelf and the line's claim on it: [products.current_stock, order_details.is_stock_decreased]. */
@@ -540,6 +550,86 @@ class RestockThroughTheRealRoutesTest extends AdminPagesTestCase
         $this->assertSame(5, (int) $rma->fresh()->qty, 'what the operator typed is kept on the return itself');
     }
 
+
+    // ---- what the operator is told when fewer units go back than were asked for -------------------------------------------
+
+    public function test_a_clamp_caused_by_units_already_back_says_that_and_not_something_untrue(): void
+    {
+        // Two receipts of 2 against a line of 3. The second is clamped to 1 -- not because 2 is more than the
+        // line held (it is not) but because 2 of the line's 3 units were already back. The report said "more
+        // units were asked for than the order line held", which is the opposite of the truth, and carried no
+        // figure an operator could use to see why.
+        $lineId = $this->soldLine(3);
+        $this->receiveThroughThePanel($this->authorizedReturn(2, $lineId));
+        $this->assertSame(52, $this->reading()['current_stock']);
+
+        $this->receiveThroughThePanel($this->authorizedReturn(2, $lineId));
+
+        $this->assertSame(53, $this->reading()['current_stock'], 'one unit of the three was still off the shelf, so one went back');
+        $this->assertSame(
+            [[StockMovement::TYPE_RETURN, 2, 52, null], [StockMovement::TYPE_RETURN, 1, 53, "asked for 2, 2 of the line's 3 units were already back"]],
+            $this->reading()['movements'],
+        );
+        $this->assertContains(
+            translate('some_of_the_lines_units_were_already_back_so_only_the_rest_were_restocked') . ': 2 → 1',
+            $this->toastsTheOperatorSees(),
+            'the operator is warned, and the warning names the bound that applied',
+        );
+        $this->assertNotContains(
+            translate('more_units_were_asked_for_than_the_line_held_only_the_lines_units_were_restocked') . ': 2 → 1',
+            $this->toastsTheOperatorSees(),
+        );
+    }
+
+    public function test_a_clamp_caused_by_the_lines_size_still_says_so_and_warns_the_operator(): void
+    {
+        $lineId = $this->soldLine(2);
+
+        $this->receiveThroughThePanel($this->authorizedReturn(5, $lineId));
+
+        $this->assertSame([[StockMovement::TYPE_RETURN, 2, 52, 'asked for 5, the line held 2']], $this->reading()['movements']);
+        $this->assertContains(
+            translate('more_units_were_asked_for_than_the_line_held_only_the_lines_units_were_restocked') . ': 5 → 2',
+            $this->toastsTheOperatorSees(),
+        );
+    }
+
+    public function test_a_receipt_clamped_all_the_way_to_zero_is_still_reported(): void
+    {
+        // The clamp's worst case, and the one it used to be silent about: goods are on the receiving desk
+        // and not one unit of them can go on the shelf. `clamped` was nulled unless something was restocked,
+        // so the operator saw only "Return received" and the audit record carried nothing.
+        $lineId = $this->soldLine(2);
+        $this->receiveThroughThePanel($this->authorizedReturn(5, $lineId));
+        $this->assertSame(52, $this->reading()['current_stock']);
+
+        $second = $this->authorizedReturn(5, $lineId);
+        $result = app(ReturnLogisticsService::class)->receive($second);
+
+        $this->assertFalse($result['restocked']);
+        $this->assertSame(0, $result['restocked_units']);
+        $this->assertSame(
+            ['asked' => 5, 'restocked' => 0, 'already_back' => 2, 'line_held' => 2],
+            $result['clamped'],
+            'already_back is 2 and not the 5 the first return was typed for: what reached the shelf, not what was asked',
+        );
+        $this->assertSame(52, $this->reading()['current_stock']);
+    }
+
+    public function test_the_panel_warns_the_operator_about_a_receipt_clamped_to_nothing(): void
+    {
+        $lineId = $this->soldLine(2);
+        $this->receiveThroughThePanel($this->authorizedReturn(5, $lineId));
+
+        $this->receiveThroughThePanel($this->authorizedReturn(5, $lineId));
+
+        $this->assertContains(
+            translate('some_of_the_lines_units_were_already_back_so_only_the_rest_were_restocked') . ': 5 → 0',
+            $this->toastsTheOperatorSees(),
+            'goods on the desk that the shelf will not take: the operator is the only one who can correct the return',
+        );
+    }
+
     public function test_a_return_that_points_at_no_order_line_still_restocks_its_whole_quantity(): void
     {
         // The returns queue lets a return name a product and no line (ReturnLogisticsController::store makes
@@ -574,7 +664,7 @@ class RestockThroughTheRealRoutesTest extends AdminPagesTestCase
         $this->assertSame(200, $answer->status());
         $body = $answer->getData(true);
         $this->assertSame(2, $body['restocked_units']);
-        $this->assertSame(['asked' => 5, 'restocked' => 2, 'line_held' => 2], $body['clamped']);
+        $this->assertSame(['asked' => 5, 'restocked' => 2, 'already_back' => 0, 'line_held' => 2], $body['clamped']);
         $this->assertSame(52, $this->reading()['current_stock']);
     }
 }

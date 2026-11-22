@@ -95,12 +95,16 @@ class ReturnLogisticsController extends BaseController
                 : translate('return_received');
             ToastMagic::success($msg);
 
-            // The return asked for more units than the line can give back, so only the line's units
-            // went on the shelf. Said out loud: a clamp nobody is told about hides the mistake that
-            // caused it, and the operator is the only one who can correct the return.
+            // The line could not give back as many units as the return asked for, so fewer went on the
+            // shelf. Said out loud: a clamp nobody is told about hides the mistake that caused it, and the
+            // operator is the only one who can correct the return. The sentence has to name the bound that
+            // actually applied -- "more was asked for than the line held" of a return for 2 against a line
+            // of 3, whose units two earlier returns had already put back, says the opposite of the truth.
             if ($clamped = $result['clamped'] ?? null) {
                 SafeToast::warning(
-                    translate('more_units_were_asked_for_than_the_line_held_only_the_lines_units_were_restocked'),
+                    translate($clamped['already_back'] > 0
+                        ? 'some_of_the_lines_units_were_already_back_so_only_the_rest_were_restocked'
+                        : 'more_units_were_asked_for_than_the_line_held_only_the_lines_units_were_restocked'),
                     $clamped['asked'] . ' → ' . $clamped['restocked'],
                 );
             }

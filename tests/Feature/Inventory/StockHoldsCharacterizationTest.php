@@ -307,7 +307,7 @@ class StockHoldsCharacterizationTest extends TestCase
 
         $this->assertSame([52, 0], [$this->stock(), $this->stockFlag()], 'two units left the shelf, so two came back whatever the return was typed for');
         $this->assertSame(2, $result['restocked_units']);
-        $this->assertSame(['asked' => 5, 'restocked' => 2, 'line_held' => 2], $result['clamped'], 'the operator is told, not silently corrected');
+        $this->assertSame(['asked' => 5, 'restocked' => 2, 'already_back' => 0, 'line_held' => 2], $result['clamped'], 'the operator is told, not silently corrected');
         $this->assertSame(5, (int) $result['return']->qty, 'what the operator typed is kept on the return itself');
     }
 

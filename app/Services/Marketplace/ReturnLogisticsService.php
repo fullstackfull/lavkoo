@@ -84,7 +84,7 @@ class ReturnLogisticsService
      * asking for more than is left restocks what is left and says so in `clamped` — the operator is
      * told rather than quietly corrected.
      *
-     * @return array{ok: bool, reason?: string, return?: ReturnShipment, restocked?: bool, balance_after?: int|null, restocked_units?: int, clamped?: array{asked: int, restocked: int, line_held: int}|null}
+     * @return array{ok: bool, reason?: string, return?: ReturnShipment, restocked?: bool, balance_after?: int|null, restocked_units?: int, clamped?: array{asked: int, restocked: int, already_back: int, line_held: int}|null}
      */
     public function receive(ReturnShipment $rma, int|string|null $by = null, string $byType = 'admin'): array
     {
@@ -147,9 +147,18 @@ class ReturnLogisticsService
                     }
 
                     if ($restockedUnits < (int) $rma->qty) {
-                        // The operator asked for more units than the line can give back. Never silent: the
-                        // caller is told, the audit trail keeps both figures, and so does the movement row.
-                        $clamped = ['asked' => (int) $rma->qty, 'restocked' => $restockedUnits, 'line_held' => (int) $line->qty];
+                        // The line cannot give back as many units as the return asks for. Never silent: the
+                        // caller is told, the audit trail keeps the figures, and so does the movement row.
+                        // `already_back` is what makes the report true rather than merely alarming -- the
+                        // bound is often the units earlier returns put back and not the line's size at all,
+                        // and saying "more was asked for than the line held" of a return for 2 against a
+                        // line of 3 states the opposite of the truth.
+                        $clamped = [
+                            'asked' => (int) $rma->qty,
+                            'restocked' => $restockedUnits,
+                            'already_back' => $alreadyBack,
+                            'line_held' => (int) $line->qty,
+                        ];
                     }
                 }
 
@@ -175,9 +184,7 @@ class ReturnLogisticsService
                         reason: $rma->reason,
                         referenceType: 'return_shipment',
                         referenceId: $rma->id,
-                        note: $clamped === null
-                            ? null
-                            : 'asked for ' . $clamped['asked'] . ', the line held ' . $clamped['line_held'],
+                        note: self::whyFewerUnitsWentBack($clamped),
                         sellerId: $rma->seller_id,
                         createdBy: $by,
                         // Who actually received the goods. Stamping every receipt 'admin' made the
@@ -196,7 +203,7 @@ class ReturnLogisticsService
             $this->audit?->record(
                 action: 'returns.received',
                 subject: ['type' => 'return_shipment', 'id' => $rma->id],
-                after: ['restocked' => $restocked, 'balance_after' => $balanceAfter, 'restocked_units' => $restocked ? $restockedUnits : 0, 'clamped' => $restocked ? $clamped : null],
+                after: ['restocked' => $restocked, 'balance_after' => $balanceAfter, 'restocked_units' => $restocked ? $restockedUnits : 0, 'clamped' => $clamped],
             );
 
             return [
@@ -205,7 +212,10 @@ class ReturnLogisticsService
                 'restocked' => $restocked,
                 'balance_after' => $balanceAfter,
                 'restocked_units' => $restocked ? $restockedUnits : 0,
-                'clamped' => $restocked ? $clamped : null,
+                // Reported whenever it was computed, not only when something reached the shelf. A receipt
+                // clamped ALL THE WAY TO ZERO is the clamp's worst case and the one the operator most needs
+                // to hear about: goods are on the receiving desk that the shelf will not take.
+                'clamped' => $clamped,
             ];
         });
     }
@@ -368,6 +378,25 @@ class ReturnLogisticsService
         $matching = OrderDetail::where('order_id', $orderId)->where('product_id', $productId)->limit(2)->pluck('id');
 
         return $matching->count() === 1 ? $matching->first() : null;
+    }
+
+    /**
+     * Why fewer units went back on the shelf than the return asked for, in the words of the real bound.
+     *
+     * Two different bounds reach this point and they need different sentences: the line may be smaller than
+     * the return, or earlier returns may already have put the line's units back. Reporting the first when it
+     * was the second told the operator that more was asked for than the line held, of a return for two
+     * against a line of three.
+     */
+    private static function whyFewerUnitsWentBack(?array $clamped): ?string
+    {
+        if ($clamped === null) {
+            return null;
+        }
+
+        return $clamped['already_back'] > 0
+            ? 'asked for ' . $clamped['asked'] . ', ' . $clamped['already_back'] . ' of the line\'s ' . $clamped['line_held'] . ' units were already back'
+            : 'asked for ' . $clamped['asked'] . ', the line held ' . $clamped['line_held'];
     }
 
     /**
