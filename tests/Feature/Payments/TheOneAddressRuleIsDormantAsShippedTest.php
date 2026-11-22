@@ -12,6 +12,7 @@ use App\Http\Middleware\RecordAnalytics;
 use App\Http\Middleware\RecordHttpTelemetry;
 use App\Services\Payments\ConfirmationAddresses;
 use App\Services\Payments\GatewayAccountDirectory;
+use App\Services\Payments\GatewayAccountRegistry;
 use App\Services\Payments\PaymentAccountBinding;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -103,6 +104,34 @@ class TheOneAddressRuleIsDormantAsShippedTest extends TestCase
         $this->inTheShippedConfiguration($switch);
 
         $this->assertFalse(app(ConfirmationAddresses::class)->isEnforced());
+    }
+
+    /**
+     * THE REGISTRY HALF IS THE REGISTRY, not the one key next to the switch — and nothing held that.
+     *
+     * `GatewayAccountRegistry::isEnabled()` requires TWO things: the payment-accounts key AND storefronts being served at all. The test above sets the
+     * shipped payment-accounts key to false, which is enough for its own assertion on its own, so the second half of the registry's condition was
+     * never isolated. Reviewer B of the stage-C round replaced the registry call with a direct read of that one key and this file stayed green, then
+     * measured the mutant answering true where the real method answers false. Here is the configuration that separates them: storefronts off,
+     * payment accounts ON, and the switch on.
+     *
+     * It is the half of the enforcement condition the whole stranding argument rests on, so it is worth a configuration of its own: a server with
+     * storefronts off has no per-company address resolving anything, and a public address that also declined an already-recorded payment would leave
+     * it with no live address at all.
+     */
+    public function test_the_rule_is_not_in_force_while_storefronts_are_not_served_at_all(): void
+    {
+        config([
+            'gcc.storefronts.enabled' => false,
+            'gcc.storefronts.payment_accounts.enabled' => true,
+            'gcc.storefronts.payment_accounts.one_confirmation_address' => true,
+        ]);
+        $this->forgetWhatWasRemembered();
+
+        $this->assertTrue((bool) config('gcc.storefronts.payment_accounts.enabled'), 'the key beside the switch is on');
+        $this->assertTrue((bool) config('gcc.storefronts.payment_accounts.one_confirmation_address'), 'and so is the switch');
+        $this->assertFalse(app(GatewayAccountRegistry::class)->isEnabled(), 'the registry still answers no, because storefronts are not served');
+        $this->assertFalse(app(ConfirmationAddresses::class)->isEnforced(), 'so the rule is not in force');
     }
 
     /**
