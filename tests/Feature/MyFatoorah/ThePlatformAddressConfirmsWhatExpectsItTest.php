@@ -5,7 +5,6 @@ namespace Tests\Feature\MyFatoorah;
 use App\Models\MyFatoorahPaymentAttempt;
 use App\Models\MyFatoorahWebhookEvent;
 use App\Models\PaymentGatewayAccount;
-use App\Models\PaymentRequest;
 use App\Services\MyFatoorah\GatewayConfigRepository;
 use App\Services\Payments\ConfirmationAddresses;
 use App\Services\Payments\GatewayAccountDirectory;
@@ -666,7 +665,7 @@ class ThePlatformAddressConfirmsWhatExpectsItTest extends CompanyAccountsTestCas
         $this->assertStringContainsString('kuwait-webhook-token', $recorded, 'the payment recorded its own company address');
         $this->fakePaidFor($attempt);
 
-        $this->applyTheLever($lever);
+        $this->applyTheLever($lever, $attempt);
 
         $this->assertTrue(app(ConfirmationAddresses::class)->isEnforced(), 'with the rule in force');
         $this->deliverToTheAddressTheGatewayWasGiven($recorded, $attempt)
@@ -724,7 +723,7 @@ class ThePlatformAddressConfirmsWhatExpectsItTest extends CompanyAccountsTestCas
      * supported act: `PaymentGatewayAccountUpsertCommand` offers --activate/--deactivate and --new-webhook-token, creates an account before any
      * secret is given to it, and `config/gcc.php`'s own note on the covered list names removing this gateway from it as the rollback.
      */
-    private function applyTheLever(string $lever): void
+    private function applyTheLever(string $lever, MyFatoorahPaymentAttempt $attempt): void
     {
         match ($lever) {
             'deactivated' => PaymentGatewayAccount::query()->whereKey($this->kuwait->id)->update(['status' => false]),
@@ -736,7 +735,7 @@ class ThePlatformAddressConfirmsWhatExpectsItTest extends CompanyAccountsTestCas
                 secrets: [],
                 clear: [GatewayAccountSecrets::WEBHOOK_SECRET],
             ),
-            'no-account-id' => $this->dropTheAccountIdFromTheStampOf($this->kuwait),
+            'no-account-id' => $this->dropTheAccountIdFromTheStampOf($attempt),
             'none' => null,
         };
 
@@ -750,16 +749,12 @@ class ThePlatformAddressConfirmsWhatExpectsItTest extends CompanyAccountsTestCas
      * because a recorded address with no account behind it is the shape with no account to hand the payment back to. It must read as an old payment's
      * address rather than as a live company one.
      */
-    private function dropTheAccountIdFromTheStampOf(PaymentGatewayAccount $account): void
+    private function dropTheAccountIdFromTheStampOf(MyFatoorahPaymentAttempt $attempt): void
     {
-        $payment = PaymentRequest::query()
-            ->whereIn('id', MyFatoorahPaymentAttempt::query()->pluck('payment_request_id'))
-            ->orderByDesc('created_at')
-            ->firstOrFail();
-        $stored = (array) json_decode((string) $payment->additional_data, true);
+        $stored = (array) json_decode((string) $this->paymentRow($attempt)->additional_data, true);
         unset($stored[PaymentAccountBinding::KEY]['account_id']);
 
-        DB::table('payment_requests')->where('id', $payment->id)->update(['additional_data' => json_encode($stored)]);
+        DB::table('payment_requests')->where('id', $attempt->payment_request_id)->update(['additional_data' => json_encode($stored)]);
     }
 
     /** A delivery to the address initiation actually gave the gateway for this payment, whatever that address resolves to now. */
