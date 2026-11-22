@@ -5,6 +5,7 @@ namespace App\Services\MyFatoorah;
 use App\Enums\MyFatoorah\AttemptStatus;
 use App\Models\MyFatoorahPaymentAttempt;
 use App\Models\PaymentRequest;
+use App\Services\Payments\PaymentAccountBinding;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\QueryException;
@@ -36,6 +37,7 @@ class PaymentInitiationService
         private readonly MyFatoorahClient $client,
         private readonly GatewayAvailability $availability,
         private readonly PaymentVerificationService $verification,
+        private readonly PaymentAccountBinding $binding,
     ) {
     }
 
@@ -464,7 +466,15 @@ class PaymentInitiationService
                 'Redirection' => route('myfatoorah.callback', ['reference' => $attempt->external_identifier]),
                 // Set per invoice as well as in the portal, so a freshly configured account still
                 // notifies us even before someone remembers to paste the URL into the dashboard.
-                'Webhook' => route('myfatoorah.webhook'),
+                //
+                // The address the payment RECORDED when it started (GCC-21), not a fresh resolution: the
+                // company account's own notification address for a payment stamped with one, and the
+                // platform-wide address — byte for byte what this line sent before — for a payment that
+                // recorded none, which is every payment on a shipped configuration.
+                'Webhook' => $this->binding->confirmationAddressOf(
+                    payment: $paymentRequest,
+                    platformAddress: route('myfatoorah.webhook'),
+                ),
             ],
             'Language' => $this->language($language),
             'NotificationOption' => 'LINK',

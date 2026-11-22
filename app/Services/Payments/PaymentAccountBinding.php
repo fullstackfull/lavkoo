@@ -24,6 +24,11 @@ use Illuminate\Container\Attributes\Singleton;
  * Kuwait account is started, verified and settled through the Kuwait account after that account has been edited, after it has been disabled, and after
  * another market's account has become the only active one.
  *
+ * The stamp also records the ADDRESS this payment's confirmation is expected at (GCC-21): the company account's own notification address, or none,
+ * which is read as the platform-wide address. It is the address and not the account id, because an account row can be deleted and `accountOf()` then
+ * answers null — see PaymentTransactionRecord. Nothing refuses anything on the strength of it yet; initiation sends it to the gateway, and the
+ * platform address consulting it is a later stage the owner has ordered to come after this one.
+ *
  * The gateway refund path does NOT read this yet (D2-16): it still goes to the one platform settings row, so a refund of a company's payment is not
  * drawn on that company's account. This is the single reader of the stamp that is missing, and it is named here rather than implied.
  */
@@ -35,6 +40,7 @@ final class PaymentAccountBinding
 
     public function __construct(
         private readonly GatewayAccountRegistry $registry,
+        private readonly GatewayAccountDirectory $addresses,
         private readonly LegalEntityRegistry $companies,
         private readonly StorefrontCurrency $currencies,
         private readonly StoreCurrencyRateSource $rates,
@@ -102,6 +108,22 @@ final class PaymentAccountBinding
         return $stamped !== null && $stamped === (int) $account->id;
     }
 
+    /**
+     * The address this payment's confirmation is expected at (GCC-21): the one it RECORDED when it started, or the platform-wide address given here
+     * for a payment that recorded none.
+     *
+     * Read as stored and never re-derived, which is the whole point: an account edited, disabled or deleted since the payment started does not move the
+     * address the payment began under. A payment with no stamp — every payment placed today, every legacy payment and every Saudi payment — records
+     * none and so expects the platform address, which is where its confirmation actually goes.
+     *
+     * The platform address is the caller's, because it is the gateway's own: each gateway has its own public notification address, or none at all, and
+     * this class knows about accounts and not about gateways' addresses.
+     */
+    public function confirmationAddressOf(PaymentRequest|array|null $payment, string $platformAddress): string
+    {
+        return $this->of(payment: $payment)?->confirmationAddress ?? $platformAddress;
+    }
+
     /** The record a payment of this market through this account carries. */
     private function recordFor(PaymentGatewayAccount $account, string $market, string $currencyCode): PaymentTransactionRecord
     {
@@ -117,6 +139,7 @@ final class PaymentAccountBinding
             currency: strtoupper($currencyCode),
             exchangeRate: $this->rateInForce(currencyCode: $currencyCode, market: $market),
             recordedAt: now()->toIso8601String(),
+            confirmationAddress: $this->addresses->webhookUrlOf(account: $account),
         );
     }
 
