@@ -4469,6 +4469,224 @@ def load_all():
     return data
 
 
+# ---------------------------------------------------------------------------
+# D2-V1 criterion 2, "No payment path falls back to USD or to the first active
+# currency". PR 167 (DRAFT), branch gcc/p1-payment-refuses-a-currency-it-cannot-take,
+# head df7d03ab9894594a42b5c82f7dab717ec2e68ae6, base
+# gcc/p1-payment-methods-only-where-confirmed @ 222fe1eb. main untouched.
+#
+# CODED, NOT MET, AND THE LANE DID NOT CLAIM OTHERWISE -- it said plainly that it
+# could not read the tracker's criterion ids, and it numbered its own findings
+# c2..c6, which do not map onto this requirement's four criteria. It proposed MET
+# for its own "c2" (a payment in a currency the gateway cannot take is refused),
+# which is a NARROWER claim than this criterion's words. Mapping its evidence onto
+# the criterion that actually exists is what settles it, and the criterion says
+# "NO payment path", while the lane's own not-proved section names TWO paths that
+# still fall back:
+#
+#   * a gateway with NO entry in the declared-currency map is allowed and still
+#     charged in whatever the legacy resolver picks -- measured, mercadopago_pix
+#     with a Saudi customer becomes USD 100;
+#   * a request that names no currency on a store whose system_default_currency
+#     points at no row is still left to the resolver -- measured, BDT 11,000 on a
+#     cart worth SAR 375.
+#
+# Both are deliberate, both are pinned by named tests so they cannot change by
+# accident, and both are recorded as open. But while either exists the criterion's
+# own word "no" is false, so this is CODED.
+#
+# What I checked myself: the branch head on the remote is df7d03ab; the tracker's
+# four D2-V1 criteria and their wording, read from load_all(), which is how the
+# mapping above was done; and the CI state. CI run 45071820951 at that head was
+# still status=queued when I read it -- the runner queue is saturated -- so NO
+# finished CI run exists for this head, and the lane said the same of its own read.
+# The real-engine evidence that does exist: run 45063554931 at the earlier head
+# 9dfe7c72 had both added payment jobs SUCCESS with 35 tests / 284 assertions on
+# MySQL 8.0.46 and on MariaDB 11.4.2, and the final head is 56 tests / 418
+# assertions green on SQLite and on MariaDB 10.11.14 locally.
+# ---------------------------------------------------------------------------
+
+_D2V1C2 = (
+    ' // CODED on PR 167 (DRAFT) head df7d03ab9894594a42b5c82f7dab717ec2e68ae6, base '
+    'gcc/p1-payment-methods-only-where-confirmed @ 222fe1eb, main untouched. WHAT IS BUILT: '
+    'app/Services/Payments/GatewayCurrencySupport.php answers, in one place, whether a gateway can take a '
+    'currency, and all three callers reach it through decideForRequest() -- the payment start at '
+    'Customer/PaymentController.php, the wallet top-up, and the order edit\'s due payment in '
+    'Traits/OrderEditManager.php. With the setting gateway_currency_refusal on, a payment in a currency the '
+    'chosen gateway does not declare is REFUSED before any payment row is written and before the customer is '
+    'sent to the gateway, in the answer shape each of the six entry points already uses (403 with errors for '
+    'the app checkout route, 403 with a message for both top-up routes, 403 for the order-edit app route, a '
+    'flashed message and a redirect for all three web routes), and the refusal fires whether the currency is '
+    'named, named in the wrong case, named under an older gateway spelling, or not named at all. After each '
+    'refusal there is no payment_requests row, no order, no order_details, no order_transactions, no stock '
+    'movement, no wallet movement, no order_status_history row and no write onto order_edit_histories. '
+    'DORMANT BY DEFAULT: the migration writes 0 and never overwrites an operator\'s value, a value that is '
+    'not a flag leaves it off, and with the switch off 192 measured cells (7 entry points x 4 gateways x 3 '
+    'money models x 3 ways of naming the currency) reproduce the base branch exactly on status, Location, '
+    'amount, currency and five write counters, with ZERO differences, run twice. '
+    'WHY THIS IS NOT MET, and it is this criterion\'s own word "no" that decides it: TWO PAYMENT PATHS STILL '
+    'FALL BACK. (1) A gateway with no entry in the declared-currency map is allowed and still charged whatever '
+    'the legacy resolver picks -- measured: mercadopago_pix with a Saudi customer becomes USD 100 -- because '
+    'the platform has no claim about such a gateway to contradict. (2) A request that names no currency on a '
+    'store whose system_default_currency points at no row is still left to the resolver -- measured: BDT '
+    '11,000 on a cart worth SAR 375 -- on the reasoning that a store which cannot say what it prices in is a '
+    'configuration fault and refusing every payment there is a worse answer. Both are deliberate and BOTH ARE '
+    'PINNED BY NAMED TESTS so neither can change by accident, but while either stands the criterion is not '
+    'satisfied. Also not proved: that any installation runs with the switch on (it ships off and no admin '
+    'screen turns it on), and that the whole application is unchanged with the switch off -- '
+    'tests/Feature/Payments, tests/Feature/Address (1,045 tests) and tests/Unit/Payments were measured, not '
+    'the whole suite. AND getPaymentGatewayCurrencyCode() IS STILL THERE, unchanged byte for byte, holding its '
+    'own copy of the "declares it and the row is active" test for the switch-off path: two copies of one '
+    'condition, which is why the lane kept its own "one place" finding lowered rather than claiming it. '
+    'EVIDENCE: tests/Feature/Payments/GatewayRefusesACurrencyItCannotTakeTest, 56 tests / 418 assertions green '
+    'on SQLite and on MariaDB 10.11.14 at the final head; and at the earlier head 9dfe7c72 CI run 45063554931 '
+    'had both added payment jobs SUCCESS, 35 tests / 284 assertions, on MySQL 8.0.46 and MariaDB 11.4.2. '
+    'NO FINISHED CI RUN EXISTS FOR THE FINAL HEAD: run 45071820951 at df7d03ab was still status=queued when I '
+    'read it, the runner queue being saturated, and the lane reported the same of its own read rather than '
+    'presenting a partial read as a whole one.'
+)
+
+_load_all_before_d2v1 = load_all
+
+
+def load_all():
+    data = _load_all_before_d2v1()
+    applied = False
+    for unit in data:
+        for requirement in data[unit]['reqs']:
+            if requirement['id'] == 'D2-V1' and len(requirement['ac']) > 2:
+                requirement['ac'][2]['s'] = 'CODED'
+                requirement['ac'][2]['e'] = requirement['ac'][2]['e'] + _D2V1C2
+                applied = True
+    if not applied:
+        raise SystemExit('D2-V1 c2 block matched no criterion, so nothing was written')
+    return data
+
+
+# ---------------------------------------------------------------------------
+# J-17, the customer app's version gate and update flow. Two things happen here,
+# and the FIRST ONE IS A CONSEQUENCE OF MY OWN MERGE.
+#
+# I merged the customer app's integration batch into its main (main is now
+# 9743e5ed0b68a64a36017bfb712b997681f8a636). Two of this requirement's evidence
+# triples were pinned to patterns in that repository's main, and the merged work
+# moved both: the generator's own evidence checker went from 0 failures to 2 and
+# named them. That is the checker doing its job, so the fix is to repoint the
+# triples at where the code now lives, not to silence them.
+#
+# I read the new code before touching the record, because a version gate that
+# stops being found is exactly the shape of a gate that has been bypassed. It has
+# NOT been bypassed. It was extracted:
+#
+#   lib/utill/update_gate.dart -- UpdateGate.isRequired(control, isIos,
+#   installedVersion), called by the splash screen at both of its entry points.
+#   Its own docblock records the defect the extraction closed: the shop stores a
+#   minimum version AND a switch beside it, and the switch was ignored, so "a
+#   merchant who turned forced updates off in Admin -> Business Settings -> App
+#   Settings watched the app go on forcing them, with no way from the panel to
+#   stop it." It now returns false when the platform row is absent or its status
+#   is not 1, false when the minimum is missing or blank, and otherwise compares.
+#   Tests: test/update_gate_test.dart.
+#
+#   lib/utill/update_target.dart -- UpdateTarget.candidates(control, isIos),
+#   which the update screen now tries in order. This is criterion 4's subject and
+#   the reason it moves below.
+#
+# SECOND: criterion 4 is MET, on main, which is the strongest evidence state this
+# record has. The criterion asks that the update screen offer a usable target when
+# the configured link is empty. UpdateTarget's docblock states the live fact it was
+# written for: "the live shop publishes a floor of 14.1 with link: "" for both
+# platforms, and the screen handed that empty string to the launcher, which refuses
+# it." Now a configured link comes first and is passed on exactly as given, and a
+# link that is missing, empty or only blank space is no target at all, so the store
+# is the whole list; the store also follows a configured link the device cannot
+# open. Android gets the Play app scheme then the Play web page, addressed by the id
+# the build carries; iOS gets an App Store search scoped to a storefront, and the
+# docblock says plainly that this is the store's search and not the app's own page
+# because no source in the repository carries the App Store id -- which is the one
+# part the sources cannot supply.
+#
+# The tests are both kinds: unit tests over the candidate list (an empty link, only
+# blank space, no link at all, no row for the platform, no setting at all, never
+# empty whatever the shop publishes, each platform reads its own link) and widget
+# tests driving the REAL screen (opens the Play page when the shop configures an
+# empty link; opens the Play web page when the device has no Play app; opens the
+# store page when the shop sent no config at all; opens the store page when the
+# configured link cannot be opened; and the two iOS equivalents).
+#
+# CI: run 45067118601 on 7361ec24, the integration head that became this main,
+# conclusion SUCCESS -- that repository's workflow triggers on pushes to gcc/**, so
+# pushing the branch ran the real thing. flutter test on that head: 787 passed with
+# storefronts off and 838 with them on, zero failures either way. flutter analyze:
+# 255 findings, 0 errors, exactly at the recorded baseline and not raised.
+# ---------------------------------------------------------------------------
+
+_J17_EVIDENCE_REPOINTS = [
+    ('return compareVersions(minimum, AppConstants.appVersion) == 1;',
+     'lib/utill/update_gate.dart', 'return compare(minimum, installedVersion) == 1;'),
+    ("String? appUrl = 'https://google.com';",
+     'lib/utill/update_target.dart', 'if (configured == null || configured.trim().isEmpty) {'),
+]
+
+_J17C4 = (
+    ' // MET on 2026-11-22, and on MAIN rather than on a draft branch: the customer app\'s integration batch '
+    'was merged and that repository\'s main is now 9743e5ed0b68a64a36017bfb712b997681f8a636. The decision left '
+    'the update button\'s own callback, where nothing could test it, and became '
+    'UpdateTarget.candidates(control, isIos) in lib/utill/update_target.dart. A link the shop configured comes '
+    'first and is passed on exactly as it was given, so a shop that fills the field keeps what it has; a link '
+    'that is missing, empty, or only blank space is no target at all and the store is then the whole list; and '
+    'the store also FOLLOWS a configured link the device cannot open, so a mistyped link no longer leaves the '
+    'customer with nowhere to go. Android is sent to the Play app scheme and then the Play web page, addressed '
+    'by the id the build itself carries; iOS to an App Store search scoped to a storefront. The code says '
+    'plainly why that last one is a search and not the app\'s own page: no source in the repository carries the '
+    'App Store id, and itms-apps:// is deliberately not tried because Info.plist does not declare the scheme '
+    'under LSApplicationQueriesSchemes, so a device would refuse it. That is the one part the sources cannot '
+    'supply and it is NOT PROVED here; closing it needs the App Store id from the owner. '
+    'NAMED TESTS, both kinds, in test/update_target_test.dart: unit tests over the candidate list (an empty '
+    'link, only blank space, no link at all, no row for the platform, no setting at all, never empty whatever '
+    'the shop publishes, each platform reads its own link, ends at the store even when a link is configured) '
+    'and WIDGET tests driving the real screen (opens the Play page when the shop configures an empty link; the '
+    'Play web page when the device has no Play app; the store page when the shop sent no config at all; the '
+    'store page when the configured link cannot be opened; and the two iOS equivalents). The docblock records '
+    'the live fact the work was written for: the shop publishes a floor of 14.1 with link: "" for BOTH '
+    'platforms, and the screen used to hand that empty string to the launcher, which refuses it. '
+    'CI: run 45067118601 on 7361ec24, the integration head that became this main, conclusion SUCCESS (that '
+    'repository\'s workflow triggers on pushes to gcc/**). flutter test on that head: 787 passed with '
+    'storefronts off, 838 with them on, zero failures either way. flutter analyze: 255 findings and 0 errors, '
+    'exactly at the baseline recorded in tool/analyze_baseline.txt and not raised to make room. '
+    'NOT PROVED: that a real device opens any of these targets -- no device run; and the iOS App Store id, '
+    'above.'
+)
+
+_load_all_before_j17 = load_all
+
+
+def load_all():
+    data = _load_all_before_j17()
+    repointed = 0
+    raised = False
+    for unit in data:
+        for requirement in data[unit]['reqs']:
+            if requirement['id'] != 'J-17':
+                continue
+            for spec in requirement.get('evidence', []):
+                for stale, new_path, new_pattern in _J17_EVIDENCE_REPOINTS:
+                    if spec.get('pattern') == stale:
+                        spec['path'] = new_path
+                        spec['pattern'] = new_pattern
+                        repointed += 1
+            # the checker ran before this wrapper, so recompute it with the repointed triples
+            requirement['evidence_failures'] = T.check_evidence(requirement)
+            if len(requirement['ac']) > 4:
+                requirement['ac'][4]['s'] = 'MET'
+                requirement['ac'][4]['e'] = requirement['ac'][4]['e'] + _J17C4
+                raised = True
+    if repointed != len(_J17_EVIDENCE_REPOINTS) or not raised:
+        raise SystemExit('J-17 block: repointed %d of %d evidence triples, raised=%s'
+                         % (repointed, len(_J17_EVIDENCE_REPOINTS), raised))
+    return data
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]

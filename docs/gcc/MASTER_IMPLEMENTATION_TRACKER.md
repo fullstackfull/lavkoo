@@ -17,17 +17,17 @@ As of 2026-11-22. Generated from the independent assessment of every requirement
 | [A. Six-country base and customer identity](tracker/axis-a-six-country-base-and-customer-identity.md) | 37 | 173 | 93 | 25 | 55 | 68% | 54% | 9% | all |
 | [B. Catalogue and products](tracker/axis-b-catalogue-and-products.md) | 18 | 91 | 45 | 31 | 15 | 84% | 49% | 0% | all |
 | [C. Inventory and fulfillment](tracker/axis-c-inventory-and-fulfillment.md) | 18 | 94 | 66 | 9 | 19 | 80% | 70% | 30% | all |
-| [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 179 | 101 | 33 | 45 | 75% | 56% | 8% | all |
+| [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 179 | 101 | 34 | 44 | 75% | 56% | 8% | all |
 | [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 88 | 42 | 6 | 40 | 55% | 48% | 7% | all |
 | [F. Themes and brand](tracker/axis-f-themes-and-brand.md) | 16 | 77 | 42 | 13 | 22 | 71% | 55% | 4% | all |
 | [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 102 | 59 | 13 | 30 | 71% | 58% | 15% | all |
 | [H. Shipping and integrations](tracker/axis-h-shipping-and-integrations.md) | 34 | 157 | 79 | 13 | 65 | 59% | 50% | 16% | all |
 | [I. Marketing, policies and operations](tracker/axis-i-marketing-policies-and-operations.md) | 37 | 185 | 86 | 47 | 52 | 72% | 46% | 3% | all |
-| [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 98 | 46 | 27 | 25 | 74% | 47% | 5% | all |
+| [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 98 | 47 | 27 | 24 | 76% | 48% | 5% | all |
 | [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 104 | 40 | 30 | 34 | 67% | 38% | 3% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 49 | 14 | 31 | 67% | 52% | 7% | all |
 | [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 311 | 106 | 118 | 87 | 72% | 34% | 3% | all |
-| **All axes (pooled)** | **359** | **1753** | **854** | **379** | **520** | **70%** | **49%** | **8%** | |
+| **All axes (pooled)** | **359** | **1753** | **855** | **380** | **518** | **70%** | **49%** | **8%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -251,7 +251,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [D2-16](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 2/1/2 | Payment reconciliation per market and company |
 | [D2-17](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 4/0/1 | Payment security constraints: logs, hosts, rate limits, ownership |
 | [D2-18](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 0/1/2 | Payment lifecycle (axis F) pinned end to end per market |
-| [D2-V1](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 1/1/2 | Payment currency is the storefront's currency: no automatic conversion and no silent fallback to the... |
+| [D2-V1](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 1/2/1 | Payment currency is the storefront's currency: no automatic conversion and no silent fallback to the... |
 | [D2-V2](tracker/axis-d-orders-checkout-and-payments.md) | NOT STARTED | 3/0/1 | Per-storefront on/off of payment methods that are not gateways (cash on delivery, offline payment, d... |
 
 ### E. Wallets, loyalty and financial records
@@ -424,7 +424,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [J-14](tracker/axis-j-flutter-customer-app.md) | NOT STARTED | 0/0/3 | Address eligibility per storefront |
 | [J-15](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 0/1/3 | Legal policy screens and consent scopes |
 | [J-16](tracker/axis-j-flutter-customer-app.md) | IMPLEMENTED IN DRAFT | 3/2/0 | Language, RTL and strings |
-| [J-17](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 1/3/1 | Version gate and update flow (never bypassed) |
+| [J-17](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 2/3/0 | Version gate and update flow (never bypassed) |
 | [J-18](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 4/0/2 | App tests, CI and device verification |
 | [J-V1](tracker/axis-j-flutter-customer-app.md) | NOT STARTED | 1/1/1 | Draft theme preview in the customer app: the app renders an unpublished draft of a storefront's home... |
 | [J-V2](tracker/axis-j-flutter-customer-app.md) | NOT STARTED | 1/0/3 | Loyalty points in the customer app (points ledger, earn rules, point-to-wallet conversion) belong to... |
