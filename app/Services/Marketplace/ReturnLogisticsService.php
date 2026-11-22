@@ -78,6 +78,13 @@ class ReturnLogisticsService
     /**
      * Receive the goods. If the return is restockable and points at a product, restock it (locked)
      * and record a `return` movement; otherwise the return is simply marked received.
+     *
+     * Never more units than the order line held, and never units another writer has already put back:
+     * the line's quantity is a budget shared with the order status writer (RestockBudget). A receipt
+     * asking for more than is left restocks what is left and says so in `clamped` — the operator is
+     * told rather than quietly corrected.
+     *
+     * @return array{ok: bool, reason?: string, return?: ReturnShipment, restocked?: bool, balance_after?: int|null, restocked_units?: int, clamped?: array{asked: int, restocked: int, line_held: int}|null}
      */
     public function receive(ReturnShipment $rma, int|string|null $by = null, string $byType = 'admin'): array
     {
@@ -96,36 +103,60 @@ class ReturnLogisticsService
             $restocked = false;
             $balanceAfter = null;
 
+            $restockedUnits = 0;
+            $clamped = null;
+
             if ($rma->restock && $rma->product_id && Schema::hasTable('products')) {
                 // Coordinate with the legacy order-status restock (getStockUpdateOnOrderStatusChange) so a
-                // line is never restocked twice — once here and once when the order is marked returned. If
-                // this RMA covers the whole order line, atomically CLAIM the restore by flipping the line's
-                // is_stock_decreased 1->0; a zero-row flip means the legacy path already restored it, so we
-                // skip. A partial RMA never touches the marker, so it can neither be double-counted against
-                // the legacy full-line restore nor block it from restoring the remainder (never under-restock).
+                // line is never restocked twice — once here and once when the order is marked returned, and
+                // never for more units than the line held. The line's quantity is a budget both writers draw
+                // on (RestockBudget): this receipt may put back only what is unspent, and the order status
+                // writer puts back only what receipts left. The line row is LOCKED for as long as it takes to
+                // read the budget and spend it, so two receipts against one line cannot both spend the same
+                // units, and the status writer (which locks the line with its own marker flip) cannot either.
+                //
+                // The marker claim is on the CUMULATIVE returned quantity, not on this one event: whichever
+                // receipt completes the line claims the restore by flipping is_stock_decreased 1->0, and a
+                // zero-row flip means the status writer already restored the line, so there is nothing left
+                // to put back. A receipt that does not complete the line leaves the marker for the status
+                // writer, and may restock only while the line's units are still off the shelf.
                 $mayRestock = true;
                 $line = null;
+                $restockedUnits = (int) $rma->qty;
+
                 if ($rma->order_details_id && Schema::hasTable('order_details')) {
-                    $line = DB::table('order_details')->where('id', $rma->order_details_id)->first();
-                    if ($line && (int) $line->qty <= (int) $rma->qty) {
-                        $markerClaimed = DB::table('order_details')
-                            ->where('id', $rma->order_details_id)
-                            ->where('is_stock_decreased', 1)
-                            ->update(['is_stock_decreased' => 0]);
-                        $mayRestock = $markerClaimed > 0;
+                    $line = DB::table('order_details')->where('id', $rma->order_details_id)->lockForUpdate()->first();
+                }
+
+                if ($line) {
+                    $budget = app(RestockBudget::class);
+                    $alreadyBack = $budget->unitsAlreadyBack($rma->order_details_id, $line->qty);
+                    $restockedUnits = min((int) $rma->qty, $budget->unspentUnitsOf($rma->order_details_id, $line->qty));
+
+                    $completesTheLine = $alreadyBack + (int) $rma->qty >= max(0, (int) $line->qty);
+                    $mayRestock = $completesTheLine
+                        ? $this->claimTheLinesRestore($rma->order_details_id)
+                        : (int) $line->is_stock_decreased === 1;
+
+                    $mayRestock = $mayRestock && $restockedUnits > 0;
+
+                    if ($restockedUnits < (int) $rma->qty) {
+                        // The operator asked for more units than the line can give back. Never silent: the
+                        // caller is told, the audit trail keeps both figures, and so does the movement row.
+                        $clamped = ['asked' => (int) $rma->qty, 'restocked' => $restockedUnits, 'line_held' => (int) $line->qty];
                     }
                 }
 
                 $locked = $mayRestock ? DB::table('products')->where('id', $rma->product_id)->lockForUpdate()->first() : null;
                 if ($locked) {
-                    $balanceAfter = (int) $locked->current_stock + (int) $rma->qty;
+                    $balanceAfter = (int) $locked->current_stock + $restockedUnits;
                     $restock = ['current_stock' => $balanceAfter, 'updated_at' => now()];
                     $variant = (string) ($line->variant ?? '');
                     if ($variant !== '') {
                         $restock['variation'] = $this->variationWithReturnedUnits(
                             variation: $locked->variation,
                             variant: $variant,
-                            qty: (int) $rma->qty,
+                            qty: $restockedUnits,
                         );
                     }
                     DB::table('products')->where('id', $rma->product_id)->update($restock);
@@ -133,11 +164,14 @@ class ReturnLogisticsService
                     ($this->inventory ?? app(InventoryService::class))->record(
                         productId: $rma->product_id,
                         type: StockMovement::TYPE_RETURN,
-                        qtyChange: (int) $rma->qty,
+                        qtyChange: $restockedUnits,
                         balanceAfter: $balanceAfter,
                         reason: $rma->reason,
                         referenceType: 'return_shipment',
                         referenceId: $rma->id,
+                        note: $clamped === null
+                            ? null
+                            : 'asked for ' . $clamped['asked'] . ', the line held ' . $clamped['line_held'],
                         sellerId: $rma->seller_id,
                         createdBy: $by,
                         // Who actually received the goods. Stamping every receipt 'admin' made the
@@ -156,10 +190,17 @@ class ReturnLogisticsService
             $this->audit?->record(
                 action: 'returns.received',
                 subject: ['type' => 'return_shipment', 'id' => $rma->id],
-                after: ['restocked' => $restocked, 'balance_after' => $balanceAfter],
+                after: ['restocked' => $restocked, 'balance_after' => $balanceAfter, 'restocked_units' => $restocked ? $restockedUnits : 0, 'clamped' => $clamped],
             );
 
-            return ['ok' => true, 'return' => $rma->fresh(), 'restocked' => $restocked, 'balance_after' => $balanceAfter];
+            return [
+                'ok' => true,
+                'return' => $rma->fresh(),
+                'restocked' => $restocked,
+                'balance_after' => $balanceAfter,
+                'restocked_units' => $restocked ? $restockedUnits : 0,
+                'clamped' => $restocked ? $clamped : null,
+            ];
         });
     }
 
@@ -268,6 +309,20 @@ class ReturnLogisticsService
 
             return null;
         }
+    }
+
+    /**
+     * Take the line's restore for this receipt, atomically.
+     *
+     * A zero-row flip means the marker was already 0 — the order status writer restored the line — so
+     * the units are on the shelf already and this receipt must add none.
+     */
+    private function claimTheLinesRestore(int|string $orderDetailsId): bool
+    {
+        return DB::table('order_details')
+            ->where('id', $orderDetailsId)
+            ->where('is_stock_decreased', 1)
+            ->update(['is_stock_decreased' => 0]) > 0;
     }
 
     /** The product's variations with the returned units added back to the one the order line bought, as the order-status restock does. */

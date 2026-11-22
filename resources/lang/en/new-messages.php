@@ -11239,4 +11239,5 @@ return [
 	'sections_the_app_cannot_show' => 'Sections the app cannot show',
 	'section_types_will_not_appear_in_the_mobile_app' => 'Section types will not appear in the mobile app',
 	'theme_activated_successfully' => 'Theme activated successfully',
+	'more_units_were_asked_for_than_the_line_held_only_the_lines_units_were_restocked' => 'More units were asked for than the order line held, so only the line\'s units were put back on the shelf',
 ];

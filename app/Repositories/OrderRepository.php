@@ -15,6 +15,7 @@ use App\Models\SellerWallet;
 use App\Models\Shop;
 use App\Models\Transaction;
 use App\Services\Fulfillment\FulfillmentHooks;
+use App\Services\Marketplace\RestockBudget;
 use App\Services\SalesChannels\Dispatch\ChannelOrderMarker;
 use Carbon\Carbon;
 use Exception;
@@ -671,24 +672,30 @@ class OrderRepository implements OrderRepositoryInterface
                     return;
                 }
 
+                // Only what a return has not already put back, and the variant floored on re-deduct —
+                // see OrderManager::getStockUpdateOnOrderStatusChange. This is the copy the admin and
+                // vendor panels run, so the fix has to be here too or the panel keeps the defect.
+                $units = app(RestockBudget::class)->unspentUnitsOf($detail['id'], $detail['qty']);
+                if ($units === 0) {
+                    return;
+                }
+
                 $type = $detail['variant'];
                 $variations = [];
                 foreach (json_decode($product['variation'], true) ?? [] as $variation) {
                     if ($type == $variation['type']) {
-                        // Floored on re-deduct, as in OrderManager::getStockUpdateOnOrderStatusChange. This is
-                        // the copy the admin and vendor panels run, so the fix has to be here too.
-                        $variation['qty'] = $restoring ? ($variation['qty'] + $detail['qty']) : max(0, $variation['qty'] - $detail['qty']);
+                        $variation['qty'] = $restoring ? ($variation['qty'] + $units) : max(0, $variation['qty'] - $units);
                     }
                     $variations[] = $variation;
                 }
                 $this->product->where(['id' => $product['id']])->update(['variation' => json_encode($variations)]);
 
                 if ($restoring) {
-                    $this->product->where(['id' => $product['id']])->increment('current_stock', $detail['qty']);
+                    $this->product->where(['id' => $product['id']])->increment('current_stock', $units);
                 } else {
                     $taken = $this->product->where('id', $product['id'])
-                        ->where('current_stock', '>=', $detail['qty'])
-                        ->decrement('current_stock', $detail['qty']);
+                        ->where('current_stock', '>=', $units)
+                        ->decrement('current_stock', $units);
                     if ($taken === 0) {
                         $this->product->where(['id' => $product['id']])->update(['current_stock' => 0]);
                     }

@@ -48,6 +48,7 @@ use App\Models\DeliverySyriaGovernorateRate;
 use App\Models\DeliverySyriaParcel;
 use App\Services\Fulfillment\FulfillmentHooks;
 use App\Services\Fulfillment\OrderItemOwnershipSnapshotter;
+use App\Services\Marketplace\RestockBudget;
 use App\Services\SalesChannels\Dispatch\ChannelOrderMarker;
 use App\Enums\Address\AddressChannel;
 use App\Services\Address\OrderAddressService;
@@ -127,27 +128,37 @@ class OrderManager
                     return;
                 }
 
+                // Only what a return has not already put back. This writer used to move the whole line
+                // however much of it had come back through a received return, so a partial return followed
+                // by marking the order returned put four units back for three that left. The line's
+                // quantity is a budget shared with the return receipt (RestockBudget); the flag above
+                // still guards the repeat, and this guards the overlap. Both directions use the same
+                // figure, so re-opening the line takes back exactly what this writer gave.
+                $units = app(RestockBudget::class)->unspentUnitsOf($detail['id'], $detail['qty']);
+                if ($units === 0) {
+                    return;
+                }
+
                 // Adjust the specific variant's quantity under the same lock.
                 $type = $detail['variant'];
                 $variationData = [];
                 foreach (json_decode($product['variation'], true) ?? [] as $var) {
                     if ($type == $var['type']) {
                         // Floored on re-deduct for the same reason current_stock is below: an out-of-band
-                        // stock edit while the order sat cancelled used to drive the variant JSON negative,
-                        // so a re-opened line left the panel showing -2 units of a colour.
-                        $var['qty'] = $restoring ? ($var['qty'] + $detail['qty']) : max(0, $var['qty'] - $detail['qty']);
+                        // stock edit while the order sat cancelled used to drive the variant JSON negative.
+                        $var['qty'] = $restoring ? ($var['qty'] + $units) : max(0, $var['qty'] - $units);
                     }
                     $variationData[] = $var;
                 }
                 Product::where(['id' => $product['id']])->update(['variation' => json_encode($variationData)]);
 
                 if ($restoring) {
-                    Product::where(['id' => $product['id']])->increment('current_stock', $detail['qty']);
+                    Product::where(['id' => $product['id']])->increment('current_stock', $units);
                 } else {
                     // Floor at zero on re-deduct so an out-of-band stock change can't drive it negative.
                     $taken = Product::where('id', $product['id'])
-                        ->where('current_stock', '>=', $detail['qty'])
-                        ->decrement('current_stock', $detail['qty']);
+                        ->where('current_stock', '>=', $units)
+                        ->decrement('current_stock', $units);
                     if ($taken === 0) {
                         Product::where(['id' => $product['id']])->update(['current_stock' => 0]);
                     }

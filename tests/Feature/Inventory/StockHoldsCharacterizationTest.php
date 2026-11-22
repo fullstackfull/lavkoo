@@ -29,6 +29,12 @@ use Tests\TestCase;
  * Characterization of the store's stock and of the holds placed on it, as the code behaves today: the order status writer's
  * `is_stock_decreased` guard, the return receipt's claim on that same flag, a provider fulfillment held and released, and a
  * channel reservation released. Tests named `..._currently_...` pin behaviour that looks wrong; they are findings, not fixes.
+ *
+ * Four of those pins have since been flipped by the fixes they called for, and are named for the behaviour they now assert:
+ * the variant of a re-opened cancelled line is floored at zero, a partial return followed by marking the order returned puts
+ * back exactly what left the shelf, a return typed for more units than the line held restocks the line's quantity and says
+ * so, and a restocked return of a variant line writes the variant too (that last one by #17). What is left named
+ * `..._currently_...` is still a finding: the reservation of a reinstated channel order, which is the owner's to decide.
  */
 class StockHoldsCharacterizationTest extends TestCase
 {
@@ -244,28 +250,46 @@ class StockHoldsCharacterizationTest extends TestCase
         $this->assertSame(52, $this->stock());
     }
 
-    public function test_a_partial_return_then_marking_the_order_returned_currently_restocks_more_units_than_the_line_held(): void
+    public function test_a_partial_return_then_marking_the_order_returned_restocks_exactly_what_left_the_shelf(): void
     {
         $this->storeProduct(self::PRODUCT, stock: 50);
         $this->storeOrder(self::ORDER, self::PRODUCT, 3);
 
         $result = app(ReturnLogisticsService::class)->receive($this->returnFor(1, $this->lineId()));
         $this->assertTrue($result['restocked']);
-        $this->assertSame([51, 1], [$this->stock(), $this->stockFlag()], 'a partial return never touches the flag');
+        $this->assertSame([51, 1], [$this->stock(), $this->stockFlag()], 'a partial return leaves the flag for the status writer, which now restores only the remainder');
 
         $this->changeStatus('returned');
 
-        $this->assertSame(54, $this->stock(), 'three units left the shelf and four came back: 1 by the receipt and 3 by the status writer');
+        $this->assertSame(53, $this->stock(), 'three units left the shelf and three came back: 1 by the receipt and the remaining 2 by the status writer');
+        $this->assertSame(0, $this->stockFlag());
     }
 
-    public function test_a_whole_line_return_for_more_units_than_the_line_currently_restocks_the_returns_quantity(): void
+    public function test_a_partial_return_received_after_the_order_was_marked_returned_restocks_nothing(): void
+    {
+        $this->storeProduct(self::PRODUCT, stock: 50);
+        $this->storeOrder(self::ORDER, self::PRODUCT, 3);
+        $this->changeStatus('returned');
+        $this->assertSame([53, 0], [$this->stock(), $this->stockFlag()]);
+
+        $result = app(ReturnLogisticsService::class)->receive($this->returnFor(1, $this->lineId()));
+
+        $this->assertFalse($result['restocked'], 'the status writer already put the whole line back: a part of it cannot come back again');
+        $this->assertSame(ReturnShipment::STATUS_RECEIVED, $result['return']->status);
+        $this->assertSame(53, $this->stock());
+    }
+
+    public function test_a_whole_line_return_for_more_units_than_the_line_restocks_the_lines_quantity_and_reports_the_clamp(): void
     {
         $this->storeProduct(self::PRODUCT, stock: 50);
         $this->storeOrder(self::ORDER, self::PRODUCT, 2);
 
-        app(ReturnLogisticsService::class)->receive($this->returnFor(5, $this->lineId()));
+        $result = app(ReturnLogisticsService::class)->receive($this->returnFor(5, $this->lineId()));
 
-        $this->assertSame([55, 0], [$this->stock(), $this->stockFlag()], 'the claim checks line qty <= return qty, then adds the return qty, not the line qty');
+        $this->assertSame([52, 0], [$this->stock(), $this->stockFlag()], 'two units left the shelf, so two came back whatever the return was typed for');
+        $this->assertSame(2, $result['restocked_units']);
+        $this->assertSame(['asked' => 5, 'restocked' => 2, 'line_held' => 2], $result['clamped'], 'the operator is told, not silently corrected');
+        $this->assertSame(5, (int) $result['return']->qty, 'what the operator typed is kept on the return itself');
     }
 
     public function test_a_restocked_return_of_a_variant_line_puts_the_units_back_on_the_variant_too(): void
