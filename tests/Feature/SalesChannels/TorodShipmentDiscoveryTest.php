@@ -16,8 +16,10 @@ use App\Services\SalesChannels\Shipments\NullShipmentLookup;
 use App\Services\SalesChannels\Shipments\ShipmentDiscovery;
 use App\Services\SalesChannels\Shipments\TorodShipmentLookup;
 use App\Services\SalesChannels\Sync\ChannelOrderIngestor;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Fulfillment\TorodTestCase;
 use Tests\Support\BuildsRemoteOrders;
 use Tests\Support\BuildsSalesChannelSchema;
@@ -31,6 +33,29 @@ class TorodShipmentDiscoveryTest extends TorodTestCase
     use CreatesChannelAccounts;
 
     private const ORDER = '10234567890';
+
+    /**
+     * How long before the run every fixture order here was bought.
+     *
+     * The discovery run measures the waiting time from the order's own purchase instant against the clock
+     * ({@see ShipmentDiscovery::waitedLongEnough}), and the shared fixture buys every order at a named
+     * calendar instant ({@see BuildsRemoteOrders::PURCHASED_AT}). Those two together are a date bomb: a
+     * test that leaves the instant as the fixture set it passes only while the real clock is still within
+     * the waiting time of that date, and from the moment it is not, the run hands every fixture order to a
+     * person and the test fails on the calendar rather than on a defect. It is not hypothetical — the same
+     * pairing already broke the dispatch tests once, which is why that world pins its clock instead.
+     *
+     * So the instant is pinned here, in the one place every test of this class gets its order from, rather
+     * than in each test that remembers to. A test that wants an order PAST the waiting time moves the
+     * instant itself and says so, which is the whole subject of one test below.
+     *
+     * The two sibling classes that read the same fixture against a window — OrderFreshnessTest and
+     * StockOutboxTest — answer this by pinning their own CLOCK in setUp instead, and either way works. The
+     * order's instant is pinned here rather than the clock because pinning the clock only hides the
+     * dependency, while pinning the instant removes it: what the run decides then rests on how long ago the
+     * order was bought and on nothing else, which is a property a test can assert, and one does below.
+     */
+    private const BOUGHT_HOURS_AGO = 10;
 
     private SalesChannelAccount $account;
 
@@ -49,7 +74,11 @@ class TorodShipmentDiscoveryTest extends TorodTestCase
     {
         $order = $this->remoteOrder($orderId, $package, ChannelOrderStatus::New, [$this->remoteLine('L1', 'SKU-1', 'SKU-1', 1, '100')], overrides: ['fulfillmentChannelRaw' => 'seller_pays', 'fulfillmentMode' => FulfillmentMode::MerchantManaged]);
         $mapping = app(ChannelOrderIngestor::class)->ingest($this->account, $order)->mapping;
-        $mapping->forceFill(['execution_policy' => 'externally_managed', 'shipment_link_state' => ExternalOrderMapping::LINK_UNLINKED])->save();
+        $mapping->forceFill([
+            'execution_policy' => 'externally_managed',
+            'shipment_link_state' => ExternalOrderMapping::LINK_UNLINKED,
+            'purchased_at' => now()->subHours(self::BOUGHT_HOURS_AGO),
+        ])->save();
 
         return $mapping->refresh();
     }
@@ -177,7 +206,6 @@ class TorodShipmentDiscoveryTest extends TorodTestCase
     public function test_an_order_still_without_a_shipment_after_the_waiting_time_is_handed_to_a_person_not_waited_for_for_ever(): void
     {
         $mapping = $this->followed();
-        $mapping->forceFill(['purchased_at' => now()->subHours(10)])->save();
         $this->torodList([]);
 
         $first = app(ShipmentDiscovery::class)->run();
@@ -207,6 +235,44 @@ class TorodShipmentDiscoveryTest extends TorodTestCase
         $counts = app(ShipmentDiscovery::class)->run();
 
         $this->assertSame([1, 'DELIVERED'], [$counts['status_updated'], $this->fresh($mapping)->shipment_status]);
+    }
+
+    /**
+     * The property the pinned purchase instant buys, asserted rather than assumed: what the run does with a
+     * followed order is decided by how long ago that order was bought, never by today's date.
+     *
+     * Each case moves the clock to a different distance from the instant the shared fixture buys its orders
+     * at, including the years past it where the real clock already is. Take the pin out of `followed()` and
+     * every case but the first fails — which is precisely how this class failed in CI, on the calendar, on
+     * every branch cut from main.
+     */
+    #[DataProvider('clocksAtEveryDistanceFromTheFixturesOwnDate')]
+    public function test_the_waiting_time_is_measured_from_the_order_not_from_todays_date(string $clock): void
+    {
+        $this->travelTo(CarbonImmutable::parse($clock));
+        $mapping = $this->followed();
+        $this->torodList([]);
+
+        $counts = app(ShipmentDiscovery::class)->run();
+
+        $this->assertSame(
+            [0, ExternalOrderMapping::LINK_UNLINKED],
+            [$counts['handed_to_a_person'], $this->fresh($mapping)->shipment_link_state],
+            'an order bought ' . self::BOUGHT_HOURS_AGO . ' hours before the run is inside the waiting time on any date',
+        );
+    }
+
+    /** @return array<string, list<string>> */
+    public static function clocksAtEveryDistanceFromTheFixturesOwnDate(): array
+    {
+        $bought = CarbonImmutable::parse(self::PURCHASED_AT);
+
+        return [
+            'the hour the fixture buys its orders' => [$bought->toDateTimeString()],
+            'a day after it, when the waiting time has run out' => [$bought->addDay()->toDateTimeString()],
+            'a year after it' => [$bought->addYear()->toDateTimeString()],
+            'five years after it' => [$bought->addYears(5)->toDateTimeString()],
+        ];
     }
 
     public function test_the_command_reports_what_it_did(): void
