@@ -686,7 +686,7 @@ class ThePlatformAddressConfirmsWhatExpectsItTest extends CompanyAccountsTestCas
     }
 
     /**
-     * THE CONTROL OF THE CONTROL: with every lever in place the platform address still refuses a payment whose address IS live.
+     * THE CONTROL OF THE CONTROL: with NO lever applied and the account in good order, the platform address still refuses a payment whose address IS live.
      *
      * Without this, the provider above could be passed by a method that simply never refuses anything. The one lever-free row of the provider says
      * the same thing, and this says it about the account's own state rather than about the absence of a disturbance: the account is active, listed,
