@@ -22,12 +22,12 @@ As of 2026-11-22. Generated from the independent assessment of every requirement
 | [F. Themes and brand](tracker/axis-f-themes-and-brand.md) | 16 | 77 | 42 | 13 | 22 | 71% | 55% | 4% | all |
 | [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 102 | 59 | 13 | 30 | 71% | 58% | 15% | all |
 | [H. Shipping and integrations](tracker/axis-h-shipping-and-integrations.md) | 34 | 157 | 79 | 13 | 65 | 59% | 50% | 16% | all |
-| [I. Marketing, policies and operations](tracker/axis-i-marketing-policies-and-operations.md) | 37 | 185 | 85 | 44 | 56 | 70% | 46% | 3% | all |
+| [I. Marketing, policies and operations](tracker/axis-i-marketing-policies-and-operations.md) | 37 | 185 | 86 | 47 | 52 | 72% | 46% | 3% | all |
 | [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 98 | 46 | 27 | 25 | 74% | 47% | 5% | all |
 | [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 104 | 40 | 30 | 34 | 67% | 38% | 3% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 49 | 14 | 31 | 67% | 52% | 7% | all |
 | [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 311 | 106 | 118 | 87 | 72% | 34% | 3% | all |
-| **All axes (pooled)** | **359** | **1753** | **853** | **376** | **524** | **70%** | **49%** | **8%** | |
+| **All axes (pooled)** | **359** | **1753** | **854** | **379** | **520** | **70%** | **49%** | **8%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -371,7 +371,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [I1-03](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 0/1/4 | Notification templates: global, with country and language overrides |
 | [I1-04](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 1/0/4 | Marketing audiences are isolated by store |
 | [I1-05](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 0/2/3 | Push topics do not overlap between markets |
-| [I1-06](tracker/axis-i-marketing-policies-and-operations.md) | NOT STARTED | 0/0/4 | Order notifications are built from the store that created the order |
+| [I1-06](tracker/axis-i-marketing-policies-and-operations.md) | NOT STARTED | 1/3/0 | Order notifications are built from the store that created the order |
 | [I1-07](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 2/2/0 | Necessary notifications for old orders continue when a store stops selling |
 | [I1-08](tracker/axis-i-marketing-policies-and-operations.md) | NOT STARTED | 1/3/0 | Marketing sends respect consent |
 | [I1-09](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 0/2/3 | Notification sends are idempotent and logged |

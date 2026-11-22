@@ -4305,6 +4305,170 @@ def load_all():
     return data
 
 
+# ---------------------------------------------------------------------------
+# I1-06, an order's notifications built from the order's own storefront.
+# PR 164, branch gcc/p1-order-notifications-per-storefront, head
+# 7509c94ced9aa9ba9e4fb1a796ef94b70fb639b9, DRAFT, base
+# gcc/p1-storefront-currency @ fd40399c (itself stacked on
+# gcc/p1-admin-product-country @ 216c2795). main untouched at c5c04b7b.
+# Four commits: a characterization pin, the binding, a round that fixed SIX
+# surviving mutations in the lane's OWN TESTS without touching an application
+# file, and a round that fixed three real defects both reviews found.
+#
+# THE ROUND LOWERED ONE OF ITS OWN RULINGS. Criterion 3 was proposed MET by the
+# implementer and the fix round downgraded it to CODED on reviewer A's
+# measurement, which it reproduced; and it withdrew a characterization pin from
+# carrying the criterion at all, on the ground that the pin "cannot fail if the
+# whole feature is deleted". That is the discipline this record is supposed to
+# have, so it is written down rather than smoothed over.
+#
+# What I checked myself at that head rather than taking the lane's word:
+#   * run 45054113738 has head_sha 7509c94c and 22 of 23 jobs success. The two
+#     jobs that run this directory are success -- 'Storefront tests, MySQL 8'
+#     (137305443243) and 'Storefront tests, MariaDB 11.4.2' (137305443119) --
+#     and so are both SQLite jobs, the strict-mode job, both Address jobs, both
+#     Fulfillment+security jobs and all TEN sales-channel/cost jobs on both
+#     engines. The single failure is 'Deployment overlay (artifact, deploys
+#     nothing)' (137305443128), which is red by design on every run and base.
+#     Note for the record: this branch line's sales-channel N-Z jobs are GREEN,
+#     unlike main's, so the Torod calendar red is not inherited here.
+#   * the storefront group moved 618 tests / 2062 assertions at the previous
+#     head to 634 / 2104 here, and the whole SQLite suite 6907 / 794832 to
+#     6923 / 794874 -- exactly +16 tests and +42 assertions in both, which is
+#     positive evidence this round's tests EXECUTED rather than were merely
+#     handed to phpunit.
+#   * I read three of the decisive tests myself at that head:
+#     - test_two_orders_of_different_storefronts_notified_by_one_worker_do_not_inherit_each_other
+#       queues two real order-placed notifications for a Kuwaiti and a Saudi
+#       order inside one process while the request itself is served from AE, and
+#       asserts the first push goes to 'kw-rider' with the money the order holds
+#       and an Arabic title, the second to 'sa-rider' with the platform
+#       conversion and an English title, and that AE is bound again afterwards.
+#       A second job that inherited the first market, or took the request's,
+#       fails it.
+#     - test_the_locale_does_not_walk_from_one_send_to_the_next_on_an_api_request
+#       sets the locale to 'sa' on an /api request and fires the same event FOUR
+#       times, asserting four pushes and that the locale is still 'sa'. This is
+#       the defect the fix round found (the locale walked sa -> ar -> es and
+#       modified a tracked language file), now pinned.
+#     - test_the_storefront_and_the_language_are_put_back_when_a_notification_fails
+#       throws out of the callback and asserts the AE storefront, the 'en'
+#       locale and a null session language are all restored.
+# ---------------------------------------------------------------------------
+
+_I106_HEAD = ('\n\nPR 164 (DRAFT) head 7509c94ced9aa9ba9e4fb1a796ef94b70fb639b9, base gcc/p1-storefront-currency '
+              '@ fd40399c, which is itself stacked on gcc/p1-admin-product-country @ 216c2795; main untouched. '
+              'CI run 45054113738 on that head: 22 of 23 jobs success, the only failure being the deployment '
+              'overlay that is red by design on every run and base. Both jobs that run this directory are '
+              'success -- Storefront tests MySQL 8 (137305443243) and MariaDB 11.4.2 (137305443119) -- as are '
+              'both SQLite jobs, strict mode, both Address jobs, both Fulfillment+security jobs and all ten '
+              'sales-channel/cost jobs on both engines. The storefront group moved 618/2062 to 634/2104 and the '
+              'whole SQLite suite 6907/794832 to 6923/794874: exactly +16 tests and +42 assertions in both, '
+              'which is evidence of execution and not merely of path handling. I read the job conclusions and '
+              'three of the decisive tests myself at that head.')
+
+_I106_RAISES = [
+    ('I1-06', 0, 'CODED',
+     'CODED on PR 164. Of the criterion\'s four words, LANGUAGE and CURRENCY are proved. Language for every '
+     'recipient the senders name and for the two they deliberately skip: the buyer (push title in Arabic, not '
+     '"Order"; e-mail template title in Arabic, not "Your order is placed"; and the same on an /api request, '
+     'where getDefaultLanguage answers from the locale), the delivery man, the seller against a buyer who reads '
+     'a DIFFERENT language, the vendor\'s own order-received e-mail, the till\'s buyer, and the promoter and '
+     'admin who deliberately read the platform\'s. Currency for the push AND the e-mail body: deliveryman_charge '
+     'moves from the platform conversion to the money the order holds, and every amount in the order-placed body '
+     'likewise, rendered by the REAL mailer inside the wrap rather than under Mail::fake(), which leaves the '
+     'view unrendered. NOT PROVED: "profile" and "template". A per-storefront mail/SMS/push profile is '
+     'requirement I1-01 and exists in NO branch (MailConfigServiceProvider still replaces the whole mail config '
+     'once at boot; there is no notification_channel_profiles table anywhere). Per-country notification '
+     'templates are I1-03 and exist in no branch (email_templates, notification_messages and '
+     'notification_template_mappings have no store column). This slice cannot meet criterion 1 however good it '
+     'is, and does not claim to. Also not proved within "currency", both added by the review round on its own '
+     'measurements: the amount is the order\'s money only while that market\'s currency row is ACTIVE (with the '
+     'row switched off the push shows the platform conversion, which is the base layer\'s contract, now pinned), '
+     'and the push carries no currency code or symbol beside the number, so the apps decide how to read it. '
+     'Named tests: nine in tests/Feature/Storefront/OrderNotificationStorefrontTest.php, seven for language and '
+     'two for currency; 32 tests / 108 assertions on SQLite and on MariaDB 10.11.14.'),
+
+    ('I1-06', 1, 'MET',
+     'MET under the owner\'s definition of 2026-11-22, on PR 164 head 7509c94c. Two orders of different '
+     'storefronts, each notified by a real CallQueuedListener executed by SyncJob in ONE PHP process one after '
+     'the other: job 1 goes to the Kuwaiti rider with the money the order holds and that rider\'s Arabic title, '
+     'job 2 to the Saudi rider with the platform conversion and the English title, NEITHER takes the AE '
+     'storefront of the request that queued them, and AE is bound again afterwards. I read that test myself: a '
+     'second job that inherited the first market, or took the request\'s, fails it. Reviewer A asked for this to '
+     'be CODED and named three reasons; the fix round closed all three, which is why it stands MET rather than '
+     'because anyone disagreed: the seventh queued listener (DigitalProductDownloadListener) is now wrapped and '
+     'driven and the enumeration shown complete; the language is now put back for EVERY recipient and not only '
+     'those who set app_language -- the defect where the locale walked sa -> ar -> es and modified a tracked '
+     'language file is pinned by a test that fires the same event four times on an /api request and asserts the '
+     'locale is unchanged; and the money is no longer defeasible by an enclosing StorefrontCurrency::within. '
+     'Killed by 9 of the round\'s 30 mutations. NOT PROVED, a scope limitation on the record rather than a gap '
+     'in the wording: "the same worker" is proved on QUEUE_CONNECTION=sync -- a real CallQueuedListener resolved '
+     'through the container and executed by SyncJob in one process -- not against a running `php artisan '
+     'queue:work` on a database or Redis queue, and no test serialises and restores a job. A reviewer who '
+     'requires an out-of-process worker would want one more test. Named tests: seven in '
+     'tests/Feature/Storefront/OrderNotificationStorefrontTest.php, including '
+     '::test_two_orders_of_different_storefronts_notified_by_one_worker_do_not_inherit_each_other, '
+     '::test_the_locale_does_not_walk_from_one_send_to_the_next_on_an_api_request and '
+     '::test_the_storefront_and_the_language_are_put_back_when_a_notification_fails, all three of which I read '
+     'at that head.'),
+
+    ('I1-06', 2, 'CODED',
+     'CODED on PR 164 — AND THE LANE LOWERED THIS ITSELF from the MET its implementer proposed, on reviewer A\'s '
+     'measurement, which the fix round reproduced. PROVED: "an order with no storefront record is notified as '
+     'the default Saudi storefront". An order whose storefront_country is NULL produces a push with the platform '
+     'conversion and the English title with both switches on, and does so even when the sending request is '
+     'served from Kuwait; a record that is not a country code (null, empty, "ZZZ", an array, an int) resolves to '
+     'SA as well; and a record that is a well-formed but unconfigured code binds that code with no currency in '
+     'force, so its amounts stay the platform\'s. NOT PROVED: the words "exactly as today". They hold while the '
+     'switches are off and in a queue, where nothing is bound, and are FALSE inside a process already narrowed '
+     'to another market: measured as the market\'s money on the base head fd40399c and as the platform\'s here, '
+     'for a recordless order notified inside a payment taken in another market. The difference is deliberate -- '
+     'a legacy order\'s amounts are in the platform\'s money -- but it IS a difference and the words were '
+     'covering it, so it is now pinned by a test of its own instead. ALSO WITHDRAWN from this ruling on reviewer '
+     'B\'s measurement: the characterization pin '
+     '::test_an_order_with_no_storefront_record_is_notified_as_the_default_storefront cannot fail if the whole '
+     'feature is deleted -- it is green on the base application code -- so it cannot carry a criterion, and it '
+     'no longer does. Named tests: four others in OrderNotificationStorefrontTest.php.'),
+
+    ('I1-06', 3, 'CODED',
+     'CODED on PR 164. PROVED: "amounts shown in a push are in the order\'s currency", for the one amount any '
+     'order push actually carries -- deliveryman_charge moves from the platform\'s conversion of the stored '
+     'figure to the money the order holds, whose recorded currency_code is that market\'s, and it now does so '
+     'even inside a process narrowed to another market\'s money, which it did not before the fix round. And, by '
+     'measurement on the real payloads rather than by reading the code, that "due payment" and "refund" pushes '
+     'carry NO amount of money at all, so there is nothing in them to put in the order\'s currency. NOT PROVED: '
+     '"cash collect". CashCollectEvent carries no order -- only a key, a type, a language, a float and an FCM '
+     'token -- and its two dispatchers hand over a rider\'s cash-in-hand across many orders; reviewer A verified '
+     'independently that DeliveryManCashCollectController already converts the amount in its own request before '
+     'dispatch, so a context would have nothing left to do, and cashCollectNotification is untouched. Also not '
+     'proved: that the number is LABELLED with the order\'s currency (the payload carries no code, symbol or '
+     'decimals field); that the amount is the order\'s money while that market\'s currency row is inactive '
+     '(measured: it is the platform\'s, now pinned); and that getCurrencyCode() would answer the order\'s '
+     'currency with a stale session(\'system_default_currency_info\') present, which it would not. Named tests: '
+     'four in OrderNotificationStorefrontTest.php plus '
+     'OrderNotificationTodayTest::test_with_the_switches_off_the_delivery_charge_in_a_push_is_the_platform_conversion_it_has_always_been '
+     'for the before figure.'),
+]
+
+_load_all_before_i106 = load_all
+
+
+def load_all():
+    data = _load_all_before_i106()
+    pending = {(rid, idx) for rid, idx, _, _ in _I106_RAISES}
+    for rid, idx, state, evidence in _I106_RAISES:
+        for unit in data:
+            for requirement in data[unit]['reqs']:
+                if requirement['id'] == rid and idx < len(requirement['ac']):
+                    requirement['ac'][idx]['s'] = state
+                    requirement['ac'][idx]['e'] = requirement['ac'][idx]['e'] + ' // ' + evidence + _I106_HEAD
+                    pending.discard((rid, idx))
+    if pending:
+        raise SystemExit('I1-06 block: these raises matched no criterion, so nothing was written: %s' % sorted(pending))
+    return data
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
