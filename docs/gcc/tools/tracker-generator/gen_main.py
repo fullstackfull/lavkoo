@@ -3187,6 +3187,65 @@ _t = _p[2][0]
 _p[2] = (_t, 'CODED', "**MISSING -> CODED on 2026-11-21, by consequence AND by its own assertion.** PR 151 (draft, gcc/security-gateway-confirmations, head 13bfc69e, base main). The bonus is computed per ledger row inside create_wallet_transaction, so once the credit happens once per payment the bonus does too -- but that is an argument, and this criterion is not recorded on an argument. The test asserts the figure: test_a_payment_handed_over_twice_is_credited_once_with_one_bonus_and_one_notice sets up a bonus tier, hands one payment over twice, and asserts there is ONE ledger row whose admin_bonus equals the tier exactly -- so a second bonus would be a second row and the count would fail, and a halved or doubled bonus on the one row would fail the figure. The notice is counted in the same test, which is the other thing a replay duplicates. CI READ JOB BY JOB on this head (run 44939257592): 21 jobs. GREEN: both PHP syntax jobs, the secret/personal-data scan, Address tests on MySQL 8 and on MariaDB 11.4.2, Fulfillment+security tests on MySQL 8 and on MariaDB 11.4.2, and every sales-channel and cost group on both engines except one. FIVE jobs are red and **every one of them fails on exactly one test, and it is the same test on all five** -- TorodShipmentDiscoveryTest::test_the_scheduled_run_links_what_appeared_later..., whose fixture takes its purchase time from the clock. That failure is pre-existing, is red on main, and its one-line repair has been sitting as draft pull request 1 since the start of this work. The figures behind those reds are the evidence: the whole suite on SQLite is **6,324 tests and 792,815 assertions with that single failure**, on PHP 8.2 and again on 8.3; strict-mode MariaDB 11.4.2 is **4,021 tests and 35,468 assertions with the same single failure**; the two sales-channel N-Z groups are 748 tests and 4,606 assertions each, same single failure. The deployment-overlay job is red by design on every run and every base and is not a required check. **I HAD CLOSED THIS ITEM ON LOCAL RUNS ALONE AND HAD NOT READ ITS CI; reading it is what produced the figures above, and it also showed that nothing on this branch is responsible for any red job.** WHY CODED AND NOT MET: a draft on main, dormant until its migration runs, and MET needs the independent verification step. NOT FIXED BY THIS, and kept MISSING deliberately: this requirement's conversion criterion. The triple conversion of a gateway top-up and the floor that takes a minor unit off 287 of the 5,000 two-decimal amounts from 0.01 to 50.00 are untouched here -- a different defect in a different function, and it is not made better or worse by crediting once.")
 
 
+# D1-06. Feature group 6 (PR 153, draft, branch gcc/p1-order-currency-on-every-surface, head b7ea97b6, base main c5c04b7b through
+# gcc/p1-checkout-currency-context ccb490a1). Two independent adversarial reviewers both ruled the pre-fix head 63dd2f8f DEFECTIVE; one
+# fix round answered them and changed six behaviours, three of which were money errors. Ruled by the implementer defaulting to the
+# lower state, and nothing raised to MET, because every figure below was measured by the harness its own author wrote.
+CRITERIA.setdefault('D1-06', {})[0] = ('CODED', 'PR 153 (draft, head b7ea97b6): the four money-row tables carry additive nullable '
+    'currency_code and currency_rate written from the order\u2019s own record \u2014 order_details, order_transactions, refund_requests, '
+    'refund_transactions \u2014 and every writer is mutation-proved: NINE of nine call sites, each commented out in turn with the named test '
+    'that went red (OrderManager.php:311 the seller-delivery test; :1684 two tests; :2184 the non-cash-checkout test; RestAPI/v1/OrderController '
+    'two; the seller-app till two stored amounts; Admin/Order/RefundController two; Web/UserProfileController one; OrderRepository.php:898 two; '
+    'OrderEditManager one), plus the ORDERING trap (stamp written before record) and the DOCUMENTED IDEMPOTENCY (whereNull dropped) \u2014 eleven '
+    'mutations, all eleven caught. Engines on b7ea97b6: OrderCurrencyOnEverySurfaceTest + OrderMoneyRowCurrencyTest + StorefrontMoneyAndSeoTest '
+    '73 tests / 526 assertions green on SQLite AND on MariaDB 10.11.14 (-c phpunit.mysql.xml, DB dfix_test created and dropped, 39 tables in '
+    'information_schema as proof the server and not SQLite answered); tests/Feature/Storefront + ApiSellerAddressTest + OrderGuardAndStorefrontTest '
+    '1,227 / 5,883 (2 skipped) on SQLite and 1,265 / 6,092 on MariaDB. The real engine also caught three engine-dependent assertions of the '
+    'implementer\u2019s own (a 10.555 price that decimal(16,2) cannot hold) and a missing sellers.gst fixture column that SQLite had hidden. '
+    'php -l clean on every changed file before every commit; git diff -- resources/lang/ checked before every commit and NOT empty once (the '
+    'empty-period report test made translate() write seven keys into resources/lang/en/new-messages.php, reverted before that commit and 0 lines '
+    'after the final runs on both engines); leak guard exits 0 before each push. NOT MET, four reasons stated by the implementer: no independent '
+    'verification step exists, every figure here being self-measured; order_item_commissions.currency is still a money row whose currency column '
+    'writes the system default over an amount in the storefront\u2019s currency; three order-creating paths record no currency because their ORDERS '
+    'carry none; and the per-row decimal places are still read from the platform setting at print time, which is criterion 4.')
+CRITERIA['D1-06'][2] = ('CODED', CRITERIA['D1-06'][2][1] + ' \u2014\u2014 AND NOW THE OTHER THREE SURFACES, 2026-11-22. The latent TypeError '
+    'recorded above rather than papered over turned out to be exactly this: it was the live HTTP 500 below, and it is fixed here. '
+    'PR 153 (draft, head b7ea97b6): BEFORE, measured through the real routes on a Kuwaiti order of 30.000 KD placed '
+    'by a real cash-on-delivery API checkout (real cart route, signed-in customer, their own saved address, X-Storefront KW) on a platform holding '
+    'amounts in a base unit with the riyal at 3.75 \u2014 the customer invoice was an outright HTTP 500 (getCurrencyCode(): Return value must be of '
+    'type string, null returned) and, with only that fault fixed, printed 112.50SAR; the panel invoice 112.50SAR; the order export 112.50SAR; both '
+    'order e-mails 112.50SAR, read where production writes them (OrderPlacedListener is ShouldQueue, so the queued job was run the way a worker runs '
+    'it, with the checkout\u2019s request, session and bound storefront gone); two orders in one export 937.50SAR / 0.00SAR / 112.50SAR; and the same '
+    'Kuwaiti invoice served by the Emirati storefront printed 30.00AED \u2014 a dirham sign put on a Kuwaiti sale with no conversion at all. 112.50 is '
+    '30 x 3.75 and 937.50 is 250 x 3.75: figures nobody was charged. AFTER, same method, same routes: 30.000KD on all of them; two orders in one '
+    'export print 30.000KD beside 250.00AED, three decimals of dinars next to two of dirhams in one document, with 112.50SAR and 937.50SAR both '
+    'absent; the Emirati-served Kuwaiti invoice 30.000KD; after an administrator prints that invoice session(currency_code) is still SAR, so the '
+    'document does not change the money its reader is shown next; and an order whose currency row has been switched off still prints 30.000KD. '
+    'MECHANISM: StorefrontCurrency::withinOrderCurrency puts the order\u2019s OWN recorded currency in force for currency_model, '
+    'decimal_point_settings, the code and the symbol, read from the order\u2019s record and not from the request or the storefront switch; called at '
+    'the five invoice render sites (website, customer app, panel, vendor panel, the seller app\u2019s SellerInvoiceService), at '
+    'OrderManager::storeInvoice (the mail attachment) and at EmailTemplateTrait::sendingMail, the one seam every order mail passes through; the '
+    'exports use a per-cell orderMoney(order, amount) helper because no single currency can be put in force for a page whose rows are different '
+    'sales. Twelve surfaces each neutralised in turn and all twelve caught by a named test. DORMANCY CORRECTION, recorded by the implementer rather '
+    'than hidden: the byte-identical proof (123,493 bytes, 0 differing, across two worktrees with the vendor/composer hardlink broken and '
+    'composer dump-autoload run separately in each) was measured on a MULTI-currency platform, where the default storefront records no currency; on a '
+    'SINGLE-currency platform the default storefront IS stamped, and there the change was NOT byte-identical \u2014 it replaced the operator\u2019s '
+    'decimals and floored a charged 10.555 to 10.55. Found by the reviewers, fixed, and re-proved by the base/head diff. NOT MET: three and a half of '
+    'four surfaces. Courier cash holds from PR 147 and is not this work; invoice holds on all five render sites and both app paths, and the API route '
+    'now renders at all rather than raising a compact() error; e-mail holds at the one seam; export holds on four of seven export documents, with the '
+    'order report PDF a fifth document that was printing one riyal total over a period of several currencies \u2014 but the three export documents '
+    'whose rows are TRANSACTION rows do not, and RefundTransactionService::getPDFData() still sums across currencies on a route that cannot run '
+    '(compact($PDFData) resolves nothing and data(Y) is not a function, so it throws before it reaches any money; fixing a dead route\u2019s '
+    'arithmetic is a change nobody can verify). And there is no independent verification step.')
+CRITERIA['D1-06'][3] = ('MISSING', 'Two-decimal rounding in Convert and in the commission code (E09-F10). PARTIAL after PR 153 (head b7ea97b6), and left MISSING on the lower-state rule: how many decimals a PRINTED '
+    'ORDER figure uses is decided by this work after all, because the order\u2019s own currency answers decimal_point_settings \u2014 proved by '
+    'test_a_dinar_order_keeps_the_three_decimals_of_its_currency_over_an_operator_who_set_two (30.000KD) and by '
+    'test_a_single_currency_shop_prints_its_own_order_with_the_decimals_its_operator_set (10.555SAR), each with the mutation that went red. But the '
+    'criterion names order, WALLET and COMMISSION, and the wallet and commission rounding are untouched; order_item_commissions.currency still '
+    'writes the system default over an amount in the storefront\u2019s currency. A minor-unit field before any 1/1000-currency market remains an '
+    'open owner decision.')
+EXTRA_LINKS.setdefault('D1-06', []).append({'repo': 'lavkoo', 'pr': 153, 'sha': 'b7ea97b6'})
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
