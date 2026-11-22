@@ -179,7 +179,7 @@ class RestockThroughTheRealRoutesTest extends AdminPagesTestCase
     protected function authorizedReturn(int $quantity, int $lineId): ReturnShipment
     {
         return ReturnShipment::create([
-            'reference' => 'RMA-' . $quantity . '-' . $lineId,
+            'reference' => 'RMA-' . $quantity . '-' . $lineId . '-' . (ReturnShipment::count() + 1),
             'order_id' => self::ORDER,
             'order_details_id' => $lineId,
             'product_id' => self::PRODUCT,
@@ -381,6 +381,61 @@ class RestockThroughTheRealRoutesTest extends AdminPagesTestCase
             OrderManager::getStockUpdateOnOrderStatusChange(Order::findOrFail(self::ORDER), 'returned');
             $this->assertSame([10, 1], $this->shelfAndClaim($lineId), "cycle {$cycle}: returned again");
         }
+    }
+
+    // ---- a receipt that can put nothing back must leave the line's claim alone -------------------------------------------
+
+    public function test_a_second_genuine_return_of_a_re_opened_line_leaves_the_line_claimed(): void
+    {
+        // The goods really are on the receiving desk a second time, and the budget has no room for them
+        // (the limitation pinned above). What this must not do is take the line's claim on the way past:
+        // the claim said the units were on the shelf while they were on the desk, and the order status
+        // change that followed could not restore them either, because the claim was already gone.
+        $lineId = $this->soldLine(3);
+        $this->receiveThroughThePanel($this->authorizedReturn(3, $lineId));
+        $this->changeStatusThroughThePanel('processing');
+        $this->assertSame([50, 1], $this->shelfAndClaim($lineId));
+
+        $second = $this->authorizedReturn(3, $lineId);
+        $this->receiveThroughThePanel($second);
+
+        $this->assertSame([50, 1], $this->shelfAndClaim($lineId), 'nothing goes back, and the claim stays with the line');
+        $this->assertSame(ReturnShipment::STATUS_RECEIVED, $second->fresh()->status, 'a receipt that restocked nothing is received, not restocked');
+        $this->assertSame([[StockMovement::TYPE_RETURN, 3, 53, null]], $this->reading()['movements'], 'and writes no movement row for a non-event');
+
+        $this->changeStatusThroughThePanel('returned');
+        $this->assertSame([50, 1], $this->shelfAndClaim($lineId));
+    }
+
+    public function test_a_receipt_against_a_line_of_no_units_takes_neither_stock_nor_the_claim(): void
+    {
+        // A line of quantity zero holds no units, so there is nothing to put back. The claim used to be
+        // flipped all the same, because "this return completes the line" is true of any return against a
+        // line of nothing.
+        $lineId = $this->soldLine(0);
+
+        $this->receiveThroughThePanel($rma = $this->authorizedReturn(2, $lineId));
+
+        $this->assertSame([50, 1], $this->shelfAndClaim($lineId));
+        $this->assertSame(ReturnShipment::STATUS_RECEIVED, $rma->fresh()->status);
+    }
+
+    public function test_a_partial_receipt_after_the_line_went_round_the_cycle_leaves_the_claim_alone(): void
+    {
+        // Two partial receipts complete the line, the order is re-opened, and a third partial arrives.
+        $lineId = $this->soldLine(3);
+        $this->receiveThroughThePanel($this->authorizedReturn(1, $lineId));
+        $this->receiveThroughThePanel($this->authorizedReturn(2, $lineId));
+        $this->assertSame([53, 0], $this->shelfAndClaim($lineId));
+
+        $this->changeStatusThroughThePanel('processing');
+        $this->assertSame([50, 1], $this->shelfAndClaim($lineId));
+
+        $this->receiveThroughThePanel($third = $this->authorizedReturn(1, $lineId));
+
+        $this->assertSame([50, 1], $this->shelfAndClaim($lineId));
+        $this->assertSame(ReturnShipment::STATUS_RECEIVED, $third->fresh()->status);
+        $this->assertCount(2, $this->reading()['movements'], 'the two receipts that put units back, and no third row');
     }
 
     // ---- (c) a return for more units than the line held --------------------------------------------------------------------

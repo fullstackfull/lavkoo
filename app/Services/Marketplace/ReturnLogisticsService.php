@@ -133,12 +133,18 @@ class ReturnLogisticsService
                     $alreadyBack = $budget->unitsAlreadyBack($rma->order_details_id, $line->qty);
                     $restockedUnits = min((int) $rma->qty, $budget->unspentUnitsOf($rma->order_details_id, $line->qty));
 
-                    $completesTheLine = $alreadyBack + (int) $rma->qty >= max(0, (int) $line->qty);
-                    $mayRestock = $completesTheLine
-                        ? $this->claimTheLinesRestore($rma->order_details_id)
-                        : (int) $line->is_stock_decreased === 1;
-
-                    $mayRestock = $mayRestock && $restockedUnits > 0;
+                    // A receipt that will put NOTHING back must not take the line's claim. The claim was
+                    // taken before this was known, so a receipt of goods the budget had no room for flipped
+                    // is_stock_decreased to 0 and restocked nothing: the record then said the units were on
+                    // the shelf while they were on the receiving desk, and the order status change that
+                    // followed could not restore them either because the claim was gone.
+                    $mayRestock = false;
+                    if ($restockedUnits > 0) {
+                        $completesTheLine = $alreadyBack + (int) $rma->qty >= max(0, (int) $line->qty);
+                        $mayRestock = $completesTheLine
+                            ? $this->claimTheLinesRestore($rma->order_details_id)
+                            : (int) $line->is_stock_decreased === 1;
+                    }
 
                     if ($restockedUnits < (int) $rma->qty) {
                         // The operator asked for more units than the line can give back. Never silent: the
