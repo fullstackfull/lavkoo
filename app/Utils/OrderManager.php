@@ -132,7 +132,10 @@ class OrderManager
                 $variationData = [];
                 foreach (json_decode($product['variation'], true) ?? [] as $var) {
                     if ($type == $var['type']) {
-                        $var['qty'] = $restoring ? ($var['qty'] + $detail['qty']) : ($var['qty'] - $detail['qty']);
+                        // Floored on re-deduct for the same reason current_stock is below: an out-of-band
+                        // stock edit while the order sat cancelled used to drive the variant JSON negative,
+                        // so a re-opened line left the panel showing -2 units of a colour.
+                        $var['qty'] = $restoring ? ($var['qty'] + $detail['qty']) : max(0, $var['qty'] - $detail['qty']);
                     }
                     $variationData[] = $var;
                 }

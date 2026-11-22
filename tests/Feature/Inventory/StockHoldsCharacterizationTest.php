@@ -186,7 +186,7 @@ class StockHoldsCharacterizationTest extends TestCase
         $this->assertSame([50, 1], [$this->stock(), $this->stockFlag()]);
     }
 
-    public function test_re_opening_a_cancelled_line_floors_current_stock_at_zero_but_currently_drives_the_variant_negative(): void
+    public function test_re_opening_a_cancelled_line_floors_both_current_stock_and_the_variant_at_zero(): void
     {
         $this->storeProduct(self::PRODUCT, stock: 50, variation: json_encode([['type' => 'Red', 'price' => 10, 'sku' => 'R', 'qty' => 20]]));
         $this->storeOrder(self::ORDER, self::PRODUCT, 3, variantKey: 'Red');
@@ -197,7 +197,7 @@ class StockHoldsCharacterizationTest extends TestCase
         $this->changeStatus('processing');
 
         $this->assertSame(0, $this->stock(), 'the conditional decrement refused, so current_stock was set to 0 instead of 1 - 3');
-        $this->assertSame(-2, $this->variantQuantity('Red'), 'the variant JSON is decremented without a floor');
+        $this->assertSame(0, $this->variantQuantity('Red'), 'the variant JSON is floored the same way current_stock is: 1 - 3 cannot be -2 units of Red');
         $this->assertSame(1, $this->stockFlag());
     }
 

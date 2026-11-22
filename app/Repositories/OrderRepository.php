@@ -675,7 +675,9 @@ class OrderRepository implements OrderRepositoryInterface
                 $variations = [];
                 foreach (json_decode($product['variation'], true) ?? [] as $variation) {
                     if ($type == $variation['type']) {
-                        $variation['qty'] = $restoring ? ($variation['qty'] + $detail['qty']) : ($variation['qty'] - $detail['qty']);
+                        // Floored on re-deduct, as in OrderManager::getStockUpdateOnOrderStatusChange. This is
+                        // the copy the admin and vendor panels run, so the fix has to be here too.
+                        $variation['qty'] = $restoring ? ($variation['qty'] + $detail['qty']) : max(0, $variation['qty'] - $detail['qty']);
                     }
                     $variations[] = $variation;
                 }
