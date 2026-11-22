@@ -8,6 +8,8 @@ use App\Contracts\Repositories\PasswordResetRepositoryInterface;
 use App\Contracts\Repositories\ProductRepositoryInterface;
 use App\Contracts\Repositories\StorageRepositoryInterface;
 use App\Enums\Address\AddressChannel;
+use App\Exceptions\InsufficientStockException;
+use App\Exceptions\WalletDebitRefusedException;
 use App\Events\CustomerRegistrationEvent;
 use App\Events\DigitalProductDownloadEvent;
 use App\Http\Controllers\Controller;
@@ -17,15 +19,18 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Services\Address\CheckoutAddressGuard;
 use App\Services\Address\OrderAddressService;
+use App\Services\Marketplace\InventoryService;
 use App\Services\PasswordResetService;
 use App\Models\User;
 use App\Traits\API\v3\VendorPOSManagement;
 use App\Traits\CustomerTrait;
 use App\Utils\CartManager;
 use App\Utils\Helpers;
+use App\Utils\OrderManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -47,6 +52,7 @@ class POSController extends Controller
      * @param CustomerRepositoryInterface $customerRepo
      * @param OrderAddressService $orderAddresses
      * @param CheckoutAddressGuard $addressGuard
+     * @param InventoryService $inventoryService
      */
     public function __construct(
 
@@ -58,6 +64,7 @@ class POSController extends Controller
         private readonly CustomerRepositoryInterface                $customerRepo,
         private readonly OrderAddressService                        $orderAddresses,
         private readonly CheckoutAddressGuard                       $addressGuard,
+        private readonly InventoryService                           $inventoryService,
     )
     {
     }
@@ -71,47 +78,6 @@ class POSController extends Controller
         return $product['discount'];
     }
 
-    public function getProductStockCalculate($cartItem, $product, $orderId = null): void
-    {
-        if ($cartItem['variant'] != null) {
-            $variationStore = [];
-            foreach (json_decode($product['variation'], true) as $variation) {
-                if ($cartItem['variant'] == $variation['type']) {
-                    // Floor at zero so a concurrent race can never drive a variant negative.
-                    $variation['qty'] = max(0, (int) $variation['qty'] - (int) $cartItem['quantity']);
-                }
-                $variationStore[] = $variation;
-            }
-            $this->productRepo->updateByParams(params: ['id' => $product['id']], data: ['variation' => json_encode($variationStore)]);
-        }
-
-        if ($product['product_type'] == 'physical') {
-            // Atomic conditional decrement, floored at zero — mirrors the Admin/Vendor POS fix. The old
-            // absolute write (current_stock = stale_value - qty) lost concurrent decrements and oversold,
-            // and could drive current_stock negative. decrement() never loses an update; the >= guard
-            // stops it going below zero.
-            $taken = Product::where('id', $product['id'])
-                ->where('current_stock', '>=', $cartItem['quantity'])
-                ->decrement('current_stock', $cartItem['quantity']);
-            if ($taken === 0) {
-                Product::where('id', $product['id'])->update(['current_stock' => 0]);
-            }
-            // Record the POS sale in the stock-movement ledger so history reconciles against stock.
-            try {
-                app(\App\Services\Marketplace\InventoryService::class)->record(
-                    productId: $product['id'],
-                    type: \App\Models\StockMovement::TYPE_SALE,
-                    qtyChange: -(int) $cartItem['quantity'],
-                    balanceAfter: (int) (Product::where('id', $product['id'])->value('current_stock') ?? 0),
-                    referenceType: 'pos_order',
-                    referenceId: $orderId,
-                    sellerId: $product['user_id'] ?? $product['seller_id'] ?? null,
-                );
-            } catch (\Throwable $exception) {
-                \Illuminate\Support\Facades\Log::warning('Seller POS sale stock-movement log failed for product ' . $product['id'] . ': ' . $exception->getMessage());
-            }
-        }
-    }
 
     public static function getOrderNewId()
     {
@@ -317,106 +283,182 @@ class POSController extends Controller
             }
         }
 
-        if ($paymentMethod == 'wallet' && $customerId != 0) {
-            $customerBalance = $this->customerRepo->getFirstWhere(params: ['id' => $customerId]) ?? 0;
-            if ($customerBalance['wallet_balance'] >= $paidAmount) {
-                $this->createWalletTransaction(user_id: $customerId, amount: floatval($paidAmount), transaction_type: 'order_place', reference: 'order_place_in_pos');
-            } else {
-                return response()->json([
-                    'need_balance' => true,
-                    'message' => translate('need_Sufficient_Amount_Balance')
-                ]);
-            }
+        // One sale, one transaction. Before this, the wallet was debited and every line's stock was taken
+        // outside any transaction and BEFORE the lines were checked, so a line the shelf could not cover
+        // returned `product_not_available` with the customer's money already gone; and a request carrying no
+        // `modified_cart` at all skipped the whole line block and still wrote an order row — an order with no
+        // lines, `order_amount` 0 and `paid_amount` whatever was posted. Both panel tills were given this
+        // shape in the same branch; this is the third till, the one the seller app uses.
+        $cartLines = collect($request['modified_cart'] ?? [])
+            ->filter(static fn($cartItem): bool => is_array($cartItem))
+            ->values();
+
+        if ($cartLines->isEmpty()) {
+            return response()->json([
+                'product_not_available' => true,
+                'message' => translate('a_sale_needs_at_least_one_product'),
+            ]);
         }
 
-        $cartsTotalAmount = 0;
-        $generateOrderID = self::getOrderNewId();
+        try {
+            $generateOrderID = OrderManager::writeOrderRetryingOnDuplicateId(function () use (
+                $request,
+                $cartLines,
+                $carts,
+                $taxConfig,
+                $seller,
+                $customerId,
+                $paymentMethod,
+                $paidAmount,
+                $fulfillment,
+                $isCashOnDelivery,
+                $extraDiscount,
+                $extraDiscountType,
+                $couponDiscountAmount,
+                $couponCode,
+                $deliveryShippingAddress
+            ) {
+                // Every product of the sale is locked here, in ascending id order, before a line is priced or
+                // taken and before the customer's wallet is touched. InventoryService::lockProductsForSale
+                // says why the order is the point.
+                $this->inventoryService->lockProductsForSale(productIds: $cartLines->pluck('id')->all());
 
-        if ($request['modified_cart']) {
-            foreach ($request['modified_cart'] as $cartItem) {
-                if (is_array($cartItem)) {
+                if ($paymentMethod == 'wallet' && $customerId != 0) {
+                    $customerBalance = $this->customerRepo->getFirstWhere(params: ['id' => $customerId]) ?? 0;
+                    if ($customerBalance['wallet_balance'] < $paidAmount) {
+                        throw new WalletDebitRefusedException(
+                            customerId: $customerId,
+                            amount: (float)$paidAmount,
+                            reason: WalletDebitRefusedException::REASON_INSUFFICIENT_BALANCE,
+                        );
+                    }
+
+                    // The balance is now read and spent under the same lock, and a debit that did not happen
+                    // refuses the sale: createWalletTransaction returns false when the wallet add-on is off or
+                    // when its own write fails, which used to leave the order stored as paid with nothing taken.
+                    if (!$this->createWalletTransaction(user_id: $customerId, amount: floatval($paidAmount), transaction_type: 'order_place', reference: 'order_place_in_pos')) {
+                        throw new WalletDebitRefusedException(
+                            customerId: $customerId,
+                            amount: (float)$paidAmount,
+                            reason: WalletDebitRefusedException::REASON_WRITE_REFUSED,
+                        );
+                    }
+                }
+
+                $cartsTotalAmount = 0;
+                $generateOrderID = self::getOrderNewId();
+
+                foreach ($cartLines as $cartItem) {
                     $product = Product::where(['id' => $cartItem['id']])->with(['digitalVariation', 'clearanceSale' => function ($query) {
                         return $query->active();
                     }])->withCount('reviews')->first();
-                    if (!$product || $cartItem['quantity'] > $product['current_stock']) {
-                        return response()->json([
-                            'product_not_available' => true,
-                            'message' => $product['name'] . ' ' . translate('not_available_for_order_place')
-                        ]);
-                    }
-                }
-            }
 
-            foreach ($request['modified_cart'] as $cartItem) {
-                if (is_array($cartItem)) {
-                    $product = Product::where(['id' => $cartItem['id']])->with(['digitalVariation', 'clearanceSale' => function ($query) {
-                        return $query->active();
-                    }])->withCount('reviews')->first();
-                    if ($product) {
-                        $getProductArray = self::getOrderDetailsAddData(cartItem: $cartItem, product: $product);
-                        $cartsTotalAmount += $cartItem['discounted_price'] * $cartItem['quantity'];
-                        $cartsTotalAmount += $cartItem['applied_tax_amount'] * $cartItem['quantity'];
-                        $cartsTotalAmount -= $cartItem['coupon_discount'] ?? 0;
-                        $cartsTotalAmount -= $cartItem['extra_discount'] ?? 0;
-
-                        $orderDetailsData = [
-                            'order_id' => $generateOrderID,
-                            'product_id' => $cartItem['id'],
-                            'product_details' => $getProductArray['product'],
-                            'qty' => $cartItem['quantity'],
-                            'price' => $cartItem['price'],
-                            'seller_id' => $product['user_id'],
-                            'tax' => $cartItem['applied_tax_amount'] * $cartItem['quantity'],
-                            'tax_model' => $taxConfig['is_included'] ? 'include' : 'exclude',
-                            'discount' => $cartItem['discount'] * $cartItem['quantity'],
-                            'discount_type' => 'discount_on_product',
-                            'delivery_status' => $fulfillment == 'delivery' ? 'pending' : 'delivered',
-                            'payment_status' => $isCashOnDelivery ? 'unpaid' : 'paid',
-                            'variant' => $getProductArray['variant'],
-                            'variation' => json_encode($cartItem['variation']),
-                            'created_at' => now(),
-                            'updated_at' => now()
-                        ];
-                        self::getProductStockCalculate(cartItem: $cartItem, product: $product, orderId: $generateOrderID);
-                        DB::table('order_details')->insert($orderDetailsData);
+                    // A line naming a product that is not there used to be skipped silently by the second
+                    // loop, which is the other way this endpoint wrote an order with fewer lines than the
+                    // cashier sold — or none at all.
+                    if (!$product) {
+                        throw new InsufficientStockException(
+                            productId: $cartItem['id'] ?? null,
+                            requested: (int)($cartItem['quantity'] ?? 0),
+                        );
                     }
+
+                    $getProductArray = self::getOrderDetailsAddData(cartItem: $cartItem, product: $product);
+                    $cartsTotalAmount += $cartItem['discounted_price'] * $cartItem['quantity'];
+                    $cartsTotalAmount += $cartItem['applied_tax_amount'] * $cartItem['quantity'];
+                    $cartsTotalAmount -= $cartItem['coupon_discount'] ?? 0;
+                    $cartsTotalAmount -= $cartItem['extra_discount'] ?? 0;
+
+                    $orderDetailsData = [
+                        'order_id' => $generateOrderID,
+                        'product_id' => $cartItem['id'],
+                        'product_details' => $getProductArray['product'],
+                        'qty' => $cartItem['quantity'],
+                        'price' => $cartItem['price'],
+                        'seller_id' => $product['user_id'],
+                        'tax' => $cartItem['applied_tax_amount'] * $cartItem['quantity'],
+                        'tax_model' => $taxConfig['is_included'] ? 'include' : 'exclude',
+                        'discount' => $cartItem['discount'] * $cartItem['quantity'],
+                        'discount_type' => 'discount_on_product',
+                        'delivery_status' => $fulfillment == 'delivery' ? 'pending' : 'delivered',
+                        'payment_status' => $isCashOnDelivery ? 'unpaid' : 'paid',
+                        'variant' => $getProductArray['variant'],
+                        'variation' => json_encode($cartItem['variation']),
+                        'created_at' => now(),
+                        'updated_at' => now()
+                    ];
+
+                    // The shelf, the variant and the movement row in one call, under the lock taken above, by
+                    // the rule the web checkout and both panel tills follow. This till used to floor the
+                    // shortfall at zero and sell anyway, and floored the variant with max(0, ...) as well, so
+                    // the variant quantities stopped summing to current_stock.
+                    if ($product['product_type'] == 'physical') {
+                        $this->inventoryService->takeForSale(
+                            productId: $product['id'],
+                            quantity: (int)$cartItem['quantity'],
+                            variant: $cartItem['variant'],
+                            referenceType: 'pos_order',
+                            referenceId: $generateOrderID,
+                        );
+                    }
+
+                    DB::table('order_details')->insert($orderDetailsData);
                 }
-            }
+
+                $deliveryShippingResponsibility = $fulfillment == 'delivery' ? getWebConfig(name: 'shipping_method') : null;
+                $deliveryAddressSnapshot = $this->orderAddresses->snapshot(address: $deliveryShippingAddress);
+
+                $orderData = [
+                    'id' => $generateOrderID,
+                    'customer_id' => $customerId,
+                    'customer_type' => 'customer',
+                    'payment_status' => $isCashOnDelivery ? 'unpaid' : 'paid',
+                    'order_status' => $fulfillment == 'delivery' ? 'pending' : 'delivered',
+                    'seller_id' => $seller->id,
+                    'seller_is' => 'seller',
+                    'payment_method' => $isCashOnDelivery ? 'cash_on_delivery' : $paymentMethod,
+                    'order_type' => 'POS',
+                    'shipping_address' => $deliveryShippingAddress?->id,
+                    'shipping_address_data' => $deliveryAddressSnapshot ? json_encode($deliveryAddressSnapshot) : null,
+                    'shipping_responsibility' => $deliveryShippingResponsibility,
+                    'verification_code' => $fulfillment == 'delivery' ? rand(100000, 999999) : '0',
+                    'checked' => 1,
+                    'extra_discount' => $extraDiscount ?? 0,
+                    'extra_discount_type' => $extraDiscountType ?? null,
+                    'order_amount' => $cartsTotalAmount,
+                    'init_order_amount' => $cartsTotalAmount,
+                    'total_tax_amount' => $request['total_tax_amount'] ?? 0,
+                    'tax_type' => $taxConfig['SystemTaxVatType'],
+                    'paid_amount' => $isCashOnDelivery ? 0 : $paidAmount,
+                    'discount_amount' => currencyConverter(amount: $couponDiscountAmount ?? 0),
+                    'coupon_code' => $couponCode ?? null,
+                    'discount_type' => (isset($carts['coupon_code']) && $carts['coupon_code']) ? 'coupon_discount' : NULL,
+                    'coupon_discount_bearer' => $carts['coupon_bearer'] ?? 'inhouse',
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ];
+                DB::table('orders')->insertGetId($orderData);
+
+                return $generateOrderID;
+            });
+        } catch (InsufficientStockException $exception) {
+            // The transaction has rolled back: no order, no order line, no stock taken and no wallet debit.
+            // The response keeps the shape the seller app already reads, `product_not_available` with the
+            // product's name, so no app build has to change for the refusal to be understood.
+            Log::warning('Seller POS sale refused: ' . $exception->getMessage(), ['product_id' => $exception->productId, 'requested' => $exception->requested]);
+
+            return response()->json([
+                'product_not_available' => true,
+                'message' => trim(($exception->productName ?? '') . ' ' . translate('not_available_for_order_place')),
+            ]);
+        } catch (WalletDebitRefusedException $exception) {
+            Log::warning('Seller POS wallet sale refused: ' . $exception->getMessage(), ['customer_id' => $exception->customerId, 'reason' => $exception->reason]);
+
+            return response()->json([
+                'need_balance' => true,
+                'message' => translate('need_Sufficient_Amount_Balance')
+            ]);
         }
-
-        $deliveryShippingResponsibility = $fulfillment == 'delivery' ? getWebConfig(name: 'shipping_method') : null;
-        $deliveryAddressSnapshot = $this->orderAddresses->snapshot(address: $deliveryShippingAddress);
-
-        $orderData = [
-            'id' => $generateOrderID,
-            'customer_id' => $customerId,
-            'customer_type' => 'customer',
-            'payment_status' => $isCashOnDelivery ? 'unpaid' : 'paid',
-            'order_status' => $fulfillment == 'delivery' ? 'pending' : 'delivered',
-            'seller_id' => $seller->id,
-            'seller_is' => 'seller',
-            'payment_method' => $isCashOnDelivery ? 'cash_on_delivery' : $paymentMethod,
-            'order_type' => 'POS',
-            'shipping_address' => $deliveryShippingAddress?->id,
-            'shipping_address_data' => $deliveryAddressSnapshot ? json_encode($deliveryAddressSnapshot) : null,
-            'shipping_responsibility' => $deliveryShippingResponsibility,
-            'verification_code' => $fulfillment == 'delivery' ? rand(100000, 999999) : '0',
-            'checked' => 1,
-            'extra_discount' => $extraDiscount ?? 0,
-            'extra_discount_type' => $extraDiscountType ?? null,
-            'order_amount' => $cartsTotalAmount,
-            'init_order_amount' => $cartsTotalAmount,
-            'total_tax_amount' => $request['total_tax_amount'] ?? 0,
-            'tax_type' => $taxConfig['SystemTaxVatType'],
-            'paid_amount' => $isCashOnDelivery ? 0 : $paidAmount,
-            'discount_amount' => currencyConverter(amount: $couponDiscountAmount ?? 0),
-            'coupon_code' => $couponCode ?? null,
-            'discount_type' => (isset($carts['coupon_code']) && $carts['coupon_code']) ? 'coupon_discount' : NULL,
-            'coupon_discount_bearer' => $carts['coupon_bearer'] ?? 'inhouse',
-            'created_at' => now(),
-            'updated_at' => now(),
-        ];
-        DB::table('orders')->insertGetId($orderData);
 
         if ($isDigitalProduct) {
             $order = Order::with(['details.productAllStatus', 'customer'])->find($generateOrderID);
