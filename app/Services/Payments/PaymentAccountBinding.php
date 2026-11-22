@@ -146,6 +146,12 @@ final class PaymentAccountBinding
      *   reachable without this class producing it, and it means the same thing: no address was recorded, so the platform address is what the payment
      *   expects. A stored NUMBER is NOT one of these — see below.
      *
+     *   The stamp of such a payment may still name a LIVE company account by id, and reviewer A of the stage-C round was right that saying obligation
+     *   2 "holds" for it would be wrong: the payment demonstrably belongs to a company gateway account and is confirmed at the platform address all
+     *   the same. It is confirmed there BY DESIGN, as a fallback with a stated reason — there is no readable address to hand it to — and not because
+     *   the question was not asked. App\Services\Payments\ConfirmationAddresses makes the same choice for a recorded address that is readable but no
+     *   longer live, and for the same reason.
+     *
      * A stored NUMBER is the one shape that goes the other way: `PaymentTransactionRecord::text()` casts an int or a float to a string, which the
      * exchange rate it shares that helper with needs, so a stored `0` reads as the address "0" and this answers TRUE for a platform address. Nothing
      * writes it, and it costs nothing: such a payment is treated exactly as one carrying a real company address, so its own account's address still

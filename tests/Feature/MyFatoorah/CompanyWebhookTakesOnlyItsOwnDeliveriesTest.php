@@ -329,6 +329,37 @@ class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends CompanyAccountsTestCas
         $this->assertNull(app(GatewayAccountDirectory::class)->webhookUrlOf(account: $paymob->refresh()), 'and under the shipped list, still none');
     }
 
+    /**
+     * NEITHER OF THE TWO CONDITIONS THIS STAGE ADDED to this method is behind the stage's own switch, so what each one moves is measured here.
+     *
+     * The switch governs which address CONFIRMS a payment; this method answers which address an account is NAMED at, and a payment reads that answer
+     * when it starts. Reviewer B of the stage-C round found that the body's "reversible by flipping one setting" did not hold of these two lines, and
+     * the body now says so. What is left is to measure the scope, which is this: under the gateway list `config/gcc.php` SHIPS, both conditions move
+     * nothing at all, active or deactivated, because the owner's list already answers no for every account of this gateway.
+     *
+     * So an operator who turns per-company accounts on with the shipped list sees exactly what the base branch shows them. The answers change only
+     * once the owner puts this gateway on the list, which is the change that also moves its api_key onto the account.
+     */
+    public function test_under_the_shipped_gateway_list_neither_new_condition_moves_an_answer(): void
+    {
+        config(['gcc.storefronts.payment_accounts.gateways' => $this->shippedGatewayList]);
+        app(GatewayAccountRegistry::class)->flush();
+
+        $this->assertNotContains(GatewayConfigRepository::KEY, $this->shippedGatewayList, 'the premise is the shipped list');
+        $this->assertNull(app(GatewayAccountDirectory::class)->webhookUrlOf(account: $this->kuwait), 'active: none, as on the base branch');
+
+        PaymentGatewayAccount::query()->whereKey($this->kuwait->id)->update(['status' => false]);
+        app(GatewayAccountRegistry::class)->flush();
+
+        $this->assertNull(
+            app(GatewayAccountDirectory::class)->webhookUrlOf(account: $this->kuwait->refresh()),
+            'deactivated: none -- so the status condition moves nothing under the shipped list either',
+        );
+        $named = array_filter(array_column(app(GatewayAccountDirectory::class)->rows(gateway: GatewayConfigRepository::KEY), 'webhook_url'));
+
+        $this->assertSame([], $named, 'and no operator row of this gateway carries an address under the shipped list');
+    }
+
     /** The row an operator is shown carries the same answer, so a screen cannot print an address the route refuses. */
     public function test_the_operator_row_carries_no_address_for_a_gateway_the_owner_has_not_listed(): void
     {
