@@ -265,7 +265,14 @@ jobs:
             # because its whole job is uniqueness: a NULL is never equal to another NULL in a unique index, so a mapping or a
             # reconciliation row that means "every channel" can only be kept single by a sentinel value the index can compare --
             # and that is a property of the engine, not of the code, so SQLite agreeing proves nothing about MySQL.
-            paths: tests/Feature/OperationalCosts tests/Unit/OperationalCosts tests/Unit/SalesChannels tests/Unit/Accounting tests/Feature/Accounting tests/Feature/CiDatabaseTest.php
+            #
+            # tests/Feature/Marketplace is the commission snapshot and the vendor ledger, and it is here for the same reason:
+            # the snapshot is kept single per order line by a UNIQUE index on `order_details_id` -- the writer's idempotency
+            # inside a retried order transaction rests on it -- its money is decimal(16,4), and the earning and its commission
+            # charge are asserted to carry the SAME `available_at`, which is a DATETIME compared for equality. Uniqueness,
+            # decimal rounding and timestamp equality are properties of the engine, so SQLite agreeing proves nothing about
+            # MySQL. It was in no real-engine group before, and the whole suite on SQLite was the only place it ran.
+            paths: tests/Feature/OperationalCosts tests/Unit/OperationalCosts tests/Unit/SalesChannels tests/Unit/Accounting tests/Feature/Accounting tests/Feature/Marketplace tests/Feature/CiDatabaseTest.php
     services:
       mysql:
         image: ${{ matrix.image }}
