@@ -95,7 +95,7 @@ class AbandonedCartService
     /**
      * The cart groups eligible for a reminder at the given stage, newest abandonment first.
      *
-     * @return Collection<int, array{cart_group_id: string, customer_id: int|null, is_guest: bool, email: string, cart_value: float, item_count: int, last_activity: Carbon}>
+     * @return Collection<int, array{cart_group_id: string, customer_id: int|null, is_guest: bool, email: string, market: string|null, cart_value: float, item_count: int, last_activity: Carbon}>
      */
     public function findAbandoned(int $stage = 1, ?Carbon $now = null): Collection
     {
@@ -161,7 +161,12 @@ class AbandonedCartService
                     return null;
                 }
 
-                if ($consentRequired && !$this->mayRemind(customerId: $first->customer_id, isGuest: $isGuest, email: $email)) {
+                // The market is resolved ONCE, here, and travels with the row: the gate's answer and the unsubscribe
+                // link in the message have to be about the same market, and the reminder row cannot resolve it again
+                // because it does not keep a guest's id. Null while the switch is off, where nothing resolves one.
+                $market = $consentRequired ? $this->marketOf(customerId: $first->customer_id, isGuest: $isGuest) : null;
+
+                if ($market !== null && !$this->mayRemind(market: $market, customerId: $first->customer_id, isGuest: $isGuest, email: $email)) {
                     return null;
                 }
 
@@ -170,6 +175,7 @@ class AbandonedCartService
                     'customer_id' => $isGuest ? null : (int) $first->customer_id,
                     'is_guest' => $isGuest,
                     'email' => $email,
+                    'market' => $market,
                     'cart_value' => round($value, 2),
                     'item_count' => (int) $lines->sum('quantity'),
                     'last_activity' => $lastActivity,
@@ -180,19 +186,28 @@ class AbandonedCartService
             ->values();
     }
 
+    /** The market this cart's owner belongs to: a guest's own typed address counts as much as a customer's. */
+    private function marketOf($customerId, bool $isGuest): string
+    {
+        return MarketingMarket::forCustomer(
+            customerId: $customerId ? (int) $customerId : null,
+            isGuest: $isGuest,
+        );
+    }
+
     /**
-     * Has this person agreed to a cart reminder by e-mail in their own market?
+     * Has this person agreed to a cart reminder by e-mail in that market?
      *
      * A registered customer is asked about by account, so the answer follows them whatever address they used. A guest
      * has no account, so the address they typed is the subject — which is also the only thing an unsubscribe link in
      * that message can name.
      */
-    private function mayRemind($customerId, bool $isGuest, string $email): bool
+    private function mayRemind(string $market, $customerId, bool $isGuest, string $email): bool
     {
         if ($isGuest || !$customerId) {
             return $this->consentGate->allowsEmail(
                 email: $email,
-                market: MarketingMarket::forCustomer(customerId: $customerId ? (int) $customerId : null, isGuest: true),
+                market: $market,
                 channel: MarketingConsent::CHANNEL_EMAIL,
                 purpose: MarketingConsent::PURPOSE_ABANDONED_CART,
             );
@@ -200,7 +215,7 @@ class AbandonedCartService
 
         return $this->consentGate->allowsCustomer(
             customerId: (int) $customerId,
-            market: MarketingMarket::forCustomer(customerId: (int) $customerId),
+            market: $market,
             channel: MarketingConsent::CHANNEL_EMAIL,
             purpose: MarketingConsent::PURPOSE_ABANDONED_CART,
         );

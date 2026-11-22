@@ -275,6 +275,66 @@ class AbandonedCartConsentTest extends MarketingConsentTestCase
         $this->assertSame(['guest@example.test'], app(AbandonedCartService::class)->findAbandoned(stage: 1)->pluck('email')->all());
     }
 
+    /**
+     * The defect this test exists for: a guest's reminder row does NOT keep their guest id, so anything that resolved
+     * the market a second time from that row fell back to the home market. A Kuwaiti guest was then asked about by
+     * KW and handed a link that said SA — so opening it recorded a withdrawal that stopped nothing.
+     *
+     * A Saudi guest cannot show this, because for them the home market IS the right answer.
+     */
+    public function test_a_kuwaiti_guest_is_handed_a_link_for_kuwait_not_for_the_home_market(): void
+    {
+        $this->switchConsentOn();
+        $this->switchAbandonedCartRemindersOn(includeGuests: true);
+
+        $guestId = DB::table('guest_users')->insertGetId(['ip_address' => '127.0.0.1', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('shipping_addresses')->insert([
+            'customer_id' => (string) $guestId,
+            'is_guest' => 1,
+            'contact_person_name' => 'A Kuwaiti Guest',
+            'email' => 'kuwaiti-guest@example.test',
+            'country' => 'Kuwait',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $this->makeAbandonedCart(customerId: $guestId, groupId: 'group-kuwaiti-guest', isGuest: true);
+
+        app(MarketingConsentRecorder::class)->grantForEmail(
+            email: 'kuwaiti-guest@example.test',
+            market: 'KW',
+            channel: MarketingConsent::CHANNEL_EMAIL,
+            purpose: MarketingConsent::PURPOSE_ABANDONED_CART,
+            source: MarketingConsent::SOURCE_NEWSLETTER_FORM,
+        );
+
+        Mail::fake();
+        $this->artisan('cart:remind-abandoned', ['--stage' => 1])->assertSuccessful();
+
+        Mail::assertSent(AbandonedCartReminderMail::class, function (AbandonedCartReminderMail $mail): bool {
+            $read = MarketingUnsubscribeLink::read(token: $this->tokenOf(url: (string) $mail->unsubscribeUrl));
+            $this->assertSame('KW', $read['market'], 'The guest was handed a link for the wrong market.');
+            $this->assertSame(MarketingSubject::forEmail(email: 'kuwaiti-guest@example.test'), $read['subject_hash']);
+
+            return true;
+        });
+
+        // And the link actually stops the next send, which is the whole point of naming the right market.
+        $this->get((string) $this->sentUnsubscribeUrl())->assertOk();
+        $this->assertSame([], app(AbandonedCartService::class)->findAbandoned(stage: 2)->pluck('email')->all());
+    }
+
+    private function sentUnsubscribeUrl(): ?string
+    {
+        $url = null;
+        Mail::assertSent(AbandonedCartReminderMail::class, function (AbandonedCartReminderMail $mail) use (&$url): bool {
+            $url = $mail->unsubscribeUrl;
+
+            return true;
+        });
+
+        return $url;
+    }
+
     private function grantCartReminderConsent(
         int $customerId,
         string $market = 'SA',

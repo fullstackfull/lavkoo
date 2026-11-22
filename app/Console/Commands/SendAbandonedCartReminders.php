@@ -6,7 +6,6 @@ use App\Mail\AbandonedCartReminderMail;
 use App\Models\AbandonedCartReminder;
 use App\Services\Marketing\MarketingConsent;
 use App\Services\Marketing\MarketingConsentGate;
-use App\Services\Marketing\MarketingMarket;
 use App\Services\Marketing\MarketingUnsubscribeLink;
 use App\Services\Retention\AbandonedCartService;
 use Carbon\Carbon;
@@ -114,7 +113,7 @@ class SendAbandonedCartReminders extends Command
                 Mail::to($row['email'])->send(new AbandonedCartReminderMail(
                     reminder: $reminder,
                     recoveryUrl: $this->recoveryUrl($reminder),
-                    unsubscribeUrl: $this->unsubscribeUrl($reminder),
+                    unsubscribeUrl: $this->unsubscribeUrl(reminder: $reminder, market: $row['market'] ?? null),
                 ));
                 $sent++;
             } catch (\Throwable $exception) {
@@ -144,10 +143,15 @@ class SendAbandonedCartReminders extends Command
      *
      * Null while it is off is deliberate: with the gate off this message has to be exactly the message the store sends
      * today, down to its text, and there is nothing yet that could record the withdrawal the link would promise.
+     *
+     * The market is the one the selection already resolved and asked the gate about — not resolved again here. A
+     * guest's reminder row does not keep their guest id (a guest id is not a user id), so resolving it a second time
+     * from the row would silently fall back to the home market and the link would offer to unsubscribe a market the
+     * person is not in.
      */
-    private function unsubscribeUrl(AbandonedCartReminder $reminder): ?string
+    private function unsubscribeUrl(AbandonedCartReminder $reminder, ?string $market): ?string
     {
-        if (!app(MarketingConsentGate::class)->enabled()) {
+        if ($market === null || !app(MarketingConsentGate::class)->enabled()) {
             return null;
         }
 
@@ -156,7 +160,7 @@ class SendAbandonedCartReminders extends Command
         if ($customerId) {
             return MarketingUnsubscribeLink::forCustomer(
                 customerId: (int) $customerId,
-                market: MarketingMarket::forCustomer(customerId: (int) $customerId),
+                market: $market,
                 channel: MarketingConsent::CHANNEL_EMAIL,
                 purpose: MarketingConsent::PURPOSE_ABANDONED_CART,
             );
@@ -164,7 +168,7 @@ class SendAbandonedCartReminders extends Command
 
         return MarketingUnsubscribeLink::forEmail(
             email: (string) $reminder->email,
-            market: MarketingMarket::forCustomer(customerId: $reminder->customer_id ? (int) $reminder->customer_id : null, isGuest: true),
+            market: $market,
             channel: MarketingConsent::CHANNEL_EMAIL,
             purpose: MarketingConsent::PURPOSE_ABANDONED_CART,
         );
