@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Customer;
 
+use App\Services\Marketplace\PaymentRoutingService;
 use App\Enums\Address\AddressChannel;
 use App\Events\OrderEditDuePaymentEvent;
 use App\Services\Address\OrderAddressService;
@@ -241,6 +242,19 @@ class PaymentController extends Controller
     }
 
 
+    /** Does an active routing rule hide the chosen gateway for this order's amount and destination? */
+    private function routingHidesTheChosenMethod(string $method, float $amount, int|string|null $addressId): bool
+    {
+        if ($method === '') {
+            return false;
+        }
+
+        $country = $addressId ? ShippingAddress::find($addressId)?->country : null;
+        $offered = payment_gateways()->pluck('key_name')->filter()->values()->all();
+
+        return (new PaymentRoutingService())->hides(gateway: $method, availableGateways: $offered, amount: $amount, country: $country);
+    }
+
     function getRegisterNewCustomer($request, $address, $shippingId = null, $billingId = null): array
     {
         return [
@@ -420,6 +434,23 @@ class PaymentController extends Controller
         } else {
             $default = getWebConfig(name: 'system_default_currency');
             $currency_code = Currency::find($default)->code;
+        }
+
+        /*
+         * A routing rule that hides this gateway must refuse the payment, not merely hide the button
+         * (D2-06). A customer who was offered the method before the rule was written, who kept a
+         * checkout page open, or who posts the method straight to this route would otherwise be handed
+         * to a gateway the rules say must not take this order -- and the money moves before anything
+         * notices. Judged with the order in front of us, so amount-bound and country-bound rules count
+         * here even though the global config answer could not decide them.
+         *
+         * Only a gateway the platform offers at all is judged: whether an unknown gateway may start a
+         * payment is a different question with its own answer, and this must not take it over.
+         */
+        if ($this->routingHidesTheChosenMethod(method: (string) $request['payment_method'], amount: (float) $paymentAmount, addressId: $additionalData['address_id'] ?? null)) {
+            Toastr::error(translate('this_payment_method_is_not_available_for_this_order'));
+
+            return route('checkout-payment');
         }
 
         $paymentInfo = new PaymentInfo(
