@@ -128,7 +128,7 @@ class BannerPlacementService
     private function remember(string $type, string $cacheKey, ?callable $build = null, bool $newestFirst = false): Collection
     {
         $themeName = theme_root_path() ?? 'default';
-        $key = 'cache_banner_type_' . $cacheKey . '_' . $themeName;
+        $key = storefrontCacheKey(key: 'cache_banner_type_' . $cacheKey . '_' . $themeName);
         $this->cacheBannerAllTypeKeys(cacheKey: $key);
 
         return Cache::remember($key, CACHE_FOR_3_HOURS, function () use ($type, $themeName, $build, $newestFirst) {

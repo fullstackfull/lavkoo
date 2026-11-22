@@ -4898,4 +4898,5 @@ ____________________________________________________on_search_engines_and_see_th
 	'the_wallet_is_not_available_in_the_currency_of_this_storefront' => 'المحفظة غير متاحة بعملة هذا المتجر.',
 	'this_payment_method_is_not_available_in_this_storefront' => 'طريقة الدفع هذه غير متاحة في هذا المتجر.',
 	'this_payment_method_cannot_take_payments_in_your_currency' => 'وسيلة الدفع هذه لا تقبل الدفع بعملتك',
+	'this_storefront_trades_in_one_currency' => 'يتداول هذا المتجر بعملة واحدة، لذلك لا يمكن تغيير العملة هنا.',
 ];

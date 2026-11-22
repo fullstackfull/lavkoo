@@ -135,16 +135,43 @@ class StorefrontListApiTest extends TestCase
         $this->assertGuest();
     }
 
-    public function test_config_route_and_controller_are_untouched_by_storefronts(): void
+    /**
+     * The configuration endpoint is not narrowed by a storefront: it carries no storefront middleware, and it reads no flag of its own.
+     *
+     * It does state one storefront thing, and only one: the money of the storefront the app asked for (B-03), so that an app formats
+     * prices in the currency that storefront trades in, with that currency's decimals, instead of working them out from a numeric
+     * setting. That statement is absent while the markets are off, which {@see test_the_config_answer_can_carry_storefront_money_only_from_the_money_service}
+     * pins here and StorefrontMoneyAndSeoTest proves against the service that produces it.
+     */
+    public function test_the_config_route_is_not_narrowed_by_a_storefront(): void
     {
         $route = $this->apiRoute(uri: 'api/v1/config');
 
         $this->assertSame(ConfigController::class . '@configuration', $route->getActionName());
         $this->assertSame(['api', 'api_lang', 'storefront.vary'], $route->middleware(), 'the only storefront middleware is the one that adds a header');
+        $this->assertNotContains('storefront', $route->gatherMiddleware());
+        $this->assertNotContains(ResolveStorefront::class, $route->gatherMiddleware());
 
         $configControllerSource = (string) file_get_contents(base_path('app/Http/Controllers/RestAPI/v1/ConfigController.php'));
-        $this->assertStringNotContainsStringIgnoringCase('storefront', $configControllerSource);
-        $this->assertStringNotContainsString('gcc.', $configControllerSource);
+        $this->assertStringNotContainsString('gcc.', $configControllerSource, 'the controller reads no storefront flag of its own');
+        $this->assertSame(
+            1,
+            preg_match_all('/StorefrontCurrency/', $configControllerSource) - 1,
+            'the only storefront the controller names is the money service it asks, once',
+        );
+    }
+
+    /**
+     * The dormancy pin for the configuration answer: the controller cannot name the key itself, it can only add what the money service
+     * hands it, and that service hands it nothing while the markets are off — proved against the service in
+     * {@see StorefrontMoneyAndSeoTest::test_with_the_markets_switched_off_every_number_tag_and_file_is_what_it_is_today}.
+     */
+    public function test_the_config_answer_can_carry_storefront_money_only_from_the_money_service(): void
+    {
+        $configControllerSource = (string) file_get_contents(base_path('app/Http/Controllers/RestAPI/v1/ConfigController.php'));
+
+        $this->assertStringContainsString('app(StorefrontCurrency::class)->apiMoney()', $configControllerSource);
+        $this->assertStringNotContainsString('storefront_money', $configControllerSource, 'the controller never writes the key itself');
     }
 
     private function apiRoute(string $uri): RoutingRoute

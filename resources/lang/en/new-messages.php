@@ -11288,4 +11288,5 @@ return [
 	'you_can_not_delete_account_while_your_wallet_holds_money' => 'You can not delete account while your wallet holds money',
 	'you_can_not_delete_account_while_you_still_have_loyalty_points' => 'You can not delete account while you still have loyalty points',
 	'this_payment_method_cannot_take_payments_in_your_currency' => 'This payment method cannot take payments in your currency',
+	'this_storefront_trades_in_one_currency' => 'This storefront trades in one currency, so the currency cannot be changed here.',
 ];

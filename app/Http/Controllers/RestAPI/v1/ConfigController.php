@@ -8,6 +8,7 @@ use App\Http\Requests\Request;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\NationalAddress;
 use App\Services\DigitalFileAddressService;
+use App\Services\Storefront\StorefrontCurrency;
 use App\Traits\CacheManagerTrait;
 use App\Traits\MaintenanceModeTrait;
 use App\Traits\SettingsTrait;
@@ -275,7 +276,10 @@ $metaAppTracking = MetaAppIntegration::where('app_type', 'customer')
             'auction_commitments' => getWebConfig(name: 'auction_commitments'),
             'active_auction_for_vendor' => $auctionFeatureStatus && (int)(getWebConfig(name: 'active_auction_for_vendor') ?? 0),
             'active_auction_for_customer' => $auctionFeatureStatus && (int)(getWebConfig(name: 'active_auction_for_customer') ?? 0),
-        ]);
+        ]
+            // The money of the storefront the app asked for, so it formats prices in that currency with that currency's decimals rather
+            // than working them out from a numeric setting. Absent entirely unless a storefront trades in its own currency (GCC-05).
+            + app(StorefrontCurrency::class)->apiMoney());
     }
 
     /**

@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Services\Storefront\StorefrontVisibility;
+use App\Traits\HasStorefrontVisibility;
 use App\Utils\Helpers;
 use App\Utils\RequestArea;
 use Carbon\Carbon;
@@ -27,6 +29,10 @@ use Illuminate\Support\Facades\App;
  */
 class DealOfTheDay extends Model
 {
+    use HasStorefrontVisibility;
+
+    public const STOREFRONT_ENTITY_TYPE = StorefrontVisibility::DEAL_OF_THE_DAY;
+
     protected $casts = [
         'id' => 'integer',
         'product_id' => 'integer',

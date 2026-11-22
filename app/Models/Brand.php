@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use App\Services\Storefront\StorefrontVisibility;
 use App\Traits\CacheManagerTrait;
+use App\Traits\HasStorefrontVisibility;
 use App\Traits\StorageTrait;
 use App\Utils\RequestArea;
 use Illuminate\Database\Eloquent\Builder;
@@ -21,7 +23,9 @@ use Modules\Auction\app\Models\AuctionProduct;
  */
 class Brand extends Model
 {
-    use StorageTrait, CacheManagerTrait;
+    use StorageTrait, CacheManagerTrait, HasStorefrontVisibility;
+
+    public const STOREFRONT_ENTITY_TYPE = StorefrontVisibility::BRAND;
 
     protected $fillable = [
         'name',

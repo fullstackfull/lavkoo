@@ -7,6 +7,7 @@ use App\Contracts\Repositories\ShopRepositoryInterface;
 use App\Enums\WebConfigKey;
 use App\Http\Controllers\BaseController;
 use App\Models\BusinessPage;
+use App\Services\Seo\StorefrontSitemap;
 use App\Traits\FileManagerTrait;
 use App\Utils\FileManagerLogic;
 use App\Utils\PlainFileName;
@@ -36,6 +37,7 @@ class SiteMapController extends BaseController
     public function __construct(
         private readonly ProductRepositoryInterface $productRepo,
         private readonly ShopRepositoryInterface    $shopRepo,
+        private readonly StorefrontSitemap          $storefrontSitemap,
     )
     {
     }
@@ -127,7 +129,9 @@ class SiteMapController extends BaseController
         // advertises its per-language variants so AR/EN pages stop competing in search.
         $languages = collect(getWebConfig(name: 'language') ?? [])->pluck('code')->filter()->values();
 
-        $productsUrl = $this->productRepo->getWebListWithScope(scope: 'active', dataLimit: 'all')->pluck('slug');
+        // The platform file is the default storefront's sitemap: while the markets are on it lists that storefront's own products, so no
+        // other market's product is advertised under the bare address. While they are off it is every active product, as it always was.
+        $productsUrl = $this->storefrontSitemap->defaultStorefrontSlugs();
         foreach ($productsUrl as $productSingleUrl) {
             $productUrl = route('product', ['slug' => $productSingleUrl]);
             $urlObject = Url::create($productUrl)
@@ -213,8 +217,19 @@ class SiteMapController extends BaseController
             File::makeDirectory($directory, 0777, true, true);
         }
 
-        $fileName = 'sitemap-' . Str::slug(Carbon::now()) . '.xml';
+        $stamp = Str::slug(Carbon::now());
+        $fileName = 'sitemap-' . $stamp . '.xml';
         $generator->writeToFile(storage_path('app/public/sitemap/' . $fileName));
+
+        // One file for each other market that is live, each holding only its own products under its own addresses. None while the
+        // markets are switched off, so the panel writes the single file it writes today.
+        foreach ($this->storefrontSitemap->files(at: $currentTime, stamp: $stamp) as $storefrontFile => $xml) {
+            File::put($directory . '/' . $storefrontFile, $xml);
+
+            if ($action == 'upload') {
+                File::put(public_path($storefrontFile), $xml);
+            }
+        }
 
         if ($action == 'upload') {
             $generator->writeToFile(public_path('sitemap.xml'));

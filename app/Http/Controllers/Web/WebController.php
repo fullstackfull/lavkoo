@@ -16,6 +16,7 @@ use App\Models\Admin;
 use App\Services\ProductService;
 use App\Services\RecaptchaService;
 use App\Services\ShopService;
+use App\Services\Storefront\StorefrontCurrency;
 use App\Services\Storefront\StorefrontPaymentMethods;
 use App\Traits\CacheManagerTrait;
 use App\Traits\InHouseTrait;
@@ -98,6 +99,7 @@ class WebController extends Controller
         private readonly DigitalProductFileService                $digitalFiles,
         private readonly DigitalFileAddressService                $digitalFileAddresses,
         private readonly StorefrontPaymentMethods                 $storefrontPaymentMethods,
+        private readonly StorefrontCurrency                       $storefrontCurrency,
     )
     {
 
@@ -648,9 +650,13 @@ class WebController extends Controller
             'address_id' => session('address_id'),
             'billing_address_id' => session('billing_address_id'),
             'bring_change_amount' => $request['bring_change_amount'] ?? 0,
-            // Was session('currency_code') alone, which is null before a customer has picked one and
-            // wrote the column empty; and it ignored single-currency mode entirely.
-            'bring_change_amount_currency' => CheckoutCurrency::forOrder(session('currency_code')),
+            // Both fixes of this column, which two branches wrote separately and which compose:
+            // the storefront's own currency wins where one is in force, because a visitor's pick outlives the storefront it
+            // was made on and a Kuwaiti order was storing its dinars labelled SAR; and where no storefront currency is in
+            // force, CheckoutCurrency::forOrder decides, which is what also handles single-currency mode -- session
+            // ('currency_code') alone is null before a customer has picked anything and wrote the column empty.
+            'bring_change_amount_currency' => $this->storefrontCurrency->currencyCodeInForce()
+                ?? CheckoutCurrency::forOrder(session('currency_code')),
         ]);
 
         // generateOrder() returns an empty list when the order was refused inside its transaction —

@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use App\Services\Storefront\StorefrontVisibility;
 use App\Traits\CacheManagerTrait;
+use App\Traits\HasStorefrontVisibility;
 use App\Traits\StorageTrait;
 use App\Utils\RequestArea;
 use Illuminate\Database\Eloquent\Builder;
@@ -36,7 +38,9 @@ use Illuminate\Support\Facades\DB;
  */
 class FlashDeal extends Model
 {
-    use StorageTrait, CacheManagerTrait;
+    use StorageTrait, CacheManagerTrait, HasStorefrontVisibility;
+
+    public const STOREFRONT_ENTITY_TYPE = StorefrontVisibility::FLASH_DEAL;
 
     /**
      * The attributes that are mass assignable.

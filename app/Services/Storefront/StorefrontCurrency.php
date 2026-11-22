@@ -169,6 +169,71 @@ final class StorefrontCurrency
         return $country;
     }
 
+    /** The symbol of that currency, or null while the platform's own settings stand. Read by getCurrencySymbol() so no surface prints another storefront's sign. */
+    public function symbolInForce(): ?string
+    {
+        return $this->currencyInForce()?->symbol;
+    }
+
+    /**
+     * The one answer to "what money is this amount, in the storefront serving this request": the number every surface shows, the currency it is
+     * in, that currency's decimals, its symbol and the formatted text. The product page, the listing, the filter facets, the price filter, the
+     * JSON-LD offer, the sitemap and the customer API all read this one method, so none of them can state a different number or a different
+     * currency from another.
+     *
+     * It reports today's answer rather than inventing one: the number and the text come from the money helpers the storefront has always used,
+     * which read the three currency settings through getWebConfig() and so through {@see override()}. While the switch is off, and on the default
+     * storefront, every field is exactly what the page prints today. Nothing stored is re-scaled or re-rounded here.
+     *
+     * @return array{amount: float|string, currency: string, decimals: int, symbol: string, formatted: string}
+     */
+    public function money(string|int|float|null $amount = 0): array
+    {
+        loadCurrency();
+        $currencyCode = getCurrencyCode(type: 'web');
+
+        return [
+            'amount' => webCurrencyConverterOnlyDigit(amount: $amount),
+            'currency' => $currencyCode,
+            'decimals' => $this->decimalsInForce(),
+            'symbol' => (string) getCurrencySymbol(currencyCode: $currencyCode, type: 'web'),
+            'formatted' => webCurrencyConverter(amount: $amount),
+        ];
+    }
+
+    /**
+     * The money block an API answer carries while the storefront serving it trades in its own currency: the currency, its symbol, the
+     * decimals that currency is written with and where the symbol goes, and, when an amount is given, that amount and its text.
+     *
+     * Nothing at all otherwise, so a client of the platform as it stands reads byte for byte the answer it reads today, and a client
+     * that does read this never has to work a storefront's currency out from a numeric setting.
+     *
+     * @return array{storefront_money?: array<string, mixed>}
+     */
+    public function apiMoney(string|int|float|null $amount = null): array
+    {
+        if ($this->currencyCodeInForce() === null) {
+            return [];
+        }
+
+        $money = $this->money(amount: $amount ?? 0);
+
+        return ['storefront_money' => [
+            'currency' => $money['currency'],
+            'symbol' => $money['symbol'],
+            'decimals' => $money['decimals'],
+            'symbol_position' => getWebConfig('currency_symbol_position') ?? 'right',
+        ] + ($amount === null ? [] : ['amount' => $money['amount'], 'formatted' => $money['formatted']])];
+    }
+
+    /** How many decimals the money of this request is shown with: the currency's own while a storefront trades in it, the platform's setting otherwise. */
+    public function decimalsInForce(): int
+    {
+        $decimals = getWebConfig('decimal_point_settings');
+
+        return is_numeric($decimals) ? (int) $decimals : self::DEFAULT_DECIMALS;
+    }
+
     /** Whether a storefront has the currency it trades in. Every storefront is ready while the switch is off, and so is the default one. */
     public function isReady(string $country, string $currencyCode): bool
     {

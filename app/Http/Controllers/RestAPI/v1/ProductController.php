@@ -24,6 +24,7 @@ use App\Models\Review;
 use App\Models\ShippingMethod;
 use App\Models\Shop;
 use App\Models\StockClearanceProduct;
+use App\Services\Storefront\StorefrontCurrency;
 use App\Models\Wishlist;
 use App\Services\ProductService;
 use App\Services\Storefront\StorefrontContext;
@@ -312,7 +313,10 @@ class ProductController extends Controller
             'min_price' => $products->min('unit_price'),
             'max_price' => $products->max('unit_price'),
             'products' => count($products) > 0 ? Helpers::product_data_formatting($products->items(), true) : [],
-        ]);
+        ]
+            // The bounds above are read from this storefront's own catalogue, so they are in this storefront's money; this says which,
+            // and with how many decimals. Absent unless a storefront trades in its own currency (GCC-05).
+            + app(StorefrontCurrency::class)->apiMoney());
     }
 
     public function get_suggestion_product(Request $request): JsonResponse
@@ -382,6 +386,14 @@ class ProductController extends Controller
             } else {
                 $product['restock_requested_list'] = [];
                 $product['is_restock_requested'] = 0;
+            }
+
+            // The money this storefront states for the product: the same number and the same currency the product page prints and its
+            // JSON-LD offer carries, because all three read one service. Absent unless a storefront trades in its own currency (GCC-05).
+            $storefrontMoney = app(StorefrontCurrency::class)->apiMoney(amount: $product['unit_price']);
+
+            if ($storefrontMoney !== []) {
+                $product['storefront_money'] = $storefrontMoney['storefront_money'];
             }
         }
         return response()->json($product, 200);
