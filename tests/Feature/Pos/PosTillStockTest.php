@@ -8,6 +8,7 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\StockMovement;
 use Illuminate\Support\Facades\DB;
+use Mockery;
 use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 
@@ -170,9 +171,16 @@ class PosTillStockTest extends PosTillTestCase
 
         // The order row is written last, after the stock has been taken and the line inserted. Before this change there was no
         // transaction at all, so a failure here left the stock gone, a line written and no order.
-        $this->partialMock(OrderRepositoryInterface::class, function ($repository) {
-            $repository->shouldReceive('add')->andThrow(new RuntimeException('the till lost the payment terminal'));
-        });
+        //
+        // The mock wraps the REAL repository rather than standing in for the interface. `partialMock` on an interface has no
+        // parent to fall back to, so every method it is not told about returns null — `$this->orderRepo->getList()` then
+        // returned null, the request died on `null->count()` before a single unit of stock was taken, and this test passed
+        // whether the sale was one transaction or seven. Removing the transaction left it green, which is how the hole in it
+        // was found. A proxied partial passes everything but `add` through to the real repository, so the sale really does
+        // reach the shelf and really does fail afterwards.
+        $failingOrderRepo = Mockery::mock($this->app->make(OrderRepositoryInterface::class));
+        $failingOrderRepo->shouldReceive('add')->andThrow(new RuntimeException('the till lost the payment terminal'));
+        $this->app->instance(OrderRepositoryInterface::class, $failingOrderRepo);
 
         try {
             $this->placeSaleAtTill($till, amount: 300.0);
