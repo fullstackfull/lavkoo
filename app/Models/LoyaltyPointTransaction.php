@@ -38,6 +38,20 @@ class LoyaltyPointTransaction extends Model
         'transaction_type',
     ];
 
+    /**
+     * A customer's statement keeps exactly the keys it had. RestAPI/v1/UserLoyaltyController::list() returns these models as they are, so a
+     * column added to the ledger would otherwise appear in the customer app's answer the moment a migration ran, switch or no switch. The
+     * list is the one gcc/p1-wallet-ledger-attribution (E-05) hides, so the two streams never fight over the shape.
+     */
+    protected $hidden = [
+        'source_type',
+        'source_id',
+        'actor_type',
+        'actor_id',
+        'storefront_country',
+        'legal_entity_id',
+    ];
+
     protected $casts = [
         'id' => 'integer',
         'user_id' => 'integer',

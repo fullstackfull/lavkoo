@@ -131,6 +131,17 @@ jobs:
             paths: tests/Feature/Wallet
           - group: Marketplace and ledger tests
             paths: tests/Feature/Marketplace tests/Feature/Storefront
+            paths: tests/Unit/Storefront tests/Feature/Storefront
+          - group: Wallet tests
+            # The per-market wallet and loyalty accounts, on a real engine because that is the only place their content means anything:
+            # the unique key on (customer, market), the row lock a credit is taken under, the ascii_bin market, DECIMAL(40,20) balances and
+            # the ALTER TABLE the expand migration runs. SQLite answers yes to all of them without enforcing any, which is what
+            # tests/Feature/CiDatabaseTest.php says it cannot vouch for.
+            #
+            # Its OWN group, not an append to one above: Tests\Support\BuildsMarketAccountSchema starts from an empty database
+            # (Schema::dropAllTables) on a real engine, so sharing a job's database with another suite would take that suite's tables away.
+            # The races these accounts have are in tests/Feature/Concurrency, which the sales-channel job below runs on both engines.
+            paths: tests/Feature/Wallet
     services:
       mysql:
         image: ${{ matrix.image }}
@@ -411,3 +422,5 @@ jobs:
         run: cp .env.example .env
       - name: Tests with the database connection in strict mode
         run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Feature/StrictModeTest.php tests/Feature/SalesChannels tests/Feature/OperationalCosts tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Wallet tests/Feature/Loyalty tests/Feature/Api tests/Feature/Auth tests/Feature/Blog tests/Feature/Cart tests/Feature/Checkout tests/Feature/Coupon tests/Feature/Inventory tests/Feature/Marketplace tests/Feature/Payment tests/Feature/Payments tests/Feature/Permissions tests/Feature/Pos tests/Feature/Referral tests/Feature/Refund tests/Feature/Web tests/Unit/Architecture tests/Unit/Customer tests/Unit/Http tests/Unit/Marketplace tests/Unit/PlatformAdmin tests/Unit/Security tests/Unit/Utils tests/Unit/Wallet --display-skipped
+        # tests/Feature/Wallet is LAST: it starts from an empty database, so anything after it would find its own tables gone.
+        run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Feature/StrictModeTest.php tests/Feature/SalesChannels tests/Feature/OperationalCosts tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Wallet --display-skipped

@@ -115,6 +115,18 @@ return [
             'enabled' => filter_var(env('GCC_STOREFRONT_THEMES', false), FILTER_VALIDATE_BOOLEAN),
         ],
 
+        'market_accounts' => [
+            // Off by default, and off means the platform of today: a customer has the one wallet balance and the one point balance the `users` row keeps
+            // (`wallet_balance`, `loyalty_point`), every read answers from those two columns whatever market is asked for, and no account table is read —
+            // not even to ask whether it is there. The four wallet writers and the two point writers stay the only authority on a balance, so nothing a
+            // Saudi customer does is reached by this key while it is off. When it is on, and once the expand migration has run, a customer has one account
+            // per market (`customer_market_wallet_accounts`, `customer_market_loyalty_accounts`): a balance is that market's own, a credit or a debit
+            // touches the account of the market it names and no other, and nothing is converted between two markets. Nothing in the application asks for a
+            // market balance yet, so turning it on moves no money on its own: the writers are wired market by market in a later slice (GCC-15, E-07).
+            // Read docs/gcc/GCC-15-MARKET-ACCOUNTS.md before turning it on.
+            'enabled' => filter_var(env('GCC_MARKET_ACCOUNTS', false), FILTER_VALIDATE_BOOLEAN),
+        ],
+
         'legal' => [
             // Configuration, not a statement of what the law requires. A qualified reviewer confirms the list per country before release.
             'required_documents' => ['terms', 'privacy', 'refund', 'return', 'cancellation', 'shipping'],
