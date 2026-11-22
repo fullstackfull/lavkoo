@@ -109,7 +109,9 @@ jobs:
             # rests on is engine behaviour: a conditional decrement whose affected-row count is the refusal, and a row lock
             # taken in id order. SQLite agreeing proves neither — its grammar compiles lockForUpdate to nothing at all, which
             # the lock-order test says in so many words and asserts the clause only where it exists.
-            paths: tests/Feature/Pos
+            # CiDatabaseTest comes with it, as it does for the fulfillment group: if a configuration slip ran this group on
+            # SQLite after all, the till tests would still pass and the group would be green and worthless.
+            paths: tests/Feature/Pos tests/Feature/CiDatabaseTest.php
     services:
       mysql:
         image: ${{ matrix.image }}
@@ -360,4 +362,4 @@ jobs:
       - name: Environment
         run: cp .env.example .env
       - name: Tests with the database connection in strict mode
-        run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Feature/StrictModeTest.php tests/Feature/SalesChannels tests/Feature/OperationalCosts tests/Unit/Fulfillment tests/Feature/Fulfillment --display-skipped
+        run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Feature/StrictModeTest.php tests/Feature/SalesChannels tests/Feature/OperationalCosts tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Pos --display-skipped

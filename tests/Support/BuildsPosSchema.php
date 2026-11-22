@@ -152,7 +152,7 @@ trait BuildsPosSchema
             $table->decimal('discount_amount', 16, 2)->default(0);
             $table->string('discount_type')->nullable();
             $table->string('coupon_code')->nullable();
-            $table->decimal('coupon_discount_bearer', 16, 2)->default(0);
+            $table->string('coupon_discount_bearer')->default('inhouse');
             $table->decimal('total_tax_amount', 16, 2)->default(0);
             $table->string('tax_type')->nullable();
             $table->string('tax_model')->nullable();
@@ -253,19 +253,21 @@ trait BuildsPosSchema
             $table->timestamps();
         });
 
+        // The column widths are BuildsPlatformProcurementSchema's, the repository's other definition of this table: an
+        // unbounded string() here would pass a value the real column cannot hold.
         $this->createPosTable('stock_movements', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('product_id');
             $table->unsignedBigInteger('seller_id')->nullable();
-            $table->string('type');
+            $table->string('type', 24);
             $table->integer('qty_change');
             $table->integer('balance_after')->nullable();
-            $table->string('reason')->nullable();
-            $table->string('reference_type')->nullable();
+            $table->string('reason', 40)->nullable();
+            $table->string('reference_type', 40)->nullable();
             $table->unsignedBigInteger('reference_id')->nullable();
             $table->text('note')->nullable();
             $table->unsignedBigInteger('created_by')->nullable();
-            $table->string('created_by_type')->nullable();
+            $table->string('created_by_type', 24)->nullable();
             $table->timestamps();
         });
 
