@@ -646,6 +646,52 @@ class GatewayRefusesACurrencyItCannotTakeTest extends PaymentCurrencyTestCase
         $this->assertSame(['currency' => 'BDT', 'amount' => 11000.0], $this->theCharge());
     }
 
+    /**
+     * THE ONE REACH THE FALL-THROUGH STILL HAS WITH THE SWITCH ON, pinned here rather than left as a
+     * sentence in a report.
+     *
+     * A request that names no currency is judged against the currency the store prices in by default.
+     * If `system_default_currency` points at no row at all, there is no code to judge and no code to
+     * charge, so the question is left unanswered and the legacy resolver decides as it always has --
+     * measured: BDT 11,000 on a cart worth SAR 375, the switch ON. Deliberate: a store that cannot say
+     * what it prices in is a configuration fault, and refusing every payment on it would be a worse
+     * answer than the one the platform gives today. It is the last place a currency is chosen silently,
+     * and it is recorded as open.
+     */
+    public function test_a_store_with_no_default_currency_row_is_still_left_to_the_resolver(): void
+    {
+        $this->aMultiCurrencyStore();
+        $this->setSetting('system_default_currency', 999);
+        $this->switchTheRefusalOn();
+
+        $this->assertNull(
+            app(GatewayCurrencySupport::class)->chargedCurrencyCode(['payment_method' => self::ONE_CURRENCY_GATEWAY]),
+            'a store with no default currency row answered with a code anyway'
+        );
+
+        $this->startsAppPayment(self::ONE_CURRENCY_GATEWAY, '')->assertOk();
+        $this->assertSame(['currency' => 'BDT', 'amount' => 11000.0], $this->theCharge());
+    }
+
+    /**
+     * And when the default currency row EXISTS but the store has retired it, there IS a code to judge --
+     * so it is judged, and refused for the same reason any retired currency is: no rate anybody may
+     * charge against. Measured at 403 with nothing written.
+     */
+    public function test_a_store_whose_default_currency_has_been_retired_refuses_rather_than_substituting(): void
+    {
+        // KWD is the one inactive row in this fixture.
+        $this->aMultiCurrencyStore();
+        $this->setSetting('system_default_currency', 4);
+        $this->switchTheRefusalOn();
+
+        $decision = app(GatewayCurrencySupport::class)->decideForRequest(['payment_method' => self::ONE_CURRENCY_GATEWAY]);
+        $this->assertTrue($decision->refused());
+
+        $this->startsAppPayment(self::ONE_CURRENCY_GATEWAY, '')->assertStatus(403);
+        $this->assertNothingWasWritten();
+    }
+
     // ------------------------------- the code judged is the code charged (Reviewer A, F2)
 
     /**
