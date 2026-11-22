@@ -3851,6 +3851,76 @@ CRITERIA['A2-05'][3] = ('CODED',
     "that closed index 0 touched no logging call, so this criterion gained nothing and is recorded as such.")
 
 
+# ============================================================================
+# GCC-21 stages A+B, and D2-07 criterion 2. 2026-11-22.
+#
+# The lane that built stages A and B reported these rulings; I applied only what
+# I verified myself, leg by leg, under the owner's MET definition of 2026-11-22.
+# ============================================================================
+
+_D207C2 = (
+    " **2026-11-22: RAISED CODED -> MET, and the gap the previous note named is the thing that was closed.** That note said this "
+    "criterion was 'one short test away -- register the SA account, start a Saudi payment, assert it goes through that account with its "
+    "stored data and its settlement unchanged'. That test now exists: "
+    "PaymentBelongsToACompanyAccountTest::test_a_saudi_payment_goes_through_the_registered_sa_account_and_is_otherwise_the_dormant_payment, "
+    "on named commit 457b14b7 of PR 152 (draft, gcc/core-payment-accounts, base main). "
+    "**I CHECKED ALL THREE LEGS MYSELF rather than take the lane's word, because a raise to MET is the one direction that must not rest on "
+    "the word of whoever did the work.** (1) THE TEST: I read the assertions at that commit with `git show`, not the file name. (2) THE RUN: "
+    "run 45029271080, whose jobs all carry head_sha 457b14b7 -- 23 jobs, 22 success, the one failure being 'Deployment overlay (artifact, "
+    "deploys nothing)', which is red by design on every run and every base. Both engines of the group that holds this test are success: "
+    "job 137229020725 (MySQL 8.0, myfatoorah) and job 137229020579 (MariaDB 11.4.2, myfatoorah). (3) THE PATHS: I read .github/workflows/ci.yml "
+    "AT THAT COMMIT and confirmed the myfatoorah group runs five directories there -- tests/Feature/MyFatoorah, tests/Unit/MyFatoorah, "
+    "tests/Feature/Wallet, **tests/Feature/Payments** and tests/Unit/Payments -- so the job really does run the directory this test lives in. "
+    "(On origin/main that group names only the two MyFatoorah directories; the widening belongs to this lane, which is why the five-directory "
+    "figure is comparable only on these heads.) "
+    "AND THE WORDS, clause by clause against assertions I read: '**as the SA account**' -- the stamp is asserted to name the SA account id AND "
+    "the Saudi company id; the ONE call the gateway received in that phase (assertCount(1)) carried `Token <the SA account's own key>`, asserted "
+    "with assertSame on the WHOLE header value, against a dormant pole asserted to carry `Token platform-secret-key`; and settlement happened "
+    "only because the signed return was signed with the ACCOUNT's own HMAC, a different secret from the platform row's, so the verification path "
+    "must have read the stamp to accept it. '**works unchanged, with no data change**' -- amount, is_paid, the wallet-credit delta and the decoded "
+    "stored data are each compared against a DORMANT Saudi top-up measured in the same test, with only the stamp key excepted, and the platform "
+    "addon_settings row is asserted equal to a snapshot taken before the test. No expected number is written into the test. Both payments are "
+    "started by App\\Traits\\Payment::generate_link, the one place all fourteen gateways start a payment, and taken to the gateway and settled "
+    "through the real routes, so what is asserted is what production wrote. Green on four engines (SQLite and MariaDB 10.11.14 locally, MySQL 8.0 "
+    "and MariaDB 11.4.2 in CI) plus strict mode; four mutations, each one line with a single-occurrence anchor and each restored from a copy taken "
+    "before the edit, every one of them red: the credentials reader stops reading the stamp; the stamp stops naming the account; the return "
+    "verification stops reading the stamp; the stamp replaces the stored data instead of adding to it. "
+    "**BOUNDARY STATED so the raise is not read wider than it is:** met for the one gateway the shipped list holds, and the 'no data change' half "
+    "is proved as 'the platform row is never written to and a dormant Saudi payment is byte-identical', NOT as 'the platform row is itself "
+    "registered as a named SA account row'."
+)
+
+CRITERIA['D2-07'][2] = ('MET', CRITERIA['D2-07'][2][1] + _D207C2)
+
+CRITERIA['D2-07'][1] = ('CODED', CRITERIA['D2-07'][1][1] +
+    " RE-MEASURED 2026-11-22 on the newer head rather than carried over: App\\Services\\MyFatoorah\\RefundService injects "
+    "GatewayConfigRepository and MyFatoorahClient and nothing else, and a search for every reader of the stamp returns the Paymob controller, "
+    "the gateway middleware, the return verification, the per-account webhook controller and the initiation service -- no refund path at all. "
+    "One of the criterion's three verbs still has no code and therefore no test, so the lower state stands for the same measured reason as before.")
+
+# ----------------------------------------------------------------------------
+# D2-09 criterion 1: NOT lowered, and the reason is a wording question for the
+# owner rather than a regression. Stage A+B's fix narrows what the screen shows.
+# ----------------------------------------------------------------------------
+
+CRITERIA['D2-09'][1] = (CRITERIA['D2-09'][1][0], CRITERIA['D2-09'][1][1] +
+    " **2026-11-22, A NARROWING THIS CRITERION'S WORDING DID NOT ANTICIPATE, recorded rather than left to be discovered, and NOT scored as a "
+    "loss.** The GCC-21 stage A+B lane (PR 157, head 4504a41a, stacked on this branch) found that the single definition of a company account's "
+    "notification address answered an address for an account of ANY gateway -- including the gateways that are notified at no per-account address "
+    "at all, where that address refuses every delivery. Two independent reviewers found the same defect from opposite ends and it was fixed in "
+    "one place: the definition now answers nothing unless the account's gateway is the one that address actually serves. The consequence for THIS "
+    "criterion is that on the shipped gateway list -- which holds exactly one gateway, and that one is notified by the customer's own return "
+    "rather than at an address -- an account now shows NO address, and the lane asserts that absence explicitly. **The screen is more correct "
+    "than it was**: an operator shown an address that refuses every delivery would paste it into a gateway portal and wait for notifications that "
+    "cannot arrive. But the criterion's literal 'EACH account shows its own webhook URL' is no longer true of every account on that head. "
+    "WHY I DID NOT LOWER IT: the evidence this criterion names is true at the commit it names and its job is green there; and lowering it would "
+    "record a step backwards where the behaviour went forwards, which is the opposite of what happened. The 'secret status' half is still asserted "
+    "for every account. **OWNER DECISION, the third of this shape in this tracker:** the wording wants to become something like 'an account that is "
+    "notified at an address of its own shows that address, and the secret status of every account is shown'. Rewording a criterion moves what this "
+    "tracker measures, and that is the owner's to do, not mine. Until it is reworded, read this MET as covering the secret status of every account "
+    "and the address of every account that has one.")
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
