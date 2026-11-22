@@ -2907,4 +2907,5 @@ return [
 	'review_not_found' => 'لم يتم العثور على المراجعة',
 	'Please_add_item_to_cart' => 'Please add item to cart',
 	'when_discount_type_percentage,discount_amount_will_be_less_than_100' => 'When discount type percentage,discount amount will be less than 100',
+	'this_payment_method_cannot_take_payments_in_your_currency' => 'وسيلة الدفع هذه لا تقبل الدفع بعملتك',
 ];

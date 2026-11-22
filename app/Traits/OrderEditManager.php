@@ -25,6 +25,7 @@ use App\Models\ShippingType;
 use App\Models\User;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
 use App\Services\OrderEditService;
+use App\Services\Payments\GatewayCurrencySupport;
 use App\Services\Storefront\StorefrontCurrency;
 use App\Utils\CartManager;
 use App\Utils\CustomerManager;
@@ -852,6 +853,26 @@ trait OrderEditManager
         $isGuest = $customer == 'offline' ? 1 : 0;
         $payerId = $customerId;
 
+        /*
+         * The same refusal as the payment start and the wallet top-up (D2-V1): the due amount must not be
+         * converted into a currency the customer never chose. Answered in this method's own shape -- a
+         * status, a message and no link -- which both the website controller and the app controller
+         * already read. `redirect_link` is spelled out rather than left out because both of them go on to
+         * read that key.
+         */
+        $currencyDecision = app(GatewayCurrencySupport::class)->decideForRequest($request);
+        if ($currencyDecision->refused()) {
+            return [
+                'status' => false,
+                'message' => $currencyDecision->message(),
+                'redirect_link' => null,
+                // Named so the app controller can answer 403 rather than the 401 it gives a dead session:
+                // the customer app clears the login token on ANY 401, so an ordinary refusal would sign
+                // them out mid-payment (measured in the Flutter client; found by both reviewers).
+                'refusal' => 'payment-currency',
+            ];
+        }
+
         [$paymentAmount, $currency_code] = self::resolvePaymentAmount($order['edit_due_amount'], $request['payment_method'], $request);
 
         $additional_data = [
@@ -919,8 +940,11 @@ trait OrderEditManager
     private function resolvePaymentAmount($amount, $paymentMethod, $request): array
     {
         if (getWebConfig('currency_model') === 'multi_currency') {
-            $currentCurrency = $request->current_currency_code ?? session('currency_code');
-            $currency_code = $this->getPaymentGatewayCurrencyCode($paymentMethod, $currentCurrency);
+            // The code the refusal in payEditOrderDueByDigitalPayment() judged, so the due amount goes out
+            // in the currency that was allowed. Switched off, the same value as the expression it replaces.
+            $currencySupport = app(GatewayCurrencySupport::class);
+            $currentCurrency = $currencySupport->chargedCurrencyCode($request);
+            $currency_code = $this->getPaymentGatewayCurrencyCode($currencySupport->chargedGatewayKey($request), $currentCurrency);
             $convertedAmount = usdToAnotherCurrencyConverter(currencyCode: $currency_code, amount: $amount);
             return [$convertedAmount, $currency_code];
         }

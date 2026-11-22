@@ -540,4 +540,5 @@ return [
 	"order_not_found" => "অর্ডার পাওয়া যায়নি",
 	'Please_add_item_to_cart' => 'Please add item to cart',
 	'when_discount_type_percentage,discount_amount_will_be_less_than_100' => 'When discount type percentage,discount amount will be less than 100',
+	'this_payment_method_cannot_take_payments_in_your_currency' => 'This payment method cannot take payments in your currency',
 ];

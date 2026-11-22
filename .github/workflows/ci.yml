@@ -91,7 +91,7 @@ jobs:
       fail-fast: false
       matrix:
         engine: ['MySQL 8', 'MariaDB 11.4.2']
-        group: ['Fulfillment + security tests', 'Address tests', 'Storefront tests', 'Catalog tests', 'Staff scope tests', 'Checkout, payment and permission tests', 'Saudi baseline pack', 'Report pagination tests', 'Notification and localization tests', 'Wallet tests', 'Marketplace and ledger tests', 'Marketing consent tests']
+        group: ['Fulfillment + security tests', 'Address tests', 'Storefront tests', 'Catalog tests', 'Staff scope tests', 'Checkout, payment and permission tests', 'Saudi baseline pack', 'Report pagination tests', 'Notification and localization tests', 'Wallet tests', 'Marketplace and ledger tests', 'Marketing consent tests', 'Payment tests']
         include:
           - engine: MySQL 8
             image: mysql:8.0
@@ -144,6 +144,13 @@ jobs:
             paths: tests/Feature/Wallet
           - group: Marketing consent tests
             paths: tests/Feature/Marketing
+          # The payment-start tests, which until now ran on SQLite only (the whole-suite job above) and
+          # on no real engine. They are about money the gateway is asked for, and the figures they assert
+          # come out of decimal columns and of a currency lookup, so they belong on an engine that stores
+          # decimals the way the platform does. Its own group rather than appended to another: the two
+          # existing groups each take 15 to 20 minutes against a 35-minute ceiling.
+          - group: Payment tests
+            paths: tests/Feature/Payments
     services:
       mysql:
         image: ${{ matrix.image }}

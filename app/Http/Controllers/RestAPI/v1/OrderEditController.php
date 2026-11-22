@@ -206,7 +206,15 @@ class OrderEditController extends Controller
         $response = $this->payEditOrderDueByDigitalPayment(request: $request, order: $order, customer: $customer);
 
         if (!$response['status'] && isset($response['message'])) {
-            return response()->json(['message' => $response['message']], 401);
+            /*
+             * 401 is what this route has always answered a failed due payment, and the cases that already
+             * used it keep it. But the customer app treats ANY 401 as a dead session and clears the login
+             * token (api_error_handler.dart case 401 -> AuthController::clearSharedData), so a refusal the
+             * platform expects -- a gateway that cannot take the customer's currency -- would sign them out
+             * in the middle of paying. A refusal that names itself is answered 403, which the same client
+             * displays without touching the token.
+             */
+            return response()->json(['message' => $response['message']], isset($response['refusal']) ? 403 : 401);
         }
 
         if ($response['redirect_link']) {
