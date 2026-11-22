@@ -15,6 +15,7 @@ use App\Services\MyFatoorah\PaymentSettlementService;
 use App\Services\MyFatoorah\PaymentVerificationService;
 use App\Services\MyFatoorah\ReconciliationService;
 use App\Services\MyFatoorah\RefundService;
+use App\Services\Payments\GatewayAccountDirectory;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -49,6 +50,7 @@ class SettingsController extends Controller
         private readonly RefundService $refunds,
         private readonly PaymentVerificationService $verification,
         private readonly PaymentSettlementService $settlement,
+        private readonly GatewayAccountDirectory $accounts,
     ) {
     }
 
@@ -79,6 +81,8 @@ class SettingsController extends Controller
             'availability' => $availability,
             'environmentEnabled' => $this->availability->environmentEnabled(),
             'webhookUrl' => route('myfatoorah.webhook'),
+            // Empty while per-company accounts are off, so the screen is exactly what it is today (D2-09).
+            'gatewayAccounts' => $this->accounts->rows(gateway: GatewayConfigRepository::KEY),
             'callbackUrl' => route('myfatoorah.callback', ['reference' => '{reference}']),
             'attempts' => $attempts,
             'attention' => $this->reconciliation->needsAttention(),

@@ -36,7 +36,7 @@ class AdminOperationalCostsReportsTest extends AdminPagesTestCase
     private function download(string $report, array $query = []): array
     {
         // The exports are rate limited (that has a test of its own); a test that reads several files is not.
-        Cache::flush();
+        Cache::store(config('cache.limiter'))->flush();
         $response = $this->get(route('admin.operational-costs.reports.export', ['report' => $report] + $query + self::NOVEMBER))->assertOk();
         $csv = $response->streamedContent();
 

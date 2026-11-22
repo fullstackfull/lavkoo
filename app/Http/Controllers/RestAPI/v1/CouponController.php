@@ -23,6 +23,7 @@ class CouponController extends Controller
         $customer_id = $request->user() ? $request->user()->id : '0';
 
         $coupons = Coupon::with('seller.shop')
+            ->forStorefront()
             ->withCount(['order' => function ($query) use ($customer_id) {
                 $query->where(['customer_id' => $customer_id]);
             }])
@@ -52,6 +53,7 @@ class CouponController extends Controller
 
         if ($cart_data->count() > 0 && $productGroup->count() > 0) {
             $couponQuery = Coupon::active()
+                ->forStorefront()
                 ->with('seller.shop')
                 ->select('coupons.*', DB::raw('DATE(expire_date) as plain_expire_date'))
                 ->withCount(['order' => function ($query) use ($customer_id) {
@@ -127,6 +129,7 @@ class CouponController extends Controller
         $shop = Shop::where('slug', $slug)->first();
         $sellerIds = ['0'];
         $coupons = Coupon::with('seller.shop')
+            ->forStorefront()
             ->where(['status' => 1])
             ->whereDate('start_date', '<=', date('Y-m-d'))
             ->whereDate('expire_date', '>=', date('Y-m-d'))

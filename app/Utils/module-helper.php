@@ -8,6 +8,7 @@ use App\Models\OrderEditHistory;
 use App\Models\ShippingAddress;
 use App\Models\User;
 use App\Services\Address\OrderAddressService;
+use App\Services\Payments\WalletTopUpRegister;
 use App\Services\Storefront\PaymentStorefront;
 use App\Utils\Convert;
 use App\Utils\CustomerManager;
@@ -318,7 +319,11 @@ if (!function_exists('add_fund_to_wallet_success')) {
 
             $paymentAmount = Convert::usdPaymentModule(floatval($payment_data['payment_amount']), $payment_data['currency_code']);
             $paymentAmount = usdToDefaultCurrency(amount: $paymentAmount);
-            $wallet_transaction = CustomerManager::create_wallet_transaction($payment_data['payer_id'], $paymentAmount, 'add_fund', 'add_funds_to_wallet', $payment_data);
+            $wallet_transaction = app(WalletTopUpRegister::class)->creditOnce(
+                paymentId: (string) $payment_data['id'],
+                customerId: (int) $payment_data['payer_id'],
+                credit: fn () => CustomerManager::create_wallet_transaction($payment_data['payer_id'], $paymentAmount, 'add_fund', 'add_funds_to_wallet', $payment_data),
+            );
 
             if ($wallet_transaction) {
                 try {

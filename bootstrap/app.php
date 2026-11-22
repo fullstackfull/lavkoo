@@ -134,6 +134,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'storefront' => \App\Http\Middleware\ResolveStorefront::class,
             'storefront.vary' => \App\Http\Middleware\VaryByStorefront::class,
             'storefront.sellable' => \App\Http\Middleware\EnsureStorefrontMaySell::class,
+            'storefront.wallet' => \App\Http\Middleware\EnsureWalletIsOpenInStorefront::class,
             // Adopted by the admin screens that work on the products of one country, so their money is that country's (GCC-05).
             'money.market' => \App\Http\Middleware\ScopeMoneyToMarket::class,
         ]);

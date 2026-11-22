@@ -4,16 +4,26 @@ namespace App\Http\Controllers\Payment_Methods;
 
 use App\Models\PaymentRequest;
 use App\Models\User;
+use App\Services\Payments\GatewayAccountSecrets;
+use App\Services\Payments\GatewayConfirmations;
+use App\Services\Payments\GatewayReturnVerification;
+use App\Services\Payments\PaymentAccountBinding;
 use App\Traits\Processor;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Validator;
 
 class PaymobController extends Controller
 {
     use Processor;
+
+    /** The key this shop stores Paymob's settings and its payments under. */
+    private const GATEWAY = 'paymob_accept';
 
     private mixed $config_values = null;
 
@@ -32,7 +42,7 @@ class PaymobController extends Controller
 
     public function __construct(PaymentRequest $payment, User $user)
     {
-        $config = $this->payment_config('paymob_accept', 'payment_config');
+        $config = $this->payment_config(self::GATEWAY, 'payment_config');
         if (!is_null($config) && $config->mode == 'live') {
             $this->config_values = json_decode($config->live_values, true);
         } elseif (!is_null($config) && $config->mode == 'test') {
@@ -99,11 +109,17 @@ class PaymobController extends Controller
 
         $payer = json_decode($payment_data['payer_information']);
         $url = $this->base_url . '/v1/intention/';
-        $config = $this->config_values;
-        $token = $config['secret_key']; //secret key
+        $credentials = $this->credentialsFor(payment: $payment_data);
+        $token = $credentials['secret_key'];
+
+        if ($token === null || $credentials['integration_id'] === null || $credentials['public_key'] === null) {
+            // Nothing to call Paymob with. Answering rather than throwing, because a half-configured gateway is an operator's mistake and not a
+            // 500 for the customer; the payment row stays unpaid and the customer is returned to choose another method.
+            return response()->json($this->response_formatter(GATEWAYS_DEFAULT_204), 200);
+        }
 
         // Data for the request
-        $integration_id = (int)$config['integration_id'];
+        $integration_id = (int) $credentials['integration_id'];
         $data = [
             'amount' => round($payment_data->payment_amount * 100),
             'currency' => $payment_data->currency_code,
@@ -131,7 +147,15 @@ class PaymobController extends Controller
                 "last_name" => !empty($payer->name) ? $payer->name : "rashed",
                 "state" => "N/A",
             ],
-            'special_reference' => time(),
+            /*
+             * Paymob's own unique reference for this intention, and OUR identifier for the payment.
+             *
+             * It was `time()`: two customers who started a payment in the same second were given the same reference, which Paymob holds unique, so
+             * the second one's intention was refused for a reason neither they nor an operator could see. And `time()` names nothing, so a payment
+             * paid at Paymob and never returned from could not be found there by any reference of ours -- which is the first thing a recovery sweep
+             * for Paymob needs (D2-12, owner decision R-071).
+             */
+            'special_reference' => (string) $payment_data->id,
             'customer' => [
                 'first_name' => !empty($payer->name) ? $payer->name : "rashed",
                 'last_name' => !empty($payer->name) ? $payer->name : "rashed",
@@ -146,24 +170,31 @@ class PaymobController extends Controller
             "redirection_url" => route('paymob.callback'),
         ];
 
-        $ch = curl_init($url);
-
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            'Authorization: Token ' . $token,
-            'Content-Type: application/json'
-        ]);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
-
-        $response = curl_exec($ch);
-        $result = json_decode($response, true);
-        if (!isset($result['client_secret'])) {
+        /*
+         * The intention call, through the HTTP client the rest of this code base uses for a gateway (App\Services\MyFatoorah\MyFatoorahClient).
+         * It was a raw curl handle with no timeout of any kind, so a Paymob that accepted the connection and never answered held the customer's
+         * request open for as long as PHP allowed; and a 3xx would have re-sent the Authorization header, and the secret key with it, to whatever
+         * host the redirect named. Both are closed here. What the customer sees is unchanged: any answer without a client secret, a refusal and a
+         * dropped connection all end in the same "information not found", exactly as `curl_exec` returning false did.
+         */
+        try {
+            $response = Http::withHeaders(['Authorization' => 'Token ' . $token, 'Content-Type' => 'application/json'])
+                ->connectTimeout((int) config('gcc.storefronts.payment_accounts.inquiry.connect_timeout', 10))
+                ->timeout((int) config('gcc.storefronts.payment_accounts.inquiry.timeout', 30))
+                ->withoutRedirecting()
+                ->post($url, $data);
+        } catch (ConnectionException) {
             return response()->json($this->response_formatter(GATEWAYS_DEFAULT_204), 200);
         }
+
+        $result = $response->json();
+
+        if (!is_array($result) || !isset($result['client_secret'])) {
+            return response()->json($this->response_formatter(GATEWAYS_DEFAULT_204), 200);
+        }
+
         $secret_key = $result['client_secret'];
-        curl_close($ch);
-        $publicKey = $config['public_key'];
+        $publicKey = $credentials['public_key'];
         $urlRedirect = $this->base_url . "/unifiedcheckout/?publicKey=$publicKey&clientSecret=$secret_key";
         return redirect()->to($urlRedirect);
 
@@ -234,7 +265,7 @@ class PaymobController extends Controller
     {
         $data = $request->all();
         ksort($data);
-        $hmac = $data['hmac'];
+        $hmac = $data['hmac'] ?? null;
         $array = [
             'amount_cents',
             'created_at',
@@ -259,32 +290,158 @@ class PaymobController extends Controller
         ];
         $connectedString = '';
         foreach ($data as $key => $element) {
-            if (in_array($key, $array)) {
+            // Only a scalar is part of what Paymob signs. `?id[]=1` used to be concatenated as an array, which this application's error handler turns
+            // into an exception, so a crafted address answered 500 instead of simply failing to match the signature.
+            if (in_array($key, $array, true) && is_scalar($element)) {
                 $connectedString .= $element;
             }
         }
-        $secret = is_array($this->config_values) ? $this->config_values['hmac'] : $this->config_values->hmac;
-        $hased = hash_hmac('sha512', $connectedString, $secret);
+        $paymentId = (string) session('payment_id');
+        $waiting = $paymentId === '' ? null : $this->payment::where(['id' => $paymentId])->first();
+        $verification = app(GatewayReturnVerification::class);
 
-        if ($hased == $hmac && $data['success'] === "true") {
+        $signed = $verification->signatureHolds(
+            algorithm: 'sha512',
+            signedString: $connectedString,
+            provided: is_string($hmac) ? $hmac : null,
+            secret: $verification->signingSecret(
+                payment: $waiting,
+                name: 'hmac',
+                platformSecret: fn (): ?string => $this->platformHmacSecret(),
+            ),
+        );
 
-            $this->payment::where(['id' => session('payment_id')])->update([
-                'payment_method' => 'paymob_accept',
-                'is_paid' => 1,
-                'transaction_id' => session('payment_id'),
-            ]);
+        if (!$signed) {
+            // Not Paymob's return, or this shop has no secret to tell whether it is. Either way it decides nothing about the payment, so no hook runs
+            // and nothing is marked failed on the strength of it.
+            return $this->payment_response($waiting, 'fail');
+        }
 
-            $payment_data = $this->payment::where(['id' => session('payment_id')])->first();
+        $confirmation = $verification->confirm(payment: $waiting, gateway: self::GATEWAY, reference: (string) ($data['id'] ?? ''));
 
-            if (isset($payment_data) && function_exists($payment_data->success_hook)) {
+        if ($verification->confirmsWithGateway(gateway: self::GATEWAY) && !$confirmation->isPaid()) {
+            // The server asked Paymob and did not get a "paid" back. A refusal is a failure; an unknown answer is neither, and guessing either way is
+            // how a paid customer is told their payment failed.
+            return $confirmation->isRefused() ? $this->fail($waiting) : $this->payment_response($waiting, 'fail');
+        }
+
+        $success = $confirmation->isPaid() || $this->isTrue($data['success'] ?? null);
+
+        if ($success) {
+            $payment_data = $this->settle(
+                paymentId: $paymentId,
+                transaction: (string) ($confirmation->reference ?? $data['id'] ?? ''),
+                minorUnits: $confirmation->isPaid() ? $confirmation->minorUnits : ($data['amount_cents'] ?? null),
+                currency: (string) ($confirmation->isPaid() ? $confirmation->currency : ($data['currency'] ?? '')),
+            );
+
+            if ($payment_data === null) {
+                return $this->payment_response($waiting, 'fail');
+            }
+
+            if (function_exists($payment_data->success_hook)) {
                 call_user_func($payment_data->success_hook, $payment_data);
             }
             return $this->payment_response($payment_data, 'success');
         }
-        $payment_data = $this->payment::where(['id' => session('payment_id')])->first();
-        if (isset($payment_data) && function_exists($payment_data->failure_hook)) {
-            call_user_func($payment_data->failure_hook, $payment_data);
+
+        return $this->fail($waiting);
+    }
+
+    /**
+     * The credentials this payment is taken with: the ones of the company's own account when the payment was stamped with one (D2-07, D2-08), else the
+     * one platform-wide settings row, which is what every payment uses today and what the Saudi configuration is.
+     *
+     * A Kuwait payment stamped with the Kuwait account therefore goes to Paymob with the Kuwait account's secret key and integration id, and never
+     * with the Saudi row's.
+     *
+     * @return array{secret_key: ?string, integration_id: ?string, public_key: ?string}
+     */
+    private function credentialsFor(PaymentRequest $payment): array
+    {
+        $account = app(PaymentAccountBinding::class)->accountOf(payment: $payment);
+
+        if ($account !== null) {
+            $secrets = app(GatewayAccountSecrets::class);
+
+            return [
+                'secret_key' => $secrets->read(account: $account, name: 'secret_key'),
+                'integration_id' => $secrets->read(account: $account, name: 'integration_id'),
+                'public_key' => $secrets->read(account: $account, name: 'public_key'),
+            ];
         }
-        return $this->payment_response($payment_data, 'fail');
+
+        return [
+            'secret_key' => $this->platformValue(name: 'secret_key'),
+            'integration_id' => $this->platformValue(name: 'integration_id'),
+            'public_key' => $this->platformValue(name: 'public_key'),
+        ];
+    }
+
+    /** One value of the platform settings row, or null when the row does not hold it. */
+    private function platformValue(string $name): ?string
+    {
+        $values = $this->config_values;
+        $value = is_array($values) ? ($values[$name] ?? null) : ($values->{$name} ?? null);
+
+        return is_scalar($value) && (string) $value !== '' ? (string) $value : null;
+    }
+
+    /** Paymob said the payment did not go through: the failure hook runs, as it always has. */
+    private function fail(?PaymentRequest $payment): mixed
+    {
+        if ($payment !== null && function_exists($payment->failure_hook)) {
+            call_user_func($payment->failure_hook, $payment);
+        }
+
+        return $this->payment_response($payment, 'fail');
+    }
+
+    /** Paymob writes its booleans as "true" in the return and as true in its API answers. */
+    private function isTrue(mixed $value): bool
+    {
+        return $value === true || $value === 1 || (is_string($value) && strcasecmp($value, 'true') === 0);
+    }
+
+    /**
+     * The HMAC secret of the one platform-wide settings row, which is what every Paymob payment uses today.
+     *
+     * Null rather than an exception for a row that has none: an unconfigured gateway must not throw out of a route Laravel reaches while gathering
+     * middleware, and a missing secret is read as "cannot verify" by the caller, which refuses.
+     */
+    private function platformHmacSecret(): ?string
+    {
+        return $this->platformValue(name: 'hmac');
+    }
+
+    /**
+     * Marks the payment this confirmation settles as paid, and answers it; null when the confirmation settles no payment.
+     *
+     * What Paymob signs is its own transaction, its order and the amount it took -- never the payment this shop is waiting for.
+     * So the amount and the currency of the confirmation must be the payment's, one transaction of Paymob settles one payment
+     * (App\Services\Payments\GatewayConfirmations), and the paid flag is set only while it is still unset: a confirmation that
+     * arrives twice at once settles once.
+     *
+     * @param numeric-string|int|float|null $minorUnits
+     */
+    private function settle(string $paymentId, string $transaction, mixed $minorUnits, string $currency): ?PaymentRequest
+    {
+        $confirmations = app(GatewayConfirmations::class);
+        $payment = $confirmations->thePaymentItSettles(gateway: self::GATEWAY, paymentId: $paymentId, reference: $transaction, minorUnits: $minorUnits, currency: $currency);
+
+        if ($payment === null || $transaction === '') {
+            return null;
+        }
+
+        return DB::transaction(function () use ($confirmations, $payment, $transaction): ?PaymentRequest {
+            if (!$confirmations->hold(gateway: self::GATEWAY, reference: $transaction, paymentId: $payment->id)) {
+                return null;
+            }
+
+            $settled = $this->payment::where(['id' => $payment->id, 'is_paid' => 0])
+                ->update(['payment_method' => self::GATEWAY, 'is_paid' => 1, 'transaction_id' => $transaction]);
+
+            return $settled === 1 ? $payment->refresh() : null;
+        });
     }
 }

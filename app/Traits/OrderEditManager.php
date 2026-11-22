@@ -23,6 +23,7 @@ use App\Models\ShippingMethod;
 use App\Models\ShippingType;
 use App\Models\User;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
+use App\Services\Storefront\StorefrontCurrency;
 use App\Utils\CartManager;
 use App\Utils\CustomerManager;
 use App\Utils\Helpers;
@@ -92,6 +93,11 @@ trait OrderEditManager
 
     public static function checkFreeDeliveryOrderAmountArray(object|array $request = [], object|array $order = [], object|array $editedOrder = [], object|array $data = []): array
     {
+        return app(StorefrontCurrency::class)->withinOrder(order: $order, callback: fn (): array => self::freeDeliveryOrderAmountArrayInOrderMoney(request: $request, order: $order, editedOrder: $editedOrder, data: $data));
+    }
+
+    private static function freeDeliveryOrderAmountArrayInOrderMoney(object|array $request = [], object|array $order = [], object|array $editedOrder = [], object|array $data = []): array
+    {
         $freeDeliveryData = [
             'amount' => 0, // free delivery amount
             'percentage' => 0, // completed percentage
@@ -146,6 +152,11 @@ trait OrderEditManager
     }
 
     public static function getEditOrderTotalShippingCost($order, $editedOrder): float|int
+    {
+        return app(StorefrontCurrency::class)->withinOrder(order: $order, callback: fn (): float|int => self::editOrderTotalShippingCostInOrderMoney(order: $order, editedOrder: $editedOrder));
+    }
+
+    private static function editOrderTotalShippingCostInOrderMoney($order, $editedOrder): float|int
     {
         $shippingMethod = getWebConfig(name: 'shipping_method');
         $adminShipping = ShippingType::where('seller_id', 0)->first();
@@ -432,6 +443,11 @@ trait OrderEditManager
     }
 
     public function checkEditOrderMinimumOrderAmount(object|array $order = [], int|float|null $totalCartAmount = 0, object|array $data = []): array
+    {
+        return app(StorefrontCurrency::class)->withinOrder(order: $order, callback: fn (): array => $this->minimumOrderAmountOfEditInOrderMoney(order: $order, totalCartAmount: $totalCartAmount, data: $data));
+    }
+
+    private function minimumOrderAmountOfEditInOrderMoney(object|array $order = [], int|float|null $totalCartAmount = 0, object|array $data = []): array
     {
         $status = 'success';
         $amount = 0;

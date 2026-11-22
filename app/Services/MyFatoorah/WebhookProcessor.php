@@ -38,10 +38,13 @@ class WebhookProcessor
 
     /**
      * @param array<string,mixed> $payload
+     * @param ?string              $accountScope the company gateway account the delivery was addressed to (D2-09), so two companies' accounts on one
+     *                                           merchant login do not swallow each other's deliveries. Null for the platform-wide address, which keeps
+     *                                           the key it has always had.
      *
      * @return array{result: string, note: string, http: int}
      */
-    public function handle(array $payload, string $rawBody): array
+    public function handle(array $payload, string $rawBody, ?string $accountScope = null): array
     {
         $eventCode = $this->verifier->eventCode($payload);
         $data = is_array($payload['Data'] ?? null) ? $payload['Data'] : [];
@@ -62,7 +65,7 @@ class WebhookProcessor
             'payment_id' => $paymentId,
             'invoice_status' => $invoiceStatus !== '' ? $invoiceStatus : null,
             'transaction_status' => $transactionStatus !== '' ? $transactionStatus : null,
-            'dedupe_key' => $this->dedupeKey($payload, $eventCode, $invoiceId, $paymentId, $invoiceStatus, $transactionStatus),
+            'dedupe_key' => $this->dedupeKey($payload, $eventCode, $invoiceId, $paymentId, $invoiceStatus, $transactionStatus, $accountScope),
             // Proves two deliveries were byte-identical without keeping the body, which carries a
             // cardholder name and a masked card number we have no reason to store.
             'payload_digest' => hash('sha256', $rawBody),
@@ -92,6 +95,26 @@ class WebhookProcessor
         ])->save();
 
         return $outcome + ['http' => 200];
+    }
+
+    /**
+     * The attempt a delivery names, through the same reader the delivery itself is matched with.
+     *
+     * Public because a caller has to decide something about the payment BEFORE the delivery is recorded or acted on — whether the account whose address
+     * it arrived at is the account that payment was taken through. Asking this class means asking exactly the question it will ask itself, rather than a
+     * second lookup that could answer differently.
+     *
+     * @param array<string,mixed> $payload
+     */
+    public function attemptFor(array $payload): ?MyFatoorahPaymentAttempt
+    {
+        $data = is_array($payload['Data'] ?? null) ? $payload['Data'] : [];
+
+        return $this->findAttempt(
+            externalIdentifier: $this->str($data, 'Invoice.ExternalIdentifier'),
+            paymentId: $this->str($data, 'Transaction.PaymentId'),
+            invoiceId: $this->str($data, 'Invoice.Id'),
+        );
     }
 
     /**
@@ -204,18 +227,22 @@ class WebhookProcessor
      * Both statuses are part of the key, so a genuine transition (PENDING then PAID) is a different
      * event and is processed, while a retry of one we already have is not. `Event.Reference` is included
      * when MyFatoorah supplies it, since that is their own id for the delivery.
+     *
+     * The company's gateway account leads the key when the delivery named one, so the keys of two accounts cannot collide (D2-09). A delivery to the
+     * platform-wide address names none and its key is byte for byte the one it has always been.
      */
-    private function dedupeKey(array $payload, ?int $eventCode, ?string $invoiceId, ?string $paymentId, string $invoiceStatus, string $transactionStatus): string
+    private function dedupeKey(array $payload, ?int $eventCode, ?string $invoiceId, ?string $paymentId, string $invoiceStatus, string $transactionStatus, ?string $accountScope = null): string
     {
         $reference = (string) ($payload['Event']['Reference'] ?? '');
 
-        $parts = [
+        $parts = array_filter([
+            $accountScope,
             'e' . ($eventCode ?? 0),
             $reference !== '' ? 'r' . $reference : 'r-',
             'i' . ($invoiceId ?? '-'),
             'p' . ($paymentId ?? '-'),
             's' . $invoiceStatus . '/' . $transactionStatus,
-        ];
+        ]);
 
         $key = implode('|', $parts);
 

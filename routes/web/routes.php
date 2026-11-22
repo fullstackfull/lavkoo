@@ -46,6 +46,7 @@ use App\Http\Controllers\Web\WebController;
 use App\Http\Middleware\VerifyCsrfToken;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
+use App\Http\Middleware\EnsureGatewayTakesThisPayment;
 
 /*
 |--------------------------------------------------------------------------
@@ -193,7 +194,7 @@ Route::group(['namespace' => 'Web', 'middleware' => ['maintenance_mode', 'guestC
         Route::post('digital-product-download-otp-verify', 'getDigitalProductDownloadOtpVerify')->name('digital-product-download-otp-verify');
         Route::post('digital-product-download-otp-reset', 'getDigitalProductDownloadOtpReset')->name('digital-product-download-otp-reset');
         Route::get('pay-offline-method-list', 'pay_offline_method_list')->name('pay-offline-method-list')->middleware('guestCheck');
-        Route::post('checkout-complete-wallet', 'checkout_complete_wallet')->name('checkout-complete-wallet')->middleware('storefront.sellable');
+        Route::post('checkout-complete-wallet', 'checkout_complete_wallet')->name('checkout-complete-wallet')->middleware(['storefront.sellable', 'storefront.wallet']);
 
         Route::post('subscription', 'subscription')->name('subscription');
         // The all-vendors action, which already filters on shop_name. It used to point at a
@@ -479,7 +480,7 @@ try {
 }
 
 if (!$isGatewayPublished) {
-    Route::group(['prefix' => 'payment'], function () {
+    Route::group(['prefix' => 'payment', 'middleware' => [EnsureGatewayTakesThisPayment::class]], function () {
 
         //SSLCOMMERZ
         Route::group(['prefix' => 'sslcommerz', 'as' => 'sslcommerz.'], function () {
