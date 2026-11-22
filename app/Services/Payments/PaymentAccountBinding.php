@@ -26,8 +26,8 @@ use Illuminate\Container\Attributes\Singleton;
  *
  * The stamp also records the ADDRESS this payment's confirmation is expected at (GCC-21): the company account's own notification address, or none,
  * which is read as the platform-wide address. It is the address and not the account id, because an account row can be deleted and `accountOf()` then
- * answers null — see PaymentTransactionRecord. Nothing refuses anything on the strength of it yet; initiation sends it to the gateway, and the
- * platform address consulting it is a later stage the owner has ordered to come after this one.
+ * answers null — see PaymentTransactionRecord. Initiation sends that address to the gateway, and a gateway's platform-wide address reads it through
+ * App\Services\Payments\ConfirmationAddresses to decide whether the payment in front of it is one it is expected to confirm.
  *
  * The gateway refund path does NOT read this yet (D2-16): it still goes to the one platform settings row, so a refund of a company's payment is not
  * drawn on that company's account. This is the single reader of the stamp that is missing, and it is named here rather than implied.
@@ -122,6 +122,39 @@ final class PaymentAccountBinding
     public function confirmationAddressOf(PaymentRequest|array|null $payment, string $platformAddress): string
     {
         return $this->of(payment: $payment)?->confirmationAddress ?? $platformAddress;
+    }
+
+    /**
+     * Does this payment positively expect its confirmation at an address OTHER than this one (GCC-21)?
+     *
+     * Keyed on a POSITIVE fact — a RECORDED address, and one that is not the address asking — and never on the absence of a record. That direction is
+     * the whole care of this method. A payment stamped before the address was ever recorded has nothing stored, and for that payment "the platform
+     * address" is not a guess to be refused but the correct answer: it is where its confirmation was asked for and where it will arrive. Reading an
+     * absence as "not the platform's" would strand it.
+     *
+     * So three stored shapes answer FALSE here, and each is a payment whose confirmation really is expected at the platform address:
+     *
+     *   NO STAMP AT ALL — every payment placed before any of this existed, every payment while accounts are off, and every payment of a market with no
+     *   account of its own, the Saudi ones included.
+     *
+     *   A STAMP WITH NO ADDRESS ON IT — a payment taken through a company account of a gateway that is notified at no address of its own, which is
+     *   every payment of the one gateway the owner's shipped list holds. It belongs to a company account and still expects the platform address,
+     *   because its gateway has no other to be told about. `toStored()` leaves the key out rather than storing a null.
+     *
+     *   A STAMP WHOSE ADDRESS IS NOT USABLE TEXT — an empty string, a null or a non-string under the key, which `PaymentTransactionRecord` reads as no
+     *   address. `additional_data` is a JSON column this application is not the only writer of, so the shape is reachable without this class producing
+     *   it, and it means the same thing: no address was recorded, so the platform address is what the payment expects.
+     *
+     * The comparison is the address text as recorded against the address text now. It cannot turn a company address into the platform one — a recorded
+     * value only ever came from a per-account route and the platform addresses are routes of their own — so a change of host or scheme can only make a
+     * company-bound payment answer TRUE, which is the safe direction. The caller gives the address because each gateway has a public address of its
+     * own, or none at all, and this class knows accounts and not gateways' addresses.
+     */
+    public function expectsAnAddressOtherThan(PaymentRequest|array|null $payment, string $address): bool
+    {
+        $recorded = $this->of(payment: $payment)?->confirmationAddress;
+
+        return $recorded !== null && $recorded !== $address;
     }
 
     /** The record a payment of this market through this account carries. */

@@ -11,7 +11,6 @@ use App\Services\MyFatoorah\PaymentInitiationService;
 use App\Services\Payments\GatewayAccountDirectory;
 use App\Services\Payments\GatewayAccountRegistry;
 use App\Services\Payments\PaymentAccountBinding;
-use App\Services\Storefront\StorefrontResolver;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -566,46 +565,6 @@ class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends CompanyAccountsTestCas
             '*/v3/invoices/*' => Http::response(['IsSuccess' => true, 'Data' => ['Transaction' => ['PaymentId' => 'PAY-1', 'Status' => 'SUCCESS']]]),
             '*/v3/payments/*' => Http::response($this->paymentDetails(($attempt ?? $this->attempt)->external_identifier, amount: $amount)),
         ]);
-    }
-
-    /**
-     * A MyFatoorah attempt whose payment is stamped with THIS account, whatever gateway the account is registered for.
-     *
-     * Both halves written by production: the stamp by App\Services\Payments\PaymentAccountBinding, the attempt by the real initiation service.
-     */
-    private function anAttemptStampedWith(PaymentGatewayAccount $account): MyFatoorahPaymentAttempt
-    {
-        $payment = $this->makePaymentRequest([
-            'additional_data' => $this->stampedForTheMarketOf($account, gateway: (string) $account->gateway),
-        ]);
-        app(PaymentInitiationService::class)->start(PaymentRequest::find($payment));
-
-        return MyFatoorahPaymentAttempt::query()->where('payment_request_id', $payment)->firstOrFail();
-    }
-
-    /**
-     * The additional data a payment of this account's market carries, written by the production writer inside that market's storefront.
-     *
-     * App\Services\Payments\PaymentAccountBinding is the same writer every gateway's payment goes through (App\Traits\Payment::generate_link calls
-     * it), so the stamp these tests rest on is the one production writes and not a shape invented here.
-     */
-    private function stampedForTheMarketOf(PaymentGatewayAccount $account, string $gateway = GatewayConfigRepository::KEY): string
-    {
-        $stamped = StorefrontResolver::fromConfig()
-            ->context(explicitChoice: (string) $account->storefront_country)
-            ->serve(static fn (): array => app(PaymentAccountBinding::class)->record(
-                additionalData: ['customer_id' => 7, 'order_note' => null],
-                gateway: $gateway,
-                currencyCode: 'SAR',
-            ));
-
-        $this->assertSame(
-            (int) $account->id,
-            app(PaymentAccountBinding::class)->of(payment: ['additional_data' => $stamped])?->accountId,
-            'the stamp the production writer produced names the account this payment is meant to belong to',
-        );
-
-        return (string) json_encode($stamped);
     }
 
     /** @return list<string> the payments marked paid, so a test can say WHOSE payment was acted on and not only how many were */

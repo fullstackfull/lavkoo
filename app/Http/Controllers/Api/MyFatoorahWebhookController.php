@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\MyFatoorah\GatewayConfigRepository;
 use App\Services\MyFatoorah\WebhookProcessor;
 use App\Services\MyFatoorah\WebhookSignatureVerifier;
+use App\Services\Payments\ConfirmationAddresses;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -24,6 +25,14 @@ use Symfony\Component\HttpFoundation\IpUtils;
  * "received", not "the order is done" — the work is small enough to do inline, but it is the recording
  * that the 200 promises.
  *
+ * Authenticating a delivery is not the same as deciding what it may move. This is the PLATFORM-WIDE
+ * address of this gateway, and a payment taken through a company's gateway account was given that
+ * company's own address when it started, so a delivery about such a payment names a payment this
+ * address is not expected to confirm (GCC-21). `confirmationIsExpectedHere()` is that question, and the
+ * whole of its policy lives in App\Services\Payments\ConfirmationAddresses. A payment that recorded no
+ * address of its own expects THIS one and is confirmed here exactly as it is today, which is every
+ * payment on a shipped installation.
+ *
  * Deliberately outside the `api` middleware group: that group writes a telemetry row per request, and
  * these bodies carry a cardholder name and a masked card number.
  */
@@ -33,6 +42,7 @@ class MyFatoorahWebhookController extends Controller
         private readonly GatewayConfigRepository $configRepo,
         private readonly WebhookSignatureVerifier $verifier,
         private readonly WebhookProcessor $processor,
+        private readonly ConfirmationAddresses $addresses,
     ) {
     }
 
@@ -56,6 +66,10 @@ class MyFatoorahWebhookController extends Controller
 
         if (!$this->authentic($request, $payload)) {
             return $this->unauthorised('signature');
+        }
+
+        if (!$this->confirmationIsExpectedHere($payload)) {
+            return $this->unauthorised('payment');
         }
 
         try {
@@ -107,6 +121,44 @@ class MyFatoorahWebhookController extends Controller
         }
 
         return $this->signatureRequirementWaived($config->mode);
+    }
+
+    /**
+     * Is THIS the address the payment this delivery names expects its confirmation at (GCC-21)?
+     *
+     * This is the public, platform-wide address, and a payment taken through a company's gateway account was given that company's own address when it
+     * started. A delivery about such a payment is therefore not this address's to act on, and the rule it is held to is the one
+     * App\Services\Payments\ConfirmationAddresses states: a payment expects one confirmation address, and that address, and only it, confirms it.
+     *
+     * Asked AFTER the signature and BEFORE the processor, which is where it has to be. The processor is the only writer of the event table and the only
+     * caller of verification and settlement, so a refusal here leaves no event row, no column of the attempt, no status, no ledger row and no order
+     * side effect — the same ordering, and the same reason for it, as the company address' own question
+     * (App\Http\Controllers\Api\PaymentAccountWebhookController).
+     *
+     * A delivery naming NO attempt of ours passes, as it does at a company address: it is an invoice of another installation on the same merchant
+     * login, and the processor records it and acts on nothing. A payment that recorded NO address expects this one and passes — the three shapes that
+     * read that way, and why each of them is a correct answer rather than a missing record, are named on
+     * App\Services\Payments\PaymentAccountBinding::expectsAnAddressOtherThan().
+     *
+     * The refusal is the same flat 401 every other refusal here gives. MyFatoorah will retry it and give up, which is right: the confirmation of that
+     * payment is not lost by this address declining it, because the gateway was given the company's address for that payment and delivers there.
+     *
+     * The rule being off is answered before the attempt is looked up, so a delivery on an installation that has not turned it on issues exactly the
+     * queries it issues today — not one read more.
+     */
+    private function confirmationIsExpectedHere(array $payload): bool
+    {
+        if (!$this->addresses->isEnforced()) {
+            return true;
+        }
+
+        $attempt = $this->processor->attemptFor(payload: $payload);
+
+        if ($attempt === null) {
+            return true;
+        }
+
+        return $this->addresses->mayConfirm(address: route('myfatoorah.webhook'), payment: $attempt->paymentRequest());
     }
 
     /**

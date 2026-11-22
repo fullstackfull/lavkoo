@@ -229,29 +229,4 @@ class InitiationSendsTheRecordedConfirmationAddressTest extends CompanyAccountsT
     {
         return app(PaymentAccountBinding::class)->of(payment: (array) DB::table('payment_requests')->where('id', $payment)->first());
     }
-
-    /**
-     * The additional data a payment of this account's market carries, written by the production writer inside that market's storefront.
-     *
-     * App\Services\Payments\PaymentAccountBinding is the same writer every gateway's payment goes through (App\Traits\Payment::generate_link calls it),
-     * so the stamp these tests rest on is the one production writes and not a shape invented here.
-     */
-    private function stampedForTheMarketOf(PaymentGatewayAccount $account, string $gateway = GatewayConfigRepository::KEY): string
-    {
-        $stamped = StorefrontResolver::fromConfig()
-            ->context(explicitChoice: (string) $account->storefront_country)
-            ->serve(static fn (): array => app(PaymentAccountBinding::class)->record(
-                additionalData: ['customer_id' => 7, 'order_note' => null],
-                gateway: $gateway,
-                currencyCode: 'SAR',
-            ));
-
-        $this->assertSame(
-            (int) $account->id,
-            app(PaymentAccountBinding::class)->of(payment: ['additional_data' => $stamped])?->accountId,
-            'the stamp the production writer produced names the account this payment is meant to belong to',
-        );
-
-        return (string) json_encode($stamped);
-    }
 }

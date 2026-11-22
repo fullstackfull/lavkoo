@@ -68,6 +68,19 @@ return [
             // A customer's return from a gateway proves nothing by itself. Off by default: the return is read exactly as it is today. When it is on, a
             // return settles only after the server has confirmed the payment with the gateway itself, and a return it cannot confirm settles nothing.
             'confirm_returns' => filter_var(env('GCC_PAYMENT_CONFIRM_RETURNS', false), FILTER_VALIDATE_BOOLEAN),
+            // A payment expects ONE confirmation address, and that address is the one it recorded when it started (GCC-21). Off by default: every
+            // address reads a confirmation exactly as it does today. When it is on, the platform-wide address confirms a payment only where the payment
+            // expects it — so a payment that recorded a company account's own address is confirmed there and not at the public one.
+            //
+            // A payment that recorded NO address expects the platform one, and that is not a gap in the record: it is what every payment placed before
+            // this existed, every payment of a market with no account, and every payment of a gateway that is notified at no address of its own
+            // positively expects. Those keep being confirmed at the platform address with this on, which is the half of the owner's decision that keeps
+            // money from being stranded.
+            //
+            // Deliberately separate from `enabled`, and inert without it: the address a payment expects is read from the record the binding writes, so
+            // this must not be turned on before that binding has been writing. With `enabled` off no new payment records an address AND the per-account
+            // addresses resolve nothing, so enforcing here would leave an already-recorded payment with no live address at all.
+            'one_confirmation_address' => filter_var(env('GCC_PAYMENT_ONE_CONFIRMATION_ADDRESS', false), FILTER_VALIDATE_BOOLEAN),
             // Which class asks each gateway, server to server, what became of a transaction. A gateway with no entry cannot be asked, so a return of
             // it is never confirmed and, while `confirm_returns` is on, never settles.
             'inquiries' => [
