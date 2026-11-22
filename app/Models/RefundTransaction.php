@@ -23,6 +23,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int|null $refund_id
  * @property int|null $payment_gateway_account_id
  * @property int|null $payment_legal_entity_id
+ * @property string|null $original_payment_amount
+ * @property string|null $original_payment_currency
  */
 class RefundTransaction extends Model
 {
@@ -49,6 +51,8 @@ class RefundTransaction extends Model
         'legal_entity_id',
         'payment_gateway_account_id',
         'payment_legal_entity_id',
+        'original_payment_amount',
+        'original_payment_currency',
     ];
 
     protected $casts = [

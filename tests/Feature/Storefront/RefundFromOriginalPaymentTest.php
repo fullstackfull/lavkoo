@@ -3,6 +3,7 @@
 namespace Tests\Feature\Storefront;
 
 use App\Services\Storefront\RefundFromOriginalPayment;
+use App\Services\Storefront\RefundPayout;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -304,14 +305,19 @@ class RefundFromOriginalPaymentTest extends TestCase
     }
 
     /**
-     * The computation is still called by nothing but the preview.
+     * The computation is reached from two files and no others: the read-only preview, and the one service the refund flow asks, which answers nothing
+     * at all until the owner's switch is turned on.
+     *
+     * This began as the record that the computation was built and deliberately not adopted. It is now the record of exactly where it is adopted from,
+     * which is the same guard doing the same job: a third file reaching the computation -- a controller, a repository, a listener working the figure out
+     * for itself -- turns this red and has to be a decision, not a drift. The dormancy that the old record stood for is not lost; it moved to the test
+     * below, which proves the one service answers nothing while the switch is off.
      *
      * The comments of a file are taken out before it is read, so a class named in a doc block -- App\Services\Payments\OrderPaymentAccount names this
      * one to say that it refuses an ambiguous payment by the same rule -- is not counted as a caller of it. What is counted is the code: an import, a
-     * type, a constructor argument, an app() resolution. The record this test keeps is unchanged: the moment the refund flow actually calls the
-     * computation, this test goes red and has to be changed on purpose.
+     * type, a constructor argument, an app() resolution.
      */
-    public function test_no_refund_calls_it_only_the_preview_does(): void
+    public function test_only_the_preview_and_the_one_guarded_service_reach_the_computation(): void
     {
         $callers = [];
         foreach (File::allFiles(app_path()) as $file) {
@@ -319,8 +325,32 @@ class RefundFromOriginalPaymentTest extends TestCase
                 $callers[] = $file->getFilename();
             }
         }
+        sort($callers);
 
-        $this->assertSame(['RefundOriginalPaymentPreviewCommand.php'], $callers, 'the refund flow keeps converting the stored amount as it always did until the owner adopts a policy');
+        $this->assertSame(['RefundOriginalPaymentPreviewCommand.php', 'RefundPayout.php'], $callers, 'the refund flow reaches the computation through RefundPayout, which is off by default, and through nothing else');
+    }
+
+    /**
+     * And the service it is reached from is dormant as shipped: config/gcc.php leaves `gcc.storefronts.refunds.from_original_payment` off, so a refund
+     * of a paid order is answered with nothing and the flow converts the stored amount exactly as it always did.
+     *
+     * This is the record the old guard kept -- that no refund gives back the original payment until somebody decides it should -- proved on the shipped
+     * configuration rather than on the absence of a caller.
+     */
+    public function test_the_service_that_reaches_it_is_off_as_the_application_ships(): void
+    {
+        $this->assertFalse((bool) config(RefundPayout::SETTING), 'the switch is off in config/gcc.php, with no environment variable set');
+
+        $order = $this->order(1, '26.67', ['transaction_ref' => 'TX-OFF']);
+        $this->gatewayPaid('TX-OFF', '100.00', 'SAR');
+
+        $statements = [];
+        DB::listen(static function ($query) use (&$statements): void {
+            $statements[] = $query->sql;
+        });
+
+        $this->assertNull(app(RefundPayout::class)->forRefund(order: $order, refund: ['id' => 7, 'order_id' => 1, 'amount' => '10.00']));
+        $this->assertSame([], $statements, 'and it asks the database nothing at all while it is off');
     }
 
     /** The file's code with every comment taken out, so that what a comment mentions is not read as what the code does. */

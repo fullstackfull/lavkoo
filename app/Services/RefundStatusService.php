@@ -2,11 +2,16 @@
 
 namespace App\Services;
 
+use App\Services\Storefront\RefundPayout;
 use App\Traits\CustomerTrait;
 
 class RefundStatusService
 {
     use CustomerTrait;
+
+    public function __construct(private readonly RefundPayout $payout)
+    {
+    }
 
     /**
      * @param object $request
@@ -27,7 +32,10 @@ class RefundStatusService
         ];
     }
 
-   public function getRefundStatusProcessData(object $request, object $orderDetails, object $refund, string|float|int $loyaltyPoint): array
+   /**
+    * @param object|array<string, mixed>|null $order the order being refunded, which says what its buyer actually paid and in which currency
+    */
+   public function getRefundStatusProcessData(object $request, object $orderDetails, object $refund, string|float|int $loyaltyPoint, object|array|null $order = null): array
 {
     $refundStatuses = [];
 
@@ -82,7 +90,7 @@ class RefundStatusService
         if ($walletAddRefund == 1 && $request['payment_method'] == 'customer_wallet') {
             $this->createWalletTransaction(
                 user_id: $refund['customer_id'],
-                amount: usdToDefaultCurrency(amount: $refund['amount']),
+                amount: $this->whatTheRefundGivesBack(order: $order, refund: $refund),
                 transaction_type: 'order_refund',
                 reference: 'order_refund'
             );
@@ -99,5 +107,22 @@ class RefundStatusService
     ];
 }
 
+    /**
+     * The money the buyer gets back, in the platform's own currency.
+     *
+     * Converting the stored amount here (`usdToDefaultCurrency`) applies the rate of the day the refund is paid out to a sale made at another rate: a
+     * purchase of 375 at 3.75 gives back 300 once the rate stands at 3.00. While the switch of App\Services\Storefront\RefundPayout is on, and the
+     * payment was taken in the platform's own currency, the buyer is given back their share of what they actually paid instead. In every other case —
+     * the switch off, a cash-on-delivery order, a payment in another currency, a database that has not run the migrations — this is the figure the
+     * refund has always given back, unchanged.
+     *
+     * @param object|array<string, mixed>|null $order
+     */
+    private function whatTheRefundGivesBack(object|array|null $order, object $refund): float
+    {
+        $payout = $this->payout->forRefund(order: $order, refund: $refund);
+        $paid = $payout === null ? null : $this->payout->walletCredit($payout);
 
+        return $paid === null ? (float) usdToDefaultCurrency(amount: $refund['amount']) : (float) $paid;
+    }
 }
