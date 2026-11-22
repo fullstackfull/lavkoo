@@ -88,7 +88,7 @@ final class StorefrontCurrency
         }
 
         if ($this->orderCurrency !== null && in_array($setting, self::ORDER_CURRENCY_SETTINGS, true)) {
-            return $this->currencySettingOf(setting: $setting, currency: $this->orderCurrency);
+            return $this->orderSettingOf(setting: $setting, currency: $this->orderCurrency);
         }
 
         $storefront = $this->inForce();
@@ -102,6 +102,20 @@ final class StorefrontCurrency
             'minimum_order_amount', 'free_delivery_over_amount' => $this->amountOf(country: $storefront['country'], setting: $setting, currencyCode: $storefront['currency']->code),
             default => self::NEUTRAL_AMOUNT,
         };
+    }
+
+    /**
+     * What a setting answers while an ORDER's own currency is in force: the single-currency model, so a stored amount is printed as it was
+     * stored, and the decimals of that currency only where ISO 4217 names them. For every other currency the operator's own
+     * decimal_point_settings stands, because that is the number of decimals every surface has always printed this order's amounts with, and
+     * forcing two would drop the third decimal off an amount that was charged with three: a riyal invoice of a shop set to three decimals
+     * would understate 10.555 as 10.55, since usdToDefaultCurrency() floors at whatever decimal count is in force.
+     *
+     * A storefront's own money (above) keeps answering decimalsOf(), so the behaviour already shipped for B-17 does not move.
+     */
+    private function orderSettingOf(string $setting, Currency $currency): string|int|null
+    {
+        return $setting === 'currency_model' ? self::SINGLE_CURRENCY_MODEL : $this->configuredDecimalsOf($currency->code);
     }
 
     /** What the three currency settings answer while one currency is in force: that currency, shown as it is stored, with its own decimals. */
@@ -359,7 +373,15 @@ final class StorefrontCurrency
 
     public function decimalsOf(string $currencyCode): int
     {
-        return (int) (config('gcc.storefronts.currency.decimals')[strtoupper($currencyCode)] ?? self::DEFAULT_DECIMALS);
+        return $this->configuredDecimalsOf($currencyCode) ?? self::DEFAULT_DECIMALS;
+    }
+
+    /** The decimals the configuration names for a currency (ISO 4217 gives the dinar and the rial three), or null where it names none. */
+    private function configuredDecimalsOf(string $currencyCode): ?int
+    {
+        $decimals = config('gcc.storefronts.currency.decimals')[strtoupper($currencyCode)] ?? null;
+
+        return $decimals === null ? null : (int) $decimals;
     }
 
     /**
