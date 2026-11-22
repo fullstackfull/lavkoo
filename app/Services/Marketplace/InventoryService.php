@@ -2,6 +2,8 @@
 
 namespace App\Services\Marketplace;
 
+use App\Exceptions\InsufficientStockException;
+use App\Models\Product;
 use App\Models\Seller;
 
 use App\Models\StockMovement;
@@ -24,6 +26,11 @@ use Illuminate\Support\Facades\Schema;
  */
 class InventoryService
 {
+    /** The two stock policies, with the same names and the same meaning `OrderManager::generateOrder` gives them. */
+    public const POLICY_REJECT = 'reject';
+
+    public const POLICY_ALLOW_OVERSELL = 'allow_oversell';
+
     public function __construct(private readonly ?AuditLogger $audit = null)
     {
     }
@@ -82,6 +89,122 @@ class InventoryService
 
             return ['ok' => true, 'balance_after' => $new];
         });
+    }
+
+    /**
+     * Lock the products of one sale, in ascending id order, for the rest of the caller's transaction.
+     *
+     * The order matters and is not cosmetic: two sales holding the same two products in opposite orders would each hold the row
+     * the other needs, which is a deadlock. `OrderManager::generateOrder` locks in this same order for this same reason, so a
+     * till sale and a web checkout racing over the same two products cannot deadlock against each other either.
+     *
+     * @param list<int|string> $productIds
+     */
+    public function lockProductsForSale(array $productIds): void
+    {
+        $ids = collect($productIds)->filter()->unique()->sort()->values()->all();
+        if ($ids === []) {
+            return;
+        }
+
+        Product::whereIn('id', $ids)->orderBy('id')->lockForUpdate()->get();
+    }
+
+    /**
+     * Take one sold line off the shelf, or refuse the sale.
+     *
+     * This is the rule the web checkout already follows, in one place both tills can call rather than each keeping its own copy:
+     *
+     *  - the decrement is CONDITIONAL (`where current_stock >= qty`), so the database itself refuses to take stock that is not
+     *    there and an affected-row count of zero is the refusal;
+     *  - the SPECIFIC variant is guarded as well as the product total, because one variant's stock can mask another's shortfall
+     *    past a total-only check;
+     *  - a refusal throws, so the caller's transaction rolls back and the sale leaves the stock exactly as it was;
+     *  - the movement row records the balance the decrement actually produced, never a floored stand-in.
+     *
+     * `$stockPolicy` carries the same two values and the same meaning as generateOrder's: 'reject' (every unpaid path) or
+     * 'allow_oversell' (the post-payment path only, where the money is already taken). Nothing new is introduced here.
+     *
+     * @throws InsufficientStockException when the shelf cannot cover the line and the policy is to reject
+     */
+    public function takeForSale(
+        int|string $productId,
+        int $quantity,
+        ?string $variant = null,
+        ?string $referenceType = null,
+        int|string|null $referenceId = null,
+        int|string|null $sellerId = null,
+        string $stockPolicy = self::POLICY_REJECT,
+    ): void {
+        $product = Product::where('id', $productId)->first();
+        if (!$product) {
+            return;
+        }
+
+        $rejects = $stockPolicy !== self::POLICY_ALLOW_OVERSELL;
+
+        if ($variant !== null && $variant !== '') {
+            $this->takeFromVariant(product: $product, variant: $variant, quantity: $quantity, rejects: $rejects);
+        }
+
+        if ($rejects) {
+            $taken = Product::where('id', $productId)
+                ->where('current_stock', '>=', $quantity)
+                ->decrement('current_stock', $quantity);
+
+            if ($taken === 0) {
+                throw new InsufficientStockException(
+                    productId: $productId,
+                    productName: $product->name,
+                    requested: $quantity,
+                );
+            }
+        } else {
+            Product::where('id', $productId)->decrement('current_stock', $quantity);
+        }
+
+        $this->record(
+            productId: $productId,
+            type: StockMovement::TYPE_SALE,
+            qtyChange: -$quantity,
+            balanceAfter: (int) (Product::where('id', $productId)->value('current_stock') ?? 0),
+            referenceType: $referenceType,
+            referenceId: $referenceId,
+            sellerId: $sellerId,
+        );
+    }
+
+    /**
+     * Subtract a sold line from its own variant, or refuse the sale.
+     *
+     * The subtraction is the real one, not one floored at zero: a floor would leave the variant quantities no longer summing to
+     * `current_stock`, which is the same kind of untruth as a movement row whose balance does not follow from its change.
+     *
+     * @throws InsufficientStockException
+     */
+    private function takeFromVariant(Product $product, string $variant, int $quantity, bool $rejects): void
+    {
+        $variations = json_decode((string) $product->variation, true);
+        if (!is_array($variations) || $variations === []) {
+            return;
+        }
+
+        $updated = [];
+        foreach ($variations as $entry) {
+            if (is_array($entry) && ($entry['type'] ?? null) === $variant) {
+                $entry['qty'] = (int) ($entry['qty'] ?? 0) - $quantity;
+                if ($entry['qty'] < 0 && $rejects) {
+                    throw new InsufficientStockException(
+                        productId: $product->id,
+                        productName: $product->name,
+                        requested: $quantity,
+                    );
+                }
+            }
+            $updated[] = $entry;
+        }
+
+        Product::where('id', $product->id)->update(['variation' => json_encode($updated)]);
     }
 
     /**
