@@ -3766,6 +3766,91 @@ CRITERIA['C-11'][1] = ('CODED',
     "dormancy - is why this is not MET.")
 
 
+# ---------------------------------------------------------------------------
+# D1-12, B-02 and A2-05, 2026-11-22: three criteria raised on tests measured here and
+# read in CI, two left CODED with the reason upgraded from "no test" to a measurement.
+# ---------------------------------------------------------------------------
+
+_PR162_CI = "CI on head 3f4b23e5 of gcc/p1-suborders-and-commission-per-line (draft PR 162, base main c5c04b7b), run 45022979520, READ job by job: 21 check runs, 15 SUCCESS. Both full-suite SQLite jobs were read to completion and report 6214 tests, 792622 assertions, Failures: 1, Skipped: 97 - and the ONE failure is named in the log: TorodShipmentDiscoveryTest::test_the_scheduled_run_links_what_appeared_later_..., 'unlinked' against 'needs_review' at line 198, the inherited calendar-dependent test whose one-line repair is on another branch. So every other test in the whole suite passed on this head, these among them. 'Deployment overlay (artifact, deploys nothing)' is red by design on every run and every base and its log names the three files outside the overlay's paths. HONESTLY NOT READ ON THIS HEAD: the remaining three reds (Strict-mode MariaDB 11.4.2, and Sales-channel N-Z on MySQL 8.0 and MariaDB 11.4.2). The same three jobs were read to completion on the adjacent head 9e12c69b and each failed on that one Torod test by name; the test lives in tests/Feature/SalesChannels, which is the N-Z half, and this branch does not carry its repair. That is a strong inference and it is recorded as an inference, not as a reading. "
+
+CRITERIA.setdefault('D1-12', {})[0] = ('MET',
+    "OrderManager::generateOrder loop. RAISED FROM CODED TO MET, 2026-11-22. The blocker was the words 'no test' and there is "
+    "now one: tests/Feature/Address/SubOrdersPerVendorTest::test_a_basket_of_two_vendors_becomes_one_order_per_vendor_under_one_"
+    "order_group_id. It drives a real cart holding one in-house product and one seller's product through the checkout and "
+    "asserts: TWO orders; exactly ONE distinct order_group_id across them and that it is not empty; the two sellers are "
+    "admin:1 and seller:7; one line per order; and each line's seller_id equals its own order's. Three further tests in the "
+    "same class pin the control and the consequences: a single-vendor basket of two products stays ONE order with two lines "
+    "and 140.00 (so the split is not an artefact of the fixture), each vendor's product loses its own stock once (10 -> 9 and "
+    "5 -> 4), and both of the cart's groups are emptied by the checkout that charged for them. 4 tests / 21 assertions, on "
+    "SQLite and on MariaDB 10.11.14 (36 tables) with the same figures; three mutations of the splitting code each turn it red. "
+    + _PR162_CI +
+    "WHAT IS NOT CLAIMED: the branch is a DRAFT, nothing is merged or deployed, and this state rests on the owner's definition "
+    "of 2026-11-22. The test's two vendors are an in-house product and one seller's; three or more vendors in one basket are "
+    "not driven.")
+
+CRITERIA['D1-12'][3] = ('CODED',
+    "OrderManager::recordOrderItemCommission; no test. STAYS CODED, 2026-11-22, AND THIS CORRECTS MY OWN FRAMING: the lane "
+    "that closed index 0 was set up as 'sub-orders per vendor AND the commission/ledger per sub-order line, neither of which "
+    "has a test', and it delivered only the first. SubOrdersPerVendorTest asserts the order split, the group id, the sellers, "
+    "the lines, the stock and the cart - and asserts NOTHING about a commission snapshot or a vendor-ledger row. Searched: "
+    "the file contains no occurrence of 'commission' or 'ledger'. So the second half of that task is still open and is "
+    "recorded as such rather than left to look done because its sibling closed. The next step is the one the card already "
+    "names: assert the commission snapshot and the vendor-ledger rows per sub-order line in the same checkout the split test "
+    "already drives.")
+
+CRITERIA.setdefault('B-02', {})[1] = ('MET',
+    "Separate rows with no link column or sync job. RAISED FROM CODED TO MET, 2026-11-22. The blocker was 'no test edits one "
+    "copy and re-reads the other' and there are now two that do exactly that, through real writers rather than a hand-built "
+    "update: tests/Feature/Catalogue/OnePriceWriteTouchesOneRowTest::test_the_bulk_price_job_changes_the_product_it_was_given_"
+    "and_no_other drives BulkPriceOperation (MODE_INCREASE_PERCENT) and asserts the named product's unit_price became 110.00 "
+    "while the WHOLE OTHER ROW is identical to the copy taken before the write; "
+    "::test_the_automation_action_changes_the_product_it_was_given_and_no_other drives SetDiscountAction and asserts the same "
+    "about the other row. 4 tests / 28 assertions on SQLite and on MariaDB 10.11.14 (5 tables); two mutations that reprice "
+    "every product of the seller turn them red THREE times each - and that figure is 3 rather than 1 only because the round "
+    "found and fixed a defect in its own structural guard, which had accepted a write for merely MENTIONING the model "
+    "variable, so Product::where('user_id', $product->user_id)->update(...) read as row-scoped and the repricing mutation "
+    "survived. "
+    + _PR162_CI +
+    "TWO LIMITS, named rather than left to be discovered: the criterion says 'price, discount or stock' and what is driven is "
+    "price (the bulk job) and discount (the automation action), not a stock write; and the two rows are two product rows, "
+    "because storefront_country DOES NOT EXIST ON main AT ALL - the test says so in its own docblock, so what is proven is the "
+    "row isolation the per-country copies rest on, not a label reading 'KW'.")
+
+CRITERIA['B-02'][3] = ('CODED',
+    "price-stock map README finding 4. STAYS CODED, 2026-11-22, but the reason is now MEASURED instead of 'no test across "
+    "countries'. OnePriceWriteTouchesOneRowTest surveyed every price and stock write in the application: THIRTEEN, of which "
+    "ELEVEN name their row, and TWO do not. Both exceptions are one repeated statement in app/Traits/UpdateClass.php that sets "
+    "the stock of digital products to a sentinel value - global by intent, not a price write - and the test asserts that it "
+    "moves neither a price nor a discount, so it is named rather than quietly excluded. Of the five writers the criterion "
+    "lists, TWO are DRIVEN (the bulk price job and the automation action, see index 1) and three (admin, seller v2/v3, import) "
+    "are covered only by the structural guard that their statement is keyed by the row. A structural guard is real evidence "
+    "- it survives mutation - but it is not behavioural, so the criterion's word 'every' is not yet earned. Raising it needs "
+    "those three driven through their own routes. AND ONE QUESTION FOR THE OWNER: a product that is digital and sold in two "
+    "countries has BOTH of its rows written by that sentinel, so if a global digital-stock write counts as a price writer the "
+    "criterion can never be MET as worded; if it does not, it is MET once the three remaining writers are driven. That is a "
+    "ruling about what the requirement means, not a coding decision.")
+
+CRITERIA.setdefault('A2-05', {})[0] = ('MET',
+    "CustomerAuthController.php line 600 on main. RAISED FROM CODED TO MET, 2026-11-22. The blocker was 'the suite runs in dev "
+    "mode, no test' and there are now three: "
+    "tests/Feature/Security/OneTimeCodesComeFromASecureSourceTest::test_in_live_mode_a_verification_code_is_a_six_digit_number_"
+    "that_varies, ::test_in_any_other_mode_a_verification_code_is_the_constant, and "
+    "::test_every_mode_dependent_code_is_random_when_live_and_a_constant_otherwise, which is a structural guard over ALL TWELVE "
+    "mode-dependent one-time-code sites in the application and fails if a thirteenth appears or if one of the twelve stops "
+    "carrying both halves of the ternary. 6 tests / 249 assertions on SQLite and on MariaDB 10.11.14 (16 tables); the group "
+    "tests/Feature/Security plus tests/Feature/Catalogue is 20 tests / 350 assertions green on both engines, and both "
+    "'Fulfillment + security tests' jobs - the real-engine group this file belongs to - are GREEN on MySQL 8 and MariaDB "
+    "11.4.2 in the run below. Five mutations: 2 + 2 + 1 red. "
+    + _PR162_CI +
+    "WHAT IS NOT CLAIMED: this says the code is random when live and constant otherwise, which is the criterion's sentence. It "
+    "says nothing about the four other criteria of this requirement (a code's lifetime, a resend lifting a block, the log, the "
+    "per-phone counter), all of which are untouched. AND ONE COVERAGE GAP IN THIS REQUIREMENT'S OWN CRITERIA, recorded because it wants the owner's attention and because inventing a sixth criterion for it would move this tracker's denominator on my own authority. The five criteria ask whether a code is random in live mode as against constant in dev, how long it lives, what the resend path does, what the log holds and when the per-phone counter blocks. They do not ask WHERE the randomness comes from. A hardening change on gcc/p1-suborders-and-commission-per-line closes that, and two further tests of the class named above guard it structurally, reading the application through PHP's own tokenizer so a comment cannot satisfy them. The detail of what was changed is deliberately NOT written here: this document is published on a public branch and the change is not merged, and the owner's standing instruction is that such detail stays out of public branches until the system is secured. The owner has it directly. What belongs here is the decision: whether this requirement should carry a criterion for the source of its randomness at all.")
+
+CRITERIA['A2-05'][3] = ('CODED',
+    "main, PR 75 and PR 83 still log it; only baseline PR 85 removes it (OtpLoggingTest). UNCHANGED, 2026-11-22: the branch "
+    "that closed index 0 touched no logging call, so this criterion gained nothing and is recorded as such.")
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]

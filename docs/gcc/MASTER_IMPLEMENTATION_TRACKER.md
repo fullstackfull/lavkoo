@@ -14,10 +14,10 @@ As of 2026-11-22. Generated from the independent assessment of every requirement
 
 | Axis | Requirements | Criteria | MET | CODED | MISSING | Code completion | Proven by tests | Release readiness | Verified |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| [A. Six-country base and customer identity](tracker/axis-a-six-country-base-and-customer-identity.md) | 37 | 173 | 91 | 24 | 58 | 66% | 53% | 9% | all |
-| [B. Catalogue and products](tracker/axis-b-catalogue-and-products.md) | 18 | 91 | 44 | 32 | 15 | 84% | 48% | 0% | all |
+| [A. Six-country base and customer identity](tracker/axis-a-six-country-base-and-customer-identity.md) | 37 | 173 | 92 | 23 | 58 | 66% | 53% | 9% | all |
+| [B. Catalogue and products](tracker/axis-b-catalogue-and-products.md) | 18 | 91 | 45 | 31 | 15 | 84% | 49% | 0% | all |
 | [C. Inventory and fulfillment](tracker/axis-c-inventory-and-fulfillment.md) | 18 | 94 | 66 | 9 | 19 | 80% | 70% | 30% | all |
-| [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 179 | 94 | 40 | 45 | 75% | 53% | 8% | all |
+| [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 179 | 95 | 39 | 45 | 75% | 53% | 8% | all |
 | [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 88 | 39 | 9 | 40 | 55% | 44% | 7% | all |
 | [F. Themes and brand](tracker/axis-f-themes-and-brand.md) | 16 | 77 | 42 | 13 | 22 | 71% | 55% | 4% | all |
 | [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 102 | 59 | 13 | 30 | 71% | 58% | 15% | all |
@@ -27,7 +27,7 @@ As of 2026-11-22. Generated from the independent assessment of every requirement
 | [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 104 | 40 | 30 | 34 | 67% | 38% | 3% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 45 | 18 | 31 | 67% | 48% | 7% | all |
 | [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 311 | 105 | 119 | 87 | 72% | 34% | 3% | all |
-| **All axes (pooled)** | **359** | **1753** | **832** | **390** | **531** | **70%** | **47%** | **8%** | |
+| **All axes (pooled)** | **359** | **1753** | **835** | **387** | **531** | **70%** | **48%** | **8%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -152,7 +152,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [A2-02](tracker/axis-a-six-country-base-and-customer-identity.md) | IMPLEMENTED IN DRAFT | 2/2/0 | One login on the website and in the app |
 | [A2-03](tracker/axis-a-six-country-base-and-customer-identity.md) | INTEGRATED AND TESTED | 5/0/0 | Code sign-in and password reset act only for the phone or account that proved itself |
 | [A2-04](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 2/1/2 | Social login (OAuth) cannot confirm, detach or take over an account without provider proof |
-| [A2-05](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 0/3/2 | One-time codes are random, expire, are rate-limited and are not logged |
+| [A2-05](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 1/2/2 | One-time codes are random, expire, are rate-limited and are not logged |
 | [A2-06](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 2/0/3 | Phone and e-mail identity matching across the six markets |
 | [A2-07](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 4/0/1 | Request identity and order ownership come only from the authenticated principal |
 | [A2-08](tracker/axis-a-six-country-base-and-customer-identity.md) | IMPLEMENTED IN DRAFT | 5/0/0 | An independent cart for each storefront |
@@ -171,7 +171,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | Id | State | M/C/X | Requirement |
 |---|---|---|---|
 | [B-01](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 4/0/2 | Country-owned products: each product row belongs to one country and a storefront shows only its own |
-| [B-02](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 1/2/1 | Independent local prices: each store prices its own copy, with no conversion or sync between countries |
+| [B-02](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 2/1/1 | Independent local prices: each store prices its own copy, with no conversion or sync between countries |
 | [B-03](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 2/2/1 | Local price and availability display: a storefront shows its own market currency, decimals and stock |
 | [B-04](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 6/0/0 | SKU and barcode unique inside a country: form gates, seller APIs and importers (GCC-14b) |
 | [B-05](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 4/2/0 | SKU and barcode lookups are country-aware: POS scan, channel matcher, routing rules, provider pickers |
@@ -227,7 +227,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [D1-09](tracker/axis-d-orders-checkout-and-payments.md) | MERGED | 3/1/0 | Fulfillment source frozen on each order line |
 | [D1-10](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 0/6/1 | Historical refunds in the original currency and merchant account |
 | [D1-11](tracker/axis-d-orders-checkout-and-payments.md) | IMPLEMENTED IN DRAFT | 2/2/0 | Operations on placed orders survive store state and run once |
-| [D1-12](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 2/2/1 | Multi-vendor and sub-order behaviour kept inside one storefront and company |
+| [D1-12](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 3/1/1 | Multi-vendor and sub-order behaviour kept inside one storefront and company |
 | [D1-13](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 3/2/1 | Checkout and order concurrency: stock locks and order numbers |
 | [D1-14](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 2/0/3 | Order creation is idempotent |
 | [D1-15](tracker/axis-d-orders-checkout-and-payments.md) | IN PROGRESS | 5/0/1 | Checkout and order operations act only for their owner |
