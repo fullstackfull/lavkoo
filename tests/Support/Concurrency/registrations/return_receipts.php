@@ -6,3 +6,5 @@ use Tests\Support\Concurrency\Operations;
 use Tests\Support\Concurrency\ReturnReceiptOperations;
 
 Operations::register('returns.receive', [ReturnReceiptOperations::class, 'receive']);
+Operations::register('returns.change_order_status', [ReturnReceiptOperations::class, 'changeOrderStatus']);
+Operations::register('returns.change_order_status_panel_copy', [ReturnReceiptOperations::class, 'changeOrderStatusThroughThePanelCopy']);

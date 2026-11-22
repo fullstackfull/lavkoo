@@ -223,6 +223,10 @@ class SellerReturnController extends Controller
             'return' => $rma ? $this->summary($rma, $names) : null,
             'restocked' => $result['restocked'] ?? null,
             'balance_after' => $result['balance_after'] ?? null,
+            // What actually went on the shelf, and — when the return asked for more units than the
+            // order line held — both figures, so the app can say so instead of silently correcting it.
+            'restocked_units' => $result['restocked_units'] ?? null,
+            'clamped' => $result['clamped'] ?? null,
         ], 200);
     }
 

@@ -11280,4 +11280,8 @@ return [
 	'the_amounts_of_a_coupon_are_in_the_currency_of_its_storefront_it_cannot_be_changed_after_the_coupon_is_added' => 'The amounts of a coupon are in the currency of its storefront. It cannot be changed after the coupon is added.',
 	'tax_registration_number' => 'Tax registration number',
 	'the_wallet_is_not_available_in_the_currency_of_this_storefront' => 'The wallet is not available in the currency of this storefront.',
+	'more_units_were_asked_for_than_the_line_held_only_the_lines_units_were_restocked' => 'More units were asked for than the order line held, so only the line\'s units were put back on the shelf',
+	'some_of_the_lines_units_were_already_back_so_only_the_rest_were_restocked' => 'Some of this line\'s units were already back on the shelf, so only the rest were put back',
+	'return_received_and_restocked' => 'Return received and restocked',
+	'return_authorized' => 'Return authorized',
 ];
