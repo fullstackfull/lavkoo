@@ -3375,6 +3375,111 @@ NEXT_CURRENT['D1-10'] = ("Criterion 4 is the only one left without code and it c
     "of re-deriving it at refund time (which would also let an edited order and an order paid twice be refunded exactly, which they now are not), and "
     "make MyFatoorah's outbound refund read an account's api_key instead of the single platform settings row.")
 
+# ---------------------------------------------------------------------------
+# D2-09, 2026-11-22. THE INDEPENDENT VERIFICATION STEP, RUN. Criterion 0's own note said
+# "MET needs the independent verification step, which is not the implementer's to write",
+# and criterion 2 said "re-measured, not newly verified" against the OLDER head e866118c.
+# Two independent read-only verifiers were commissioned on head 450f5940. BOTH RULED THE
+# HEAD DEFECTIVE, both found the same previously-unknown code defect, and their criterion
+# rulings AGREE item for item. This block records that, and CORRECTS a claim of my own.
+_D209_VERIFY = (' \u2014\u2014 THE INDEPENDENT VERIFICATION, RUN AND READ, 2026-11-22. '
+    'The note above said this criterion was held back from MET by a DEFINITION rather than by a missing test, and asked the owner to rule it. '
+    'THAT WAS NOT THE WHOLE TRUTH AND IT IS CORRECTED BELOW. Criterion 0\u2019s own note had also said that "MET needs the independent '
+    'verification step, which is not the implementer\u2019s to write", and criterion 2 stood on the OLDER head e866118c as "re-measured, not '
+    'newly verified". An earlier reviewer had read an earlier head, moved criterion 0 CODED \u2192 MISSING and been right; the lane fixed that '
+    'defect directly with no second round, per the owner\u2019s rule \u2014 SO THE FIXED HEAD HAD NEVER BEEN VERIFIED BY ANYONE BUT ITS AUTHOR. '
+    'Two independent read-only verifiers were therefore commissioned on 450f5940, each in its own worktree against its own separate checkout of '
+    'main c5c04b7b (hardlink broken, autoloaders dumped separately: 20,008 classes against 19,873, and different classmap inodes), on SQLite and '
+    'on MariaDB 10.11.14 (8 tables in information_schema for the webhook run, 11 for the whole payments group, so the real server answered). '
+    'They committed, pushed and changed nothing. BOTH RETURNED THE VERDICT "DEFECTIVE". ')
+
+_D209_DEFECT = ('THE DEFECT BOTH FOUND INDEPENDENTLY, WHICH NEITHER THE LANE NOR THE EARLIER REVIEWER HAD SEEN: '
+    'payment_gateway_accounts.webhook_path_token is the ONE column of the new table that the public route takes from the URL, and it is the ONE '
+    'column the migration left out of its own binary-collation block. The migration gives storefront_country, gateway and environment '
+    '->charset(\u2018ascii\u2019)->collation(\u2018ascii_bin\u2019) on MySQL and MariaDB, two lines above, and its docblock says "Both text columns '
+    'are compared byte for byte on MySQL and MariaDB, as PHP compares them" \u2014 true of the three it collated and FALSE of this one, which takes '
+    'the table default utf8mb4_unicode_ci. SHOW FULL COLUMNS on the real server confirms it. So the webhook address token is matched '
+    'CASE-INSENSITIVELY (and trailing-space-insensitively) on the production engine and BYTE FOR BYTE on the engine the tests mostly run on, '
+    'and the route regex [A-Za-z0-9_-]{1,64} lets any case through. MEASURED THROUGH THE REAL ROUTE, same signature, same fixture, only the '
+    'token\u2019s case changed: SQLite 401 and the row not found; MariaDB 10.11.14 200 {"success":true,"status":"settled"}, the row found, THE '
+    'PAYMENT MARKED PAID and the success hook run. Two engines, opposite answers, no test covering it. Honest about the reach: tokens are '
+    'Str::random(48), so this is a loss of entropy and a divergence between engines, not a credential anyone can guess. Both verifiers rated it '
+    'medium. ')
+
+_D209_GAPS = ('THREE GUARDS THE LANE NAMES AS PART OF THE MECHANISM SURVIVE MUTATION UNTOUCHED, each found by both verifiers: '
+    '(1) the covered-gateway half of the first question \u2014 dropping registry->covers(gateway:) from readsNotificationsOf() leaves 17 tests / '
+    '115 assertions green AND the whole 277-test payments group green, and that is the half which keeps the address silent under the SHIPPED '
+    'default gateways => [\u2018paymob_accept\u2019]; every test on the branch sets that list to include fatoorah, so no test on the branch can '
+    'ever exercise it. The commit that named the two halves apart as "two different decisions" added no test for the second. '
+    '(2) the fail-closed half of the whose-payment question \u2014 making isStampedWith return true for a NULL stamp (which the class\u2019s own '
+    'docblock says is "every payment placed before the switch was thrown") leaves everything green; both verifiers then CONSTRUCTED both shapes '
+    'and confirmed the code itself is closed (an unstamped legacy payment delivered authentically at its own market\u2019s address, and an attempt '
+    'whose payment_requests row was deleted: 401 and 401, no hook, no event, on both engines), so the code is right and only the evidence is '
+    'missing. (3) the gateway filter of the admin directory \u2014 making it filter nothing survives both the payments group and the verifier\u2019s '
+    'own file, because no fixture puts a second gateway\u2019s account on the screen; the verifier reported that as a gap in its own work. ')
+
+_D209_OTHER = ('OTHER FINDINGS, recorded and not fixed here. The platform-wide address STILL settles a company\u2019s payment: the isolation the '
+    'three questions build is one-directional, and POST /api/myfatoorah/webhook authenticated with the ONE platform secret writes thirteen columns '
+    'on a company\u2019s attempt row, marks the payment paid and runs the hook without asking whose it is (the route comment says the platform '
+    'address is unchanged by design, so this may be the intent \u2014 but nothing tests it and nobody has decided it). The whose-payment question '
+    'breaks the controller\u2019s own "one flat refusal for every reason" design, because an attempt that EXISTS but belongs to another company '
+    'answers 401 while one naming nothing of this installation answers 200 "no_attempt", so the holder of one company\u2019s account and secret can '
+    'ask whether a given gateway Invoice.Id or PaymentId is a payment of this installation (bounded: our own external identifier is not '
+    'enumerable). An AMBIGUOUS invoice id makes the owner unidentifiable, so the delivery takes the deliberate pass-through and one company\u2019s '
+    'authentic delivery writes a row carrying ANOTHER company\u2019s invoice id into the shared events table (log integrity; no money). The dedupe '
+    'key omits our own external identifier, so a delivery carrying none of Event.Reference, Invoice.Id or Transaction.PaymentId degenerates to a '
+    'key distinguished only by event code and status and a second genuine payment could be swallowed as a duplicate (PRE-EXISTING: byte-identical '
+    'on main). dedupe_key itself is utf8mb4_unicode_ci, so what counts as the same delivery is decided by the engine rather than by the bytes the '
+    'processor computed (also pre-existing, and within one account). The out-of-scope branch records NOTHING while two comments on the same class '
+    'say it does, so such a delivery is answered 200, is replayable without limit and leaves no trace an operator could audit. The rate limiter is '
+    'ONE bucket of 600 a minute keyed by IP, shared by every company\u2019s address and the platform\u2019s, so one market\u2019s retry storm '
+    'consumes another market\u2019s allowance. The two readers of an account disagree about status deliberately, so disabling an account strands '
+    'its OWN in-flight notifications at its OWN address while the platform address cannot take them either. AND A FIGURE OF THE LANE\u2019S IS '
+    'CORRECTED: the cross-tenant write was THIRTEEN columns on the attempt row plus two on payment_requests, not twelve on the attempt. ')
+
+_D209_NOLIVE = ('NO LIVE EXPOSURE, and one verifier sharpened the reason: config/gcc.php ships gateways => [\u2018paymob_accept\u2019] as a '
+    'HARDCODED array with no env override, so reaching this route\u2019s behaviour at all needs a SOURCE EDIT and not merely GCC_PAYMENT_ACCOUNTS=true; '
+    'and PaymentInitiationService always sends the platform URL to the gateway, so a per-company address is never registered with anyone. ')
+
+_D209_RULINGS = {
+ 0: ('BOTH VERIFIERS RULE THIS CRITERION MET ON THE TEST EVIDENCE, independently and for the same reasons: '
+    'test_a_companys_own_secret_at_its_own_address_cannot_settle_another_companys_payment is the criterion\u2019s hard reading, it passed on '
+    'head 450f5940 on both engines, its assertions deliver exactly what its name promises (including a WHOLE-ROW comparison rather than a count), '
+    'and deleting the guard turns it red \u2014 so it is not a test that would pass on the defect it exists to catch. One verifier reproduced the '
+    'before and after independently and STRENGTHENED the lane\u2019s figures; the other tried four further ways past the guard (an ambiguous '
+    'invoice id, a payload with no external identifier whose invoice and payment ids match another company\u2019s attempt, a legacy unstamped '
+    'payment, and an attempt whose payment row is gone) and got through none of them. BOTH SAY THE ONLY THING LEFT BETWEEN THEIR RULING AND MET '
+    'IS THE UNRULED DEFINITION \u2014 whether a draft on main that is dormant by default can be MET \u2014 and that half of what I said earlier '
+    'therefore stands, now on two independent verifiers\u2019 word rather than on mine. I STILL DO NOT RAISE IT: the definition is the owner\u2019s, '
+    'and the tracker ruled D1-04 index 2 and D1-05 index 4 MET on exactly that footing, which is the inconsistency the owner is asked to settle.'),
+ 1: ('MY EARLIER CLAIM ABOUT THIS CRITERION WAS WRONG AND IS WITHDRAWN. I wrote that the only obstacle was a definition "rather than a missing '
+    'test". BOTH VERIFIERS RULE IT CODED, NOT MET, ON A MISSING TEST, and both say in terms that the dormant-draft definition is NOT what stands '
+    'in the way. THE TEST THAT CARRIES THIS CRITERION DOES NOT COVER IT: it renders the PARTIAL in isolation through view(...)->render() with the '
+    'data hand-fed, so it never issues a request, never authenticates an administrator, never passes through the controller, the @include or the '
+    'permission gate, and its assertions are UNBOUND \u2014 three address substrings present anywhere in the markup, one company name present '
+    'anywhere, and two counts of "Saved"/"Missing" \u2014 so nothing ties an address or a status TO THE ACCOUNT IT BELONGS TO. FOUR MUTATIONS PROVE '
+    'IT: removing the @include from the admin page; making the controller pass an empty list; rotating the webhook address across the rows so '
+    'EVERY ACCOUNT DISPLAYS THE NEXT ACCOUNT\u2019S ADDRESS; and rotating the secret status the same way. Each leaves the ENTIRE payments group of '
+    '277 tests and 1,142 assertions GREEN, and each turns a verifier\u2019s own screen-driven test red, so the mutations are detectable and the '
+    'branch\u2019s test simply does not look. CODED AND NOT MISSING, because the code is right and both verifiers measured it end to end: driving '
+    'GET /admin/third-party/payment-method/myfatoorah for real, the gathered middleware is web, admin, actch:admin_panel, module:3rd_party_setup; '
+    'a master administrator and an administrator whose role carries only 3rd_party_setup both get 200 with each account\u2019s own address and NO '
+    'secret in the body; an administrator whose role carries only catalog gets 302 to the dashboard with neither address; an unauthenticated '
+    'request gets 302. So the permission gate works and no secret leaks \u2014 the evidence simply stopped one step short of the criterion\u2019s '
+    'own words. The fix is small and named by both verifiers: assert the REAL screen as an administrator and bind each row to its own account.'),
+ 2: ('BOTH VERIFIERS RULE THIS CRITERION MET ON THE TEST EVIDENCE, and both re-measured it on 450f5940 rather than taking the older head '
+    'e866118c\u2019s record on trust: the mechanism is byte-identical between the two heads, so the earlier evidence carries over, and the '
+    'account-scoped prefix survives the collation defect found above because it is numeric. They verified THE KEYS THEMSELVES rather than row '
+    'counts, the hash-when-too-long path, the non-collision with the platform key, and both race shapes on a REAL engine with real parallel '
+    'processes \u2014 the same gateway event at two different companies\u2019 addresses, and the same delivery twice at one address (one verifier '
+    'used eight parallel processes). A mutation proves the covering test discriminating. AS WITH CRITERION 0, both say the only remaining obstacle '
+    'is the unruled dormant-draft definition, and I still do not raise it.'),
+}
+
+for _i, _extra in _D209_RULINGS.items():
+    _state, _ev = CRITERIA['D2-09'][_i]
+    CRITERIA['D2-09'][_i] = (_state, _ev + _D209_VERIFY + _D209_DEFECT + _D209_GAPS + _D209_OTHER + _D209_NOLIVE + _extra)
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
