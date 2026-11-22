@@ -672,6 +672,40 @@ class RestockThroughTheRealRoutesTest extends AdminPagesTestCase
         );
     }
 
+    public function test_the_rest_api_copy_of_the_status_writer_keeps_the_keys_too(): void
+    {
+        // Two mutations of this survived the first run of my own tests: the route test drives the panel, so
+        // OrderManager's copy (the REST API controllers) and the edit writer's copy were unproven.
+        $this->soldLine(3, variant: 'Red-L');
+        DB::table('products')->where('id', self::PRODUCT)->update([
+            'variation' => json_encode(['blue' => ['type' => 'Blue-M', 'qty' => 5], 'red' => ['type' => 'Red-L', 'qty' => 4]]),
+        ]);
+
+        OrderManager::getStockUpdateOnOrderStatusChange(Order::findOrFail(self::ORDER), 'canceled');
+
+        $this->assertSame(
+            '{"blue":{"type":"Blue-M","qty":5},"red":{"type":"Red-L","qty":7}}',
+            (string) DB::table('products')->where('id', self::PRODUCT)->value('variation'),
+        );
+    }
+
+    public function test_the_order_edit_writer_keeps_the_keys_too(): void
+    {
+        $writer = $this->orderEditWriter();
+        $this->soldLine(3, variant: 'Red-L');
+        DB::table('products')->where('id', self::PRODUCT)->update([
+            'variation' => json_encode(['blue' => ['type' => 'Blue-M', 'qty' => 5], 'red' => ['type' => 'Red-L', 'qty' => 4]]),
+        ]);
+
+        $writer->addAndUpdateProductsInOrderDetails(Order::with('details')->findOrFail(self::ORDER), $this->editedLine(3, 'Red-L'), ['applied_tax_cart_list' => []]);
+
+        $this->assertSame(
+            '{"blue":{"type":"Blue-M","qty":5},"red":{"type":"Red-L","qty":4}}',
+            (string) DB::table('products')->where('id', self::PRODUCT)->value('variation'),
+            'given back and taken again leaves the figure where it was, and the keys where they were',
+        );
+    }
+
     public function test_a_status_change_leaves_a_list_of_variations_a_list(): void
     {
         $this->soldLine(3, variant: 'Red-L', variations: [['type' => 'Blue-M', 'qty' => 5], ['type' => 'Red-L', 'qty' => 4]]);
