@@ -210,7 +210,6 @@ class POSOrderController extends BaseController
                                     variant: $item['variant'],
                                     referenceType: 'pos_order',
                                     referenceId: $orderId,
-                                    sellerId: $product['seller_id'] ?? null,
                                 );
                             }
                             $this->orderDetailRepo->add(data: $orderDetail);

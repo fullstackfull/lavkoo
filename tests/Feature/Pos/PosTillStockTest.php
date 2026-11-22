@@ -7,6 +7,7 @@ use App\Enums\SessionKey;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\StockMovement;
+use App\Services\Marketplace\InventoryService;
 use Illuminate\Support\Facades\DB;
 use Mockery;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -292,6 +293,43 @@ class PosTillStockTest extends PosTillTestCase
         $this->placeSaleAtTill($till, amount: 400.0);
 
         $this->assertSame(0, StockMovement::query()->count(), 'a sale that did not happen leaves no history saying it did');
+    }
+
+    /**
+     * Whose history the sale lands in. The movement was keyed on `products.seller_id`, which this repository writes nowhere
+     * and which holds the SHOP id in the rows that have one, while the seller's own movement log — `InventoryService::recent`
+     * behind the v3 seller endpoint and the seller centre's inventory list — filters on the SELLER's id. Keyed on the shop,
+     * a seller's own till sales never appeared in the seller's own log: measured as one adjustment and no sale.
+     */
+    public function test_the_movement_of_a_vendor_till_sale_reaches_the_seller_who_made_it(): void
+    {
+        $this->shelfProduct(id: 640, stock: 10, till: self::VENDOR_TILL);
+        $this->givenCartAtTill(self::VENDOR_TILL, [640 => 3]);
+
+        $this->placeSaleAtTill(self::VENDOR_TILL, amount: 300.0);
+
+        $product = DB::table('products')->where('id', 640)->first();
+        $this->assertSame(self::SELLER_ID, (int) $product->user_id);
+        $this->assertNotSame((int) $product->seller_id, (int) $product->user_id, 'the two columns differ, which is why the key matters');
+
+        $movement = StockMovement::query()->where('product_id', 640)->sole();
+        $this->assertSame(self::SELLER_ID, (int) $movement->seller_id, 'the sale is the seller\'s, as the order line already says');
+        $this->assertSame(self::SELLER_ID, (int) DB::table('order_details')->value('seller_id'), 'and the two rows for one event agree');
+
+        $this->assertSame(1, app(InventoryService::class)->recent(productId: 640, sellerId: self::SELLER_ID)->total(), 'the seller can see their own sale');
+    }
+
+    /** A platform product's counter sale belongs to no seller, as the web checkout records it, and not to the shop with id 1. */
+    public function test_the_movement_of_a_platform_sale_is_not_attributed_to_a_seller(): void
+    {
+        $this->shelfProduct(id: 641, stock: 10, till: self::ADMIN_TILL);
+        $this->givenCartAtTill(self::ADMIN_TILL, [641 => 2]);
+
+        $this->placeSaleAtTill(self::ADMIN_TILL, amount: 200.0);
+
+        $movement = StockMovement::query()->where('product_id', 641)->sole();
+        $this->assertNull($movement->seller_id, 'a platform sale is not some seller\'s');
+        $this->assertSame(0, app(InventoryService::class)->recent(productId: 641, sellerId: 1)->total(), 'and shop 1 is not handed it');
     }
 
     // ---- one transaction -----------------------------------------------------------------------------------------------

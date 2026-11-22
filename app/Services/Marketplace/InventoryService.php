@@ -138,7 +138,6 @@ class InventoryService
         ?string $variant = null,
         ?string $referenceType = null,
         int|string|null $referenceId = null,
-        int|string|null $sellerId = null,
         string $stockPolicy = self::POLICY_REJECT,
     ): void {
         $product = Product::where('id', $productId)->first();
@@ -182,8 +181,22 @@ class InventoryService
             balanceAfter: (int) (Product::where('id', $productId)->value('current_stock') ?? 0),
             referenceType: $referenceType,
             referenceId: $referenceId,
-            sellerId: $sellerId,
+            sellerId: $this->sellerOfSale($product),
         );
+    }
+
+    /**
+     * Whose stock history a sale belongs in.
+     *
+     * The same expression `OrderManager::generateOrder` writes on its own sale movements, so one product's history does not
+     * change hands depending on which till sold it. It is NOT `products.seller_id`: that column is written nowhere in this
+     * repository and holds the shop id in the rows that have one, while `InventoryService::recent($sellerId)` — the seller's
+     * own movement log, and the v3 seller endpoint behind it — filters on the seller's id. Keyed on the shop, a seller's till
+     * sales never appear in the seller's own log.
+     */
+    private function sellerOfSale(Product $product): int|string|null
+    {
+        return ($product->added_by ?? 'admin') === 'admin' ? null : ($product->user_id ?? null);
     }
 
     /**
