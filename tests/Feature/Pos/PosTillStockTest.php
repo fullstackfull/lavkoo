@@ -225,19 +225,40 @@ class PosTillStockTest extends PosTillTestCase
      * tightened the comparison to `===`, which silently stopped matching it: the units came off the total and the variant was
      * left alone, which is the hole above, introduced by this branch's own change. The two writers the rule was taken from
      * (`generateOrder` and the status-change restock) both compare loosely, so the comparison is made on the string.
+     *
+     * This test is the LAWFUL sale, deliberately, and the first version of it was not. Asserting the refusal of a shortfall
+     * proves nothing about the comparison: with `===` restored the variant simply matches nothing, the refusal for an
+     * unmatched variant fires instead, and the test stays green for the wrong reason — which it did. Only a sale the variant
+     * CAN cover tells the two apart, because a comparison that does not match refuses it.
      */
     #[DataProvider('tills')]
-    public function test_a_variant_whose_type_is_a_number_is_still_matched_and_still_guarded(string $till): void
+    public function test_a_variant_whose_type_is_a_number_is_matched_and_taken_from_its_own_stock(string $till): void
     {
-        $this->shelfProduct(id: 639, stock: 10, till: $till, variation: '[{"type":32,"price":100,"qty":1},{"type":"34","price":100,"qty":9}]');
-        $this->givenCartAtTill($till, [639 => ['quantity' => 4, 'variant' => '32']]);
+        $this->shelfProduct(id: 639, stock: 10, till: $till, variation: '[{"type":32,"price":100,"qty":5},{"type":"34","price":100,"qty":5}]');
+        $this->givenCartAtTill($till, [639 => ['quantity' => 3, 'variant' => '32']]);
+
+        $this->placeSaleAtTill($till, amount: 300.0);
+
+        $this->assertSame(['success'], $this->toastTypes(), 'five units of variant 32 can answer a line of three');
+        $this->assertSame(1, Order::query()->count());
+        $this->assertSame(['32' => 2, '34' => 5], $this->variantQuantities(639), 'taken from its own variant, not from the total alone');
+        $this->assertSame(7, (int) Product::query()->whereKey(639)->value('current_stock'));
+        $this->assertSame(7, array_sum($this->variantQuantities(639)), 'the variants still sum to the stock');
+    }
+
+    /** And the same variant is guarded like any other when the line is above what it holds. */
+    #[DataProvider('tills')]
+    public function test_a_variant_whose_type_is_a_number_is_guarded_like_any_other(string $till): void
+    {
+        $this->shelfProduct(id: 643, stock: 10, till: $till, variation: '[{"type":32,"price":100,"qty":1},{"type":"34","price":100,"qty":9}]');
+        $this->givenCartAtTill($till, [643 => ['quantity' => 4, 'variant' => '32']]);
 
         $response = $this->placeSaleAtTill($till, amount: 400.0);
 
         $response->assertJson(['stockShortfall' => true], 'one unit of variant 32 cannot answer a line of four');
         $this->assertSame(0, Order::query()->count());
-        $this->assertSame(10, (int) Product::query()->whereKey(639)->value('current_stock'));
-        $this->assertSame(['32' => 1, '34' => 9], $this->variantQuantities(639));
+        $this->assertSame(10, (int) Product::query()->whereKey(643)->value('current_stock'));
+        $this->assertSame(['32' => 1, '34' => 9], $this->variantQuantities(643));
     }
 
     // ---- the ledger describes what happened ----------------------------------------------------------------------------
