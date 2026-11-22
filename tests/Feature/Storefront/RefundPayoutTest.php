@@ -221,19 +221,24 @@ class RefundPayoutTest extends TestCase
      * The vendor panel and both seller apps accept `refund_status` without moving any money: App\Http\Controllers\Vendor\RefundController::updateStatus
      * writes the status and writes no wallet credit and no refund transaction. Counting an approved-but-unpaid sibling as given back would take its
      * share off the refund the administrator is actually paying.
+     *
+     * The amounts take the order to its whole, because that is the only place the two part company: the shares of a payment are linear, so for any set
+     * of amounts under the cap, counting a sibling or not moves the window and not its width. The first version of this test used 40 and 60 and was
+     * green on the defect it exists to catch; these amounts put the running total at the cap, where counting the unpaid sibling costs the buyer 75.00
+     * SAR of the 225.00 SAR they are owed.
      */
     public function test_a_refund_that_was_approved_and_paid_nothing_is_not_money_already_given_back(): void
     {
         $order = $this->order('100.00', ['transaction_ref' => self::REFERENCE]);
         $this->paid('375.00', 'SAR');
         DB::table('refund_requests')->insert([
-            ['id' => 1, 'order_id' => 1, 'amount' => '40.00', 'status' => 'approved'],
+            ['id' => 1, 'order_id' => 1, 'amount' => '60.00', 'status' => 'approved'],
             ['id' => 9, 'order_id' => 1, 'amount' => '60.00', 'status' => 'pending'],
         ]);
 
         $payout = $this->payout()->forRefund(order: $order, refund: $this->refundOf('60.00', id: 9));
 
-        $this->assertSame('225.00', $payout['amount'], 'the approved sibling moved no money, so this refund is still its own share of the payment and not the rest of it');
+        $this->assertSame('225.00', $payout['amount'], 'the approved sibling moved no money, so this refund is still its own share of the payment and not what is left after it');
     }
 
     // ---- the payment has to be the order's own ---------------------------------------------------------------------------------------------
