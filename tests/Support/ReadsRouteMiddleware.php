@@ -2,6 +2,7 @@
 
 namespace Tests\Support;
 
+use App\Http\Middleware\EnsureStorefrontPermission;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Route as RoutingRoute;
 use Illuminate\Support\Facades\Route;
@@ -32,6 +33,26 @@ trait ReadsRouteMiddleware
         $permissions = [];
         foreach ($this->moduleMiddlewareOf(route: $route) as $middleware) {
             array_push($permissions, ...explode(',', substr($middleware, strlen('module:'))));
+        }
+
+        return $permissions;
+    }
+
+    /**
+     * @return list<string> every storefront permission the route asks for through EnsureStorefrontPermission, each name of a list on its own.
+     *
+     * The storefront screens are gated by their own middleware rather than by `module:`, for the reason its docblock gives, so a reader of the
+     * route table that looks only for `module:` reports them as open to every employee when they are not.
+     */
+    private function storefrontPermissionsOf(RoutingRoute $route): array
+    {
+        $prefix = EnsureStorefrontPermission::class . ':';
+
+        $permissions = [];
+        foreach ($this->declaredMiddleware(route: $route) as $middleware) {
+            if (str_starts_with($middleware, $prefix)) {
+                array_push($permissions, ...explode(',', substr($middleware, strlen($prefix))));
+            }
         }
 
         return $permissions;

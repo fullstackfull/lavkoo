@@ -3,6 +3,8 @@
 namespace Tests\Feature\Security;
 
 use App\Enums\GlobalConstant;
+use App\Http\Middleware\EnsureStorefrontPermission;
+use App\Services\Storefront\StorefrontPermissionService;
 use Illuminate\Routing\Route as RoutingRoute;
 use Illuminate\Support\Facades\Route;
 use Tests\Support\ReadsRouteMiddleware;
@@ -73,6 +75,8 @@ class AdminRouteTableTest extends TestCase
         Route::get('admin/zz-walk-probe-gated', static fn () => 'x')->middleware(['admin', 'module:catalog']);
         Route::get('admin/zz-walk-probe-opted-out', static fn () => 'x')->middleware(['admin', 'module:catalog'])->withoutMiddleware('module:catalog');
         Route::get('admin/zz-walk-probe-gated-by-a-list', static fn () => 'x')->middleware(['admin', 'module:catalog,people']);
+        Route::get('admin/zz-walk-probe-gated-by-a-storefront-permission', static fn () => 'x')
+            ->middleware(['admin', EnsureStorefrontPermission::for(StorefrontPermissionService::LIFECYCLE)]);
 
         $open = array_keys($this->adminRoutesThatAskForNoPermission());
 
@@ -80,6 +84,7 @@ class AdminRouteTableTest extends TestCase
         $this->assertContains('GET admin/zz-walk-probe-opted-out', $open);
         $this->assertNotContains('GET admin/zz-walk-probe-gated', $open);
         $this->assertNotContains('GET admin/zz-walk-probe-gated-by-a-list', $open);
+        $this->assertNotContains('GET admin/zz-walk-probe-gated-by-a-storefront-permission', $open);
     }
 
     public function test_every_admin_route_asks_for_a_permission_or_is_listed_as_open(): void
@@ -131,6 +136,39 @@ class AdminRouteTableTest extends TestCase
         $this->assertSame(['GET admin/zz-list-probe-unknown asks for `zz_not_offered`'], array_values($probes));
     }
 
+    public function test_every_storefront_permission_a_route_asks_for_is_one_the_role_form_offers(): void
+    {
+        $offered = array_keys(StorefrontPermissionService::all());
+
+        $unknown = [];
+        foreach (Route::getRoutes()->getRoutes() as $route) {
+            foreach (array_diff($this->storefrontPermissionsOf(route: $route), $offered) as $permission) {
+                $unknown[] = $this->keyOf(route: $route) . ' asks for `' . $permission . '`';
+            }
+        }
+
+        $this->assertSame([], $unknown, "A role cannot hold a storefront permission its form does not offer, so only the master admin passes these routes:\n" . implode("\n", $unknown));
+    }
+
+    public function test_the_check_of_the_storefront_permission_names_reads_every_name_of_a_list(): void
+    {
+        Route::get('admin/zz-storefront-probe-offered', static fn () => 'x')
+            ->middleware(['admin', EnsureStorefrontPermission::for(StorefrontPermissionService::LEGAL_WRITE, StorefrontPermissionService::LEGAL_APPROVE)]);
+        Route::get('admin/zz-storefront-probe-unknown', static fn () => 'x')
+            ->middleware(['admin', EnsureStorefrontPermission::for(StorefrontPermissionService::LEGAL_WRITE, 'zz_not_offered')]);
+
+        $offered = array_keys(StorefrontPermissionService::all());
+
+        $probes = [];
+        foreach (Route::getRoutes()->getRoutes() as $route) {
+            foreach (array_diff($this->storefrontPermissionsOf(route: $route), $offered) as $permission) {
+                $probes[] = $this->keyOf(route: $route) . ' asks for `' . $permission . '`';
+            }
+        }
+
+        $this->assertSame(['GET admin/zz-storefront-probe-unknown asks for `zz_not_offered`'], array_values($probes));
+    }
+
     /** @return list<string> "METHOD path asks for `name`" for every name of a `module:` middleware that the role form does not offer */
     private function permissionsTheRoleFormDoesNotOffer(): array
     {
@@ -162,7 +200,11 @@ class AdminRouteTableTest extends TestCase
     /** @return array<string, RoutingRoute> */
     private function adminRoutesThatAskForNoPermission(): array
     {
-        return array_filter($this->adminRoutes(), fn (RoutingRoute $route): bool => $this->modulePermissionsOf(route: $route) === []);
+        return array_filter(
+            $this->adminRoutes(),
+            fn (RoutingRoute $route): bool => $this->modulePermissionsOf(route: $route) === []
+                && $this->storefrontPermissionsOf(route: $route) === [],
+        );
     }
 
     private function keyOf(RoutingRoute $route): string
