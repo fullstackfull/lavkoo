@@ -650,6 +650,98 @@ class RestockThroughTheRealRoutesTest extends AdminPagesTestCase
         $this->assertSame(ReturnShipment::STATUS_RESTOCKED, $rma->fresh()->status);
     }
 
+    // ---- the fourth writer of the same shelf: the order edit screen -------------------------------------------------------
+
+    /**
+     * The columns the order-edit writer writes that the fulfillment schema does not infer, and a stand-in
+     * for the trait so the real method can be driven without one of its eight controllers' request stacks.
+     */
+    private function orderEditWriter(): object
+    {
+        Schema::table('order_details', static function (Blueprint $table): void {
+            $table->string('digital_file_after_sell')->nullable();
+            $table->unsignedBigInteger('shipping_method_id')->nullable();
+            $table->string('discount_type')->nullable();
+            $table->boolean('refund_request')->default(0);
+            $table->timestamp('refund_started_at')->nullable();
+        });
+
+        return new class {
+            use \App\Traits\OrderEditManager;
+        };
+    }
+
+    /** One edited line of the product, as the edit screens hand it to the writer. */
+    private function editedLine(int $quantity, ?string $variant = null, int $productId = self::PRODUCT): array
+    {
+        return [[
+            'product_id' => $productId, 'variant' => $variant, 'qty' => $quantity, 'price' => 10, 'discount' => 0,
+            'seller_id' => null, 'product_details' => null, 'tax_model' => 'exclude',
+            'delivery_status' => 'confirmed', 'payment_status' => 'paid', 'variation' => null,
+        ]];
+    }
+
+    public function test_the_order_edit_writer_does_not_give_back_units_a_return_already_put_on_the_shelf(): void
+    {
+        // A FOURTH writer of an order line's stock, reached from the order edit screen by eight controllers.
+        // It gave every current line's units back unconditionally before rebuilding the lines, so a line whose
+        // goods had already come back was given back a second time. With the quantity unchanged the pair
+        // netted zero on the shelf while the line's claim went back to 1 -- the same three units counted as
+        // both on the shelf and promised to the customer, which is an oversell by the record.
+        $writer = $this->orderEditWriter();
+        $lineId = $this->soldLine(3, variant: 'Red', variations: [['type' => 'Red', 'price' => 10, 'sku' => 'R', 'qty' => 20]]);
+        $this->receiveThroughThePanel($this->authorizedReturn(3, $lineId));
+        $this->assertSame([53, 0], $this->shelfAndClaim($lineId), 'three units left the shelf and three came back');
+
+        $writer->addAndUpdateProductsInOrderDetails(Order::with('details')->findOrFail(self::ORDER), $this->editedLine(3, 'Red'), ['applied_tax_cart_list' => []]);
+
+        $this->assertSame(
+            ['current_stock' => 50, 'variant_qty' => 20, 'movements' => [[StockMovement::TYPE_RETURN, 3, 53, null]]],
+            $this->reading('Red'),
+            'the edited line is live for three units, so three come off the shelf -- they are not given back first',
+        );
+        $this->assertSame(1, (int) DB::table('order_details')->where('order_id', self::ORDER)->value('is_stock_decreased'));
+    }
+
+    public function test_an_edit_that_drops_a_returned_line_puts_no_units_on_the_shelf(): void
+    {
+        $writer = $this->orderEditWriter();
+        $lineId = $this->soldLine(3, variant: 'Red', variations: [['type' => 'Red', 'price' => 10, 'sku' => 'R', 'qty' => 20]]);
+        $this->receiveThroughThePanel($this->authorizedReturn(3, $lineId));
+        DB::table('products')->insert([
+            'id' => 71, 'name' => 'Other', 'added_by' => 'admin', 'product_type' => 'physical', 'current_stock' => 5,
+            'variation' => json_encode([]), 'status' => 1, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $writer->addAndUpdateProductsInOrderDetails(Order::with('details')->findOrFail(self::ORDER), $this->editedLine(1, null, 71), ['applied_tax_cart_list' => []]);
+
+        $this->assertSame(
+            ['current_stock' => 53, 'variant_qty' => 23, 'movements' => [[StockMovement::TYPE_RETURN, 3, 53, null]]],
+            $this->reading('Red'),
+            'the three returned units are already on the shelf: dropping the line must not put them there twice',
+        );
+        $this->assertSame(4, (int) DB::table('products')->where('id', 71)->value('current_stock'), 'and the product the edit bought instead is taken from');
+    }
+
+    public function test_the_order_edit_writer_floors_the_variant_at_zero(): void
+    {
+        // The same defect as (a), in the third copy of it: current_stock was floored and the variant's
+        // quantity inside products.variation was not.
+        $writer = $this->orderEditWriter();
+        $this->soldLine(3, variant: 'Red', variations: [['type' => 'Red', 'price' => 10, 'sku' => 'R', 'qty' => 20]]);
+        DB::table('products')->where('id', self::PRODUCT)->update([
+            'current_stock' => 1, 'variation' => json_encode([['type' => 'Red', 'price' => 10, 'sku' => 'R', 'qty' => 1]]),
+        ]);
+
+        $writer->addAndUpdateProductsInOrderDetails(Order::with('details')->findOrFail(self::ORDER), $this->editedLine(10, 'Red'), ['applied_tax_cart_list' => []]);
+
+        $this->assertSame(
+            ['current_stock' => 0, 'variant_qty' => 0, 'movements' => []],
+            $this->reading('Red'),
+            'four units on the shelf cannot pay for ten: both figures stop at zero',
+        );
+    }
+
     public function test_the_seller_app_is_told_the_same_thing_the_panel_is(): void
     {
         $lineId = $this->soldLine(2);

@@ -180,6 +180,15 @@ trait OrderEditManager
             return;
         }
         foreach (collect($order->details ?? []) as $detail) {
+            // Give back only what this order actually has OFF the shelf. is_stock_decreased 0 means the
+            // line's units are on the shelf already -- a received return, a cancellation -- and giving them
+            // back a second time put units there that never left. Measured through this method: a line of 3
+            // whose return had already come back went 53 -> 56 on the shelf when the edit dropped the line,
+            // and when the edit kept it the pair netted zero while the line's claim went back to 1, so the
+            // same three units were counted as both on the shelf and promised to the customer.
+            if ((int)($detail['is_stock_decreased'] ?? 1) !== 1) {
+                continue;
+            }
             $this->adjustProductStock($detail['product_id'] ?? null, $detail['variant'] ?? null, (int)($detail['qty'] ?? 0), 'increment');
         }
         $keepIds = [];
@@ -282,7 +291,9 @@ trait OrderEditManager
             $variationData = [];
             foreach (json_decode($product['variation'], true) ?? [] as $var) {
                 if ($variant !== null && $variant === ($var['type'] ?? null)) {
-                    $var['qty'] = $mode === 'increment' ? ($var['qty'] ?? 0) + $qty : ($var['qty'] ?? 0) - $qty;
+                    // Floored on the way down for the same reason current_stock is below: an out-of-band
+                    // stock edit between the sale and the edit drove the variant's quantity negative.
+                    $var['qty'] = $mode === 'increment' ? ($var['qty'] ?? 0) + $qty : max(0, ($var['qty'] ?? 0) - $qty);
                 }
                 $variationData[] = $var;
             }
