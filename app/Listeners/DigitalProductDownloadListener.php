@@ -3,6 +3,7 @@
 namespace App\Listeners;
 
 use App\Events\DigitalProductDownloadEvent;
+use App\Services\Storefront\OrderNotificationContext;
 use App\Traits\EmailTemplateTrait;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use App\Listeners\Concerns\QueuedMailDelivery;
@@ -39,6 +40,10 @@ class DigitalProductDownloadListener implements ShouldQueue
     {
         $email = $event->email;
         $data = $event->data;
-        $this->sendingMail(sendMailTo: $email, userType: $data['userType'], templateName: $data['templateName'], data: $data);
+        OrderNotificationContext::within(
+            order: $data['order'] ?? [],
+            userType: $data['userType'],
+            callback: fn () => $this->sendingMail(sendMailTo: $email, userType: $data['userType'], templateName: $data['templateName'], data: $data),
+        );
     }
 }

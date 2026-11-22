@@ -4,6 +4,7 @@ namespace App\Listeners;
 
 use App\Events\OrderPlacedEvent;
 use App\Models\ReferralCustomer;
+use App\Services\Storefront\OrderNotificationContext;
 use App\Traits\EmailTemplateTrait;
 use App\Traits\PushNotificationTrait;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -48,7 +49,11 @@ class OrderPlacedListener implements ShouldQueue
         $email = $event->email;
         $data = $event->data;
         try {
-            $this->sendingMail(sendMailTo: $email, userType: $data['userType'], templateName: $data['templateName'], data: $data);
+            OrderNotificationContext::within(
+                order: $data['order'] ?? [],
+                userType: $data['userType'],
+                callback: fn () => $this->sendingMail(sendMailTo: $email, userType: $data['userType'], templateName: $data['templateName'], data: $data),
+            );
         } catch (\Exception $exception) {
 
         }
@@ -59,7 +64,7 @@ class OrderPlacedListener implements ShouldQueue
         $key = $event->notification->key;
         $type = $event->notification->type;
         $order = $event->notification->order;
-        $this->sendOrderNotification(key: $key, type: $type, order: $order);
+        OrderNotificationContext::within(order: $order, userType: $type, callback: fn () => $this->sendOrderNotification(key: $key, type: $type, order: $order));
 
         if (!$order['is_guest'] && isset($order?->customer?->id)) {
             $getCustomer = ReferralCustomer::where('user_id', $order->customer->id)->first();

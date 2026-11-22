@@ -4,6 +4,7 @@ namespace App\Listeners;
 
 use App\Events\OrderEditEvent;
 use App\Events\OrderEditReturnPaymentEvent;
+use App\Services\Storefront\OrderNotificationContext;
 use App\Traits\EmailTemplateTrait;
 use App\Traits\PushNotificationTrait;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -44,6 +45,6 @@ class OrderEditReturnPaymentListener implements ShouldQueue
         $key = $event->notification->key;
         $type = $event->notification->type;
         $order = $event->notification->order;
-        $this->sendOrderNotification(key: $key, type: $type, order: $order);
+        OrderNotificationContext::within(order: $order, userType: $type, callback: fn () => $this->sendOrderNotification(key: $key, type: $type, order: $order));
     }
 }
