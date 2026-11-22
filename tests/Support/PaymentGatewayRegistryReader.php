@@ -7,8 +7,9 @@ use RuntimeException;
 /**
  * Reads the hand-kept payment-gateway registries out of the files that declare them.
  *
- * The platform keeps the same gateway list in six places at once: the route map inside
- * App\Traits\Payment::generate_link, Helpers::getDefaultPaymentGateways(),
+ * The platform keeps the same gateway list in six places at once: the start-route map, which used to
+ * be a local variable inside App\Traits\Payment::generate_link and now lives in
+ * App\Services\Payments\PaymentGatewayCatalog::startRoutes(), Helpers::getDefaultPaymentGateways(),
  * GlobalConstant::DEFAULT_PAYMENT_GATEWAYS, the currency map in
  * PaymentGatewayTrait::getPaymentGatewaySupportedCurrencies(), the routes the application registers,
  * and app/Traits/Payment.txt — the copy AddonService::deleteAddon writes over Payment.php when the
@@ -21,6 +22,10 @@ use RuntimeException;
  */
 final class PaymentGatewayRegistryReader
 {
+    /** The one place the start routes are declared, since the map was lifted out of Payment::generate_link into a class a test can read. */
+    public const LIVE_ROUTE_MAP_FILE = 'app/Services/Payments/PaymentGatewayCatalog.php';
+
+    /** The trait Payment.txt would replace. It no longer declares the map itself -- it reads LIVE_ROUTE_MAP_FILE -- but Payment.txt still does. */
     public const LIVE_TRAIT_FILE = 'app/Traits/Payment.php';
     public const DISCARDED_TRAIT_FILE = 'app/Traits/Payment.txt';
     public const CURRENCY_MAP_FILE = 'app/Traits/PaymentGatewayTrait.php';
@@ -30,13 +35,13 @@ final class PaymentGatewayRegistryReader
     /** @return array<string, string> gateway key => the path Payment::generate_link sends the customer to */
     public static function liveRouteMap(): array
     {
-        return self::declaredPairs(file: self::LIVE_TRAIT_FILE, declaration: '$routes');
+        return self::declaredPairs(file: self::LIVE_ROUTE_MAP_FILE, declaration: 'startRoutes');
     }
 
     /** @return list<string> in declaration order, a key written twice kept twice */
     public static function liveRouteMapKeys(): array
     {
-        return self::declaredKeys(file: self::LIVE_TRAIT_FILE, declaration: '$routes');
+        return self::declaredKeys(file: self::LIVE_ROUTE_MAP_FILE, declaration: 'startRoutes');
     }
 
     /** @return array<string, string> the same map inside the copy that would replace the live trait */
@@ -60,7 +65,67 @@ final class PaymentGatewayRegistryReader
     /** @return list<string> */
     public static function helpersDefaultGatewayKeys(): array
     {
+        // getDefaultPaymentGateways() no longer keeps a list of its own: it returns the constant, so the two
+        // cannot drift. Parsing it anyway walks past its body to the NEXT array literal in the file, which is
+        // getDefaultSMSGateways() -- and then every test of "the default gateways" reads twilio, nexmo,
+        // 2factor, msg91 and releans and compares SMS gateways against payment gateways.
+        if (!self::helpersDeclaresItsOwnGatewayList()) {
+            return self::globalConstantDefaultGatewayKeys();
+        }
+
         return self::declaredValues(file: self::HELPERS_FILE, declaration: 'getDefaultPaymentGateways');
+    }
+
+    /** Whether Helpers::getDefaultPaymentGateways() keeps a second copy of the list instead of returning GlobalConstant::DEFAULT_PAYMENT_GATEWAYS. */
+    public static function helpersDeclaresItsOwnGatewayList(): bool
+    {
+        foreach (self::bodyTokensOf(file: self::HELPERS_FILE, declaration: 'getDefaultPaymentGateways') as $token) {
+            if ((is_array($token) ? $token[1] : $token) === '[') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The tokens between the opening and closing brace of a declaration's body, comments and all.
+     *
+     * @return list<array{0: int, 1: string, 2: int}|string>
+     */
+    private static function bodyTokensOf(string $file, string $declaration): array
+    {
+        $tokens = token_get_all(self::read(file: $file));
+
+        $seenDeclaration = false;
+        $depth = 0;
+        $body = [];
+
+        foreach ($tokens as $token) {
+            $text = is_array($token) ? $token[1] : $token;
+
+            if (!$seenDeclaration) {
+                $seenDeclaration = $text === $declaration;
+                continue;
+            }
+
+            if ($text === '{') {
+                $depth++;
+                if ($depth === 1) {
+                    continue;
+                }
+            }
+
+            if ($text === '}' && --$depth === 0) {
+                return $body;
+            }
+
+            if ($depth >= 1) {
+                $body[] = $token;
+            }
+        }
+
+        throw new RuntimeException("No body follows {$declaration} in {$file}; the registry reader needs updating.");
     }
 
     /** @return list<string> */

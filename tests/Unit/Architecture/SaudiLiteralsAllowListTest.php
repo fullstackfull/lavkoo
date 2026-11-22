@@ -53,7 +53,10 @@ class SaudiLiteralsAllowListTest extends TestCase
     private const PLATFORM_DEFAULT = 'platform-default';
     private const PROVIDER_DEFAULT = 'provider-default';
 
-    private const CATEGORIES = [self::WORLD_LIST, self::NOT_SAUDI, self::SAUDI_ONLY_RULE, self::PLATFORM_DEFAULT, self::PROVIDER_DEFAULT];
+    /** One row of the six-market list, beside AE, KW, QA, BH and OM: a list the GCC plan owns, not a rule and not a world list. */
+    private const MARKET_LIST = 'market-list';
+
+    private const CATEGORIES = [self::WORLD_LIST, self::NOT_SAUDI, self::SAUDI_ONLY_RULE, self::PLATFORM_DEFAULT, self::PROVIDER_DEFAULT, self::MARKET_LIST];
 
     /**
      * Every Saudi literal in the platform's code: the file, the literal, how many times it occurs, which kind of thing it
@@ -131,7 +134,7 @@ class SaudiLiteralsAllowListTest extends TestCase
             'SA' => ['count' => 1, 'category' => self::PROVIDER_DEFAULT, 'owner' => 'H1 couriers; M2-09', 'why' => 'the payload reads country_code from the account config, falling back to Saudi'],
         ],
         'app/Services/Fulfillment/Support/SaudiPhone.php' => [
-            '966' => ['count' => 1, 'category' => self::SAUDI_ONLY_RULE, 'owner' => 'M2-19; H1 couriers', 'why' => 'the normaliser that turns every spelling of a Saudi number into one form; a non-Saudi number must not be given to it'],
+            '966' => ['count' => 3, 'category' => self::SAUDI_ONLY_RULE, 'owner' => 'M2-19; H1 couriers', 'why' => 'the normaliser that turns every spelling of a Saudi number into one form; a non-Saudi number must not be given to it. Three occurrences: the Saudi row of the trunk-zero dialling-code list, the prefix the normaliser reads, and the prefix the two-spellings comparison refuses to answer for'],
         ],
         'app/Services/Fulfillment/Providers/TorodPoint/TorodOrderPayloadBuilder.php' => [
             '966' => ['count' => 1, 'category' => self::SAUDI_ONLY_RULE, 'owner' => 'M2-19; H1 couriers', 'why' => 'Torod ships inside the Kingdom, so the payload writes a Saudi number; another market must not reach this courier'],
@@ -148,8 +151,43 @@ class SaudiLiteralsAllowListTest extends TestCase
         'app/Services/SalesChannels/Dispatch/DispatchGate.php' => [
             'SA' => ['count' => 1, 'category' => self::SAUDI_ONLY_RULE, 'owner' => 'M2-19; H2 sales channels', 'why' => 'a dispatch whose destination country is not Saudi Arabia is refused by this comparison'],
         ],
+        'app/Services/Storefront/StorefrontContext.php' => [
+            'SA' => ['count' => 1, 'category' => self::PLATFORM_DEFAULT, 'owner' => 'GCC-02/GCC-03 (storefronts); M2-19', 'why' => 'UNSCOPED_COUNTRY: the country a request belonging to no storefront is read as, which is what the whole platform was before storefronts existed. A storefront request never reads it'],
+        ],
+        'app/Services/Storefront/StorefrontResolver.php' => [
+            'SA' => ['count' => 1, 'category' => self::PLATFORM_DEFAULT, 'owner' => 'GCC-02/GCC-03 (storefronts); M2-19', 'why' => 'BUILT_IN_COUNTRY: the one storefront the platform resolves to while none is configured'],
+            'sa' => ['count' => 1, 'category' => self::PLATFORM_DEFAULT, 'owner' => 'GCC-02/GCC-03 (storefronts); M2-19', 'why' => 'the url path of that built-in storefront'],
+            'SAR' => ['count' => 1, 'category' => self::PLATFORM_DEFAULT, 'owner' => 'GCC-05 (storefront currency); M2-19', 'why' => 'the currency of that built-in storefront'],
+        ],
+        'app/Services/Staff/StaffCountryScope.php' => [
+            'SA' => ['count' => 1, 'category' => self::PLATFORM_DEFAULT, 'owner' => 'K-09 (staff country scopes); M2-19', 'why' => 'TABLE_DEFAULT_COUNTRY: the default of the scope column, so a staff row written before anyone is given a country reads as the market the platform already served'],
+        ],
+        'app/Services/Catalog/ProductCodeScope.php' => [
+            'SA' => ['count' => 1, 'category' => self::PLATFORM_DEFAULT, 'owner' => 'B-04..B-07 (product identity per country); M2-19', 'why' => 'TABLE_DEFAULT_COUNTRY: the default of the product country column, so a product row written before the identity migration reads as the market the platform already served'],
+        ],
+        'app/Services/PlatformAdmin/PlatformMarkets.php' => [
+            'SA' => ['count' => 1, 'category' => self::PLATFORM_DEFAULT, 'owner' => 'GCC-20 (owner super admin); M2-19', 'why' => 'FALLBACK_DEFAULT_COUNTRY: the market the control tower opens on when the configuration names none'],
+        ],
+        'app/Services/Marketing/MarketingConsent.php' => [
+            'SA' => ['count' => 1, 'category' => self::MARKET_LIST, 'owner' => 'A2-13/I1-08 (marketing consent per market)', 'why' => 'one row of MARKETS, beside AE, KW, QA, BH and OM'],
+        ],
+        'app/Services/Marketing/MarketingMarket.php' => [
+            'SA' => ['count' => 1, 'category' => self::PLATFORM_DEFAULT, 'owner' => 'A2-13/I1-08 (marketing consent per market); M2-19', 'why' => 'the home market a configuration naming none, or naming something that is not one of the six, falls back to'],
+        ],
+        'app/Services/SalesChannels/Support/ChannelAccountCountry.php' => [
+            'SA' => ['count' => 1, 'category' => self::PROVIDER_DEFAULT, 'owner' => 'the sales channels (M2-19)', 'why' => 'one row of the map from a marketplace id to its country: A17E79C6D8DWNP is the Saudi marketplace, and the map carries the other markets beside it'],
+        ],
+        'config/marketing.php' => [
+            'SA' => ['count' => 2, 'category' => self::PLATFORM_DEFAULT, 'owner' => 'A2-13/I1-08 (marketing consent per market); M2-19', 'why' => 'two occurrences: the SA row of the per-market consent-policy map, which reads its own environment variable like the other five, and the home market a configuration naming none falls back to'],
+        ],
+        'config/gcc.php' => [
+            'SA' => ['count' => 3, 'category' => self::PLATFORM_DEFAULT, 'owner' => 'GCC-02/GCC-03 (storefronts); M2-19', 'why' => 'three occurrences: the default of GCC_DEFAULT_COUNTRY, the SA row of the storefront list beside the other five, and the one entry of `grandfathered` -- the market whose behaviour must not change when the switches go on'],
+            'sa' => ['count' => 1, 'category' => self::PLATFORM_DEFAULT, 'owner' => 'GCC-02/GCC-03 (storefronts); M2-19', 'why' => 'the url path of the SA storefront, beside the paths of the other five'],
+            'SAR' => ['count' => 1, 'category' => self::PLATFORM_DEFAULT, 'owner' => 'GCC-05 (storefront currency); M2-19', 'why' => 'the currency of the SA storefront, beside the currencies of the other five'],
+        ],
         'app/Services/Address/AddressCountry.php' => [
             'sa' => ['count' => 1, 'category' => self::SAUDI_ONLY_RULE, 'owner' => 'the address system (docs/address/README.md); M2-19', 'why' => 'one of the spellings by which an address book entry is recognised as Saudi'],
+            'SA' => ['count' => 1, 'category' => self::SAUDI_ONLY_RULE, 'owner' => 'the address system (docs/address/README.md); M2-19', 'why' => 'the code isoCode() answers with once isSaudi() has recognised one of those spellings, before it looks through the five other markets'],
         ],
         'app/Services/Address/AddressImporter.php' => [
             'SA' => ['count' => 2, 'category' => self::SAUDI_ONLY_RULE, 'owner' => 'the address system (docs/address/README.md); M2-19', 'why' => 'the importer finds and creates the Saudi regions it seeds'],
@@ -206,7 +244,7 @@ class SaudiLiteralsAllowListTest extends TestCase
         foreach (self::ALLOWED as $file => $literals) {
             foreach ($literals as $literal => $entry) {
                 $where = $file . ' / ' . $literal;
-                $this->assertContains($entry['category'], self::CATEGORIES, $where . ' has a category that is not one of the five');
+                $this->assertContains($entry['category'], self::CATEGORIES, $where . ' has a category that is not one of the six');
                 $this->assertNotSame('', trim($entry['owner']), $where . ' names no GCC item and no reason why none owns it');
                 $this->assertNotSame('', trim($entry['why']), $where . ' says nothing about what the literal is doing there');
                 $this->assertGreaterThan(0, $entry['count'], $where . ' is listed with no occurrence');
@@ -229,7 +267,15 @@ class SaudiLiteralsAllowListTest extends TestCase
         // not quietly empty itself. A literal that moves to a per-storefront or per-account setting leaves this list by
         // being deleted from ALLOWED, which the staleness test above forces somebody to do deliberately.
         $this->assertNotSame([], $toMove, 'no platform or provider default is listed any more: if that is really so, delete this test with the reason');
-        $this->assertCount(17, $toMove, "the number of Saudi defaults the plan still has to move changed. If a default moved to a setting, delete its entry and lower this number; if one was added, that is a regression:\n - " . implode("\n - ", $toMove));
+
+        // 17 until the GCC branches were integrated, then 30. The thirteen are not new code written here: they arrived with the lanes
+        // that were merged, each a default rather than a hard-wired market, and they are listed one by one in ALLOWED above --
+        // StorefrontContext's UNSCOPED_COUNTRY; StorefrontResolver's BUILT_IN_COUNTRY with its path and currency; the two
+        // TABLE_DEFAULT_COUNTRY column defaults (StaffCountryScope, ProductCodeScope); PlatformMarkets' FALLBACK_DEFAULT_COUNTRY;
+        // MarketingMarket's home market; the Amazon SA marketplace id in ChannelAccountCountry; config/marketing.php's policy row and
+        // home market; and config/gcc.php's default country, SA storefront path and currency. The number rises deliberately and in the
+        // open: this list is the inventory the behaviour tests of M2-19 and M2-09 have to work through, and it is now thirteen longer.
+        $this->assertCount(30, $toMove, "the number of Saudi defaults the plan still has to move changed. If a default moved to a setting, delete its entry and lower this number; if one was added, that is a regression:\n - " . implode("\n - ", $toMove));
     }
 
     public function test_the_scanner_reads_literals_and_not_prose(): void

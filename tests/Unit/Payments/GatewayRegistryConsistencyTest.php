@@ -121,7 +121,7 @@ class GatewayRegistryConsistencyTest extends TestCase
         $this->assertSame(
             self::ROUTE_MAP_KEYS_THE_CURRENCY_MAP_DOES_NOT_PRICE,
             $unpriced,
-            'The route map in ' . PaymentGatewayRegistryReader::LIVE_TRAIT_FILE . ' and the currency map in ' . PaymentGatewayRegistryReader::CURRENCY_MAP_FILE . ' disagree. Add the gateway to both, or, if a pinned exception has been put right, remove it from ROUTE_MAP_KEYS_THE_CURRENCY_MAP_DOES_NOT_PRICE.'
+            'The route map in ' . PaymentGatewayRegistryReader::LIVE_ROUTE_MAP_FILE . ' and the currency map in ' . PaymentGatewayRegistryReader::CURRENCY_MAP_FILE . ' disagree. Add the gateway to both, or, if a pinned exception has been put right, remove it from ROUTE_MAP_KEYS_THE_CURRENCY_MAP_DOES_NOT_PRICE.'
         );
     }
 
@@ -133,7 +133,7 @@ class GatewayRegistryConsistencyTest extends TestCase
         $this->assertSame(
             self::CURRENCY_MAP_KEYS_THE_ROUTE_MAP_DOES_NOT_ROUTE,
             array_values(array_diff(PaymentGatewayRegistryReader::currencyMapKeys(), $routedKeys)),
-            'The currency map in ' . PaymentGatewayRegistryReader::CURRENCY_MAP_FILE . ' prices a gateway the route map in ' . PaymentGatewayRegistryReader::LIVE_TRAIT_FILE . ' cannot send anyone to, so Payment::generate_link returns false for it. Add the gateway to both, or, if a pinned exception has been put right, remove it from CURRENCY_MAP_KEYS_THE_ROUTE_MAP_DOES_NOT_ROUTE.'
+            'The currency map in ' . PaymentGatewayRegistryReader::CURRENCY_MAP_FILE . ' prices a gateway the route map in ' . PaymentGatewayRegistryReader::LIVE_ROUTE_MAP_FILE . ' cannot send anyone to, so Payment::generate_link returns false for it. Add the gateway to both, or, if a pinned exception has been put right, remove it from CURRENCY_MAP_KEYS_THE_ROUTE_MAP_DOES_NOT_ROUTE.'
         );
     }
 
@@ -153,13 +153,32 @@ class GatewayRegistryConsistencyTest extends TestCase
         }
     }
 
-    public function test_the_two_default_gateway_lists_hold_the_same_keys_in_the_same_order(): void
+    public function test_the_default_gateway_list_is_declared_in_one_place(): void
     {
-        $this->assertSame(
-            PaymentGatewayRegistryReader::helpersDefaultGatewayKeys(),
-            PaymentGatewayRegistryReader::globalConstantDefaultGatewayKeys(),
-            'Helpers::getDefaultPaymentGateways() and GlobalConstant::DEFAULT_PAYMENT_GATEWAYS are the same list kept in two files; a gateway added to one and not the other is offered at checkout but hidden in the admin panel, or the reverse.'
+        // Stronger than comparing two copies: while Helpers::getDefaultPaymentGateways() simply returns the
+        // constant, a gateway added to one and not the other -- offered at checkout but hidden in the admin
+        // panel, or the reverse -- cannot happen at all. A second copy is what this refuses.
+        $this->assertFalse(
+            PaymentGatewayRegistryReader::helpersDeclaresItsOwnGatewayList(),
+            'Helpers::getDefaultPaymentGateways() declares a gateway list of its own again. It is read by payment_gateways(), which governs both the web checkout and the `payment_methods` the mobile app reads from /api/v1/config, while GlobalConstant::DEFAULT_PAYMENT_GATEWAYS is read by AppServiceProvider and every admin gateway and currency screen. Return the constant instead.'
         );
+
+        $this->assertSame(
+            PaymentGatewayRegistryReader::globalConstantDefaultGatewayKeys(),
+            PaymentGatewayRegistryReader::helpersDefaultGatewayKeys(),
+            'the one list read both ways'
+        );
+    }
+
+    public function test_the_default_gateway_list_the_reader_returns_is_the_payment_gateways(): void
+    {
+        // The reader parses the file rather than calling the method. When the second copy was removed, the
+        // parse walked past the empty body to the next array literal -- getDefaultSMSGateways() -- so every
+        // test below silently read SMS gateways. This is what catches that happening again.
+        $defaults = PaymentGatewayRegistryReader::helpersDefaultGatewayKeys();
+
+        $this->assertContains('paymob_accept', $defaults, 'the default gateways are the payment gateways');
+        $this->assertSame([], array_intersect(['twilio', 'nexmo', '2factor', 'msg91', 'releans'], $defaults), 'an SMS gateway is not a payment gateway: the reader is reading the wrong array literal');
     }
 
     public function test_every_default_gateway_is_in_the_route_map_and_the_currency_map(): void
@@ -175,7 +194,7 @@ class GatewayRegistryConsistencyTest extends TestCase
     public function test_no_gateway_key_is_declared_twice_in_any_registry(): void
     {
         $registries = [
-            PaymentGatewayRegistryReader::LIVE_TRAIT_FILE => PaymentGatewayRegistryReader::liveRouteMapKeys(),
+            PaymentGatewayRegistryReader::LIVE_ROUTE_MAP_FILE => PaymentGatewayRegistryReader::liveRouteMapKeys(),
             PaymentGatewayRegistryReader::DISCARDED_TRAIT_FILE => PaymentGatewayRegistryReader::discardedTraitRouteMapKeys(),
             PaymentGatewayRegistryReader::CURRENCY_MAP_FILE => PaymentGatewayRegistryReader::currencyMapKeys(),
             PaymentGatewayRegistryReader::HELPERS_FILE => PaymentGatewayRegistryReader::helpersDefaultGatewayKeys(),
@@ -237,7 +256,7 @@ class GatewayRegistryConsistencyTest extends TestCase
         $this->assertSame(
             self::REGISTERED_ENTRY_PATHS_THE_ROUTE_MAP_DOES_NOT_USE,
             array_values(array_diff($entryPaths, array_values(PaymentGatewayRegistryReader::liveRouteMap()))),
-            'A payment page is registered that no gateway key in ' . PaymentGatewayRegistryReader::LIVE_TRAIT_FILE . ' leads to, so nothing can ever send a customer there. Add the gateway to the route map and the other registries, or, if a pinned exception has been put right, remove it from REGISTERED_ENTRY_PATHS_THE_ROUTE_MAP_DOES_NOT_USE.'
+            'A payment page is registered that no gateway key in ' . PaymentGatewayRegistryReader::LIVE_ROUTE_MAP_FILE . ' leads to, so nothing can ever send a customer there. Add the gateway to the route map and the other registries, or, if a pinned exception has been put right, remove it from REGISTERED_ENTRY_PATHS_THE_ROUTE_MAP_DOES_NOT_USE.'
         );
     }
 

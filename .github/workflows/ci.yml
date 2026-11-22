@@ -113,7 +113,9 @@ jobs:
             # Also the platform admin API tests: the SQL they run for orders, products and refund requests has to meet a real engine, MariaDB included.
             paths: tests/Unit/Storefront tests/Feature/Storefront tests/Feature/PlatformAdmin
           - group: Catalog tests
-            paths: tests/Feature/Catalog
+            # tests/Feature/Catalogue is the one-row price write: it belongs on a real engine for the same reason the rest of the
+            # catalogue does, and it ran on SQLite alone until it was named here.
+            paths: tests/Feature/Catalog tests/Feature/Catalogue
           - group: Staff scope tests
             paths: tests/Feature/StaffScope
           - group: Checkout, payment and permission tests
@@ -134,8 +136,9 @@ jobs:
           - group: Wallet tests
             paths: tests/Feature/Wallet
           - group: Marketplace and ledger tests
-            paths: tests/Feature/Marketplace tests/Feature/Storefront
-            paths: tests/Unit/Storefront tests/Feature/Storefront
+            # Both sides of a merge wrote a `paths:` here. YAML keeps the LAST key of a mapping, so the first silently lost and
+            # tests/Feature/Marketplace -- what this group exists for -- stopped running on a real engine from it. One key, the union.
+            paths: tests/Feature/Marketplace tests/Unit/Storefront tests/Feature/Storefront
           - group: Wallet tests
             # The per-market wallet and loyalty accounts, on a real engine because that is the only place their content means anything:
             # the unique key on (customer, market), the row lock a credit is taken under, the ascii_bin market, DECIMAL(40,20) balances and
@@ -434,8 +437,9 @@ jobs:
       - name: Environment
         run: cp .env.example .env
       - name: Tests with the database connection in strict mode
-        run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Feature/StrictModeTest.php tests/Feature/SalesChannels tests/Feature/OperationalCosts tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Wallet tests/Feature/Loyalty tests/Feature/Api tests/Feature/Auth tests/Feature/Blog tests/Feature/Cart tests/Feature/Checkout tests/Feature/Coupon tests/Feature/Inventory tests/Feature/Marketplace tests/Feature/Payment tests/Feature/Payments tests/Feature/Permissions tests/Feature/Pos tests/Feature/Referral tests/Feature/Refund tests/Feature/Web tests/Unit/Architecture tests/Unit/Customer tests/Unit/Http tests/Unit/Marketplace tests/Unit/PlatformAdmin tests/Unit/Security tests/Unit/Utils tests/Unit/Wallet --display-skipped
-        # tests/Feature/Wallet is LAST: it starts from an empty database, so anything after it would find its own tables gone.
-        run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Feature/StrictModeTest.php tests/Feature/SalesChannels tests/Feature/OperationalCosts tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Wallet --display-skipped
-        run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Feature/StrictModeTest.php tests/Feature/SalesChannels tests/Feature/OperationalCosts tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Marketing --display-skipped
-        run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Feature/StrictModeTest.php tests/Feature/SalesChannels tests/Feature/OperationalCosts tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Customer --display-skipped
+        # FOUR merges each wrote their own `run:` here. YAML keeps the LAST key of a mapping, so this gate silently ran only
+        # StrictModeTest, SalesChannels, OperationalCosts, Unit/Fulfillment, Fulfillment and Customer -- Wallet, Loyalty, Marketing,
+        # Marketplace, Payments, Pos, Refund, Web and fourteen more were being skipped in strict mode altogether. One key, the union
+        # of all four, with tests/Feature/Wallet LAST because it starts from an empty database and anything after it would find its
+        # own tables gone.
+        run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Feature/StrictModeTest.php tests/Feature/SalesChannels tests/Feature/OperationalCosts tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Customer tests/Feature/Marketing tests/Feature/Loyalty tests/Feature/Api tests/Feature/Auth tests/Feature/Blog tests/Feature/Cart tests/Feature/Checkout tests/Feature/Coupon tests/Feature/Inventory tests/Feature/Marketplace tests/Feature/Payment tests/Feature/Payments tests/Feature/Permissions tests/Feature/Pos tests/Feature/Referral tests/Feature/Refund tests/Feature/Web tests/Unit/Architecture tests/Unit/Customer tests/Unit/Http tests/Unit/Marketplace tests/Unit/PlatformAdmin tests/Unit/Security tests/Unit/Utils tests/Unit/Wallet tests/Feature/Catalog tests/Feature/Catalogue tests/Feature/Wallet --display-skipped

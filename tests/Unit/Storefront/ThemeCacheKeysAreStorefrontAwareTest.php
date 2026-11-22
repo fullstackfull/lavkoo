@@ -31,9 +31,12 @@ class ThemeCacheKeysAreStorefrontAwareTest extends TestCase
      * @var array<string, string>
      */
     private const GLOBAL_THEME_CACHE_KEYS = [
+        // commerce_campaign_overrides_* was declared here while a campaign named no storefront. A campaign may now be limited to
+        // storefronts, so CampaignResolver writes the key through StorefrontCatalog::cacheKey() and forget() clears every storefront's
+        // copy -- it is the storefront's own key, not a global one, and the two tests below are what said so.
+
         'theme_publish_check_*' => 'The findings against one theme version, under the id of that version, which belongs to one theme and so to one storefront. They are asked in the admin panel and by theme:publish-due, which are bound to no storefront.',
         'theme_section_reach' => 'The visitors of each section over thirty days, from the analytics rollup, which has no storefront dimension (AnalyticsReporting::DIMENSIONS). Only the admin builder and the campaign screen read it, and the admin panel is bound to no storefront.',
-        'commerce_campaign_overrides_*' => 'The winning overrides of one page, read from campaigns that name no storefront (ExperienceCampaign has no storefront column): the same rows for every storefront. What depends on the storefront is resolved after the cache, when the override is presented.',
         'commerce_experiments_*' => 'The running experiments of one page, read from experiments that name no storefront (ExperienceExperiment has no storefront column). An experiment names a section by its uuid, so only a theme that holds that section is changed by it.',
         'commerce_experiment_reach' => 'The visitors of each variant over thirty days, counted over analytics events that carry no storefront. Only the admin experiments screen reads it.',
         'commerce_segment_keys' => 'The keys of the live customer segments, read from segments that name no storefront (CustomerSegment has no storefront column).',

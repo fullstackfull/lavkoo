@@ -73,8 +73,11 @@ class LedgerRowsAreAppendOnlyTest extends TestCase
     private const EDITS_A_TABLE_NAMED_AT_RUN_TIME = [
         'app/Console/Commands/AnalyticsRollup.php' => 'prunes rows past their retention from the four analytics_* tables its own callers name as literals',
         'app/Http/Controllers/Admin/Settings/DatabaseSettingController.php' => 'empties the tables an admin ticks, and both ledgers are in TABLES_NEVER_EMPTIED, which LedgerTablesAreNeverEmptiedTest proves it honours',
+        'app/Services/Catalog/ProductCodeIndex.php' => 'writes the unique code and barcode indexes of one table, named as self::TABLE -- a constant of this same class whose value is the literal \'products\', which this one-file reader does not resolve. Checked: the file names no other table and neither ledger appears in it anywhere',
         'app/Services/SalesChannels/Dispatch/BuyerEchoScrubber.php' => 'scrubs the buyer\'s words out of the three provider_* tables its own callers name as literals',
         'app/Services/Staff/StaffCountryAssignments.php' => 'inserts into and deletes from admin_country_scopes alone, named as StaffCountryScope::TABLE -- a constant of another class, which this one-file reader cannot resolve, so the name reads as one given at run time. Checked: the file names exactly two tables, the literal admins and that constant, and neither ledger appears in it anywhere',
+        'app/Services/Storefront/OrderStorefrontSnapshot.php' => 'stamps the order\'s own currency on the four money-row tables of one order, and writes no other table: the name comes from self::MONEY_ROW_TABLES (order_details, order_transactions, refund_requests, refund_transactions) and the writer refuses a name that is not in that list. Checked: neither ledger is in the list or anywhere in the file',
+        'database/migrations/2026_11_27_100000_add_order_currency_to_order_money_rows.php' => 'adds and backfills currency_code and currency_rate on the same four money-row tables, from its own private const TABLES. Checked: neither ledger is in that list or anywhere in the file, and it drops nothing of either',
     ];
 
     /**
