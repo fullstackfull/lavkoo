@@ -3984,6 +3984,81 @@ def load_all():
     return data
 
 
+# ============================================================================
+# D1-12 criterion 4, the commission snapshot and the vendor ledger per line.
+# 2026-11-22. PR 165, head 60a4c14c, branch gcc/p1-commission-and-ledger-per-line.
+# ============================================================================
+
+_D112C4 = (
+    " **2026-11-22: RAISED CODED -> MET. The evidence this criterion was missing is now written, and it covers a money path that "
+    "had NO test at all.** tests/Feature/Marketplace/CommissionAndLedgerPerSubOrderLineTest.php on PR 165 (draft, "
+    "gcc/p1-commission-and-ledger-per-line, head 60a4c14c, base main c5c04b7b): **7 tests / 106 assertions**, green on SQLite and on "
+    "MariaDB 10.11.14 (41 tables in information_schema, so a real server answered; database dropped afterwards). The diff touches "
+    "**no production code at all** -- `git diff --stat c5c04b7b..60a4c14c -- app/` is empty, which I checked myself, and "
+    "app/Utils/OrderManager.php is byte-identical to base. "
+    "WHY IT MATTERS BEYOND THE TRACKER: OrderManager::recordOrderItemCommission runs on the checkout path of EVERY order and "
+    "freezes the figure every settlement and every seller statement later reads back, and nothing had ever exercised it. "
+    "WHAT IT DRIVES: OrderManager::generateOrder with cash on delivery, which splits the cart per vendor and calls the real "
+    "addOrderDetailsData per sub-order -- the writer is never called directly. A basket of 5 lines over 3 sub-orders (two vendors "
+    "and the in-house shop), **every line a different net amount and a different commission**, with a global rule at 10% and a "
+    "vendor rule at 15% so the vendor rule wins by the engine's own priority constants rather than by insertion order. No expected "
+    "figure is typed in: the rules go in through the platform's own writer's Eloquent call "
+    "(Admin\\Marketplace\\CommissionRuleController::store) and the expectation reads the rate back off the rule row. "
+    "sellers.sales_commission_percentage is deliberately set to a THIRD, unlike rate, so a snapshot that had copied the legacy "
+    "orders.admin_commission aggregate instead of asking the engine fails every amount assertion. "
+    "THE CLAUSE THE CRITERION TURNS ON, and I read this assertion myself at that commit: the snapshot count is asserted equal to the "
+    "LINE count with the reason stated in the message -- 'a writer keyed by order would have written three' -- and then, per line, the "
+    "row found by THAT line's order_details_id is asserted to carry that line's own order, product, seller, seller_is, commissionable "
+    "amount, commission amount and seller net. The ledger half: per seller line exactly two entries referencing order_details with "
+    "THAT line's id, the earning a credit of that line's commissionable and the charge a debit of that line's commission, both "
+    "pending, both carrying the SAME available_at, equal to now plus THAT LINE's own category return window, with at least two "
+    "distinct windows across the seller lines so the window is resolved per line and not per order. **The in-house line is the "
+    "control:** snapshotted, commission 0, and zero ledger entries -- without it the test could not tell 'per seller line' from "
+    "'per line'. "
+    "MUTATIONS: **eight, applied one at a time on single-occurrence anchors and restored from a copy taken before the edit, ALL EIGHT "
+    "RED, no survivors.** Keying the snapshot by order_id instead of order_details_id (2 errors, 4 failures); the commission charge "
+    "never written; the charge's available_at moved one day off the earning's; dropping the seller_is check so in-house lines reach "
+    "the ledger; passing the running order total as the line net; resolving the return window per order instead of per line; removing "
+    "the ledger block; and booking the earning as a debit. The file was restored byte-identical and green afterwards. "
+    "CI AND PATHS, CHECKED BY ME AND NOT TAKEN FROM THE LANE: run 45044469325 on head 60a4c14c. **Both real-engine jobs that run "
+    "this test are success** -- 'Sales-channel and cost tests, MariaDB 11.4.2 (costs)' (137275924277) and 'MySQL 8.0 (costs)' "
+    "(137275924437). I read ci.yml AT THAT COMMIT: tests/Feature/Marketplace is in that group's paths, put there BY THIS COMMIT, "
+    "because the directory was in no real-engine group before and the whole suite on SQLite was the only place it ran; the workflow "
+    "comment gives the reason (a unique index on order_details_id, decimal(16,4) money, and two timestamps compared for equality are "
+    "engine properties). The run has 6 reds and I checked that none can be this test: both whole-suite SQLite jobs, strict-mode "
+    "MariaDB, the by-design deployment overlay, and both 'sales channels N-Z' shards. **I read the strict-mode job's command line at "
+    "that commit and it does NOT run tests/Feature/Marketplace**, and the N-Z shard runs only tests/Feature/SalesChannels, which is "
+    "where the known calendar-dependent TorodShipmentDiscoveryTest lives (T falls in N-Z). The lane reports those reds as identical "
+    "to the same jobs on the base commit, strict-mode byte for byte. **AND THE POSITIVE EVIDENCE OF EXECUTION, which is better than a "
+    "green alone:** each of the four jobs that run the path is exactly +7 tests and +106 assertions against the same job on the base "
+    "commit -- this test's own figures -- so it ran, rather than merely being handed to phpunit. "
+    "**WHAT IS NOT CLAIMED, stated by the lane itself and kept here rather than dropped:** (1) ONE CALLER is exercised, generateOrder "
+    "with cash on delivery. The tills, the v2 and v3 API and the post-payment path all funnel through the same generateOrder -> "
+    "addOrderDetailsData -> recordOrderItemCommission, so it is the same writer, but one of its callers is driven. (2) Every line is "
+    "a physical product with no product discount and no variant, so the line net is price times quantity; the discounted, variant and "
+    "digital shapes are not exercised. That is arithmetic UPSTREAM of this criterion's clauses rather than one of them, and it is "
+    "still a real narrowness. (3) The test proves the WRITER is correct where the tables exist; it cannot speak to an installation "
+    "whose SQL dump lacks them, where the hasTable() guard makes the writer a no-op. That is a schema question, not a code question, "
+    "and it is not knowable from this checkout -- see the handoff of 2026-11-22 15:30 and the one command that settles it."
+)
+
+_load_all_before_d112 = load_all
+
+
+def load_all():
+    data = _load_all_before_d112()
+    hit = False
+    for unit in data:
+        for requirement in data[unit]['reqs']:
+            if requirement['id'] == 'D1-12' and len(requirement['ac']) > 3:
+                requirement['ac'][3]['s'] = 'MET'
+                requirement['ac'][3]['e'] = requirement['ac'][3]['e'] + _D112C4
+                hit = True
+    if not hit:
+        raise SystemExit('D1-12 criterion 4 matched nothing, so nothing was written')
+    return data
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]

@@ -44,6 +44,20 @@ products, orders, order_details, seller_insights, vendor_ledger_entries, busines
 
 (`migrations` is the 81st and needs no checking.)
 
+## Addendum, same day: the overlay reading now has mechanical proof, not just the CLAUDE.md sentence
+
+A lane working on D1-12 measured two things that sharpen this, and both corrected an account of mine. I re-measured both myself before writing them here.
+
+**`seller_wallets` is the proof.** Seven migrations in this repository run `Schema::table('seller_wallets', ...)` — unguarded, and some of them `->change()` a column — while **no** migration creates it, and `app/` and `Modules/` hold **zero** `hasTable()` guards for it, so the code reads and writes it unconditionally. A migration that alters a table nothing creates cannot run on an empty database. That is the `CLAUDE.md` instruction demonstrated instead of quoted, and the oldest of those seven is from 2021, so it long predates any GCC work. Counted here: 7 `Schema::table`, 0 `Schema::create`, 0 guards.
+
+**`sales_commission` is not a table at all**, and I had been treating it as one. There is no `DB::table`, no `hasTable` and no `from` for it anywhere. It is a `business_settings.type` key read through `getWebConfig(name: 'sales_commission')` — `app/Utils/Helpers.php:647` and `app/Services/Marketplace/CommissionEngine.php:168` — together with the `sellers.sales_commission_percentage` column. My "six tables" came from a constant in `tests/Unit/OperationalCosts/PlatformTablesStayThePlatformsTest`, which mixes table names with class names for a source scan and was never a schema inventory. Neither name appears in the list of eighty above, because that list was built from the `hasTable()` guards and both have none — so nothing above needs correcting, only the way I had been describing it.
+
+**And one table on the commission writer's own path that neither of us had listed: `category_governance`.** No migration creates it; `CategoryGovernanceService::returnWindowDays` is `hasTable()`-guarded and is what supplies the `available_at` those ledger entries mature on. It is in the eighty above, and it belongs with the D1-12 group named earlier.
+
+**`commission_rules` does have a production writer**, which is worth knowing before anyone concludes the rules table is unreachable: `app/Http/Controllers/Admin/Marketplace/CommissionRuleController::store()`, routed under the admin `module:marketplace` group. Its own docblock records why it exists — "nothing wrote the `commission_rules` table, so only the legacy flat-percentage fallback ever fired. This is the missing writer."
+
+None of this changes the one command above, or what is waiting on it.
+
 ---
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
