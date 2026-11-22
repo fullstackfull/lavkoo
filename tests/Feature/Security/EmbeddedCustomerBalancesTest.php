@@ -3,6 +3,8 @@
 namespace Tests\Feature\Security;
 
 use App\Models\Chatting;
+use App\Models\CustomerMarketLoyaltyAccount;
+use App\Models\CustomerMarketWalletAccount;
 use App\Models\Order;
 use App\Models\OrderDetail;
 use App\Models\OrderTransaction;
@@ -63,6 +65,8 @@ class EmbeddedCustomerBalancesTest extends TestCase
             'an order transaction' => [OrderTransaction::class],
             'a restock request' => [RestockProductCustomer::class],
             'a support ticket' => [SupportTicket::class],
+            'a market wallet account' => [CustomerMarketWalletAccount::class],
+            'a market loyalty account' => [CustomerMarketLoyaltyAccount::class],
         ];
     }
 

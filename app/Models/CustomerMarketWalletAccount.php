@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\HidesCustomerBalances;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -24,6 +25,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class CustomerMarketWalletAccount extends Model
 {
+    /** This model embeds a customer, so it is serialized without that customer's wallet balance, loyalty points and referral code. */
+    use HidesCustomerBalances;
+
     protected $fillable = [
         'customer_id',
         'market',
