@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Services\Storefront\StorefrontCatalog;
 use App\Services\Storefront\StorefrontCurrency;
 use App\Services\Storefront\StorefrontLegalPages;
+use App\Services\Storefront\StorefrontPaymentMethods;
 use App\Utils\Helpers;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Storage;
@@ -40,7 +41,10 @@ if (!function_exists('getWebConfig')) {
             $data = $settings?->firstWhere('type', $name);
             $config = isset($data) ? setWebConfigCache($name, $data) : $config;
         }
-        return $config;
+
+        return in_array($name, StorefrontPaymentMethods::METHODS, true)
+            ? app(StorefrontPaymentMethods::class)->settingInStorefront(method: $name, platformSetting: $config)
+            : $config;
     }
 }
 

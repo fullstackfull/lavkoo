@@ -323,9 +323,9 @@ Route::get('/cash', function () {
 
             Route::group(['prefix' => 'order'], function () {
                 Route::controller(OrderController::class)->group(function () {
-                    Route::get('place', 'place_order')->middleware(['storefront', 'storefront.sellable']);
+                    Route::get('place', 'place_order')->middleware(['storefront', 'storefront.sellable', 'storefront.method:cash_on_delivery']);
                     Route::get('offline-payment-method-list', 'offline_payment_method_list');
-                    Route::post('place-by-offline-payment', 'placeOrderByOfflinePayment')->middleware(['storefront', 'storefront.sellable']);
+                    Route::post('place-by-offline-payment', 'placeOrderByOfflinePayment')->middleware(['storefront', 'storefront.sellable', 'storefront.method:offline_payment']);
                 });
                 Route::controller(CustomerController::class)->group(function () {
                     Route::get('details', 'get_order_details');
@@ -443,11 +443,11 @@ Route::get('/cash', function () {
         });
     });
 
-    Route::group(['prefix' => 'digital-payment', 'middleware' => ['apiGuestCheck', 'storefront', 'storefront.sellable']], function () {
+    Route::group(['prefix' => 'digital-payment', 'middleware' => ['apiGuestCheck', 'storefront', 'storefront.sellable', 'storefront.method:digital_payment']], function () {
         Route::post('/', [PaymentController::class, 'payment']);
     });
 
-    Route::group(['prefix' => 'add-to-fund', 'middleware' => ['auth:api', 'storefront', 'storefront.sellable']], function () {
+    Route::group(['prefix' => 'add-to-fund', 'middleware' => ['auth:api', 'storefront', 'storefront.sellable', 'storefront.method:digital_payment']], function () {
         Route::post('/', [PaymentController::class, 'customer_add_to_fund_request']);
     });
 
@@ -462,10 +462,10 @@ Route::get('/cash', function () {
 
     Route::group(['prefix' => 'edit-order', 'middleware' => 'apiGuestCheck'], function () {
         Route::controller(OrderEditController::class)->group(function () {
-            Route::post('due-payment-by-offline-payment', 'duePaymentByOfflinePayment');
+            Route::post('due-payment-by-offline-payment', 'duePaymentByOfflinePayment')->middleware('storefront.method:offline_payment');
             Route::post('due-payment-by-wallet', 'duePaymentByWallet');
-            Route::post('due-payment-by-cod', 'duePaymentByCod');
-            Route::post('due-payment-by-digital-payment', 'duePaymentByDigitalPayment');
+            Route::post('due-payment-by-cod', 'duePaymentByCod')->middleware('storefront.method:cash_on_delivery');
+            Route::post('due-payment-by-digital-payment', 'duePaymentByDigitalPayment')->middleware('storefront.method:digital_payment');
         });
     });
 

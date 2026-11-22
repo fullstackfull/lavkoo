@@ -4896,4 +4896,5 @@ ____________________________________________________on_search_engines_and_see_th
 	'the_amounts_of_a_coupon_are_in_the_currency_of_its_storefront_it_cannot_be_changed_after_the_coupon_is_added' => 'مبالغ الكوبون بعملة متجره، ولا يمكن تغييره بعد إضافة الكوبون.',
 	'tax_registration_number' => 'رقم التسجيل الضريبي',
 	'the_wallet_is_not_available_in_the_currency_of_this_storefront' => 'المحفظة غير متاحة بعملة هذا المتجر.',
+	'this_payment_method_is_not_available_in_this_storefront' => 'طريقة الدفع هذه غير متاحة في هذا المتجر.',
 ];

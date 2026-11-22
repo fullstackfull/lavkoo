@@ -17859,4 +17859,5 @@ return [
 	"the_independent_review_of_its_legal_texts_is_on_record" => "المراجعة المستقلة لنصوصه القانونية مسجّلة",
 	"the_currency_it_trades_in_is_ready" => "العملة التي يتعامل بها جاهزة",
 	"its_tax_is_approved_or_recorded_as_none" => "ضريبته معتمدة أو مسجّل أنه لا ضريبة عليه",
+	'this_payment_method_is_not_available_in_this_storefront' => 'طريقة الدفع هذه غير متاحة في هذا المتجر.',
 ];

@@ -11284,4 +11284,5 @@ return [
 	'some_of_the_lines_units_were_already_back_so_only_the_rest_were_restocked' => 'Some of this line\'s units were already back on the shelf, so only the rest were put back',
 	'return_received_and_restocked' => 'Return received and restocked',
 	'return_authorized' => 'Return authorized',
+	'this_payment_method_is_not_available_in_this_storefront' => 'This payment method is not available in this storefront.',
 ];

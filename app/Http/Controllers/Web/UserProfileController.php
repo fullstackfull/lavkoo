@@ -19,6 +19,7 @@ use App\Services\Address\AddressSchema;
 use App\Services\Address\StorefrontAddressService;
 use App\Services\Fulfillment\Support\SaudiPhone;
 use App\Services\OrderStatusHistoryService;
+use App\Services\Storefront\StorefrontPaymentMethods;
 use App\Traits\PdfGenerator;
 use App\Http\Controllers\Controller;
 use App\Models\Coupon;
@@ -72,6 +73,7 @@ class UserProfileController extends Controller
         private readonly OrderStatusHistoryRepositoryInterface     $orderStatusHistoryRepo,
         private readonly OrderStatusHistoryService                 $orderStatusHistoryService,
         private readonly StorefrontAddressService                  $storefrontAddresses,
+        private readonly StorefrontPaymentMethods                  $storefrontPaymentMethods,
     )
     {
         // The address book is the signed-in customer's: nobody else can add, open, change or remove an address.
@@ -355,7 +357,7 @@ class UserProfileController extends Controller
             if ($cashOnDeliveryStatus && $cashOnDeliveryStatus['status'] && $isPhysicalProduct) {
                 $availablePaymentMethod = ['cash_on_delivery'];
             }
-            if (getWebConfig(name: 'digital_payment') && count(payment_gateways()) > 0) {
+            if (getWebConfig(name: 'digital_payment') && !$this->storefrontPaymentMethods->isSwitchedOff(method: StorefrontPaymentMethods::DIGITAL_PAYMENT) && count(payment_gateways()) > 0) {
                 $availablePaymentMethod = ['payment_gateways'];
             }
             if ($offlinePaymentStatus && $offlinePaymentStatus['status'] == 1 && count($offlinePaymentMethods) > 0) {
