@@ -566,9 +566,12 @@ class CustomerController extends Controller
             $footerHtml = $this->footerHtml(requestFrom: 'web');
             $mpdf->SetHTMLFooter($footerHtml);
         }
+        // The variables are named, not compact()ed: an arrow function captures only what its body
+        // mentions by name, and compact() names them in strings, so the template was handed nothing
+        // and this route answered with "compact(): Undefined variable $order" instead of an invoice.
         $mpdf_view = app(StorefrontCurrency::class)->withinOrderCurrency(
             order: $order,
-            callback: fn (): string => \View::make(VIEW_FILE_NAMES['order_invoice'], compact('order', 'invoiceSettings'))->render(),
+            callback: fn (): string => \View::make(VIEW_FILE_NAMES['order_invoice'], ['order' => $order, 'invoiceSettings' => $invoiceSettings])->render(),
         );
         $mpdf->WriteHTML($mpdf_view);
         $pdfContentStr = $mpdf->Output('', 'S');

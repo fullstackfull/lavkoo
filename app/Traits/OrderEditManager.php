@@ -23,6 +23,7 @@ use App\Models\ShippingMethod;
 use App\Models\ShippingType;
 use App\Models\User;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
+use App\Services\Storefront\OrderStorefrontSnapshot;
 use App\Services\Storefront\StorefrontCurrency;
 use App\Utils\CartManager;
 use App\Utils\CustomerManager;
@@ -255,6 +256,12 @@ trait OrderEditManager
             OrderDetailsRewards::where('order_id', $order->id)->whereNotIn('order_details_id', $keepIds)->delete();
             OrderDetail::where('order_id', $order->id)->whereNotIn('id', $keepIds)->delete();
         }
+
+        // An edit adds lines to an order that is already stamped, and updateOrCreate writes no currency on a
+        // line it creates: an edited order ended with some lines naming the currency the order was sold in and
+        // some naming nothing. The order's own record is the source here as everywhere else, and only a line
+        // that carries no currency yet is written, so the lines the edit kept are left exactly as they are.
+        app(OrderStorefrontSnapshot::class)->stampMoneyRows(table: 'order_details', orderId: $order->id);
 
         foreach (OrderDetail::where('order_id', $order->id)->get() as $detail) {
             $this->adjustProductStock($detail['product_id'] ?? null, $detail['variant'] ?? null, (int)($detail['qty'] ?? 0), 'decrement');
