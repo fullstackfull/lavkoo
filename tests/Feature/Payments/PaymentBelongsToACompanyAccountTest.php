@@ -169,6 +169,9 @@ class PaymentBelongsToACompanyAccountTest extends TestCase
      * The only difference the comparison permits is the stamp itself, which is the record the feature adds to a NEW payment and which
      * CompanyAccountsAreDormantTest pins as absent in every dormant state. Nothing installed changes: not the platform settings row, not the amount,
      * not the settlement, not the wallet credit.
+     *
+     * The credential evidence is the EXACT Authorization header of the ONE call each phase made to the gateway, asserted with assertSame and not as a
+     * substring of a concatenation of every header of the phase: the helper asserts there was exactly one such call, so each pole names one request.
      */
     public function test_a_saudi_payment_goes_through_the_registered_sa_account_and_is_otherwise_the_dormant_payment(): void
     {
@@ -192,9 +195,8 @@ class PaymentBelongsToACompanyAccountTest extends TestCase
         // It is taken through THAT account: the stamp names it, and the credentials the gateway was called with are its own.
         $this->assertSame((int) $account->id, $this->theRecordOf($throughTheAccount['payment'])?->accountId, 'the Saudi payment names the SA account');
         $this->assertSame((int) $company->id, $this->theRecordOf($throughTheAccount['payment'])?->companyId, 'and the Saudi company that holds it');
-        $this->assertStringContainsString(self::SAUDI_SECRET_KEY, $throughTheAccount['authorization'], 'the SA account own key went to the gateway');
-        $this->assertStringNotContainsString('platform-secret-key', $throughTheAccount['authorization'], 'and the platform row key did not');
-        $this->assertStringContainsString('platform-secret-key', $dormant['authorization'], 'the dormant payment is the platform row, or there is nothing to compare against');
+        $this->assertSame('Token ' . self::SAUDI_SECRET_KEY, $throughTheAccount['authorization'], 'the one call the gateway got carried the SA account own key');
+        $this->assertSame('Token platform-secret-key', $dormant['authorization'], 'and the dormant payment the platform row key, or there is nothing to compare against');
 
         // And nothing else about it is different from the dormant payment measured a moment ago.
         $this->assertNull($this->theRecordOf($dormant['payment']), 'the dormant payment carries no stamp, which is the state being compared with');
@@ -236,10 +238,13 @@ class PaymentBelongsToACompanyAccountTest extends TestCase
             ->assertRedirectContains('payment-success');
 
         $row = DB::table('payment_requests')->where('id', $payment->id)->first();
+        $calls = Http::recorded()->skip($sentBefore)->values();
+
+        $this->assertCount(1, $calls, 'one call to the gateway in this phase, so the header below is that one call own and not a concatenation');
 
         return [
             'payment' => $payment,
-            'authorization' => implode(' ', Http::recorded()->skip($sentBefore)->map(static fn (array $pair): string => implode(' ', $pair[0]->header('Authorization')))->all()),
+            'authorization' => (string) ($calls->first()[0]->header('Authorization')[0] ?? ''),
             'amount' => (float) $row->payment_amount,
             'paid' => (int) $row->is_paid,
             'credited' => $this->walletBalanceOf($customer) - $balanceBefore,
