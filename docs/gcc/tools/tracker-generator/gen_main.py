@@ -4226,6 +4226,85 @@ def load_all():
     return data
 
 
+# ---------------------------------------------------------------------------
+# D1-02 criterion 4: a correction to MY OWN recorded reason, not a change of state.
+#
+# The published evidence says "legal_entity_id appears in ZERO files under
+# database/migrations/ and in exactly ONE non-test file in the whole tree, so
+# every test of that half creates the column with Schema::table() inside the
+# test", and it draws from that the conclusion that MET would take "a
+# legal_entity_id migration existing and having run".
+#
+# That measurement was taken on PR 144's head and is true THERE. It is NOT true
+# of the repository. Measured by me on 2026-11-22:
+#
+#   gcc/core-payment-accounts @ 457b14b78500003b04b9ff40cbf188e0417ec9c8 carries
+#   FOUR migrations for this, which I read in full:
+#     database/migrations/2026_11_27_100000_create_legal_entities_table.php
+#       -- creates the table, hasTable-guarded, char(2) country unique and
+#          ascii_bin on MySQL/MariaDB, and a down() that refuses while the table
+#          holds a company.
+#     database/migrations/2026_11_27_100100_add_legal_entity_to_orders_table.php
+#       -- adds legal_entity_id and entity_snapshot to orders, both nullable,
+#          both hasColumn-guarded, appended with no position so MySQL 8 and
+#          MariaDB 11.4 add them without rebuilding the table, and a down() that
+#          THROWS while any order carries a company.
+#     ..._100200_add_legal_entity_to_products_table.php
+#     ..._100300_add_legal_entity_to_vendor_ledger_entries_table.php
+#   and NINE service files that read the column, including
+#   app/Services/Storefront/StorefrontSellingGate.php.
+#
+# While PR 144's own line has the refusal and no migration at all:
+#   gcc/p1-pos-one-selling-company   @ 9cb0fd84 -- 0 migrations, 1 app file, 1 test
+#   gcc/p1-order-one-selling-company @ a7f58989 -- 0 migrations, 1 app file, 1 test
+#
+# So the two halves exist, on two disjoint branch lines, and what MET takes is
+# not a migration that someone still has to write -- it is ONE BRANCH THAT
+# CARRIES BOTH, with the refusal observed against the real migration object
+# rather than against a column a test created with Schema::table().
+#
+# The state does not move: nothing new is proved by my finding this out. What
+# moves is the reason, and the size of the remaining work.
+# ---------------------------------------------------------------------------
+
+_D102C4_CORRECTION = (
+    ' // CORRECTION OF MY OWN REASON, 2026-11-22, measured not inferred. The sentence above that '
+    '"legal_entity_id appears in ZERO files under database/migrations/" was measured on PR 144\'s head and is '
+    'true THERE; it is NOT true of the repository, and the conclusion I drew from it -- that MET waits on a '
+    'migration someone still has to write -- was wrong. gcc/core-payment-accounts @ '
+    '457b14b78500003b04b9ff40cbf188e0417ec9c8 carries FOUR migrations for this half, which I read in full: '
+    '2026_11_27_100000_create_legal_entities_table.php (creates the table, hasTable-guarded, char(2) country '
+    'unique and ascii_bin on MySQL/MariaDB, and a down() that refuses while the table holds a company); '
+    '2026_11_27_100100_add_legal_entity_to_orders_table.php (adds legal_entity_id and entity_snapshot to '
+    'orders, both nullable, both hasColumn-guarded, appended with no position so MySQL 8 and MariaDB 11.4 add '
+    'them without rebuilding the table, and a down() that THROWS while any order carries a company); and the '
+    'same for products and vendor_ledger_entries. Nine service files on that branch read the column, '
+    'StorefrontSellingGate among them. Meanwhile PR 144\'s own line has the refusal and no migration: '
+    'gcc/p1-pos-one-selling-company @ 9cb0fd84 and gcc/p1-order-one-selling-company @ a7f58989 each hold 0 '
+    'migrations naming legal_entity, 1 app file and 1 test. THE TWO HALVES ARE ON TWO DISJOINT BRANCH LINES. '
+    'So WHAT MET NOW TAKES is not a migration to write but ONE BRANCH CARRYING BOTH, with the refusal observed '
+    'against the real migration object rather than against a column a test created with Schema::table(), plus '
+    'the storefront_country half, which still has no writer in app/ or Modules/ and therefore still cannot be '
+    'observed on a running platform. THE STATE DOES NOT MOVE: finding this out proves no behaviour. What moves '
+    'is the reason and the size of the work left.'
+)
+
+_load_all_before_d102 = load_all
+
+
+def load_all():
+    data = _load_all_before_d102()
+    applied = False
+    for unit in data:
+        for requirement in data[unit]['reqs']:
+            if requirement['id'] == 'D1-02' and len(requirement['ac']) > 4:
+                requirement['ac'][4]['e'] = requirement['ac'][4]['e'] + _D102C4_CORRECTION
+                applied = True
+    if not applied:
+        raise SystemExit('D1-02 correction matched no criterion, so nothing was written')
+    return data
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
