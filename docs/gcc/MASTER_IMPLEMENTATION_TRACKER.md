@@ -18,7 +18,7 @@ As of 2026-11-22. Generated from the independent assessment of every requirement
 | [B. Catalogue and products](tracker/axis-b-catalogue-and-products.md) | 18 | 91 | 44 | 32 | 15 | 84% | 48% | 0% | all |
 | [C. Inventory and fulfillment](tracker/axis-c-inventory-and-fulfillment.md) | 18 | 94 | 65 | 9 | 20 | 79% | 69% | 30% | all |
 | [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 179 | 87 | 47 | 45 | 75% | 49% | 8% | all |
-| [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 88 | 37 | 11 | 40 | 55% | 42% | 7% | all |
+| [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 88 | 39 | 9 | 40 | 55% | 44% | 7% | all |
 | [F. Themes and brand](tracker/axis-f-themes-and-brand.md) | 16 | 77 | 42 | 13 | 22 | 71% | 55% | 4% | all |
 | [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 102 | 59 | 13 | 30 | 71% | 58% | 15% | all |
 | [H. Shipping and integrations](tracker/axis-h-shipping-and-integrations.md) | 34 | 157 | 79 | 13 | 65 | 59% | 50% | 16% | all |
@@ -27,7 +27,7 @@ As of 2026-11-22. Generated from the independent assessment of every requirement
 | [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 104 | 40 | 30 | 34 | 67% | 38% | 3% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 45 | 18 | 31 | 67% | 48% | 7% | all |
 | [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 311 | 105 | 119 | 87 | 72% | 34% | 3% | all |
-| **All axes (pooled)** | **359** | **1753** | **822** | **399** | **532** | **70%** | **47%** | **8%** | |
+| **All axes (pooled)** | **359** | **1753** | **824** | **397** | **532** | **70%** | **47%** | **8%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -275,7 +275,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [E-15](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 2/0/4 | Referral rewards: once, to the referrer, one amount |
 | [E-16](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/0/3 | One currency unit and rounding for wallet debits and credits |
 | [E-17](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/2/2 | Financial records by legal entity and currency (ledgers, settlements, summaries) |
-| [E-V1](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/2/2 | Wallet top-up (add fund) by gateway and by admin, the 'add' sites of the plan line 368 review: one c... |
+| [E-V1](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 3/0/2 | Wallet top-up (add fund) by gateway and by admin, the 'add' sites of the plan line 368 review: one c... |
 
 ### F. Themes and brand
 

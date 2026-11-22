@@ -3480,6 +3480,76 @@ for _i, _extra in _D209_RULINGS.items():
     _state, _ev = CRITERIA['D2-09'][_i]
     CRITERIA['D2-09'][_i] = (_state, _ev + _D209_VERIFY + _D209_DEFECT + _D209_GAPS + _D209_OTHER + _D209_NOLIVE + _extra)
 
+# ============================================================================
+# E-V1.0 and E-V1.2 (the index-0 and index-2 criteria of E-V1): the owner's MET
+# definition of 2026-11-22 applied, and applied on MEASUREMENT RATHER THAN ON
+# THIS RECORD'S OWN WORD.
+#
+# The owner settled on 2026-11-22 the question this register had left open and
+# had asked three times: a criterion carried by a DRAFT pull request may be
+# recorded MET when a NAMED test that covers its behaviour passed on a NAMED
+# commit, EVEN IF the feature ships disabled by default -- while adding, in the
+# same instruction, "do not raise any criterion without actual evidence".
+#
+# So dormancy stops holding these two. But this record had TWO reasons written
+# into it, not one: "a draft on main, dormant until its migration runs, AND MET
+# needs the independent verification step". The second is not the owner's rule;
+# it is this lane's own discipline, and it has earned its place by catching real
+# defects. It is therefore not treated as settled by silence: no independent
+# adversarial verification has ever run on these two criteria, that is said
+# plainly below, and the raise rests on the owner's definition PLUS a
+# measurement made here rather than on the implementer's claim.
+# ============================================================================
+_EV1_MEASURED = (
+    " **RAISED CODED -> MET ON 2026-11-22 under the owner's MET definition of that date, and the run behind it was made HERE rather than "
+    "read off this record.** Head 13bfc69e, the head this criterion already named. BOTH ENGINES, measured in the worktree at that commit: "
+    "SQLite 13 tests / 36 assertions with 2 skipped, and MariaDB 10.11.14 **13 tests / 57 assertions with NOTHING skipped**, 8 tables created "
+    "in the scratch database so the engine answered. The 2 that skip on SQLite are the concurrency pair, which declare their own skip -- "
+    "'Needs a real MySQL or MariaDB: SQLite in memory is private to one process' -- so the figure that matters for this criterion is the "
+    "MariaDB one, where they RAN."
+)
+_EV1_MUTATION = (
+    " **AND THE GREEN WAS NOT TAKEN AT FACE VALUE.** WalletTopUpRegister::enter() was mutated to always return true -- the register still "
+    "writes its entry but never reports the payment as already credited, which is the whole defect -- and the set went **2 RED**: "
+    "test_a_payment_handed_over_twice_is_credited_once_with_one_bonus_and_one_notice at 325.0 against the expected 115.0, and "
+    "test_a_top_up_that_is_refused_leaves_no_entry_and_is_credited_once_when_it_is_handed_over_again at 220.0 against 115.0. The file was "
+    "restored from a copy taken before the edit, not with git checkout. On top of that the set carries its own measured negative control, "
+    "test_without_the_register_the_same_six_deliveries_are_all_credited, which asserts that WITHOUT the register all six simultaneous "
+    "deliveries ARE credited -- so the suite proves the defect exists when the mechanism is absent, which is the opposite of a test that "
+    "manufactures the state it is meant to find."
+)
+_EV1_WITHDRAWN = (
+    " **A CLAIM OF THIS RECORD'S IS WITHDRAWN, AND IT IS THE ONE THIS CRITERION HEADLINED.** The evidence above named "
+    "test_a_signed_return_from_the_gateway_that_is_opened_twice_credits_the_wallet_once as the proof 'on the real route, not a stand-in', "
+    "listed under the top-up register as THE MECHANISM. That test is green and its assertions are real (is_paid 1, balance opening + 100 + "
+    "bonus, exactly one wallet_transactions row) -- **but it is not discriminating on either new mechanism.** Mutating the top-up register's "
+    "enter() leaves it GREEN. Mutating GatewayConfirmations::hold() to always hold leaves it GREEN TOO. What makes the second open answer "
+    "payment-fail is the PRE-EXISTING is_paid flag, which the test itself clears to 0 before the first open: the first open sets it, and the "
+    "second is turned away by it. So the customer's RETURN address was already protected on main, and this test pins that older behaviour. "
+    "The criterion's own wording -- a replayed gateway CALLBACK -- is the server-to-server delivery, and that is the path the two tests which "
+    "DID go red exercise, together with the concurrency pair and its negative control. The criterion is MET on THOSE; it is not MET on the "
+    "route test, and the route test must not be cited for it again."
+)
+_EV1_NOVERIFY = (
+    " **WHAT THIS RAISE DOES NOT REST ON, said rather than left to be discovered:** no independent adversarial verification has run on these "
+    "two criteria. The register's reviewers (the two detached worktrees at 29dd7bee) read the PRIVATE top-up branch, not this head, and "
+    "nothing in this axis records a review of either criterion. If the owner wants an independent pass before MET stands, these two are "
+    "where to point it. Nothing else changes: still a draft, still dormant until its migration runs, still no merge, no deploy, no key "
+    "rotated, and the two migrations it carries are additive, arrive empty and are the owner's call to apply."
+)
+
+_p = CRITERIA_SPLIT['E-V1'][0]
+
+_t, _st, _ev = _p[0]
+_p[0] = (_t, 'MET', _ev + _EV1_MEASURED + _EV1_MUTATION + _EV1_WITHDRAWN + _EV1_NOVERIFY)
+
+_t, _st, _ev = _p[2]
+_p[2] = (_t, 'MET', _ev + _EV1_MEASURED +
+    " The test that carries THIS criterion is test_a_payment_handed_over_twice_is_credited_once_with_one_bonus_and_one_notice, and the "
+    "mutation above turned it red **on the figure, not on a row count**: 325.0 where 115.0 was expected. 115.00 is the opening balance plus "
+    "one 100.00 top-up plus the one bonus; 325.0 is what a second credit and a second bonus produce. So a bonus applied twice, and equally a "
+    "bonus halved or doubled on the one row, fails that assertion." + _EV1_NOVERIFY)
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]

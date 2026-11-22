@@ -65,3 +65,39 @@ Do not invent numbered GCC-01–06 labels from memory: their agreed *principles*
 ## GCC-20 — Platform Super Admin in Flutter Seller App (approved business intent)
 
 The existing seller app `fullstackfull/lavkooappseller` must also provide a **platform-owner Super Admin mode** with central oversight of all six country storefronts, drill-down per country/legal entity, KPIs/alerts, and access to expressly authorized administrative tasks. **This is a separate platform-admin principal**, not a seller or seller-staff token with expanded access. Preserve ordinary seller workflows and seller/staff data isolation. Authenticate via the backend's admin identity and appropriately secured admin mobile endpoints, with proper authorization and auditable sensitive actions. Begin with read-only monitoring; operational and critical actions require separate implementation and production approvals. Full scope and audit requirements: [GCC-20-SUPER-ADMIN-MOBILE.md](./GCC-20-SUPER-ADMIN-MOBILE.md).
+
+## Owner decisions, 2026-11-22 — grading rule, webhook isolation, money defects, completion target
+
+Recorded verbatim in substance from the owner's instruction of 2026-11-22. These are **approvals and definitions**, not merge or release authority: "لا Merge إلى main ولا Deploy ولا ترحيلات إنتاج أو تدوير مفاتيح دون موافقتي" stands unchanged.
+
+### 1. The MET definition is settled (grading rule, applies to the whole tracker)
+
+A criterion implemented in a **draft** pull request **may be recorded MET** when a **named test that covers its behaviour passed on a named commit** — **even if the feature ships disabled by default**. Dormancy is no longer a reason to hold a criterion at CODED.
+
+This settles the question this project had left open and had been asked three times: D1-04 index 2 and D1-05 index 4 had been ruled MET on that footing while D2-07…D2-10 were held at CODED for it, and the register now agrees with itself.
+
+**What it does NOT do, stated by the owner in the same breath:** it is not approval to merge or to deploy, and **"ولا ترفع أي معيار دون دليل فعلي"** — no criterion is raised without actual evidence. Three things therefore still hold a criterion at CODED, and each is a *different* reason from dormancy:
+
+- **No test covers the criterion's wording** — the ordinary case, and the reason for the overwhelming majority of CODED criteria.
+- **A criterion's own wording is only partly covered** — e.g. a criterion naming three verbs where one verb reads the wrong row.
+- **The test manufactures the state it is meant to observe.** A test that creates the column with `Schema::table()` inside itself, on a schema the repository ships no migration for, proves the code and not the platform. This is the owner's earlier standing rule — *"لا تعتمد على اختبارات تصنع الحالة التي يفترض أن تكتشفها"* — and the MET definition does not override it.
+
+### 2. GCC-21 — Payment confirmation isolated per company and gateway account (approved, staged)
+
+Approved business intent: **a payment's expected confirmation address is bound to the payment when the payment is created**, and confirmations are isolated per selling company and per gateway account.
+
+- The **public platform webhook address must stop confirming payments of companies that began under an independent company address**.
+- Payments that **began under the platform address keep being confirmed there** — no historical payment is stranded.
+- Delivery is **staged, with focused tests at each step**, and **the new refusal is not switched on until the initiation-side binding is complete**. Switching the refusal on first would strand live payments; this ordering is part of the approval, not an implementation detail.
+
+### 3. Money defects to close before new axes
+
+The refused order must take nothing, and no incorrect stock or return may be created: complete the PR 144 fix, and close the C-11 till and restock defects.
+
+### 4. Completion target
+
+After those defects close, continue every requirement of the six-country plan. The figure of record at the time of the decision was **532 MISSING**, to be reduced continuously until every programmatically implementable requirement is done.
+
+### 5. Testing posture during development
+
+Focused tests during development; the heavy comprehensive verification campaigns belong to the final phase. **A security or financial defect is never deferred for that reason.**
