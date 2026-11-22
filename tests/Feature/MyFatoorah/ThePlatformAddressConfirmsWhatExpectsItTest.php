@@ -748,6 +748,49 @@ class ThePlatformAddressConfirmsWhatExpectsItTest extends CompanyAccountsTestCas
         );
     }
 
+    /**
+     * THE LIMIT OF OBLIGATION 2 ON THIS GATEWAY, pinned so that it is visible and so that changing it is deliberate.
+     *
+     * This gateway has TWO platform-wide confirmation paths, not one: the server-to-server notification this stage holds to the one-address rule, and
+     * the customer's own return — `GET /payment/myfatoorah/callback`, and `/payment/fatoorah/callback` beside it, both the same method. The return's
+     * authority is a server-to-server verification and then settlement, and it does not ask which address the payment expects. So a company-bound
+     * payment IS still confirmed by its customer's return, with the rule on and with it off, identically. Measured here rather than described.
+     *
+     * NOT CLOSED HERE, and the reason is the half of the owner's decision about stranding. There is no per-company RETURN address at all:
+     * `GatewayAccountDirectory::webhookUrlOf()` produces notification addresses and nothing else, so the return's own URL is a value no payment ever
+     * records. Holding the return to the same equality would therefore refuse EVERY company-bound return, and a payment whose notification never
+     * arrives — the portal's address not configured, the notification lost, a gateway that notifies at no address — would have nothing left to
+     * confirm it. That is a bigger stranding than the isolation it would buy, and it is the owner's call, not this stage's.
+     *
+     * Reviewer A of the stage-C round found this and measured it, and judged that bolting the question on as it stands would make the stranding worse.
+     * The branch agrees, pins the behaviour, and carries it as a named obligation-2 limitation rather than as a silence.
+     *
+     * @return array<string, array{bool}>
+     */
+    #[DataProvider('theSwitch')]
+    public function test_a_company_payment_is_still_confirmed_by_its_customers_own_return(bool $switch): void
+    {
+        config(['gcc.storefronts.payment_accounts.one_confirmation_address' => $switch]);
+        $attempt = $this->anAttemptStampedWith($this->kuwait);
+        $this->fakePaidFor($attempt);
+
+        $this->assertNotNull($this->theRecordOf($attempt)?->confirmationAddress, 'the payment expects a company notification address');
+        $this->assertNotSame(
+            route('myfatoorah.callback'),
+            $this->theAddressExpectedBy($attempt),
+            'and the return\'s own URL is not a value any payment records, which is why the same equality cannot be applied to it',
+        );
+
+        $landedOn = $this->get(route('myfatoorah.callback') . '?reference=' . $attempt->external_identifier . '&paymentId=PAY-1')
+            ->assertRedirect()
+            ->headers->get('Location');
+
+        $this->assertSame(route('payment-success'), strtok((string) $landedOn, '?'), 'the customer is sent to the success page');
+
+        $this->assertSame([$attempt->payment_request_id], $this->paidPayments(), 'the customer\'s return confirms it, with the switch either way');
+        $this->assertSame(1, $this->successHookCalls());
+    }
+
     private function theOneAddressRuleIsOn(): void
     {
         config(['gcc.storefronts.payment_accounts.one_confirmation_address' => true]);
