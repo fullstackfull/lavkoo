@@ -7275,6 +7275,7 @@ return [
 	"storefront_stop_mode_redirect" => "إعادة توجيه",
 	"storefronts" => "المتاجر",
 	"storefronts_are_switched_off_so_nothing_reads_these_decisions_yet" => "المتاجر متوقفة (GCC_STOREFRONTS_ENABLED)، لذلك لا يقرأ أي جزء من النظام هذه القرارات بعد.",
+	"the_day_is_too_late_the_latest_moment_a_text_can_take_effect_utc" => "اليوم متأخر جدًا. آخر لحظة يمكن أن يسري فيها النص (بالتوقيت العالمي UTC)",
 	"the_default_storefront_is_active_without_a_record_and_can_only_be_paused_browse_only" => "المتجر الافتراضي مفعّل دون سجل، ولا يمكن إيقافه مؤقتًا إلا بوضع التصفح فقط.",
 	"the_stop_is_expected_to_end" => "يُتوقع أن ينتهي الإيقاف",
 	"the_table_of_legal_texts_does_not_exist_yet_run_the_migrations" => "جدول النصوص القانونية غير موجود بعد: شغّل عمليات الترحيل.",

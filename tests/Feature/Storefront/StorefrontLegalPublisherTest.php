@@ -6,6 +6,7 @@ use App\Models\StorefrontLegalDocument;
 use App\Services\Storefront\StorefrontLegalPublisher;
 use App\Services\Storefront\StorefrontLegalReadiness;
 use Carbon\CarbonImmutable;
+use Closure;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
@@ -96,6 +97,18 @@ class StorefrontLegalPublisherTest extends TestCase
 
                 return $line;
             })->all();
+    }
+
+    /** The reason a step is refused; the test fails when it is not (a failed assertion is a RuntimeException too, so it is raised outside the try). */
+    private function refusalOf(Closure $step): string
+    {
+        try {
+            $step();
+        } catch (RuntimeException $refusal) {
+            return $refusal->getMessage();
+        }
+
+        $this->fail('The step was not refused.');
     }
 
     // ---- the copy of a template -----------------------------------------------------------------------------------------------------------------
@@ -204,6 +217,137 @@ class StorefrontLegalPublisherTest extends TestCase
         $this->publisher()->approve(textId: $approved->id, approver: 13);
     }
 
+    // ---- an approval and a publication are bound to the words that were read ---------------------------------------------------------------------
+
+    public function test_a_text_is_approved_and_published_when_the_hash_named_is_the_hash_of_the_words_it_holds(): void
+    {
+        $draft = $this->draft();
+        $edited = $this->publisher()->edit(textId: $draft->id, body: 'The terms of Kuwait.', editor: self::AUTHOR);
+
+        $approved = $this->publisher()->approve(textId: $draft->id, approver: self::APPROVER, expectedBodyHash: $edited->body_hash);
+        $this->assertSame(StorefrontLegalDocument::STATUS_APPROVED, $approved->status);
+
+        $published = $this->publisher()->publish(textId: $draft->id, publisher: self::APPROVER, expectedBodyHash: strtoupper($edited->body_hash));
+        $this->assertSame(StorefrontLegalDocument::STATUS_PUBLISHED, $published->status, 'the hash is hex, and hex is read in either case');
+    }
+
+    public function test_a_hash_that_is_not_the_hash_of_the_words_refuses_the_approval_and_changes_and_audits_nothing(): void
+    {
+        $draft = $this->draft();
+        $this->publisher()->edit(textId: $draft->id, body: 'The terms of Kuwait.', editor: self::AUTHOR);
+        $linesBefore = count($this->auditLines());
+
+        foreach ([hash('sha256', 'Some other words.'), '', substr(hash('sha256', 'The terms of Kuwait.'), 0, 12)] as $hash) {
+            try {
+                $this->publisher()->approve(textId: $draft->id, approver: self::APPROVER, expectedBodyHash: $hash);
+                $this->fail('A text was approved on the hash of other words.');
+            } catch (RuntimeException $refusal) {
+                $this->assertStringContainsString('changed after it was read', $refusal->getMessage());
+                $this->assertStringContainsString('Read it again', $refusal->getMessage());
+            }
+        }
+
+        $text = $draft->fresh();
+        $this->assertSame([StorefrontLegalDocument::STATUS_DRAFT, null, null], [$text->status, $text->approved_by, $text->approved_at]);
+        $this->assertCount($linesBefore, $this->auditLines());
+    }
+
+    public function test_an_edit_between_the_reading_and_the_approval_refuses_the_approval(): void
+    {
+        $draft = $this->draft();
+        $read = $this->publisher()->edit(textId: $draft->id, body: 'The terms of Kuwait.', editor: self::AUTHOR);
+        $this->publisher()->edit(textId: $draft->id, body: 'The terms of Kuwait, with a clause added after they were read.', editor: self::AUTHOR);
+        $linesBefore = count($this->auditLines());
+
+        try {
+            $this->publisher()->approve(textId: $draft->id, approver: self::APPROVER, expectedBodyHash: $read->body_hash);
+            $this->fail('A text was approved after it changed since it was read.');
+        } catch (RuntimeException $refusal) {
+            $this->assertStringContainsString('changed after it was read', $refusal->getMessage());
+        }
+
+        $this->assertSame(StorefrontLegalDocument::STATUS_DRAFT, $draft->fresh()->status);
+        $this->assertCount($linesBefore, $this->auditLines());
+
+        $approved = $this->publisher()->approve(textId: $draft->id, approver: self::APPROVER, expectedBodyHash: $draft->fresh()->body_hash);
+        $this->assertSame(StorefrontLegalDocument::STATUS_APPROVED, $approved->status, 'read again, the text is approved');
+    }
+
+    public function test_a_hash_that_is_not_the_hash_of_the_words_refuses_the_publication_and_changes_and_audits_nothing(): void
+    {
+        $approved = $this->approvedText();
+        $linesBefore = count($this->auditLines());
+
+        try {
+            $this->publisher()->publish(textId: $approved->id, publisher: self::APPROVER, expectedBodyHash: hash('sha256', 'Some other words.'));
+            $this->fail('A text was published on the hash of other words.');
+        } catch (RuntimeException $refusal) {
+            $this->assertStringContainsString('changed after it was read', $refusal->getMessage());
+        }
+
+        $text = $approved->fresh();
+        $this->assertSame([StorefrontLegalDocument::STATUS_APPROVED, null, null], [$text->status, $text->published_at, $text->effective_from]);
+        $this->assertCount($linesBefore, $this->auditLines());
+    }
+
+    public function test_an_edit_between_the_reading_and_the_publication_refuses_the_publication(): void
+    {
+        $approved = $this->approvedText();
+        $read = $approved->body_hash;
+        $this->publisher()->edit(textId: $approved->id, body: 'The terms of Kuwait, changed after the approval was read.', editor: self::APPROVER);
+
+        try {
+            $this->publisher()->publish(textId: $approved->id, publisher: self::APPROVER, expectedBodyHash: $read);
+            $this->fail('A text was published after it changed since it was read.');
+        } catch (RuntimeException $refusal) {
+            $this->assertStringContainsString('changed after it was read', $refusal->getMessage());
+        }
+
+        $this->assertSame(StorefrontLegalDocument::STATUS_DRAFT, $approved->fresh()->status);
+        $this->assertNull($approved->fresh()->published_at);
+    }
+
+    public function test_a_text_changed_after_its_whole_hash_was_read_is_neither_approved_nor_published_on_that_hash_and_nothing_is_changed_or_audited(): void
+    {
+        $draft = $this->draft();
+        $read = $this->publisher()->edit(textId: $draft->id, body: 'The terms of Kuwait.', editor: self::AUTHOR)->body_hash;
+        $this->publisher()->edit(textId: $draft->id, body: 'The terms of Kuwait, changed by someone else.', editor: 14);
+        $linesBefore = count($this->auditLines());
+
+        $this->assertStringContainsString('changed after it was read', $this->refusalOf(step: fn () => $this->publisher()->approve(textId: $draft->id, approver: self::APPROVER, expectedBodyHash: $read)));
+
+        $text = $draft->fresh();
+        $this->assertSame([StorefrontLegalDocument::STATUS_DRAFT, null, 'The terms of Kuwait, changed by someone else.'], [$text->status, $text->approved_by, $text->body]);
+        $this->assertCount($linesBefore, $this->auditLines());
+
+        $this->publisher()->approve(textId: $draft->id, approver: self::APPROVER, expectedBodyHash: $text->body_hash);
+        $linesBefore = count($this->auditLines());
+
+        $this->assertStringContainsString('changed after it was read', $this->refusalOf(step: fn () => $this->publisher()->publish(textId: $draft->id, publisher: self::APPROVER, expectedBodyHash: $read)));
+
+        $text = $draft->fresh();
+        $this->assertSame([StorefrontLegalDocument::STATUS_APPROVED, null, null], [$text->status, $text->published_at, $text->effective_from], 'the text is approved, so only its hash stood between it and a publication of words nobody read');
+        $this->assertCount($linesBefore, $this->auditLines());
+    }
+
+    public function test_an_approval_on_the_hash_of_other_words_says_the_words_changed_whatever_the_status_of_the_text_is(): void
+    {
+        $approved = $this->approvedText();
+        $read = $approved->body_hash;
+        $this->publisher()->edit(textId: $approved->id, body: 'The terms of Kuwait, changed after the approval was read.', editor: self::AUTHOR);
+
+        $this->assertStringContainsString('changed after it was read', $this->refusalOf(step: fn () => $this->publisher()->approve(textId: $approved->id, approver: self::APPROVER, expectedBodyHash: $read)), 'edited back to draft, the text is refused on the hash it was approved on');
+
+        $this->publisher()->approve(textId: $approved->id, approver: self::APPROVER);
+        $refusal = $this->refusalOf(step: fn () => $this->publisher()->approve(textId: $approved->id, approver: 13, expectedBodyHash: $read));
+
+        $this->assertStringContainsString('changed after it was read', $refusal);
+        $this->assertStringNotContainsString('only a draft is approved', $refusal, 'approved again and no longer a draft, the words that changed are what the approver is told');
+
+        $current = $approved->fresh()->body_hash;
+        $this->assertStringContainsString('only a draft is approved', $this->refusalOf(step: fn () => $this->publisher()->approve(textId: $approved->id, approver: 13, expectedBodyHash: $current)), 'on the hash of the words it holds, the status is what refuses it');
+    }
+
     // ---- publishing -----------------------------------------------------------------------------------------------------------------------------
 
     public function test_an_approved_text_is_published_from_now_by_default_and_a_draft_is_not_published(): void
@@ -236,7 +380,7 @@ class StorefrontLegalPublisherTest extends TestCase
         $this->publisher()->approve(textId: $new->id, approver: self::APPROVER);
         $this->publisher()->publish(textId: $new->id, publisher: self::APPROVER, effectiveFrom: now()->addDays(10));
 
-        $current = app(StorefrontLegalReadiness::class)->currentTextFor('KW', 'terms', 'en');
+        $current = app(StorefrontLegalReadiness::class)->currentTextFor(countryCode: 'KW', documentType: 'terms', locale: 'en');
         $this->assertSame(1, (int) $current->version, 'the text in force stays in force until the new one takes effect');
         $this->assertTrue($this->ready());
     }
@@ -263,13 +407,13 @@ class StorefrontLegalPublisherTest extends TestCase
             $this->publisher()->approve(textId: $second->id, approver: self::APPROVER);
             $this->publisher()->publish(textId: $second->id, publisher: self::APPROVER, effectiveFrom: CarbonImmutable::now('UTC')->addHours(3));
 
-            $this->assertSame(1, (int) app(StorefrontLegalReadiness::class)->currentTextFor('KW', 'terms', 'en')->version, "three hours before it takes effect, the first text is still in force ({$zone})");
+            $this->assertSame(1, (int) app(StorefrontLegalReadiness::class)->currentTextFor(countryCode: 'KW', documentType: 'terms', locale: 'en')->version, "three hours before it takes effect, the first text is still in force ({$zone})");
 
             $this->travelTo(CarbonImmutable::now()->addHours(2));
-            $this->assertSame(1, (int) app(StorefrontLegalReadiness::class)->currentTextFor('KW', 'terms', 'en')->version, "two hours later it is still the first ({$zone})");
+            $this->assertSame(1, (int) app(StorefrontLegalReadiness::class)->currentTextFor(countryCode: 'KW', documentType: 'terms', locale: 'en')->version, "two hours later it is still the first ({$zone})");
 
             $this->travelTo(CarbonImmutable::now()->addHours(2));
-            $this->assertSame(2, (int) app(StorefrontLegalReadiness::class)->currentTextFor('KW', 'terms', 'en')->version, "four hours later the second is in force ({$zone})");
+            $this->assertSame(2, (int) app(StorefrontLegalReadiness::class)->currentTextFor(countryCode: 'KW', documentType: 'terms', locale: 'en')->version, "four hours later the second is in force ({$zone})");
         } finally {
             $this->travelBack();
             date_default_timezone_set($original);
@@ -284,6 +428,46 @@ class StorefrontLegalPublisherTest extends TestCase
         $this->expectExceptionMessage('does not take effect in the past');
 
         $this->publisher()->publish(textId: $approved->id, publisher: self::APPROVER, effectiveFrom: now()->subDay());
+    }
+
+    public function test_a_text_does_not_take_effect_after_the_last_moment_the_database_keeps(): void
+    {
+        $approved = $this->approvedText();
+        $linesBefore = count($this->auditLines());
+
+        foreach ([CarbonImmutable::parse('2038-01-01 00:00:00', 'UTC'), CarbonImmutable::parse('2037-12-31 23:59:59', 'UTC')->addSecond(), CarbonImmutable::parse('2040-06-01 12:00:00', 'UTC'), CarbonImmutable::parse('2099-01-01', 'UTC')] as $day) {
+            try {
+                $this->publisher()->publish(textId: $approved->id, publisher: self::APPROVER, effectiveFrom: $day);
+                $this->fail("A text was published to take effect on {$day->toIso8601String()}.");
+            } catch (InvalidArgumentException $refusal) {
+                $this->assertStringContainsString('does not take effect after 2037-12-31 23:59:59 UTC', $refusal->getMessage());
+            }
+        }
+
+        $this->assertSame(StorefrontLegalDocument::STATUS_APPROVED, $approved->fresh()->status);
+        $this->assertCount($linesBefore, $this->auditLines());
+    }
+
+    public function test_a_text_takes_effect_on_the_last_moment_the_database_keeps_whatever_the_time_zone_of_the_application_is(): void
+    {
+        $original = date_default_timezone_get();
+
+        try {
+            foreach (['UTC', 'Asia/Dhaka', 'America/New_York'] as $zone) {
+                date_default_timezone_set($zone);
+                config(['app.timezone' => $zone]);
+
+                $approved = $this->approvedText(type: 'terms', locale: 'en');
+                $last = CarbonImmutable::parse('2037-12-31 23:59:59', 'UTC');
+                $published = $this->publisher()->publish(textId: $approved->id, publisher: self::APPROVER, effectiveFrom: $last);
+
+                $this->assertTrue($published->fresh()->effective_from->equalTo($last), "the last moment is stored and read back as the same instant ({$zone})");
+
+                StorefrontLegalDocument::query()->delete();
+            }
+        } finally {
+            date_default_timezone_set($original);
+        }
     }
 
     public function test_a_text_does_not_take_effect_before_one_that_is_already_scheduled(): void
@@ -337,8 +521,138 @@ class StorefrontLegalPublisherTest extends TestCase
 
         $this->assertSame([2, StorefrontLegalDocument::STATUS_DRAFT, 14], [(int) $new->version, $new->status, (int) $new->created_by]);
         $this->assertSame($published->body, $new->body);
-        $this->assertNull($new->template_hash);
+        $this->assertSame(hash('sha256', $published->body), $new->template_hash, 'the copy carries the hash of the text it was copied from, so that it is told from an edited text');
         $this->assertSame(StorefrontLegalDocument::STATUS_PUBLISHED, $published->fresh()->status);
+    }
+
+    public function test_a_new_version_nobody_edited_is_not_approved_and_an_edited_one_is(): void
+    {
+        $published = $this->publishedText();
+        $new = $this->publisher()->draftNewVersionOf(textId: $published->id, author: self::AUTHOR);
+
+        try {
+            $this->publisher()->approve(textId: $new->id, approver: self::APPROVER);
+            $this->fail('A copy that nobody edited was approved.');
+        } catch (RuntimeException $refusal) {
+            $this->assertStringContainsString('still the template', $refusal->getMessage());
+        }
+
+        $this->assertSame(StorefrontLegalDocument::STATUS_DRAFT, $new->fresh()->status);
+
+        $this->publisher()->edit(textId: $new->id, body: 'The terms of Kuwait, version 2.', editor: self::AUTHOR);
+        $this->assertSame(StorefrontLegalDocument::STATUS_APPROVED, $this->publisher()->approve(textId: $new->id, approver: self::APPROVER)->status);
+    }
+
+    public function test_a_new_version_that_is_edited_back_to_the_text_it_replaces_is_not_approved(): void
+    {
+        $published = $this->publishedText();
+        $new = $this->publisher()->draftNewVersionOf(textId: $published->id, author: self::AUTHOR);
+        $this->publisher()->edit(textId: $new->id, body: 'The terms of Kuwait, version 2.', editor: self::AUTHOR);
+        $this->publisher()->edit(textId: $new->id, body: $published->body, editor: self::AUTHOR);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('still the template');
+
+        $this->publisher()->approve(textId: $new->id, approver: self::APPROVER);
+    }
+
+    public function test_a_new_version_nobody_edited_does_not_make_a_storefront_sellable_even_when_it_is_published_by_hand(): void
+    {
+        $this->publishEveryRequiredText();
+        $terms = StorefrontLegalDocument::query()->where('document_type', 'terms')->where('locale', 'en')->firstOrFail();
+        $new = $this->publisher()->draftNewVersionOf(textId: $terms->id, author: self::AUTHOR);
+
+        DB::table('storefront_legal_documents')->where('id', $terms->id)->update(['effective_from' => now()->subDays(2)]);
+        DB::table('storefront_legal_documents')->where('id', $new->id)->update([
+            'status' => StorefrontLegalDocument::STATUS_PUBLISHED, 'approved_by' => self::APPROVER, 'approved_at' => now()->subDay(), 'published_at' => now()->subHour(), 'effective_from' => now()->subHour(),
+        ]);
+
+        $this->assertSame(2, (int) app(StorefrontLegalReadiness::class)->currentTextFor(countryCode: 'KW', documentType: 'terms', locale: 'en')->version);
+        $this->assertFalse($this->ready(), 'a copy nobody edited is not a text, whatever wrote its status');
+    }
+
+    public function test_a_revoked_text_is_not_copied_into_a_new_version(): void
+    {
+        $published = $this->publishedText();
+        $this->publisher()->revoke(textId: $published->id, revoker: self::APPROVER, reason: 'Wrong clause');
+        $linesBefore = count($this->auditLines());
+
+        try {
+            $this->publisher()->draftNewVersionOf(textId: $published->id, author: self::AUTHOR);
+            $this->fail('A revoked text was copied into a new version.');
+        } catch (RuntimeException $refusal) {
+            $this->assertStringContainsString('is revoked', $refusal->getMessage());
+            $this->assertStringContainsString('draftFromTemplate', $refusal->getMessage());
+        }
+
+        $this->assertSame(1, StorefrontLegalDocument::query()->count());
+        $this->assertCount($linesBefore, $this->auditLines());
+    }
+
+    public function test_a_text_that_a_newer_published_text_has_superseded_is_not_copied_into_a_new_version(): void
+    {
+        $first = $this->publishedText();
+        $second = $this->publisher()->draftNewVersionOf(textId: $first->id, author: self::AUTHOR);
+        $this->publisher()->edit(textId: $second->id, body: 'The terms of Kuwait, version 2.', editor: self::AUTHOR);
+        $this->publisher()->approve(textId: $second->id, approver: self::APPROVER);
+        $this->publisher()->publish(textId: $second->id, publisher: self::APPROVER, effectiveFrom: now()->addDays(30));
+        $linesBefore = count($this->auditLines());
+
+        try {
+            $this->publisher()->draftNewVersionOf(textId: $first->id, author: self::AUTHOR);
+            $this->fail('A text that a newer published text supersedes was copied into a new version.');
+        } catch (RuntimeException $refusal) {
+            $this->assertStringContainsString('not the newest published text', $refusal->getMessage());
+            $this->assertStringContainsString('version 2 is', $refusal->getMessage());
+        }
+
+        $this->assertSame(2, StorefrontLegalDocument::query()->count());
+        $this->assertCount($linesBefore, $this->auditLines());
+
+        $third = $this->publisher()->draftNewVersionOf(textId: $second->id, author: self::AUTHOR);
+        $this->assertSame(3, (int) $third->version, 'the newest published text is the one that is copied');
+    }
+
+    public function test_a_newer_text_that_was_discarded_or_revoked_before_it_took_effect_does_not_supersede(): void
+    {
+        $first = $this->publishedText();
+
+        $discarded = $this->publisher()->draftNewVersionOf(textId: $first->id, author: self::AUTHOR);
+        $this->publisher()->discard(textId: $discarded->id, admin: self::AUTHOR, reason: 'Not wanted');
+
+        $scheduled = $this->publisher()->draftNewVersionOf(textId: $first->id, author: self::AUTHOR);
+        $this->publisher()->edit(textId: $scheduled->id, body: 'The terms of Kuwait, version 3.', editor: self::AUTHOR);
+        $this->publisher()->approve(textId: $scheduled->id, approver: self::APPROVER);
+        $this->publisher()->publish(textId: $scheduled->id, publisher: self::APPROVER, effectiveFrom: now()->addDays(30));
+        $this->publisher()->revoke(textId: $scheduled->id, revoker: self::APPROVER, reason: 'Wrong clause, found before it took effect');
+
+        $this->assertSame(4, (int) $this->publisher()->draftNewVersionOf(textId: $first->id, author: self::AUTHOR)->version);
+    }
+
+    public function test_a_newer_text_revoked_while_in_force_still_supersedes_the_older_one_and_only_a_template_leads_on(): void
+    {
+        $first = $this->publishedText();
+        $second = $this->publisher()->draftNewVersionOf(textId: $first->id, author: self::AUTHOR);
+        $this->publisher()->edit(textId: $second->id, body: 'The terms of Kuwait, version 2.', editor: self::AUTHOR);
+        $this->publisher()->approve(textId: $second->id, approver: self::APPROVER);
+        $this->publisher()->publish(textId: $second->id, publisher: self::APPROVER);
+        $revoked = $this->publisher()->revoke(textId: $second->id, revoker: self::APPROVER, reason: 'Wrong clause');
+
+        $this->assertSame(StorefrontLegalDocument::STATUS_PUBLISHED, $revoked->status, 'it was in force, so it stays a published row');
+        $this->assertNotNull($revoked->revoked_at);
+        $this->assertSame(2, (int) app(StorefrontLegalReadiness::class)->currentTextFor(countryCode: 'KW', documentType: 'terms', locale: 'en')->version, 'the revoked text is the text in force');
+        $linesBefore = count($this->auditLines());
+
+        $olderRefusal = $this->refusalOf(step: fn () => $this->publisher()->draftNewVersionOf(textId: $first->id, author: self::AUTHOR));
+        $revokedRefusal = $this->refusalOf(step: fn () => $this->publisher()->draftNewVersionOf(textId: $second->id, author: self::AUTHOR));
+
+        $this->assertStringContainsString('not the newest published text', $olderRefusal);
+        $this->assertStringContainsString('version 2 is', $olderRefusal);
+        $this->assertStringContainsString('is revoked', $revokedRefusal);
+        $this->assertSame(2, StorefrontLegalDocument::query()->count());
+        $this->assertCount($linesBefore, $this->auditLines());
+
+        $this->assertSame(3, (int) $this->draft()->version, 'the replacement is written from a template');
     }
 
     public function test_only_a_published_text_has_a_new_version(): void
@@ -365,7 +679,7 @@ class StorefrontLegalPublisherTest extends TestCase
         $this->assertSame(StorefrontLegalDocument::STATUS_PUBLISHED, $revoked->status);
         $this->assertFalse($this->ready(), 'a revoked text in force keeps the storefront closed');
 
-        $new = $this->publisher()->draftNewVersionOf(textId: $terms->id, author: self::AUTHOR);
+        $new = $this->draft(type: 'terms', locale: 'en');
         $this->publisher()->edit(textId: $new->id, body: 'The terms of Kuwait, corrected.', editor: self::AUTHOR);
         $this->publisher()->approve(textId: $new->id, approver: self::APPROVER);
         $this->assertFalse($this->ready(), 'an approved text that is not published replaces nothing');
@@ -393,7 +707,7 @@ class StorefrontLegalPublisherTest extends TestCase
 
         $this->travelTo(now()->addDays(31));
         $this->assertTrue($this->ready(), 'the revoked text never became the text in force, so the storefront did not close on its day');
-        $this->assertSame(1, (int) app(StorefrontLegalReadiness::class)->currentTextFor('KW', 'terms', 'en')->version);
+        $this->assertSame(1, (int) app(StorefrontLegalReadiness::class)->currentTextFor(countryCode: 'KW', documentType: 'terms', locale: 'en')->version);
 
         $this->travelBack();
         $third = $this->publisher()->draftNewVersionOf(textId: $terms->id, author: self::AUTHOR);

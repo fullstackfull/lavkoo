@@ -9,6 +9,7 @@
         $country = $board['country'];
         $types = collect($board['required'])->pluck('type')->unique()->values();
         $locales = collect($board['required'])->pluck('locale')->unique()->values();
+        $inUtc = fn ($moment): string => (string) $moment?->copy()->utc()->format('Y-m-d H:i');
     @endphp
     <div class="content container-fluid">
         <x-k.page-header :title="translate('legal_texts') . ' · ' . $country" :subtitle="translate('a_text_is_written_by_one_admin_approved_by_another_and_published_from_a_day')">
@@ -43,7 +44,7 @@
                                 <td dir="ltr">{{ $required['locale'] }}</td>
                                 <td>
                                     @if ($required['in_force'])
-                                        <span dir="ltr">v{{ $required['in_force']->version }}</span>, {{ translate('from') }} <span dir="ltr">{{ $required['in_force']->effective_from?->format('Y-m-d H:i') }}</span>
+                                        <span dir="ltr">v{{ $required['in_force']->version }}</span>, {{ translate('from') }} <span dir="ltr">{{ $inUtc($required['in_force']->effective_from) }} UTC</span>
                                         @if ($required['in_force']->revoked_at)<x-k.badge tone="danger" :dot="false">{{ translate('revoked') }}</x-k.badge>@endif
                                     @else
                                         <x-k.badge tone="danger" :dot="false">{{ translate('none') }}</x-k.badge>
@@ -115,7 +116,7 @@
                         @endif
                         @if ($text->effective_from)
                             <dt class="col-sm-4">{{ translate('in_force_from') }}</dt>
-                            <dd class="col-sm-8" dir="ltr">{{ $text->effective_from->format('Y-m-d H:i') }}</dd>
+                            <dd class="col-sm-8" dir="ltr">{{ $inUtc($text->effective_from) }} UTC</dd>
                         @endif
                         <dt class="col-sm-4">{{ translate('fingerprint_of_the_text') }}</dt>
                         <dd class="col-sm-8" dir="ltr"><code>{{ substr((string) $text->body_hash, 0, 12) }}</code></dd>
@@ -142,6 +143,7 @@
 
                             @if ($canApprove && in_array('approve', $steps, true))
                                 <form method="POST" action="{{ route('admin.storefronts.legal-texts.approve', $text->id) }}">@csrf
+                                    <input type="hidden" name="body_hash" value="{{ $text->body_hash }}">
                                     <button class="btn btn-primary btn-sm" type="submit" @disabled($isTheAuthor)>{{ translate('approve_the_text') }}</button>
                                     @if ($isTheAuthor)
                                         <span class="fs-12 text-muted">{{ translate('someone_other_than_its_author_approves_a_text') }}</span>
@@ -152,6 +154,7 @@
                             @if ($canApprove && in_array('publish', $steps, true))
                                 <form method="POST" action="{{ route('admin.storefronts.legal-texts.publish', $text->id) }}">@csrf
                                     <input type="hidden" name="_step" value="publish-{{ $text->id }}">
+                                    <input type="hidden" name="body_hash" value="{{ $text->body_hash }}">
                                     <label class="form-label fs-12" for="publish-{{ $text->id }}-from">{{ translate('in_force_from') }} (UTC)</label>
                                     <input class="form-control form-control-sm mb-1" id="publish-{{ $text->id }}-from" name="effective_from" maxlength="16" dir="ltr" placeholder="2026-12-01 08:00" value="{{ old('_step') === 'publish-' . $text->id ? old('effective_from') : '' }}">
                                     <div class="fs-12 text-muted mb-1">{{ translate('leave_the_day_empty_to_publish_now') }}</div>
