@@ -449,22 +449,17 @@ class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends CompanyAccountsTestCas
         $this->assertSame(0, $this->successHookCalls());
     }
 
-    /** D2-09: 'Each account shows its own webhook URL and secret status in the admin screen'. The screen is rendered, not argued about. */
-    public function test_the_admin_screen_shows_each_accounts_own_webhook_url_and_secret_status(): void
-    {
-        $this->anAccountFor(country: 'AE', webhookSecret: null, token: 'bare-webhook-token');
-
-        $rendered = $this->renderTheAccountsBlock();
-
-        $this->assertStringContainsString('/api/payments/account/kuwait-webhook-token/webhook', $rendered);
-        $this->assertStringContainsString('/api/payments/account/saudi-webhook-token/webhook', $rendered);
-        $this->assertStringContainsString('/api/payments/account/bare-webhook-token/webhook', $rendered);
-        $this->assertStringContainsString('Lavkoo KW Trading Co.', $rendered);
-        $this->assertSame(2, substr_count($rendered, '>Saved<'), 'the two accounts with a secret say so');
-        $this->assertSame(1, substr_count($rendered, '>Missing<'), 'and the one without says so');
-        $this->assertStringNotContainsString(self::KUWAIT_WEBHOOK_SECRET, $rendered, 'the status, never the secret');
-        $this->assertStringNotContainsString(self::SAUDI_WEBHOOK_SECRET, $rendered);
-    }
+    /*
+     * D2-09's admin criterion ('Each account shows its own webhook URL and secret status in the admin screen') is NOT tested here any more.
+     *
+     * It used to be, by a test that rendered this partial on its own with the rows handed to it and then asserted that three addresses, one company name
+     * and a count of "Saved" appeared SOMEWHERE in the markup. Nothing in it tied an address or a status to the account it belonged to, and nothing in it
+     * went near the screen: it stayed green with the @include removed from the page, with the controller passing an empty list, and with every account
+     * shown the NEXT account's address or the next account's secret status -- four mutations, ten assertions, not one of them red.
+     *
+     * CompanyAccountsOnTheAdminScreenTest drives the real route instead and binds every assertion to the row of a named account, and all four of those
+     * mutations are red against it. The two tests below stay because they are about this partial's own behaviour and not about the criterion.
+     */
 
     /**
      * A value out of the database is not a translation key.
