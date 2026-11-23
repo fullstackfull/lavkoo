@@ -46,6 +46,22 @@ class StorefrontLegalVisibleTextsTest extends TestCase
         $this->assertSame('<p>KW terms text in en</p>', $texts['terms']->body);
     }
 
+    public function test_the_types_come_back_in_the_configured_order_whatever_order_the_rows_were_written_in(): void
+    {
+        $configured = (array) config('gcc.storefronts.legal.required_documents');
+
+        // Deliberately the reverse of the configured order. publishStorefrontTexts writes them in configured order, so the
+        // reader used to agree with the configuration by accident on an engine that returns rows in insertion order -- and
+        // disagree on one that does not. MySQL 8 disagreed where MariaDB agreed.
+        foreach (array_reverse($configured) as $type) {
+            foreach (['en', 'ar'] as $locale) {
+                $this->publishStorefrontText(country: 'KW', type: $type, locale: $locale);
+            }
+        }
+
+        $this->assertSame($configured, $this->visibleTypes(country: 'KW', locale: 'en'), 'the configured order, not the order the rows were written in');
+    }
+
     public function test_the_country_and_the_locale_are_matched_regardless_of_case(): void
     {
         $this->publishStorefrontTexts(country: 'KW');

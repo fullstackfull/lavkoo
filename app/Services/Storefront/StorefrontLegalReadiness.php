@@ -72,9 +72,11 @@ final class StorefrontLegalReadiness
             return [];
         }
 
+        $current = $this->currentTextsOf(strtoupper(trim($countryCode)));
+
         $visible = [];
-        foreach ($this->currentTextsOf(strtoupper(trim($countryCode))) as $documentType => $textsByLocale) {
-            $text = $textsByLocale[strtolower($locale)] ?? null;
+        foreach ($this->documentTypesInOrder(present: array_keys($current)) as $documentType) {
+            $text = $current[$documentType][strtolower($locale)] ?? null;
 
             if ($text !== null && $this->isSellable($text)) {
                 $visible[$documentType] = $text;
@@ -82,6 +84,26 @@ final class StorefrontLegalReadiness
         }
 
         return $visible;
+    }
+
+    /**
+     * The configured document types first, in the order the configuration lists them, then any other type by name.
+     *
+     * The order was the order the rows happened to arrive in, which is the engine's to choose: currentTextsOf orders only
+     * enough to pick the current text of each type, so two types of the same effective date and version could come back
+     * either way round. MySQL 8 and MariaDB disagreed, and the configured order is the one every reader means -- it is what
+     * the readiness report, the storefront's legal pages and this test all compare against.
+     *
+     * @param list<string> $present
+     * @return list<string>
+     */
+    private function documentTypesInOrder(array $present): array
+    {
+        $configured = (array) config('gcc.storefronts.legal.required_documents');
+        $others = array_values(array_diff($present, $configured));
+        sort($others);
+
+        return array_values(array_merge(array_intersect($configured, $present), $others));
     }
 
     /** When the next scheduled text of the storefront takes effect, or null when none is scheduled: what was read before that moment is stale after it. */
