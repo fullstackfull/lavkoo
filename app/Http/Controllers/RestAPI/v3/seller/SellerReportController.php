@@ -304,6 +304,9 @@ class SellerReportController extends Controller
             'company_email' => getWebConfig(name: 'company_email'),
             'company_phone' => getWebConfig(name: 'company_phone'),
             'company_web_logo' => getWebConfig(name: 'company_web_logo'),
+            // One summary per currency the period was sold in, as the admin report already passes: this view reads
+            // $data['total_blocks'] and 500s without it, so these two PDF endpoints could not be printed at all.
+            'total_blocks' => app(\App\Services\Reports\OrderReportTotals::class)->perCurrency(orders: $orders),
         ]);
 
         $mpdf = new \Mpdf\Mpdf([

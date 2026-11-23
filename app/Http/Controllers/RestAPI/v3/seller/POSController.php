@@ -206,11 +206,14 @@ class POSController extends Controller
             return response()->json(['errors' => [['code' => 'country', 'message' => translate('the_country_must_be_one_of_the_configured_storefront_countries')]]], 422);
         }
 
+        // The scan's own query is held to the markets the token was granted (K-09): the till is a way into the catalogue like
+        // any other, and a barcode is a product id by another name. Bounding the query the scan reads -- rather than running a
+        // second narrowed query beside it -- is what makes the bound reach the answer, the ambiguity check included.
         $products = app(ProductVariantSku::class)->scan(
-            ownedProducts: Product::withCount('reviews')->where([
+            ownedProducts: $this->markets->narrowQuery(Product::withCount('reviews')->where([
                 'added_by' => 'seller',
                 'user_id' => $seller->id,
-            ])->with(['clearanceSale' => function ($query) {
+            ]))->with(['clearanceSale' => function ($query) {
                 return $query->active()->with(['setup']);
             }]),
             code: $request->code,
@@ -219,15 +222,6 @@ class POSController extends Controller
         if ($products->count() > 1) {
             return $this->ambiguousCodeResponse(products: $products);
         }
-        // Held to the markets the token was granted (K-09): the till is a way into the catalogue like any other, and a barcode
-        // is a product id by another name.
-        $product = $this->markets->narrowQuery(Product::withCount('reviews')->where([
-            'added_by' => 'seller',
-            'user_id' => $seller->id,
-            'code' => $request->code
-        ]))->with(['clearanceSale' => function ($query) {
-            return $query->active()->with(['setup']);
-        }])->first();
 
         $final_product = array();
         if ($products->isNotEmpty()) {

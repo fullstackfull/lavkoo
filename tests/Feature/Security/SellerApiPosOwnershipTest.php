@@ -131,13 +131,18 @@ class SellerApiPosOwnershipTest extends TestCase
 
     /** @param array<string, mixed> $cart */
     #[DataProvider('salesWithoutAPricedCart')]
-    public function test_a_cash_sale_without_a_priced_cart_is_answered_and_writes_no_line_and_takes_no_stock(array $cart): void
+    public function test_a_cash_sale_without_a_priced_cart_is_refused_and_writes_nothing(array $cart): void
     {
         $response = $this->sellerApi('POST', 'pos/place-order', ['customer_id' => 0, 'payment_method' => 'cash', 'paid_amount' => 500, 'cart' => [$this->line(self::OWN_PRODUCT, quantity: 2)]] + $cart);
 
+        // This used to be answered with an ORDER: the line block was skipped and a row was stored with no lines,
+        // order_amount 0 and paid_amount whatever was posted -- 500 here. The till now refuses a sale with no lines, so
+        // the assertion that an order exists becomes the assertion that none does. What the test was really about, that
+        // no line is written and no stock is taken, is unchanged and now strictly stronger.
         $this->assertSame(200, $response->getStatusCode());
-        $this->assertNotNull($response->json('order_id'));
-        $this->assertSame([1, 0], $this->orderAndLineCounts());
+        $this->assertTrue($response->json('product_not_available'));
+        $this->assertNull($response->json('order_id'));
+        $this->assertSame([0, 0], $this->orderAndLineCounts());
         $this->assertSame([50, 50, 50], $this->stockOfEachProduct());
     }
 
@@ -354,6 +359,23 @@ class SellerApiPosOwnershipTest extends TestCase
             $table->integer('minimum_order_qty')->default(1);
             $table->timestamps();
         });
+        // A till sale records its stock movement, and InventoryService refuses the WHOLE sale when that record cannot be
+        // written, so the till answers 500 without this table. Columns as InventoryService::record() writes them.
+        $this->createSellerApiTable('stock_movements', function (Blueprint $table) {
+            $table->unsignedBigInteger('product_id');
+            $table->unsignedBigInteger('seller_id')->nullable();
+            $table->string('type', 24);
+            $table->integer('qty_change');
+            $table->integer('balance_after')->nullable();
+            $table->string('reason', 40)->nullable();
+            $table->string('reference_type', 40)->nullable();
+            $table->unsignedBigInteger('reference_id')->nullable();
+            $table->text('note')->nullable();
+            $table->unsignedBigInteger('created_by')->nullable();
+            $table->string('created_by_type', 24)->nullable();
+            $table->timestamps();
+        });
+
         $this->createSellerApiTable('translations', function (Blueprint $table) {
             $table->string('translationable_type');
             $table->unsignedBigInteger('translationable_id');

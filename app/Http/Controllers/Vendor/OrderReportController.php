@@ -126,6 +126,9 @@ class OrderReportController extends Controller
             'total_order_return_amount' => $orders->sum('edit_return_amount'),
             'total_tax' => $orders->sum('details_sum_tax'),
             'total_order_commission' => $orders->sum('admin_commission'),
+            // One summary per currency the period was sold in, as the admin report already passes: this view reads
+            // $data['total_blocks'] and 500s without it, so these two PDF endpoints could not be printed at all.
+            'total_blocks' => app(\App\Services\Reports\OrderReportTotals::class)->perCurrency(orders: $orders),
             'total_delivery_charge' => $totalDeliveryCharge,
             'total_deliveryman_incentive' => $totalDeliverymanIncentive,
         ];
