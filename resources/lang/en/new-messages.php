@@ -11308,4 +11308,6 @@ return [
 	'name_the_market_this_product_belongs_to_your_account_works_in_more_than_one' => 'Name the market this product belongs to: your account works in more than one',
 	'this_action_covers_every_market_of_the_shop_and_your_account_does_not' => 'This action covers every market of the shop, and your account does not',
 	'totals_of_different_currencies_are_not_added' => 'Totals of different currencies are not added',
+	'Employee_Status_Updated_Successfully' => 'Employee Status Updated Successfully',
+	'role_deleted_successfully' => 'Role deleted successfully',
 ];

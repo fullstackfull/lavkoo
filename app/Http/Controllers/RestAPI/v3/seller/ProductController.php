@@ -1250,7 +1250,8 @@ class ProductController extends Controller
         if (!$product) {
             return $this->recordNotFound(code: 'product', message: 'product_not_found');
         }
-        $product = Helpers::product_data_formatting($product);
+        // Both gates stand: the lookup above refuses a product that is not this seller's, and this one holds it to the
+        // markets the token was granted. The formatting happens once, on the way out.
         $product = $this->productOfThisShop($request, Product::withoutGlobalScopes()->with('translations', 'tags', 'digitalVariation', 'seoInfo')->withCount('reviews'), $id);
 
         if ($product === null) {

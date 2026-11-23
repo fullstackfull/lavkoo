@@ -103,10 +103,10 @@ class RefundController extends Controller
     public function refund_details(Request $request):JsonResponse
     {
         $seller = $request->seller;
-        // Ownership: scope the order line to this seller so one seller can't read another's line/refund detail.
-        $order_details = OrderDetail::ofSeller(sellerId: $seller['id'])->find($request->order_details_id);
-        // And to the markets the token was granted (K-09): the line's market is its order's.
-        $order_details = $this->markets->narrowByOrder(OrderDetail::where('seller_id', $seller['id']))
+        // Ownership: scope the order line to this seller so one seller can't read another's line/refund detail -- `ofSeller`
+        // and not a bare seller_id, because an in-house line can carry this seller's id. And to the markets the token was
+        // granted (K-09): the line's market is its order's.
+        $order_details = $this->markets->narrowByOrder(OrderDetail::ofSeller(sellerId: $seller['id']))
             ->find($request->order_details_id);
         if (!$order_details) {
             return response()->json(['errors' => [['code' => 'order-details', 'message' => translate('not_found')]]], 404);

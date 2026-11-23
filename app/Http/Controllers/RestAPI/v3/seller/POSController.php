@@ -620,9 +620,9 @@ class POSController extends Controller
             return response()->json(['message' => translate('access_denied!')], 403);
         }
 
-        $orders = Order::with('details', 'shipping')->where(['seller_id' => $seller['id'], 'seller_is' => 'seller'])->find($request['id']);
         // One order read by its id, bound like the order list (K-09): a till receipt is an order detail by another name.
-        $orders = $this->markets->narrowOrders(Order::with('details', 'shipping')->where(['seller_id' => $seller['id']]))
+        // `seller_is` stays in the where: an in-house order can carry this seller's id, and it is not theirs to read.
+        $orders = $this->markets->narrowOrders(Order::with('details', 'shipping')->where(['seller_id' => $seller['id'], 'seller_is' => 'seller']))
             ->find($request['id']);
         if ($orders) {
             foreach ($orders['details'] as $order) {
