@@ -40,6 +40,53 @@ trait BuildsApiAddressSchema
             $table->timestamps();
         });
 
+        // The tax module's setup row, which OrderManager reads at placement through StorefrontTax: the query names
+        // tax_payer and country_code, so the shape has to be the migration's and not a shorter stand-in. Without it a
+        // wallet checkout dies on "Base table or view not found" before any money is judged.
+        $this->createTableOnce('system_tax_setups', function (Blueprint $table) {
+            $table->id();
+            $table->string('tax_type', 100)->default('order_wise');
+            $table->string('country_code', 20)->nullable()->index();
+            $table->string('tax_payer', 20)->nullable()->default('vendor');
+            $table->text('tax_ids')->nullable();
+            $table->boolean('is_default')->default(false);
+            $table->boolean('is_active')->default(true);
+            $table->boolean('is_included')->default(false);
+            $table->timestamps();
+        });
+
+        $this->createTableOnce('tax_additional_setups', function (Blueprint $table) {
+            $table->id();
+            $table->string('name')->index();
+            $table->unsignedBigInteger('system_tax_setup_id')->nullable();
+            $table->text('tax_ids')->nullable();
+            $table->boolean('is_active')->default(true);
+            $table->timestamps();
+        });
+
+        $this->createTableOnce('order_taxes', function (Blueprint $table) {
+            $table->id();
+            $table->string('tax_name');
+            $table->string('tax_type');
+            $table->string('tax_on');
+            $table->double('tax_rate', 23, 8)->default(0);
+            $table->double('tax_amount', 23, 8)->default(0);
+            $table->double('before_tax_amount', 23, 8)->default(0);
+            $table->double('after_tax_amount', 23, 8)->default(0);
+            $table->string('tax_payer')->nullable();
+            $table->integer('order_id')->nullable();
+            $table->string('order_type')->nullable();
+            $table->integer('quantity')->default(1)->nullable();
+            $table->integer('tax_id');
+            $table->integer('taxable_id')->nullable();
+            $table->string('taxable_type')->nullable();
+            $table->integer('seller_id')->nullable();
+            $table->string('seller_type')->nullable();
+            $table->integer('system_tax_setup_id');
+            $table->string('tax_for', 30)->default('tax_for_orders')->nullable();
+            $table->timestamps();
+        });
+
         $this->createTableOnce('storages', function (Blueprint $table) {
             $table->id();
             $table->string('data_type');
