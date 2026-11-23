@@ -56,7 +56,7 @@ class WalletOverdraftConcurrencyTest extends TestCase
         $reports = ConcurrentRunner::run($operation, $this->debits($operation, $transactionType, 2, 60.0));
 
         $this->assertSame([], array_values(array_filter($reports, fn (array $report): bool => !$report['ok'])), 'a worker failed');
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the debits did not overlap, so the test proves nothing');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the debits did not overlap, so the test proves nothing');
         $this->assertSame(1, $this->successes($reports), 'exactly one debit may succeed');
         $this->assertSame(40.0, WalletTables::walletBalance(self::CUSTOMER_ID));
         $this->assertSame(1, DB::table('wallet_transactions')->count());
@@ -68,7 +68,7 @@ class WalletOverdraftConcurrencyTest extends TestCase
         $reports = ConcurrentRunner::run($operation, $this->debits($operation, $transactionType, 10, 15.0));
 
         $this->assertSame([], array_values(array_filter($reports, fn (array $report): bool => !$report['ok'])), 'a worker failed');
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the debits did not overlap, so the test proves nothing');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the debits did not overlap, so the test proves nothing');
         $this->assertSame(6, $this->successes($reports), 'only six debits of fifteen fit in one hundred');
         $this->assertSame(10.0, WalletTables::walletBalance(self::CUSTOMER_ID));
         $this->assertSame(6, DB::table('wallet_transactions')->count());

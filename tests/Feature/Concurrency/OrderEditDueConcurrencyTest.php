@@ -60,7 +60,7 @@ class OrderEditDueConcurrencyTest extends TestCase
         $reports = ConcurrentRunner::run('wallet.pay_edit_due', $arguments);
 
         $this->assertSame([], array_values(array_filter($reports, fn (array $report): bool => !$report['ok'])), 'a worker failed');
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the payments did not overlap, so the test proves nothing');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the payments did not overlap, so the test proves nothing');
         $this->assertSame(1, count(array_filter($reports, fn (array $report): bool => $report['result'] === true)), 'exactly one payment may succeed');
         $this->assertSame([
             'due' => 0.0, 'order_amount' => self::ORDER_AMOUNT + self::DUE, 'payment_status' => 'paid', 'history_status' => 'paid',

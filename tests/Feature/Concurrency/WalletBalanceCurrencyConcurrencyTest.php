@@ -55,7 +55,7 @@ class WalletBalanceCurrencyConcurrencyTest extends TestCase
         $reports = ConcurrentRunner::run('wallet.place_api_wallet_order', array_fill(0, 2, ['customer' => $customer->id]));
 
         $this->assertCount(2, array_unique(array_column($reports, 'pid')), 'two different processes');
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes ran at the same time');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the processes ran at the same time');
         foreach ($reports as $index => $report) {
             $this->assertTrue($report['ok'], "process {$index} failed: " . ($report['message'] ?? ''));
         }

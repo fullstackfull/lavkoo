@@ -42,7 +42,7 @@ class WalletCheckoutConcurrencyTest extends ApiAddressTestCase
         $reports = ConcurrentRunner::run('wallet.checkout', [$checkout, $checkout]);
 
         $this->assertSame([], array_values(array_filter($reports, fn (array $report): bool => !$report['ok'])), 'a worker failed: ' . json_encode($reports));
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the checkouts did not overlap, so the test proves nothing');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the checkouts did not overlap, so the test proves nothing');
         $results = array_column($reports, 'result');
         sort($results);
         $this->assertSame(['placed', 'refused'], $results);

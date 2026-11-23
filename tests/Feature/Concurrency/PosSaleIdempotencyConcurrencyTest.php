@@ -36,7 +36,7 @@ class PosSaleIdempotencyConcurrencyTest extends ApiAddressTestCase
         $reports = ConcurrentRunner::run('pos.seller_sale', array_fill(0, 2, $sale));
 
         $this->assertCount(2, array_unique(array_column($reports, 'pid')), 'two different processes');
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes ran at the same time');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the processes ran at the same time');
         foreach ($reports as $index => $report) {
             $this->assertTrue($report['ok'], "process {$index} failed: " . ($report['message'] ?? ''));
         }

@@ -58,7 +58,7 @@ class CheckoutStockConcurrencyTest extends ApiAddressTestCase
         foreach ($reports as $index => $report) {
             $this->assertTrue($report['ok'], "worker {$index} let an exception escape: " . ($report['error'] ?? '') . ' ' . ($report['message'] ?? ''));
         }
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the checkouts ran at the same time');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the checkouts ran at the same time');
         $orderIdsPerWorker = array_column($reports, 'result');
         $placed = array_filter($orderIdsPerWorker, static fn (array $orderIds): bool => count($orderIds) === 1);
         $refused = array_filter($orderIdsPerWorker, static fn (array $orderIds): bool => $orderIds === []);

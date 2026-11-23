@@ -52,7 +52,7 @@ class ReferralRewardConcurrencyTest extends TestCase
         $grant = DB::table('referral_reward_grants')->sole();
         $this->assertSame((int) $this->referralRows()->sole()->id, (int) $grant->wallet_transaction_id);
         $this->assertEqualsWithDelta(10.0, $this->walletBalance(self::REFERRER_ID), 0.000001, 'the balance holds a single credit');
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes really ran at the same time');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the processes really ran at the same time');
     }
 
     public function test_the_shared_writer_and_the_customer_manager_writer_racing_for_one_reward_credit_once(): void

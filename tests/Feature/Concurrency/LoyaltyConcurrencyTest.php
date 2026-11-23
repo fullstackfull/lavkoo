@@ -66,7 +66,7 @@ class LoyaltyConcurrencyTest extends TestCase
         $reports = ConcurrentRunner::run('loyalty.convert', $this->writes('loyalty.convert', self::CONVERSION_WRITERS, self::POINTS_PER_CONVERSION));
 
         $this->assertSame([], array_values(array_filter($reports, fn (array $report): bool => !$report['ok'])), 'a worker failed');
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the conversions did not overlap, so the test proves nothing');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the conversions did not overlap, so the test proves nothing');
         $this->assertSame(1, count(array_filter($reports, fn (array $report): bool => $report['result'] === true)), 'exactly one conversion should succeed');
         $this->assertSame(1, DB::table('wallet_transactions')->count(), 'only the successful conversion may credit the wallet');
         $this->assertSame(1, DB::table('loyalty_point_transactions')->where('transaction_type', 'point_to_wallet')->count());
@@ -82,7 +82,7 @@ class LoyaltyConcurrencyTest extends TestCase
         $reports = ConcurrentRunner::run($operation, $this->writes($operation, self::CREDIT_WRITERS, self::ORDER_AMOUNT));
 
         $this->assertSame([], array_values(array_filter($reports, fn (array $report): bool => !$report['ok'])), 'a worker failed');
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the writes did not overlap, so the test proves nothing');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the writes did not overlap, so the test proves nothing');
         $this->assertSame(self::CREDIT_WRITERS, DB::table('loyalty_point_transactions')->count(), 'every write should leave one ledger row');
         $this->assertEqualsWithDelta(
             self::OPENING_POINTS + self::CREDIT_WRITERS * self::ORDER_POINTS_EARNED,

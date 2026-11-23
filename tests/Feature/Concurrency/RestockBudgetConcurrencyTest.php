@@ -77,7 +77,7 @@ class RestockBudgetConcurrencyTest extends TestCase
         foreach ($reports as $index => $report) {
             $this->assertTrue($report['ok'], "worker {$index}: " . ($report['error'] ?? '') . ' ' . ($report['message'] ?? ''));
         }
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes really ran at the same time');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the processes really ran at the same time');
     }
 
     public function test_two_processes_marking_the_same_order_returned_restock_the_line_once(): void

@@ -73,7 +73,7 @@ class WalletConcurrencyTest extends TestCase
         $reports = ConcurrentRunner::run($operation, $arguments);
 
         $this->assertSame([], array_values(array_filter($reports, fn (array $report): bool => !$report['ok'])), 'a worker failed');
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the writes did not overlap, so the test proves nothing');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the writes did not overlap, so the test proves nothing');
         $this->assertSame(self::WRITES, DB::table('wallet_transactions')->count(), 'every write should leave one ledger row');
 
         $expected = self::OPENING_BALANCE + self::WRITES * $changePerWrite * self::AMOUNT;

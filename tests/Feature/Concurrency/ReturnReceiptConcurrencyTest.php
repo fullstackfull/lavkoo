@@ -50,7 +50,7 @@ class ReturnReceiptConcurrencyTest extends TestCase
         $this->assertSame(12, (int) DB::table('products')->where('id', $rma->product_id)->value('current_stock'));
         $this->assertSame(1, StockMovement::where('type', StockMovement::TYPE_RETURN)->where('reference_id', $rma->id)->count());
         $this->assertSame(ReturnShipment::STATUS_RESTOCKED, $rma->fresh()->status);
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes really ran at the same time');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the processes really ran at the same time');
         $this->assertLanguageFilesUnchanged();
     }
 }

@@ -95,7 +95,7 @@ class RefundConcurrencyTest extends TestCase
         $reports = ConcurrentRunner::run($operation, array_fill(0, self::WRITERS, $args));
 
         $this->assertSame([], array_values(array_filter($reports, fn (array $report): bool => !$report['ok'])), 'a worker failed');
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the requests did not overlap, so the test proves nothing');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the requests did not overlap, so the test proves nothing');
 
         return $reports;
     }

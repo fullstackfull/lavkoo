@@ -84,7 +84,7 @@ class MarketAccountConcurrencyTest extends TestCase
         $reports = $this->creditAtOnce($kind, market: 'KW', amount: 100);
 
         $this->assertAllWorkersSucceeded($reports);
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes ran at the same time');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the processes ran at the same time');
         $this->assertSame([true, true], array_column(array_column($reports, 'result'), 'applied'), 'neither credit was refused or killed');
         $this->assertSame(1, DB::table($kind->accountsTable())->count(), 'two writers opened one account');
         $this->assertSame(200.0, $this->heldInMarket($kind, 'KW'), 'neither credit was lost');

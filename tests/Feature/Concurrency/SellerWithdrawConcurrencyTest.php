@@ -77,7 +77,7 @@ class SellerWithdrawConcurrencyTest extends TestCase
         $this->assertSame(200, $reports[1]['result']['status'], 'the close lands whether it runs before or after the update');
         $this->assertNull(DB::table('withdraw_requests')->find(10));
         $this->assertSame(['total_earning' => 1000.0, 'pending_withdraw' => 0.0], $this->wallet(), 'the wallet holds the whole amount again');
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes really ran at the same time');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the processes really ran at the same time');
     }
 
     public function test_two_updates_of_one_pending_request_at_once_keep_the_wallet_and_the_request_in_step(): void
@@ -95,7 +95,7 @@ class SellerWithdrawConcurrencyTest extends TestCase
         $amount = (float) DB::table('withdraw_requests')->where('id', 10)->value('amount');
         $this->assertContains($amount, [50.0, 70.0]);
         $this->assertSame(['total_earning' => 1000.0 - $amount, 'pending_withdraw' => $amount], $this->wallet(), 'pending matches the request that won');
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes really ran at the same time');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the processes really ran at the same time');
     }
 
     public function test_closing_two_pending_requests_of_one_seller_at_once_returns_both_amounts(): void
@@ -113,7 +113,7 @@ class SellerWithdrawConcurrencyTest extends TestCase
         $this->assertSame([200, 200], array_column(array_column($reports, 'result'), 'status'));
         $this->assertSame(0, DB::table('withdraw_requests')->count());
         $this->assertSame(['total_earning' => 1000.0, 'pending_withdraw' => 0.0], $this->wallet(), 'neither close overwrote the other');
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes really ran at the same time');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the processes really ran at the same time');
     }
 
     public function test_two_creates_that_each_fit_the_balance_alone_but_not_together_give_exactly_one_request(): void
@@ -131,7 +131,7 @@ class SellerWithdrawConcurrencyTest extends TestCase
         $this->assertSame([200, 403], $statuses, 'one create is accepted and the other is refused');
         $this->assertSame(1, DB::table('withdraw_requests')->where('seller_id', self::SELLER_ID)->count());
         $this->assertSame(['total_earning' => 40.0, 'pending_withdraw' => 60.0], $this->wallet(), 'the wallet holds back one request only');
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes really ran at the same time');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the processes really ran at the same time');
     }
 
     public function test_two_admin_approvals_of_one_request_at_once_pay_it_once(): void
@@ -147,7 +147,7 @@ class SellerWithdrawConcurrencyTest extends TestCase
         $this->assertSame([], $this->problemsOf($reports));
         $this->assertSame(1, (int) DB::table('withdraw_requests')->where('id', 10)->value('approved'));
         $this->assertSame(['total_earning' => 800.0, 'pending_withdraw' => 0.0, 'withdrawn' => 200.0], $this->walletWithWithdrawn(), 'withdrawn grew by the amount once');
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes really ran at the same time');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the processes really ran at the same time');
     }
 
     public function test_an_approval_and_a_denial_of_one_request_at_once_settle_it_one_way_only(): void
@@ -167,7 +167,7 @@ class SellerWithdrawConcurrencyTest extends TestCase
             ? ['total_earning' => 800.0, 'pending_withdraw' => 0.0, 'withdrawn' => 200.0]
             : ['total_earning' => 1000.0, 'pending_withdraw' => 0.0, 'withdrawn' => 0.0];
         $this->assertSame($expected, $this->walletWithWithdrawn(), 'the wallet follows the decision that was stored');
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes really ran at the same time');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the processes really ran at the same time');
     }
 
     public function test_repeating_an_approval_after_it_landed_is_refused_and_changes_nothing(): void
