@@ -158,14 +158,47 @@ class OnePriceWriteTouchesOneRowTest extends TestCase
         $this->assertSame($untouched, $this->rowOf(2), 'the other copy moved when one copy was discounted');
     }
 
+    public function test_the_one_stock_write_this_scan_cannot_see_is_still_scoped_and_locked(): void
+    {
+        // The returns restock, which priceAndStockWrites() cannot see because the column is named in the
+        // assignment before the update. Read here by name instead: the write names the row it changes,
+        // and the row was locked before the balance it adds to was read.
+        $source = (string) file_get_contents(dirname(__DIR__, 3) . '/app/Services/Marketplace/ReturnLogisticsService.php');
+
+        $this->assertStringContainsString(
+            "DB::table('products')->where('id', \$rma->product_id)->update(\$restock);",
+            $source,
+            'the returns restock no longer names the row it changes, and the scan above cannot see it either',
+        );
+        $this->assertStringContainsString(
+            "DB::table('products')->where('id', \$rma->product_id)->lockForUpdate()->first()",
+            $source,
+            'the returns restock reads the balance it adds to without locking the row first',
+        );
+        $this->assertStringContainsString(
+            "\$restock = ['current_stock' => \$balanceAfter",
+            $source,
+            'the shape this test covers has changed: re-read the write and this test together',
+        );
+    }
+
     public function test_no_price_or_stock_write_in_the_application_is_unscoped_except_the_one_already_known(): void
     {
         $writes = $this->priceAndStockWrites();
 
-        // Measured on this head, not chosen: 13 statements write one of these four columns, and 11 of
+        // Measured on this head, not chosen: 12 statements write one of these four columns, and 10 of
         // them name the row they change. The figure is asserted so a write that appears without being
         // read here cannot pass unnoticed.
-        $this->assertCount(13, $writes, 'the number of price and stock writes moved; each new one wants reading');
+        //
+        // It was 13, and the thirteenth did NOT go away. ReturnLogisticsService still writes
+        // current_stock when a restockable return is received; the returns lane rewrote it to build the
+        // column list one statement earlier -- `$restock = ['current_stock' => ...]` and then
+        // `->update($restock)` -- and this scan reads one statement at a time, so a column named in the
+        // assignment before the update is invisible to it. That is a blind spot of the reader, not an
+        // improvement in the code, which is why
+        // test_the_one_stock_write_this_scan_cannot_see_is_still_scoped_and_locked reads that one site
+        // by name rather than letting the count quietly drop.
+        $this->assertCount(12, $writes, 'the number of price and stock writes moved; each new one wants reading');
 
         $unscoped = array_values(array_filter($writes, static fn (array $w): bool => !$w['scoped']));
 
