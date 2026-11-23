@@ -18,7 +18,6 @@ final class StorefrontPreflight
     public const CURRENCY = 'currency';
 
     public const LEGAL_ENTITY = 'legal_entity';
-
     public const TAX = 'tax';
 
     public function __construct(
