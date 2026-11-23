@@ -13,6 +13,7 @@ use App\Enums\SessionKey;
 use App\Enums\ViewPaths\Vendor\POSOrder;
 use App\Events\DigitalProductDownloadEvent;
 use App\Exceptions\InsufficientStockException;
+use App\Exceptions\WalletDebitFailedException;
 use App\Http\Controllers\BaseController;
 use App\Services\CartService;
 use App\Services\Marketplace\InventoryService;
@@ -33,6 +34,7 @@ use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
 
 class POSOrderController extends BaseController
@@ -109,13 +111,17 @@ class POSOrderController extends BaseController
      */
     public function placeOrder(Request $request): JsonResponse
     {
-        $amount = $request['amount'];
         $fulfillment = $request['fulfillment'] == 'delivery' ? 'delivery' : 'instant';
         // Cash for a delivery order is collected on delivery, so the tendered
         // amount is neither required nor recorded here — same as a web COD order.
         $paidAmount = ($request['type'] == 'cash' && $fulfillment == 'instant') ? ($request['paid_amount'] ?? 0) : null;
         $cartId = session(SessionKey::CURRENT_USER);
-        $condition = $this->POSService->checkConditions(amount: $amount, paidAmount: $paidAmount);
+        // The posted `amount` decides none of the money below any more; $saleAmount does. It is still what the
+        // tendered cash is measured against, because that comparison is between two figures the panel itself produced
+        // — the total it displayed and the cash the cashier says was handed over — and the panel's cart summary still
+        // adds its lines up in floats. Measuring the cash against the server's figure instead would refuse a cashier
+        // who tendered exactly what the panel showed.
+        $condition = $this->POSService->checkConditions(amount: $request['amount'], paidAmount: $paidAmount);
         if ($condition == 'true') {
             return response()->json();
         }
@@ -123,12 +129,70 @@ class POSOrderController extends BaseController
         if ($userId == 0 && $fulfillment == 'delivery') {
             return response()->json(['checkProductTypeForWalkingCustomer' => true, 'message' => translate('To_place_a_delivery_order') . ',' . translate('_kindly_select_a_customer_or_fill_up_the_“Add_New_Customer”_form') . '.']);
         }
+        // What the sale costs is the server's own figure: worked out from the cart the server holds and the prices in
+        // the database, and added up in whole minor units. App\Services\Pos\PosSaleTotal says why neither half of
+        // that is optional — `amount` was a figure the browser posted, and the panel's own addition loses a minor unit
+        // to binary floats on ordinary carts.
+        //
+        // It is settled HERE, before the transaction, because the balance a wallet sale is refused on and the money it
+        // then takes have to be the same figure, and that refusal happens outside the transaction. This locks nothing
+        // and writes nothing, so it changes neither which rows the transaction locks nor the order it does its work
+        // in: the ordered product lock is still the first thing inside it, the debit still comes after that lock, and
+        // the order id is still chosen inside it after the lock. It reads the product rows once more, unlocked; the
+        // read inside the transaction stays where it is, after the lock, so the rows the sale is WRITTEN from are
+        // still the locked ones.
+        //
+        // The one refusal PosSaleTotal can raise — a line that cannot be counted in 64-bit integers — is caught here
+        // rather than left to throw. Neither panel's place-order $.post defines an `error:` callback (reviewer B, F6),
+        // so an exception out of this action shows the cashier a stopped spinner and nothing else. That is a
+        // pre-existing hole this lane does not widen: every refusal it adds answers in a shape the panel displays.
+        try {
+            $saleTotal = $this->cartService->getPosSaleTotal(
+                cartName: $cartId,
+                customerId: $userId,
+                products: $this->getCartProductsForPricing(cartId: $cartId),
+            );
+        } catch (InvalidArgumentException $exception) {
+            Log::warning('POS sale refused: ' . $exception->getMessage(), ['cart' => $cartId]);
+            ToastMagic::error(translate('You cannot place an order with an amount of zero. Please enter a valid amount.'));
+
+            return response()->json();
+        }
+        $saleAmount = $saleTotal->amount();
+
+        // `count($cartListSession) > 0` below counts cart LINES, not lines this till can sell, and the sale's own loop
+        // skips a line whose product is no longer in the catalogue. So a cart whose every line names a deleted product
+        // wrote an order row with NO lines and charged for it — the posted figure before this branch, and nothing at
+        // all after it, with the tendered cash still recorded, which left paid_amount ABOVE order_amount and had the
+        // readiness probe count the row as overpaid (reviewer B, F8). The seller app's till was given a refusal for
+        // exactly this; these two were not. It is the same key and the same answer shape, so the panel reloads and
+        // shows the toast. It cannot pre-empt the `stockShortfall` answer the base's own test pins for a line of fewer
+        // than one unit: that line's product EXISTS, so it is priced and counted here and refused where it belongs, by
+        // InventoryService::takeForSale.
+        if ($saleTotal->lineCount() === 0) {
+            ToastMagic::error(translate('a_sale_needs_at_least_one_product'));
+            return response()->json();
+        }
+
         // The debit itself is made inside the sale's transaction below. A sale this panel refuses for want of stock must not
         // leave the customer's wallet lighter, which is what a debit taken before the stock was checked would do.
         $payByWallet = $request['type'] == 'wallet' && $userId != 0;
         if ($payByWallet) {
             $customerBalance = $this->customerRepo->getFirstWhere(params: ['id' => $userId]) ?? 0;
-            if ($customerBalance['wallet_balance'] < currencyConverter(amount: $amount)) {
+            // A sale that does not cost a positive amount cannot be paid for out of a wallet, and the balance
+            // comparison alone does not say so: `$balance < -100` is false of every balance, so a cart discounted past
+            // its own lines would pass it and then CREDIT the customer — createWalletTransaction treats `order_place`
+            // as a debit, and a debit of a negative amount adds to the balance. The panel's own discount route already
+            // refuses such a cart (POSController::updateDiscount answers 'amount_low' when the total would go below
+            // zero), so this is the second line of that defence rather than the first. It is deliberately NOT applied
+            // to the sale as a whole: a line of
+            // fewer than one unit also comes to less than nothing, and that is refused where it belongs, by
+            // InventoryService::takeForSale, with the `stockShortfall` answer the panel reads.
+            if ($saleAmount <= 0) {
+                ToastMagic::error(translate('You cannot place an order with an amount of zero. Please enter a valid amount.'));
+                return response()->json();
+            }
+            if ($customerBalance['wallet_balance'] < currencyConverter(amount: $saleAmount)) {
                 ToastMagic::error(translate('need_Sufficient_Amount_Balance'));
                 return response()->json();
             }
@@ -150,7 +214,7 @@ class POSOrderController extends BaseController
 
         if (count($cartListSession) > 0) {
             try {
-                $orderId = OrderManager::writeOrderRetryingOnDuplicateId(function () use ($request, $cartId, $cartListSession, $cart, $taxConfig, $userId, $amount, $paidAmount, $fulfillment, $payByWallet) {
+                $orderId = OrderManager::writeOrderRetryingOnDuplicateId(function () use ($request, $cartId, $cartListSession, $cart, $taxConfig, $userId, $saleTotal, $saleAmount, $paidAmount, $fulfillment, $payByWallet) {
                 // Every product of the sale is locked here, in ascending id order, before a line is priced or taken. See
                 // InventoryService::lockProductsForSale for why the order is the point.
                 $this->inventoryService->lockProductsForSale(productIds: $cartListSession->pluck('id')->all());
@@ -161,7 +225,16 @@ class POSOrderController extends BaseController
                 // REPEATABLE READ snapshot the order id is then checked against, so an overlapping sale's order was invisible
                 // and its id was chosen again.
                 if ($payByWallet) {
-                    $this->createWalletTransaction(user_id: $userId, amount: floatval($amount), transaction_type: 'order_place', reference: 'order_place_in_pos');
+                    // The answer is checked, because this call is what MAKES the sale paid and it has two ways of
+                    // doing nothing and saying so: it returns false outright when the `wallet_status` setting is off,
+                    // and false again if its own save throws. Both answers were discarded, so the till wrote an order
+                    // marked payment_status 'paid' with no wallet_transactions row and the balance untouched —
+                    // measured at this branch's base and at its head alike (reviewer A, F6). Throwing here rolls the
+                    // whole sale back the way an InsufficientStockException already does, which is the only honest
+                    // answer: a wallet sale that took nothing is not a sale.
+                    if (!$this->createWalletTransaction(user_id: $userId, amount: $saleAmount, transaction_type: 'order_place', reference: 'order_place_in_pos')) {
+                        throw new WalletDebitFailedException(userId: $userId, amount: $saleAmount);
+                    }
                 }
 
                 $products = $this->productRepo->getListWithScope(whereIn: ['id' => $cartListSession->pluck('id')->toArray()], relations: ['clearanceSale' => function ($query) {
@@ -174,7 +247,6 @@ class POSOrderController extends BaseController
                 // written for that crash, and its read is a locking one, so the second sale waits and reads the id the first
                 // one just wrote.
                 $orderId = OrderManager::generateNewOrderID();
-                $totalTaxAmount = 0;
                 foreach ($cartListSession as $item) {
                     if (is_array($item)) {
                         $product = $products->firstWhere('id', $item['id']);
@@ -208,7 +280,6 @@ class POSOrderController extends BaseController
                                 product: $product, price: $price, tax: $cartSubTotalCalculation['appliedTaxAmount'],
                                 fulfillment: $fulfillment, paymentType: $request['type']
                             );
-                            $totalTaxAmount += $cartSubTotalCalculation['appliedTaxAmount'];
 
                             // The shelf, the variant and the movement row in one call, under the lock taken above, by the same
                             // rule the web checkout follows: a line the shelf cannot cover throws and the whole sale rolls back.
@@ -254,9 +325,12 @@ class POSOrderController extends BaseController
                 $order = $this->orderService->getPOSOrderData(
                     orderId: $orderId,
                     cart: $cart,
-                    amount: $amount,
-                    totalTaxAmount: $totalTaxAmount,
-                    paidAmount: $paidAmount ?? ($request['type'] == 'cash' ? 0 : $amount),
+                    amount: $saleAmount,
+                    // The sale's own integer tax, not the float accumulated beside it: an order charged in whole
+                    // minor units recorded a tax that was not one (13.563 on a two-decimal store), so the row did
+                    // not add up to itself. Reviewer A's F4 and reviewer B's F3.
+                    totalTaxAmount: $saleTotal->taxAmount(),
+                    paidAmount: $paidAmount ?? ($request['type'] == 'cash' ? 0 : $saleAmount),
                     paymentType: $request['type'],
                     addedBy: 'seller',
                     userId: $userId,
@@ -266,6 +340,14 @@ class POSOrderController extends BaseController
 
                 return $orderId;
             });
+            } catch (WalletDebitFailedException $exception) {
+                // The transaction has rolled back: no order, no order line, no stock taken, and the balance is what it
+                // was. The refusal uses the same answer shape and the same message as the balance refusal above, so the
+                // panel reloads and shows the toast rather than the operator seeing a 500 with no message at all.
+                Log::warning('POS wallet sale refused: ' . $exception->getMessage(), ['user_id' => $exception->userId]);
+                ToastMagic::error(translate('need_Sufficient_Amount_Balance'));
+
+                return response()->json();
             } catch (InsufficientStockException $exception) {
                 // The transaction has rolled back: no order, no order line, no stock taken and no wallet debit. The cart is
                 // left as it was so the cashier can change the quantity and try again.
@@ -334,6 +416,23 @@ class POSOrderController extends BaseController
             'totalHoldOrders' => $totalHoldOrders,
             'view' => view(POSOrder::HOLD_ORDERS[VIEW], compact('totalHoldOrders', 'cartItems'))->render(),
         ]);
+    }
+
+    /**
+     * The products of a cart, carrying the clearance sale the pricing helpers read off them.
+     *
+     * The same read the sale's own transaction makes, so the figure the sale is priced at before the transaction and
+     * the rows it is written from inside one are priced by the same rule.
+     */
+    private function getCartProductsForPricing(string $cartId): Collection|LengthAwarePaginator
+    {
+        return $this->productRepo->getListWithScope(
+            whereIn: ['id' => $this->cartService->filterSessionCartList(cart: session($cartId))->pluck('id')->toArray()],
+            relations: ['clearanceSale' => function ($query) {
+                return $query->active();
+            }],
+            dataLimit: 'all',
+        );
     }
 
     /**

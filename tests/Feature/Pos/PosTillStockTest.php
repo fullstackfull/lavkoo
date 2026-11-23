@@ -642,14 +642,6 @@ class PosTillStockTest extends PosTillTestCase
         return null;
     }
 
-    private function walletCustomer(int $id, float $balance): void
-    {
-        DB::table('users')->insert([
-            'id' => $id, 'f_name' => 'Sara', 'l_name' => 'Alharbi', 'email' => "customer{$id}@example.test",
-            'phone' => '0551234567', 'wallet_balance' => $balance, 'created_at' => now(), 'updated_at' => now(),
-        ]);
-    }
-
     private function givenWalletCartAtTill(string $till, int $customerId, int $productId, int $quantity): void
     {
         $cartId = 'saved-customer-' . $customerId;
