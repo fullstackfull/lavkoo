@@ -168,7 +168,6 @@ class AdminRouteTableTest extends TestCase
 
         $this->assertSame(['GET admin/zz-storefront-probe-unknown asks for `zz_not_offered`'], array_values($probes));
     }
-
     /** @return list<string> "METHOD path asks for `name`" for every name of a `module:` middleware that the role form does not offer */
     private function permissionsTheRoleFormDoesNotOffer(): array
     {
