@@ -13,6 +13,7 @@ use App\Contracts\Repositories\RefundStatusRepositoryInterface;
 use App\Contracts\Repositories\RefundTransactionRepositoryInterface;
 use App\Contracts\Repositories\VendorWalletRepositoryInterface;
 use App\Enums\ExportFileNames\Admin\RefundRequest as RefundRequestExportFile;
+use App\Enums\LedgerActor;
 use App\Events\RefundEvent;
 use App\Exports\RefundRequestExport;
 use App\Http\Controllers\BaseController;
@@ -20,6 +21,7 @@ use App\Http\Requests\Admin\RefundStatusRequest;
 use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Services\RefundStatusService;
 use App\Services\RefundTransactionService;
+use App\Services\Storefront\LedgerOrigin;
 use App\Services\Storefront\OrderStorefrontSnapshot;
 use App\Traits\CustomerTrait;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
@@ -164,7 +166,7 @@ class RefundController extends BaseController
             $dataArray = $refundStatusService->getRefundStatusProcessData(request: $request, orderDetails: $orderDetails, refund: $refund, loyaltyPoint: $loyaltyPoint);
 
             if ($request['refund_status'] == 'refunded' && $loyaltyPoint > 0 && getWebConfig(name: 'loyalty_point_status') == 1) {
-                $this->loyaltyPointTransactionRepo->addLoyaltyPointTransaction(userId: $refund['customer_id'], reference: $refund['order_id'], amount: $loyaltyPoint, transactionType: 'refund_order');
+                $this->loyaltyPointTransactionRepo->addLoyaltyPointTransaction(userId: $refund['customer_id'], reference: $refund['order_id'], amount: $loyaltyPoint, transactionType: 'refund_order', origin: LedgerOrigin::refund(id: $refund['id'], by: LedgerActor::Admin));
             }
             $this->orderDetailRepo->update(id: $refund['order_details_id'], data: ['refund_request' => $dataArray['orderDetails']['refund_request']]);
             $this->refundRequestRepo->update(id: $request['id'], data: $dataArray['refund']);

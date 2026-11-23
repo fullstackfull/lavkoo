@@ -4,6 +4,7 @@ namespace App\Http\Controllers\RestAPI\v2\delivery_man;
 
 use App\Services\Fulfillment\FulfillmentOrderGuard;
 use App\Services\Referral\ReferralRewardService;
+use App\Services\Storefront\LedgerOrigin;
 use App\Events\OrderStatusEvent;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\API\v2\DeliveryMan\DeliveryManOrderDeliveryVerificationRequest;
@@ -252,7 +253,7 @@ class DeliveryManController extends Controller
                     refereeId: $customer->id,
                     beneficiaryId: $referredByUser->id,
                     orderId: $order->id,
-                    credit: fn () => CustomerManager::create_wallet_transaction($referredByUser->id, floatval($refEarningExchangeRate), 'add_fund_by_admin', 'earned_by_referral'),
+                    credit: fn () => CustomerManager::create_wallet_transaction($referredByUser->id, floatval($refEarningExchangeRate), 'add_fund_by_admin', 'earned_by_referral', origin: LedgerOrigin::order(id: $order->id)),
                 );
             }
         }

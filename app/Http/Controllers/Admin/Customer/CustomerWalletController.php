@@ -6,6 +6,7 @@ use App\Contracts\Repositories\AddFundBonusCategoriesRepositoryInterface;
 use App\Contracts\Repositories\BusinessSettingRepositoryInterface;
 use App\Contracts\Repositories\CustomerRepositoryInterface;
 use App\Contracts\Repositories\WalletTransactionRepositoryInterface;
+use App\Enums\LedgerActor;
 use App\Enums\WebConfigKey;
 use App\Events\AddFundToWalletEvent;
 use App\Exports\CustomerTransactionsExport;
@@ -15,6 +16,7 @@ use App\Http\Requests\Admin\AddFundBonusCategoriesUpdateRequest;
 use App\Http\Requests\Admin\AddFundRequest;
 use App\Http\Requests\Admin\BonusSetupRequest;
 use App\Services\CustomerWalletService;
+use App\Services\Storefront\LedgerOrigin;
 use App\Traits\PaginatorTrait;
 use Carbon\Carbon;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
@@ -99,7 +101,8 @@ class CustomerWalletController extends BaseController
             user_id: $request['customer_id'],
             amount: $request['amount'],
             transactionType: 'add_fund_by_admin',
-            reference: ($request['reference'] ?? 'add_fund_by_admin'));
+            reference: ($request['reference'] ?? 'add_fund_by_admin'),
+            origin: LedgerOrigin::by(actor: LedgerActor::Admin));
 
         $customer = $this->customerRepo->getFirstWhere(params: ['id' => $request['customer_id']]);
         $customerWalletService->sendPushNotificationMessage(request: $request, customer: $customer);

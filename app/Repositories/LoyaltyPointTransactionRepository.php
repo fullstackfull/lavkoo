@@ -7,6 +7,8 @@ use App\Models\BusinessSetting;
 use App\Models\LoyaltyPointTransaction;
 use App\Models\User;
 use App\Services\Customer\CustomerBalanceLock;
+use App\Services\Storefront\LedgerAttribution;
+use App\Services\Storefront\LedgerOrigin;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -99,7 +101,7 @@ class LoyaltyPointTransactionRepository implements LoyaltyPointTransactionReposi
         return $dataLimit == 'all' ? $query->get() : $query->paginate($dataLimit)->appends(['searchValue' => $searchValue]);
     }
 
-    public function addLoyaltyPointTransaction(string|int $userId, string $reference, string|int|float $amount, string $transactionType): bool
+    public function addLoyaltyPointTransaction(string|int $userId, string $reference, string|int|float $amount, string $transactionType, ?LedgerOrigin $origin = null): bool
     {
         $settings = array_column($this->businessSetting->whereIn('type', ['loyalty_point_status', 'loyalty_point_exchange_rate', 'loyalty_point_item_purchase_point'])->get()->toArray(), 'value', 'type');
         if ($settings['loyalty_point_status'] != 1) {
@@ -118,7 +120,7 @@ class LoyaltyPointTransactionRepository implements LoyaltyPointTransactionReposi
             return false;
         }
 
-        return CustomerBalanceLock::apply($userId, function (User $user) use ($reference, $transactionType, $credit, $debit) {
+        return CustomerBalanceLock::apply($userId, function (User $user) use ($reference, $transactionType, $credit, $debit, $origin) {
             $currentBalance = $user['loyalty_point'] + $credit - $debit;
             if ($transactionType == 'point_to_wallet' && $currentBalance < 0) {
                 return false;
@@ -136,6 +138,7 @@ class LoyaltyPointTransactionRepository implements LoyaltyPointTransactionReposi
                 'debit' => $debit,
                 'created_at' => now(),
                 'updated_at' => now(),
+                ...app(LedgerAttribution::class)->of(table: $this->loyaltyPointTransaction->getTable(), origin: $origin),
             ]);
 
             return true;

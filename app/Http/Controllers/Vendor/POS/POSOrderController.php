@@ -8,6 +8,7 @@ use App\Contracts\Repositories\OrderDetailRepositoryInterface;
 use App\Contracts\Repositories\OrderRepositoryInterface;
 use App\Contracts\Repositories\ProductRepositoryInterface;
 use App\Contracts\Repositories\StorageRepositoryInterface;
+use App\Enums\LedgerActor;
 use App\Enums\SessionKey;
 use App\Enums\ViewPaths\Vendor\POSOrder;
 use App\Events\DigitalProductDownloadEvent;
@@ -17,6 +18,7 @@ use App\Services\CartService;
 use App\Services\OrderDetailsService;
 use App\Services\OrderService;
 use App\Services\POSService;
+use App\Services\Storefront\LedgerOrigin;
 use App\Traits\CalculatorTrait;
 use App\Traits\CustomerTrait;
 use App\Utils\CartManager;
@@ -123,7 +125,7 @@ class POSOrderController extends BaseController
 
             try {
                 $orderId = DB::transaction(function () use ($request, $amount, $fulfillment, $paidAmount, $cartId, $userId, $payByWallet, $taxConfig, $cart, $cartListSession, $products, $totalDiscountedPrice) {
-                    if ($payByWallet && $this->createWalletTransaction(user_id: $userId, amount: floatval($amount), transaction_type: 'order_place', reference: 'order_place_in_pos') === false) {
+                    if ($payByWallet && $this->createWalletTransaction(user_id: $userId, amount: floatval($amount), transaction_type: 'order_place', reference: 'order_place_in_pos', origin: LedgerOrigin::by(actor: LedgerActor::Seller)) === false) {
                         throw new WalletDebitRefusedException(customerId: $userId);
                     }
 

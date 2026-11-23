@@ -26,6 +26,7 @@ use App\Models\User;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
 use App\Services\OrderEditService;
 use App\Services\Payments\GatewayCurrencySupport;
+use App\Services\Storefront\LedgerOrigin;
 use App\Services\Storefront\OrderStorefrontSnapshot;
 use App\Services\Storefront\StorefrontCurrency;
 use App\Utils\CartManager;
@@ -830,7 +831,7 @@ trait OrderEditManager
                     return ['status' => false, 'message' => translate('Insufficient_Wallet_Balance')];
                 }
 
-                $debit = CustomerManager::create_wallet_transaction($customer['id'], $dueAmount, 'due_payment_for_order', 'reduce_wallet_amount', ['payment_method' => 'wallet']);
+                $debit = CustomerManager::create_wallet_transaction($customer['id'], $dueAmount, 'due_payment_for_order', 'reduce_wallet_amount', ['payment_method' => 'wallet'], origin: LedgerOrigin::order(id: $lockedOrder['id']));
                 if ($debit === false) {
                     throw new WalletDebitRefusedException(customerId: $customer['id']);
                 }

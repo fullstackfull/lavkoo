@@ -54,6 +54,8 @@ use App\Models\DeliverySyriaParcel;
 use App\Services\Fulfillment\FulfillmentHooks;
 use App\Services\Fulfillment\OrderItemOwnershipSnapshotter;
 use App\Services\Marketplace\RestockBudget;
+use App\Services\Storefront\LedgerAttribution;
+use App\Services\Storefront\LedgerOrigin;
 use App\Services\Storefront\OrderStorefrontSnapshot;
 use App\Services\SalesChannels\Dispatch\ChannelOrderMarker;
 use App\Enums\Address\AddressChannel;
@@ -959,7 +961,8 @@ class OrderManager
                         user_id: $referredByUser['id'],
                         amount: usdToDefaultCurrency(amount: $refEarningExchangeRate),
                         transaction_type: 'add_fund_by_admin',
-                        reference: 'earned_by_referral'
+                        reference: 'earned_by_referral',
+                        origin: LedgerOrigin::order(id: $orderId)
                     ),
                 );
             }
@@ -1824,7 +1827,7 @@ class OrderManager
         }
 
                 if ($walletPayment !== null) {
-                    $walletDebit = CustomerManager::create_wallet_transaction($walletPayment['customerId'], $walletPayment['amount'], 'order_place', 'order payment', amountInUsd: $walletPayment['amountInUsd']);
+                    $walletDebit = CustomerManager::create_wallet_transaction($walletPayment['customerId'], $walletPayment['amount'], 'order_place', 'order payment', amountInUsd: $walletPayment['amountInUsd'], origin: LedgerOrigin::checkout(orderIds: $orderPlacedIds));
                     if ($walletDebit === false) {
                         throw new WalletPaymentRefused(customerId: $walletPayment['customerId'], amount: $walletPayment['amount']);
                     }
@@ -2397,11 +2400,11 @@ Log::warning('Delivery Syria: parcel saved successfully', [
     }
 
 
-    public static function createWalletTransaction($user_id, float $amount, $transaction_type, $reference, $payment_data = []): bool|WalletTransaction
+    public static function createWalletTransaction($user_id, float $amount, $transaction_type, $reference, $payment_data = [], ?LedgerOrigin $origin = null): bool|WalletTransaction
     {
         if (BusinessSetting::where('type', 'wallet_status')->first()->value != 1) return false;
 
-        return CustomerBalanceLock::apply($user_id, function (User $user) use ($amount, $transaction_type, $reference, $payment_data) {
+        return CustomerBalanceLock::apply($user_id, function (User $user) use ($amount, $transaction_type, $reference, $payment_data, $origin) {
             $currentBalance = $user->wallet_balance;
 
             $walletTransaction = new WalletTransaction();
@@ -2437,6 +2440,7 @@ Log::warning('Delivery Syria: parcel saved successfully', [
             $walletTransaction->balance = $currentBalance + $creditAmount - $debitAmount;
             $walletTransaction->created_at = now();
             $walletTransaction->updated_at = now();
+            $walletTransaction->fill(app(LedgerAttribution::class)->of(table: $walletTransaction->getTable(), origin: $origin));
             $user->wallet_balance = $currentBalance + $addFundToWalletBonus + $creditAmount - $debitAmount;
 
             $user->save();

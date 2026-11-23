@@ -12,6 +12,8 @@ use App\Models\RestockProduct;
 use App\Models\BusinessSetting;
 use App\Models\ReferralCustomer;
 use App\Models\WalletTransaction;
+use App\Services\Storefront\LedgerAttribution;
+use App\Services\Storefront\LedgerOrigin;
 use App\Models\LoyaltyPointTransaction;
 use App\Services\Customer\CustomerBalanceLock;
 use App\Services\Wallet\WalletOverdraft;
@@ -34,11 +36,11 @@ class CustomerManager
     }
 
     /**create_wallet_transaction -> function on Customer trait -> createWalletTransaction*/
-    public static function create_wallet_transaction($user_id, float $amount, $transaction_type, $reference, $payment_data = [], bool $amountInUsd = false)
+    public static function create_wallet_transaction($user_id, float $amount, $transaction_type, $reference, $payment_data = [], bool $amountInUsd = false, ?LedgerOrigin $origin = null)
     {
         if (BusinessSetting::where('type', 'wallet_status')->first()->value != 1) return false;
 
-        return CustomerBalanceLock::apply($user_id, function (User $user) use ($amount, $transaction_type, $reference, $payment_data, $amountInUsd) {
+        return CustomerBalanceLock::apply($user_id, function (User $user) use ($amount, $transaction_type, $reference, $payment_data, $amountInUsd, $origin) {
             $current_balance = $user->wallet_balance;
 
             $wallet_transaction = new WalletTransaction();
@@ -81,6 +83,7 @@ class CustomerManager
             $wallet_transaction->balance = $settle($balance_before + $credit_amount - $debit_amount);
             $wallet_transaction->created_at = now();
             $wallet_transaction->updated_at = now();
+            $wallet_transaction->fill(app(LedgerAttribution::class)->of(table: $wallet_transaction->getTable(), origin: $origin));
             $user->wallet_balance = $settle($balance_before + $add_fund_to_wallet_bonus + $credit_amount - $debit_amount);
 
             $user->save();
@@ -91,7 +94,7 @@ class CustomerManager
         });
     }
 
-    public static function create_loyalty_point_transaction($user_id, $reference, $amount, $transaction_type): bool
+    public static function create_loyalty_point_transaction($user_id, $reference, $amount, $transaction_type, ?LedgerOrigin $origin = null): bool
     {
         $settings = array_column(BusinessSetting::whereIn('type', ['loyalty_point_status', 'loyalty_point_exchange_rate', 'loyalty_point_item_purchase_point'])->get()->toArray(), 'value', 'type');
         if ($settings['loyalty_point_status'] != 1) {
@@ -106,7 +109,7 @@ class CustomerManager
             $debit = $amount;
         }
 
-        return CustomerBalanceLock::apply($user_id, function (User $user) use ($reference, $transaction_type, $credit, $debit) {
+        return CustomerBalanceLock::apply($user_id, function (User $user) use ($reference, $transaction_type, $credit, $debit, $origin) {
             $current_balance = $user->loyalty_point + $credit - $debit;
             if ($transaction_type == 'point_to_wallet' && $current_balance < 0) {
                 return false;
@@ -122,6 +125,7 @@ class CustomerManager
             $loyalty_point_transaction->debit = $debit;
             $loyalty_point_transaction->created_at = now();
             $loyalty_point_transaction->updated_at = now();
+            $loyalty_point_transaction->fill(app(LedgerAttribution::class)->of(table: $loyalty_point_transaction->getTable(), origin: $origin));
             $user->loyalty_point = $current_balance;
 
             $user->save();
