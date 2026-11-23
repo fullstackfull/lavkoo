@@ -42,6 +42,7 @@ class WalletBalanceWritersTest extends TestCase
      */
     private const WALLET_WRITERS = [
         'app/Repositories/WalletTransactionRepository.php' => ['array key given a value'],
+        'app/Services/Customer/CustomerWalletWriter.php' => ['assignment'],
         'app/Traits/CustomerTrait.php' => ['assignment'],
         'app/Utils/CustomerManager.php' => ['assignment'],
         'app/Utils/OrderManager.php' => ['assignment'],
@@ -186,7 +187,14 @@ class WalletBalanceWritersTest extends TestCase
         );
     }
 
-    public function test_the_wallet_balance_is_written_by_its_four_writers_and_nothing_else(): void
+    /**
+     * Five, not four. CustomerWalletWriter arrived with the one-locked-writer work and three callers now go through it, so it
+     * writes users.wallet_balance like the other four and belongs on this list. Being listed grants it no permission: it holds
+     * the row lock and refuses an overdraft, which Tests\Unit\Wallet\OneWalletWriterTest checks of every writer by name --
+     * and that census had the opposite gap, listing CustomerWalletWriter and missing OrderManager. Between the two of them all
+     * five are now accounted for.
+     */
+    public function test_the_wallet_balance_is_written_by_its_five_writers_and_nothing_else(): void
     {
         $this->assertOnlyTheseWrite(column: 'wallet_balance', allowed: self::WALLET_WRITERS);
     }

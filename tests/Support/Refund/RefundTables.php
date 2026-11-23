@@ -186,15 +186,20 @@ final class RefundTables
             $table->string('value')->nullable();
             $table->timestamps();
         });
-        Schema::create('currencies', function (Blueprint $table): void {
-            $table->id();
-            $table->string('name')->nullable();
-            $table->string('symbol')->nullable();
-            $table->string('code');
-            $table->decimal('exchange_rate', 24, 6)->default(1);
-            $table->boolean('status')->default(true);
-            $table->timestamps();
-        });
+        // Guarded, because a test that builds more than one of these worlds -- the loyalty formula characterization builds the
+        // wallet, loyalty and refund tables together -- would otherwise create `currencies` twice and raise "table already
+        // exists" before a single assertion ran. WalletTables guards its own copy the same way.
+        if (!Schema::hasTable('currencies')) {
+            Schema::create('currencies', function (Blueprint $table): void {
+                $table->id();
+                $table->string('name')->nullable();
+                $table->string('symbol')->nullable();
+                $table->string('code');
+                $table->decimal('exchange_rate', 24, 6)->default(1);
+                $table->boolean('status')->default(true);
+                $table->timestamps();
+            });
+        }
     }
 
     public static function drop(): void

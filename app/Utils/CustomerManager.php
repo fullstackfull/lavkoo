@@ -95,7 +95,7 @@ class CustomerManager
             return true;
         });
     }
-    public static function create_loyalty_point_transaction($user_id, $reference, $amount, $transaction_type): bool
+    public static function create_loyalty_point_transaction($user_id, $reference, $amount, $transaction_type, ?LedgerOrigin $origin = null): bool
     {
         $settings = array_column(BusinessSetting::whereIn('type', ['loyalty_point_status', 'loyalty_point_exchange_rate', 'loyalty_point_item_purchase_point'])->get()->toArray(), 'value', 'type');
         if ($settings['loyalty_point_status'] != 1) {
@@ -110,7 +110,7 @@ class CustomerManager
             $debit = $amount;
         }
 
-        return CustomerBalanceLock::apply($user_id, function (User $user) use ($reference, $transaction_type, $credit, $debit) {
+        return CustomerBalanceLock::apply($user_id, function (User $user) use ($reference, $transaction_type, $credit, $debit, $origin) {
             $current_balance = $user->loyalty_point + $credit - $debit;
             if ($transaction_type == 'point_to_wallet' && $current_balance < 0) {
                 return false;
