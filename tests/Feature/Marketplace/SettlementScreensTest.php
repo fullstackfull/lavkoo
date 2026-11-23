@@ -301,7 +301,6 @@ class SettlementScreensTest extends TestCase
 
         $this->assertSame(['1', '40.00 AED · 100.00SAR-symbol'], $this->shown($this->listPage(), self::WAITING));
     }
-
     public function test_with_the_switch_on_the_button_draws_a_settlement_for_each_currency_of_each_vendor(): void
     {
         config(['gcc.settlements.one_currency' => true]);

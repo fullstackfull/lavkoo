@@ -72,7 +72,6 @@ class SettlementCommandTest extends TestCase
         $this->earning(amount: 100.0, currency: 'SAR');
         $this->earning(amount: 40.0, currency: 'AED');
     }
-
     /** @return list<list<string>> the rows without their reference, which is random */
     private function withoutReference(array $rows): array
     {

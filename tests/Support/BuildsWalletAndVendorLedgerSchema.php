@@ -233,6 +233,11 @@ trait BuildsWalletAndVendorLedgerSchema
         });
     }
 
+    /**
+     * The seller ledger and the settlements drawn from it. A settlement of a ledger that mixes currencies records no opening and no closing balance, so the two columns
+     * accept NULL here; `$balancesAcceptNull: false` builds the table that refuses it, for the test of what the engine does about such a table.
+     */
+
     private function createBusinessSettingsTable(): void
     {
         Schema::create('business_settings', static function (Blueprint $table): void {

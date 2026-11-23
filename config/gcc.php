@@ -360,5 +360,4 @@ return [
         // which is why the administrator's own deletion route is left unguarded, and why anonymising rather than refusing is the question for the owner.
         'refuse_while_balance_remains' => filter_var(env('GCC_REFUSE_ACCOUNT_DELETE_WITH_BALANCE', false), FILTER_VALIDATE_BOOLEAN),
     ],
-
 ];
