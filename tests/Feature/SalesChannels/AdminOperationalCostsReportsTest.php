@@ -35,8 +35,12 @@ class AdminOperationalCostsReportsTest extends AdminPagesTestCase
     /** @return array{0: string, 1: list<list<string>>} the file as sent, and its rows (heading first) */
     private function download(string $report, array $query = []): array
     {
-        // The exports are rate limited (that has a test of its own); a test that reads several files is not. The counters are deliberately kept
-        // in a store the application does not empty, so emptying the default store no longer releases them: the limiter's own store is emptied.
+        // The exports are rate limited (that has a test of its own); a test that reads several files is not. BOTH stores are emptied, and both
+        // matter: the counters are deliberately kept in one the application does not empty (cherry-pick d85edc69), so the limiter's own store
+        // is what releases the limit -- and the default store is emptied as this helper always did, because what it holds is read by the pages
+        // the rest of this directory renders. Replacing the one with the other took 39 other tests in this directory down with it, measured
+        // against the same directory one commit earlier: 1 failure became 40.
+        Cache::flush();
         Cache::store(config('cache.limiter'))->flush();
         $response = $this->get(route('admin.operational-costs.reports.export', ['report' => $report] + $query + self::NOVEMBER))->assertOk();
         $csv = $response->streamedContent();
