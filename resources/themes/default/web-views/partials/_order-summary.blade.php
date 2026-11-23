@@ -198,13 +198,13 @@
                     <span class="custom-control-label">
                 <span>{{ translate('i_agree_to_Your') }}</span>
                 <a class="font-size-sm text-primary d-inline" target="_blank"
-                   href="{{ route('business-page.view', ['slug' => 'terms-and-conditions']) }}">
+                   href="{{ businessPageUrl(slug: 'terms-and-conditions') }}">
                     {{ translate('terms_and_condition') }}
                 </a>
                 @foreach($web_config['business_pages']->where('default_status', 1) as $businessPage)
                             @if($businessPage['slug'] == 'privacy-policy' || $businessPage['slug'] == 'refund-policy')
                                 <a class="font-size-sm text-primary d-inline" target="_blank"
-                                   href="{{ route('business-page.view', ['slug' => $businessPage['slug']]) }}">
+                                   href="{{ businessPageUrl(slug: $businessPage['slug']) }}">
                             , {{ translate(str_replace('-', '_', $businessPage['slug'])) }}
                         </a>
                             @endif
@@ -245,13 +245,13 @@
             <span class="custom-control-label">
                 <span>{{ translate('i_agree_to_Your') }}</span>
                 <a class="font-size-sm text-primary d-inline" target="_blank"
-                   href="{{ route('business-page.view', ['slug' => 'terms-and-conditions']) }}">
+                   href="{{ businessPageUrl(slug: 'terms-and-conditions') }}">
                     {{ translate('terms_and_condition') }}
                 </a>
                 @foreach($web_config['business_pages']->where('default_status', 1) as $businessPage)
                     @if($businessPage['slug'] == 'privacy-policy' || $businessPage['slug'] == 'refund-policy')
                         <a class="font-size-sm text-primary d-inline" target="_blank"
-                           href="{{ route('business-page.view', ['slug' => $businessPage['slug']]) }}">
+                           href="{{ businessPageUrl(slug: $businessPage['slug']) }}">
                             , {{ translate(str_replace('-', '_', $businessPage['slug'])) }}
                         </a>
                     @endif

@@ -7,9 +7,16 @@ use App\Models\Cart;
 use App\Models\Order;
 use App\Models\ShippingAddress;
 use App\Models\User;
+use App\Services\Marketing\MarketingConsent;
+use App\Services\Marketing\MarketingConsentGate;
+use App\Services\Marketing\MarketingMarket;
+use App\Services\Notification\NotificationTypeRegistry;
+use App\Services\Storefront\StorefrontCatalog;
+use App\Services\Storefront\StorefrontMarketingStop;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\URL;
 
 /**
  * Selects the cart groups that are genuinely abandoned and worth an email (Phase 2.4).
@@ -33,6 +40,12 @@ use Illuminate\Support\Facades\Schema;
  *  5. **Not already reminded at this stage**, which is what makes the command safe to re-run.
  *  6. **Still buyable.** A cart whose products are deactivated or deleted is a dead link; sending
  *     it invites the customer to a 404.
+ *  7. **Its storefront may sell.** A reminder invites a purchase, so a cart whose products belong to a
+ *     storefront that may not sell (StorefrontMarketingStop) is left for later: it is neither selected nor
+ *     recorded, and is reminded once the storefront sells again.
+ *  8. **Allowed to be written to.** Only while the marketing consent gate is switched on. With it off this rule is
+ *     not applied and not even asked about: no consent row is read and no market is resolved, so the recipients and
+ *     the queries are exactly what they were before the gate existed.
  */
 class AbandonedCartService
 {
@@ -53,6 +66,13 @@ class AbandonedCartService
     public const DEFAULT_IDLE_HOURS = 6;
     public const DEFAULT_MAX_AGE_HOURS = 168;   // one week
 
+    public function __construct(
+        private readonly StorefrontMarketingStop $marketingStop,
+        private readonly MarketingConsentGate $consentGate,
+    )
+    {
+    }
+
     /**
      * Is the whole feature switched on? Defaults to **off**: this sends mail to real people, so an
      * upgrade must never start doing it on its own.
@@ -60,6 +80,21 @@ class AbandonedCartService
     public function isEnabled(): bool
     {
         return (bool) (int) ($this->setting(self::SETTING_ENABLED) ?? 0);
+    }
+
+    /**
+     * A signed link, so the recovery endpoint can trust the reminder id it is handed without anybody being able to walk the sequence and
+     * mark other people's reminders as clicked. The job runs in the console, where every country's carts are seen, so the link carries the
+     * storefront the cart was made in: the website serves the default storefront otherwise, and the cart would open empty.
+     */
+    public function recoveryUrl(AbandonedCartReminder $reminder): string
+    {
+        $parameters = array_filter([
+            'reminder' => $reminder->id,
+            'storefront' => StorefrontCatalog::countryOfCartGroup(cartGroupId: $reminder->cart_group_id),
+        ]);
+
+        return URL::signedRoute('cart.recover', $parameters, now()->addDays(30));
     }
 
     public function includesGuests(): bool
@@ -85,7 +120,7 @@ class AbandonedCartService
     /**
      * The cart groups eligible for a reminder at the given stage, newest abandonment first.
      *
-     * @return Collection<int, array{cart_group_id: string, customer_id: int|null, is_guest: bool, email: string, cart_value: float, item_count: int, last_activity: Carbon}>
+     * @return Collection<int, array{cart_group_id: string, customer_id: int|null, is_guest: bool, email: string, market: string|null, cart_value: float, item_count: int, last_activity: Carbon}>
      */
     public function findAbandoned(int $stage = 1, ?Carbon $now = null): Collection
     {
@@ -118,8 +153,11 @@ class AbandonedCartService
         $minimum = $this->minimumCartValue();
         $includeGuests = $this->includesGuests();
 
-        return $rows->groupBy('cart_group_id')
-            ->map(function (Collection $lines, string $groupId) use ($alreadySent, $minimum, $includeGuests) {
+        // Asked once, not once per cart: with the gate off the closure below never touches consent at all.
+        $consentRequired = $this->consentGate->enabled();
+
+        $candidates = $rows->groupBy('cart_group_id')
+            ->map(function (Collection $lines, string $groupId) use ($alreadySent, $minimum, $includeGuests, $consentRequired) {
                 if ($alreadySent->has($groupId)) {
                     return null;
                 }
@@ -148,11 +186,21 @@ class AbandonedCartService
                     return null;
                 }
 
+                // The market is resolved ONCE, here, and travels with the row: the gate's answer and the unsubscribe
+                // link in the message have to be about the same market, and the reminder row cannot resolve it again
+                // because it does not keep a guest's id. Null while the switch is off, where nothing resolves one.
+                $market = $consentRequired ? $this->marketOf(customerId: $first->customer_id, isGuest: $isGuest) : null;
+
+                if ($market !== null && !$this->mayRemind(market: $market, customerId: $first->customer_id, isGuest: $isGuest, email: $email)) {
+                    return null;
+                }
+
                 return [
                     'cart_group_id' => $groupId,
                     'customer_id' => $isGuest ? null : (int) $first->customer_id,
                     'is_guest' => $isGuest,
                     'email' => $email,
+                    'market' => $market,
                     'cart_value' => round($value, 2),
                     'item_count' => (int) $lines->sum('quantity'),
                     'last_activity' => $lastActivity,
@@ -161,6 +209,84 @@ class AbandonedCartService
             ->filter()
             ->sortByDesc('last_activity')
             ->values();
+
+        return $this->withoutStoppedStorefronts($candidates);
+    }
+
+    /**
+     * Whether the storefront this cart was made in may not be sent a reminder now. The command asks again before each send, because a storefront can be stopped while a run is under way.
+     */
+    public function isStoppedByItsStorefront(string $cartGroupId): bool
+    {
+        return $this->stoppedGroupsAmong(cartGroupIds: [$cartGroupId]) !== [];
+    }
+
+    /**
+     * @param Collection<int, array{cart_group_id: string}> $candidates
+     * @return Collection<int, array{cart_group_id: string}>
+     */
+    private function withoutStoppedStorefronts(Collection $candidates): Collection
+    {
+        $stopped = $this->stoppedGroupsAmong(cartGroupIds: $candidates->pluck('cart_group_id')->all());
+
+        return $candidates->reject(fn (array $candidate): bool => in_array($candidate['cart_group_id'], $stopped, true))->values();
+    }
+
+    /**
+     * @param list<string> $cartGroupIds
+     * @return list<string>
+     */
+    private function stoppedGroupsAmong(array $cartGroupIds): array
+    {
+        return $this->marketingStop->stoppedCartGroups(
+            channel: NotificationTypeRegistry::EMAIL,
+            type: NotificationTypeRegistry::ABANDONED_CART_REMINDER,
+            cartGroupIds: $cartGroupIds,
+        );
+    }
+
+    /** The market this cart's owner belongs to: a guest's own typed address counts as much as a customer's. */
+    private function marketOf($customerId, bool $isGuest): string
+    {
+        return MarketingMarket::forCustomer(
+            customerId: $customerId ? (int) $customerId : null,
+            isGuest: $isGuest,
+        );
+    }
+
+    /**
+     * Has this person agreed to a cart reminder by e-mail in that market?
+     *
+     * ASKED ABOUT BY BOTH NAMES, and that is the fix for a defect two independent reviews measured: a registered
+     * customer who checks out as a guest is a customer subject AND an address subject, so a withdrawal recorded
+     * through the unsubscribe link in their account reminder was invisible to the guest-side send of the same
+     * schedule, and the other way round. A recorded no on either name now stops the send.
+     *
+     * A GUEST CART CARRIES A GUEST ID, NOT AN ACCOUNT ID, so for a guest the account is found from the address they
+     * typed: that is the only thing that joins the two halves of one person, and without it a withdrawal recorded
+     * through an account reminder was invisible to the very next guest cart at the same address.
+     */
+    private function mayRemind(string $market, $customerId, bool $isGuest, string $email): bool
+    {
+        return $this->consentGate->allowsPerson(
+            customerId: $this->accountBehind(customerId: $customerId, isGuest: $isGuest, email: $email),
+            email: $email,
+            market: $market,
+            channel: MarketingConsent::CHANNEL_EMAIL,
+            purpose: MarketingConsent::PURPOSE_ABANDONED_CART,
+        );
+    }
+
+    /** The registered account this cart belongs to, by id for a customer's cart and by address for a guest's. */
+    private function accountBehind($customerId, bool $isGuest, string $email): ?int
+    {
+        if (!$isGuest && $customerId) {
+            return (int) $customerId;
+        }
+
+        $accountId = User::where('email', $email)->value('id');
+
+        return $accountId ? (int) $accountId : null;
     }
 
     /**

@@ -5,7 +5,6 @@ namespace Tests\Support;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use RuntimeException;
 
 /**
  * An INFERRED minimal schema for the core store tables this feature reads.
@@ -20,6 +19,8 @@ use RuntimeException;
  */
 trait BuildsFulfillmentSchema
 {
+    use RefusesToTouchALiveDatabase;
+
     protected function buildCoreSchema(): void
     {
         $this->startFromAnEmptyTestDatabase();
@@ -175,6 +176,9 @@ trait BuildsFulfillmentSchema
             $t->longText('shipping_address_data')->nullable();
             $t->string('seller_is')->default('admin');
             $t->unsignedBigInteger('seller_id')->nullable();
+            // The coupon quick view of the vendor panel counts the orders a coupon was used on, by `orders.coupon_code` against `coupons.code`
+            // (2021_09_20_020716_add_coupon_code_to_orders_table). Without the column that read is a 500 instead of the answer under test.
+            $t->string('coupon_code')->nullable();
             $t->timestamps();
         });
 
@@ -223,14 +227,10 @@ trait BuildsFulfillmentSchema
      */
     private function startFromAnEmptyTestDatabase(): void
     {
-        $connection = DB::connection();
-        if ($connection->getDriverName() === 'sqlite') {
-            return;
-        }
+        $this->refuseUnlessTheDatabaseIsThrowaway();
 
-        $database = (string) $connection->getDatabaseName();
-        if (!app()->environment('testing') || !preg_match('/(^|_)test(s|ing)?($|_)/i', $database)) {
-            throw new RuntimeException("Refusing to drop every table of '{$database}': the test database name must contain 'test' and APP_ENV must be 'testing'.");
+        if (DB::connection()->getDriverName() === 'sqlite') {
+            return;
         }
 
         Schema::dropAllTables();

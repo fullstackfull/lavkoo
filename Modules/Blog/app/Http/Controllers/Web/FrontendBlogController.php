@@ -10,7 +10,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Modules\Blog\app\Models\Blog;
 use Modules\Blog\app\Models\BlogCategory;
-use Modules\Blog\app\Models\BlogTranslation;
 use Modules\Blog\app\Services\Frontend\FrontendBlogService;
 use Modules\Blog\app\Traits\BlogCategoryTrait;
 use Modules\Blog\app\Traits\BlogTrait;
@@ -24,8 +23,6 @@ class FrontendBlogController extends Controller
     public function __construct(
         private readonly FrontendBlogService $frontendBlogService,
         private readonly Blog                $blog,
-        private readonly BlogTranslation     $blogTranslation,
-        private readonly BlogCategory        $blogCategory
     )
     {
     }
@@ -82,7 +79,9 @@ class FrontendBlogController extends Controller
         $this->frontendBlogService->getCheckLocale(request: $request);
         $blogData = $this->blog->withoutGlobalScopes()->with(['category' => function ($query) {
             return $query->active();
-        }, 'translations', 'seoInfo'])->where(['slug' => $request['slug']])->first();
+        }, 'translations', 'seoInfo'])
+            ->where(['slug' => $request['slug'], 'status' => 1, 'is_published' => 1])
+            ->first();
 
         if (!$blogData) {
             if ($request->ajax()) {
@@ -95,39 +94,12 @@ class FrontendBlogController extends Controller
             return redirect()->back();
         }
 
-        $draftData = json_decode($blogData['draft_data'] ?? '', true);
-        if (\request('source') == 'draft' && !empty($draftData)) {
-            $translatedData = $this->blogTranslation->where(['translation_id' => $blogData['id'], 'locale' => getDefaultLanguage(), 'is_draft' => 1])->get();
-            $draftCategory = $this->blogCategory->where('id', ($draftData['category_id'] ?? 0))->first();
-            $blogData->title = $translatedData?->firstWhere('key', 'title')?->value ?? $draftData['title'] ?? '';
-            $blogData->description = $translatedData?->firstWhere('key', 'description')?->value ?? $draftData['description'] ?? '';
-            $blogData->category = $draftCategory;
-            $blogData->writer = $draftData['writer'] ?? '';
-            $blogData->publish_date = $draftData['publish_date'] ?? '';
-            $blogData->image = $blogData?->draft_image ?? null;
-        }
-
         if (request('source') == '' && !in_array($blogData['id'], session('user_visited_blog_ids', []))) {
             session(['user_visited_blog_ids' => [$blogData['id']]]);
             $blogData->increment('click_count');
         }
 
-        $popularBlogList = $this->blog->with(['category' => function ($query) {
-            return $query->active();
-        }, 'translations'])->latest()->paginate(3);
-        $articleLinks = $this->frontendBlogService->getModifiedDescriptionLinks(description: $blogData['description']);
-        $updatedDescription = $this->frontendBlogService->getModifiedDescription(description: $blogData['description']);
-
-        return view(VIEW_FILE_NAMES['frontend_blog_details_view'], [
-            'blogData' => $blogData,
-            'popularBlogList' => $popularBlogList,
-            'articleLinks' => $articleLinks,
-            'updatedDescription' => $updatedDescription,
-            'blogPlatform' => strpos(url()->current(), '/app') ? 'app' : 'web',
-            'blogListRoute' => strpos(url()->current(), '/app') ? 'app.blog.index' : 'frontend.blog.index',
-            'popularBlogListRoute' => strpos(url()->current(), '/app') ? 'app.blog.popular-blog' : 'frontend.blog.popular-blog',
-            'blogDetailsRoute' => strpos(url()->current(), '/app') ? 'app.blog.details' : 'frontend.blog.details',
-        ]);
+        return $this->frontendBlogService->detailsView(blogData: $blogData);
     }
 
     public function getPopularBlogs(Request $request): View

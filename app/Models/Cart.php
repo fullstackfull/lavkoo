@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\StorefrontCartScope;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -115,6 +116,8 @@ class Cart extends Model
     protected static function boot(): void
     {
         parent::boot();
+
+        static::addGlobalScope(new StorefrontCartScope());
 
         static::saved(function ($model) {
             cacheRemoveByType(type: 'carts');

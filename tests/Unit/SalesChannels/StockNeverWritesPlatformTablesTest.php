@@ -5,6 +5,7 @@ namespace Tests\Unit\SalesChannels;
 use FilesystemIterator;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
+use Tests\Support\PlatformWriteScanner;
 use Tests\TestCase;
 
 /**
@@ -18,8 +19,6 @@ class StockNeverWritesPlatformTablesTest extends TestCase
     private const PLATFORM_TABLES = 'products|stock_movements|warehouse_stock|warehouses|suppliers|purchase_orders|purchase_order_items|product_batches';
 
     private const WRITE_VERBS = 'insert|insertOrIgnore|insertGetId|upsert|update|updateOrInsert|delete|truncate|increment|decrement';
-
-    private const RAW_WRITE_VERBS = 'update|insert|delete|replace|truncate|alter|drop';
 
     /**
      * The dispatcher makes the internal order of a channel order, and a line of an order has a `variation` column of its own (the JSON text of the chosen options), which is not the product's
@@ -85,10 +84,10 @@ class StockNeverWritesPlatformTablesTest extends TestCase
     public function test_the_allowed_files_are_still_the_only_ones_and_still_clean_in_what_they_were_allowed_for(): void
     {
         foreach (self::MAY_WRITE_A_TABLE_CHOSEN_AT_RUN_TIME as $relative) {
-            $this->assertSame(0, preg_match('/\b(' . self::PLATFORM_TABLES . ')\b/', $this->codeOf((string) file_get_contents(base_path($relative)))), "{$relative} names a platform table");
+            $this->assertSame(0, preg_match('/\b(' . self::PLATFORM_TABLES . ')\b/', PlatformWriteScanner::codeOf((string) file_get_contents(base_path($relative)))), "{$relative} names a platform table");
         }
         foreach (self::MAY_READ_THE_PRODUCT_MODEL as $relative) {
-            $this->assertSame(0, preg_match('/->(save|update|delete|forceDelete|increment|decrement|insert|upsert|fill|forceFill|create|firstOrCreate|updateOrCreate)\(/', $this->codeOf((string) file_get_contents(base_path($relative)))), "{$relative} writes through the product model");
+            $this->assertSame(0, preg_match('/->(save|update|delete|forceDelete|increment|decrement|insert|upsert|fill|forceFill|create|firstOrCreate|updateOrCreate)\(/', PlatformWriteScanner::codeOf((string) file_get_contents(base_path($relative)))), "{$relative} writes through the product model");
         }
     }
 
@@ -99,7 +98,7 @@ class StockNeverWritesPlatformTablesTest extends TestCase
      */
     private function reasonsToRefuse(string $source, string $relative): array
     {
-        $code = $this->codeOf($source);
+        $code = PlatformWriteScanner::codeOf($source);
         $reasons = [];
 
         if (preg_match('/DB::table\(\s*[\'"](' . self::PLATFORM_TABLES . ')[\'"]\s*\)(?:(?!;).)*->(' . self::WRITE_VERBS . ')\(/s', $code) === 1) {
@@ -115,7 +114,7 @@ class StockNeverWritesPlatformTablesTest extends TestCase
         if (preg_match('/\bDB::(update|insert|delete|statement|unprepared|affectingStatement)\s*\(/', $code) === 1) {
             $reasons[] = 'writes with raw SQL';
         }
-        if ($this->aStringNamesAPlatformTableInAWrite($source)) {
+        if (PlatformWriteScanner::tablesAStringWrites($source, explode('|', self::PLATFORM_TABLES)) !== []) {
             $reasons[] = 'names a platform table in a SQL write';
         }
         if (preg_match('/\bDB::(connection|getPdo|getDoctrineConnection)\s*\(|->(getConnection|getPdo)\s*\(/', $code) === 1) {
@@ -129,34 +128,6 @@ class StockNeverWritesPlatformTablesTest extends TestCase
         }
 
         return $reasons;
-    }
-
-    /** Does any string of the code say, in SQL, that a platform table is written? Comments and the words around the code do not count. */
-    private function aStringNamesAPlatformTableInAWrite(string $source): bool
-    {
-        foreach (token_get_all($source) as $token) {
-            if (is_array($token) && in_array($token[0], [T_CONSTANT_ENCAPSED_STRING, T_ENCAPSED_AND_WHITESPACE], true)
-                && preg_match('/\b(' . self::RAW_WRITE_VERBS . ')\b[^;]*\b(' . self::PLATFORM_TABLES . ')\b/i', $token[1]) === 1) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /** The source without its comments: what the check looks at, so that a sentence about a write is not mistaken for one. */
-    private function codeOf(string $source): string
-    {
-        $code = '';
-        foreach (token_get_all($source) as $token) {
-            if (is_array($token)) {
-                $code .= in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true) ? '' : $token[1];
-                continue;
-            }
-            $code .= $token;
-        }
-
-        return $code;
     }
 
     /** @return list<string> */

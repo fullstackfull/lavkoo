@@ -15,6 +15,7 @@ use App\Services\ChattingService;
 use App\Traits\PushNotificationTrait;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -158,7 +159,8 @@ class ChattingController extends BaseController
         $vendorId = auth('seller')->id();
         $data = [];
         if ($request->has(key: 'delivery_man_id')) {
-            $getUser = $this->deliveryManRepo->getFirstWhere(params: ['id' => $request['delivery_man_id']]);
+            $getUser = $this->getOwnDeliveryMan(id: $request['delivery_man_id']);
+            abort_if(boolean: !$getUser, code: 404);
             $this->chattingRepo->updateAllWhere(
                 params: ['seller_id' => $vendorId, 'delivery_man_id' => $request['delivery_man_id']],
                 data: ['seen_by_seller' => 1]);
@@ -193,6 +195,7 @@ class ChattingController extends BaseController
      */
     public function addVendorMessage(ChattingRequest $request): JsonResponse
     {
+        abort_if(boolean: $request->has(key: 'delivery_man_id') && !$this->getOwnDeliveryMan(id: $request['delivery_man_id']), code: 404);
         if($request->hasFile('file')){
             foreach ($request->file('file') as $file) {
                 $extension = strtolower($file->getClientOriginalExtension());
@@ -226,7 +229,7 @@ class ChattingController extends BaseController
                     vendorId: $vendor['id']
                 )
             );
-            $deliveryMan = $this->deliveryManRepo->getFirstWhere(params: ['id' => $request['delivery_man_id']]);
+            $deliveryMan = $this->getOwnDeliveryMan(id: $request['delivery_man_id']);
             event(new ChattingEvent(key: 'message_from_seller', type: 'delivery_man', userData: $deliveryMan, messageForm: $vendor));
 
             $chattingMessages = $this->chattingRepo->getListWhereNotNull(
@@ -257,6 +260,11 @@ class ChattingController extends BaseController
         return response()->json($data);
     }
 
+    private function getOwnDeliveryMan(string|int|null $id): ?Model
+    {
+        return $this->deliveryManRepo->getFirstWhere(params: ['id' => $id, 'seller_id' => auth('seller')->id()]);
+    }
+
     /**
      * @param string $tableName
      * @param string $orderBy
@@ -285,7 +293,8 @@ class ChattingController extends BaseController
     protected function getRenderMessagesView(object $user, object $message, string $type): array
     {
         $userData = [
-            'name' => $user['f_name'] . ' ' . $user['l_name'],
+            // The inbox page writes this field into the page as markup, and the name is whatever its owner typed when registering.
+            'name' => e($user['f_name'] . ' ' . $user['l_name']),
             'phone' => $user['country_code'] . $user['phone'],
             'detailsRoute' => $type == 'customer' ? route('vendor.orders.list', ['status' => 'all', 'filter' => 'all', 'customer_id' => $user['id']]) : '#'
         ];

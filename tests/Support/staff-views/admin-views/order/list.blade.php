@@ -1,0 +1,3 @@
+{{-- Test-only stand-in: the ids of the orders the screen lists and the counters it shows, so a test reads what the controller handed the page and not the markup of the shell. --}}
+@foreach ($orders as $order)[order:{{ $order->id }}]@endforeach
+[counts pending={{ $allOrdersInfo['pending_order'] }} confirmed={{ $allOrdersInfo['confirmed_order'] }} processing={{ $allOrdersInfo['processing_order'] }} out_for_delivery={{ $allOrdersInfo['out_for_delivery_order'] }} delivered={{ $allOrdersInfo['delivered_order'] }} canceled={{ $allOrdersInfo['canceled_order'] }} returned={{ $allOrdersInfo['returned_order'] }} failed={{ $allOrdersInfo['failed_order'] }}]

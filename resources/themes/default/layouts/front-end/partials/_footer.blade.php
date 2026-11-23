@@ -1,3 +1,4 @@
+@use('App\Services\Storefront\StorefrontPaymentMethods')
 {{-- Themed footer (Theme Builder "footer" page): when the published version composes footer
      sections they replace this built-in footer wholesale — same replace-not-stack contract as the
      themed home. Guarded: a broken section logs and the built-in footer renders as the fallback. --}}
@@ -39,6 +40,13 @@
     } catch (\Throwable $gatewayError) {
         report($gatewayError);
     }
+
+    // A storefront does not advertise a way to pay it has switched off (requirement D2-V2).
+    $__storefrontPaymentMethods = app(StorefrontPaymentMethods::class);
+    if ($__storefrontPaymentMethods->isSwitchedOff(method: StorefrontPaymentMethods::DIGITAL_PAYMENT)) {
+        $__gateways = collect();
+    }
+    $__cashOnDeliveryIsSwitchedOff = $__storefrontPaymentMethods->isSwitchedOff(method: StorefrontPaymentMethods::CASH_ON_DELIVERY);
 @endphp
 
 <footer class="k-foot rtl" role="contentinfo">
@@ -169,7 +177,7 @@
         <div class="container k-foot__bar-inner">
             <p class="k-foot__copy">{{ $web_config['copyright_text'] }}</p>
 
-            @if ($__gateways->isNotEmpty() || getWebConfig(name: 'cash_on_delivery'))
+            @if ($__gateways->isNotEmpty() || (getWebConfig(name: 'cash_on_delivery') && !$__cashOnDeliveryIsSwitchedOff))
                 <ul class="k-foot__pay" aria-label="{{ translate('payment_methods') }}">
                     @foreach ($__gateways as $gateway)
                         <li title="{{ $gateway['title'] }}">
@@ -180,7 +188,7 @@
                             @endif
                         </li>
                     @endforeach
-                    @if (getWebConfig(name: 'cash_on_delivery'))
+                    @if (getWebConfig(name: 'cash_on_delivery') && !$__cashOnDeliveryIsSwitchedOff)
                         <li><span>{{ translate('cash_on_delivery') }}</span></li>
                     @endif
                 </ul>

@@ -2,6 +2,7 @@
 
 namespace App\Services\Web;
 
+use App\Enums\SessionKey;
 use App\Utils\Helpers;
 use App\Utils\SMSModule;
 use App\Events\EmailVerificationEvent;
@@ -12,7 +13,12 @@ class CustomerAuthService
 {
     public function getCustomerVerificationToken(): string
     {
-        return (config('app.mode') == 'live') ? rand(100000, 999999) : 123456;
+        return (config('app.mode') == 'live') ? random_int(100000, 999999) : 123456;
+    }
+
+    public function forgetPendingSocialLogin(): void
+    {
+        session()->forget(['social_login_new_customer', 'socialLoginEmailRemovedForOldUser']);
     }
 
     public function getCustomerLoginDataReset(): array
@@ -105,6 +111,52 @@ class CustomerAuthService
             $keepReturnUrl = session('keep_customer_login_redirect_url');
         }
         return $keepReturnUrl;
+    }
+
+    /**
+     * The phone or email a request is about, decoded.
+     *
+     * The OTP flow carries the identity through its pages as base64 in the request. base64_decode's parameter is
+     * typed, so `?identity[]=x` was a 500 on a PUBLIC registration and password-reset path. An identity that is
+     * not a string decodes to nothing, and nothing matches no account.
+     */
+    public function decodeIdentity(mixed $encodedIdentity): string
+    {
+        return is_string($encodedIdentity) ? base64_decode($encodedIdentity) : '';
+    }
+
+    /** The code of the phone login was just entered for this phone: this browser may now finish its profile. */
+    public function rememberVerifiedPhone(string $phone): void
+    {
+        session()->put(SessionKey::CUSTOMER_OTP_VERIFIED_PHONE, $phone);
+    }
+
+    public function isVerifiedPhone(string $phone): bool
+    {
+        return $phone !== '' && session(SessionKey::CUSTOMER_OTP_VERIFIED_PHONE) === $phone;
+    }
+
+    public function forgetVerifiedPhone(): void
+    {
+        session()->forget(SessionKey::CUSTOMER_OTP_VERIFIED_PHONE);
+    }
+
+    /** A code was just sent for this account to this browser by its own sign-up or sign-in: show its verification page. */
+    public function rememberPendingVerification(int $userId): void
+    {
+        $userIds = session(SessionKey::CUSTOMER_PENDING_VERIFICATION_USER_IDS, []);
+        session()->put(SessionKey::CUSTOMER_PENDING_VERIFICATION_USER_IDS, array_values(array_unique([...$userIds, $userId])));
+    }
+
+    public function hasPendingVerification(int $userId): bool
+    {
+        return in_array(needle: $userId, haystack: session(SessionKey::CUSTOMER_PENDING_VERIFICATION_USER_IDS, []), strict: true);
+    }
+
+    public function forgetPendingVerification(int $userId): void
+    {
+        $userIds = session(SessionKey::CUSTOMER_PENDING_VERIFICATION_USER_IDS, []);
+        session()->put(SessionKey::CUSTOMER_PENDING_VERIFICATION_USER_IDS, array_values(array_diff($userIds, [$userId])));
     }
 
 }

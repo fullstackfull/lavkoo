@@ -25,6 +25,7 @@ use App\Models\ReferralCustomer;
 use App\Traits\FileManagerTrait;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Contracts\View\View;
+use Illuminate\Database\Eloquent\Model;
 use Maatwebsite\Excel\Facades\Excel;
 use Illuminate\Http\RedirectResponse;
 use App\Http\Controllers\BaseController;
@@ -54,6 +55,7 @@ use App\Contracts\Repositories\DeliveryCountryCodeRepositoryInterface;
 use App\Contracts\Repositories\DeliveryManTransactionRepositoryInterface;
 use App\Contracts\Repositories\LoyaltyPointTransactionRepositoryInterface;
 use App\Contracts\Repositories\OrderExpectedDeliveryHistoryRepositoryInterface;
+use App\Services\Catalog\ProductCodeScope;
 
 class OrderEditController extends BaseController
 {
@@ -119,6 +121,23 @@ class OrderEditController extends BaseController
         return $order;
     }
 
+    /** The product an edit of the order may look at: one of the order's own shop, or one the order already holds. */
+    private function sellerOrderProductOrFail(Model $order, mixed $productId): Model
+    {
+        $product = $this->orderEditService->isProductAllowedOnOrder(order: $order, productId: $productId)
+            ? $this->productRepo->getFirstWhereWithCount(
+                params: ['id' => $productId],
+                withCount: ['reviews'],
+                relations: ['brand', 'category', 'rating', 'tags', 'digitalVariation', 'clearanceSale' => function ($query) {
+                    return $query->active();
+                }],
+            )
+            : null;
+        abort_if(!$product, 404);
+
+        return $product;
+    }
+
     public function getSearchEditOrderProductsView(Request $request): JsonResponse
     {
         $orderId = $request['order_id'] ?? null;
@@ -129,6 +148,7 @@ class OrderEditController extends BaseController
         $filters = [
             'added_by' => $order['seller_is'] == 'admin' ? 'in_house' : $order['seller_is'],
             'seller_id' => $order['seller_is'] == 'admin' ? '' : $order['seller_id'],
+            'storefront_country' => app(ProductCodeScope::class)->countryOfOrder(orderId: $order['id']),
         ];
 
         $products = $this->productRepo->getListWithScope(
@@ -149,13 +169,7 @@ class OrderEditController extends BaseController
     {
         $productSubtotal = $cartItems['productSubtotal'] ?? 0;
         $order = $this->sellerOwnedOrderOrFail($request['order_id']);
-        $product = $this->productRepo->getFirstWhereWithCount(
-            params: ['id' => $request['product_id']],
-            withCount: ['reviews'],
-            relations: ['brand', 'category', 'rating', 'tags', 'digitalVariation', 'clearanceSale' => function ($query) {
-                return $query->active();
-            }],
-        );
+        $product = $this->sellerOrderProductOrFail(order: $order, productId: $request['product_id']);
         $productAuthorIds = $this->productService->getProductAuthorsInfo(product: $product)['ids'];
         $digitalProductAuthors = $this->authorRepo->getListWhere(dataLimit: 'all');
         $productPublishingHouseIds = $this->productService->getProductPublishingHouseInfo(product: $product)['ids'];
@@ -183,13 +197,7 @@ class OrderEditController extends BaseController
     {
         $variantRequest = $request->all();
         $order = $this->sellerOwnedOrderOrFail($request['order_id']);
-        $product = $this->productRepo->getFirstWhereWithCount(
-            params: ['id' => $request['product_id']],
-            withCount: ['reviews'],
-            relations: ['brand', 'category', 'rating', 'tags', 'digitalVariation', 'clearanceSale' => function ($query) {
-                return $query->active();
-            }],
-        );
+        $product = $this->sellerOrderProductOrFail(order: $order, productId: $request['product_id']);
 
         $colorName = $this->colorRepo->getFirstWhere(['code' => $request['color']])->name ?? null;
 

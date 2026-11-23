@@ -44,7 +44,7 @@ final readonly class RoutingContext
             'lines' => array_map(static fn (RoutingLine $line): array => [
                 'line' => $line->externalLineId, 'product_id' => $line->productId, 'sku' => $line->sku, 'quantity' => $line->quantity, 'location_id' => $line->locationId,
                 'provider' => $line->provider, 'stock_confirmed' => $line->stockConfirmed, 'cancelled' => $line->cancelled,
-            ], $this->lines),
+            ] + ($line->productCountry === null ? [] : ['product_country' => $line->productCountry]), $this->lines),
         ];
     }
 }

@@ -524,13 +524,7 @@ $orderTotalPriceSummary = \App\Utils\OrderManager::getOrderTotalPriceSummary(ord
                 </table>
             </td>
             <td class="text-right px-2">
-                <p class="text-dark p-0">{{getWebConfig('shop_address') }}</p>
-                @if(isset($invoiceSettings['business_identity_status']) && $invoiceSettings['business_identity_status'])
-                    <p class="text-dark p-0">
-                        <span class="fw-semibold">{{ $invoiceSettings['business_identity'] }}</span>
-                        : {{ $invoiceSettings['business_identity_value'] }}
-                    </p>
-                @endif
+                @include('partials.invoice._issuer')
             </td>
         </tr>
         </tbody>

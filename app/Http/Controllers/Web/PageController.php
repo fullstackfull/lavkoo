@@ -8,6 +8,7 @@ use App\Contracts\Repositories\HelpTopicRepositoryInterface;
 use App\Contracts\Repositories\RobotsMetaContentRepositoryInterface;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Request;
+use App\Services\Storefront\StorefrontLegalPages;
 use Brian2694\Toastr\Facades\Toastr;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -19,17 +20,15 @@ class PageController extends Controller
         private readonly HelpTopicRepositoryInterface         $helpTopicRepo,
         private readonly RobotsMetaContentRepositoryInterface $robotsMetaContentRepo,
         private readonly BusinessPageRepositoryInterface      $businessPageRepo,
+        private readonly StorefrontLegalPages                 $storefrontLegalPages,
     )
     {
     }
 
     public function getPageView(Request $request): View|RedirectResponse
     {
-        $filter = ['slug' => $request['slug']];
-        if (!($request->has('source') && $request->source == 'admin')) {
-            $filter += ['status' => 1];
-        }
-        $businessPage = $this->businessPageRepo->getFirstWhere(params: $filter, relations: ['banner']);
+        $businessPage = $this->businessPageRepo->getFirstWhere(params: ['slug' => $request['slug'], 'status' => 1], relations: ['banner']);
+        $businessPage = $this->storefrontLegalPages->shownInStorefront(page: $businessPage);
         if (!$businessPage) {
             Toastr::error(translate('Page_not_found'));
             return redirect()->route('home');

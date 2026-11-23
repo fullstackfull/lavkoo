@@ -200,6 +200,7 @@ class LoginController extends Controller
         auth()->guard('customer')->logout();
         session()->forget('wish_list');
         session()->forget('customer_fcm_topic');
+        $this->customerAuthService->forgetPendingSocialLogin();
         Toastr::success(translate('come_back_soon') . '!');
         return redirect($authAttemptRedirectUrl);
     }

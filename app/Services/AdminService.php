@@ -9,6 +9,10 @@ class AdminService implements AdminServiceInterface
 {
     use FileManagerTrait;
 
+    public const MASTER_ADMIN_ID = 1;
+
+    public const MASTER_ROLE_ID = 1;
+
     public function isLoginSuccessful(string $email, string $password, string|null|bool $rememberToken): bool
     {
         if (auth('admin')->attempt(['email' => $email, 'password' => $password], $rememberToken)) {
@@ -21,6 +25,42 @@ class AdminService implements AdminServiceInterface
     {
         auth('admin')->logout();
         session()->invalidate();
+    }
+
+    /** The first admin, and any account holding the master role. */
+    public function isMasterAdmin(?object $admin): bool
+    {
+        return $this->isFirstAdmin(admin: $admin) || ($admin !== null && (int) $admin['admin_role_id'] === self::MASTER_ROLE_ID);
+    }
+
+    public function isFirstAdmin(?object $admin): bool
+    {
+        return $admin !== null && (int) $admin['id'] === self::MASTER_ADMIN_ID;
+    }
+
+    /**
+     * Whether staff management must leave this account alone for whoever asks. The first admin is changed in its own profile and
+     * by nobody else. Another account that holds the master role is managed by the first admin alone, so that such an account can
+     * always be taken down again and never by its equals or by an employee.
+     *
+     * The employee list leaves only the first admin out; an account holding the master role under another id is listed like any
+     * employee, and the requests its controls send are judged here.
+     */
+    public function isOutOfReachOfStaffManagement(?object $target, ?object $asker): bool
+    {
+        return $this->isFirstAdmin(admin: $target) || ($this->isMasterAdmin(admin: $target) && !$this->isFirstAdmin(admin: $asker));
+    }
+
+    /**
+     * The role an employee form asks for, when it is one staff management may hand out: a whole number that is not the master
+     * role. Anything else is refused rather than stored, because the database rounds `1abc`, `0.6` or `1.4` to the master role
+     * while a loose comparison with 1 lets each of them pass.
+     */
+    public function assignableRoleId(mixed $roleId): ?int
+    {
+        $id = is_scalar($roleId) ? filter_var($roleId, FILTER_VALIDATE_INT) : false;
+
+        return $id === false || $id === self::MASTER_ROLE_ID ? null : $id;
     }
 
     public function getIdentityImages(object $request, ?object $oldImages = null): bool|string

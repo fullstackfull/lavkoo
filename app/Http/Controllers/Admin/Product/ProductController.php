@@ -31,16 +31,24 @@ use App\Events\ProductRequestStatusUpdateEvent;
 use App\Exports\ProductListExport;
 use App\Exports\RestockProductListExport;
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopeProductsToStaffCountries;
 use App\Http\Requests\Admin\ProductDenyRequest;
 use App\Http\Requests\ProductAddRequest;
 use App\Http\Requests\ProductEditImageRequest;
 use App\Http\Requests\ProductUpdateRequest;
 use App\Repositories\DigitalProductPublishingHouseRepository;
+use App\Services\DigitalProductFileService;
 use App\Services\Fulfillment\ProductFormProviderSelection;
 use App\Services\Fulfillment\ProviderStockOwnership;
 use App\Services\ProductService;
+use App\Services\Storefront\ProductCountry;
 use App\Traits\FileManagerTrait;
 use App\Traits\ProductTrait;
+use App\Services\Catalog\ProductCodeScope;
+use App\Services\Catalog\ProductCopy;
+use App\Services\Catalog\ProductCopyRefused;
+use App\Services\Catalog\ProductCopyToCountry;
+use App\Services\Storefront\StorefrontCatalog;
 use App\Utils\CartManager;
 use App\Utils\ProductManager;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
@@ -95,8 +103,11 @@ class ProductController extends BaseController
         private readonly BannerRepositoryInterface                  $bannerRepo,
         private readonly ShopRepositoryInterface                    $shopRepo,
         private readonly ProductService                             $productService,
+        private readonly DigitalProductFileService                  $digitalFiles,
+        private readonly ProductCopyToCountry                       $productCopyToCountry,
     )
     {
+        $this->middleware(ScopeProductsToStaffCountries::class);
     }
 
     /**
@@ -168,7 +179,11 @@ class ProductController extends BaseController
         $brandSetting = getWebConfig(name: 'product_brand');
         $digitalProductSetting = getWebConfig(name: 'digital_product');
         $colors = $this->colorRepo->getList(orderBy: ['name' => 'desc'], dataLimit: 'all');
-        $attributes = $this->attributeRepo->getList(orderBy: ['name' => 'desc'], dataLimit: 'all');
+        $attributes = $this->attributeRepo->getListOfferedIn(
+            storefrontCountry: ProductCountry::countryOfForm(requestedCountry: old('storefront_country')),
+            orderBy: ['name' => 'desc'],
+            dataLimit: 'all',
+        );
         $languages = getWebConfig(name: 'pnc_language') ?? null;
         $defaultLanguage = $languages[0];
         $digitalProductFileTypes = ['audio', 'video', 'document', 'software'];
@@ -261,6 +276,50 @@ class ProductController extends BaseController
         }
     }
 
+    /**
+     * Puts the same product in a second country, deliberately: an explicit target that is never the source's own country, the code, the barcode
+     * and the variant SKUs kept only where they are free, image files of the copy's own, no stock and no price carried, and an audit line. The
+     * admin lands on the copy's edit form, because the copy still needs its price, and is told there what the copy could not carry.
+     */
+    public function copyToCountry(Request $request, string|int $id): RedirectResponse
+    {
+        $product = $this->productRepo->getFirstWhereWithoutGlobalScope(params: ['id' => $id]);
+        if (!$product) {
+            ToastMagic::error(translate('product_not_found') . '!');
+
+            return redirect()->route('admin.products.product-gallery');
+        }
+
+        try {
+            $made = $this->productCopyToCountry->copy(source: $product, targetCountry: $request->input(StorefrontCatalog::COLUMN));
+        } catch (ProductCopyRefused $refused) {
+            ToastMagic::error($refused->getMessage());
+
+            return back();
+        }
+
+        ToastMagic::success(translate('the_copy_was_made_without_the_stock_or_the_price_of_the_original_set_them_here'));
+        if (!$made->carriedEverythingItCould()) {
+            ToastMagic::warning($this->whatTheCopyCouldNotCarry(made: $made));
+        }
+
+        return redirect()->route('admin.products.update', ['id' => $made->product->id]);
+    }
+
+    /** What the admin has to put back by hand: a variant SKU the target country already uses, and an image file that could not be read. */
+    private function whatTheCopyCouldNotCarry(ProductCopy $made): string
+    {
+        $notices = [];
+        if ($made->variantSkusNotKept !== []) {
+            $notices[] = translate('a_variation_sku_the_target_country_already_uses_was_cleared_on_the_copy') . ': ' . implode(', ', $made->variantSkusNotKept);
+        }
+        if ($made->imagesNotCopied !== []) {
+            $notices[] = translate('an_image_file_could_not_be_read_and_was_not_copied') . ': ' . implode(', ', $made->imagesNotCopied);
+        }
+
+        return implode(' ', $notices);
+    }
+
     public function getUpdateView(string|int $id): View|RedirectResponse
     {
         $taxData = $this->getTaxSystemType();
@@ -282,7 +341,12 @@ class ProductController extends BaseController
         $digitalProductSetting = getWebConfig(name: 'digital_product');
         $languages = getWebConfig(name: 'pnc_language') ?? null;
         $colors = $this->colorRepo->getList(orderBy: ['name' => 'desc'], dataLimit: 'all');
-        $attributes = $this->attributeRepo->getList(orderBy: ['name' => 'desc'], dataLimit: 'all');
+        $attributes = $this->attributeRepo->getListOfferedIn(
+            storefrontCountry: ProductCountry::countryOfForm(product: $product),
+            alwaysOffered: $this->productService->getProductAttributeIds(product: $product),
+            orderBy: ['name' => 'desc'],
+            dataLimit: 'all',
+        );
         $defaultLanguage = $languages[0];
         $digitalProductFileTypes = ['audio', 'video', 'document', 'software'];
         $digitalProductAuthors = $this->authorRepo->getListWhere(dataLimit: 'all');
@@ -408,7 +472,7 @@ class ProductController extends BaseController
                     }
                     $uploadedFile = '';
                     if ($fileItem) {
-                        $uploadedFile = $this->fileUpload(dir: 'product/digital-product/', format: $fileItem->getClientOriginalExtension(), file: $fileItem);
+                        $uploadedFile = $this->digitalFiles->store(file: $fileItem);
                     }
                     $this->digitalProductVariationRepo->add(data: [
                         'product_id' => $product['id'],
@@ -438,7 +502,7 @@ class ProductController extends BaseController
                     $uploadedFile = $variation['file'] ?? '';
                     $variation = $this->digitalProductVariationRepo->getFirstWhere(params: ['product_id' => $product['id'], 'variant_key' => $variation['variant_key']]);
                     if ($fileItem) {
-                        $uploadedFile = $this->fileUpload(dir: 'product/digital-product/', format: $fileItem->getClientOriginalExtension(), file: $fileItem);
+                        $uploadedFile = $this->digitalFiles->store(file: $fileItem);
                     }
                     $this->digitalProductVariationRepo->updateByParams(params: ['product_id' => $product['id'], 'variant_key' => $variation['variant_key']], data: [
                         'variant_key' => $request->input('digital_product_variant_key.' . $uniqueKey),
@@ -538,6 +602,22 @@ class ProductController extends BaseController
         ]);
     }
 
+    public function downloadDigitalFile(string|int $id): BinaryFileResponse
+    {
+        $product = $this->productRepo->getFirstWhereWithoutGlobalScope(params: ['id' => $id]);
+        abort_if($product === null, 404);
+
+        return $this->digitalFiles->download(name: $product['digital_file_ready']) ?? abort(404);
+    }
+
+    public function downloadDigitalVariationFile(string|int $id): BinaryFileResponse
+    {
+        $variation = $this->digitalProductVariationRepo->getFirstWhere(params: ['id' => $id]);
+        abort_if($variation === null, 404);
+
+        return $this->digitalFiles->download(name: $variation['file']) ?? abort(404);
+    }
+
     public function updateFeaturedStatus(Request $request): JsonResponse
     {
         $status = $request['status'];
@@ -635,14 +715,20 @@ class ProductController extends BaseController
 
     public function deleteImage(Request $request, ProductService $service): RedirectResponse
     {
-        $this->deleteFile(filePath: '/product/' . $request['image']);
         $product = $this->productRepo->getFirstWhere(params: ['id' => $request['id']]);
+        if (!$product) {
+            ToastMagic::error(translate('product_not_found') . '!');
+            return back();
+        }
 
         if (count(json_decode($product['images'])) < 2) {
             ToastMagic::warning(translate('you_can_not_delete_all_images'));
             return back();
         }
 
+        if (in_array($request['image'], $service->imageNames(product: $product), true)) {
+            $this->deleteFile(filePath: '/product/' . $request['image']);
+        }
         $imageProcessing = $service->deleteImage(request: $request, product: $product);
 
         $updateData = [
@@ -724,6 +810,7 @@ class ProductController extends BaseController
             'type' => $this->stringOr($request->type, $type),
             'seller' => $seller,
             'status' => $request->status ?? '',
+            'countryColumn' => app(ProductCodeScope::class)->enabled(),
             'productWiseTax' => $productWiseTax
         ];
         return Excel::download(new ProductListExport($data), ucwords($this->stringOr($request['type'], $type)) . '-' . 'product-list.xlsx');
@@ -871,8 +958,8 @@ class ProductController extends BaseController
             ToastMagic::error($dataArray['message']);
             return back();
         }
-        $this->productRepo->addArray(data: $dataArray['products']);
-        $products = \App\Models\Product::whereIn('code', array_keys($dataArray['productsTax']))->get();
+        $importedProductIds = $this->productRepo->addArrayAndGetIds(data: $dataArray['products']);
+        $productTaxIds = array_combine($importedProductIds, $dataArray['productsTax']);
         $SystemTaxVat = SystemTaxSetup::where('is_active', 1)->where('is_default', 1)->first();
 
         $allTaxIds = collect($dataArray['productsTax'])->flatten()->map(function ($ids) {
@@ -880,14 +967,13 @@ class ProductController extends BaseController
         })->flatten()->unique();
         $validTaxIds = \Modules\TaxModule\app\Models\Tax::whereIn('id', $allTaxIds)->pluck('id')->toArray();
         $rowsToInsert = [];
-        \Modules\TaxModule\app\Models\Taxable::where('tax_for', 'tax_for_orders')->where('taxable_type', ' App\Models\Product')->whereIn('taxable_id', $products->pluck('id')->toArray() ?? [0])->delete();
-        foreach ($products as $product) {
-            $taxIds = explode(',', $dataArray['productsTax'][$product->code]);
+        foreach ($productTaxIds as $productId => $productTaxList) {
+            $taxIds = explode(',', $productTaxList);
             foreach ($taxIds as $taxId) {
                 if (in_array($taxId, $validTaxIds)) {
                     $rowsToInsert[] = [
                         'taxable_type' => 'App\Models\Product',
-                        'taxable_id' => $product->id,
+                        'taxable_id' => $productId,
                         'system_tax_setup_id' => $SystemTaxVat->id,
                         'tax_id' => $taxId,
                         'tax_for' => 'tax_for_orders',

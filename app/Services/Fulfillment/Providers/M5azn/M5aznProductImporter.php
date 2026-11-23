@@ -25,6 +25,8 @@ use App\Traits\FileManagerTrait;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use App\Services\Catalog\ProductCodeScope;
+use App\Services\Storefront\StorefrontCatalog;
 
 /**
  * Turns a staged M5AZN product into a store product — once, and then keeps it in step.
@@ -58,6 +60,7 @@ class M5aznProductImporter
         private readonly InventorySyncService $inventory,
         private readonly ProductProviderAssignmentService $assignments,
         private readonly RemoteImageFetcher $images,
+        private readonly ProductCodeScope $codeScope,
     ) {
     }
 
@@ -142,7 +145,8 @@ class M5aznProductImporter
         $retail = $multi ? null : ($this->variantNumber($map, $single, 'retail_price') ?? (float) $item->retail_price ?: null);
         $cost = $multi ? null : ($this->variantNumber($map, $single, 'cost') ?? (float) $item->cost ?: null);
 
-        if (!$force && $this->clashesWithExistingProduct($sku, $barcode)) {
+        $country = ProductCodeScope::TABLE_DEFAULT_COUNTRY;
+        if (!$force && $this->clashesWithExistingProduct($sku, $barcode, $country)) {
             return ImportResult::needsReview('sku_or_barcode_already_used_by_another_product');
         }
         if ($multi && $this->variantSkuMissing($variants, $map)) {
@@ -150,8 +154,8 @@ class M5aznProductImporter
         }
 
         $storedPrice = $this->price($retail);
-        $productId = DB::transaction(function () use ($item, $payload, $variants, $map, $config, $actorId, $name, $multi, $sku, $barcode, $stock, $storedPrice, $retail, $cost): int {
-            $product = Product::create($this->attributes($item, $payload, $variants, $map, $config, $actorId, $name, $multi, $sku, $barcode, $stock, $storedPrice));
+        $productId = DB::transaction(function () use ($item, $payload, $variants, $map, $config, $actorId, $name, $multi, $sku, $barcode, $stock, $storedPrice, $retail, $cost, $country): int {
+            $product = Product::create($this->attributes($item, $payload, $variants, $map, $config, $actorId, $name, $multi, $sku, $barcode, $stock, $storedPrice) + $this->countryAttributes($country));
 
             foreach ($multi ? $variants : [[]] as $variant) {
                 $this->mapping($product->id, $item, $map, $variant, $multi, $multi ? null : $sku, $multi ? null : $barcode, $name, $multi ? null : $cost, $multi ? null : $retail, $multi ? null : $stock);
@@ -298,7 +302,11 @@ class M5aznProductImporter
      */
     private function variationData(array $variants, FieldMap $map, ProviderConfig $config): array
     {
-        $attribute = Attribute::withoutGlobalScope('translate')->firstOrCreate(['name' => $config->string('variant_attribute_name', 'Option')]);
+        // A lookup that may write must see the whole table: narrowed to one storefront's attributes (B-12), firstOrCreate would
+        // miss the central row and add a second one under the same name.
+        $attribute = Attribute::withoutGlobalScope('translate')
+            ->withoutGlobalScope('storefront_visibility')
+            ->firstOrCreate(['name' => $config->string('variant_attribute_name', 'Option')]);
         $options = [];
         $variation = [];
         $total = 0;
@@ -484,22 +492,22 @@ class M5aznProductImporter
         return false;
     }
 
-    private function clashesWithExistingProduct(?string $sku, ?string $barcode): bool
+    /** Whether a product of the country the item would be imported into already uses its SKU or barcode: with the country-scoped codes off that is a product of any country. */
+    private function clashesWithExistingProduct(?string $sku, ?string $barcode, string $country): bool
     {
-        return DB::table('products')->where(static function ($query) use ($sku, $barcode): void {
-            $any = false;
-            if ($sku !== null && $sku !== '') {
-                $query->orWhere('code', $sku);
-                $any = true;
-            }
-            if ($barcode !== null && $barcode !== '') {
-                $query->orWhere('barcode', $barcode);
-                $any = true;
-            }
-            if (!$any) {
-                $query->whereRaw('1 = 0');
-            }
-        })->exists();
+        return ($sku !== null && $sku !== '' && $this->codeScope->isCodeTaken(code: $sku, country: $country))
+            || ($barcode !== null && $barcode !== '' && $this->codeScope->isBarcodeTaken(barcode: $barcode, country: $country));
+    }
+
+    /**
+     * The country the check was made in is the one the row is written with, so what was checked is what is stored. Nothing is added while the
+     * scope does not apply: the product then takes the default of the table, as it always did.
+     *
+     * @return array<string, string>
+     */
+    private function countryAttributes(string $country): array
+    {
+        return $this->codeScope->enabled() ? [StorefrontCatalog::COLUMN => $country] : [];
     }
 
     private function cleanBarcode(?string $barcode): ?string

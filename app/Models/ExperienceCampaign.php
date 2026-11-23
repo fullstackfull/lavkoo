@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Services\Storefront\StorefrontVisibility;
+use App\Traits\HasStorefrontVisibility;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 
@@ -15,6 +17,10 @@ use Illuminate\Support\Carbon;
  */
 class ExperienceCampaign extends Model
 {
+    use HasStorefrontVisibility;
+
+    public const STOREFRONT_ENTITY_TYPE = StorefrontVisibility::EXPERIENCE_CAMPAIGN;
+
     public const STATUS_DRAFT     = 'draft';
     public const STATUS_SCHEDULED = 'scheduled';
     public const STATUS_ACTIVE    = 'active';

@@ -1,4 +1,5 @@
 {{-- Torod Point specific settings. Variables from provider.blade.php: $config, $secrets, $secretField, $defaultCompanyId. --}}
+@include('admin-views.fulfillment.partials._storefront-country-field')
 <div class="col-md-4">
     <label class="form-label" for="company_id">{{ translate('company_id') }}</label>
     <input class="form-control" id="company_id" name="company_id" inputmode="numeric" value="{{ old('company_id', $config->string('company_id')) }}" placeholder="{{ $defaultCompanyId }}">

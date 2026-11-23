@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\StaffCountryRefundScope;
+use App\Traits\HidesCustomerBalances;
 use App\Traits\StorageTrait;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -10,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class RefundRequest extends Model
 {
+    use HidesCustomerBalances;
     use HasFactory,StorageTrait;
 
     protected $fillable = [
@@ -42,6 +45,11 @@ class RefundRequest extends Model
         'change_by'=>'string',
         'images' => 'array'
     ];
+
+    protected static function booted(): void
+    {
+        static::addGlobalScope(new StaffCountryRefundScope());
+    }
 
     public function customer():BelongsTo
     {

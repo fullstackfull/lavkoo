@@ -3,10 +3,12 @@
 namespace App\Services\Theme;
 
 use App\Models\Banner;
+use App\Services\BannerPlacementService;
 use App\Services\BannerService;
 use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Product;
+use App\Services\Storefront\StorefrontCatalog;
 use Illuminate\Support\Collection;
 
 /**
@@ -368,11 +370,12 @@ class SectionDataResolver
      * so what the merchant sees listed there is what the theme shows. When nothing matches the
      * active theme (banners added before a theme switch) the theme filter is dropped rather than
      * rendering an empty section, since an orphaned banner is still a banner the merchant created.
+     * A banner that points at a product the storefront of the request may not sell is not offered to it.
      */
     public function dashboardBanners(string $bannerType, int $limit): array
     {
         $rows = $this->safely(function () use ($bannerType, $limit) {
-            $base = fn () => Banner::with(['storage'])
+            $ofTheType = fn () => Banner::query()
                 ->where('published', 1)
                 ->where('banner_type', $bannerType)
                 // Placement types find their page through their resource; one pointing
@@ -382,17 +385,33 @@ class SectionDataResolver
                     fn ($query, $resourceType) => $query->where('resource_type', $resourceType),
                 );
 
-            // Same ordering as BannerPlacementService — priority first, then creation
-            // order — so a section shows the banners in the arrangement the merchant
-            // sees in their built-in slot.
-            $ordered = fn ($query) => $query->orderBy('priority')->orderBy('id');
+            // The storefront narrows the read itself, so the limit counts the banners it may show and
+            // a read that cannot be answered takes the section with it rather than letting another
+            // country's banner through. Same ordering as BannerPlacementService — priority first, then
+            // creation order — so a section shows the banners in the arrangement the merchant sees in
+            // their built-in slot.
+            $placement = app(BannerPlacementService::class);
+            $cards = fn () => $placement->narrowToTheStorefront(banners: $ofTheType()->with(['storage']))
+                ->orderBy('priority')
+                ->orderBy('id')
+                ->take($this->bounded($limit, 24));
 
-            $scoped = $ordered((clone $base())->where('theme', theme_root_path()))
-                ->take($this->bounded($limit, 24))->get();
+            $activeFolder = theme_root_path();
+            $ofTheActiveFolder = $cards()->where('theme', $activeFolder)->get();
 
-            return $scoped->isNotEmpty()
-                ? $scoped
-                : $ordered($base())->take($this->bounded($limit, 24))->get();
+            if ($ofTheActiveFolder->isNotEmpty()) {
+                return $ofTheActiveFolder;
+            }
+
+            // Which folder the banners come from is decided over every banner of the type, before the
+            // storefront narrows them: a storefront is given the banners of a folder the theme left
+            // behind only when the active folder holds none at all, and never because the ones it holds
+            // happen to point at another country's products. Nothing narrows a request that is bound to
+            // no storefront, so for one of those the empty read above has already answered this.
+            $theActiveFolderHoldsBannersThisStorefrontMayNotSee = StorefrontCatalog::country() !== null
+                && $ofTheType()->where('theme', $activeFolder)->exists();
+
+            return $theActiveFolderHoldsBannersThisStorefrontMayNotSee ? $ofTheActiveFolder : $cards()->get();
         });
 
         return $rows->map(fn (Banner $banner) => [
@@ -475,17 +494,17 @@ class SectionDataResolver
         // image/link/text win over the block's own copies, so an edit in Banner Setup shows on the
         // storefront without touching the theme. An unpublished linked banner hides its card, the
         // same way unpublishing hides a banner from its built-in slot.
-        $overrides = app(ThemeBannerLink::class)->cardOverrides(
-            array_map(fn ($block) => (int) (($block['settings']['banner_id'] ?? 0)), $blocks)
-        );
+        $linkedIds = array_map(fn ($block) => (int) (($block['settings']['banner_id'] ?? 0)), $blocks);
+        $overrides = app(ThemeBannerLink::class)->cardOverrides($linkedIds);
+        $notOffered = $this->bannersNotOfferedByTheStorefront(among: array_values(array_filter($linkedIds)));
 
         foreach ($blocks as $block) {
             $settings = $block['settings'] ?? [];
 
             $linkedId = (int) ($settings['banner_id'] ?? 0);
             $linked = $overrides[$linkedId] ?? null;
-            if ($linkedId > 0 && ($linked === null || !$linked['published'])) {
-                // Deleted or unpublished in Banner Setup -> gone from the theme too.
+            if ($linkedId > 0 && ($linked === null || !$linked['published'] || in_array($linkedId, $notOffered, true))) {
+                // Deleted or unpublished in Banner Setup -> gone from the theme too, and so is a banner of a product this storefront may not sell.
                 continue;
             }
             if ($linked !== null) {
@@ -676,7 +695,7 @@ class SectionDataResolver
                     ->whereDate('start_date', '<=', date('Y-m-d'))
                     ->whereNotIn('id', array_filter(array_map('intval', $exclude))))
                 ->whereDate('end_date', '>=', date('Y-m-d'))
-                ->withCount('products')
+                ->withCount('activeProducts as products_count')
                 ->orderByDesc('id')
                 ->first();
 
@@ -845,6 +864,7 @@ class SectionDataResolver
     public function coupons(int $limit): Collection
     {
         return $this->safely(fn () => \App\Models\Coupon::where('status', 1)
+            ->forStorefront()
             ->whereDate('start_date', '<=', date('Y-m-d'))
             ->whereDate('expire_date', '>=', date('Y-m-d'))
             ->whereIn('coupon_type', ['discount_on_purchase', 'free_delivery'])
@@ -931,6 +951,29 @@ class SectionDataResolver
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    /**
+     * The banners, among the given ones, that point at a product the storefront of this request may not sell. A banner belongs to no country, but the product it points at does: another storefront's
+     * product is neither shown nor opened. Nothing is left out for a request that is not narrowed to a storefront, and nothing is read for it.
+     *
+     * Asked the other way round — which of them the storefront IS offered — so that the empty answer a failed read gives back leaves every one of them out instead of none: a card held back is a gap in
+     * a section, a card let through is another country's product on the page.
+     *
+     * @param list<int> $among
+     * @return list<int>
+     */
+    private function bannersNotOfferedByTheStorefront(array $among): array
+    {
+        if (StorefrontCatalog::country() === null || $among === []) {
+            return [];
+        }
+
+        $offered = $this->safely(fn () => app(BannerPlacementService::class)
+            ->narrowToTheStorefront(banners: Banner::query()->whereIn('id', $among))
+            ->pluck('id'));
+
+        return array_values(array_diff($among, $offered->all()));
     }
 
     /** Clamp a merchant-supplied count so a stray value cannot fetch the whole catalogue. */

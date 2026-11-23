@@ -21,6 +21,7 @@ final readonly class CompatibilityReport
         public int $sample,
         public ?array $readOnlyProof,
         public bool $refused = false,
+        public ?string $scope = null,
     ) {
     }
 
@@ -49,7 +50,7 @@ final readonly class CompatibilityReport
     {
         return [
             'verdict' => $this->verdict(),
-            'scope' => 'Structure and the aggregate shape of the data only. It does not prove that checkout, routing or dispatch work: run the scenarios in docs/integrations/staging-validation.md on the restored copy.',
+            'scope' => $this->scope ?? 'Structure and the aggregate shape of the data only. It does not prove that checkout, routing or dispatch work: run the scenarios in docs/integrations/staging-validation.md on the restored copy.',
             'environment' => $this->environment,
             'sample_rows' => $this->sample,
             'counts' => [

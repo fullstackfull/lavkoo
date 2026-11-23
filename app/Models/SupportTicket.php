@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\HidesCustomerBalances;
 use App\Traits\StorageTrait;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -28,6 +29,7 @@ use Illuminate\Support\Carbon;
 
 class SupportTicket extends Model
 {
+    use HidesCustomerBalances;
     use StorageTrait;
     protected $fillable = [
         'customer_id',

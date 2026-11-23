@@ -41,6 +41,7 @@ use App\Http\Controllers\Admin\Employee\EmployeeController;
 use App\Http\Controllers\Admin\Product\AttributeController;
 use App\Http\Controllers\Admin\Settings\CurrencyController;
 use App\Http\Controllers\Admin\Settings\LanguageController;
+use App\Http\Requests\Admin\LanguageRequest;
 use App\Http\Controllers\Admin\TransactionReportController;
 use App\Http\Controllers\Admin\InhouseProductSaleController;
 use App\Http\Controllers\Admin\ProductStockReportController;
@@ -116,6 +117,7 @@ use App\Http\Controllers\Admin\ManualMessageController;
 use App\Http\Controllers\Admin\AppCarouselController;
 use App\Http\Controllers\Admin\ZenderSettingController;
 use App\Http\Controllers\Admin\DeliverySyriaSettingController;
+use App\Http\Middleware\EnsureMasterAdmin;
 /*
 | Lynomia/Zender OTP gateway settings, app carousel, manual messages and cart marketing.
 |
@@ -181,7 +183,7 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
 
 
 
-       Route::group(['prefix' => 'meta-app', 'as' => 'meta-app.'], function () {
+       Route::group(['prefix' => 'meta-app', 'as' => 'meta-app.', 'middleware' => ['module:3rd_party_setup']], function () {
     Route::controller(MetaAppIntegrationController::class)->group(function () {
         Route::get('/', 'index')->name('index');
         Route::post('store', 'store')->name('store');
@@ -216,10 +218,13 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
     Route::group(['prefix' => 'dashboard', 'as' => 'dashboard.'], function () {
         Route::controller(DashboardController::class)->group(function () {
             Route::get('', 'index')->name('index');
-            Route::post('order-status', 'getOrderStatus')->name('order-status');
-            Route::get('earning-statistics', 'getEarningStatistics')->name('earning-statistics');
-            Route::get('order-statistics', 'getOrderStatistics')->name('order-statistics');
             Route::get('real-time-activities', 'getRealTimeActivities')->name('real-time-activities');
+
+            Route::middleware('module:dashboard')->group(function () {
+                Route::post('order-status', 'getOrderStatus')->name('order-status');
+                Route::get('earning-statistics', 'getEarningStatistics')->name('earning-statistics');
+                Route::get('order-statistics', 'getOrderStatistics')->name('order-statistics');
+            });
         });
     });
 
@@ -412,7 +417,7 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
         });
     });
 
-    Route::group(['prefix' => 'products', 'as' => 'products.', 'middleware' => ['module:catalog']], function () {
+    Route::group(['prefix' => 'products', 'as' => 'products.', 'middleware' => ['module:catalog', 'money.market']], function () {
         Route::controller(ProductController::class)->group(function () {
             Route::get('list/{type}', 'index')->name('list');
             Route::get('add', 'getAddView')->name('add');
@@ -421,6 +426,8 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
             Route::post('sku-combination', 'getSkuCombinationView')->name('sku-combination');
             Route::post('digital-variation-combination', 'getDigitalVariationCombinationView')->name('digital-variation-combination');
             Route::post('digital-variation-file-delete', 'deleteDigitalVariationFile')->name('digital-variation-file-delete');
+            Route::get('digital-file/{id}/{fileName?}', 'downloadDigitalFile')->name('digital-file');
+            Route::get('digital-variation-file/{id}/{fileName?}', 'downloadDigitalVariationFile')->name('digital-variation-file');
             Route::post('featured-status', 'updateFeaturedStatus')->name('featured-status');
             Route::get('get-categories', 'getCategories')->name('get-categories');
             Route::post('status-update', 'updateStatus')->name('status-update');
@@ -444,6 +451,7 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
             Route::post('deny', 'deny')->name('deny');
             Route::post('approve-status', 'approveStatus')->name('approve-status');
             Route::get('product-gallery', 'getProductGalleryView')->name('product-gallery');
+            Route::post('copy-to-country/{id}', 'copyToCountry')->name('copy-to-country');
             Route::get('stock-limit-status/{type}', 'getStockLimitStatus')->name('stock-limit-status');
             Route::post('delete-preview-file', 'deletePreviewFile')->name('delete-preview-file');
             Route::get('request-restock-list', 'getRequestRestockListView')->name('request-restock-list');
@@ -454,12 +462,19 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
 
     Route::group(['prefix' => 'products', 'as' => 'products.'], function () {
         Route::controller(ProductController::class)->group(function () {
-            Route::get('multiple-product-details', 'getMultipleProductDetailsView')->name('multiple-product-details');
-            Route::get('search', 'getSearchedProductsView')->name('search-product');
-            Route::get('search-all-product', 'getSearchedAllProductsView')->name('search-all-type-product');
+            // The reviews filter (people) and the deal-of-the-day page (marketing) both search with this one.
+            Route::get('search', 'getSearchedProductsView')->middleware('module:marketing,people')->name('search-product');
+
+            Route::middleware('module:marketing')->group(function () {
+                Route::get('multiple-product-details', 'getMultipleProductDetailsView')->name('multiple-product-details');
+                Route::get('search-all-product', 'getSearchedAllProductsView')->name('search-all-type-product');
+            });
+
             // Pickers on the product form (frequently bought together): searchable, id-based.
-            Route::get('picker-options', 'getProductPickerOptions')->name('picker-options');
-            Route::get('picker-labels', 'getProductPickerLabels')->name('picker-labels');
+            Route::middleware('module:catalog')->group(function () {
+                Route::get('picker-options', 'getProductPickerOptions')->name('picker-options');
+                Route::get('picker-labels', 'getProductPickerLabels')->name('picker-labels');
+            });
         });
     });
 
@@ -470,7 +485,8 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
         Route::controller(OrderController::class)->group(function () {
             Route::get('list/{status}', 'index')->name('list');
             Route::get('export-excel/{status}', 'exportList')->name('export-excel');
-            Route::get('generate-invoice/{id}', 'generateInvoice')->name('generate-invoice')->withoutMiddleware(['module:orders']);
+            // Opened from the order screens (orders), the POS order screen (pos) and the customer and vendor views (people): the list takes the place of the group's permission.
+            Route::get('generate-invoice/{id}', 'generateInvoice')->name('generate-invoice')->withoutMiddleware(['module:orders'])->middleware('module:orders,pos,people');
             Route::get('details/{id}', 'getView')->name('details');
             Route::post('address-update', 'updateAddress')->name('address-update'); // update address from order details
             Route::post('update-deliver-info', 'updateDeliverInfo')->name('update-deliver-info');
@@ -480,6 +496,7 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
             Route::post('payment-status', 'updatePaymentStatus')->name('payment-status');
             Route::get('inhouse-order-filter', 'filterInHouseOrder')->name('inhouse-order-filter');
             Route::post('digital-file-upload-after-sell', 'uploadDigitalFileAfterSell')->name('digital-file-upload-after-sell');
+            Route::get('digital-file/{id}/{fileName?}', 'downloadDigitalFile')->name('digital-file');
             Route::post('status', 'updateStatus')->name('status');
             // Bulk status change. Delegates per order to updateStatus, so every guard
             // and side effect of a single change applies to each one in the batch.
@@ -655,7 +672,7 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
     });
 
 
-    Route::group(['prefix' => 'employee', 'as' => 'employee.', 'middleware' => ['module:people']], function () {
+    Route::group(['prefix' => 'employee', 'as' => 'employee.', 'middleware' => ['module:people', EnsureMasterAdmin::class]], function () {
         Route::controller(EmployeeController::class)->group(function () {
             Route::get('list', 'index')->name('list');
             Route::get('add', 'getAddView')->name('add-new');
@@ -668,7 +685,7 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
         });
     });
 
-    Route::group(['prefix' => 'custom-role', 'as' => 'custom-role.', 'middleware' => ['module:people']], function () {
+    Route::group(['prefix' => 'custom-role', 'as' => 'custom-role.', 'middleware' => ['module:people', EnsureMasterAdmin::class]], function () {
         Route::controller(CustomRoleController::class)->group(function () {
             Route::get('add', 'index')->name('create');
             Route::post('add', 'add')->name('store');
@@ -1017,7 +1034,7 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
     });
 
     // Coupon
-    Route::group(['prefix' => 'coupon', 'as' => 'coupon.', 'middleware' => ['module:marketing']], function () {
+    Route::group(['prefix' => 'coupon', 'as' => 'coupon.', 'middleware' => ['module:marketing', 'money.market:coupon']], function () {
         Route::controller(CouponController::class)->group(function () {
             Route::get('add', 'getAddListView')->name('add');
             Route::post('add', 'add');
@@ -1123,7 +1140,7 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
         });
     });
 
-    Route::group(['prefix' => 'messages', 'as' => 'messages.'], function () {
+    Route::group(['prefix' => 'messages', 'as' => 'messages.', 'middleware' => ['module:people']], function () {
         Route::controller(ChattingController::class)->group(function () {
             Route::get('index/{type}', 'index')->name('index');
             Route::get('message', 'getMessageByUser')->name('message');
@@ -1198,7 +1215,8 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
         });
     });
 
-    Route::group(['prefix' => 'addon', 'as' => 'addon.'], function () {
+    // The same screens as system-setup/addon below, and the same permission: an add-on is PHP that is installed, run and deleted.
+    Route::group(['prefix' => 'addon', 'as' => 'addon.', 'middleware' => ['module:themes_and_addons']], function () {
         Route::controller(AddonController::class)->group(function () {
             Route::get('', 'index')->name('index');
             Route::post('publish', 'publish')->name('publish');
@@ -1258,7 +1276,7 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
             });
 
             Route::group(['prefix' => 'language', 'as' => 'language.', 'middleware' => ['module:system_settings']], function () {
-                Route::controller(LanguageController::class)->group(function () {
+                Route::controller(LanguageController::class)->where(['lang' => LanguageRequest::CODE_PATTERN])->group(function () {
                     Route::get('/', 'index')->name('index');
                     Route::post('add', 'add')->name('add-new');
                     Route::post('update-status', 'updateStatus')->name('update-status');
@@ -1625,9 +1643,12 @@ Route::get(
 
         Route::group(['prefix' => 'priority-setup', 'as' => 'priority-setup.'], function () {
             Route::controller(PrioritySetupController::class)->group(function () {
-                Route::get('', 'index')->name('index');
-                Route::post('', 'update');
-                Route::post('update-by-type', 'updateByType')->name('update-by-type');
+                Route::middleware('module:business_settings')->group(function () {
+                    Route::get('', 'index')->name('index');
+                    Route::post('', 'update');
+                });
+                // Posted by the priority modals of the flash-deal and featured-deal pages, so it asks for the permission of those pages.
+                Route::post('update-by-type', 'updateByType')->middleware('module:marketing')->name('update-by-type');
             });
         });
     });

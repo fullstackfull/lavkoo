@@ -28,6 +28,7 @@ use Illuminate\Http\RedirectResponse;
 use App\Services\Vendor\VendorDashboardStatsService;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
 use Modules\Auction\app\Services\AuctionVendorWalletStatsService;
 
 class DashboardController extends BaseController
@@ -225,15 +226,17 @@ class DashboardController extends BaseController
 
         $withdrawMethod = $this->withdrawalMethodRepo->getFirstWhere(params: ['id' => $request['withdraw_method']]);
         $wallet = $this->vendorWalletRepo->getFirstWhere(params: ['seller_id' => auth('seller')->id()]);
-        if (($wallet['total_earning'] ?? 0) >= currencyConverter($request['amount']) && $request['amount'] > 0) {
+        $amountInWalletCurrency = $this->withdrawRequestService->getWithdrawAmountInWalletCurrency(requestedAmount: $request['amount']);
+        if (!is_null($amountInWalletCurrency) && ($wallet['total_earning'] ?? 0) >= $amountInWalletCurrency && $request['amount'] > 0) {
             $this->withdrawRequestRepo->add($this->withdrawRequestService->getWithdrawRequestData(
                 withdrawMethod: $withdrawMethod,
                 request: $request,
                 addedBy: 'vendor',
-                vendorId: $vendorId
+                vendorId: $vendorId,
+                amountInWalletCurrency: $amountInWalletCurrency
             ));
-            $totalEarning = $wallet['total_earning'] - currencyConverter($request['amount']);
-            $pendingWithdraw = $wallet['pending_withdraw'] + currencyConverter($request['amount']);
+            $totalEarning = $wallet['total_earning'] - $amountInWalletCurrency;
+            $pendingWithdraw = $wallet['pending_withdraw'] + $amountInWalletCurrency;
             $this->vendorWalletRepo->update(
                 id: $wallet['id'],
                 data: $this->vendorWalletService->getVendorWalletData(totalEarning: $totalEarning, pendingWithdraw: $pendingWithdraw)
@@ -254,32 +257,55 @@ class DashboardController extends BaseController
     {
         $vendorId = auth('seller')->id();
         $withdrawMethod = $this->withdrawalMethodRepo->getFirstWhere(params: ['id' => $request['withdraw_method']]);
-        $wallet = $this->vendorWalletRepo->getFirstWhere(params: ['seller_id' => auth('seller')->id()]);
-        $withdrawRequest = $this->withdrawRequestRepo->getFirstWhere(params: ['id' => $request['withdraw_request_id']]);
+        $withdrawRequest = $this->withdrawRequestRepo->getFirstWhere(params: [
+            'id' => $request['withdraw_request_id'], 'seller_id' => $vendorId, 'delivery_man_id' => null, 'approved' => 0,
+        ]);
 
-        if ($withdrawRequest) {
-            $totalEarning = $wallet['total_earning'] + $withdrawRequest['amount'];
-            $pendingWithdraw = $wallet['pending_withdraw'] - $withdrawRequest['amount'];
+        if ($withdrawRequest && $withdrawRequest['approved'] == 0) {
+            $outcome = DB::transaction(function () use ($withdrawRequest, $withdrawMethod, $request, $vendorId) {
+                $wallet = $this->vendorWalletRepo->getFirstWhereForUpdate(params: ['seller_id' => $vendorId]);
+                $pendingRequest = $this->withdrawRequestRepo->getFirstWhereForUpdate(
+                    params: ['id' => $withdrawRequest['id'], 'seller_id' => $vendorId, 'approved' => 0]
+                );
+                if (!$pendingRequest) {
+                    return 'invalid';
+                }
 
-            if ($totalEarning >= currencyConverter($request['amount']) && $request['amount'] > 0) {
-                $this->withdrawRequestRepo->update(id: $withdrawRequest['id'], data: $this->withdrawRequestService->getWithdrawRequestData(
-                    withdrawMethod: $withdrawMethod,
-                    request: $request,
-                    addedBy: 'vendor',
-                    vendorId: $vendorId
-                ));
+                $totalEarning = $wallet['total_earning'] + $pendingRequest['amount'];
+                $pendingWithdraw = $wallet['pending_withdraw'] - $pendingRequest['amount'];
+                $amountInWalletCurrency = $this->withdrawRequestService->getWithdrawAmountInWalletCurrency(requestedAmount: $request['amount']);
+                if (is_null($amountInWalletCurrency) || !($totalEarning >= $amountInWalletCurrency && $request['amount'] > 0)) {
+                    return 'not_withdrawable';
+                }
+
+                $isRequestUpdated = $this->withdrawRequestRepo->updateWhere(
+                    params: ['id' => $withdrawRequest['id'], 'seller_id' => $vendorId, 'approved' => 0],
+                    data: $this->withdrawRequestService->getWithdrawRequestData(
+                        withdrawMethod: $withdrawMethod,
+                        request: $request,
+                        addedBy: 'vendor',
+                        vendorId: $vendorId,
+                        amountInWalletCurrency: $amountInWalletCurrency
+                    ),
+                );
+                if (!$isRequestUpdated) {
+                    return 'invalid';
+                }
 
                 $this->vendorWalletRepo->update(
                     id: $wallet['id'],
                     data: [
-                        'total_earning' => $totalEarning - currencyConverter($request['amount']),
-                        'pending_withdraw' => $pendingWithdraw + currencyConverter($request['amount']),
+                        'total_earning' => $totalEarning - $amountInWalletCurrency,
+                        'pending_withdraw' => $pendingWithdraw + $amountInWalletCurrency,
                     ],
                 );
-                ToastMagic::success(translate('withdraw_request_has_been_update'));
-            } else {
-                ToastMagic::error(translate('Currently this amount not withdrawable') . '!');
-            }
+                return 'updated';
+            });
+            match ($outcome) {
+                'updated' => ToastMagic::success(translate('withdraw_request_has_been_update')),
+                'not_withdrawable' => ToastMagic::error(translate('Currently this amount not withdrawable') . '!'),
+                default => ToastMagic::error(translate('invalid_request') . '!'),
+            };
             return redirect()->back();
         }
 

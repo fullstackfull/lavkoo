@@ -11,6 +11,7 @@ use App\Services\AuditLogger;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
+use App\Services\Catalog\ProductCodeScope;
 
 /**
  * Links store products (and variants) to a provider's own items — only ever by an explicit approval.
@@ -24,6 +25,8 @@ class ProviderMappingService
     public function __construct(
         private readonly AuditLogger $audit,
         private readonly ProviderStockOwnership $stockOwnership,
+        private readonly ProductCodeScope $codeScope,
+        private readonly ProviderStorefrontCountry $providerCountry,
     ) {
     }
 
@@ -146,7 +149,11 @@ class ProviderMappingService
     public function suggestionsFor(ProviderCatalogItem $item, ?string $echoedExternalId = null): array
     {
         $provider = ProviderCode::from($item->provider);
-        $query = DB::table('products')
+        if ($this->providerCountry->servesNoCatalogueOfOurs($provider->value)) {
+            return [];
+        }
+
+        $query = $this->codeScope->restrictToCountry(query: DB::table('products'), country: $this->providerCountry->of($provider->value))
             ->where('added_by', 'admin')
             ->where('product_type', 'physical')
             ->where(static fn ($owned) => $owned->whereNull('fulfillment_provider')->orWhere('fulfillment_provider', $provider->value));

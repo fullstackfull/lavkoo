@@ -32,7 +32,7 @@ class EmailVerificationController extends Controller
             ], 200);
         }
 
-        $token = rand(1000, 9999);
+        $token = random_int(1000, 9999);
         DB::table('phone_or_email_verifications')->insert([
             'phone_or_email' => $request['email'],
             'token' => $token,
@@ -99,7 +99,7 @@ class EmailVerificationController extends Controller
         }
 
         if($user && $time_differance==0){
-            $generate_new_token = rand(1000, 9999);
+            $generate_new_token = random_int(1000, 9999);
             if($token){
                 $token->token = $generate_new_token;
                 $token->otp_hit_count = 0;

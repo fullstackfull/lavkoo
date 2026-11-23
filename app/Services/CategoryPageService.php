@@ -86,7 +86,7 @@ class CategoryPageService
      */
     private function getSubCategories(Category $category): Collection
     {
-        $cacheKey = 'category_page_sub_categories_' . $category['id'] . '_' . app()->getLocale();
+        $cacheKey = storefrontCacheKey(key: 'category_page_sub_categories_' . $category['id'] . '_' . app()->getLocale());
         $cacheKeys = Cache::get(CACHE_CONTAINER_FOR_LANGUAGE_WISE_CACHE_KEYS, []);
         if (!in_array($cacheKey, $cacheKeys)) {
             $cacheKeys[] = $cacheKey;

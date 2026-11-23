@@ -3,8 +3,10 @@
 namespace Modules\TaxModule\app\Http\Controllers\Admin\Reports;
 
 use App\Contracts\Repositories\ShopRepositoryInterface;
+use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Models\Order;
 use App\Models\OrderTransaction;
+use App\Services\Staff\StaffCountryScope;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Http\Request;
@@ -36,7 +38,10 @@ class VendorTaxReportController extends Controller
         private readonly ShopRepositoryInterface $shopRepo
     )
     {
-        DB::statement("SET sql_mode=(SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY',''));");
+        if (in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+            DB::statement("SET sql_mode=(SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY',''));");
+        }
+        $this->middleware(ScopeOrdersToStaffCountries::class);
     }
 
     public function getVendorWiseTaxes(Request $request)
@@ -270,7 +275,7 @@ class VendorTaxReportController extends Controller
 
     private function getVendortaxData($shop_id, $startDate, $endDate)
     {
-        $summary = DB::table('orders')
+        $summary = app(StaffCountryScope::class)->narrowRawOrders(query: DB::table('orders'), orderIdColumn: 'orders.id')
             ->where('shop_id', $shop_id)
             ->whereIn('order_status', ['delivered', 'refund_requested', 'refund_request_canceled'])
             ->when($startDate && $endDate, fn($q) => $q->whereBetween('created_at', [$startDate, $endDate]))

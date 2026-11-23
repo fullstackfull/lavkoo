@@ -2,10 +2,16 @@
 
 namespace App\Http\Controllers\Customer;
 
+use App\Services\Payments\CheckoutCurrency;
+use App\Services\Marketplace\PaymentRoutingService;
+use Illuminate\Support\Facades\Schema;
+use function App\Utils\payment_gateways;
 use App\Enums\Address\AddressChannel;
 use App\Events\OrderEditDuePaymentEvent;
 use App\Services\Address\OrderAddressService;
 use App\Services\Analytics\Analytics;
+use App\Services\Payments\GatewayCurrencySupport;
+use App\Services\Storefront\StorefrontPaymentMethods;
 use App\Models\AdminWallet;
 use App\Models\Cart;
 use App\Models\CustomerWallet;
@@ -34,6 +40,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Redirector;
 use App\Traits\PaymentGatewayTrait;
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Web\UserProfileController;
 use Brian2694\Toastr\Facades\Toastr;
 use Illuminate\Http\RedirectResponse;
 use App\Library\Payment as PaymentInfo;
@@ -126,6 +133,22 @@ class PaymentController extends Controller
             }
             Toastr::error($addressMessage);
             return redirect()->route('checkout-details');
+        }
+
+        /*
+         * A gateway that cannot take the currency the customer is being charged in must REFUSE, not be
+         * handed a converted amount in a currency nobody asked for (D2-V1). Asked here, at the entry
+         * point, rather than beside the conversion further down: nothing has been read or written yet,
+         * and the two answers this route already gives a refusal -- 403 with an `errors` list for the
+         * app, a message and the payment page for the website -- are the ones every refusal above uses.
+         */
+        if ($currencyMessage = $this->unusableCurrencyMessage(request: $request)) {
+            if (in_array($request['payment_request_from'], ['app'])) {
+                return response()->json(['message' => $currencyMessage, 'errors' => [['code' => 'payment-currency', 'message' => $currencyMessage]]], 403);
+            }
+            Toastr::error($currencyMessage);
+
+            return redirect()->route('checkout-payment');
         }
 
         $cartGroupIds = CartManager::get_cart_group_ids(request: $request, type: 'checked');
@@ -240,6 +263,40 @@ class PaymentController extends Controller
         return $newCustomerRegister;
     }
 
+
+    /**
+     * What the customer is told when the chosen gateway cannot take the currency they are being charged
+     * in, or null when it can -- the one question, asked of the one place that answers it.
+     */
+    private function unusableCurrencyMessage(Request $request): ?string
+    {
+        $decision = app(GatewayCurrencySupport::class)->decideForRequest($request);
+
+        return $decision->refused() ? $decision->message() : null;
+    }
+
+    /** Does an active routing rule hide the chosen gateway for this order's amount and destination? */
+    private function routingHidesTheChosenMethod(string $method, float $amount, int|string|null $addressId): bool
+    {
+        /*
+         * ASK NOTHING BEFORE THERE IS ANYTHING TO ASK WITH. Until the routing-rules table exists no
+         * rule can exist either, so the answer is already known -- and reading the offered gateway
+         * list to work that out would add a query to EVERY payment start, and throw wherever
+         * addon_settings is not there. (It is always there on the platform; it is not always there in
+         * a test that builds only the tables its own feature touches, which is how this was found.)
+         *
+         * This is the same shape as the routing service's own guard, kept here as well so the cost is
+         * not paid before the feature is in use.
+         */
+        if ($method === '' || !Schema::hasTable('payment_routing_rules')) {
+            return false;
+        }
+
+        $country = $addressId ? ShippingAddress::find($addressId)?->country : null;
+        $offered = payment_gateways()->pluck('key_name')->filter()->values()->all();
+
+        return (new PaymentRoutingService())->hides(gateway: $method, availableGateways: $offered, amount: $amount, country: $country);
+    }
 
     function getRegisterNewCustomer($request, $address, $shippingId = null, $billingId = null): array
     {
@@ -414,12 +471,32 @@ class PaymentController extends Controller
 
         $currency_model = getWebConfig(name: 'currency_model');
         if ($currency_model == 'multi_currency') {
-            $currentCurrency = $request['current_currency_code'] ?? session('currency_code');
-            $currency_code = $this->getPaymentGatewayCurrencyCode(key: $request['payment_method'], currentCurrency: $currentCurrency);
+            // The code the refusal at the entry point judged, so the currency charged is the one that was
+            // allowed. Switched off this is the expression that was here before, unchanged.
+            $currencySupport = app(GatewayCurrencySupport::class);
+            $currentCurrency = $currencySupport->chargedCurrencyCode($request);
+            $currency_code = $this->getPaymentGatewayCurrencyCode(key: $currencySupport->chargedGatewayKey($request), currentCurrency: $currentCurrency);
             $paymentAmount = usdToAnotherCurrencyConverter(currencyCode: $currency_code, amount: $paymentAmount);
         } else {
             $default = getWebConfig(name: 'system_default_currency');
             $currency_code = Currency::find($default)->code;
+        }
+
+        /*
+         * A routing rule that hides this gateway must refuse the payment, not merely hide the button
+         * (D2-06). A customer who was offered the method before the rule was written, who kept a
+         * checkout page open, or who posts the method straight to this route would otherwise be handed
+         * to a gateway the rules say must not take this order -- and the money moves before anything
+         * notices. Judged with the order in front of us, so amount-bound and country-bound rules count
+         * here even though the global config answer could not decide them.
+         *
+         * Only a gateway the platform offers at all is judged: whether an unknown gateway may start a
+         * payment is a different question with its own answer, and this must not take it over.
+         */
+        if ($this->routingHidesTheChosenMethod(method: (string) $request['payment_method'], amount: (float) $paymentAmount, addressId: $additionalData['address_id'] ?? null)) {
+            Toastr::error(translate('this_payment_method_is_not_available_for_this_order'));
+
+            return route('checkout-payment');
         }
 
         $paymentInfo = new PaymentInfo(
@@ -480,11 +557,23 @@ class PaymentController extends Controller
             }
         }
 
+        // Same question as the payment start, same answer, in the shape this method's own refusals use.
+        if ($currencyMessage = $this->unusableCurrencyMessage(request: $request)) {
+            if (in_array($request['payment_request_from'], ['app'])) {
+                return response()->json(['message' => $currencyMessage], 403);
+            }
+            Toastr::error($currencyMessage);
+
+            return back();
+        }
+
         $paymentAmount = $request['amount'];
         $currency_model = getWebConfig(name: 'currency_model');
         if ($currency_model == 'multi_currency') {
-            $currentCurrency = $request['current_currency_code'] ?? session('currency_code');
-            $currency_code = $this->getPaymentGatewayCurrencyCode(key: $request['payment_method'], currentCurrency: $currentCurrency);
+            // Same one code and the same one gateway, judged above and charged here.
+            $currencySupport = app(GatewayCurrencySupport::class);
+            $currentCurrency = $currencySupport->chargedCurrencyCode($request);
+            $currency_code = $this->getPaymentGatewayCurrencyCode(key: $currencySupport->chargedGatewayKey($request), currentCurrency: $currentCurrency);
             $paymentAmount = usdToAnotherCurrencyConverter(currencyCode: $currency_code, amount: Convert::usdPaymentModule($request['amount'], $currentCurrency));
         } else {
             $default = getWebConfig(name: 'system_default_currency');
@@ -576,16 +665,26 @@ class PaymentController extends Controller
         }
 
         $validated = $validator->validated();
+        app(StorefrontPaymentMethods::class)->assertChoiceIsNotSwitchedOff(choice: (string) $validated['payment_method']);
+
         $order = Order::find($validated['order_id']);
         if (!$order) {
             Toastr::error(translate('Order_not_found'));
             return back();
         }
 
-        $orderEditHistory = OrderEditHistory::where('order_id', $validated['order_id'])->latest('created_at')->first();
-        $customer = Helpers::getCustomerInformation($request);
+        $customer = auth('customer')->user() ?? 'offline';
+        if (!$this->mayPayEditOrderDue(order: $order, customer: $customer, paymentMethod: $validated['payment_method'])) {
+            if ($request->payment_request_from === 'app') {
+                return response()->json(['errors' => [['code' => 'order_id', 'message' => translate('Order_not_found')]]]);
+            }
+            Toastr::error(translate('Order_not_found'));
+            return back();
+        }
 
-        if ($validated['payment_method'] === 'wallet' && $customer != 'offline') {
+        $orderEditHistory = OrderEditHistory::where('order_id', $validated['order_id'])->latest('created_at')->first();
+
+        if ($validated['payment_method'] === 'wallet') {
             if (getWebConfig('wallet_status') != 1 && $request['payment_method'] == 'wallet') {
                 Toastr::error(translate('wallet_is_deactivated'));
                 return back();
@@ -630,13 +729,14 @@ class PaymentController extends Controller
         if ($validated['payment_method'] === 'cash_on_delivery') {
             if ($request->filled('bring_change_amount_input')) {
                 $order->bring_change_amount = $request['bring_change_amount_input'];
-                if (getWebConfig('currency_model') === 'multi_currency') {
-                    $currentCurrency = $request->current_currency_code ?? session('currency_code');
-                    $order->bring_change_amount_currency = $this->getPaymentGatewayCurrencyCode('cash_on_delivery', $currentCurrency);
-                } else {
-                    $defaultCurrency = Currency::find(getWebConfig('system_default_currency'))->code;
-                    $order->bring_change_amount_currency = $defaultCurrency;
-                }
+                // Cash is not a gateway. This used to ask the GATEWAY CAPABILITY MAP what currency a
+                // cash payment is in; `cash_on_delivery` has no entry there, so the lookup matched
+                // nothing and fell through to that map's last line, `return 'USD'` -- labelling every
+                // multi-currency cash order USD on the admin order screen, whatever the customer was
+                // shopping in. Now the same answer its three siblings already use.
+                $order->bring_change_amount_currency = CheckoutCurrency::forOrder(
+                    $request->current_currency_code ?? session('currency_code')
+                );
                 $order->save();
             }
             $orderEditHistory->update(['order_due_payment_method' => 'cash_on_delivery']);
@@ -658,5 +758,16 @@ class PaymentController extends Controller
         return back();
     }
 
+    private function mayPayEditOrderDue(Order $order, User|string $customer, string $paymentMethod): bool
+    {
+        if ($customer instanceof User) {
+            return !$order['is_guest'] && (int)$order['customer_id'] === (int)$customer['id'];
+        }
 
+        $verifiedTrackingOrderId = session(UserProfileController::VERIFIED_TRACKING_ORDER_SESSION_KEY);
+
+        return $paymentMethod !== 'wallet'
+            && $verifiedTrackingOrderId !== null
+            && (int)$verifiedTrackingOrderId === (int)$order['id'];
+    }
 }

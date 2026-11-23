@@ -9,6 +9,7 @@ use App\Services\SalesChannels\Data\RemoteListing;
 use App\Services\SalesChannels\Support\SnapshotState;
 use Carbon\CarbonInterface;
 use Illuminate\Database\UniqueConstraintViolationException;
+use App\Services\SalesChannels\Support\ChannelAccountCountry;
 
 /**
  * Brings the channel's listings into the application WITHOUT touching a single product.
@@ -19,7 +20,7 @@ use Illuminate\Database\UniqueConstraintViolationException;
  */
 class ListingSyncService
 {
-    public function __construct(private readonly ProductMatcher $matcher)
+    public function __construct(private readonly ProductMatcher $matcher, private readonly ChannelAccountCountry $accountCountry)
     {
     }
 
@@ -49,7 +50,7 @@ class ListingSyncService
             $row->forceFill($fields)->save();
             $stats['updated']++;
             if (!$row->isMapped() && $row->status !== SalesChannelProductMapping::IGNORED) {
-                $this->propose($row, $listing, $autoLink, $stats);
+                $this->propose($account, $row, $listing, $autoLink, $stats);
             }
         }
 
@@ -85,13 +86,19 @@ class ListingSyncService
             return;
         }
         $stats['created']++;
-        $this->propose($row, $listing, $autoLink, $stats);
+        $this->propose($account, $row, $listing, $autoLink, $stats);
     }
 
     /** @param array<string, int> $stats */
-    private function propose(SalesChannelProductMapping $row, RemoteListing $listing, bool $autoLink, array &$stats): void
+    private function propose(SalesChannelAccount $account, SalesChannelProductMapping $row, RemoteListing $listing, bool $autoLink, array &$stats): void
     {
-        $candidates = $this->matcher->candidates($listing->sku, $listing->barcode);
+        // An account that sells in a country we have no storefront for has no product of ours to be: every proposal would be another
+        // country's product, so nothing is proposed rather than the whole catalogue offered.
+        if ($this->accountCountry->sellsWhereWeHaveNoCatalogue($account)) {
+            return;
+        }
+
+        $candidates = $this->matcher->candidates($listing->sku, $listing->barcode, $this->accountCountry->of($account));
         if (count($candidates) > 1) {
             $row->forceFill(['status' => SalesChannelProductMapping::CONFLICT, 'match_method' => 'ambiguous', 'suggested_product_id' => null])->save();
             $stats['conflicts']++;

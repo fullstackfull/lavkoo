@@ -19,6 +19,10 @@ namespace App\Services\Platform;
  * is declared here is settable, bounded, labelled and audited by construction, and adding one is a
  * single entry rather than a page, a controller and a migration.
  *
+ * What this is NOT for: the legal texts a customer accepts. Those are rows of
+ * `storefront_legal_documents`, written through `StorefrontLegalPublisher`; a rule declared here is
+ * a number or a switch the platform applies to itself, and is never named after a document (I2-06).
+ *
  * Defaults are the values the constants already held, so an install that never opens the screen
  * behaves exactly as it does today.
  */

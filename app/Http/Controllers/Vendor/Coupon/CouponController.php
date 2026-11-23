@@ -14,6 +14,7 @@ use App\Services\CouponService;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -89,7 +90,7 @@ class CouponController extends BaseController
     public function getUpdateView(string|int $id): View
     {
         // Scope to the owning seller — an unscoped lookup let a seller open/edit another vendor's coupon.
-        $coupon = $this->couponRepo->getFirstWhere(['id' => $id, 'added_by' => 'seller', 'seller_id' => auth('seller')->id()]);
+        $coupon = $this->getOwnCoupon(id: $id);
         abort_if(!$coupon, 404);
         $customers = $this->customerRepo->getListWhereNotIn([0]);
         return view(Coupon::UPDATE[VIEW], compact('coupon', 'customers'));
@@ -108,7 +109,7 @@ class CouponController extends BaseController
             return redirect()->back();
         }
         // Confirm ownership before updating — an unscoped update let a seller rewrite another vendor's coupon.
-        $coupon = $this->couponRepo->getFirstWhere(['id' => $id, 'added_by' => 'seller', 'seller_id' => auth('seller')->id()]);
+        $coupon = $this->getOwnCoupon(id: $id);
         if (!$coupon) {
             ToastMagic::error(translate('coupon_not_found'));
             return redirect()->route(Coupon::INDEX[ROUTE]);
@@ -147,7 +148,7 @@ class CouponController extends BaseController
     public function delete(string|int $id): RedirectResponse
     {
         $coupon = $this->couponRepo->getFirstWhere(['added_by' => 'seller', 'coupon_bearer' => 'seller', 'id' => $id]);
-        if (in_array($coupon['seller_id'], [auth('seller')->id(), 0])) {
+        if ($coupon && in_array(needle: $coupon['seller_id'], haystack: [auth('seller')->id(), 0], strict: true)) {
             $this->couponRepo->delete(params: ['id' => $id]);
             ToastMagic::success(translate('coupon_deleted_successfully'));
         } else {
@@ -164,7 +165,10 @@ class CouponController extends BaseController
      */
     public function getQuickView(Request $request): JsonResponse
     {
-        $coupon = $this->couponRepo->getFirstWhere(['id' => $request['id']]);
+        $coupon = $this->getOwnOrPlatformCoupon(id: $request['id']);
+        if (!$coupon) {
+            return response()->json(data: ['status' => 0, 'message' => translate('coupon_not_found')], status: 404);
+        }
         return response()->json([
             'view' => view(Coupon::QUICK_VIEW[VIEW], compact('coupon'))->render(),
         ]);
@@ -182,5 +186,20 @@ class CouponController extends BaseController
             'search' => $request['searchValue'],
         ]), 'Coupon-list.xlsx'
         );
+    }
+
+    /** A coupon this vendor may EDIT: its own alone. seller_id 0 addresses every vendor, so a platform coupon is never one vendor's to change. */
+    private function getOwnCoupon(string|int|null $id): ?Model
+    {
+        return $this->couponRepo->getFirstWhere(['id' => $id, 'added_by' => 'seller', 'seller_id' => auth('seller')->id()]);
+    }
+
+    /** A coupon this vendor may READ: its own and the platform's, which is the set the list and the export already show, so that a listed coupon opens instead of answering 404. */
+    private function getOwnOrPlatformCoupon(string|int|null $id): ?Model
+    {
+        return $this->couponRepo->getListWhere(
+            filters: ['added_by' => 'seller', 'vendorId' => auth('seller')->id(), 'id' => $id],
+            dataLimit: 'all'
+        )->first();
     }
 }

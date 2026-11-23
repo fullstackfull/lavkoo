@@ -7,6 +7,7 @@ use App\Http\Middleware\APILocalizationMiddleware;
 use App\Http\Middleware\CustomerMiddleware;
 use App\Http\Middleware\DatabaseRefreshMiddleware;
 use App\Http\Middleware\DeliveryManAuth;
+use App\Http\Middleware\EnsureLegacySellerTokenIsApproved;
 use App\Http\Middleware\GuestMiddleware;
 use App\Http\Middleware\InstallationMiddleware;
 use App\Http\Middleware\MaintenanceModeMiddleware;
@@ -71,6 +72,9 @@ return Application::configure(basePath: dirname(__DIR__))
             // keeps that page out of search results and shared caches for as long as the token
             // that summoned it is alive.
             \App\Http\Middleware\NoIndexThemePreview::class,
+            // A storefront that is switched on but not yet allowed to sell is a market being prepared. It stays reachable to whoever
+            // is preparing it and stays out of search results until it is live (B-17).
+            \App\Http\Middleware\NoIndexUnlaunchedStorefront::class,
             \App\Http\Middleware\RecordHttpTelemetry::class,
             // Operational monitoring. Separate from RecordHttpTelemetry on purpose: that one keeps
             // a row per request for visits and sources, this one only ever increments counters in
@@ -122,6 +126,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'maintenance_mode' => MaintenanceModeMiddleware::class,
             'delivery_man_auth' => DeliveryManAuth::class,
             'seller_api_auth' => SellerApiAuthMiddleware::class,
+            'legacy_seller_approved' => EnsureLegacySellerTokenIsApproved::class,
             // Enforced on the route, never by hiding a menu item.
             'seller_can' => \App\Http\Middleware\EnsureSellerPermission::class,
             'seller_owner' => \App\Http\Middleware\EnsureSellerIsOwner::class,
@@ -130,6 +135,21 @@ return Application::configure(basePath: dirname(__DIR__))
             'apiGuestCheck' => APIGuestMiddleware::class,
             'logUserBrowsingNavigation' => \App\Http\Middleware\LogUserBrowsingNavigationMiddleware::class,
             'detectMobile' => \App\Http\Middleware\DetectMobile::class,
+            // Adopted only by the new-sale routes the storefront legal gate covers (GCC-11). Elsewhere the Saudi storefront is untouched.
+            'storefront' => \App\Http\Middleware\ResolveStorefront::class,
+            'storefront.vary' => \App\Http\Middleware\VaryByStorefront::class,
+            'storefront.sellable' => \App\Http\Middleware\EnsureStorefrontMaySell::class,
+            // The platform admin API (GCC-20): the door in front of every route of it, and the check of its own bearer token.
+            'platform_admin' => \App\Http\Middleware\PlatformAdminGate::class,
+            'platform_admin_auth' => \App\Http\Middleware\AuthenticatePlatformAdmin::class,
+            'platform_admin_can' => \App\Http\Middleware\EnsurePlatformAdminCapability::class,
+            // Adopted only by the routes that browse a storefront, never by the ones that serve what a customer already has (I2-14, I2-16).
+            'storefront.available' => \App\Http\Middleware\EnsureStorefrontIsAvailable::class,
+            'storefront.wallet' => \App\Http\Middleware\EnsureWalletIsOpenInStorefront::class,
+            // Names the way to pay a route takes (storefront.method:cash_on_delivery) and refuses it in a storefront that has switched it off (D2-V2).
+            'storefront.method' => \App\Http\Middleware\EnsureStorefrontOffersPaymentMethod::class,
+            // Adopted by the admin screens that work on the products of one country, so their money is that country's (GCC-05).
+            'money.market' => \App\Http\Middleware\ScopeMoneyToMarket::class,
         ]);
     })
     // The schedule itself lives in App\Console\ScheduleDefinition, so the monitoring page can

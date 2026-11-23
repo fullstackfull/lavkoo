@@ -76,6 +76,28 @@
     </div>
 @endif
 
+@if(isset($filterSection) && in_array('storefront_country', $filterSection))
+    <div class="p-12 p-sm-20 bg-section rounded mb-3 mb-sm-20 overflow-wrap-anywhere">
+        <label for="" class="form-label">{{ translate('product_country') }}</label>
+        <div class="bg-white rounded p-3">
+            <div class="row gx-3 gy-4" style="--bs-gutter-y: 2rem;">
+                @foreach (\App\Services\Storefront\ProductCountry::options() as $storefrontCountry)
+                    <div class="col-sm-6">
+                        <div class="d-flex gap-2">
+                            <input class="form-check-input checkbox--input mt-0" type="checkbox" name="filter_storefront_countries[]"
+                                   id="storefrontCountry{{ $storefrontCountry }}" value="{{ $storefrontCountry }}"
+                                   {{ in_array($storefrontCountry, \Illuminate\Support\Arr::wrap(request('filter_storefront_countries')), true) ? 'checked' : '' }}>
+                            <label class="form-check-label fs-12" for="storefrontCountry{{ $storefrontCountry }}">
+                                {{ \App\Services\Storefront\ProductCountry::label(country: $storefrontCountry) }}
+                            </label>
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+        </div>
+    </div>
+@endif
+
 @if(isset($filterSection) && in_array('product_status', $filterSection))
     <div class="p-12 p-sm-20 bg-section rounded mb-3 mb-sm-20 overflow-wrap-anywhere">
         <label for="" class="form-label">{{ translate('Status') }}</label>

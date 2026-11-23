@@ -2,14 +2,20 @@
 
 namespace App\Http\Controllers\RestAPI\v1;
 
+use App\Services\Payments\CheckoutCurrency;
 use App\Enums\Address\AddressChannel;
 use App\Events\DigitalProductOtpVerificationEvent;
 use App\Events\RefundEvent;
 use App\Http\Controllers\Controller;
 use App\Services\Address\OrderAddressService;
 use App\Services\Address\StorefrontAddressService;
+use App\Services\DigitalFileAddressService;
+use App\Services\DigitalProductFileService;
+use App\Services\Customer\WalletOrderDebit;
 use App\Services\Fulfillment\CheckoutCodGuard;
 use App\Services\Fulfillment\CustomerFulfillmentPresenter;
+use App\Services\Storefront\OrderStorefrontSnapshot;
+use App\Services\Storefront\StorefrontCurrency;
 use App\Http\Requests\API\v1\RefundStoreRequest;
 use App\Models\Cart;
 use App\Models\Currency;
@@ -22,33 +28,44 @@ use App\Models\RefundRequest;
 use App\Models\Setting;
 use App\Models\ShippingAddress;
 use App\Services\OrderService;
+use App\Services\Wallet\WalletPaymentRefused;
 use App\Traits\CommonTrait;
 use App\Traits\FileManagerTrait;
 use App\Traits\SmsGateway;
 use App\Models\User;
 use App\Utils\CartManager;
-use App\Utils\Convert;
 use App\Utils\CustomerManager;
 use App\Utils\Helpers;
 use App\Utils\ImageManager;
+use App\Services\Storefront\RefundOrderMoney;
 use App\Utils\OrderManager;
+use App\Utils\PlainFileName;
 use App\Utils\SMSModule;
 use Carbon\Carbon;
 use Carbon\CarbonInterval;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class OrderController extends Controller
 {
     use CommonTrait, FileManagerTrait;
 
+    /** Wrong codes for one order line before the download is locked, and for how long: the code is four digits. */
+    private const DIGITAL_DOWNLOAD_OTP_ATTEMPTS = 5;
+    private const DIGITAL_DOWNLOAD_OTP_LOCK_SECONDS = 900;
+
     public function __construct(
         private readonly OrderService $orderService,
         private readonly OrderAddressService $orderAddresses,
         private readonly StorefrontAddressService $storefrontAddresses,
+        private readonly DigitalProductFileService $digitalFiles,
+        private readonly DigitalFileAddressService $digitalFileAddresses,
+        private readonly StorefrontCurrency $storefrontCurrency,
     )
     {
     }
@@ -96,7 +113,7 @@ class OrderController extends Controller
             ->where('id', $request['order_id'])
             ->where(function ($query) use ($request) {
                 auth('api')->check()
-                    ? $query->where('customer_id', auth('api')->id())
+                    ? $query->ownedByCustomer(customerId: auth('api')->id())
                     : $query->where(['customer_id' => $request['guest_id'], 'is_guest' => 1]);
             })
             ->first();
@@ -151,7 +168,7 @@ class OrderController extends Controller
         }
         // Scope to the authenticated customer (route is auth:api): only the order's owner may cancel it,
         // otherwise any caller could enumerate sequential ids and cancel/restock arbitrary orders.
-        $order = Order::where(['id' => $request->order_id, 'customer_id' => auth('api')->id()])->first();
+        $order = Order::where('id', $request->order_id)->ownedByCustomer(customerId: auth('api')->id())->first();
         if (!$order) {
             return response()->json(['message' => translate('order_not_found')], 404);
         }
@@ -241,12 +258,11 @@ class OrderController extends Controller
             }
         }
 
-        $currency_model = getWebConfig(name: 'currency_model');
-        if ($currency_model == 'multi_currency') {
-            $currencyCode = $request->current_currency_code ?? Currency::find(getWebConfig(name: 'system_default_currency'))->code;
-        } else {
-            $currencyCode = Currency::find(getWebConfig(name: 'system_default_currency'))->code;
-        }
+        // One answer to what currency this purchase is in, shared with the website's own checkout: the money of the storefront the
+        // request is served from while it trades in its own, and otherwise the code this endpoint has always used.
+        $pickedByTheClient = getWebConfig(name: 'currency_model') == 'multi_currency' ? $request->current_currency_code : null;
+        $currencyCode = $this->storefrontCurrency->purchaseCurrencyCode(picked: $pickedByTheClient)
+            ?? CheckoutCurrency::platformDefault();
 
         $orderIds = OrderManager::generateOrder(data: [
             'is_guest' => $user == 'offline' ? 1 : 0,
@@ -441,8 +457,9 @@ class OrderController extends Controller
             return $refusal;
         }
 
-        if ($paymentAmount > $user->wallet_balance) {
-            return response()->json(['message' => 'inefficient balance in your wallet to pay for this order'], 403);
+        $walletDebit = WalletOrderDebit::forOrderAmount($paymentAmount);
+        if (!$walletDebit->isCoveredBy($user->wallet_balance)) {
+            return $this->insufficientWalletBalance();
         } else {
             $physical_product = false;
             foreach ($carts as $cart) {
@@ -469,35 +486,43 @@ class OrderController extends Controller
                 }
             }
 
-            $orderIds = OrderManager::generateOrder(data: [
-                'is_guest' => 0,
-                'guest_id' => $request['guest_id'] ?? 0,
-                'customer_id' => $user['id'],
-                'address_channel' => AddressChannel::Api,
-                'order_status' => 'confirmed',
-                'payment_method' => 'pay_by_wallet',
-                'payment_status' => 'paid',
-                'transaction_ref' => '',
-                'address_id' => $request['address_id'],
-                'billing_address_id' => $request['billing_address_id'],
-                'payment_note' => $request['payment_note'],
-                'order_note' => $request['order_note'],
-                'coupon_code' => $request['coupon_code'],
-                'requestObj' => $request,
-            ]);
+            try {
+                $orderIds = OrderManager::generateOrder(data: [
+                    'is_guest' => 0,
+                    'guest_id' => $request['guest_id'] ?? 0,
+                    'customer_id' => $user['id'],
+                    'address_channel' => AddressChannel::Api,
+                    'order_status' => 'confirmed',
+                    'payment_method' => 'pay_by_wallet',
+                    'payment_status' => 'paid',
+                    'transaction_ref' => '',
+                    'address_id' => $request['address_id'],
+                    'billing_address_id' => $request['billing_address_id'],
+                    'payment_note' => $request['payment_note'],
+                    'order_note' => $request['order_note'],
+                    'coupon_code' => $request['coupon_code'],
+                    'requestObj' => $request,
+                    'walletPayment' => ['customerId' => $user->id, 'amount' => $walletDebit->amountInUsd(), 'amountInUsd' => true],
+                ]);
+            } catch (WalletPaymentRefused) {
+                return $this->insufficientWalletBalance();
+            }
 
-            // Guarded before the wallet is touched: debiting for an order that was refused
-            // would take the customer's balance and leave them with nothing to show for it.
+            // The debit is written inside the order transaction, so an order refused for stock took nothing from the wallet.
             if (empty($orderIds)) {
                 return response()->json(['message' => translate('The_following_items_in_your_cart_are_currently_out_of_stock')], 403);
             }
 
-            CustomerManager::create_wallet_transaction($user->id, Convert::default($paymentAmount), 'order_place', 'order payment');
             return response()->json([
                 'messages' => translate('order_placed_successfully'),
                 'order_ids' => $orderIds,
             ], 200);
         }
+    }
+
+    private function insufficientWalletBalance(): JsonResponse
+    {
+        return response()->json(['message' => 'inefficient balance in your wallet to pay for this order'], 403);
     }
 
     public function refund_request(Request $request): JsonResponse
@@ -506,7 +531,7 @@ class OrderController extends Controller
 
         $user = $request->user();
         // Ownership: the order line must belong to the requesting customer.
-        if (!$order_details || !Order::where('id', $order_details->order_id)->where('customer_id', $user->id)->exists()) {
+        if (!$order_details || !Order::where('id', $order_details->order_id)->ownedByCustomer(customerId: $user->id)->exists()) {
             return response()->json(['errors' => [['code' => 'order-details', 'message' => translate('not_found')]]], 404);
         }
         $loyaltyPointStatus = getWebConfig(name: 'loyalty_point_status');
@@ -565,7 +590,7 @@ class OrderController extends Controller
         $user = $request->user();
 
         // Ownership: a customer may only refund a line of their OWN order.
-        if (!$orderDetails || !Order::where('id', $orderDetails->order_id)->where('customer_id', $user->id)->exists()) {
+        if (!$orderDetails || !Order::where('id', $orderDetails->order_id)->ownedByCustomer(customerId: $user->id)->exists()) {
             return response()->json(['errors' => [['code' => 'order-details', 'message' => translate('not_found')]]], 404);
         }
 
@@ -595,6 +620,9 @@ class OrderController extends Controller
         $refund_request->product_id = $orderDetails->product_id;
         $refund_request->order_id = $orderDetails->order_id;
         $refund_request->refund_reason = $request->refund_reason;
+        foreach (app(RefundOrderMoney::class)->of(order: Order::find($orderDetails->order_id), table: 'refund_requests') as $column => $value) {
+            $refund_request->{$column} = $value;
+        }
 
         if ($request->hasFile('images')) {
             $images = [];
@@ -609,6 +637,7 @@ class OrderController extends Controller
         }
 
         $refund_request->save();
+        app(OrderStorefrontSnapshot::class)->stampMoneyRows(table: 'refund_requests', orderId: $orderDetails->order_id);
         $orderDetails->update(['refund_request' => 1]);
         $order = Order::find($orderDetails->order_id);
 
@@ -629,7 +658,7 @@ class OrderController extends Controller
     {
         $orderDetails = OrderDetail::find($request->id);
         // Ownership: the order line (price/qty/discount/tax) must belong to the requesting customer.
-        if (!$orderDetails || !Order::where('id', $orderDetails->order_id)->where('customer_id', $request->user()->id)->exists()) {
+        if (!$orderDetails || !Order::where('id', $orderDetails->order_id)->ownedByCustomer(customerId: $request->user()->id)->exists()) {
             return response()->json(['errors' => [['code' => 'order-details', 'message' => translate('not_found')]]], 404);
         }
         $refund = RefundRequest::where('customer_id', $request->user()->id)
@@ -661,7 +690,7 @@ class OrderController extends Controller
         return response()->json($data, 200);
     }
 
-    public function digital_product_download($id, Request $request): JsonResponse
+    public function digital_product_download($id, Request $request): JsonResponse|BinaryFileResponse
     {
         $user = Helpers::getCustomerInformation($request);
         $order_details_data = OrderDetail::with('order.customer')->find($id);
@@ -692,7 +721,14 @@ class OrderController extends Controller
                         $file_name = $order_details_data->digital_file_after_sell;
                     }
 
-                    if (File::exists(base_path('storage/app/public/product/digital-product/' . $file_name))) {
+                    if ($this->digitalFiles->isPrivate()) {
+                        return $this->digitalFiles->download(name: $file_name) ?? response()->json([
+                            'status' => 0,
+                            'message' => translate('file_not_found'),
+                        ]);
+                    }
+
+                    if (PlainFileName::isPlain($file_name) && File::exists(base_path('storage/app/public/product/digital-product/' . $file_name))) {
                         return \response()->download($file_path);
                     } else {
                         return response()->json([
@@ -727,7 +763,7 @@ class OrderController extends Controller
         }
 
         if ($emailServices_smtp['status'] || $smsConfigStatus) {
-            $token = rand(1000, 9999);
+            $token = random_int(1000, 9999);
             if ($customer['email'] == '' && $customer['phone'] == '') {
                 return response()->json([
                     'status' => $status,
@@ -818,38 +854,58 @@ class OrderController extends Controller
 
     public function digital_product_download_otp_verify(Request $request)
     {
-        $verification = DigitalProductOtpVerification::where(['token' => $request->otp, 'order_details_id' => $request->order_details_id])->first();
-        $order_details_data = OrderDetail::with('order.customer')->find($request->order_details_id);
+        $orderDetailsId = $request->input('order_details_id');
+        $otp = $request->input('otp');
+        $attemptsKey = 'digital-product-download-otp:' . (is_scalar($orderDetailsId) ? $orderDetailsId : '');
 
-        if ($verification) {
-            if ($order_details_data) {
-                if ($order_details_data->product->digital_product_type == 'ready_product' && $order_details_data->product->digital_file_ready) {
-                    $file_path = storage_path('app/public/product/digital-product/' . $order_details_data->product->digital_file_ready);
-                    $file_name = $order_details_data->product->digital_file_ready;
-                } else if ($order_details_data->digital_file_after_sell) {
-                    $file_path = storage_path('app/public/product/digital-product/' . $order_details_data->digital_file_after_sell);
-                    $file_name = $order_details_data->digital_file_after_sell;
-                }
-            }
+        if (RateLimiter::tooManyAttempts($attemptsKey, self::DIGITAL_DOWNLOAD_OTP_ATTEMPTS)) {
+            return response()->json([
+                'message' => translate('Too_Many_Requests'),
+            ], 429);
+        }
 
-            if ($request->has('action') && $request->action == "download") {
-                DigitalProductOtpVerification::where(['token' => $request->otp, 'order_details_id' => $request->order_details_id])->delete();
-            }
+        $verification = is_scalar($orderDetailsId) && is_scalar($otp)
+            ? DigitalProductOtpVerification::where(['token' => $otp, 'order_details_id' => $orderDetailsId])->first()
+            : null;
+        if (!$verification) {
+            RateLimiter::hit($attemptsKey, self::DIGITAL_DOWNLOAD_OTP_LOCK_SECONDS);
 
-            if (isset($file_name) && File::exists(base_path('storage/app/public/product/digital-product/' . $file_name))) {
-                return \response()->download($file_path);
-            } else {
-                return response()->json([
-                    'status' => 0,
-                    'message' => translate('file_not_found'),
-                ]);
-            }
-
-        } else {
             return response()->json([
                 'message' => translate('The_OTP_is_incorrect'),
             ], 403);
         }
+
+        $order_details_data = OrderDetail::with('order.customer')->find($orderDetailsId);
+        if ($order_details_data && $order_details_data->order->payment_status !== 'paid') {
+            return response()->json([
+                'status' => 0,
+                'message' => translate('Payment_must_be_confirmed_first') . ' !!',
+            ]);
+        }
+
+        if ($order_details_data) {
+            if ($order_details_data->product->digital_product_type == 'ready_product' && $order_details_data->product->digital_file_ready) {
+                $file_name = $order_details_data->product->digital_file_ready;
+            } else if ($order_details_data->digital_file_after_sell) {
+                $file_name = $order_details_data->digital_file_after_sell;
+            }
+        }
+
+        if ($request->has('action') && $request->action == "download") {
+            DigitalProductOtpVerification::where(['token' => $otp, 'order_details_id' => $orderDetailsId])->delete();
+        }
+
+        $download = $this->digitalFiles->download(name: $file_name ?? null);
+        if ($download !== null) {
+            RateLimiter::clear($attemptsKey);
+
+            return $download;
+        }
+
+        return response()->json([
+            'status' => 0,
+            'message' => translate('file_not_found'),
+        ]);
     }
 
     public function digital_product_download_otp_resend(Request $request)
@@ -867,9 +923,15 @@ class OrderController extends Controller
         } else {
             $guest_email = '';
             $guest_phone = '';
-            $token = rand(1000, 9999);
+            $token = random_int(1000, 9999);
 
             $order_details_data = OrderDetail::with('order.customer')->find($request->order_details_id);
+            if (!$order_details_data || $order_details_data->order->payment_status !== 'paid') {
+                return response()->json([
+                    'status' => 0,
+                    'message' => translate('Payment_must_be_confirmed_first') . ' !!',
+                ]);
+            }
 
             try {
                 if ($order_details_data->order->shipping_address_data) {
@@ -1006,8 +1068,7 @@ class OrderController extends Controller
                 $query['variation'] = is_array($query['variation']) ? $query['variation'] : json_decode($query['variation'], true);
                 $product = is_array($query['product_details']) ? $query['product_details'] : json_decode($query['product_details'], true);
                 if ($product['product_type'] == 'digital' && $product['digital_product_type'] == 'ready_product' && $product['digital_file_ready']) {
-                    $checkFilePath = storageLink('product/digital-product', $product['digital_file_ready'], ($product['storage_path'] ?? 'public'));
-                    $product['digital_file_ready_full_url'] = $checkFilePath;
+                    $product['digital_file_ready_full_url'] = $this->digitalFileAddresses->readyFileAnswerOfLine(orderDetail: $query);
                 }
 
                 if (!isset($product['thumbnail_full_url']) && isset($query?->product?->thumbnail_full_url)) {

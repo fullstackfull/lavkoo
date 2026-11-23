@@ -78,6 +78,9 @@ class CouponRepository implements CouponRepositoryInterface
             ->when(isset($filters['added_by']) && $filters['added_by'] == 'admin', function ($query) use ($filters) {
                 return $query->where(['added_by' => $filters['added_by']]);
             })
+            ->when(array_key_exists(key: 'id', array: $filters), function ($query) use ($filters) {
+                return $query->where('id', $filters['id']);
+            })
             ->when(isset($filters['status']), function ($query) use ($filters) {
                 return $query->where('status', $filters['status']);
             })

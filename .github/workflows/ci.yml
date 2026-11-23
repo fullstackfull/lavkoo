@@ -44,8 +44,9 @@ jobs:
   tests-sqlite:
     name: Tests, SQLite (PHP ${{ matrix.php }})
     runs-on: ubuntu-latest
-    # The whole suite is now about 4,700 tests: 14 minutes on one runner, more than 20 on another, so the limit leaves room.
-    timeout-minutes: 45
+    # The whole suite took 14 minutes on one runner, 37 on another (run 293) and 45 minutes 16 seconds on a third (run 334, PHP 8.3, which this job's old ceiling of 45 minutes cancelled);
+    # it has grown by about a thousand tests since. The ceiling is the one the MySQL sales-channel jobs already have.
+    timeout-minutes: 110
     strategy:
       fail-fast: false
       matrix:
@@ -79,18 +80,18 @@ jobs:
           EXPECT_DB_DRIVER: sqlite
         run: sudo -E env "PATH=$PATH" vendor/bin/phpunit --display-skipped tests/Unit/Deploy
 
-  # The engines: MySQL 8 and MariaDB 11.4.2 (the version the pilot server runs: docs/integrations/pilot-deployment.md), each with two sets of tests, each job against its own
+  # The engines: MySQL 8 and MariaDB 11.4.2 (the version the pilot server runs: docs/integrations/pilot-deployment.md), each with three sets of tests (the storefront set is small and runs the products migration on both engines), each job against its own
   # database: the address tests build their tables with the real migrations, which a real engine does slowly, and the two sets together ran past the limit of one job (about 35 minutes
   # on a runner; each set takes about 15 to 20). A MariaDB image answers to the MARIADB_* names; both sets are given so the same service block serves both.
   tests-mysql:
     name: ${{ matrix.group }}, ${{ matrix.engine }}
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         engine: ['MySQL 8', 'MariaDB 11.4.2']
-        group: ['Fulfillment + security tests', 'Address tests']
+        group: ['Fulfillment + security tests', 'Address tests', 'Storefront tests', 'Catalog tests', 'Staff scope tests', 'Checkout, payment and permission tests', 'Saudi baseline pack', 'Report pagination tests', 'Notification and localization tests', 'Wallet tests', 'Marketplace and ledger tests', 'Marketing consent tests', 'Payment tests', 'Fulfillment, security and customer tests']
         include:
           - engine: MySQL 8
             image: mysql:8.0
@@ -101,9 +102,62 @@ jobs:
             version: '^11\.4\.2-MariaDB'
             health: mariadb-admin ping -h 127.0.0.1 -uroot -pci-root-password
           - group: Fulfillment + security tests
-            paths: tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Security tests/Feature/CiDatabaseTest.php
+            paths: tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Security tests/Feature/Payments tests/Unit/Payments tests/Feature/CiDatabaseTest.php
+          - group: Fulfillment, security and customer tests
+            # tests/Feature/Customer is the customer's two money ledgers and what closing an account does to them: a money question, so it
+            # is answered by a real engine and not only by SQLite. Its source scan (tests/Unit/Customer) reads text and touches no database.
+            paths: tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Security tests/Feature/Customer tests/Feature/CiDatabaseTest.php
           - group: Address tests
             paths: tests/Feature/Address
+          - group: Storefront tests
+            # Also the platform admin API tests: the SQL they run for orders, products and refund requests has to meet a real engine, MariaDB included.
+            paths: tests/Unit/Storefront tests/Feature/Storefront tests/Feature/PlatformAdmin
+          - group: Catalog tests
+            # tests/Feature/Catalogue is the one-row price write: it belongs on a real engine for the same reason the rest of the
+            # catalogue does, and it ran on SQLite alone until it was named here.
+            paths: tests/Feature/Catalog tests/Feature/Catalogue
+          - group: Staff scope tests
+            paths: tests/Feature/StaffScope
+          - group: Checkout, payment and permission tests
+            # The directories the checkout, referral, refund, POS, coupon and permission pull requests add. They ran only on SQLite, which reads an unknown
+            # double-quoted name as a string and accepts a bare GROUP BY; on MySQL 8 they gave 34 failures, all fixtures SQLite had hidden.
+            paths: tests/Feature/Api tests/Feature/Auth tests/Feature/Blog tests/Feature/Cart tests/Feature/Checkout tests/Feature/Coupon tests/Feature/Inventory tests/Feature/Marketplace tests/Feature/Payment tests/Feature/Payments tests/Feature/Permissions tests/Feature/Pos tests/Feature/Referral tests/Feature/Refund tests/Feature/Web tests/Unit/Architecture tests/Unit/Customer tests/Unit/Http tests/Unit/Marketplace tests/Unit/PlatformAdmin tests/Unit/Security tests/Unit/Utils tests/Unit/Wallet
+          # The named gate of the Saudi store (master tracker M2-01): the golden answers of the checkout, recorded from main, on both real engines. The pack is also in the
+          # Address group; this job is the one a branch protection rule can require by name.
+          - group: Saudi baseline pack
+            paths: tests/Feature/Address/SaudiGoldenResponsesTest.php
+          - group: Report pagination tests
+            paths: tests/Feature/Reports
+          - group: Notification and localization tests
+            paths: tests/Feature/Notifications tests/Feature/Retention tests/Feature/Localization
+          # The wallet money paths build their schema by hand, so SQLite in memory (a fresh database per test)
+          # cannot tell whether they hold on an engine that keeps the previous test's tables, and decimal
+          # columns, collation and row order are decided by the engine the live platform runs on.
+          - group: Wallet tests
+            paths: tests/Feature/Wallet
+          - group: Marketplace and ledger tests
+            # Both sides of a merge wrote a `paths:` here. YAML keeps the LAST key of a mapping, so the first silently lost and
+            # tests/Feature/Marketplace -- what this group exists for -- stopped running on a real engine from it. One key, the union.
+            paths: tests/Feature/Marketplace tests/Unit/Storefront tests/Feature/Storefront
+          - group: Wallet tests
+            # The per-market wallet and loyalty accounts, on a real engine because that is the only place their content means anything:
+            # the unique key on (customer, market), the row lock a credit is taken under, the ascii_bin market, DECIMAL(40,20) balances and
+            # the ALTER TABLE the expand migration runs. SQLite answers yes to all of them without enforcing any, which is what
+            # tests/Feature/CiDatabaseTest.php says it cannot vouch for.
+            #
+            # Its OWN group, not an append to one above: Tests\Support\BuildsMarketAccountSchema starts from an empty database
+            # (Schema::dropAllTables) on a real engine, so sharing a job's database with another suite would take that suite's tables away.
+            # The races these accounts have are in tests/Feature/Concurrency, which the sales-channel job below runs on both engines.
+            paths: tests/Feature/Wallet
+          - group: Marketing consent tests
+            paths: tests/Feature/Marketing
+          # The payment-start tests, which until now ran on SQLite only (the whole-suite job above) and
+          # on no real engine. They are about money the gateway is asked for, and the figures they assert
+          # come out of decimal columns and of a currency lookup, so they belong on an engine that stores
+          # decimals the way the platform does. Its own group rather than appended to another: the two
+          # existing groups each take 15 to 20 minutes against a 35-minute ceiling.
+          - group: Payment tests
+            paths: tests/Feature/Payments
     services:
       mysql:
         image: ${{ matrix.image }}
@@ -146,6 +200,25 @@ jobs:
       - name: Tests against real MySQL (locks, unique keys, collation, JSON, decimals, timestamps)
         # -c phpunit.mysql.xml: phpunit.xml pins SQLite with <server> entries, which override this job's DB_* variables.
         run: vendor/bin/phpunit -c phpunit.mysql.xml ${{ matrix.paths }} --display-skipped
+
+  # Refuses a pull request that changes or deletes an existing golden answer of the Saudi baseline pack (tests/Fixtures/SaudiGolden). It may add new ones. A change the owner
+  # approved says so in the title of its pull request ([saudi-baseline-change]). The rule is the script's, which a test runs against real git histories.
+  saudi-baseline-expectations:
+    name: Saudi baseline expectations unchanged
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: No existing golden answer is changed or deleted
+        env:
+          # The title goes through the environment, never through the shell text of the step.
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash .github/scripts/saudi-baseline-guard.sh
 
   # Refuses a change that adds a credential, a private key, an environment file, a database dump or the phone number or e-mail
   # address of what looks like a real person. It reads only the lines the change adds and never prints what it matched.
@@ -251,7 +324,10 @@ jobs:
             #
             # These tests start several PHP processes at the same instant against this database and skip on SQLite, so this job
             # is the only place they run at all -- the stock, shipment, return-decision and Odoo races included.
-            paths: tests/Feature/Concurrency
+            #
+            # The wallet and loyalty tests ride here: their row locks and their rollbacks only mean something on a real engine.
+            # CiDatabaseTest makes a job that fell back to SQLite fail instead of skipping every race test in green.
+            paths: tests/Feature/Concurrency tests/Feature/Wallet tests/Feature/Loyalty tests/Feature/CiDatabaseTest.php
           - group: myfatoorah
             # Its own job since PR #12. It used to ride along with the sales-channel group, and that group then reached the 110-minute ceiling on MySQL 8 and was cancelled:
             # the two suites had grown into more than one runner's hour and a half together (82 minutes on MariaDB for the same set). Nothing is skipped by splitting them —
@@ -265,7 +341,14 @@ jobs:
             # because its whole job is uniqueness: a NULL is never equal to another NULL in a unique index, so a mapping or a
             # reconciliation row that means "every channel" can only be kept single by a sentinel value the index can compare --
             # and that is a property of the engine, not of the code, so SQLite agreeing proves nothing about MySQL.
-            paths: tests/Feature/OperationalCosts tests/Unit/OperationalCosts tests/Unit/SalesChannels tests/Unit/Accounting tests/Feature/Accounting tests/Feature/CiDatabaseTest.php
+            #
+            # tests/Feature/Marketplace is the commission snapshot and the vendor ledger, and it is here for the same reason:
+            # the snapshot is kept single per order line by a UNIQUE index on `order_details_id` -- the writer's idempotency
+            # inside a retried order transaction rests on it -- its money is decimal(16,4), and the earning and its commission
+            # charge are asserted to carry the SAME `available_at`, which is a DATETIME compared for equality. Uniqueness,
+            # decimal rounding and timestamp equality are properties of the engine, so SQLite agreeing proves nothing about
+            # MySQL. It was in no real-engine group before, and the whole suite on SQLite was the only place it ran.
+            paths: tests/Feature/OperationalCosts tests/Unit/OperationalCosts tests/Unit/SalesChannels tests/Unit/Accounting tests/Feature/Accounting tests/Feature/Marketplace tests/Feature/CiDatabaseTest.php
     services:
       mysql:
         image: ${{ matrix.image }}
@@ -354,4 +437,9 @@ jobs:
       - name: Environment
         run: cp .env.example .env
       - name: Tests with the database connection in strict mode
-        run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Feature/StrictModeTest.php tests/Feature/SalesChannels tests/Feature/OperationalCosts tests/Unit/Fulfillment tests/Feature/Fulfillment --display-skipped
+        # FOUR merges each wrote their own `run:` here. YAML keeps the LAST key of a mapping, so this gate silently ran only
+        # StrictModeTest, SalesChannels, OperationalCosts, Unit/Fulfillment, Fulfillment and Customer -- Wallet, Loyalty, Marketing,
+        # Marketplace, Payments, Pos, Refund, Web and fourteen more were being skipped in strict mode altogether. One key, the union
+        # of all four, with tests/Feature/Wallet LAST because it starts from an empty database and anything after it would find its
+        # own tables gone.
+        run: vendor/bin/phpunit -c phpunit.mysql.xml tests/Feature/StrictModeTest.php tests/Feature/SalesChannels tests/Feature/OperationalCosts tests/Unit/Fulfillment tests/Feature/Fulfillment tests/Feature/Customer tests/Feature/Marketing tests/Feature/Loyalty tests/Feature/Api tests/Feature/Auth tests/Feature/Blog tests/Feature/Cart tests/Feature/Checkout tests/Feature/Coupon tests/Feature/Inventory tests/Feature/Marketplace tests/Feature/Payment tests/Feature/Payments tests/Feature/Permissions tests/Feature/Pos tests/Feature/Referral tests/Feature/Refund tests/Feature/Web tests/Unit/Architecture tests/Unit/Customer tests/Unit/Http tests/Unit/Marketplace tests/Unit/PlatformAdmin tests/Unit/Security tests/Unit/Utils tests/Unit/Wallet tests/Feature/Catalog tests/Feature/Catalogue tests/Feature/Wallet --display-skipped

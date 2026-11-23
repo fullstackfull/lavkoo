@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Utils\Helpers;
 use App\Exports\ProductReportExport;
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Models\Product;
 use App\Models\Seller;
 use Carbon\Carbon;
@@ -16,6 +17,11 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class ProductReportController extends Controller
 {
+    public function __construct()
+    {
+        $this->middleware(ScopeOrdersToStaffCountries::class);
+    }
+
     public function all_product(Request $request)
     {
         $search = $request['search'];
@@ -49,6 +55,7 @@ class ProductReportController extends Controller
             });
         $products = self::create_date_wise_common_filter($product_query, $date_type, $from, $to)
             ->latest('created_at')
+            ->latest('id')
             ->paginate(Helpers::pagination_limit())
             ->appends($query_param);
 

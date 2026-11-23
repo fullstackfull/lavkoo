@@ -79,6 +79,26 @@
                         @endforeach
                     </div>
 
+                    {{-- The storefronts of the platform (GCC). Split into three because the person who writes a legal text must not be the person who puts it in force,
+                         and because opening or stopping a country is a decision of its own. No role holds them until they are granted here; the master admin holds all. --}}
+                    <h5 class="mb-2">{{ translate('storefronts') }}</h5>
+                    <div class="row gy-2 mb-4">
+                        @foreach (\App\Services\Storefront\StorefrontPermissionService::all() as $storefrontKey => $storefrontLabel)
+                            <div class="col-sm-6 col-lg-4">
+                                <div class="form-group d-flex gap-2">
+                                    <input type="checkbox" name="modules[]" value="{{ $storefrontKey }}"
+                                           class="form-check-input checkbox--input module-permission"
+                                           id="{{ $storefrontKey }}-permission"
+                                           >
+                                    <label class="" style="{{ $direction === "rtl" ? 'margin-right: 1.25rem;' : '' }};"
+                                           for="{{ $storefrontKey }}-permission">
+                                        {{ translate($storefrontLabel) }}
+                                    </label>
+                                </div>
+                            </div>
+                        @endforeach
+                    </div>
+
                     {{-- Analytics capabilities. Split the same way monitoring is, and for the same reason: the
                          reports are one thing, following an individual visitor, issuing a public campaign
                          link and changing what is collected are each another. Holding the Reports module

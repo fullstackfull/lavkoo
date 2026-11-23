@@ -2,8 +2,11 @@
 
 namespace App\Models;
 
+use App\Services\Storefront\StorefrontVisibility;
 use App\Traits\CacheManagerTrait;
+use App\Traits\HasStorefrontVisibility;
 use App\Traits\StorageTrait;
+use App\Utils\RequestArea;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -20,7 +23,9 @@ use Modules\Auction\app\Models\AuctionProduct;
  */
 class Brand extends Model
 {
-    use StorageTrait, CacheManagerTrait;
+    use StorageTrait, CacheManagerTrait, HasStorefrontVisibility;
+
+    public const STOREFRONT_ENTITY_TYPE = StorefrontVisibility::BRAND;
 
     protected $fillable = [
         'name',
@@ -77,11 +82,7 @@ class Brand extends Model
 
     public function getNameAttribute($name): string|null
     {
-        $segment = request()->segment(1);
-        if ($segment === 'api') {
-            return $this->translations[0]->value ?? $name;
-        }
-        if (in_array($segment, ['admin', 'vendor', 'seller'], true)) {
+        if (RequestArea::isWebPanel()) {
             return $name;
         }
         return $this->translations[0]->value ?? $name;
@@ -133,7 +134,7 @@ class Brand extends Model
 
         static::addGlobalScope('translate', function (Builder $builder) {
             $builder->with(['translations' => function ($query) {
-                if (strpos(url()->current(), '/api')) {
+                if (RequestArea::isApi()) {
                     return $query
                         ->where('locale', App::getLocale());
                 } else {

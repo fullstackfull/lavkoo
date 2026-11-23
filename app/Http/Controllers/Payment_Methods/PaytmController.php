@@ -75,17 +75,28 @@ class PaytmController extends Controller
         return $data;
     }
 
+    /**
+     * The salt of a Paytm checksum.
+     *
+     * It used to seed the general-purpose generator from the clock -- srand((double) microtime() *
+     * 1000000) -- and then take characters with rand() % strlen(), so the salt of a request was a
+     * function of the moment the request arrived. A salt whose value can be worked out is not doing
+     * the job a salt exists for.
+     *
+     * Same alphabet, same length, same output shape; only the source of the choice changed, to the
+     * cryptographically secure generator. The modulo is gone too: random_int is given the index range
+     * directly, so no character is more likely than another.
+     */
     function generateSalt_e($length): string
     {
         $random = "";
-        srand((double)microtime() * 1000000);
 
         $data = "AbcDE123IJKLMN67QRSTUVWXYZ";
         $data .= "aBCdefghijklmn123opq45rs67tuv89wxyz";
         $data .= "0FGH45OP89";
 
         for ($i = 0; $i < $length; $i++) {
-            $random .= substr($data, (rand() % (strlen($data))), 1);
+            $random .= substr($data, random_int(0, strlen($data) - 1), 1);
         }
 
         return $random;

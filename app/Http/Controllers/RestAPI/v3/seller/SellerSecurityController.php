@@ -3,12 +3,14 @@
 namespace App\Http\Controllers\RestAPI\v3\seller;
 
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\SellerApiAuthMiddleware;
 use App\Services\Platform\PasswordPolicy;
 use App\Models\SellerRole;
 use App\Models\SellerStaff;
 use App\Services\DeveloperPortal\ApiDoc;
 use App\Services\Marketplace\SellerAuditTrailService;
 use App\Services\Marketplace\SellerPermissionService;
+use App\Services\Marketplace\SellerPrincipal;
 use App\Services\Marketplace\SellerTeamService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -212,7 +214,7 @@ class SellerSecurityController extends Controller
         }
 
         try {
-            $staff = $this->team->createStaff($request->seller->id, $validator->validated());
+            $staff = $this->team->createStaff($request->seller->id, $validator->validated(), $this->principal($request));
         } catch (ValidationException $exception) {
             return $this->refuse($exception->errors());
         }
@@ -224,8 +226,11 @@ class SellerSecurityController extends Controller
         summary: 'Change what somebody may do, or switch them off',
         description: 'A full replacement, as PUT implies and as the vendor panel\'s form does: a '
             . 'request that omits seller_role_id removes the role rather than leaving it alone, so '
-            . 'send the whole member. Switching one off ends the session they are already in rather '
-            . 'than only stopping the next: their token is cleared with their status.',
+            . 'send the whole member. A request that omits status leaves the status as it is. Switching '
+            . 'one off ends the session they are already in rather than only stopping the next: their '
+            . 'token is cleared with their status. Switching one on gives their role its authority '
+            . 'back, so anybody but the owner may only do it for a role that grants nothing they do '
+            . 'not hold themselves.',
         audience: ApiDoc::VENDOR_APP,
         stability: ApiDoc::STABLE,
         since: 'v3',
@@ -255,7 +260,7 @@ class SellerSecurityController extends Controller
         }
 
         try {
-            $this->team->updateStaff($staff, $validator->validated());
+            $this->team->updateStaff($staff, $validator->validated(), $this->principal($request));
         } catch (ValidationException $exception) {
             return $this->refuse($exception->errors());
         }

@@ -15,7 +15,10 @@ use App\Models\SellerWallet;
 use App\Models\Shop;
 use App\Models\Transaction;
 use App\Services\Fulfillment\FulfillmentHooks;
+use App\Services\Marketplace\RestockBudget;
 use App\Services\SalesChannels\Dispatch\ChannelOrderMarker;
+use App\Services\Storefront\OrderStorefront;
+use App\Services\Storefront\OrderStorefrontSnapshot;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Database\Eloquent\Collection;
@@ -364,6 +367,9 @@ class OrderRepository implements OrderRepositoryInterface
             )->when(isset($filters['whereIn_payment_status']) && $filters['whereIn_payment_status'] !== 'all', function ($query) use ($filters) {
                     $query->whereIn('payment_status', $filters['whereIn_payment_status']);
                 }
+            )->when(isset($filters['storefront_country']), function ($query) use ($filters) {
+                    app(OrderStorefront::class)->narrow(orders: $query, country: $filters['storefront_country']);
+                }
             )->when(!empty($whereIn), function ($query) use ($whereIn) {
                 foreach ($whereIn as $column => $values) {
                     if (is_array($values) && !empty($values)) {
@@ -597,11 +603,13 @@ class OrderRepository implements OrderRepositoryInterface
         }
 
         // Scope the target order to the actor. A seller may only touch orders that belong to them;
-        // without this seller_id filter the raw order_id let one seller edit any order in the system.
+        // without this seller_id filter the raw order_id let one seller edit any order in the system, and the
+        // in-house shop's orders carry seller_id 1 too, so a seller's order is also one with seller_is 'seller'.
         // Admin (userType 'admin') is unscoped by design.
         $orderWhere = ['id' => $request['order_id']];
         if ($userType === 'seller') {
             $orderWhere['seller_id'] = $userId;
+            $orderWhere['seller_is'] = 'seller';
         }
 
         try {
@@ -659,6 +667,31 @@ class OrderRepository implements OrderRepositoryInterface
                 $fromFlag = $restoring ? 1 : 0;
                 $toFlag = $restoring ? 0 : 1;
 
+                // The line is locked before the budget is read so a return receipt cannot spend the same
+                // units between the reading and the claim; the receipt takes the same locks in the same order.
+                // The query builder, not the model: see OrderManager::getStockUpdateOnOrderStatusChange.
+                if (!DB::table('order_details')->where('id', $detail['id'])->lockForUpdate()->first()) {
+                    return;
+                }
+
+                // Restoring puts back only what a return has not already put back; re-taking takes the whole
+                // line, because a re-opened line is live for all of its units again. See
+                // OrderManager::getStockUpdateOnOrderStatusChange. This is the copy the admin and vendor
+                // panels run, so the fix has to be here too or the panel keeps the defect.
+                $units = $restoring
+                    ? app(RestockBudget::class)->unspentUnitsOf($detail['id'], $detail['qty'])
+                    : max(0, (int) $detail['qty']);
+
+                // A restore that puts nothing back must not take the line's claim with it: the flag said the
+                // units were on the shelf while they were still with the customer, so the next re-open took
+                // them off a second time and the shelf lost the line's quantity every cycle. Same as
+                // OrderManager::getStockUpdateOnOrderStatusChange.
+                if ($restoring && $units === 0) {
+                    $this->orderDetail->where('id', $detail['id'])->update(['delivery_status' => $status]);
+
+                    return;
+                }
+
                 $flipped = $this->orderDetail->where(['id' => $detail['id'], 'is_stock_decreased' => $fromFlag])
                     ->update(['is_stock_decreased' => $toFlag, 'delivery_status' => $status]);
 
@@ -671,22 +704,27 @@ class OrderRepository implements OrderRepositoryInterface
                     return;
                 }
 
+                if ($units === 0) {
+                    return;   // a line of no units to re-take
+                }
+
+                // The options keep their own keys: see OrderManager::getStockUpdateOnOrderStatusChange.
                 $type = $detail['variant'];
                 $variations = [];
-                foreach (json_decode($product['variation'], true) ?? [] as $variation) {
+                foreach (json_decode($product['variation'], true) ?? [] as $key => $variation) {
                     if ($type == $variation['type']) {
-                        $variation['qty'] = $restoring ? ($variation['qty'] + $detail['qty']) : ($variation['qty'] - $detail['qty']);
+                        $variation['qty'] = $restoring ? ($variation['qty'] + $units) : max(0, $variation['qty'] - $units);
                     }
-                    $variations[] = $variation;
+                    $variations[$key] = $variation;
                 }
                 $this->product->where(['id' => $product['id']])->update(['variation' => json_encode($variations)]);
 
                 if ($restoring) {
-                    $this->product->where(['id' => $product['id']])->increment('current_stock', $detail['qty']);
+                    $this->product->where(['id' => $product['id']])->increment('current_stock', $units);
                 } else {
                     $taken = $this->product->where('id', $product['id'])
-                        ->where('current_stock', '>=', $detail['qty'])
-                        ->decrement('current_stock', $detail['qty']);
+                        ->where('current_stock', '>=', $units)
+                        ->decrement('current_stock', $units);
                     if ($taken === 0) {
                         $this->product->where(['id' => $product['id']])->update(['current_stock' => 0]);
                     }
@@ -894,6 +932,7 @@ class OrderRepository implements OrderRepositoryInterface
                 'updated_at' => now(),
             ];
             $this->orderTransaction->create($transaction);
+            app(OrderStorefrontSnapshot::class)->stampMoneyRows(table: 'order_transactions', orderId: $order['id']);
 
             $wallet = $this->adminWallet->where('admin_id', 1)->first();
             $wallet->commission_earned += $commission;

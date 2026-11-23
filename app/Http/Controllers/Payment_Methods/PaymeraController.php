@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Routing\Redirector;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 class PaymeraController extends Controller
@@ -111,20 +112,7 @@ class PaymeraController extends Controller
 
         try {
 
-            $response = Http::withHeaders([
-                    'username' => (string) $this->values->token,
-
-                    'Authorization' =>
-                        'Bearer ' . (string) $this->values->token,
-
-                    'X-Secret-Key' => 'super_secret_key_2026',
-
-                    'X-Platform' => 'deliverysyria',
-
-                    'Accept' => 'application/json',
-
-                    'Content-Type' => 'application/json',
-                ])
+            $response = Http::withHeaders($this->requestHeaders())
                 ->timeout(30)
                 ->post(
                     $this->baseUrl . '/api/create-payment',
@@ -175,18 +163,6 @@ class PaymeraController extends Controller
         Request $request
     ): Redirector|RedirectResponse|Application {
 
-
-
-    file_put_contents(
-        storage_path('logs/paymera_callback_test.txt'),
-        date('Y-m-d H:i:s')
-        . "\nMETHOD: " . $request->method()
-        . "\nURL: " . $request->fullUrl()
-        . "\nDATA: " . json_encode($request->all())
-        . "\n\n",
-        FILE_APPEND
-    );
-
         $data = $this->payment::where([
             'id' => $request['payment_id'],
         ])->first();
@@ -230,24 +206,7 @@ class PaymeraController extends Controller
          */
         try {
 
-            $response = Http::withHeaders([
-                    'username' => (string) $this->values->token,
-
-                    'Authorization' =>
-                        'Bearer ' . (string) $this->values->token,
-
-                    'X-Secret-Key' =>
-                        'super_secret_key_2026',
-
-                    'X-Platform' =>
-                        'deliverysyria',
-
-                    'Accept' =>
-                        'application/json',
-
-                    'Content-Type' =>
-                        'application/json',
-                ])
+            $response = Http::withHeaders($this->requestHeaders())
                 ->timeout(30)
                 ->get(
                     $this->baseUrl
@@ -317,51 +276,7 @@ class PaymeraController extends Controller
                 )
             ) {
 
-
-
-
-
-          try {
-
-    file_put_contents(
-        storage_path('logs/paymera_hook_test.txt'),
-        "BEFORE HOOK\n"
-        . "payment_id: " . $paid->id . "\n"
-        . "is_paid: " . $paid->is_paid . "\n"
-        . "hook: " . $paid->success_hook . "\n"
-        . "additional_data: " . $paid->additional_data . "\n\n",
-        FILE_APPEND
-    );
-
-    call_user_func(
-        $paid->success_hook,
-        $paid
-    );
-
-    file_put_contents(
-        storage_path('logs/paymera_hook_test.txt'),
-        "HOOK COMPLETED SUCCESSFULLY\n\n",
-        FILE_APPEND
-    );
-
-} catch (\Throwable $e) {
-
-    file_put_contents(
-        storage_path('logs/paymera_hook_test.txt'),
-        "HOOK ERROR\n"
-        . "message: " . $e->getMessage() . "\n"
-        . "file: " . $e->getFile() . "\n"
-        . "line: " . $e->getLine() . "\n"
-        . "trace: " . $e->getTraceAsString() . "\n\n",
-        FILE_APPEND
-    );
-}
-
-
-
-
-
-
+                $this->runSuccessHook($paid);
             }
 
             return $this->payment_response(
@@ -396,6 +311,48 @@ class PaymeraController extends Controller
         );
     }
 
+    /**
+     * A failing hook must not undo a payment Paymera has accepted, so it is logged and the response still succeeds.
+     * The log carries the payment id, the exception class and where it was thrown, never the message or the payload.
+     */
+    private function runSuccessHook(PaymentRequest $paymentRequest): void
+    {
+        try {
+            call_user_func(
+                $paymentRequest->success_hook,
+                $paymentRequest
+            );
+        } catch (\Throwable $error) {
+            Log::error('Paymera success hook failed', [
+                'payment_id' => $paymentRequest->id,
+                'exception' => $error::class,
+                'file' => $error->getFile(),
+                'line' => $error->getLine(),
+            ]);
+        }
+    }
+
+    /**
+     * The X-Secret-Key comes from PAYMERA_SECRET_KEY. It is never written in source, and an empty value stops the gateway.
+     */
+    private function requestHeaders(): array
+    {
+        return [
+            'username' => (string) $this->values->token,
+
+            'Authorization' =>
+                'Bearer ' . (string) $this->values->token,
+
+            'X-Secret-Key' => (string) config('services.paymera.secret_key'),
+
+            'X-Platform' => 'deliverysyria',
+
+            'Accept' => 'application/json',
+
+            'Content-Type' => 'application/json',
+        ];
+    }
+
     private function isConfigured(): bool
     {
         return $this->values
@@ -404,6 +361,9 @@ class PaymeraController extends Controller
             )
             && !empty(
                 $this->values->token
+            )
+            && !empty(
+                config('services.paymera.secret_key')
             );
     }
 

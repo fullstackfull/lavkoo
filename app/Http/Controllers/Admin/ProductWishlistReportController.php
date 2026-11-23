@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Utils\Helpers;
 use App\Exports\ProductWishlistedExport;
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Models\Product;
 use App\Models\Seller;
 use Illuminate\Contracts\Foundation\Application;
@@ -15,6 +16,11 @@ use Maatwebsite\Excel\Facades\Excel;
 
 class ProductWishlistReportController extends Controller
 {
+    public function __construct()
+    {
+        $this->middleware(ScopeOrdersToStaffCountries::class);
+    }
+
     /**
      * Product wishlist report list show, search & filtering
      * @param Request $request
@@ -77,7 +83,8 @@ class ProductWishlistReportController extends Controller
             })
             ->when($sort, function ($query) use ($sort) {
                 $query->withCount('wishList')
-                    ->orderBy('wish_list_count', $sort);
+                    ->orderBy('wish_list_count', $sort)
+                    ->orderByDesc('id');
             });
     }
 }

@@ -2,13 +2,14 @@
 
 namespace Tests\Support\Concurrency;
 
+use PHPUnit\Framework\Assert;
 use RuntimeException;
 use Symfony\Component\Process\Process;
 
 /**
  * Runs one operation in several PHP processes at the same instant, against the real MySQL/MariaDB the test is connected to, and returns what each process reported.
  *
- * SQLite in memory is private to one process, so none of this works there: `available()` says so and the tests skip. The processes boot the application with the environment of
+ * SQLite in memory is private to one process, so none of this works there: `available()` says so and the tests skip (or fail, in a CI job that declares a real engine). The processes boot the application with the environment of
  * the parent (the database settings come from it), wait for a common start time, run the named operation of `Operations`, and print one JSON line.
  */
 final class ConcurrentRunner
@@ -16,11 +17,19 @@ final class ConcurrentRunner
     /** How long the processes are given to boot before the common start time. */
     private const BOOT_SECONDS = 6.0;
 
+    /** False lets a local run skip. A CI job that declares EXPECT_DB_DRIVER=mysql fails instead, because a skipped race test there is green and proves nothing. */
     public static function available(): bool
     {
-        return in_array((string) config('database.default'), ['mysql', 'mariadb'], true)
-            && (string) config('database.connections.' . config('database.default') . '.driver') === 'mysql'
-            && getenv('CONCURRENCY_TESTS') !== '0';
+        $realEngine = in_array((string) config('database.default'), ['mysql', 'mariadb'], true)
+            && (string) config('database.connections.' . config('database.default') . '.driver') === 'mysql';
+        $switchedOff = getenv('CONCURRENCY_TESTS') === '0';
+
+        if (getenv('EXPECT_DB_DRIVER') === 'mysql') {
+            Assert::assertTrue($realEngine, 'EXPECT_DB_DRIVER=mysql, but the test connection is not MySQL or MariaDB, so the concurrency tests would skip.');
+            Assert::assertFalse($switchedOff, 'EXPECT_DB_DRIVER=mysql, but CONCURRENCY_TESTS=0 switches the concurrency tests off.');
+        }
+
+        return $realEngine && !$switchedOff;
     }
 
     /**
@@ -33,11 +42,12 @@ final class ConcurrentRunner
     public static function run(string $operation, array $arguments): array
     {
         $startAt = microtime(true) + self::BOOT_SECONDS;
+        $rendezvous = self::rendezvousDirectory();
         $processes = [];
         foreach ($arguments as $index => $args) {
             $own = (string) ($args['op'] ?? $operation);
             unset($args['op']);
-            $spec = json_encode(['op' => $own, 'args' => $args, 'start_at' => $startAt, 'index' => $index], JSON_THROW_ON_ERROR);
+            $spec = json_encode(['op' => $own, 'args' => $args, 'start_at' => $startAt, 'index' => $index, 'rendezvous' => $rendezvous], JSON_THROW_ON_ERROR);
             $command = [PHP_BINARY];
             $prepend = (string) ini_get('auto_prepend_file');
             if ($prepend !== '') {
@@ -51,6 +61,21 @@ final class ConcurrentRunner
             $processes[$index] = $process;
         }
 
+        try {
+            return self::reportsOf($processes);
+        } finally {
+            self::forget($rendezvous);
+        }
+    }
+
+    /**
+     * Waits for every process and reads the one JSON line each prints.
+     *
+     * @param  array<int, Process> $processes
+     * @return list<array{ok: bool, result?: mixed, error?: string, message?: string, started_at: float, finished_at: float, pid: int}>
+     */
+    private static function reportsOf(array $processes): array
+    {
         $reports = [];
         foreach ($processes as $index => $process) {
             $process->wait();
@@ -66,14 +91,48 @@ final class ConcurrentRunner
         return $reports;
     }
 
+    /** A directory of this run's own for the marks the processes hold each other at (Rendezvous), so one run cannot release the processes of another. */
+    private static function rendezvousDirectory(): string
+    {
+        $directory = sys_get_temp_dir() . '/concurrent-runner-' . bin2hex(random_bytes(8));
+        if (!mkdir($directory, 0o700) && !is_dir($directory)) {
+            throw new RuntimeException("Could not make the rendezvous directory {$directory}.");
+        }
+
+        return $directory;
+    }
+
+    private static function forget(string $directory): void
+    {
+        foreach (glob($directory . '/*') ?: [] as $mark) {
+            unlink($mark);
+        }
+        rmdir($directory);
+    }
+
     /** The settings phpunit.mysql.xml gives the test process through <server>, which a child process does not inherit. */
     private static function environment(): array
     {
         return ['APP_ENV' => 'testing', 'BCRYPT_ROUNDS' => '4', 'CACHE_DRIVER' => 'array', 'MAIL_DRIVER' => 'array', 'QUEUE_CONNECTION' => 'sync', 'SESSION_DRIVER' => 'array'];
     }
 
-    /** True when the reports show at least two operations whose running windows overlapped. */
-    public static function overlapped(array $reports): bool
+    /**
+     * True when at least two of the reports describe processes that were running at the same time.
+     *
+     * READ WHAT THIS DOES NOT SAY. It is not evidence that two critical sections interleaved, and it was
+     * cited as that for a while. Every process of a run is released from one common start barrier and
+     * stamps `started_at` immediately after it, so any two windows of any run overlap and this answers
+     * true whatever the operations did inside them — including a run where one operation ran entirely
+     * after the other had committed. What it is good for is the thing it names: the processes really were
+     * alive together, so a test asserting an invariant over whatever order they landed in is sampling
+     * real concurrency rather than a queue.
+     *
+     * A test whose subject is ONE interleaving cannot be built on this. It has to arrange that
+     * interleaving and show it was arranged: see Rendezvous.
+     *
+     * @param list<array{started_at: float, finished_at: float}> $reports
+     */
+    public static function ranAtTheSameTime(array $reports): bool
     {
         foreach ($reports as $i => $a) {
             foreach ($reports as $j => $b) {

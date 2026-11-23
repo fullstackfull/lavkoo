@@ -15,7 +15,7 @@
                             <h6 class="product-id" hidden>{{ $product['id'] }}</h6>
                             <div class="d-flex gap-2 align-items-center mb-1">
                                 <h4 class="mb-0 product-name line-1 text-start">
-                                    {{ $product['name'] }}
+                                    {{ $product['name'] }}{{ app(\App\Services\Catalog\ProductCodeScope::class)->countryTag(product: $product) }}
                                 </h4>
                                 @if($product->product_type == 'digital')
                                     <span class="flex-shrink-0 fs-12 text-danger bg-danger bg-opacity-10 fw-medium px-2 py-1 rounded-pill">{{ translate('Unable_to_add') }}</span>

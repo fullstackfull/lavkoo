@@ -2,10 +2,13 @@
 
 namespace App\Http\Controllers\RestAPI\v1;
 
+use App\Services\Marketplace\PaymentRoutingService;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Request;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\NationalAddress;
+use App\Services\DigitalFileAddressService;
+use App\Services\Storefront\StorefrontCurrency;
 use App\Traits\CacheManagerTrait;
 use App\Traits\MaintenanceModeTrait;
 use App\Traits\SettingsTrait;
@@ -58,22 +61,7 @@ class ConfigController extends Controller
             ];
         }
 
-        $paymentMethods = payment_gateways();
-        $paymentMethods->map(function ($payment) {
-            $payment->additional_datas = json_decode($payment->additional_data);
-
-            unset(
-                $payment->additional_data,
-                $payment->live_values,
-                $payment->test_values,
-                $payment->id,
-                $payment->settings_type,
-                $payment->mode,
-                $payment->is_active,
-                $payment->created_at,
-                $payment->updated_at
-            );
-        });
+        $paymentMethods = $this->offeredPaymentMethods();
 
         $shippingType = $this->cacheInHouseShippingType();
         $companyLogo = getWebConfig(name: 'company_web_logo');
@@ -172,7 +160,7 @@ $metaAppTracking = MetaAppIntegration::where('app_type', 'customer')
             'base_urls' => [
                 'product_image_url' => ProductManager::product_image_path('product'),
                 'product_thumbnail_url' => ProductManager::product_image_path('thumbnail'),
-                'digital_product_url' => dynamicStorage(path: 'storage/app/public/product/digital-product'),
+                'digital_product_url' => app(DigitalFileAddressService::class)->publicBaseUrl(),
                 'brand_image_url' => dynamicStorage(path: 'storage/app/public/brand'),
                 'customer_image_url' => dynamicStorage(path: 'storage/app/public/profile'),
                 'banner_image_url' => dynamicStorage(path: 'storage/app/public/banner'),
@@ -288,7 +276,10 @@ $metaAppTracking = MetaAppIntegration::where('app_type', 'customer')
             'auction_commitments' => getWebConfig(name: 'auction_commitments'),
             'active_auction_for_vendor' => $auctionFeatureStatus && (int)(getWebConfig(name: 'active_auction_for_vendor') ?? 0),
             'active_auction_for_customer' => $auctionFeatureStatus && (int)(getWebConfig(name: 'active_auction_for_customer') ?? 0),
-        ]);
+        ]
+            // The money of the storefront the app asked for, so it formats prices in that currency with that currency's decimals rather
+            // than working them out from a numeric setting. Absent entirely unless a storefront trades in its own currency (GCC-05).
+            + app(StorefrontCurrency::class)->apiMoney());
     }
 
     /**
@@ -297,6 +288,47 @@ $metaAppTracking = MetaAppIntegration::where('app_type', 'customer')
      *
      * @return array{mode: string, national_address_pattern: string, regions_url: string, cities_url: string}
      */
+    /**
+     * The payment methods this answer offers an app, with the stored credentials stripped off.
+     *
+     * A method of its own, rather than a block inside configuration(), for the same reason
+     * unifiedAddressConfig() is one: configuration() reads two dozen tables, so a test of this
+     * question would otherwise have to build the whole of them to ask it.
+     *
+     * THE ROUTING RULES APPLY HERE TOO, not only on the web payment page (D2-06). This answer is what
+     * the mobile app offers, and before this it was the one surface a `hide` rule could not reach -- so
+     * a gateway an operator had switched off for everyone stayed on every phone.
+     *
+     * There is no cart, no amount and no delivery address at this point, so only rules that name
+     * neither an amount band nor a country can be decided here; the rest are left to the payment
+     * start, which has the order in front of it. With no rule at all the list comes back unchanged, so
+     * this answer is what it was until a rule exists.
+     *
+     * @return \Illuminate\Support\Collection
+     */
+    public function offeredPaymentMethods()
+    {
+        $paymentMethods = (new PaymentRoutingService())->applyToModelsWithoutAnOrder(payment_gateways());
+
+        $paymentMethods->map(function ($payment) {
+            $payment->additional_datas = json_decode($payment->additional_data);
+
+            unset(
+                $payment->additional_data,
+                $payment->live_values,
+                $payment->test_values,
+                $payment->id,
+                $payment->settings_type,
+                $payment->mode,
+                $payment->is_active,
+                $payment->created_at,
+                $payment->updated_at
+            );
+        });
+
+        return $paymentMethods;
+    }
+
     public function unifiedAddressConfig(): array
     {
         return [

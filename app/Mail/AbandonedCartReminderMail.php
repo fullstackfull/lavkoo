@@ -22,6 +22,15 @@ class AbandonedCartReminderMail extends Mailable
     public function __construct(
         public AbandonedCartReminder $reminder,
         public string $recoveryUrl,
+        /**
+         * Null while the consent gate is off, and then the template adds NOTHING — not even whitespace.
+         *
+         * Its @if and @endif sit at column 0 in abandoned-cart-reminder.blade.php for that reason: Blade leaves a
+         * directive line's own indentation in the rendered output, so an indented conditional put 8 bytes into the
+         * footer of a message that is supposed to be unchanged. Measured and pinned by
+         * MarketingConsentDormancyTest::test_with_the_switch_off_the_rendered_reminder_is_byte_for_byte_the_footer_main_renders.
+         */
+        public ?string $unsubscribeUrl = null,
     ) {
     }
 
@@ -37,6 +46,7 @@ class AbandonedCartReminderMail extends Mailable
                 'reminder' => $this->reminder,
                 'lines' => $lines,
                 'recoveryUrl' => $this->recoveryUrl,
+                'unsubscribeUrl' => $this->unsubscribeUrl,
             ]);
     }
 }

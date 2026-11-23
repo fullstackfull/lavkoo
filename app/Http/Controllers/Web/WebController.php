@@ -2,15 +2,22 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Services\Payments\CheckoutCurrency;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\StorefrontAddressService;
+use App\Services\Customer\WalletOrderDebit;
 use App\Services\Analytics\Analytics;
+use App\Services\DigitalFileAddressService;
+use App\Services\DigitalProductFileService;
 use App\Services\Fulfillment\CheckoutCodGuard;
+use App\Services\Wallet\WalletPaymentRefused;
 use App\Contracts\Repositories\RobotsMetaContentRepositoryInterface;
 use App\Models\Admin;
 use App\Services\ProductService;
 use App\Services\RecaptchaService;
 use App\Services\ShopService;
+use App\Services\Storefront\StorefrontCurrency;
+use App\Services\Storefront\StorefrontPaymentMethods;
 use App\Traits\CacheManagerTrait;
 use App\Traits\InHouseTrait;
 use App\Models\User;
@@ -26,6 +33,10 @@ use App\Models\ShippingMethod;
 use App\Models\ShippingType;
 use App\Models\Shop;
 use App\Models\Subscription;
+use App\Services\Marketing\MarketingConsent;
+use App\Services\Marketing\MarketingConsentGate;
+use App\Services\Marketing\MarketingConsentRecorder;
+use App\Services\Marketing\MarketingMarket;
 use App\Models\OrderDetail;
 use App\Models\Review;
 use App\Models\Brand;
@@ -46,7 +57,6 @@ use App\Models\Wishlist;
 use App\Traits\CommonTrait;
 use App\Traits\SmsGateway;
 use App\Utils\CartManager;
-use App\Utils\Convert;
 use App\Utils\CustomerManager;
 use App\Utils\OrderManager;
 use App\Utils\ProductManager;
@@ -61,6 +71,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Session;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use App\Services\Marketplace\PaymentRoutingService;
 use function App\Utils\payment_gateways;
 
@@ -85,6 +96,10 @@ class WebController extends Controller
         private readonly ProductService                       $productService,
         private readonly ShopService                              $shopService,
         private readonly StorefrontAddressService                 $storefrontAddresses,
+        private readonly DigitalProductFileService                $digitalFiles,
+        private readonly DigitalFileAddressService                $digitalFileAddresses,
+        private readonly StorefrontPaymentMethods                 $storefrontPaymentMethods,
+        private readonly StorefrontCurrency                       $storefrontCurrency,
     )
     {
 
@@ -459,7 +474,7 @@ class WebController extends Controller
             $availablePaymentMethod = ['cash_on_delivery'];
         }
 
-        if (getWebConfig(name: 'digital_payment') && count($paymentGatewaysList) > 0) {
+        if (getWebConfig(name: 'digital_payment') && !$this->storefrontPaymentMethods->isSwitchedOff(method: StorefrontPaymentMethods::DIGITAL_PAYMENT) && count($paymentGatewaysList) > 0) {
             $availablePaymentMethod = ['payment_gateways'];
         }
 
@@ -626,6 +641,14 @@ class WebController extends Controller
             OrderManager::updateCustomerShippingAddressForOrder($guestID, $addCustomer['id'], session('billing_address_id'));
         }
 
+        // The visitor's pick counts only while the platform is in multi-currency mode, which is the same first condition the two v1 writers of
+        // this column apply (RestAPI/v1/OrderController and RestAPI/v1/OrderEditController both weigh their pick this way) and the same one
+        // CheckoutCurrency::forOrder() opens with. Without it a session value left over from before an operator switched the shop to one
+        // currency labels a cash order in money the shop does not trade in. What this route deliberately does NOT copy from those two is their
+        // fallback to the platform's default when there is no pick: on the website this column has always stayed empty then, which is the
+        // dormancy StorefrontCodOrderCurrencyTest::test_the_default_storefront_stores_exactly_what_it_stored_before pins.
+        $pickedByTheVisitor = getWebConfig(name: 'currency_model') == 'multi_currency' ? session('currency_code') : null;
+
         $orderIds = OrderManager::generateOrder(data: [
             'order_status' => 'pending',
             'payment_method' => 'cash_on_delivery',
@@ -635,7 +658,12 @@ class WebController extends Controller
             'address_id' => session('address_id'),
             'billing_address_id' => session('billing_address_id'),
             'bring_change_amount' => $request['bring_change_amount'] ?? 0,
-            'bring_change_amount_currency' => session('currency_code'),
+            // One question, asked the same way by this route and by the two v1 endpoints that write the same column: the
+            // storefront's own currency where one is in force, and otherwise the visitor's pick exactly as this route has
+            // always stored it -- INCLUDING when there is no pick and the column stays empty. Falling back to the platform
+            // default here instead would answer for the default storefront too, which is the dormancy
+            // StorefrontCodOrderCurrencyTest::test_the_default_storefront_stores_exactly_what_it_stored_before pins.
+            'bring_change_amount_currency' => $this->storefrontCurrency->purchaseCurrencyCode(picked: $pickedByTheVisitor),
         ]);
 
         // generateOrder() returns an empty list when the order was refused inside its transaction —
@@ -825,7 +853,8 @@ class WebController extends Controller
         $paymentAmount = collect($vendorWiseCartList)->sum('order_amount_with_tax');
 
         $user = Helpers::getCustomerInformation($request);
-        if ($paymentAmount > $user->wallet_balance) {
+        $walletDebit = WalletOrderDebit::forOrderAmount($paymentAmount);
+        if (!$walletDebit->isCoveredBy($user->wallet_balance)) {
             Toastr::warning(translate('Inefficient_balance_in_your_wallet_to_pay_for_this_order') . '!!');
             return back();
         } else {
@@ -854,22 +883,27 @@ class WebController extends Controller
                 return redirect()->route('checkout-details');
             }
 
-            $order_ids = OrderManager::generateOrder(data: [
-                'order_status' => 'confirmed',
-                'payment_method' => 'pay_by_wallet',
-                'payment_status' => 'paid',
-                'transaction_ref' => '',
-                'coupon_code' => session('coupon_code'),
-                'address_id' => session('address_id'),
-                'billing_address_id' => session('billing_address_id'),
-                'requestObj' => $request,
-            ]);
+            try {
+                $order_ids = OrderManager::generateOrder(data: [
+                    'order_status' => 'confirmed',
+                    'payment_method' => 'pay_by_wallet',
+                    'payment_status' => 'paid',
+                    'transaction_ref' => '',
+                    'coupon_code' => session('coupon_code'),
+                    'address_id' => session('address_id'),
+                    'billing_address_id' => session('billing_address_id'),
+                    'requestObj' => $request,
+                    'walletPayment' => ['customerId' => $user->id, 'amount' => $walletDebit->amountInUsd(), 'amountInUsd' => true],
+                ]);
+            } catch (WalletPaymentRefused) {
+                Toastr::warning(translate('Inefficient_balance_in_your_wallet_to_pay_for_this_order') . '!!');
+                return redirect()->route('shop-cart');
+            }
 
             if (empty($order_ids)) {
                 // generateOrder returns [] after rolling back its transaction (e.g. an item went out of
-                // stock, or a conditional stock decrement failed). No order exists, so the wallet must
-                // NOT be debited — otherwise the customer loses money for nothing. (The API path already
-                // guards this; the web path did not.)
+                // stock, or a conditional stock decrement failed). The wallet debit is written inside
+                // that transaction, so it rolled back too and the customer was charged nothing.
                 Toastr::error(translate('order_place_failed_please_try_again'));
                 return redirect()->route('shop-cart');
             }
@@ -877,8 +911,6 @@ class WebController extends Controller
             foreach ($order_ids as $order_id) {
                 OrderManager::generateReferBonusForFirstOrder(orderId: $order_id);
             }
-
-            CustomerManager::create_wallet_transaction($user->id, Convert::default($paymentAmount), 'order_place', 'order payment');
         }
 
         if (session()->has('payment_mode') && session('payment_mode') == 'app') {
@@ -960,7 +992,7 @@ class WebController extends Controller
         $wishlist_status = Wishlist::where(['product_id' => $product->id, 'customer_id' => auth('customer')->id()])->count();
         $countOrder = count($order_details);
         $countWishlist = count($wishlists);
-        $relatedProducts = Product::with(['reviews'])->withCount('reviews')->where('category_ids', $product->category_ids)->where('id', '!=', $product->id)->limit(12)->get();
+        $relatedProducts = Product::active()->with(['reviews'])->withCount('reviews')->where('category_ids', $product->category_ids)->where('id', '!=', $product->id)->limit(12)->get();
         $currentDate = date('Y-m-d');
         $productAuthorsInfo = $this->productService->getProductAuthorsInfo(product: $product);
         $productPublishingHouseInfo = $this->productService->getProductPublishingHouseInfo(product: $product);
@@ -1302,20 +1334,10 @@ class WebController extends Controller
                 return self::getDigitalProductDownloadProcess(orderDetailsData: $orderDetailsData, customer: $customerData);
             } else {
                 if (auth('customer')->check() && auth('customer')->user()->id == $orderDetailsData->order->customer->id) {
-                    $fileName = '';
-                    $fileExist = false;
-                    $productDetails = json_decode($orderDetailsData['product_details'], true);
-                    if ($productDetails['digital_product_type'] == 'ready_product' && $productDetails['digital_file_ready']) {
-                        $checkFilePath = storageLink('product/digital-product', $productDetails['digital_file_ready'], ($productDetails['storage_path'] ?? 'public'));
-                        $filePath = $checkFilePath['path'];
-                        $fileExist = $checkFilePath['status'] == 200;
-                        $fileName = $productDetails['digital_file_ready'];
-                    } else {
-                        $checkFilePath = $orderDetailsData->digital_file_after_sell_full_url;
-                        $filePath = $checkFilePath['path'];
-                        $fileName = $orderDetailsData['digital_file_after_sell'];
-                        $fileExist = $checkFilePath['status'] == 200;
-                    }
+                    $checkFilePath = $this->digitalFileAddresses->answerForTheBuyer(orderDetail: $orderDetailsData);
+                    $filePath = $checkFilePath['path'];
+                    $fileName = $checkFilePath['key'];
+                    $fileExist = $checkFilePath['status'] == 200;
 
                     if (!is_null($fileName) && $fileExist) {
                         return response()->json([
@@ -1342,6 +1364,18 @@ class WebController extends Controller
         }
     }
 
+    /** The file of an order line, streamed to the signed address that the website handed out after its checks; the order must still be paid. */
+    public function getDigitalProductDownloadFile($id): BinaryFileResponse|JsonResponse
+    {
+        $orderDetailsData = OrderDetail::with('order')->findOrFail($id);
+        if ($orderDetailsData->order->payment_status !== 'paid') {
+            return response()->json(['status' => 0, 'message' => translate('Payment_must_be_confirmed_first') . ' !!'], 403);
+        }
+
+        return $this->digitalFiles->download(name: $orderDetailsData->deliveredDigitalFile())
+            ?? response()->json(['status' => 0, 'message' => translate('file_not_found')], 404);
+    }
+
     public function getDigitalProductDownloadOtpVerify(Request $request): JsonResponse
     {
         $verification = DigitalProductOtpVerification::where(['token' => $request->otp, 'order_details_id' => $request->order_details_id])->first();
@@ -1351,18 +1385,10 @@ class WebController extends Controller
             $fileName = '';
             $fileExist = false;
             if ($orderDetailsData) {
-                $productDetails = json_decode($orderDetailsData['product_details'], true);
-                if ($productDetails['digital_product_type'] == 'ready_product' && $productDetails['digital_file_ready']) {
-                    $checkFilePath = storageLink('product/digital-product', $productDetails['digital_file_ready'], ($productDetails['storage_path'] ?? 'public'));
-                    $filePath = $checkFilePath['path'];
-                    $fileExist = $checkFilePath['status'] == 200;
-                    $fileName = $productDetails['digital_file_ready'];
-                } else {
-                    $checkFilePath = $orderDetailsData->digital_file_after_sell_full_url;
-                    $filePath = $checkFilePath['path'];
-                    $fileName = $orderDetailsData['digital_file_after_sell'];
-                    $fileExist = $checkFilePath['status'] == 200;
-                }
+                $checkFilePath = $this->digitalFileAddresses->answerForTheBuyer(orderDetail: $orderDetailsData);
+                $filePath = $checkFilePath['path'];
+                $fileName = $checkFilePath['key'];
+                $fileExist = $checkFilePath['status'] == 200;
             }
 
             DigitalProductOtpVerification::where(['token' => $request->otp, 'order_details_id' => $request->order_details_id])->delete();
@@ -1403,7 +1429,7 @@ class WebController extends Controller
         } else {
             $guestEmail = '';
             $guestPhone = '';
-            $token = rand(1000, 9999);
+            $token = random_int(1000, 9999);
 
             $orderDetailsData = OrderDetail::with('order.customer')->find($request['order_details_id']);
 
@@ -1492,7 +1518,7 @@ class WebController extends Controller
         }
 
         if ($emailServicesSmtp['status'] || $smsConfigStatus) {
-            $token = rand(1000, 9999);
+            $token = random_int(1000, 9999);
             if ($customer['email'] == '' && $customer['phone'] == '') {
                 return response()->json([
                     'status' => $status,
@@ -1588,16 +1614,86 @@ class WebController extends Controller
             $newSubscription->save();
             Toastr::success(translate('Your_subscription_successfully_done'));
         }
+        $this->recordNewsletterConsent(email: $request['subscription_email']);
         if (str_contains(url()->previous(), 'checkout-complete') || str_contains(url()->previous(), 'web-payment')) {
             return redirect()->route('home');
         }
         return back();
     }
 
+    /**
+     * The one place on main where a customer states a marketing choice of their own: the newsletter box.
+     *
+     * `subscriptions` holds an e-mail address and nothing else — no customer, no market, no text, no way to withdraw —
+     * so while the consent gate is on the choice is ALSO written as a consent decision, which does carry all of those.
+     * The `subscriptions` row is still written exactly as before, so nothing that reads that table changes.
+     *
+     * CALLED FOR AN ADDRESS THAT IS ALREADY SUBSCRIBED TOO, which it was not before: the duplicate check on
+     * `subscriptions` meant that somebody who had unsubscribed through the link could never state a choice again, in
+     * the only form that exists — an independent review drove three real POSTs and measured the second and third
+     * writing nothing. The `subscriptions` row and the toast an administrator's visitor sees are untouched either way;
+     * what changes is that a signed-in customer can now agree again after withdrawing.
+     *
+     * Nothing is written when the answer in force is already a grant, so subscribing twice still records once.
+     *
+     * A SIGNED-IN CUSTOMER'S CHOICE IS A GRANT; AN ANONYMOUS VISITOR'S IS A CLAIM. The form asks nothing of whoever
+     * types the address, so a stranger can enter somebody else's — see MarketingConsentRecorder::claimForEmail.
+     *
+     * With the gate off this writes nothing at all.
+     */
+    private function recordNewsletterConsent(string $email): void
+    {
+        $gate = app(MarketingConsentGate::class);
+
+        if (!$gate->enabled()) {
+            return;
+        }
+
+        $customer = auth('customer')->user();
+        $customerId = $customer ? (int) $customer->id : null;
+        $market = $customerId ? MarketingMarket::forCustomer(customerId: $customerId) : MarketingMarket::homeMarket();
+
+        $alreadyAnswered = $gate->choiceAlreadyRecorded(
+            customerId: $customerId,
+            email: $customerId ? null : $email,
+            market: $market,
+            channel: MarketingConsent::CHANNEL_EMAIL,
+            purpose: MarketingConsent::PURPOSE_NEWSLETTER,
+        );
+
+        if ($alreadyAnswered) {
+            return;
+        }
+
+        $recorder = app(MarketingConsentRecorder::class);
+
+        if ($customerId) {
+            $recorder->grantForCustomer(
+                customerId: $customerId,
+                market: $market,
+                channel: MarketingConsent::CHANNEL_EMAIL,
+                purpose: MarketingConsent::PURPOSE_NEWSLETTER,
+                source: MarketingConsent::SOURCE_NEWSLETTER_FORM,
+            );
+
+            return;
+        }
+
+        $recorder->claimForEmail(
+            email: $email,
+            market: $market,
+            channel: MarketingConsent::CHANNEL_EMAIL,
+            purpose: MarketingConsent::PURPOSE_NEWSLETTER,
+            source: MarketingConsent::SOURCE_NEWSLETTER_FORM,
+        );
+    }
+
     public function review_list_product(Request $request): JsonResponse
     {
-        $productReviews = Review::where('product_id', $request['product_id'])->latest()->paginate(2, ['*'], 'page', $request['offset'] + 1);
-        $checkReviews = Review::where('product_id', $request['product_id'])->latest()->paginate(2, ['*'], 'page', ($request['offset'] + 1));
+        $productId = $request['product_id'];
+        abort_unless(is_scalar($productId) && Product::active()->whereKey($productId)->exists(), 404);
+        $productReviews = Review::where('product_id', $productId)->latest()->paginate(2, ['*'], 'page', $request['offset'] + 1);
+        $checkReviews = Review::where('product_id', $productId)->latest()->paginate(2, ['*'], 'page', ($request['offset'] + 1));
         return response()->json([
             'productReview' => view(VIEW_FILE_NAMES['product_reviews_partials'], compact('productReviews'))->render(),
             'not_empty' => $productReviews->count(),

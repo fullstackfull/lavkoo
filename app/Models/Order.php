@@ -2,10 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\StaffCountryOrderScope;
+use App\Traits\HidesCustomerBalances;
 use App\Services\Address\AddressSnapshot;
 use App\Traits\DemoMaskingTrait;
 use Carbon\Carbon;
 use DateTime;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -70,6 +73,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  */
 class Order extends Model
 {
+    use HidesCustomerBalances;
     use DemoMaskingTrait;
 
     protected $fillable = [
@@ -189,6 +193,11 @@ class Order extends Model
         'edited_status' => 'integer'
     ];
 
+    /** A guest order stores the guest_id in customer_id, so a registered customer's id alone can match a guest's order. */
+    public function scopeOwnedByCustomer(Builder $query, int|string|null $customerId): Builder
+    {
+        return $query->where('customer_id', $customerId)->where('is_guest', 0);
+    }
 
     public function details(): HasMany
     {
@@ -363,6 +372,7 @@ class Order extends Model
     protected static function boot(): void
     {
         parent::boot();
+        static::addGlobalScope(new StaffCountryOrderScope());
         //static::addGlobalScope(new RememberScope);
     }
 }

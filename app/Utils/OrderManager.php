@@ -2,6 +2,7 @@
 
 namespace App\Utils;
 
+use App\Services\Storefront\StorefrontCurrency;
 use App\Services\Analytics\Analytics;
 use App\Events\OrderEditDuePaymentEvent;
 use App\Models\OrderDetailsRewards;
@@ -10,6 +11,7 @@ use App\Models\OrderStatusHistory;
 use App\Models\ShippingMethod;
 use Carbon\Carbon;
 use App\Models\Cart;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use App\Models\Shop;
 use App\Models\User;
 use App\Models\Admin;
@@ -43,14 +45,20 @@ use Illuminate\Support\Facades\Log;
 use App\Models\DigitalProductVariation;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
 use App\Services\DeliverySyria\DeliverySyriaClient;
+use App\Services\Customer\CustomerBalanceLock;
+use App\Services\Wallet\WalletOverdraft;
+use App\Services\Wallet\WalletPaymentRefused;
 use App\Services\DeliverySyria\DeliverySyriaRateCalculator;
 use App\Models\DeliverySyriaGovernorateRate;
 use App\Models\DeliverySyriaParcel;
 use App\Services\Fulfillment\FulfillmentHooks;
 use App\Services\Fulfillment\OrderItemOwnershipSnapshotter;
+use App\Services\Marketplace\RestockBudget;
+use App\Services\Storefront\OrderStorefrontSnapshot;
 use App\Services\SalesChannels\Dispatch\ChannelOrderMarker;
 use App\Enums\Address\AddressChannel;
 use App\Services\Address\OrderAddressService;
+use App\Services\Referral\ReferralRewardService;
 
 
 use App\Services\DeliverySyria\DeliverySyriaConfigService;
@@ -115,6 +123,29 @@ class OrderManager
                 $fromFlag = $restoring ? 1 : 0;
                 $toFlag = $restoring ? 0 : 1;
 
+                // The line is locked before the budget below is read, so a return receipt cannot spend the
+                // same units between the reading and the claim; the receipt takes the same two locks in the
+                // same order (order_details, then products).
+                // Read with the query builder and not the model: OrderDetail eager-loads its storage
+                // relation on every hydration, which this does not need and which needs a table a stock
+                // writer has no business requiring.
+                if (!DB::table('order_details')->where('id', $detail['id'])->lockForUpdate()->first()) {
+                    return;
+                }
+
+                $units = self::unitsThisStatusChangeMoves($detail, $restoring);
+
+                // A RESTORE THAT PUTS NOTHING BACK MUST NOT TAKE THE LINE'S CLAIM WITH IT. The flag is the
+                // claim on the line's units: 1 means they are off the shelf. Flipping it for a restore of
+                // nothing said they were back when they were not, so the next re-open took them off a second
+                // time and the shelf lost the line's quantity on every sell -> return -> re-open -> return
+                // round, without bound. The status is still recorded; only the claim is left where it is.
+                if ($restoring && $units === 0) {
+                    OrderDetail::where('id', $detail['id'])->update(['delivery_status' => $status]);
+
+                    return;
+                }
+
                 $flipped = OrderDetail::where(['id' => $detail['id'], 'is_stock_decreased' => $fromFlag])
                     ->update(['is_stock_decreased' => $toFlag, 'delivery_status' => $status]);
 
@@ -127,30 +158,61 @@ class OrderManager
                     return;
                 }
 
-                // Adjust the specific variant's quantity under the same lock.
+                if ($units === 0) {
+                    return;   // a line of no units to re-take
+                }
+
+                // Adjust the specific variant's quantity under the same lock. The options keep their own
+                // keys: this column is an object keyed by variant name in some installations and a list in
+                // others, and rebuilding it as a list destroyed the keys of the first kind -- a shape the
+                // storefront and the seller app read, and one the return receipt beside this deliberately
+                // preserves.
                 $type = $detail['variant'];
                 $variationData = [];
-                foreach (json_decode($product['variation'], true) ?? [] as $var) {
+                foreach (json_decode($product['variation'], true) ?? [] as $key => $var) {
                     if ($type == $var['type']) {
-                        $var['qty'] = $restoring ? ($var['qty'] + $detail['qty']) : ($var['qty'] - $detail['qty']);
+                        // Floored on re-deduct for the same reason current_stock is below: an out-of-band
+                        // stock edit while the order sat cancelled used to drive the variant JSON negative.
+                        $var['qty'] = $restoring ? ($var['qty'] + $units) : max(0, $var['qty'] - $units);
                     }
-                    $variationData[] = $var;
+                    $variationData[$key] = $var;
                 }
                 Product::where(['id' => $product['id']])->update(['variation' => json_encode($variationData)]);
 
                 if ($restoring) {
-                    Product::where(['id' => $product['id']])->increment('current_stock', $detail['qty']);
+                    Product::where(['id' => $product['id']])->increment('current_stock', $units);
                 } else {
                     // Floor at zero on re-deduct so an out-of-band stock change can't drive it negative.
                     $taken = Product::where('id', $product['id'])
-                        ->where('current_stock', '>=', $detail['qty'])
-                        ->decrement('current_stock', $detail['qty']);
+                        ->where('current_stock', '>=', $units)
+                        ->decrement('current_stock', $units);
                     if ($taken === 0) {
                         Product::where(['id' => $product['id']])->update(['current_stock' => 0]);
                     }
                 }
             });
         }
+    }
+
+    /**
+     * How many units this status change may move for one line.
+     *
+     * RESTORING puts back only what a return has not already put back. This writer used to move the whole
+     * line however much of it had come back through a received return, so a partial return followed by
+     * marking the order returned put four units back for three that left. The line's quantity is a budget
+     * shared with the return receipt (RestockBudget); the is_stock_decreased claim still guards the repeat,
+     * and this guards the overlap.
+     *
+     * RE-TAKING takes the whole line, NOT the remainder. A re-opened line is live for all of its units
+     * again, so all of them are committed to the customer again whatever came back earlier. Bounding this
+     * direction by the budget too left the shelf saying it held units that an open order had already
+     * promised -- an oversell, which is the one error this must not make.
+     */
+    private static function unitsThisStatusChangeMoves(array|object $detail, bool $restoring): int
+    {
+        return $restoring
+            ? app(RestockBudget::class)->unspentUnitsOf($detail['id'], $detail['qty'])
+            : max(0, (int) $detail['qty']);
     }
 
     public static function getWalletManageOnOrderStatusChange($order, $received_by): void
@@ -305,6 +367,8 @@ class OrderManager
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
+
+            app(OrderStorefrontSnapshot::class)->stampMoneyRows(table: 'order_transactions', orderId: $order['id']);
 
             $wallet = AdminWallet::where('admin_id', 1)->first();
             $wallet->commission_earned += $commission;
@@ -499,6 +563,16 @@ class OrderManager
         );
     }
 
+    /** How many checkouts of the customer used the coupon: the orders of one checkout share a group and count once. */
+    public static function countCouponUses(int|string $customerId, mixed $couponCode): int
+    {
+        return Order::where(['customer_id' => $customerId, 'coupon_code' => $couponCode])
+            ->select('order_group_id')
+            ->groupBy('order_group_id')
+            ->get()
+            ->count();
+    }
+
     public static function getTotalCouponAmount($request, $couponCode): array
     {
         $user = Helpers::getCustomerInformation($request);
@@ -508,10 +582,10 @@ class OrderManager
                 'messages' => translate('Coupon_not_applicable'),
             ];
         }
-        $couponLimit = Order::where(['customer_id' => $user['id'], 'coupon_code' => $couponCode])
-            ->groupBy('order_group_id')->get()->count();
+        $couponLimit = self::countCouponUses(customerId: $user['id'], couponCode: $couponCode);
 
         $firstCoupon = Coupon::where(['code' => $couponCode])
+            ->forStorefront()
             ->where('status', 1)
             ->whereDate('start_date', '<=', date('Y-m-d'))
             ->whereDate('expire_date', '>=', date('Y-m-d'))->first();
@@ -666,10 +740,10 @@ class OrderManager
             ];
         }
 
-        $couponLimit = Order::where(['customer_id' => $user['id'], 'coupon_code' => $couponCode])
-            ->groupBy('order_group_id')->get()->count();
+        $couponLimit = self::countCouponUses(customerId: $user['id'], couponCode: $couponCode);
 
         $firstCoupon = Coupon::where(['code' => $couponCode])
+            ->forStorefront()
             ->where('status', 1)
             ->whereDate('start_date', '<=', date('Y-m-d'))
             ->whereDate('expire_date', '>=', date('Y-m-d'))->first();
@@ -730,7 +804,7 @@ class OrderManager
 
     public static function getCustomerInfoForOrder($data): array
     {
-        $customer = Helpers::getCustomerInformation($data['requestObj'] ?? request()->all());
+        $customer = Helpers::getCustomerInformation($data['requestObj'] ?? request());
         $isGuest = ($customer == 'offline') ? 1 : 0;
         if (isset($data['is_guest'])) {
             $isGuest = $data['is_guest'] ?? 0;
@@ -858,6 +932,9 @@ class OrderManager
             if ($referralCustomer->customer_discount_amount_type === 'percentage') {
                 return ($groupAmount * $discountAmount) / 100;
             }
+            if (app(StorefrontCurrency::class)->currencyCodeInForce() !== null) {
+                return 0;
+            }
             return ($discountAmount * $groupAmount) / $totalAmount;
         }
         return 0;
@@ -874,11 +951,16 @@ class OrderManager
             $isFirstOrder = Order::where(['customer_id' => $order['customer_id'], 'order_status' => 'delivered', 'payment_status' => 'paid'])->count();
             $referredByUser = User::where(['id' => $customer['referred_by']])->first();
             if ($isFirstOrder == 1 && isset($customer->referred_by) && isset($referredByUser)) {
-                self::createWalletTransaction(
-                    user_id: $referredByUser['id'],
-                    amount: usdToDefaultCurrency(amount: $refEarningExchangeRate),
-                    transaction_type: 'add_fund_by_admin',
-                    reference: 'earned_by_referral'
+                app(ReferralRewardService::class)->creditOnce(
+                    refereeId: $customer['id'],
+                    beneficiaryId: $referredByUser['id'],
+                    orderId: $order['id'],
+                    credit: fn () => self::createWalletTransaction(
+                        user_id: $referredByUser['id'],
+                        amount: usdToDefaultCurrency(amount: $refEarningExchangeRate),
+                        transaction_type: 'add_fund_by_admin',
+                        reference: 'earned_by_referral'
+                    ),
                 );
             }
         }
@@ -888,21 +970,21 @@ class OrderManager
     {
         $cartListQuery = CartManager::getCartListQuery(type: 'checked');
         $cartListQueryGroup = $cartListQuery?->groupBy('cart_group_id');
-        $checkReferralDiscount = OrderManager::checkCustomerReferralDiscount(request: ($data['requestObj'] ?? request()->all()));
+        $checkReferralDiscount = OrderManager::checkCustomerReferralDiscount(request: ($data['requestObj'] ?? request()));
         $onlyProductPriceGrandTotal = CartManager::getOnlyCartProductPriceGrandTotal(type: 'checked');
 
         $shippingModel = getWebConfig(name: 'shipping_method');
         $adminShipping = ShippingType::where('seller_id', 0)->first();
 
         $couponCode = $data['coupon_code'] ?? session('coupon_code');
-        $totalCouponDiscountInfo = OrderManager::getTotalCouponAmount(request: ($data['requestObj'] ?? request()->all()), couponCode: $couponCode);
+        $totalCouponDiscountInfo = OrderManager::getTotalCouponAmount(request: ($data['requestObj'] ?? request()), couponCode: $couponCode);
         $totalCouponDiscount = $totalCouponDiscountInfo['discount'] ?? 0;
 
         $vendorWiseCartList = [];
         foreach ($cartListQueryGroup as $groupId => $cartListQueryGroupItem) {
 
             $couponInfo = OrderManager::getGroupWiseCouponArray(
-                request: ($data['requestObj'] ?? request()->all()),
+                request: ($data['requestObj'] ?? request()),
                 couponCode: $couponCode,
                 applicableAmount: $totalCouponDiscountInfo['total_cart_amount'] ?? 0,
                 discountAmount: $totalCouponDiscountInfo['discount'] ?? 0,
@@ -1062,7 +1144,7 @@ class OrderManager
         $adminCommission = (float)str_replace(",", "", Helpers::sales_commission_before_order($cartData['cart_group_id'], $cartData['coupon_discount']));
         return [
             'id' => $orderId,
-            'verification_code' => rand(100000, 999999),
+            'verification_code' => random_int(100000, 999999),
             'customer_id' => $customerData['customer_id'],
             'is_guest' => $customerData['is_guest'],
             'seller_id' => $cartData['seller_id'],
@@ -1274,7 +1356,7 @@ class OrderManager
             foreach ($vendorCart['applied_tax_cart_list'] as $cartItem) {
                 if ($cartItem['seller_id'] == $cartSingleItem['seller_id'] && $cartItem['seller_is'] == $cartSingleItem['seller_is']) {
                     $appliedTaxAmount = collect($vendorCart['applied_tax_cart_list'])->where('cart_id', $cartSingleItem['id'])->sum('applied_tax_amount') ?? 0;
-                    foreach ($cartItem['applied_tax_ids'] as $taxItem) {
+                    foreach ($cartItem['cart_id'] == $cartSingleItem['id'] ? $cartItem['applied_tax_ids'] : [] as $taxItem) {
                         if ($taxItem) {
                             $appliedTaxRate += $taxItem['tax_rate'];
                         }
@@ -1523,8 +1605,8 @@ class OrderManager
             'order_type' => 'order',
             'quantity' => $data['quantity'] ?? 0,
             'tax_id' => $taxRate['id'],
-            'taxable_id' => '',
-            'taxable_type' => '',
+            'taxable_id' => null,
+            'taxable_type' => null,
             'seller_id' => $data['seller_id'] ?? 0,
             'seller_type' => $data['seller_type'] ?? 'admin',
             'system_tax_setup_id' => $systemTaxVat->id,
@@ -1571,6 +1653,16 @@ class OrderManager
         // strictly worse than an oversold line a human can reconcile. See generateOrder's callers.
         $stockPolicy = ($data['stock_policy'] ?? 'reject') === 'allow_oversell' ? 'allow_oversell' : 'reject';
 
+        // A wallet checkout pays inside this transaction: the debit is written with the order, and a refused debit rolls the order
+        // back. Debiting after the commit would leave a paid order behind whenever the debit is refused.
+        $walletPayment = isset($data['walletPayment'])
+            ? [
+                'customerId' => $data['walletPayment']['customerId'],
+                'amount' => (float) $data['walletPayment']['amount'],
+                'amountInUsd' => (bool) ($data['walletPayment']['amountInUsd'] ?? false),
+            ]
+            : null;
+
         // Order ids are chosen by generateNewOrderID(), not by the database, so two checkouts that
         // start together can pick the same number and the second insert dies on the primary key.
         // Observed on the running store: "Duplicate entry '100002' for key 'PRIMARY'" — a hard 500
@@ -1580,7 +1672,7 @@ class OrderManager
         for ($idCollisionAttempt = 1; ; $idCollisionAttempt++) {
         try {
             DB::transaction(function () use (
-                $vendorWiseCartList, $taxConfig, $getCustomerInfo, $orderGroupId, $data, $stockPolicy,
+                $vendorWiseCartList, $taxConfig, $getCustomerInfo, $orderGroupId, $data, $stockPolicy, $walletPayment,
                 &$orderPlacedIds, &$orderPlacedNotificationEvents, &$orderPlacedMailEvents
             ) {
                 // Reset per attempt. DB::transaction retries on deadlock, and these accumulate —
@@ -1588,6 +1680,12 @@ class OrderManager
                 $orderPlacedIds = [];
                 $orderPlacedNotificationEvents = [];
                 $orderPlacedMailEvents = [];
+
+                // The customer row is locked before any product row, and the wallet writer locks the same row again. Every wallet
+                // checkout therefore takes its locks in one order, customer then stock, and two of them cannot wait on each other.
+                if ($walletPayment !== null) {
+                    User::query()->lockForUpdate()->find($walletPayment['customerId']);
+                }
 
                 // Lock every product in the order up front, ordered by id. Two carts holding the
                 // same two products in opposite orders would otherwise each hold the row the other
@@ -1606,43 +1704,29 @@ class OrderManager
             $order_id = OrderManager::generateNewOrderID();
             $orderPlacedIds[] = $order_id;
 
-            $appliedTaxAmount = 0;
-            $appliedTaxRate = 0;
             foreach ($vendorWiseCart['applied_tax_cart_list'] as $cartItem) {
-                if ($cartItem['seller_id'] == $vendorWiseCart['seller_id'] && $cartItem['seller_is'] == $vendorWiseCart['seller_is']) {
-                    $appliedTaxAmount = collect($vendorWiseCart['applied_tax_cart_list'])->where('cart_id', $cartItem['cart_id'])->sum('applied_shipping_cost_tax') ?? 0;
-                    foreach ($cartItem['applied_shipping_cost_tax_ids'] as $taxIdGroup) {
-                        foreach ($taxIdGroup['tax_ids'] as $taxId) {
-                            $taxItem = $taxConfig['taxVats']->firstWhere('id', $taxId);
-                            if ($taxItem) {
-                                $appliedTaxRate += $taxItem['tax_rate'];
-                            }
-                        }
-                    }
-                }
-            }
+                $shippingTaxes = collect($cartItem['applied_shipping_cost_tax_ids'])
+                    ->flatMap(static fn ($taxGroup): array => collect($taxGroup['tax_ids'])
+                        ->map(static fn ($taxId): array => ['group' => $taxGroup['name'], 'tax' => $taxConfig['taxVats']->firstWhere('id', $taxId)])
+                        ->all())
+                    ->filter(static fn (array $shippingTax): bool => (bool) $shippingTax['tax']);
+                $shippingTaxRate = $shippingTaxes->sum(static fn (array $shippingTax) => $shippingTax['tax']['tax_rate']);
 
-            foreach (collect($vendorWiseCart['applied_tax_cart_list'])->pluck('applied_shipping_cost_tax_ids')->toArray() as $taxGroups) {
-                foreach ($taxGroups as $taxGroup) {
-                    foreach ($taxGroup['tax_ids'] as $taxId) {
-                        $taxItem = $taxConfig['taxVats']->firstWhere('id', $taxId);
-                        if ($taxItem) {
-                            self::getAddOrderTaxDetails(
-                                systemTaxVat: $taxConfig['SystemTaxVat'],
-                                taxRate: $taxItem,
-                                orderId: $order_id,
-                                data: [
-                                    'tax_amount' => ($appliedTaxAmount > 0 && $appliedTaxRate > 0) ? ($appliedTaxAmount * $taxItem['tax_rate']) / $appliedTaxRate : 0,
-                                    'before_tax_amount' => $vendorWiseCart['order_amount_with_tax'] - $vendorWiseCart['total_tax_amount'],
-                                    'after_tax_amount' => $vendorWiseCart['order_amount_with_tax'],
-                                    'quantity' => 0,
-                                    'seller_id' => $vendorWiseCart['seller_id'],
-                                    'seller_type' => $vendorWiseCart['seller_is'],
-                                ],
-                                taxOn: $taxGroup['name'],
-                            );
-                        }
-                    }
+                foreach ($shippingTaxes as $shippingTax) {
+                    self::getAddOrderTaxDetails(
+                        systemTaxVat: $taxConfig['SystemTaxVat'],
+                        taxRate: $shippingTax['tax'],
+                        orderId: $order_id,
+                        data: [
+                            'tax_amount' => ($cartItem['applied_shipping_cost_tax'] > 0 && $shippingTaxRate > 0) ? ($cartItem['applied_shipping_cost_tax'] * $shippingTax['tax']['tax_rate']) / $shippingTaxRate : 0,
+                            'before_tax_amount' => $vendorWiseCart['order_amount_with_tax'] - $vendorWiseCart['total_tax_amount'],
+                            'after_tax_amount' => $vendorWiseCart['order_amount_with_tax'],
+                            'quantity' => 0,
+                            'seller_id' => $vendorWiseCart['seller_id'],
+                            'seller_type' => $vendorWiseCart['seller_is'],
+                        ],
+                        taxOn: $shippingTax['group'],
+                    );
                 }
             }
 
@@ -1665,6 +1749,14 @@ class OrderManager
                 orderId: $order_id,
                 vendorCart: $vendorWiseCart
             );
+
+            // The lines are saved, the order is stamped once from the country they belong to, and only
+            // then do the money rows take that currency. The order cannot be stamped before its lines
+            // exist, so a line that asked for the order's currency as it was inserted would read an
+            // order that was still empty — which is exactly how this read came back NULL every time.
+            $storefrontSnapshot = app(OrderStorefrontSnapshot::class);
+            $storefrontSnapshot->record(orderId: $order_id);
+            $storefrontSnapshot->stampMoneyRows(table: 'order_details', orderId: $order_id);
 
             $order = Order::with('customer', 'seller.shop', 'details')->find($order_id);
             
@@ -1730,6 +1822,13 @@ class OrderManager
                 customer: $getCustomerInfo['customer'],
             );
         }
+
+                if ($walletPayment !== null) {
+                    $walletDebit = CustomerManager::create_wallet_transaction($walletPayment['customerId'], $walletPayment['amount'], 'order_place', 'order payment', amountInUsd: $walletPayment['amountInUsd']);
+                    if ($walletDebit === false) {
+                        throw new WalletPaymentRefused(customerId: $walletPayment['customerId'], amount: $walletPayment['amount']);
+                    }
+                }
             }, attempts: 3);
 
             break;
@@ -2041,7 +2140,7 @@ Log::warning('Delivery Syria: parcel saved successfully', [
 }
 
 
-        $user = Helpers::getCustomerInformation(($data['requestObj'] ?? request()->all()));
+        $user = Helpers::getCustomerInformation(($data['requestObj'] ?? request()));
 
         $notificationSent = false;
         foreach ($orderPlacedIds as $orderPlacedId) {
@@ -2049,14 +2148,14 @@ Log::warning('Delivery Syria: parcel saved successfully', [
                 $getOrder = Order::where('id', $orderPlacedId)->first();
                 $referralUser = ReferralCustomer::where('user_id', $user['id'])->first();
                 if ($referralUser && $referralUser->is_used != 1 && $referralUser->ordered_notify != 1) {
-                    $orderPlacedNotificationEvents[] = [
+                    $orderPlacedNotificationEvents[] = [[
                         'notification' => true,
                         'notificationData' => (object)[
                             'key' => 'your_referred_customer_has_been_place_order',
                             'type' => 'promoter',
                             'order' => $getOrder,
                         ],
-                    ];
+                    ]];
                 }
                 $notificationSent = true;
             }
@@ -2163,6 +2262,8 @@ Log::warning('Delivery Syria: parcel saved successfully', [
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
+
+            app(OrderStorefrontSnapshot::class)->stampMoneyRows(table: 'order_transactions', orderId: $order['id']);
 
             OrderManager::getCheckOrCreateAdminWallet();
             AdminWallet::where(['admin_id' => 1])->increment('pending_amount', $order['order_amount']);
@@ -2299,53 +2400,51 @@ Log::warning('Delivery Syria: parcel saved successfully', [
     public static function createWalletTransaction($user_id, float $amount, $transaction_type, $reference, $payment_data = []): bool|WalletTransaction
     {
         if (BusinessSetting::where('type', 'wallet_status')->first()->value != 1) return false;
-        $user = User::find($user_id);
-        $currentBalance = $user->wallet_balance;
 
-        $walletTransaction = new WalletTransaction();
-        $walletTransaction->user_id = $user->id;
-        $walletTransaction->transaction_id = \Str::uuid();
-        $walletTransaction->reference = $reference;
-        $walletTransaction->transaction_type = $transaction_type;
-        $walletTransaction->payment_method = isset($payment_data['payment_method']) ? $payment_data['payment_method'] : null;
+        return CustomerBalanceLock::apply($user_id, function (User $user) use ($amount, $transaction_type, $reference, $payment_data) {
+            $currentBalance = $user->wallet_balance;
 
-        $debit = 0.0;
-        $credit = 0.0;
-        $addFundToWalletBonus = 0;
+            $walletTransaction = new WalletTransaction();
+            $walletTransaction->user_id = $user->id;
+            $walletTransaction->transaction_id = \Str::uuid();
+            $walletTransaction->reference = $reference;
+            $walletTransaction->transaction_type = $transaction_type;
+            $walletTransaction->payment_method = isset($payment_data['payment_method']) ? $payment_data['payment_method'] : null;
 
-        if (in_array($transaction_type, ['add_fund_by_admin', 'add_fund', 'order_refund', 'loyalty_point'])) {
-            $credit = $amount;
-            if ($transaction_type == 'add_fund') {
-                $walletTransaction->admin_bonus = Helpers::add_fund_to_wallet_bonus(Convert::usd($amount ?? 0));
-                $addFundToWalletBonus = Helpers::add_fund_to_wallet_bonus(Convert::usd($amount ?? 0));
-            } else if ($transaction_type == 'loyalty_point') {
-                $credit = (($amount / BusinessSetting::where('type', 'loyalty_point_exchange_rate')->first()->value) * Convert::default(1));
+            $debit = 0.0;
+            $credit = 0.0;
+            $addFundToWalletBonus = 0;
+
+            if (in_array($transaction_type, ['add_fund_by_admin', 'add_fund', 'order_refund', 'loyalty_point'])) {
+                $credit = $amount;
+                if ($transaction_type == 'add_fund') {
+                    $walletTransaction->admin_bonus = Helpers::add_fund_to_wallet_bonus(Convert::usd($amount ?? 0));
+                    $addFundToWalletBonus = Helpers::add_fund_to_wallet_bonus(Convert::usd($amount ?? 0));
+                } else if ($transaction_type == 'loyalty_point') {
+                    $credit = (($amount / BusinessSetting::where('type', 'loyalty_point_exchange_rate')->first()->value) * Convert::default(1));
+                }
+            } else if ($transaction_type == 'order_place') {
+                $debit = $amount;
             }
-        } else if ($transaction_type == 'order_place') {
-            $debit = $amount;
-        }
 
-        $creditAmount = currencyConverter($credit);
-        $debitAmount = currencyConverter($debit);
-        $walletTransaction->credit = $creditAmount;
-        $walletTransaction->debit = $debitAmount;
-        $walletTransaction->balance = $currentBalance + $creditAmount - $debitAmount;
-        $walletTransaction->created_at = now();
-        $walletTransaction->updated_at = now();
-        $user->wallet_balance = $currentBalance + $addFundToWalletBonus + $creditAmount - $debitAmount;
+            $creditAmount = currencyConverter($credit);
+            $debitAmount = currencyConverter($debit);
+            if (WalletOverdraft::refuses($currentBalance, $debitAmount)) {
+                return false;
+            }
+            $walletTransaction->credit = $creditAmount;
+            $walletTransaction->debit = $debitAmount;
+            $walletTransaction->balance = $currentBalance + $creditAmount - $debitAmount;
+            $walletTransaction->created_at = now();
+            $walletTransaction->updated_at = now();
+            $user->wallet_balance = $currentBalance + $addFundToWalletBonus + $creditAmount - $debitAmount;
 
-        try {
-            DB::beginTransaction();
             $user->save();
             $walletTransaction->save();
-            DB::commit();
+
             if (in_array($transaction_type, ['loyalty_point', 'order_place', 'add_fund_by_admin'])) return $walletTransaction;
             return true;
-        } catch (Exception $ex) {
-            info($ex);
-            DB::rollback();
-            return false;
-        }
+        });
     }
 
     public static function generateOrderAgain($request): array
@@ -2770,10 +2869,28 @@ Log::warning('Delivery Syria: parcel saved successfully', [
     {
         $order = Order::with('seller')->with('shipping')->where('id', $id)->first();
         $invoiceSettings = getWebConfig('invoice_settings');
-        $mpdf_view = \View::make(VIEW_FILE_NAMES['order_invoice'], compact('order', 'invoiceSettings'));
-        return self::storePdf(view: $mpdf_view, filePrefix: 'order_invoice_', filePostfix: $order['id'], pdfType: 'invoice', requestFrom: 'web');
+
+        return app(StorefrontCurrency::class)->withinOrderCurrency(order: $order, callback: function () use ($order, $invoiceSettings): string {
+            $mpdf_view = \View::make(VIEW_FILE_NAMES['order_invoice'], compact('order', 'invoiceSettings'));
+
+            return self::storePdf(view: $mpdf_view, filePrefix: 'order_invoice_', filePostfix: $order['id'], pdfType: 'invoice', requestFrom: 'web');
+        });
     }
 
+
+    /**
+     * The one cart line that stands for a cart group in the checkout validation: the first checked line by id, as the statement returned it when
+     * it was `select *` with a bare GROUP BY, which a server enforcing ONLY_FULL_GROUP_BY refuses. Which lines of the group the stock check should
+     * cover is a separate question; this keeps what it did.
+     */
+    public static function firstCheckedCartLineOfGroup(string|int $groupId): EloquentCollection
+    {
+        return Cart::whereHas('product', function ($query) {
+            return $query->active();
+        })->with(['product' => function ($query) {
+            return $query->active();
+        }])->where(['cart_group_id' => $groupId, 'is_checked' => 1])->orderBy('id')->limit(1)->get();
+    }
 
     public static function checkValidationForCheckoutPages(Request $request): array
     {
@@ -2826,11 +2943,7 @@ Log::warning('Delivery Syria: parcel saved successfully', [
                 }
             }
 
-            $cartList = Cart::whereHas('product', function ($query) {
-                return $query->active();
-            })->with(['product' => function ($query) {
-                return $query->active();
-            }])->groupBy('cart_group_id')->where(['cart_group_id' => $groupId, 'is_checked' => 1])->get();
+            $cartList = self::firstCheckedCartLineOfGroup(groupId: $groupId);
             $productStockCheck = CartManager::product_stock_check($cartList);
             if (!$productStockCheck) {
                 $productStockStatus = false;

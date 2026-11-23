@@ -67,7 +67,7 @@ class AttentionConcurrencyTest extends TestCase
         $this->assertSame(3, $this->workersWhere($reports, static fn (array $r): bool => str_starts_with((string) ($r['refusal'] ?? ''), 'attention_somebody_already_reviewed_this')), 'the other three were told who got there first');
         // And whatever they decided among themselves, the OPERATION is untouched. That is the whole design.
         $this->assertSame(ChannelReturnDecision::MAY_HAVE_SENT, ChannelReturnDecision::firstOrFail()->state);
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes really ran at the same time');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the processes really ran at the same time');
     }
 
     public function test_two_people_putting_back_one_stock_event_queue_it_once(): void
@@ -105,7 +105,7 @@ class AttentionConcurrencyTest extends TestCase
         ]);
 
         $this->assertSame([], $this->problemsOf($reports));
-        $this->assertTrue(ConcurrentRunner::overlapped($reports), 'the processes really ran at the same time');
+        $this->assertTrue(ConcurrentRunner::ranAtTheSameTime($reports), 'the processes really ran at the same time');
         $this->assertSame(1, $this->workersWhere($reports, static fn (array $r): bool => ($r['ok'] ?? false) === true), 'both actions landed on one row');
         $this->assertSame(1, ChannelAttentionReview::count(), 'one row carried two records of being dealt with');
 

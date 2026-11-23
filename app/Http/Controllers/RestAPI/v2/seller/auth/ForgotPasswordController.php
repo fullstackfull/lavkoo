@@ -5,7 +5,7 @@ namespace App\Http\Controllers\RestAPI\v2\seller\auth;
 use App\Events\PasswordResetEvent;
 use App\Services\Platform\PasswordPolicy;
 use App\Http\Controllers\Controller;
-use App\Models\Seller;
+use App\Services\VendorPasswordResetService;
 use App\Utils\Helpers;
 use App\Utils\SMSModule;
 use Illuminate\Http\JsonResponse;
@@ -17,6 +17,12 @@ use Modules\Gateways\Traits\SmsGateway;
 
 class ForgotPasswordController extends Controller
 {
+    public function __construct(
+        private readonly VendorPasswordResetService $vendorPasswordResetService,
+    )
+    {
+    }
+
     public function reset_password_request(Request $request):JsonResponse
     {
         $validator = Validator::make($request->all(), [
@@ -27,11 +33,12 @@ class ForgotPasswordController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
         }
 
+        $identity = (string)$request['identity'];
         $verification_by = getWebConfig(name: 'vendor_forgot_password_method');
-        DB::table('password_resets')->where('user_type','seller')->where('identity', 'like', "%{$request['identity']}%")->delete();
+        DB::table('password_resets')->where('user_type','seller')->where('identity', $identity)->delete();
 
         if ($verification_by == 'email') {
-            $seller = Seller::Where(['email' => $request['identity']])->first();
+            $seller = $this->vendorPasswordResetService->findSeller(identity: $identity, method: VendorPasswordResetService::EMAIL);
             if (isset($seller)) {
                 $token = Str::random(120);
                 DB::table('password_resets')->insert([
@@ -63,9 +70,9 @@ class ForgotPasswordController extends Controller
                 return response()->json(['message' => $response], 200);
             }
         } elseif ($verification_by == 'phone') {
-            $seller = Seller::where('phone', 'like', "%{$request['identity']}%")->first();
+            $seller = $this->vendorPasswordResetService->findSeller(identity: $identity, method: VendorPasswordResetService::PHONE);
             if (isset($seller)) {
-                $token = config('app.mode') == 'dev' ? 1234 : rand(1000, 9999);
+                $token = config('app.mode') == 'dev' ? 1234 : random_int(1000, 9999);
                 DB::table('password_resets')->insert([
                     'identity' => $seller['phone'],
                     'token' => $token,
@@ -93,14 +100,13 @@ class ForgotPasswordController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
         }
 
-        $id = $request['identity'];
-        $data = DB::table('password_resets')
-            ->where('user_type','seller')
-            ->where(['token' => $request['otp']])
-            ->where('identity', 'like', "%{$id}%")
-            ->first();
+        $seller = $this->vendorPasswordResetService->findSellerHoldingCode(
+            identity: (string)$request['identity'],
+            code: (string)$request['otp'],
+            method: getWebConfig(name: 'vendor_forgot_password_method'),
+        );
 
-        if (isset($data)) {
+        if (isset($seller)) {
             return response()->json(['message' => 'otp verified.'], 200);
         }
 
@@ -121,21 +127,22 @@ class ForgotPasswordController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
         }
 
-        $data = DB::table('password_resets')
-            ->where('user_type','seller')
-            ->where('identity', 'like', "%{$request['identity']}%")
-            ->where(['token' => $request['otp']])->first();
+        $identity = (string)$request['identity'];
+        $proof = (string)$request['otp'];
 
-        if (isset($data)) {
-            DB::table('sellers')->where('phone', 'like', "%{$data->identity}%")
-                ->update([
-                    'password' => bcrypt(str_replace(' ', '', $request['password']))
-                ]);
+        $seller = $this->vendorPasswordResetService->findSellerHoldingCode(
+            identity: $identity,
+            code: $proof,
+            method: getWebConfig(name: 'vendor_forgot_password_method'),
+        );
 
-            DB::table('password_resets')
-                ->where('user_type','seller')
-                ->where('identity', 'like', "%{$request['identity']}%")
-                ->where(['token' => $request['otp']])->delete();
+        if (isset($seller)) {
+            $this->vendorPasswordResetService->resetPassword(
+                seller: $seller,
+                identity: $identity,
+                proof: $proof,
+                password: $request['password'],
+            );
 
             return response()->json(['message' => 'Password changed successfully.'], 200);
         }

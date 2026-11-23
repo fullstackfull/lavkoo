@@ -46,6 +46,7 @@ use App\Http\Controllers\Web\WebController;
 use App\Http\Middleware\VerifyCsrfToken;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
+use App\Http\Middleware\EnsureGatewayTakesThisPayment;
 
 /*
 |--------------------------------------------------------------------------
@@ -92,8 +93,11 @@ Route::get('/image-proxy', function (\App\Services\Security\OutboundUrlGuard $gu
         abort(502, 'Upstream fetch failed');
     }
 
-    $contentType = (string) $response->header('Content-Type');
-    if (!str_starts_with(strtolower($contentType), 'image/')) {
+    // The upstream chooses its own Content-Type, and what is answered here is on the shop's own origin: an SVG is a page that runs script, so only
+    // raster images are proxied, and the answer says it is not to be sniffed into anything else or to run anything.
+    $contentType = strtolower(trim(explode(';', (string) $response->header('Content-Type'))[0]));
+    $rasterImageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif', 'image/bmp', 'image/x-icon', 'image/vnd.microsoft.icon'];
+    if (!in_array($contentType, $rasterImageTypes, true)) {
         abort(415, 'Only image responses are proxied');
     }
 
@@ -102,7 +106,12 @@ Route::get('/image-proxy', function (\App\Services\Security\OutboundUrlGuard $gu
         abort(413, 'Image too large');
     }
 
-    return response($body, 200)->header('Content-Type', $contentType);
+    return response($body, 200)->withHeaders([
+        'Content-Type' => $contentType,
+        'X-Content-Type-Options' => 'nosniff',
+        'Content-Security-Policy' => "default-src 'none'; sandbox",
+        'Content-Disposition' => 'inline',
+    ]);
 })->middleware('throttle:30,1');
 
 /*
@@ -183,17 +192,19 @@ Route::group(['namespace' => 'Web', 'middleware' => ['maintenance_mode', 'guestC
         Route::get('checkout-payment', 'checkout_payment')->name('checkout-payment');
         // POST, not GET: these two place orders. As GETs they were CSRF-exposed
         // and a link prefetch could create an order.
-        Route::post('checkout-complete', 'getCashOnDeliveryCheckoutComplete')->name('checkout-complete');
-        Route::post('offline-payment-checkout-complete', 'getOfflinePaymentCheckoutComplete')->name('offline-payment-checkout-complete');
+        Route::post('checkout-complete', 'getCashOnDeliveryCheckoutComplete')->name('checkout-complete')->middleware(['storefront.sellable', 'storefront.method:cash_on_delivery']);
+        Route::post('offline-payment-checkout-complete', 'getOfflinePaymentCheckoutComplete')->name('offline-payment-checkout-complete')->middleware(['storefront.sellable', 'storefront.method:offline_payment']);
         Route::get('order-placed', 'order_placed')->name('order-placed');
         Route::get('order-placed-success', 'getOrderPlaceView')->name('order-placed-success');
         Route::get('shop-cart', 'shop_cart')->name('shop-cart');
         Route::post('order_note', 'order_note')->name('order_note');
         Route::get('digital-product-download/{id}', 'getDigitalProductDownload')->name('digital-product-download');
+        // The address is signed (relative, so a proxy that changes the scheme or the host cannot break it) and the file's name is its last part, which is what the browser saves it under.
+        Route::get('digital-product-download-file/{id}/{fileName?}', 'getDigitalProductDownloadFile')->middleware('signed:relative')->name('digital-product-download-file');
         Route::post('digital-product-download-otp-verify', 'getDigitalProductDownloadOtpVerify')->name('digital-product-download-otp-verify');
         Route::post('digital-product-download-otp-reset', 'getDigitalProductDownloadOtpReset')->name('digital-product-download-otp-reset');
         Route::get('pay-offline-method-list', 'pay_offline_method_list')->name('pay-offline-method-list')->middleware('guestCheck');
-        Route::post('checkout-complete-wallet', 'checkout_complete_wallet')->name('checkout-complete-wallet');
+        Route::post('checkout-complete-wallet', 'checkout_complete_wallet')->name('checkout-complete-wallet')->middleware(['storefront.sellable', 'storefront.wallet']);
 
         Route::post('subscription', 'subscription')->name('subscription');
         // The all-vendors action, which already filters on shop_name. It used to point at a
@@ -368,7 +379,7 @@ Route::group(['prefix' => 'cart', 'as' => 'cart.', 'namespace' => 'Web'], functi
         Route::post('floating-nav-cart-items', 'update_floating_nav')->name('floating-nav-cart-items'); // theme fashion floating nav
         Route::post('updateQuantity', 'updateQuantity')->name('updateQuantity');
         Route::post('updateQuantity-guest', 'updateQuantity_guest')->name('updateQuantity.guest');
-        Route::post('order-again', 'orderAgain')->name('order-again')->middleware('customer');
+        Route::post('order-again', 'orderAgain')->name('order-again')->middleware(['customer', 'storefront.sellable']);
         Route::post('select-cart-items', 'updateCheckedCartItems')->name('select-cart-items');
         Route::post('product-restock-request', 'addProductRestockRequest')->name('product-restock-request');
     });
@@ -379,6 +390,13 @@ Route::group(['prefix' => 'cart', 'as' => 'cart.', 'namespace' => 'Web'], functi
         ->name('recover')
         ->middleware('signed');
 });
+
+// The unsubscribe link inside a marketing e-mail. Outside every auth group on purpose: it is opened from a mail client by
+// somebody who is not signed in. `signed` is what makes the token safe to act on, and the token itself carries no account id
+// and no address — see App\Services\Marketing\MarketingUnsubscribeLink.
+Route::get('marketing/unsubscribe/{token}', [\App\Http\Controllers\Web\MarketingUnsubscribeController::class, 'unsubscribe'])
+    ->name('marketing.unsubscribe')
+    ->middleware('signed');
 
 Route::group(['prefix' => 'coupon', 'as' => 'coupon.', 'namespace' => 'Web'], function () {
     Route::controller(CouponController::class)->group(function () {
@@ -457,8 +475,8 @@ Route::group(['namespace' => 'Customer', 'prefix' => 'customer', 'as' => 'custom
 
 Route::group(['namespace' => 'Customer', 'prefix' => 'customer', 'as' => 'customer.'], function () {
     Route::controller(PaymentController::class)->group(function () {
-        Route::post('web-payment-request', 'payment')->name('web-payment-request');
-        Route::post('customer-add-fund-request', 'customer_add_to_fund_request')->name('add-fund-request');
+        Route::post('web-payment-request', 'payment')->name('web-payment-request')->middleware(['storefront.sellable', 'storefront.method:digital_payment']);
+        Route::post('customer-add-fund-request', 'customer_add_to_fund_request')->name('add-fund-request')->middleware(['storefront.sellable', 'storefront.method:digital_payment']);
         Route::post('customer-order-edit-pay-amount', 'customerOrderEditPayDueAmount')->name('customer-order-edit-pay-amount');
     });
 });
@@ -479,7 +497,16 @@ try {
 }
 
 if (!$isGatewayPublished) {
-    Route::group(['prefix' => 'payment'], function () {
+    // Every gateway return and callback below is public: a gateway, not a browser with a session, is
+    // what calls it, and twelve of them stand the CSRF check down for that reason. None of them
+    // carried a limit, so the whole group is throttled per source address here rather than route by
+    // route, where the next gateway added would be forgotten. The limiter and its reasoning are in
+    // RouteServiceProvider::configureRateLimiting().
+    //
+    // The two guards are independent and both apply: the throttle bounds how often an unknown caller
+    // may knock, and EnsureGatewayTakesThisPayment refuses a gateway's address for a gateway this shop
+    // has not switched on, and for a payment that is not that gateway's own.
+    Route::group(['prefix' => 'payment', 'middleware' => ['throttle:public-payment-endpoints', EnsureGatewayTakesThisPayment::class]], function () {
 
         //SSLCOMMERZ
         Route::group(['prefix' => 'sslcommerz', 'as' => 'sslcommerz.'], function () {

@@ -7,6 +7,7 @@ use App\Enums\ExportFileNames\Admin\Report;
 use App\Exports\VendorReportExport;
 use App\Utils\Helpers;
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Models\DeliveryMan;
 use App\Models\RefundTransaction;
 use App\Models\Order;
@@ -26,6 +27,7 @@ class VendorProductSaleReportController extends Controller
         private readonly VendorRepositoryInterface $vendorRepo,
     )
     {
+        $this->middleware(ScopeOrdersToStaffCountries::class);
     }
 
     public function vendorReport(Request $request): ViewResponse
@@ -59,7 +61,7 @@ class VendorProductSaleReportController extends Controller
                     });
                 });
             });
-        $orders = self::date_wise_common_filter($orders_query, $date_type, $from, $to)->groupBy('seller_id')->paginate(Helpers::pagination_limit())->appends($query_param);
+        $orders = self::date_wise_common_filter($orders_query, $date_type, $from, $to)->groupBy('seller_id')->orderBy('seller_id')->paginate(Helpers::pagination_limit())->appends($query_param);
 
         $refunds_query = RefundTransaction::where(['paid_by' => 'seller', 'transaction_type' => 'Refund'])
             ->selectRaw('payer_id, sum(amount) as total_refund_amount')

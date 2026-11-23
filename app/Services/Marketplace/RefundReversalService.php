@@ -96,6 +96,8 @@ class RefundReversalService
                     return ['refund_debit' => 0.0, 'commission_credit' => 0.0];
                 }
 
+                $currency = $this->currencyOfTheEarningBeingReversed(snapshot: $snapshot, orderDetailsId: $orderDetailsId);
+
                 // The seller gives back the earning on the returned portion (ex-tax, capped at base)...
                 $this->ledger->record(
                     sellerId: $snapshot->seller_id,
@@ -105,7 +107,7 @@ class RefundReversalService
                     referenceType: 'refund_order_details',
                     referenceId: $refundReference ?? $orderDetailsId,
                     description: 'Refund on order line #' . $orderDetailsId,
-                    currency: $snapshot->currency,
+                    currency: $currency,
                 );
 
                 // ...and the marketplace gives back its cut of it.
@@ -118,7 +120,7 @@ class RefundReversalService
                         referenceType: 'refund_order_details',
                         referenceId: $refundReference ?? $orderDetailsId,
                         description: 'Commission reversed on refund of line #' . $orderDetailsId,
-                        currency: $snapshot->currency,
+                        currency: $currency,
                     );
 
                     $snapshot->forceFill([
@@ -133,5 +135,31 @@ class RefundReversalService
 
             return null;
         }
+    }
+
+    /**
+     * The currency a reversal is labelled with: the one the entry it reverses carries.
+     *
+     * A reversal has to run in the same ledger chain as the credit it gives back, or the earning and the refund
+     * of one order line are two kinds of money (E-17.2): the line is settled as payable in one chain while its
+     * refund waits in another that can never be collected, so a line refunded IN FULL leaves the marketplace
+     * owing the seller for it. The order's commission snapshot is not that currency. It is stamped when the
+     * order is placed and falls back to `session('currency_code')`, the currency the customer was BROWSING in
+     * (OrderManager::recordOrderItemCommission), so it can name a currency the earning never did; and where the
+     * earning carries no label at all, the reversal must carry none either to stay in the base-currency chain
+     * with it. The snapshot is the fallback for a line whose earning is not on the ledger, which is where it was
+     * the only answer available.
+     */
+    private function currencyOfTheEarningBeingReversed(OrderItemCommission $snapshot, int|string $orderDetailsId): ?string
+    {
+        $earning = $this->ledger->eventAlreadyRecorded(
+            sellerId: $snapshot->seller_id,
+            entryType: VendorLedgerEntry::TYPE_ORDER_EARNING,
+            referenceType: 'order_details',
+            referenceId: $orderDetailsId,
+            sellerIs: $snapshot->seller_is,
+        );
+
+        return $earning === null ? $snapshot->currency : $earning->currency;
     }
 }

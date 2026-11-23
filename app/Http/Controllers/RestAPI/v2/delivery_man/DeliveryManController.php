@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\RestAPI\v2\delivery_man;
 
 use App\Services\Fulfillment\FulfillmentOrderGuard;
+use App\Services\Referral\ReferralRewardService;
 use App\Events\OrderStatusEvent;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\API\v2\DeliveryMan\DeliveryManOrderDeliveryVerificationRequest;
@@ -41,6 +42,7 @@ class DeliveryManController extends Controller
 
     public function __construct(
         private Order $order,
+        private readonly ReferralRewardService $referralRewards,
     )
     {
 
@@ -246,7 +248,12 @@ class DeliveryManController extends Controller
             $referredByUser = User::find($customer->referred_by);
 
             if ($isFirstOrder == 1 && isset($customer->referred_by) && isset($referredByUser)) {
-                CustomerManager::create_wallet_transaction($referredByUser->id, floatval($refEarningExchangeRate), 'add_fund_by_admin', 'earned_by_referral');
+                $this->referralRewards->creditOnce(
+                    refereeId: $customer->id,
+                    beneficiaryId: $referredByUser->id,
+                    orderId: $order->id,
+                    credit: fn () => CustomerManager::create_wallet_transaction($referredByUser->id, floatval($refEarningExchangeRate), 'add_fund_by_admin', 'earned_by_referral'),
+                );
             }
         }
         self::add_order_status_history($order->id, $deliveryMan['id'], $request['status'], 'delivery_man', $request['cause']);
@@ -798,7 +805,7 @@ class DeliveryManController extends Controller
         $order = $this->order::with('customer')->where('id', $request['order_id'])->first();
 
         $fcm_token = $order->customer->cm_firebase_token ?? null;
-        $verification_code = rand(100000, 999999);
+        $verification_code = random_int(100000, 999999);
         $order->verification_code = $verification_code;
         if ($order->save() && !$order->is_guest && $fcm_token) {
             $data = [

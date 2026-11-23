@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 interface ThemeRepositoryInterface extends RepositoryInterface
 {
-    /** The single active theme, if any. */
+    /** The active theme of the storefront the request is served from, if any. */
     public function getActiveTheme(): ?Model;
 
     /** Whether a slug is already taken (optionally excluding an id). */

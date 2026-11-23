@@ -24,8 +24,10 @@ use App\Models\Review;
 use App\Models\ShippingMethod;
 use App\Models\Shop;
 use App\Models\StockClearanceProduct;
+use App\Services\Storefront\StorefrontCurrency;
 use App\Models\Wishlist;
 use App\Services\ProductService;
+use App\Services\Storefront\StorefrontContext;
 use App\Traits\CacheManagerTrait;
 use App\Traits\FileManagerTrait;
 use App\Utils\CategoryManager;
@@ -311,7 +313,10 @@ class ProductController extends Controller
             'min_price' => $products->min('unit_price'),
             'max_price' => $products->max('unit_price'),
             'products' => count($products) > 0 ? Helpers::product_data_formatting($products->items(), true) : [],
-        ]);
+        ]
+            // The bounds above are read from this storefront's own catalogue, so they are in this storefront's money; this says which,
+            // and with how many decimals. Absent unless a storefront trades in its own currency (GCC-05).
+            + app(StorefrontCurrency::class)->apiMoney());
     }
 
     public function get_suggestion_product(Request $request): JsonResponse
@@ -347,7 +352,7 @@ class ProductController extends Controller
     {
         $user = Helpers::getCustomerInformation($request);
 
-        $product = Product::active()->with(['reviews.customer', 'seller.shop', 'tags', 'digitalVariation', 'clearanceSale' => function ($query) {
+        $product = Product::active()->with(['reviews.customer:id,name,f_name,l_name,image', 'seller.shop', 'tags', 'digitalVariation', 'clearanceSale' => function ($query) {
                 return $query->active();
             }])
             ->withCount(['wishList' => function ($query) use ($user) {
@@ -382,6 +387,14 @@ class ProductController extends Controller
                 $product['restock_requested_list'] = [];
                 $product['is_restock_requested'] = 0;
             }
+
+            // The money this storefront states for the product: the same number and the same currency the product page prints and its
+            // JSON-LD offer carries, because all three read one service. Absent unless a storefront trades in its own currency (GCC-05).
+            $storefrontMoney = app(StorefrontCurrency::class)->apiMoney(amount: $product['unit_price']);
+
+            if ($storefrontMoney !== []) {
+                $product['storefront_money'] = $storefrontMoney['storefront_money'];
+            }
         }
         return response()->json($product, 200);
     }
@@ -400,7 +413,7 @@ class ProductController extends Controller
 
     public function get_home_categories(Request $request)
     {
-        $cacheKey = 'cache_home_categories_api_list' . (str_replace(' ', '_', strtolower(app()->getLocale())));
+        $cacheKey = StorefrontContext::current()->scopedCacheKey('cache_home_categories_api_list' . (str_replace(' ', '_', strtolower(app()->getLocale()))));
         $cacheKeys = Cache::get(CACHE_HOME_CATEGORIES_API_LIST, []);
         if (!in_array($cacheKey, $cacheKeys)) {
             $cacheKeys[] = $cacheKey;
@@ -425,7 +438,7 @@ class ProductController extends Controller
 
     public function get_related_products(Request $request, $slug)
     {
-        $product = Product::where('slug', $slug)->first();
+        $product = Product::active()->where('slug', $slug)->first();
         if ($product) {
             $products = ProductManager::get_related_products($product->id, $request);
             $products = Helpers::product_data_formatting($products, true);
@@ -438,7 +451,7 @@ class ProductController extends Controller
 
     public function get_product_reviews(Request $request, $slug)
     {
-        $product = Product::withCount('reviews')->where('slug', $slug)->first();
+        $product = Product::active()->withCount('reviews')->where('slug', $slug)->first();
         if (!$product) {
             return response()->json([
                 'errors' => ['code' => 'product-001', 'message' => translate('product_not_found')]
@@ -446,7 +459,7 @@ class ProductController extends Controller
         }
 
         $averageRating = count($product->rating) > 0 ? number_format($product->rating[0]->average, 2, '.', ' ') : 0;
-        $reviews = Review::with(['customer', 'product', 'reply'])->where(['product_id' => $product['id']])
+        $reviews = Review::with(['customer:id,f_name,l_name,image', 'reply'])->where(['product_id' => $product['id']])
             ->latest('updated_at')
             ->paginate(($request['limit'] ?? 10), ['*'], 'page', ($request['offset'] ?? 1));
 
@@ -508,7 +521,7 @@ class ProductController extends Controller
     public function get_product_rating($id):JsonResponse
     {
         try {
-            $product = Product::find($id);
+            $product = Product::active()->find($id);
             $overallRating = getOverallRating($product?->reviews);
             return response()->json(floatval($overallRating[0]), 200);
         } catch (\Exception $e) {
@@ -519,7 +532,7 @@ class ProductController extends Controller
     public function counter($slug)
     {
         try {
-            $product = Product::where('slug', $slug)->first();
+            $product = Product::active()->where('slug', $slug)->first();
             $countOrder = OrderDetail::where('product_id', $product->id)->count();
             $countWishlist = Wishlist::where('product_id', $product->id)->count();
             return response()->json(['order_count' => $countOrder, 'wishlist_count' => $countWishlist], 200);
@@ -530,7 +543,7 @@ class ProductController extends Controller
 
     public function socialShareLink($product_id): JsonResponse
     {
-        $product = Product::where('slug', $product_id)->first();
+        $product = Product::active()->where('slug', $product_id)->first();
         try {
             $link = route('product', $product->slug);
             return response()->json($link, 200);

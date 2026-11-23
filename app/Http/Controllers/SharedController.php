@@ -20,17 +20,16 @@ class SharedController extends Controller
 
     public function changeLanguage(Request $request): JsonResponse
     {
-        $direction = 'ltr';
-        $language = getWebConfig('language');
-        foreach ($language as $data) {
-            if ($data['code'] == $request['language_code']) {
-                $direction = $data['direction'] ?? 'ltr';
-            }
+        $languageCode = $request['language_code'];
+        $selectedLanguage = is_string($languageCode) ? collect(getWebConfig('language') ?? [])->firstWhere('code', $languageCode) : null;
+        if (!$selectedLanguage) {
+            return response()->json(['message' => translate('the_language_code_is_not_valid')], 422);
         }
+
         session()->forget('language_settings');
         Helpers::language_load();
-        session()->put('local', $request['language_code']);
-        Session::put('direction', $direction);
+        session()->put('local', $languageCode);
+        Session::put('direction', $selectedLanguage['direction'] ?? 'ltr');
         Artisan::call('cache:clear');
         return response()->json(['message' => translate('language_change_successfully') . '.']);
     }
@@ -46,14 +45,25 @@ class SharedController extends Controller
 
     public function getActivationCheckView(Request $request): View|RedirectResponse
     {
-        $config = $this->getAddonsConfig();
-        $adminPanel = $config['admin_panel'] ?? [];
-        $status = ($this->is_local() || env('DEVELOPMENT_ENVIRONMENT', false)) ? 1 : ($adminPanel['active'] ?? 0);
-        return $status == 1 ? redirect(url('/')) : view('installation.activation-check');
+        return $this->isAdminPanelActivated() ? redirect(url('/')) : view('installation.activation-check');
+    }
+
+    /** The activation form and the request it posts have nothing to do on a panel that is activated already. */
+    private function isAdminPanelActivated(): bool
+    {
+        if ($this->is_local() || env('DEVELOPMENT_ENVIRONMENT', false)) {
+            return true;
+        }
+
+        return ($this->getAddonsConfig()['admin_panel']['active'] ?? 0) == 1;
     }
 
     public function activationCheck(Request $request): RedirectResponse
     {
+        if ($this->isAdminPanelActivated()) {
+            return redirect(url('/'));
+        }
+
         $response = $this->getRequestConfig(
             username: $request['username'],
             purchaseKey: $request['purchase_key'],

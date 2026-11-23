@@ -3,15 +3,20 @@
 namespace App\Http\Controllers\RestAPI\v3\seller;
 
 use App\Enums\Address\AddressChannel;
+use App\Services\DigitalFileAddressService;
+use App\Services\DigitalProductFileService;
 use App\Services\OrderAddressUpdateService;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
+use App\Services\Referral\ReferralRewardService;
 use App\Contracts\Repositories\OrderRepositoryInterface;
 use App\Events\OrderStatusEvent;
 use App\Http\Controllers\Controller;
 use App\Services\DeveloperPortal\ApiDoc;
 use App\Services\SellerInvoiceService;
+use App\Services\Storefront\OrderStorefront;
 use App\Http\Requests\API\v3\DigitalProductFileUploadAfterSell;
 use App\Models\BusinessSetting;
+use App\Models\DeliveryMan;
 use App\Models\DeliveryManTransaction;
 use App\Models\DeliverymanWallet;
 use App\Models\DeliveryZipCode;
@@ -26,7 +31,6 @@ use App\Utils\BackEndHelper;
 use App\Utils\Convert;
 use App\Utils\CustomerManager;
 use App\Utils\Helpers;
-use App\Utils\ImageManager;
 use App\Utils\OrderManager;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -34,6 +38,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Ramsey\Uuid\Uuid;
 use App\Services\Marketplace\SellerOrderBreakdownService;
 use App\Services\Marketplace\SellerOrderTimelineService;
@@ -49,6 +54,10 @@ class OrderController extends Controller
         private Order                             $order,
         private readonly OrderRepositoryInterface $orderRepo,
         private readonly OrderAddressUpdateService $addressUpdates,
+        private readonly DigitalProductFileService $digitalFiles,
+        private readonly DigitalFileAddressService $digitalFileAddresses,
+        private readonly ReferralRewardService $referralRewards,
+        private readonly OrderStorefront $orderStorefront,
     )
     {
     }
@@ -77,6 +86,11 @@ class OrderController extends Controller
 
         if (!empty($orderAmountSettlement)) {
             $filters['has_order_edit_settlement'] = $orderAmountSettlement;
+        }
+
+        $storefront = $this->orderStorefront->requestedBy(request: $request);
+        if ($storefront !== null) {
+            $filters['storefront_country'] = $storefront;
         }
 
         $filterWhereIn = [];
@@ -117,6 +131,8 @@ class OrderController extends Controller
             $data['total_product_discount'] = $totalProductDiscount;
             return $data;
         });
+
+        $this->orderStorefront->label(orders: $orders->items());
 
         return response()->json([
             'total_size' => $orders->total(),
@@ -196,9 +212,9 @@ class OrderController extends Controller
     public function details(Request $request, $id): JsonResponse
     {
         $seller = $request->seller;
-        $detailsList = OrderDetail::with(['order.offlinePayments', 'order.customer', 'order.deliveryMan', 'verificationImages', 'latestEditHistory', 'orderEditHistory' => function ($query) {
+        $detailsList = OrderDetail::ofSeller(sellerId: $seller['id'])->with(['order.offlinePayments', 'order.customer', 'order.deliveryMan', 'verificationImages', 'latestEditHistory', 'orderEditHistory' => function ($query) {
             return $query->orderBy('updated_at', 'desc');
-        }])->where(['seller_id' => $seller['id'], 'order_id' => $id])->get();
+        }])->where('order_id', $id)->get();
 
         if ($detailsList->isEmpty()) {
             // Either no such order, or one belonging to another seller. Both are the same answer
@@ -240,8 +256,7 @@ class OrderController extends Controller
 
             $product['thumbnail_full_url'] = $detail?->productAllStatus?->thumbnail_full_url;
             if (isset($product['product_type']) && $product['product_type'] == 'digital' && $product['digital_product_type'] == 'ready_product' && $product['digital_file_ready']) {
-                $checkFilePath = storageLink('product/digital-product', $product['digital_file_ready'], ($product['storage_path'] ?? 'public'));
-                $product['digital_file_ready_full_url'] = $checkFilePath;
+                $product['digital_file_ready_full_url'] = $this->digitalFileAddresses->readyFileAnswerOfLine(orderDetail: $detail);
             }
             $detail['product_details'] = Helpers::product_data_formatting_for_json_data($product);
 
@@ -282,6 +297,8 @@ class OrderController extends Controller
             $detail['edit_order_payment_histories'] = $paymentInfo;
         }
 
+        $this->orderStorefront->label(orders: $detailsList->pluck('order'));
+
         return response()->json($detailsList, 200);
     }
 
@@ -297,7 +314,13 @@ class OrderController extends Controller
         }
 
         $seller = $request->seller;
-        $order = Order::with('deliveryMan')->where(['seller_id' => $seller['id'], 'id' => $request['order_id']])->first();
+        $order = Order::with('deliveryMan')->where(['seller_id' => $seller['id'], 'seller_is' => 'seller'])->find($request['order_id']);
+        if (!$order) {
+            return response()->json(['success' => 0, 'message' => translate('order_not_found')], 404);
+        }
+        if (!$this->sellerOwnsDeliveryMan(sellerId: $seller['id'], deliveryManId: $request['delivery_man_id'])) {
+            return response()->json(['success' => 0, 'message' => translate('delivery_man_not_found')], 404);
+        }
 
         if ($order['delivery_man_id'] != $request['delivery_man_id']) {
             $order->deliveryman_assigned_at = Carbon::now();
@@ -309,6 +332,11 @@ class OrderController extends Controller
         $order->save();
         OrderStatusEvent::dispatch('new_order_assigned_message', 'delivery_man', $order);
         return response()->json(['success' => 1, 'message' => translate('order_deliveryman_assigned_successfully')], 200);
+    }
+
+    private function sellerOwnsDeliveryMan(int|string $sellerId, mixed $deliveryManId): bool
+    {
+        return DeliveryMan::where(['id' => $deliveryManId, 'seller_id' => $sellerId])->exists();
     }
 
     public function amount_date_update(Request $request): JsonResponse
@@ -356,14 +384,20 @@ class OrderController extends Controller
     {
         $seller = $request->seller;
         // Scope the order line to the seller so one seller cannot overwrite another's delivered digital file.
-        $order_details = OrderDetail::where('seller_id', $seller['id'])->find($request->order_id);
+        $order_details = OrderDetail::ofSeller(sellerId: $seller['id'])->find($request->order_id);
         if ($order_details) {
-            $order_details->digital_file_after_sell = ImageManager::update('product/digital-product/', $order_details->digital_file_after_sell, $request->digital_file_after_sell->getClientOriginalExtension(), $request->file('digital_file_after_sell'), 'file');
+            $order_details->digital_file_after_sell = $this->digitalFiles->replace(oldName: $order_details->digital_file_after_sell, file: $request->file('digital_file_after_sell'));
             $order_details->save();
             return response()->json(['success' => 1, 'message' => translate('File_upload_successfully')], 200);
         } else {
             return response()->json(['success' => 0, 'message' => translate("File_upload_fail!")], 202);
         }
+    }
+
+    public function downloadDigitalFile(Request $request, $id): BinaryFileResponse|JsonResponse
+    {
+        return $this->digitalFiles->download(name: $this->digitalFiles->nameOfOrderLineOfSeller(sellerId: $request->seller['id'], id: $id))
+            ?? response()->json(['errors' => [['code' => 'file', 'message' => translate('file_not_found')]]], 404);
     }
 
     public function order_detail_status(Request $request): JsonResponse
@@ -472,7 +506,12 @@ class OrderController extends Controller
             $referredByUser = User::find($customer->referred_by);
 
             if ($isFirstOrder == 1 && isset($customer->referred_by) && isset($referredByUser)) {
-                CustomerManager::create_wallet_transaction($referredByUser->id, floatval($refEarningExchangeRate), 'add_fund_by_admin', 'earned_by_referral');
+                $this->referralRewards->creditOnce(
+                    refereeId: $customer->id,
+                    beneficiaryId: $referredByUser->id,
+                    orderId: $order->id,
+                    credit: fn () => CustomerManager::create_wallet_transaction($referredByUser->id, floatval($refEarningExchangeRate), 'add_fund_by_admin', 'earned_by_referral'),
+                );
             }
         }
 
@@ -652,6 +691,9 @@ class OrderController extends Controller
                     'third_party_delivery_tracking_id' => $request['third_party_delivery_tracking_id'] ?? '',
                 ]);
             } elseif ($request->has('delivery_man_id') && !empty($request['delivery_man_id']) && ($order['delivery_man_id'] != $request['delivery_man_id'])) {
+                if (!$this->sellerOwnsDeliveryMan(sellerId: $seller['id'], deliveryManId: $request['delivery_man_id'])) {
+                    return response()->json(['success' => 0, 'message' => translate('delivery_man_not_found')], 404);
+                }
                 Order::where('id', $request['order_id'])->update([
                     'delivery_man_id' => $request['delivery_man_id'],
                     'delivery_type' => 'self_delivery',
@@ -769,7 +811,12 @@ class OrderController extends Controller
                     $referredByUser = User::find($customer->referred_by);
 
                     if ($isFirstOrder == 1 && isset($customer->referred_by) && isset($referredByUser)) {
-                        CustomerManager::create_wallet_transaction($referredByUser->id, floatval($refEarningExchangeRate), 'add_fund_by_admin', 'earned_by_referral');
+                        $this->referralRewards->creditOnce(
+                            refereeId: $customer->id,
+                            beneficiaryId: $referredByUser->id,
+                            orderId: $order['id'],
+                            credit: fn () => CustomerManager::create_wallet_transaction($referredByUser->id, floatval($refEarningExchangeRate), 'add_fund_by_admin', 'earned_by_referral'),
+                        );
                     }
                 }
 

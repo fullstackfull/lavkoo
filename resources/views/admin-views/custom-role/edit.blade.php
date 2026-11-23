@@ -80,6 +80,27 @@
                     </div>
 
 
+                    {{-- The storefronts of the platform (GCC). Split into three because the person who writes a legal text must not be the person who puts it in force,
+                         and because opening or stopping a country is a decision of its own. No role holds them until they are granted here; the master admin holds all. --}}
+                    <h5 class="mb-2">{{ translate('storefronts') }}</h5>
+                    <div class="row gy-2 mb-4">
+                        @foreach (\App\Services\Storefront\StorefrontPermissionService::all() as $storefrontKey => $storefrontLabel)
+                            <div class="col-sm-6 col-lg-4">
+                                <div class="form-group d-flex gap-2">
+                                    <input type="checkbox" name="modules[]" value="{{ $storefrontKey }}"
+                                           class="form-check-input checkbox--input module-permission"
+                                           id="{{ $storefrontKey }}-permission"
+                                        {{ in_array($storefrontKey, (array) json_decode($role['module_access'])) ? 'checked' : '' }}>
+                                    <label class=""
+                                           style="{{ session('direction') === "rtl" ? 'margin-right: 1.25rem;' : '' }};"
+                                           for="{{ $storefrontKey }}-permission">
+                                        {{ translate($storefrontLabel) }}
+                                    </label>
+                                </div>
+                            </div>
+                        @endforeach
+                    </div>
+
                     {{-- The App Builder, split the same way and for the same reason: composing a
                          page is recoverable, publishing one changes what every customer sees. The
                          module grant carries everything except publishing, so an existing role

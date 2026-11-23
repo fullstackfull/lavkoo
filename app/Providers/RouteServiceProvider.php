@@ -53,6 +53,7 @@ class RouteServiceProvider extends ServiceProvider
         $this->mapDeliverySyriaRoutes();
         $this->mapFulfillmentWebhookRoutes();
         $this->mapMyFatoorahWebhookRoutes();
+        $this->mapPlatformAdminRoutes();
 
         //$this->mapInstallRoutes();
         //$this->mapUpdateRoutes();
@@ -60,6 +61,7 @@ class RouteServiceProvider extends ServiceProvider
         $this->mapBetaAdminRoutes();
         $this->mapFulfillmentAdminRoutes();
         $this->mapAddressAdminRoutes();
+        $this->mapStorefrontAdminRoutes();
         $this->mapBetaVendorRoutes();
         $this->mapSellerCenterRoutes();
         $this->mapBetaWebRoutes();
@@ -155,6 +157,17 @@ class RouteServiceProvider extends ServiceProvider
     }
 
     /**
+     * The platform admin API (GCC-20). Under the `api` prefix but outside the `api` middleware group, which records a telemetry row and a
+     * response shape for every request; its own middleware decide whether the API exists at all.
+     */
+    protected function mapPlatformAdminRoutes(): void
+    {
+        Route::prefix('api')
+            ->namespace($this->namespace)
+            ->group(base_path('routes/rest_api/platform_admin.php'));
+    }
+
+    /**
      * Define the "beta" routes for the application.
      *
      * These routes all receive session state, CSRF protection, etc.
@@ -206,6 +219,14 @@ class RouteServiceProvider extends ServiceProvider
             ->group(base_path('routes/admin/addresses.php'));
     }
 
+    /** The storefronts of the platform: their lifecycle and their legal texts. */
+    protected function mapStorefrontAdminRoutes(): void
+    {
+        Route::middleware('web')
+            ->namespace($this->namespace)
+            ->group(base_path('routes/admin/storefronts.php'));
+    }
+
     protected function mapBetaVendorRoutes(): void
     {
         Route::middleware('web')
@@ -214,7 +235,7 @@ class RouteServiceProvider extends ServiceProvider
     }
     protected function mapBetaWebRoutes(): void
     {
-        Route::middleware(['web', 'logUserBrowsingNavigation'])
+        Route::middleware(['web', 'storefront', 'logUserBrowsingNavigation'])
             ->namespace($this->namespace)
             ->group(base_path('routes/web/routes.php'));
     }
@@ -242,6 +263,25 @@ class RouteServiceProvider extends ServiceProvider
         // tops out near ten requests per payment, so this leaves plenty of room for several customers
         // behind one address while cutting the ceiling by a factor of thirty.
         RateLimiter::for('myfatoorah-status', static fn (Request $request): Limit => Limit::perMinute(90)->by($request->ip()));
+
+        /*
+         * THE GATEWAY RETURN AND CALLBACK ROUTES. Forty-nine of them sit in one group in
+         * routes/web/routes.php -- one `pay`, `success`, `failed`, `cancel` or `callback` per gateway
+         * -- and NOT ONE carried a limit. Twelve are POST routes that stand the CSRF check down,
+         * because the caller is a gateway and not a browser holding a session, so they were reachable
+         * by anyone at any rate.
+         *
+         * 600 a minute per source address, the same posture number this file already uses for the
+         * MyFatoorah webhook, and for the same reason: it is here to stop a flood, not to pace a
+         * gateway that is behaving. A customer coming back from a gateway makes one or two requests; a
+         * gateway retrying a callback makes a handful. Several customers behind one carrier address
+         * stay far under it.
+         *
+         * KEYED BY SOURCE ADDRESS AND BY NOTHING THE CALLER CHOOSES. A key taken from the path or the
+         * body -- the gateway name, a payment id -- would let one prober vary it and buy an unlimited
+         * number of requests from one address, which is the opposite of a limit.
+         */
+        RateLimiter::for('public-payment-endpoints', static fn (Request $request): Limit => Limit::perMinute(600)->by($request->ip()));
 
         RateLimiter::for('global', function (Request $request) {
             return Limit::perMinute(app(Policy::class)->int('api_requests_per_minute'));

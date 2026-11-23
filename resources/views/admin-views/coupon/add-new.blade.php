@@ -3,6 +3,14 @@
 @section('title', translate('coupon_Add'))
 
 @section('content')
+    @php
+        use App\Services\Storefront\CouponCountry;
+
+        // A coupon's amounts are typed in the currency of its own storefront and never converted from another's, so the page is
+        // read one storefront at a time rather than one row at a time.
+        $tracksCouponCountry = CouponCountry::isTracked();
+        $couponAmounts = $tracksCouponCountry ? CouponCountry::amountsOfEach(coupons: $coupons) : [];
+    @endphp
     <div class="content container-fluid">
         <div class="mb-3">
             <h2 class="h1 mb-0 text-capitalize d-flex align-items-center gap-2">
@@ -50,6 +58,7 @@
                                            class="form-control" id="code"
                                            placeholder="{{translate('ex')}}: EID100" required  data-required-msg="{{ translate('coupon_code_is_required') }}">
                                 </div>
+                                @include('admin-views.coupon.partials._storefront-country')
                                 <div class="col-md-6 col-lg-4 first_order">
                                     <label for="name"
                                            class="form-label d-flex">{{translate('coupon_bearer')}} <span class="text-danger">*</span></label>
@@ -106,7 +115,7 @@
                                 <div class="col-md-6 col-lg-4 free_delivery">
                                     <label for="name"
                                            class="form-label d-flex">{{translate('discount_Amount')}}<span class="text-danger">*</span>
-                                        <span id="discount_currency">({{ getCurrencySymbol(currencyCode: getCurrencyCode()) }})</span>
+                                        <span id="discount_currency">(<span class="coupon-currency">{{ getCurrencySymbol(currencyCode: getCurrencyCode()) }}</span>)</span>
                                         <span id="discount_percent"> (%)</span></label>
                                     <input type="number" min="1" max="1000000" name="discount"
                                            value="{{ old('discount') }}" class="form-control"
@@ -118,7 +127,7 @@
                                            class="form-label d-flex">
                                         {{ translate('minimum_purchase') }}
                                         <span class="text-danger">*</span>
-                                        ({{ getCurrencySymbol(currencyCode: getCurrencyCode()) }})
+                                        (<span class="coupon-currency">{{ getCurrencySymbol(currencyCode: getCurrencyCode()) }}</span>)
                                     </label>
                                     <input type="number" min="1" max="1000000" name="min_purchase"  data-required-msg="{{ translate('Minimum_purchase_field_is_required') }}"
                                            value="{{ old('min_purchase') }}" class="form-control"
@@ -129,7 +138,7 @@
                                     <label for="name"
                                            class="form-label d-flex">
                                         {{translate('maximum_discount')}}
-                                        ({{ getCurrencySymbol(currencyCode: getCurrencyCode()) }})
+                                        (<span class="coupon-currency">{{ getCurrencySymbol(currencyCode: getCurrencyCode()) }}</span>)
                                     </label>
                                     <input type="number" min="1" max="1000000" name="max_discount"
                                            value="{{ old('max_discount') }}"
@@ -198,6 +207,9 @@
                             </th>
                             <th>{{ translate('coupon') }}</th>
                             <th>{{ translate('coupon_type') }}</th>
+                            @if ($tracksCouponCountry)
+                                <th class="k-table__num">{{ translate('discount') }}</th>
+                            @endif
                             <th>{{ translate('duration') }}</th>
                             <th class="k-table__num">{{ translate('Limit') }}</th>
                             <th class="k-table__num">{{ translate('Total_Used') }}</th>
@@ -227,6 +239,12 @@
                                     <code class="k-text-subtle">{{ $coupon['code'] }}</code>
                                 </td>
                                 <td class="text-capitalize">{{ translate(str_replace('_', ' ', $coupon['coupon_type'])) }}</td>
+                                @if ($tracksCouponCountry)
+                                    <td class="k-table__num">
+                                        <span class="k-num">{{ $coupon['coupon_type'] === 'free_delivery' ? '—' : $couponAmounts[$coupon['id']]['discount'] }}</span>
+                                        <span class="k-text-subtle" style="display:block;font-size:var(--k-text-sm)">{{ translate('minimum_purchase') }} {{ $couponAmounts[$coupon['id']]['minimumPurchase'] }}</span>
+                                    </td>
+                                @endif
                                 <td>
                                     <span class="k-num">{{ date('d M, y', $couponStartsAt) }} – {{ date('d M, y', $couponExpiresAt) }}</span>
                                     @if ($couponExpiresAt < $today)

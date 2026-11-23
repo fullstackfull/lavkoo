@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Database\Eloquent\SoftDeletes;  // أضف هذا في الأعلى
 
 /**
@@ -79,13 +80,24 @@ class Seller extends Authenticatable
         'cm_firebase_token_web'  => 'string',
     ];
 
+    /** What only the seller's own profile shows: where the payouts go, and the commission the shop pays. */
+    public const OWNER_ONLY_ATTRIBUTES = ['bank_name', 'branch', 'account_no', 'holder_name', 'sales_commission_percentage'];
+
+    /**
+     * A seller is serialized into public responses (a product's `seller`, an order's `seller`), so the model carries no credential and none of
+     * the owner's finances unless the owner's own endpoint asks for them (`makeVisible(self::OWNER_ONLY_ATTRIBUTES)`).
+     *
+     * `auth_token` is a live bearer credential. `remember_token` is one too: the session guard authenticates a cookie made of a seller id and
+     * that token, so a public product response that carried it opened the vendor panel as that seller. The push tokens are device
+     * identifiers no client reads back. The delivery-man model has always hidden its own.
+     */
     protected $hidden = [
         'password',
-        // A live bearer credential. `seller-info` returns this model whole, so
-        // every response to that endpoint carried a working session token —
-        // into logs, crash reports, proxies and any response cache along the
-        // way. The delivery-man model has always hidden its own.
         'auth_token',
+        'remember_token',
+        'cm_firebase_token',
+        'cm_firebase_token_web',
+        ...self::OWNER_ONLY_ATTRIBUTES,
     ];
 
     public function scopeApproved($query)
@@ -121,6 +133,7 @@ class Seller extends Authenticatable
     public function coupon(): HasMany
     {
         return $this->hasMany(Coupon::class, 'seller_id')
+            ->forStorefront()
             ->where(['coupon_bearer' => 'seller', 'status' => 1])
             ->whereDate('start_date', '<=', date('Y-m-d'))
             ->whereDate('expire_date', '>=', date('Y-m-d'));
@@ -143,6 +156,15 @@ class Seller extends Authenticatable
     protected static function boot(): void
     {
         parent::boot();
+        // A session token is only good for the status it was issued under, so any change of status ends it, whoever changes it.
+        static::updating(function ($model) {
+            if ($model->isDirty('status')) {
+                $model->auth_token = Str::random(80);
+                // The web panel's remember-me cookie is a session too: without this, a cookie issued (or stolen) before a suspension works
+                // again after the seller is approved, whether or not the seller made a request while suspended.
+                $model->remember_token = Str::random(60);
+            }
+        });
         static::saved(function ($model) {
             if ($model->isDirty('image')) {
                 $storage = config('filesystems.disks.default') ?? 'public';

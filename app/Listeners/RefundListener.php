@@ -3,6 +3,7 @@
 namespace App\Listeners;
 
 use App\Events\RefundEvent;
+use App\Services\Storefront\OrderNotificationContext;
 use App\Traits\PushNotificationTrait;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
@@ -46,13 +47,13 @@ class RefundListener
             } else {
                 $key = 'order_refunded_message';
             }
-            $this->sendOrderNotification(key: $key, type: 'seller', order: $order, data: $data);
+            OrderNotificationContext::within(order: $order, userType: 'seller', callback: fn () => $this->sendOrderNotification(key: $key, type: 'seller', order: $order, data: $data));
         }
 
         if ($status == 'refunded') {
-            $this->sendOrderNotification(key: 'order_refunded_message', type: 'customer', order: $order, data: $data);
+            OrderNotificationContext::within(order: $order, userType: 'customer', callback: fn () => $this->sendOrderNotification(key: 'order_refunded_message', type: 'customer', order: $order, data: $data));
         } elseif ($status == 'rejected') {
-            $this->sendOrderNotification(key: 'refund_request_canceled_message', type: 'customer', order: $order, data: $data);
+            OrderNotificationContext::within(order: $order, userType: 'customer', callback: fn () => $this->sendOrderNotification(key: 'refund_request_canceled_message', type: 'customer', order: $order, data: $data));
         }
     }
 }

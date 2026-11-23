@@ -21,11 +21,21 @@ class ProductListExport implements FromView, ShouldAutoSize, WithStyles, WithCol
 {
     use Exportable;
 
+    private const LAST_COLUMN = 'S';
+
+    private const LAST_COLUMN_WITH_COUNTRY_AND_TAX = 'T';
+
     protected $data;
 
     public function __construct($data)
     {
         $this->data = $data;
+    }
+
+    /** The country column follows the last column of the sheet, so every column that was there keeps its letter; it is only added while countries are told apart. */
+    private function lastColumn(): string
+    {
+        return ($this->data['countryColumn'] ?? false) && ($this->data['productWiseTax'] ?? false) ? self::LAST_COLUMN_WITH_COUNTRY_AND_TAX : self::LAST_COLUMN;
     }
 
     public function view(): View
@@ -53,11 +63,12 @@ class ProductListExport implements FromView, ShouldAutoSize, WithStyles, WithCol
 
     public function styles(Worksheet $sheet)
     {
+        $lastColumn = $this->lastColumn();
         $sheet->getStyle('A1:A3')->getFont()->setBold(true);
-        $sheet->getStyle('A3:S3')->getFont()->setBold(true)->getColor()
+        $sheet->getStyle("A3:{$lastColumn}3")->getFont()->setBold(true)->getColor()
             ->setARGB('FFFFFF');
 
-        $sheet->getStyle('A3:S3')->getFill()->applyFromArray([
+        $sheet->getStyle("A3:{$lastColumn}3")->getFill()->applyFromArray([
             'fillType' => 'solid',
             'rotation' => 0,
             'color' => ['rgb' => '063C93'],
@@ -66,7 +77,7 @@ class ProductListExport implements FromView, ShouldAutoSize, WithStyles, WithCol
         $sheet->setShowGridlines(false);
         return [
             // Define the style for cells with data
-            'A1:S' . ($this->data['products']->count() + 3) => [
+            "A1:{$lastColumn}" . ($this->data['products']->count() + 3) => [
                 'borders' => [
                     'allBorders' => [
                         'borderStyle' => Border::BORDER_THIN,
@@ -114,23 +125,24 @@ class ProductListExport implements FromView, ShouldAutoSize, WithStyles, WithCol
     {
         return [
             AfterSheet::class => function (AfterSheet $event) {
-                $event->sheet->getStyle('A1:S1') // Adjust the range as per your needs
+                $lastColumn = $this->lastColumn();
+                $event->sheet->getStyle("A1:{$lastColumn}1") // Adjust the range as per your needs
                 ->getAlignment()
                     ->setHorizontal(Alignment::HORIZONTAL_CENTER)
                     ->setVertical(Alignment::VERTICAL_CENTER);
-                $event->sheet->getStyle('A3:S' . ($this->data['products']->count() + 3)) // Adjust the range as per your needs
+                $event->sheet->getStyle("A3:{$lastColumn}" . ($this->data['products']->count() + 3)) // Adjust the range as per your needs
                 ->getAlignment()
                     ->setHorizontal(Alignment::HORIZONTAL_CENTER)
                     ->setVertical(Alignment::VERTICAL_CENTER);
-                $event->sheet->getStyle('A2:S2') // Adjust the range as per your needs
+                $event->sheet->getStyle("A2:{$lastColumn}2") // Adjust the range as per your needs
                 ->getAlignment()
                     ->setHorizontal(Alignment::HORIZONTAL_LEFT)
                     ->setVertical(Alignment::VERTICAL_CENTER);
 
-                $event->sheet->mergeCells('A1:S1');
+                $event->sheet->mergeCells("A1:{$lastColumn}1");
                 $event->sheet->mergeCells('A2:B2');
-                $event->sheet->mergeCells('C2:S2');
-                $event->sheet->mergeCells('D2:S2');
+                $event->sheet->mergeCells("C2:{$lastColumn}2");
+                $event->sheet->mergeCells("D2:{$lastColumn}2");
                 if ($this->data['type'] != 'seller') {
                     $event->sheet->mergeCells('F3:G3');
                     $this->data['products']->each(function ($item, $index) use ($event) {

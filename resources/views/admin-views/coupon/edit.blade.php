@@ -47,6 +47,7 @@
                                        data-required-msg="{{ translate('coupon_code_is_required') }}"
                                        placeholder="{{translate('ex')}}: EID100" >
                             </div>
+                            @include('admin-views.coupon.partials._storefront-country', ['coupon' => $coupon])
                             <div class="col-md-6 col-lg-4 first_order">
                                 <label for="name" class="form-label">{{translate('coupon_bearer')}}<span class="text-danger">*</span></label>
                                 <div class="select-wrapper">
@@ -98,7 +99,7 @@
                             </div>
                             <div class="col-md-6 col-lg-4 free_delivery">
                                 <label for="name" class="form-label">{{translate('discount_Amount')}}<span class="text-danger">*</span> <span id="discount_percent"> (%)</span>       ({{ getCurrencySymbol(currencyCode: getCurrencyCode()) }})</label>
-                                <input type="number" min="0" max="1000000" step="any" name="discount" class="form-control" id="discount" value="{{$coupon['discount_type']=='amount'? usdToDefaultCurrency(amount:$coupon['discount']):$coupon['discount'] }}"
+                                <input type="number" min="0" max="1000000" step="any" name="discount" class="form-control" id="discount" value="{{$coupon['discount_type']=='amount'? usdToDefaultCurrencyForEditing(amount:$coupon['discount']):$coupon['discount'] }}"
                                     placeholder="{{translate('ex').':'.'500' }}">
                             </div>
                             <div class="col-md-6 col-lg-4">
@@ -106,12 +107,12 @@
                                     {{ translate('minimum_Purchase') }}<span class="text-danger">*</span>
                                     ({{ getCurrencySymbol(currencyCode: getCurrencyCode()) }})
                                 </label>
-                                <input type="number" min="0" max="1000000" step="any" name="min_purchase" class="form-control" id="minimum purchase" value="{{usdToDefaultCurrency(amount:$coupon['min_purchase'])}}"
+                                <input type="number" min="0" max="1000000" step="any" name="min_purchase" class="form-control" id="minimum purchase" value="{{usdToDefaultCurrencyForEditing(amount:$coupon['min_purchase'])}}"
                                        placeholder="{{translate('minimum_purchase')}}" >
                             </div>
                             <div class="col-md-6 col-lg-4 free_delivery" id="max-discount">
                                 <label for="name" class="form-label">{{translate('maximum_discount')}}<span class="text-danger">*</span>({{ getCurrencySymbol(currencyCode: getCurrencyCode()) }})</label>
-                                <input type="number" min="0" max="1000000" step="any" name="max_discount" class="form-control" id="maximum discount" value="{{usdToDefaultCurrency(amount:$coupon['max_discount'])}}"
+                                <input type="number" min="0" max="1000000" step="any" name="max_discount" class="form-control" id="maximum discount" value="{{usdToDefaultCurrencyForEditing(amount:$coupon['max_discount'])}}"
                                        placeholder="{{translate('maximum_discount')}}">
                             </div>
                             <div class="col-md-6 col-lg-4">

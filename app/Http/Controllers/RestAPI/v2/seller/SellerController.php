@@ -5,7 +5,7 @@ namespace App\Http\Controllers\RestAPI\v2\seller;
 use App\Models\Shop;
 use App\Models\Review;
 use App\Models\Seller;
-use App\Utils\Convert;
+use App\Services\WithdrawRequestService;
 use App\Utils\Helpers;
 use App\Models\Product;
 use App\Models\DeliveryMan;
@@ -20,10 +20,13 @@ use App\Models\WithdrawRequest;
 use App\Models\OrderTransaction;
 use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\Controller;
+use App\Traits\SellerOwnedRecords;
 use Illuminate\Support\Facades\Validator;
 
 class SellerController extends Controller
 {
+    use SellerOwnedRecords;
+
     public function shop_info(Request $request):JsonResponse
     {
         $data = Helpers::get_seller_by_token($request);
@@ -84,7 +87,10 @@ class SellerController extends Controller
         $data = Helpers::get_seller_by_token($request);
 
         if ($data['success'] == 1) {
-            $reviews = Review::find($request->id);
+            $reviews = Review::whereHas('product', fn ($query) => $query->ofSeller(sellerId: $data['data']['id']))->find($request->id);
+            if (!$reviews) {
+                return $this->recordNotFound(code: 'review', message: 'review_not_found');
+            }
             $reviews->status = $request->status;
             $reviews->save();
             return response()->json(['message'=>translate('status updated successfully!!')],200);
@@ -107,7 +113,9 @@ class SellerController extends Controller
             ], 401);
         }
 
-        return response()->json(Seller::with(['wallet'])->withCount(['product', 'orders'])->where(['id' => $seller['id']])->first(), 200);
+        $profile = Seller::with(['wallet'])->withCount(['product', 'orders' => fn ($query) => $query->where('seller_is', 'seller')])->where(['id' => $seller['id']])->first();
+
+        return response()->json($profile?->makeVisible(Seller::OWNER_ONLY_ATTRIBUTES), 200);
     }
 
     public function shop_info_update(Request $request):JsonResponse
@@ -208,17 +216,18 @@ class SellerController extends Controller
         }
 
         $wallet = SellerWallet::where('seller_id', $seller['id'])->first();
-        if (($wallet->total_earning) >= Convert::usd($request['amount']) && $request['amount'] > 0) {
+        $amountInWalletCurrency = app(WithdrawRequestService::class)->getWithdrawAmountInWalletCurrency(requestedAmount: $request['amount']);
+        if (!is_null($amountInWalletCurrency) && ($wallet->total_earning) >= $amountInWalletCurrency && $request['amount'] > 0) {
             DB::table('withdraw_requests')->insert([
                 'seller_id' => $seller['id'],
-                'amount' => Convert::usd($request['amount']),
+                'amount' => $amountInWalletCurrency,
                 'transaction_note' => null,
                 'approved' => 0,
                 'created_at' => now(),
                 'updated_at' => now()
             ]);
-            $wallet->total_earning -= BackEndHelper::currency_to_usd($request['amount']);
-            $wallet->pending_withdraw += BackEndHelper::currency_to_usd($request['amount']);
+            $wallet->total_earning -= $amountInWalletCurrency;
+            $wallet->pending_withdraw += $amountInWalletCurrency;
             $wallet->save();
             return response()->json(translate('Withdraw request sent successfully!'), 200);
         }
@@ -236,15 +245,27 @@ class SellerController extends Controller
             ], 401);
         }
 
-        $withdraw_request = WithdrawRequest::find($request['id']);
-        $wallet = SellerWallet::where('seller_id', $seller['id'])->first();
+        $withdraw_request = WithdrawRequest::ofSeller(sellerId: $seller['id'])->find($request['id']);
 
         if (isset($withdraw_request) && $withdraw_request->approved == 0) {
-            $wallet->total_earning += BackEndHelper::currency_to_usd($withdraw_request['amount']);
-            $wallet->pending_withdraw -= BackEndHelper::currency_to_usd($request['amount']);
-            $wallet->save();
-            $withdraw_request->delete();
-            return response()->json(translate('Withdraw request has been closed successfully!'), 200);
+            $isClosed = DB::transaction(function () use ($withdraw_request, $seller) {
+                $wallet = SellerWallet::where('seller_id', $seller['id'])->lockForUpdate()->first();
+                $pendingRequest = WithdrawRequest::where(['id' => $withdraw_request['id'], 'seller_id' => $seller['id'], 'approved' => 0])->lockForUpdate()->first();
+                if (!$pendingRequest) {
+                    return false;
+                }
+                $deletedRows = WithdrawRequest::where(['id' => $withdraw_request['id'], 'seller_id' => $seller['id'], 'approved' => 0])->delete();
+                if ($deletedRows !== 1) {
+                    return false;
+                }
+                $wallet->total_earning += $pendingRequest['amount'];
+                $wallet->pending_withdraw -= $pendingRequest['amount'];
+                $wallet->save();
+                return true;
+            });
+            if ($isClosed) {
+                return response()->json(translate('Withdraw request has been closed successfully!'), 200);
+            }
         }
 
         return response()->json(translate('Withdraw request is invalid'), 400);

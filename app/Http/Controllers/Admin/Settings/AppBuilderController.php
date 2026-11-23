@@ -10,6 +10,7 @@ use App\Services\Theme\BuilderReadiness;
 use App\Services\Theme\Channel;
 use App\Services\Theme\ExperiencePageService;
 use App\Services\Theme\SectionRegistry;
+use App\Services\Theme\StorefrontThemeResolver;
 use App\Services\Theme\ThemeAssetService;
 use App\Services\Theme\ThemePermissionService;
 use App\Services\Theme\ThemePortabilityService;
@@ -41,6 +42,7 @@ class AppBuilderController extends BaseController
         private readonly ThemePermissionService $permissions,
         private readonly BuilderReadiness $readiness,
         private readonly ThemePortabilityService $portability,
+        private readonly StorefrontThemeResolver $themes,
     ) {
     }
 
@@ -337,7 +339,7 @@ class AppBuilderController extends BaseController
 
     private function activeTheme(): ?Theme
     {
-        return Theme::query()->where('is_active', true)->first()
+        return $this->themes->activeTheme()
             ?? Theme::query()->orderByDesc('id')->first();
     }
 

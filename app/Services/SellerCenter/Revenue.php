@@ -2,6 +2,7 @@
 
 namespace App\Services\SellerCenter;
 
+use App\Models\OrderDetail;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -29,8 +30,8 @@ class Revenue
             return null;
         }
 
-        $query = DB::table('order_details')
-            ->where('seller_id', $sellerId)
+        $query = OrderDetail::ofSeller(sellerId: $sellerId)
+            ->toBase()
             ->where('delivery_status', 'delivered');
 
         if ($from !== null && $to !== null) {

@@ -2,9 +2,9 @@
 
 namespace App\Services\Theme;
 
-use App\Models\Theme;
 use App\Models\ThemeSection;
 use App\Models\ThemeVersion;
+use App\Services\Storefront\StorefrontContext;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
 
@@ -85,7 +85,7 @@ class StorefrontThemeRenderer
             // too: Cache::remember treats a bare null as a miss, and this runs several
             // times per storefront render (once per page area, plus the banner
             // hand-off), each miss costing a publishedVersion() lookup.
-            $cached = Cache::remember(self::CACHE_KEY_PREFIX . $page, self::CACHE_TTL, function () use ($page) {
+            $cached = Cache::remember(StorefrontContext::current()->scopedCacheKey(self::CACHE_KEY_PREFIX . $page), self::CACHE_TTL, function () use ($page) {
                 $version = $this->publishedVersion();
 
                 return ['sections' => $version ? $this->buildSections($version->id, $page) : null];
@@ -333,7 +333,7 @@ class StorefrontThemeRenderer
             // uncached publishedVersion() lookup would hit the DB per page even with nothing published.
             // Wrapped in an array so the common "no published theme" (null) result is cached too —
             // Cache::remember treats a bare null as a miss and would re-query every request.
-            $cached = Cache::remember(self::GLOBAL_SETTINGS_CACHE_KEY, self::CACHE_TTL, function () use ($manager) {
+            $cached = Cache::remember(StorefrontContext::current()->scopedCacheKey(self::GLOBAL_SETTINGS_CACHE_KEY), self::CACHE_TTL, function () use ($manager) {
                 $version = $this->publishedVersion();
 
                 return ['settings' => $version ? $manager->resolveSettings($version) : null];
@@ -360,8 +360,12 @@ class StorefrontThemeRenderer
         return $settings[$key] ?? null;
     }
 
-    /** Drop the cached structure for every page — call after publishing. */
-    public function flush(array $pages = ['home', 'header', 'footer']): void
+    /**
+     * Drop the cached structure for every page — call after publishing. For the storefronts given only (F-02), or for every storefront when none is given, as it always was.
+     *
+     * @param list<string>|null $storefronts
+     */
+    public function flush(array $pages = ['home', 'header', 'footer'], ?array $storefronts = null): void
     {
         // Custom pages are cached under the same prefix by their own slugs; a publish that only
         // flushed the three built-ins left every composed page stale for a full TTL.
@@ -373,10 +377,16 @@ class StorefrontThemeRenderer
             // The built-ins still flush.
         }
 
+        $keysOf = static fn (string $key): array => $storefronts === null ? StorefrontContext::keysForEveryStorefront($key) : StorefrontContext::keysForStorefronts(countries: $storefronts, key: $key);
+
         foreach ($pages as $page) {
-            Cache::forget(self::CACHE_KEY_PREFIX . $page);
+            foreach ($keysOf(self::CACHE_KEY_PREFIX . $page) as $key) {
+                Cache::forget($key);
+            }
         }
-        Cache::forget(self::GLOBAL_SETTINGS_CACHE_KEY);
+        foreach ($keysOf(self::GLOBAL_SETTINGS_CACHE_KEY) as $key) {
+            Cache::forget($key);
+        }
     }
 
     /** Shared section builder used by both the published path and draft preview. */
@@ -428,6 +438,12 @@ class StorefrontThemeRenderer
      * Checked in that order because the session is the cheaper answer and the one an admin
      * browsing their own storefront already has.
      */
+    /** Whether this request is drawing a draft, by a token on the URL or by the session of an admin. */
+    public function isPreviewing(): bool
+    {
+        return $this->activePreviewVersionId() !== null;
+    }
+
     private function activePreviewVersionId(): ?int
     {
         try {
@@ -442,12 +458,15 @@ class StorefrontThemeRenderer
                 // The id is taken on faith nowhere else: a merchant who discards the draft in
                 // another tab leaves this key pointing at nothing, and an unchecked id turns the
                 // builder frame into an empty page rather than the shop. Forgetting it here is what
-                // ends the preview the moment there is nothing left to preview.
-                if (ThemeVersion::query()->whereKey($sessionVersionId)->exists()) {
+                // ends the preview the moment there is nothing left to preview. A draft of another
+                // storefront is ignored on this one, as a foreign token is, and kept for its own.
+                $sessionVersion = ThemeVersion::query()->find($sessionVersionId);
+
+                if ($sessionVersion === null) {
+                    session()->forget(self::PREVIEW_SESSION_KEY);
+                } elseif (app(StorefrontThemeResolver::class)->mayPreview(version: $sessionVersion)) {
                     return $sessionVersionId;
                 }
-
-                session()->forget(self::PREVIEW_SESSION_KEY);
             }
 
             $token = request()?->query(self::PREVIEW_TOKEN_KEY);
@@ -460,14 +479,7 @@ class StorefrontThemeRenderer
 
     private function publishedVersion(): ?ThemeVersion
     {
-        $theme = Theme::query()->where('is_active', true)->first();
-        if (!$theme) {
-            return null;
-        }
-        return ThemeVersion::query()
-            ->where('theme_id', $theme->id)
-            ->where('status', ThemeVersion::STATUS_PUBLISHED)
-            ->first();
+        return app(StorefrontThemeResolver::class)->publishedVersion();
     }
 
     private function tablesReady(): bool

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\RestAPI\v1;
 
 use App\Http\Controllers\Controller;
 use App\Models\LoyaltyPointTransaction;
+use App\Services\Loyalty\PointsToWalletConversion;
 use App\Utils\CustomerManager;
 use App\Utils\Helpers;
 use Carbon\Carbon;
@@ -70,7 +71,7 @@ class UserLoyaltyController extends Controller
         }
     }
 
-    public function loyalty_exchange_currency(Request $request): JsonResponse
+    public function loyalty_exchange_currency(Request $request, PointsToWalletConversion $pointsToWallet): JsonResponse
     {
         $walletStatus = getWebConfig(name: 'wallet_status');
         $loyaltyPointStatus = getWebConfig(name: 'loyalty_point_status');
@@ -96,8 +97,16 @@ class UserLoyaltyController extends Controller
             ], 422);
         }
 
-        $walletTransaction = CustomerManager::create_wallet_transaction($user->id, $request['point'], 'loyalty_point', 'point_to_wallet');
-        CustomerManager::create_loyalty_point_transaction($user->id, $walletTransaction->transaction_id, $request['point'], 'point_to_wallet');
+        $walletTransaction = $pointsToWallet->convert(
+            customerId: $user->id,
+            points: $request['point'],
+            creditWallet: fn () => CustomerManager::create_wallet_transaction($user->id, $request['point'], 'loyalty_point', 'point_to_wallet'),
+        );
+        if ($walletTransaction === false) {
+            return response()->json([
+                'message' => translate('insufficient_point!')
+            ], 422);
+        }
 
         try {
             Mail::to($user['email'])->send(new \App\Mail\AddFundToWallet($walletTransaction));

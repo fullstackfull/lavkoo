@@ -9,17 +9,25 @@ use App\Models\DealOfTheDay;
 use App\Models\FlashDealProduct;
 use App\Models\Product;
 use App\Models\Translation;
+use App\Rules\StoredFileNames;
+use App\Services\DigitalProductFileService;
 use App\Utils\Convert;
 use App\Utils\Helpers;
+use App\Traits\SellerOwnedRecords;
 use App\Utils\ImageManager;
-use Barryvdh\DomPDF\PDF;
+use App\Services\ProductBarcodeSheetService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use App\Services\Catalog\ProductCodeScope;
+use App\Services\Catalog\ProductVariantSku;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class ProductController extends Controller
 {
+    use SellerOwnedRecords;
+
     public function list(Request $request):JsonResponse
     {
         $data = Helpers::get_seller_by_token($request);
@@ -32,7 +40,7 @@ class ProductController extends Controller
             ], 401);
         }
 
-        return response()->json(Product::where(['added_by' => 'seller', 'id' => $seller['id']])->orderBy('id', 'DESC')->get(), 200);
+        return response()->json(Product::ofSeller(sellerId: $seller['id'])->orderBy('id', 'DESC')->get(), 200);
     }
 
     public function stock_out_list(Request $request):JsonResponse
@@ -115,7 +123,7 @@ class ProductController extends Controller
                 return response()->json(['errors' => Helpers::validationErrorProcessor($validator)]);
             }
 
-            $file = ImageManager::file_upload('product/digital-product/', $request->digital_file_ready->getClientOriginalExtension(), $request->file('digital_file_ready'));
+            $file = app(DigitalProductFileService::class)->store(file: $request->file('digital_file_ready'));
 
             return response()->json(['digital_file_ready_name' => $file], 200);
         } catch (\Exception $e) {
@@ -134,15 +142,17 @@ class ProductController extends Controller
             ], 401);
         }
 
+        $codeScope = app(ProductCodeScope::class);
         $validator = Validator::make($request->all(), [
             'name'                  => 'required',
             'category_id'           => 'required',
             'product_type'          => 'required',
             'digital_product_type'  => 'required_if:product_type,==,digital',
-            'digital_file_ready'    => 'required_if:digital_product_type,==,ready_product',
+            'digital_file_ready'    => ['required_if:digital_product_type,==,ready_product', new StoredFileNames()],
             'unit'                  => 'required_if:product_type,==,physical',
-            'images'                => 'required',
-            'thumbnail'             => 'required',
+            'images'                => ['required', new StoredFileNames()],
+            'thumbnail'             => ['required', new StoredFileNames()],
+            'meta_image'            => [new StoredFileNames()],
             'discount_type'         => 'required|in:percent,flat',
             'tax'                   => 'required|min:0',
             'lang'                  => 'required',
@@ -150,7 +160,7 @@ class ProductController extends Controller
             'purchase_price'        => 'required|min:1',
             'discount'              => 'required|gt:-1',
             'shipping_cost'         => 'required_if:product_type,==,physical|gt:-1',
-            'code'                  => 'required|unique:products',
+            'code'                  => ['required', $codeScope->uniqueRuleForCode(country: $codeScope->countryOfNewProduct(addedBy: 'seller'))],
             'minimum_order_qty'     => 'required|numeric|min:1',
         ], [
             'name.required'                     => translate('Product name is required!'),
@@ -165,6 +175,8 @@ class ProductController extends Controller
             'minimum_order_qty.required'        => translate('The minimum order quantity is required!'),
             'minimum_order_qty.min'             => translate('The minimum order quantity must be positive!'),
         ]);
+
+        app(ProductVariantSku::class)->guard(validator: $validator, request: $request, country: $codeScope->countryOfNewProduct(addedBy: 'seller'));
 
         $brand_setting = BusinessSetting::where('type', 'product_brand')->first()->value;
         if ($brand_setting && empty($request->brand_id)) {
@@ -358,7 +370,10 @@ class ProductController extends Controller
             ], 401);
         }
 
-        $product = Product::withoutGlobalScopes()->with('translations')->find($id);
+        $product = Product::withoutGlobalScopes()->with('translations')->ofSeller(sellerId: $seller['id'])->find($id);
+        if (!$product) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
         $product = Helpers::product_data_formatting($product);
 
         return response()->json($product, 200);
@@ -375,8 +390,12 @@ class ProductController extends Controller
             ], 401);
         }
 
-        $product = Product::find($id);
+        $product = Product::ofSeller(sellerId: $seller['id'])->find($id);
+        if (!$product) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
 
+        $codeScope = app(ProductCodeScope::class);
         $validator = Validator::make($request->all(), [
             'name'                  => 'required',
             'category_id'           => 'required',
@@ -391,7 +410,11 @@ class ProductController extends Controller
             'discount'              => 'required|gt:-1',
             'shipping_cost'         => 'required_if:product_type,==,physical|gt:-1',
             'minimum_order_qty'     => 'required|numeric|min:1',
-            'code'                  => 'required|numeric|min:1|digits_between:6,20|unique:products,code,'.$product->id,
+            'code'                  => ['required', 'numeric', 'min:1', 'digits_between:6,20', $codeScope->uniqueRuleForCode(country: $codeScope->countryOfProduct($product), ignoreProductId: $product->id)],
+            'images'                => [new StoredFileNames()],
+            'thumbnail'             => [new StoredFileNames()],
+            'digital_file_ready'    => [new StoredFileNames()],
+            'meta_image'            => [new StoredFileNames()],
         ], [
             'name.required'                     => 'Product name is required!',
             'category_id.required'              => 'category  is required!',
@@ -403,6 +426,8 @@ class ProductController extends Controller
             'minimum_order_qty.min'             => 'The minimum order quantity must be positive!',
             'digital_product_type.required_if'  => 'Digital product type is required!',
         ]);
+
+        app(ProductVariantSku::class)->guard(validator: $validator, request: $request, country: $codeScope->countryOfProduct($product), ignoreProductId: (int) $product->id);
 
         $brand_setting = BusinessSetting::where('type', 'product_brand')->first()->value;
         if ($brand_setting && empty($request->brand_id)) {
@@ -624,7 +649,10 @@ class ProductController extends Controller
             ], 401);
         }
 
-        $product = Product::find($request->id);
+        $product = Product::ofSeller(sellerId: $seller['id'])->find($request->id);
+        if (!$product) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
         $product->status = $request->status;
         $product->save();
 
@@ -644,7 +672,10 @@ class ProductController extends Controller
             ], 401);
         }
 
-        $product = Product::find($id);
+        $product = Product::ofSeller(sellerId: $seller['id'])->find($id);
+        if (!$product) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
         foreach (json_decode($product['images'], true) as $image) {
             ImageManager::delete('/product/' . $image);
         }
@@ -655,7 +686,7 @@ class ProductController extends Controller
         return response()->json(['message' => translate('successfully product deleted!')], 200);
     }
 
-    public function barcode_generate(Request $request):JsonResponse
+    public function barcode_generate(Request $request, ProductBarcodeSheetService $barcodeSheetService): JsonResponse
     {
         $request->validate([
             'id' => 'required',
@@ -665,19 +696,54 @@ class ProductController extends Controller
             'quantity.required' => 'Barcode quantity is required',
         ]);
 
-        if ($request->limit > 270) {
-            return response()->json(['code' => 403, 'message' => 'You can not generate more than 270 barcode']);
+        if ($request->limit > 270 || !$barcodeSheetService->isAllowedQuantity(quantity: $request->quantity)) {
+            return response()->json(['code' => 403, 'message' => 'You can not generate more than 270 barcode'], 403);
         }
-        $product = Product::where('id', $request->id)->first();
+
+        $data = Helpers::get_seller_by_token($request);
+        if ($data['success'] != 1) {
+            return response()->json([
+                'auth-001' => translate('Your existing session token does not authorize you any more')
+            ], 401);
+        }
+
+        $product = Product::ofSeller(sellerId: $data['data']['id'])->where('id', $request->id)->first();
+        if (!$product) {
+            return $this->recordNotFound(code: 'product', message: 'product_not_found');
+        }
         $quantity = $request->quantity ?? 30;
         if (isset($product->code)) {
-            $pdf = app()->make(PDF::class);
-            $pdf->loadView('seller-views.product.barcode-pdf', compact('product', 'quantity'));
-            $pdf->save(storage_path('app/public/product/barcode.pdf'));
-            return response()->json(asset('storage/app/public/product/barcode.pdf'));
+            return response()->json($barcodeSheetService->getLink(product: $product, quantity: $quantity));
         } else {
             return response()->json(['message' => translate('Please update product code!')], 203);
         }
 
+    }
+
+    public function downloadDigitalFile(Request $request, $id): BinaryFileResponse|JsonResponse
+    {
+        $seller = Helpers::getSellerByToken($request);
+        if (!$seller) {
+            return response()->json(['auth-001' => translate('Your existing session token does not authorize you any more')], 401);
+        }
+        $digitalFiles = app(DigitalProductFileService::class);
+
+        return $digitalFiles->download(name: $digitalFiles->nameOfProductOfSeller(sellerId: $seller['id'], id: $id)) ?? $this->fileNotFound();
+    }
+
+    public function downloadDigitalVariationFile(Request $request, $id): BinaryFileResponse|JsonResponse
+    {
+        $seller = Helpers::getSellerByToken($request);
+        if (!$seller) {
+            return response()->json(['auth-001' => translate('Your existing session token does not authorize you any more')], 401);
+        }
+        $digitalFiles = app(DigitalProductFileService::class);
+
+        return $digitalFiles->download(name: $digitalFiles->nameOfVariationOfSeller(sellerId: $seller['id'], id: $id)) ?? $this->fileNotFound();
+    }
+
+    private function fileNotFound(): JsonResponse
+    {
+        return response()->json(['errors' => [['code' => 'file', 'message' => translate('file_not_found')]]], 404);
     }
 }

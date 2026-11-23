@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\ThemeVersion;
 use App\Services\AuditLogger;
 use App\Services\Theme\PublishValidator;
+use App\Services\Theme\StorefrontThemeResolver;
 use App\Services\Theme\ThemeManager;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Schema;
@@ -85,7 +86,7 @@ class ThemePublishDue extends Command
                 $audit->record(
                     action: 'theme.scheduled_publish_failed',
                     subject: $version,
-                    context: ['error' => substr($publishError->getMessage(), 0, 300)],
+                    context: ['error' => substr($publishError->getMessage(), 0, 300)] + $this->storefrontContextOf(version: $version),
                 );
                 $this->error("Version #{$version->id} failed to publish: {$publishError->getMessage()}");
 
@@ -118,7 +119,26 @@ class ThemePublishDue extends Command
             action: 'theme.scheduled_publish_cancelled',
             subject: $version,
             after: ['reasons' => $reasons],
-            context: ['theme_id' => $version->theme_id],
+            context: ['theme_id' => $version->theme_id] + $this->storefrontContextOf(version: $version),
+        );
+    }
+
+    /**
+     * What an audit line about a version adds to say which storefront its theme is for, the way ThemeManager adds it to its own: nothing while themes are not kept by storefront.
+     * A lookup that fails adds nothing either and is reported: as with the write in AuditLogger::record, an audit line never fails the run it records.
+     *
+     * @return array<string, string>
+     */
+    private function storefrontContextOf(ThemeVersion $version): array
+    {
+        return rescue(
+            callback: function () use ($version): array {
+                $themes = app(StorefrontThemeResolver::class);
+                $theme = $themes->keepsThemesByStorefront() ? $version->theme : null;
+
+                return $theme === null ? [] : $themes->auditContextOf(theme: $theme);
+            },
+            rescue: [],
         );
     }
 }

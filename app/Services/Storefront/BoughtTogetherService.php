@@ -86,7 +86,7 @@ class BoughtTogetherService
     {
         try {
             return Cache::remember(
-                'bought_together_' . $product->id . '_' . $limit,
+                StorefrontContext::current()->scopedCacheKey('bought_together_' . $product->id . '_' . $limit),
                 self::CACHE_TTL,
                 function () use ($product, $limit) {
                     $orderIds = OrderDetail::where('product_id', $product->id)

@@ -15,6 +15,7 @@ use App\Services\Theme\ExperiencePageService;
 use App\Services\Theme\LinkComposer;
 use App\Services\Theme\SectionRegistry;
 use App\Services\Theme\StorefrontThemeRenderer;
+use App\Services\Theme\StorefrontThemeResolver;
 use App\Services\Theme\ThemeAssetService;
 use App\Services\Theme\ThemePermissionService;
 use App\Services\Theme\ThemePreviewToken;
@@ -41,6 +42,7 @@ class ThemeBuilderController extends BaseController
         private readonly ThemeManager        $themeManager,
         private readonly ThemeAssetService   $assets,
         private readonly ExperiencePageService $pages,
+        private readonly StorefrontThemeResolver $themes,
     )
     {
     }
@@ -418,7 +420,7 @@ class ThemeBuilderController extends BaseController
             // being composed, so an app-only page — the kind the App Builder creates — is offered
             // where the app will read it and hidden where the web would 404 on it.
             'experience_page' => collect($this->pages->forChannel(
-                (int) (\App\Models\Theme::query()->where('is_active', true)->value('id') ?? 0),
+                (int) ($this->themes->activeTheme()?->id ?? 0),
                 Channel::normalize($request->get('channel')) ?? Channel::WEB,
             ))
                 ->filter(fn (array $page) => $page['enabled']
@@ -602,6 +604,13 @@ class ThemeBuilderController extends BaseController
      */
     public function uploadMedia(Request $request): JsonResponse
     {
+        if (config('app.mode') == 'demo') {
+            return $this->fail(translate('you_can_not_update_this_on_demo_mode'));
+        }
+        if (!app(ThemePermissionService::class)->canEdit()) {
+            return $this->fail(translate('you_do_not_have_permission_to_edit_a_theme'));
+        }
+
         $theme = $this->resolveThemeFor($request);
         if (!$theme) {
             return $this->fail(translate('theme_not_found'));
@@ -741,7 +750,7 @@ class ThemeBuilderController extends BaseController
             return $version->theme;
         }
 
-        return Theme::where('is_active', true)->first();
+        return $this->themes->activeTheme();
     }
 
     /**

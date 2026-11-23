@@ -1,0 +1,14 @@
+# Who must review a change. Draft: it has no effect until "Require review from Code Owners" is switched on in the protection rule of main
+# (docs/gcc/BRANCH_PROTECTION.md). Every path has the owner today; split a path off when the owner names another reviewer for it.
+
+*                                @fullstackfull
+
+# Money, identity and deployment: the paths a mistake costs real money or access in.
+/app/Utils/OrderManager.php      @fullstackfull
+/app/Utils/CustomerManager.php   @fullstackfull
+/app/Services/Wallet/            @fullstackfull
+/app/Http/Middleware/            @fullstackfull
+/config/                         @fullstackfull
+/database/migrations/            @fullstackfull
+/scripts/deploy/                 @fullstackfull
+/.github/                        @fullstackfull

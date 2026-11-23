@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Currency;
+use App\Services\Storefront\StorefrontCurrency;
 use Illuminate\Support\Facades\Cache;
 
 if (!function_exists('getActiveCurrencies')) {
@@ -67,6 +68,38 @@ if (!function_exists('currencyConverter')) {
     }
 }
 
+if (!function_exists('usdAmountInDefaultCurrency')) {
+    /**
+     * A stored amount in the money in force, before it is cut to the decimals of that money: multiplied by the rate of the default
+     * currency under the multi-currency model, and the amount itself under the single-currency one.
+     * @param float|int|null $amount
+     * @return float|int
+     */
+    function usdAmountInDefaultCurrency(float|int|null $amount = 0): float|int
+    {
+        $currencyModel = getWebConfig('currency_model');
+        if ($currencyModel != MULTI_CURRENCY) {
+            return $amount ?? 0;
+        }
+
+        if (session()->has('default')) {
+            $default = session('default');
+        } else {
+            $default = Currency::find(getWebConfig('system_default_currency'))->exchange_rate;
+            session()->put('default', $default);
+        }
+
+        if (session()->has('usd')) {
+            $usd = session('usd');
+        } else {
+            $usd = exchangeRate(USD);
+            session()->put('usd', $usd);
+        }
+
+        return $amount * ($default / $usd);
+    }
+}
+
 if (!function_exists('usdToDefaultCurrency')) {
     /**
      * system usd currency to default convert
@@ -75,32 +108,38 @@ if (!function_exists('usdToDefaultCurrency')) {
      */
     function usdToDefaultCurrency(float|int|null $amount = 0): float|int
     {
-        $currencyModel = getWebConfig('currency_model');
-        if ($currencyModel == MULTI_CURRENCY) {
-            if (session()->has('default')) {
-                $default = session('default');
-            } else {
-                $default = Currency::find(getWebConfig('system_default_currency'))->exchange_rate;
-                session()->put('default', $default);
-            }
-
-            if (session()->has('usd')) {
-                $usd = session('usd');
-            } else {
-                $usd = exchangeRate(USD);
-                session()->put('usd', $usd);
-            }
-
-            $rate = $default / $usd;
-
-            $value = $amount * $rate;
-        } else {
-            $value = $amount;
-        }
-
         $decimals = getWebConfig('decimal_point_settings') ?? 2;
         $factor = pow(10, $decimals);
-        return floor($value * $factor) / $factor;
+        $scaled = usdAmountInDefaultCurrency(amount: $amount) * $factor;
+
+        // In the money of a storefront (GCC-05) the amount was typed as it is shown, and 2.675 is 2.67499999999999982 in binary: its floor would show one fils
+        // less, and an edit form that shows it would save that. The platform's own readers keep the arithmetic they always had.
+        if (app(StorefrontCurrency::class)->currencyCodeInForce() !== null) {
+            $scaled = round($scaled, 6);
+        }
+
+        return floor($scaled) / $factor;
+    }
+}
+
+if (!function_exists('usdToDefaultCurrencyForEditing')) {
+    /**
+     * The amount an editable field is filled with. A form posts back the figure it shows, so a field that shows one unit of the smallest
+     * denomination less than the stored amount saves that lower amount the next time the form is submitted, and the amount drops again on
+     * every edit after it. 4.35 is 4.34999999999999964 in binary and its floor at two decimals is 4.34, so the repair is to scale first and
+     * only then cut: the same repair the money of a storefront already makes, made for every storefront.
+     *
+     * A reader that only shows an amount keeps usdToDefaultCurrency() and the truncation the platform has always displayed, and a stored
+     * amount carrying more digits than the currency holds is still truncated here, never rounded up.
+     * @param float|int|null $amount
+     * @return float|int
+     */
+    function usdToDefaultCurrencyForEditing(float|int|null $amount = 0): float|int
+    {
+        $decimals = getWebConfig('decimal_point_settings') ?? 2;
+        $factor = pow(10, $decimals);
+
+        return floor(round(usdAmountInDefaultCurrency(amount: $amount) * $factor, 6)) / $factor;
     }
 }
 
@@ -237,6 +276,16 @@ if (!function_exists('getCurrencySymbol')) {
     function getCurrencySymbol(string $currencyCode = USD, string $type = 'default'): float|int|string
     {
         loadCurrency();
+
+        // A visitor may pick a currency from the header, and the pick is kept in the session across storefronts. A storefront that trades in its
+        // own currency (GCC-05) shows the amounts of its own catalogue, so printing another storefront's sign beside them would say a Kuwaiti
+        // price is Saudi money. While such a storefront serves the request its sign wins over the pick; everywhere else the session stands.
+        $symbolInForce = app(StorefrontCurrency::class)->symbolInForce();
+
+        if ($symbolInForce !== null) {
+            return $symbolInForce;
+        }
+
         if ($type == 'web' && session()->has('currency_symbol')) {
             $currentSymbol = session('currency_symbol');
         } else {
@@ -274,8 +323,19 @@ if (!function_exists('getCurrencyCode')) {
      */
     function getCurrencyCode(string $type = 'default'): string
     {
+        $codeInForce = app(StorefrontCurrency::class)->currencyCodeInForce();
+
+        if ($codeInForce !== null) {
+            return $codeInForce;
+        }
+
         if ($type == 'web') {
-            $currencyCode = session('currency_code');
+            // The session holds the currency a visitor is being shown, and loadCurrency() is what puts it there. getCurrencySymbol() calls it
+            // before reading the same session; this reader did not, and returned null against a ": string" return type. The customer's invoice
+            // template asks for the code before any converter has run, so that document was an error page instead. Only this one branch reads
+            // the session, so only this one branch loads it.
+            loadCurrency();
+            $currencyCode = (string) session('currency_code');
         } else {
             if (session()->has('system_default_currency_info')) {
                 $currencyCode = session('system_default_currency_info')->code;
@@ -285,6 +345,25 @@ if (!function_exists('getCurrencyCode')) {
             }
         }
         return $currencyCode;
+    }
+}
+
+if (!function_exists('orderMoney')) {
+    /**
+     * One amount of one order, written in the money that order was sold in: the figure that was charged and the currency it was charged in.
+     *
+     * For the documents that list many orders at once — the order, report and list exports — where one currency cannot be put in force for the
+     * whole page because each row is its own sale. An order that records no currency reads exactly as it read before: the same two helpers, in
+     * the same order, with the same arguments. A row whose order is missing is written exactly as it was written before too.
+     *
+     * @param object|array<string, mixed>|null $order
+     */
+    function orderMoney(object|array|null $order, string|int|float|null $amount = 0): string
+    {
+        return app(StorefrontCurrency::class)->withinOrderCurrency(
+            order: $order,
+            callback: fn (): string => setCurrencySymbol(amount: usdToDefaultCurrency(amount: $amount), currencyCode: getCurrencyCode()),
+        );
     }
 }
 

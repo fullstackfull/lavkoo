@@ -2,8 +2,11 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\StaffCountryProductScope;
+use App\Services\Storefront\StorefrontCatalog;
 use App\Traits\CacheManagerTrait;
 use App\Traits\StorageTrait;
+use App\Utils\RequestArea;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -15,6 +18,7 @@ use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Modules\TaxModule\app\Models\Taxable;
+use App\Services\DigitalFileAddressService;
 
 /**
  * @property int $user_id
@@ -123,6 +127,7 @@ class Product extends Model
         'digital_file_ready_storage_type',
         'is_shipping_cost_updated',
         'temp_shipping_cost',
+        'storefront_country',
     ];
 
     /**
@@ -180,6 +185,9 @@ class Product extends Model
         'thumbnail_storage_type' => 'string',
         'digital_file_ready_storage_type' => 'string',
     ];
+
+    /** The owning country is a storefront rule, not part of what the apps read: no payload changes when the column appears. */
+    protected $hidden = ['storefront_country'];
 
     protected $appends = ['scan_code', 'is_shop_temporary_close', 'thumbnail_full_url', 'preview_file_full_url', 'color_images_full_url', 'meta_image_full_url', 'images_full_url', 'digital_file_ready_full_url'];
 
@@ -245,7 +253,18 @@ class Product extends Model
             ->where(['status' => 1])
             ->where(['request_status' => 1])
             ->SellerApproved()
-            ->whereIn('product_type', $productType);
+            ->whereIn('product_type', $productType)
+            ->inCurrentStorefront();
+    }
+
+    public function scopeInCurrentStorefront($query): void
+    {
+        StorefrontCatalog::restrict(query: $query);
+    }
+
+    public function scopeOfSeller($query, int|string $sellerId): void
+    {
+        $query->where(['added_by' => 'seller', 'user_id' => $sellerId]);
     }
 
     public function scopeSellerApproved($query): void
@@ -383,7 +402,7 @@ class Product extends Model
 
     public function tags(): BelongsToMany
     {
-        if (strpos(url()->current(), '/api')) {
+        if (RequestArea::isApi()) {
             return $this->belongsToMany(Tag::class)->limit(5);
         }
         return $this->belongsToMany(Tag::class);
@@ -416,11 +435,7 @@ class Product extends Model
 
     public function getNameAttribute($name): string|null
     {
-        $segment = request()->segment(1);
-        if ($segment === 'api') {
-            return $this->translations[0]->value ?? $name;
-        }
-        if (in_array($segment, ['admin', 'vendor', 'seller'], true)) {
+        if (RequestArea::isWebPanel()) {
             return $name;
         }
         return $this->translations[0]->value ?? $name;
@@ -428,11 +443,7 @@ class Product extends Model
 
     public function getDetailsAttribute($detail): string|null
     {
-        $segment = request()->segment(1);
-        if ($segment === 'api') {
-            return $this->translations[1]->value ?? $detail;
-        }
-        if (in_array($segment, ['admin', 'vendor', 'seller'], true)) {
+        if (RequestArea::isWebPanel()) {
             return $detail;
         }
         return $this->translations[1]->value ?? $detail;
@@ -459,7 +470,8 @@ class Product extends Model
     public function getDigitalFileReadyFullUrlAttribute(): array
     {
         $value = $this->digital_file_ready;
-        return $this->storageLink('product/digital-product', $value, $this->digital_file_ready_storage_type ?? 'public');
+        return app(DigitalFileAddressService::class)->privateAnswer(name: $value, kind: 'product', id: $this->id, storageType: $this->digital_file_ready_storage_type)
+            ?? $this->storageLink('product/digital-product', $value, $this->digital_file_ready_storage_type ?? 'public');
     }
 
     public function getColorImagesFullUrlAttribute(): array
@@ -503,16 +515,17 @@ class Product extends Model
             cacheRemoveByType(type: 'products');
         });
 
+        static::addGlobalScope(new StaffCountryProductScope());
+
         static::addGlobalScope('translate', function (Builder $builder) {
             $builder->with(['translations' => function ($query) {
-                if (strpos(url()->current(), '/api')) {
+                if (RequestArea::isApi()) {
                     return $query->where('locale', App::getLocale());
                 } else {
                     return $query->where('locale', getDefaultLanguage());
                 }
             }, 'reviews' => function ($query) {
-                $segment = request()->segment(1);
-                $query->whereNull('delivery_man_id')->when(!in_array($segment, ['admin', 'vendor', 'seller'], true), function ($query) use ($segment) {
+                $query->whereNull('delivery_man_id')->when(!RequestArea::isPanel(), function ($query) {
                     return $query->active();
                 });
             }]);

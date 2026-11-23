@@ -63,12 +63,15 @@ Route::group(['namespace' => 'RestAPI\v2', 'prefix' => 'v2', 'middleware' => ['a
                 Route::put('update/{id}', 'update');
                 Route::delete('delete/{id}', 'delete');
                 Route::get('barcode/generate', 'barcode_generate');
+                Route::get('digital-file/{id}/{fileName?}', 'downloadDigitalFile')->name('seller-api.v2.products.digital-file');
+                Route::get('digital-variation-file/{id}/{fileName?}', 'downloadDigitalVariationFile')->name('seller-api.v2.products.digital-variation-file');
             });
         });
 
         Route::group(['prefix' => 'orders'], function () {
             Route::controller(OrderController::class)->group(function () {
                 Route::get('list', 'list');
+                Route::get('digital-file/{id}/{fileName?}', 'downloadDigitalFile')->name('seller-api.v2.orders.digital-file');
                 Route::get('/{id}', 'details');
                 Route::put('order-detail-status/{id}', 'order_detail_status');
                 Route::put('assign-delivery-man', 'assign_delivery_man');
@@ -79,7 +82,7 @@ Route::group(['namespace' => 'RestAPI\v2', 'prefix' => 'v2', 'middleware' => ['a
             });
         });
 
-        Route::controller(RefundController::class)->prefix('refund')->group(function () {
+        Route::controller(RefundController::class)->prefix('refund')->middleware('legacy_seller_approved')->group(function () {
             Route::get('list', 'list');
             Route::get('refund-details', 'refund_details');
             Route::post('refund-status-update', 'refund_status_update');

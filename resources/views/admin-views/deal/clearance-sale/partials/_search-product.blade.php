@@ -12,7 +12,7 @@
                         <div class="media-body d-flex flex-column gap-1">
                             <h6 class="product-id" hidden>{{$product['id']}}</h6>
                             <h4 class="mb-1 product-name line-1 text-start">
-                                {{ $product['name'] }}
+                                {{ $product['name'] }}{{ app(\App\Services\Catalog\ProductCodeScope::class)->countryTag(product: $product) }}
                             </h4>
                             <div class="fs-12 text-dark gap-1">
                                 <div class="border-between wrap">

@@ -2,8 +2,11 @@
 
 namespace App\Models;
 
+use App\Services\Storefront\StorefrontVisibility;
 use App\Traits\CacheManagerTrait;
+use App\Traits\HasStorefrontVisibility;
 use App\Traits\StorageTrait;
+use App\Utils\RequestArea;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -27,7 +30,9 @@ use Modules\TaxModule\app\Models\Taxable;
  */
 class Category extends Model
 {
-    use StorageTrait, CacheManagerTrait;
+    use StorageTrait, CacheManagerTrait, HasStorefrontVisibility;
+
+    public const STOREFRONT_ENTITY_TYPE = StorefrontVisibility::CATEGORY;
 
     protected $fillable = [
         'name',
@@ -101,11 +106,7 @@ class Category extends Model
 
     public function getNameAttribute($name): string|null
     {
-        $segment = request()->segment(1);
-        if ($segment === 'api') {
-            return $this->translations[0]->value ?? $name;
-        }
-        if (in_array($segment, ['admin', 'vendor', 'seller'], true)) {
+        if (RequestArea::isWebPanel()) {
             return $name;
         }
         return $this->translations[0]->value ?? $name;
@@ -164,7 +165,7 @@ class Category extends Model
 
         static::addGlobalScope('translate', function (Builder $builder) {
             $builder->with(['translations' => function ($query) {
-                if (strpos(url()->current(), '/api')) {
+                if (RequestArea::isApi()) {
                     return $query->where('locale', App::getLocale());
                 } else {
                     return $query->where('locale', getDefaultLanguage());

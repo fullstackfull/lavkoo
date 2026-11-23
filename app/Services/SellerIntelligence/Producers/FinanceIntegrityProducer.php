@@ -3,13 +3,13 @@
 namespace App\Services\SellerIntelligence\Producers;
 
 use App\Services\Marketplace\OperationsPolicy;
+use App\Models\OrderDetail;
 use App\Models\SellerInsight;
 use App\Services\SellerCenter\Copy;
 use App\Models\VendorLedgerEntry;
 use App\Services\SellerIntelligence\InsightDraft;
 use App\Services\SellerIntelligence\InsightProducer;
 use App\Services\SellerIntelligence\Severity\ImpactSignals;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -47,8 +47,8 @@ class FinanceIntegrityProducer implements InsightProducer
 
         $graceHours = app(OperationsPolicy::class)->financeGraceHours();
 
-        $delivered = DB::table('order_details')
-            ->where('seller_id', $sellerId)
+        $delivered = OrderDetail::ofSeller(sellerId: $sellerId)
+            ->toBase()
             ->where('delivery_status', 'delivered')
             ->whereBetween('created_at', [now()->subDays(self::LOOKBACK_DAYS), now()->subHours($graceHours)])
             ->orderByDesc('id')

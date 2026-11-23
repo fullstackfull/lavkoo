@@ -1,0 +1,267 @@
+<?php
+
+namespace App\Services\Storefront;
+
+use Closure;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Query\Builder as QueryBuilder;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * Which products a storefront may show (GCC-02/03). Every product belongs to one country, so its price, stock and availability are that
+ * country's own: nothing is shared with, or converted from, another country's copy of the product.
+ *
+ * It narrows only a storefront request while storefronts are on. A storefront request is one the middleware bound to a storefront, or one
+ * it has not reached yet (the providers boot before any middleware) that would be bound to the storefront it asks for. The admin and
+ * vendor panels, the seller APIs, queues and console commands work across every country, and while storefronts are off nothing is
+ * narrowed and nothing about the resolver is read. A database whose migration has not run serves the default storefront as before and
+ * shows no product to any other.
+ */
+final class StorefrontCatalog
+{
+    public const COLUMN = 'storefront_country';
+
+    private const TABLE = 'products';
+
+    /** What the panels and the seller APIs answer. They work across every country. */
+    private const PANEL_PATHS = ['admin', 'admin/*', 'vendor', 'vendor/*', 'seller', 'seller/*', 'api/v2', 'api/v2/*', 'api/v3', 'api/v3/*'];
+
+    /** How long a "no" is remembered, so a worker started before the migration notices it without a restart. A "yes" lasts for the process. */
+    private const NEGATIVE_ANSWER_SECONDS = 30;
+
+    /** How many cart groups one country lookup asks for: every engine has a cap on the placeholders of a single statement. */
+    private const CART_GROUPS_PER_QUERY = 500;
+
+    /** @var array{value: bool, at: int}|null */
+    private static ?array $columnAnswer = null;
+
+    public static function restrict(Builder $query): Builder
+    {
+        return self::narrowTo(query: $query, column: $query->qualifyColumn(self::COLUMN));
+    }
+
+    /** For a plain query that joins the products table, as the checkout guard does: it reads the cart without going through the Product model. */
+    public static function restrictJoinedProducts(QueryBuilder $query): QueryBuilder
+    {
+        return self::narrowTo(query: $query, column: self::TABLE . '.' . self::COLUMN);
+    }
+
+    /** For a plain query over a table that holds product ids, such as the search index: it is narrowed before any cap on the number of rows. */
+    public static function restrictProductIds(QueryBuilder $query, string $column): QueryBuilder
+    {
+        if (!self::narrows()) {
+            return $query;
+        }
+
+        return $query->whereIn($column, fn (QueryBuilder $products) => self::narrowTo(query: $products->select('id')->from(self::TABLE), column: self::COLUMN));
+    }
+
+    /**
+     * A cart only holds, shows and changes the rows of the storefront it is used from, so a customer who shops two countries has two separate
+     * carts. A row whose product no longer exists belongs to no country, so it stays reachable: it can be removed, and a checkout cleans it up.
+     */
+    public static function restrictCartRows(Builder $cartRows): Builder
+    {
+        if (!self::narrows()) {
+            return $cartRows;
+        }
+
+        return $cartRows->where(fn (Builder $rows) => $rows
+            ->whereHas('allProducts', fn (Builder $products) => self::restrict(query: $products))
+            ->orWhereDoesntHave('allProducts'));
+    }
+
+    /**
+     * Runs an operation that is cross-storefront by nature, such as moving a guest's cart into an account at login, once in every
+     * storefront: the rows of each country go to the cart of that country, and none is left behind because the request was served from
+     * another one. Storefronts that are switched off, and a request that is not a storefront request, run it once as it always ran.
+     */
+    public static function inEveryStorefront(Closure $operation): void
+    {
+        if (!self::narrows()) {
+            $operation();
+
+            return;
+        }
+
+        $resolver = StorefrontResolver::fromConfig();
+        foreach ($resolver->configuredCountries() as $country) {
+            $resolver->contextOfRecordedCountry($country)?->serve(callback: $operation);
+        }
+    }
+
+    /** Whether the storefront of the request may sell this product: the cart asks before it takes a product, whatever route reached it. */
+    public static function offers(?Model $product): bool
+    {
+        $country = self::country();
+        if ($country === null || $product === null) {
+            return true;
+        }
+
+        if (self::columnReady()) {
+            return $product->getAttribute(self::COLUMN) === $country;
+        }
+
+        return self::isDefaultCountry($country);
+    }
+
+    /**
+     * The key a cache entry built from the catalog is written under. A storefront request writes under its storefront's key, which is the
+     * plain key for the Saudi storefront. A request that works across every country (the admin and vendor panels, the seller APIs, a queue,
+     * a console command) gets a key of its own, so it never fills the Saudi storefront's entry with other countries' products. While
+     * storefronts are off every key is the plain key and nothing about the resolver is read.
+     */
+    public static function cacheKey(string $key): string
+    {
+        if (!config('gcc.storefronts.enabled')) {
+            return $key;
+        }
+
+        return self::context()?->scopedCacheKey($key) ?? self::unboundKey($key);
+    }
+
+    /** @return list<string> every key the entry can be under: the plain key, and while storefronts are on, each storefront's and the unbound one. */
+    public static function cacheKeysForEveryStorefront(string $key): array
+    {
+        if (!config('gcc.storefronts.enabled')) {
+            return [$key];
+        }
+
+        return [...StorefrontContext::keysForEveryStorefront($key), self::unboundKey($key)];
+    }
+
+    /**
+     * The country of a cart group, for a link that must open the storefront the cart was made in: a link opens one storefront, so the first
+     * row of the group names it, as a lookup of one group always did, and a first row that belongs to no country still names none. Null
+     * while storefronts are off.
+     */
+    public static function countryOfCartGroup(string $cartGroupId): ?string
+    {
+        $firstRow = self::countriesOfCartGroups(cartGroupIds: [$cartGroupId])[$cartGroupId][0] ?? '';
+
+        return $firstRow === '' ? null : $firstRow;
+    }
+
+    /**
+     * The countries the products of each cart group belong to, in one query for all of them and in the order of the group's rows. A legacy
+     * cart group can hold the rows of two countries (CartManager::cartGroupsSharedWithOtherStorefronts), so a caller that has to judge the
+     * storefronts of many carts, such as the marketing stop, sees every country a group names and asks once instead of once per cart. A row
+     * whose product belongs to no country is the empty string, which is what such a first row always answered. Empty while storefronts are off.
+     *
+     * @param list<string> $cartGroupIds
+     * @return array<string, list<string>> cart group id => the countries its rows name, the first row's first
+     */
+    public static function countriesOfCartGroups(array $cartGroupIds): array
+    {
+        $ids = array_values(array_unique(array_map('strval', $cartGroupIds)));
+
+        if ($ids === [] || !config('gcc.storefronts.enabled') || !self::columnReady()) {
+            return [];
+        }
+
+        $countries = [];
+
+        foreach (array_chunk($ids, self::CART_GROUPS_PER_QUERY) as $chunk) {
+            $rows = DB::table('carts')
+                ->join(self::TABLE, self::TABLE . '.id', '=', 'carts.product_id')
+                ->whereIn('carts.cart_group_id', $chunk)
+                ->orderBy('carts.id')
+                ->get(['carts.cart_group_id', self::TABLE . '.' . self::COLUMN]);
+
+            foreach ($rows as $row) {
+                $cartGroupId = (string) $row->cart_group_id;
+                $country = (string) ($row->{self::COLUMN} ?? '');
+                $countries[$cartGroupId] ??= [];
+
+                if (!in_array($country, $countries[$cartGroupId], true)) {
+                    $countries[$cartGroupId][] = $country;
+                }
+            }
+        }
+
+        return $countries;
+    }
+
+    /** Whether the admin tools see a product's country: storefronts are on and the products migration has run. */
+    public static function tracksProductCountry(): bool
+    {
+        return (bool) config('gcc.storefronts.enabled') && self::columnReady();
+    }
+
+    public static function flush(): void
+    {
+        self::$columnAnswer = null;
+    }
+
+    /** The country this request is narrowed to, or null when nothing is narrowed: storefronts off, a panel, a seller API, a queue or a console command. */
+    public static function country(): ?string
+    {
+        return self::context()?->country;
+    }
+
+    /** Whether a query over products is narrowed at all for this request: not while storefronts are off, for a panel, a seller API or a queue, nor for the default storefront before the migration has run. */
+    private static function narrows(): bool
+    {
+        $country = self::country();
+
+        return $country !== null && (self::columnReady() || !self::isDefaultCountry($country));
+    }
+
+    private static function narrowTo(Builder|QueryBuilder $query, string $column): Builder|QueryBuilder
+    {
+        $country = self::country();
+        if ($country === null) {
+            return $query;
+        }
+
+        if (self::columnReady()) {
+            return $query->where($column, $country);
+        }
+
+        return self::isDefaultCountry($country) ? $query : $query->whereRaw('1 = 0');
+    }
+
+    private static function context(): ?StorefrontContext
+    {
+        if (!config('gcc.storefronts.enabled')) {
+            return null;
+        }
+
+        return app()->bound(StorefrontContext::class) ? StorefrontContext::current() : self::contextOfUnboundRequest();
+    }
+
+    private static function contextOfUnboundRequest(): ?StorefrontContext
+    {
+        $request = request();
+        if (app()->runningInConsole() || $request->is(...self::PANEL_PATHS)) {
+            return null;
+        }
+
+        return StorefrontResolver::fromConfig()->contextForRequest(request: $request);
+    }
+
+    private static function unboundKey(string $key): string
+    {
+        return "storefront:*:{$key}";
+    }
+
+    private static function isDefaultCountry(string $country): bool
+    {
+        return $country === StorefrontResolver::fromConfig()->defaultCountry();
+    }
+
+    public static function columnReady(): bool
+    {
+        $answer = self::$columnAnswer;
+        if ($answer !== null && ($answer['value'] || time() - $answer['at'] < self::NEGATIVE_ANSWER_SECONDS)) {
+            return $answer['value'];
+        }
+
+        $ready = Schema::hasColumn(self::TABLE, self::COLUMN);
+        self::$columnAnswer = ['value' => $ready, 'at' => time()];
+
+        return $ready;
+    }
+}

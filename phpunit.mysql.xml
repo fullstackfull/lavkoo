@@ -31,6 +31,7 @@
         <!-- The cost module ships off (config/operational_costs.php); its tests run with the master switch on and say so where they test the off state. -->
         <server name="OPERATIONAL_COSTS_ENABLED" value="true"/>
         <server name="CACHE_DRIVER" value="array"/>
+        <server name="CACHE_LIMITER_DRIVER" value="array"/>
         <server name="MAIL_DRIVER" value="array"/>
         <server name="QUEUE_CONNECTION" value="sync"/>
         <server name="SESSION_DRIVER" value="array"/>

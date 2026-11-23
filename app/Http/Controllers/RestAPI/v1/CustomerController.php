@@ -20,6 +20,9 @@ use App\Models\SupportTicketConv;
 use App\Models\Wishlist;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\AddressSnapshot;
+use App\Services\CustomerAccountDeletionGuardService;
+use App\Services\CustomerAccountDeletionService;
+use App\Services\DigitalFileAddressService;
 use App\Services\Fulfillment\CustomerFulfillmentPresenter;
 use App\Services\ShippingAddressService;
 use App\Traits\CommonTrait;
@@ -41,6 +44,7 @@ use Modules\Auction\app\Models\AuctionParticipant;
 use Modules\Auction\app\Models\AuctionProduct;
 use Modules\Auction\app\Models\AuctionSavedProduct;
 use Modules\Auction\app\Services\AuctionAccountDeletionGuardService;
+use App\Services\Storefront\StorefrontCurrency;
 
 class CustomerController extends Controller
 {
@@ -52,7 +56,12 @@ class CustomerController extends Controller
 
     private const LOCATION_FIELDS = ['city', 'country', 'region_id', 'city_id', 'district', 'national_address'];
 
-    public function __construct(private readonly ShippingAddressService $shippingAddressService)
+    public function __construct(
+        private readonly ShippingAddressService $shippingAddressService,
+        private readonly DigitalFileAddressService $digitalFileAddresses,
+        private readonly CustomerAccountDeletionGuardService $accountDeletionGuard,
+        private readonly CustomerAccountDeletionService $customerAccountDeletionService,
+    )
     {
     }
 
@@ -132,8 +141,13 @@ class CustomerController extends Controller
                 }
             }
 
+            $moneyBlocker = $this->accountDeletionGuard->blockingReason(customer: $user);
+            if ($moneyBlocker !== null) {
+                return response()->json(['message' => translate($moneyBlocker)], 403);
+            }
+
             $this->delete('/profile/' . $user['image']);
-            $user->delete();
+            $this->customerAccountDeletionService->closeAccount(customer: $user);
             return response()->json(['message' => 'Your account deleted successfully'], 200);
         } else {
             return response()->json(['message' => 'access_denied!!'], 403);
@@ -522,8 +536,7 @@ class CustomerController extends Controller
             $product = json_decode($query['product_details'], true);
             $product['thumbnail_full_url'] = $currentProduct?->thumbnail_full_url;
             if (isset($product['product_type']) && $product['product_type'] == 'digital' && $product['digital_product_type'] == 'ready_product' && $product['digital_file_ready']) {
-                $checkFilePath = storageLink('product/digital-product', $product['digital_file_ready'], ($product['storage_path'] ?? 'public'));
-                $product['digital_file_ready_full_url'] = $checkFilePath;
+                $product['digital_file_ready_full_url'] = $this->digitalFileAddresses->readyFileAnswerOfLine(orderDetail: $query);
             }
             $query['product_details'] = Helpers::product_data_formatting_for_json_data($product);
 
@@ -548,7 +561,7 @@ class CustomerController extends Controller
             ->where('id', $request['order_id'])
             ->where(function ($query) use ($request) {
                 auth('api')->check()
-                    ? $query->where('customer_id', auth('api')->id())
+                    ? $query->ownedByCustomer(customerId: auth('api')->id())
                     : $query->where(['customer_id' => $request['guest_id'], 'is_guest' => 1]);
             })
             ->first();
@@ -558,7 +571,6 @@ class CustomerController extends Controller
         }
 
         $invoiceSettings = json_decode(BusinessSetting::where(['type' => 'invoice_settings'])->first()?->value, true);
-        $mpdf_view = \View::make(VIEW_FILE_NAMES['order_invoice'], compact('order', 'invoiceSettings'));
         $mpdf = new \Mpdf\Mpdf(['default_font' => 'FreeSerif', 'mode' => 'utf-8', 'format' => [190, 250], 'autoLangToFont' => true]);
         $mpdf->autoScriptToLang = true;
         $mpdf->autoLangToFont = true;
@@ -566,7 +578,13 @@ class CustomerController extends Controller
             $footerHtml = $this->footerHtml(requestFrom: 'web');
             $mpdf->SetHTMLFooter($footerHtml);
         }
-        $mpdf_view = $mpdf_view->render();
+        // The variables are named, not compact()ed: an arrow function captures only what its body
+        // mentions by name, and compact() names them in strings, so the template was handed nothing
+        // and this route answered with "compact(): Undefined variable $order" instead of an invoice.
+        $mpdf_view = app(StorefrontCurrency::class)->withinOrderCurrency(
+            order: $order,
+            callback: fn (): string => \View::make(VIEW_FILE_NAMES['order_invoice'], ['order' => $order, 'invoiceSettings' => $invoiceSettings])->render(),
+        );
         $mpdf->WriteHTML($mpdf_view);
         $pdfContentStr = $mpdf->Output('', 'S');
         $pdfContentBytes = $pdfContentStr;
@@ -589,7 +607,7 @@ class CustomerController extends Controller
             ->where('id', $request['order_id'])
             ->where(function ($query) use ($request) {
                 auth('api')->check()
-                    ? $query->where('customer_id', auth('api')->id())
+                    ? $query->ownedByCustomer(customerId: auth('api')->id())
                     : $query->where(['customer_id' => $request['guest_id'], 'is_guest' => 1]);
             })
             ->first();

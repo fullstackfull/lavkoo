@@ -27,7 +27,6 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Str;
 use App\Models\ZenderSetting;
 use App\Services\ZenderOtpService;
-use Illuminate\Support\Facades\Log; 
 
 class ForgotPasswordController extends BaseController
 {
@@ -138,7 +137,7 @@ class ForgotPasswordController extends BaseController
                 $response = "not_found";
                 $smsErrorMsg = translate('something_went_wrong.') . ' ' . translate('please_try_again_after_sometime');
 
-                $token = (config('app.mode') == 'live') ? rand(111111, 999999) : 123456;
+                $token = (config('app.mode') == 'live') ? random_int(111111, 999999) : 123456;
 
                 $firebaseOTPVerification = getWebConfig(name: 'firebase_otp_verification') ?? [];
                 if ($firebaseOTPVerification && $firebaseOTPVerification['status']) {
@@ -158,11 +157,6 @@ class ForgotPasswordController extends BaseController
  } else {
 
 
-
-Log::info('OTP BEFORE ZENDER', [
-    'phone' => $request['identity'],
-    'token' => $token,
-]);
 
 
 
@@ -193,11 +187,6 @@ Log::info('OTP BEFORE ZENDER', [
                 $this->passwordResetRepo->add($this->passwordResetService->getAddData(identity: $request['identity'], token: $token, userType: 'seller'));
 
 
-
-Log::info('OTP AFTER SAVE', [
-    'phone' => $request['identity'],
-    'token' => $token,
-]);
 
 
 
@@ -274,12 +263,6 @@ Log::info('OTP AFTER SAVE', [
         ? implode('', $tokenInput)
         : trim((string) $tokenInput);
 
-    Log::info('OTP VERIFY DEBUG', [
-        'session_identity' => $identity,
-        'raw_token' => $tokenInput,
-        'entered_token' => $enteredToken,
-    ]);
-
     if (!$identity || !$enteredToken) {
         ToastMagic::error(translate('invalid_otp'));
         return redirect()->back();
@@ -334,12 +317,6 @@ Log::info('OTP AFTER SAVE', [
 
     if ($otpVerificationData) {
 
-        Log::info('OTP VERIFY SUCCESS', [
-            'identity' => $identity,
-            'entered_token' => $enteredToken,
-            'reset_id' => $otpVerificationData['id'] ?? null,
-        ]);
-
         return redirect()->route(
             'vendor.auth.forgot-password.reset-password',
             [
@@ -347,11 +324,6 @@ Log::info('OTP AFTER SAVE', [
             ]
         );
     }
-
-    Log::warning('OTP VERIFY FAILED', [
-        'identity' => $identity,
-        'entered_token' => $enteredToken,
-    ]);
 
     ToastMagic::error(translate('invalid_otp'));
 

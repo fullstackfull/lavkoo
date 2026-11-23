@@ -50,8 +50,10 @@ class ShippingMethodController extends Controller
                 $request['cart_group_id'] = $group_id;
                 self::insert_into_cart_shipping($request);
             }
-        } else {
+        } elseif (CartManager::holdsCartGroup(cartGroupId: $request['cart_group_id'], request: $request)) {
             self::insert_into_cart_shipping($request);
+        } else {
+            return response()->json(['errors' => [['code' => 'cart_group_id', 'message' => translate('Unauthorized')]]], 403);
         }
 
         return response()->json(translate('successfully_added'));

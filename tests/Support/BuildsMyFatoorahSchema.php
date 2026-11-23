@@ -6,7 +6,6 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
-use RuntimeException;
 
 /**
  * The tables the MyFatoorah integration touches, built for an in-memory database.
@@ -18,6 +17,8 @@ use RuntimeException;
  */
 trait BuildsMyFatoorahSchema
 {
+    use RefusesToTouchALiveDatabase;
+
     protected function buildMyFatoorahSchema(): void
     {
         $this->startFromCleanMyFatoorahTables();
@@ -117,21 +118,15 @@ trait BuildsMyFatoorahSchema
      *   - `currencies` kept SAR switched off after the test that deliberately switches it off, which
      *     made every later test see an unusable gateway.
      *
-     * Guarded the same way the fulfillment helper guards its own drop: a database whose name does not
-     * say "test", or an environment that is not `testing`, is refused outright.
+     * Guarded by RefusesToTouchALiveDatabase: a database whose name does not say "test", or an
+     * environment that is not `testing`, is refused outright.
      */
     private function startFromCleanMyFatoorahTables(): void
     {
-        $connection = DB::connection();
+        $this->refuseUnlessTheDatabaseIsThrowaway();
 
-        if ($connection->getDriverName() === 'sqlite') {
+        if (DB::connection()->getDriverName() === 'sqlite') {
             return;
-        }
-
-        $database = (string) $connection->getDatabaseName();
-
-        if (!app()->environment('testing') || !preg_match('/(^|_)test(s|ing)?($|_)/i', $database)) {
-            throw new RuntimeException("Refusing to drop every table of '{$database}': the test database name must contain 'test' and APP_ENV must be 'testing'.");
         }
 
         Schema::dropAllTables();

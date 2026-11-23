@@ -5,14 +5,19 @@ namespace App\Services;
 
 use App\Events\RestockProductNotificationEvent;
 use App\Models\Color;
+use App\Services\Staff\StaffCountryScope;
+use App\Services\Storefront\ProductCountry;
+use App\Services\Storefront\StorefrontCatalog;
 use App\Traits\FileManagerTrait;
+use App\Utils\PlainFileName;
 use Illuminate\Support\Str;
 use Rap2hpoutre\FastExcel\FastExcel;
+use App\Services\Catalog\ProductCodeScope;
 class ProductService
 {
     use FileManagerTrait;
 
-    public function __construct(private readonly Color $color)
+    public function __construct(private readonly Color $color, private readonly DigitalProductFileService $digitalFiles)
     {
     }
 
@@ -121,7 +126,7 @@ class ProductService
 
             foreach ($inputColors as $color) {
                 $image = 'color_image_' . $color;
-                if (!in_array($color, $dbColorImageFinal)) {
+                if (!in_array($color, $dbColorImageFinal, strict: true)) {
                     if ($request->file($image)) {
                         $imageName = $this->upload(dir: 'product/', format: 'webp', image: $request->file($image));
                         $productImages[] = [
@@ -135,10 +140,10 @@ class ProductService
                         ];
                         $colorImageArray[] = $colorImages;
                     }
-                } else if ($dbColorImage && in_array($color, $dbColorImageFinal) && $request->has($image) && $request->file($image)) {
+                } else if ($dbColorImage && in_array($color, $dbColorImageFinal, strict: true) && $request->has($image) && $request->file($image)) {
                     $dbColorFilterImages = [];
                     foreach ($dbColorImage as $colorImage) {
-                        if ($colorImage['color'] == $color) {
+                        if ($colorImage['color'] === $color) {
                             $this->delete(filePath: 'product/' . $colorImage['image_name']);
                             $imageName = $this->upload(dir: 'product/', format: 'webp', image: $request->file($image));
 
@@ -160,7 +165,7 @@ class ProductService
                             ];
 
                             $colorImageArray = collect($colorImageArray)->filter(function ($colorItem) use ($color, $colorImage) {
-                                return $colorItem['color'] != $color && $colorItem['image_name'] != $colorImage['image_name'];
+                                return $colorItem['color'] !== $color && $colorItem['image_name'] !== $colorImage['image_name'];
                             })->values()->toArray();
 
                             $colorImages = [
@@ -191,7 +196,7 @@ class ProductService
         }
 
         foreach ($colorImageArray as $colorImage) {
-            if (!in_array($colorImage['color'], $requestColors)) {
+            if (!in_array($colorImage['color'], $requestColors, strict: true)) {
                 $productImages[] = [
                     'image_name' => $colorImage['image_name'],
                     'storage' => $colorImage['storage'] ?? $storage,
@@ -200,7 +205,7 @@ class ProductService
         }
 
         $colorImageArray = collect($colorImageArray)->map(function ($colorImage) use ($requestColors) {
-            if (!in_array($colorImage['color'], $requestColors)) {
+            if (!in_array($colorImage['color'], $requestColors, strict: true)) {
                 $colorImage['color'] = null;
             }
             return $colorImage;
@@ -503,10 +508,12 @@ class ProductService
 
     public function deleteImages(object $product): bool
     {
+        $filePaths = [];
         foreach (json_decode($product['images'], true) as $image) {
-            $this->delete(filePath: '/product/' . (isset($image['image_name']) ? $image['image_name'] : $image));
+            $filePaths[] = '/product/' . (isset($image['image_name']) ? $image['image_name'] : $image);
         }
-        $this->delete(filePath: '/product/thumbnail/' . $product['thumbnail']);
+        $filePaths[] = '/product/thumbnail/' . $product['thumbnail'];
+        $this->deleteAll(filePaths: $filePaths);
 
         return true;
     }
@@ -519,6 +526,30 @@ class ProductService
         return true;
     }
 
+    /** The names of the image files a product holds: its gallery and its colour images. */
+    public function imageNames(object $product): array
+    {
+        $names = [];
+        foreach ((array)json_decode($product['images'] ?? '[]', true) as $image) {
+            $names[] = is_array($image) ? ($image['image_name'] ?? null) : $image;
+        }
+        foreach ((array)json_decode($product['color_image'] ?? '[]', true) as $image) {
+            $names[] = is_array($image) ? ($image['image_name'] ?? null) : null;
+        }
+
+        return array_values(array_filter($names, 'is_string'));
+    }
+
+    /**
+     * Whether a request removes a colour image: by the colour it names or by the image name it names. Both are compared as text, so two colours that are the same number
+     * (`000000` and `0E0000`) and two names that are (`10` and `1e1`) stay apart, and an entry with no colour is never matched by a request with none.
+     */
+    public function isRemovedColorImage(object $entry, mixed $color, mixed $name): bool
+    {
+        return (is_string($color) && $color !== '' && ($entry->color ?? null) === $color)
+            || (is_string($name) && $name !== '' && ($entry->image_name ?? null) === $name);
+    }
+
     public function deleteImage(object $request, object $product): array
     {
         $colors = json_decode($product['colors']);
@@ -528,7 +559,7 @@ class ProductService
         $color_images = [];
         if ($colors && $color_image) {
             foreach ($color_image as $img) {
-                if ($img->color != $request['color'] && $img?->image_name != $request['name']) {
+                if (!$this->isRemovedColorImage(entry: $img, color: $request['color'], name: $request['name'])) {
                     $imageNames[] = $img->image_name;
                     $color_images[] = [
                         'color' => $img->color != null ? $img->color : null,
@@ -540,7 +571,7 @@ class ProductService
 
             foreach (json_decode($product['images']) as $image) {
                 $imageName = $image?->image_name ?? $image;
-                if ($imageName != $request['name'] && !in_array($imageName, $imageNames)) {
+                if ($imageName !== $request['name'] && !in_array($imageName, $imageNames, strict: true)) {
                     $color_images[] = [
                         'color' => null,
                         'image_name' => $imageName,
@@ -552,7 +583,7 @@ class ProductService
 
         foreach (json_decode($product['images']) as $image) {
             $imageName = $image?->image_name ?? $image;
-            if ($imageName != $request['name']) {
+            if ($imageName !== $request['name']) {
                 $images[] = $image;
             }
         }
@@ -573,7 +604,7 @@ class ProductService
 
         $digitalFile = '';
         if ($request['product_type'] == 'digital' && $request['digital_product_type'] == 'ready_product' && $request['digital_file_ready']) {
-            $digitalFile = $this->fileUpload(dir: 'product/digital-product/', format: $request['digital_file_ready']->getClientOriginalExtension(), file: $request['digital_file_ready']);
+            $digitalFile = $this->digitalFiles->store(file: $request['digital_file_ready']);
         }
 
         $previewFile = $request['product_type'] == 'digital' && $request->existing_preview_file ? $request->existing_preview_file : '';
@@ -584,7 +615,9 @@ class ProductService
         $digitalFileOptions = $this->getDigitalVariationOptions(request: $request);
         $digitalFileCombinations = $this->getDigitalVariationCombinations(arrays: $digitalFileOptions);
 
-        return [
+        $countryAttributes = $addedBy == 'admin' ? ProductCountry::newProductAttributes(requestedCountry: $request['storefront_country']) : [];
+
+        return $countryAttributes + [
             'added_by' => $addedBy,
             'user_id' => $addedBy == 'admin' ? auth('admin')->id() : auth('seller')->id(),
             'shop_id' => $shopId,
@@ -659,7 +692,7 @@ class ProductService
         }
         if ($request['product_type'] == 'digital') {
             if ($request['digital_product_type'] == 'ready_product' && $request->hasFile('digital_file_ready')) {
-                $digitalFile = $this->update(dir: 'product/digital-product/', oldImage: $product['digital_file_ready'], format: $request['digital_file_ready']->getClientOriginalExtension(), image: $request['digital_file_ready'], fileType: 'file');
+                $digitalFile = $this->digitalFiles->replace(oldName: $product['digital_file_ready'], file: $request['digital_file_ready']);
             } elseif (($request['digital_product_type'] == 'ready_after_sell') && $product['digital_file_ready']) {
                 $digitalFile = null;
                 // $this->delete(filePath: 'product/digital-product/' . $product['digital_file_ready']);
@@ -762,10 +795,21 @@ class ProductService
         return $dataArray;
     }
 
+    /**
+     * The file name a bulk import sheet's thumbnail cell holds: the name after the folder ("thumbnail/photo.png" is photo.png), split on a
+     * slash or a backslash, and only when it is one plain name; a cell that is anything else (a way up, a path) is the default image.
+     */
+    public static function importedFileName(mixed $cell): string
+    {
+        $parts = preg_split('/[\/\\\\]/', trim((string) $cell)) ?: [];
+
+        return PlainFileName::of($parts[1] ?? $parts[0] ?? null) ?? 'def.png';
+    }
+
     public function getUniqueProductSKUCode(): string
     {
         $code = strtoupper(Str::random('6'));
-        if (\App\Models\Product::where('code', $code)->exists()) {
+        if (!app(ProductCodeScope::class)->generatedCodeIsFree(code: $code, country: ProductCodeScope::TABLE_DEFAULT_COUNTRY)) {
             return self::getUniqueProductSKUCode();
         }
         return $code;
@@ -773,6 +817,17 @@ class ProductService
 
     public function getImportBulkProductData(object $request, string $addedBy, int|string $shopId): array
     {
+        $staffCountries = app(StaffCountryScope::class);
+        $countriesAreTracked = $staffCountries->restricts() && ProductCountry::isTracked();
+        $refusal = $staffCountries->whyItMayNotImport(countriesAreTracked: $countriesAreTracked);
+        if ($refusal !== null) {
+            return [
+                'status' => false,
+                'message' => translate($refusal),
+                'products' => []
+            ];
+        }
+
         try {
             $collections = (new FastExcel)->import($request->file('products_file'));
         } catch (\Exception $exception) {
@@ -831,11 +886,11 @@ class ProductService
                     ];
                 }
             }
-            $thumbnail = explode('/', $collection['thumbnail']);
+            $thumbnail = self::importedFileName(cell: $collection['thumbnail']);
 
             $productCode = self::getUniqueProductSKUCode();
 
-            $productsTax[$productCode] = $collection['tax_ids'];
+            $productsTax[] = $collection['tax_ids'];
 
             $products[] = [
                 'name' => $collection['name'],
@@ -859,7 +914,7 @@ class ProductService
                 'video_provider' => 'youtube',
                 'video_url' => $collection['youtube_video_url'],
                 'images' => json_encode(['def.png']),
-                'thumbnail' => $thumbnail[1] ?? $thumbnail[0],
+                'thumbnail' => $thumbnail,
                 'status' => $addedBy == 'admin' && $collection['status'] == 1 ? 1 : 0,
                 'request_status' => $addedBy == 'admin' ? 1 : (getWebConfig(name: 'new_product_approval') == 1 ? 0 : 1),
                 'colors' => json_encode([]),
@@ -874,10 +929,12 @@ class ProductService
             ];
         }
 
+        $importCountry = $staffCountries->countryOfImportedRows(countriesAreTracked: $countriesAreTracked);
+
         return [
             'status' => true,
             'message' => count($products) . ' - ' . translate('products_imported_successfully'),
-            'products' => $products,
+            'products' => $importCountry === null ? $products : array_map(static fn (array $row): array => $row + [StorefrontCatalog::COLUMN => $importCountry], $products),
             'productsTax' => $productsTax,
         ];
     }
@@ -895,7 +952,7 @@ class ProductService
                 $fileItem = $request->file('digital_files.' . $uniqueKey);
                 $uploadedFile = '';
                 if ($fileItem) {
-                    $uploadedFile = $this->fileUpload(dir: 'product/digital-product/', format: $fileItem->getClientOriginalExtension(), file: $fileItem);
+                    $uploadedFile = $this->digitalFiles->store(file: $fileItem);
                 }
                 $digitalFiles[] = [
                     'product_id' => $product->id,
@@ -1074,7 +1131,10 @@ class ProductService
     {
         if ($product) {
             if ($request->file('meta_image')) {
-                $metaImage = $this->update(dir: 'product/meta/', oldImage: $product['meta_image'], format: 'png', image: $request['meta_image']);
+                // getUpdateProductData replaced the product's meta image and deleted the old file before the row changed; a second delete would run after the row let go of it.
+                $metaImage = $action == 'update'
+                    ? $this->upload(dir: 'product/meta/', format: 'png', image: $request['meta_image'])
+                    : $this->update(dir: 'product/meta/', oldImage: $product['meta_image'], format: 'png', image: $request['meta_image']);
             } elseif (!$request->file('meta_image') && $request->file('image') && $action == 'add') {
                 $metaImage = $this->upload(dir: 'product/meta/', format: 'webp', image: $request['image']);
             } else {
@@ -1106,6 +1166,19 @@ class ProductService
             "created_at" => now(),
             "updated_at" => now(),
         ];
+    }
+
+    /**
+     * The attribute ids a saved product already carries. The form that edits it keeps offering them whatever the storefront mapping
+     * says (B-12), so adding a mapping later never silently strips a variation a merchant has already defined.
+     *
+     * @return list<int>
+     */
+    public function getProductAttributeIds(object|array|null $product): array
+    {
+        $attributeIds = json_decode($product['attributes'] ?? '[]', true);
+
+        return array_values(array_filter(array_map('intval', is_array($attributeIds) ? $attributeIds : [])));
     }
 
     public function getProductAuthorsInfo(object|array $product): array

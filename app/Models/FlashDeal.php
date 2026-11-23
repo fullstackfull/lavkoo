@@ -2,8 +2,11 @@
 
 namespace App\Models;
 
+use App\Services\Storefront\StorefrontVisibility;
 use App\Traits\CacheManagerTrait;
+use App\Traits\HasStorefrontVisibility;
 use App\Traits\StorageTrait;
+use App\Utils\RequestArea;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -35,7 +38,9 @@ use Illuminate\Support\Facades\DB;
  */
 class FlashDeal extends Model
 {
-    use StorageTrait, CacheManagerTrait;
+    use StorageTrait, CacheManagerTrait, HasStorefrontVisibility;
+
+    public const STOREFRONT_ENTITY_TYPE = StorefrontVisibility::FLASH_DEAL;
 
     /**
      * The attributes that are mass assignable.
@@ -73,6 +78,14 @@ class FlashDeal extends Model
         return $this->hasMany(FlashDealProduct::class, 'flash_deal_id');
     }
 
+    /** The members of the deal a customer may see: what the deal lists, and so what it may say it holds. */
+    public function activeProducts(): HasMany
+    {
+        return $this->products()->whereHas('product', function ($query) {
+            return $query->active();
+        });
+    }
+
     public function translations(): MorphMany
     {
         return $this->morphMany(Translation::class, 'translationable');
@@ -85,7 +98,7 @@ class FlashDeal extends Model
 
     public function getTitleAttribute($title): string|null
     {
-        if (strpos(url()->current(), '/admin') || strpos(url()->current(), '/vendor') || strpos(url()->current(), '/seller')) {
+        if (RequestArea::isPanel()) {
             return $title;
         }
 
@@ -117,7 +130,7 @@ class FlashDeal extends Model
 
         static::addGlobalScope('translate', function (Builder $builder) {
             $builder->with(['translations' => function ($query) {
-                if (strpos(url()->current(), '/api')) {
+                if (RequestArea::isApi()) {
                     return $query->where('locale', App::getLocale());
                 } else {
                     return $query->where('locale', getDefaultLanguage());
