@@ -30,6 +30,10 @@ class ApiSellerAddressTest extends ApiAddressTestCase
     {
         parent::setUp();
 
+        // The till sells a product, and createApiStoreTables builds none of the product graph the till reads: it resolves the
+        // line with `digitalVariation`, `clearanceSale` and a review count, and records a stock movement. This builder makes all
+        // of them, and the cart tables with them.
+        $this->createOrderPipelineTables();
         $this->useTaxIncludedPrices();
     }
 
