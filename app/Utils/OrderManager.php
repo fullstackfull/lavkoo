@@ -40,6 +40,7 @@ use App\Events\OrderPlacedEvent;
 use App\Models\OrderTransaction;
 use App\Models\ReferralCustomer;
 use App\Models\WalletTransaction;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use App\Models\DigitalProductVariation;
@@ -54,6 +55,8 @@ use App\Models\DeliverySyriaParcel;
 use App\Services\Fulfillment\FulfillmentHooks;
 use App\Services\Fulfillment\OrderItemOwnershipSnapshotter;
 use App\Services\Marketplace\RestockBudget;
+use App\Services\Storefront\LedgerAttribution;
+use App\Services\Storefront\LedgerOrigin;
 use App\Services\Storefront\OrderStorefrontSnapshot;
 use App\Services\SalesChannels\Dispatch\ChannelOrderMarker;
 use App\Enums\Address\AddressChannel;
@@ -880,6 +883,50 @@ class OrderManager
         return $orderDetailsId;
     }
 
+    /**
+     * Write an order in a transaction, retrying the whole write when another writer took the id this one had chosen.
+     *
+     * The locking read above closes the common case and does not close every case, which was measured rather than assumed:
+     *
+     *  - with `order_details` empty, two overlapping writers both read no rows. InnoDB gap locks CO-EXIST, so neither waits,
+     *    both choose 100001 and the second insert dies on the primary key.
+     *  - with rows present, the locking read does serialise — but the existence check beside it (`Order::find`) is a
+     *    CONSISTENT read, so under REPEATABLE READ it answers from a snapshot taken before the other writer committed, does
+     *    not see the order that writer just wrote, and hands back the id it already used.
+     *
+     * Measured on MariaDB 10.11, two tills posting at the same instant: one HTTP 500 in three runs out of three, with and
+     * without a prior order. A duplicate key is not what Laravel's own `attempts:` retries — `causedByConcurrencyError`
+     * matches deadlocks and lock-wait timeouts, not 1062 — so the retry is here.
+     *
+     * Retrying is safe because the failure is a rolled-back transaction: nothing the first attempt wrote survives it, so the
+     * second attempt re-reads the id, the stock and the wallet as they now stand. A refusal is NOT retried — a shelf that was
+     * short a moment ago is still short — and only a unique-constraint violation is, so a genuine failure still surfaces.
+     *
+     * `attempts: 3` is the second half of the same job and was ALSO measured, not assumed. Choosing the id with locking reads
+     * makes the writer hold a lock on `order_details` and `orders` as well as on its products, and two sales over DIFFERENT
+     * products then take their locks in two different orders: with the duplicate key closed, a third of the runs turned into
+     * `SQLSTATE[40001] 1213 Deadlock found` instead. Laravel retries that for us when asked — `generateOrder` asks for the
+     * same three attempts, for the same reason — and a deadlock victim is rolled back whole, so the retry is as safe as the
+     * one above.
+     *
+     * @template TReturn
+     * @param  callable(): TReturn  $write
+     * @return TReturn
+     */
+    public static function writeOrderRetryingOnDuplicateId(callable $write, int $attempts = 3)
+    {
+        for ($attempt = 1; ; $attempt++) {
+            try {
+                return DB::transaction($write, attempts: 3);
+            } catch (UniqueConstraintViolationException $exception) {
+                if ($attempt >= $attempts) {
+                    throw $exception;
+                }
+                Log::warning('Order id was taken by another writer; retrying the order write (attempt ' . $attempt . ').');
+            }
+        }
+    }
+
     public static function getCheckOrCreateAdminWallet(): void
     {
         if (!AdminWallet::where('admin_id', 1)->first()) {
@@ -959,7 +1006,8 @@ class OrderManager
                         user_id: $referredByUser['id'],
                         amount: usdToDefaultCurrency(amount: $refEarningExchangeRate),
                         transaction_type: 'add_fund_by_admin',
-                        reference: 'earned_by_referral'
+                        reference: 'earned_by_referral',
+                        origin: LedgerOrigin::order(id: $orderId)
                     ),
                 );
             }
@@ -1824,7 +1872,7 @@ class OrderManager
         }
 
                 if ($walletPayment !== null) {
-                    $walletDebit = CustomerManager::create_wallet_transaction($walletPayment['customerId'], $walletPayment['amount'], 'order_place', 'order payment', amountInUsd: $walletPayment['amountInUsd']);
+                    $walletDebit = CustomerManager::create_wallet_transaction($walletPayment['customerId'], $walletPayment['amount'], 'order_place', 'order payment', amountInUsd: $walletPayment['amountInUsd'], origin: LedgerOrigin::checkout(orderIds: $orderPlacedIds));
                     if ($walletDebit === false) {
                         throw new WalletPaymentRefused(customerId: $walletPayment['customerId'], amount: $walletPayment['amount']);
                     }
@@ -2397,11 +2445,11 @@ Log::warning('Delivery Syria: parcel saved successfully', [
     }
 
 
-    public static function createWalletTransaction($user_id, float $amount, $transaction_type, $reference, $payment_data = []): bool|WalletTransaction
+    public static function createWalletTransaction($user_id, float $amount, $transaction_type, $reference, $payment_data = [], ?LedgerOrigin $origin = null): bool|WalletTransaction
     {
         if (BusinessSetting::where('type', 'wallet_status')->first()->value != 1) return false;
 
-        return CustomerBalanceLock::apply($user_id, function (User $user) use ($amount, $transaction_type, $reference, $payment_data) {
+        return CustomerBalanceLock::apply($user_id, function (User $user) use ($amount, $transaction_type, $reference, $payment_data, $origin) {
             $currentBalance = $user->wallet_balance;
 
             $walletTransaction = new WalletTransaction();
@@ -2437,6 +2485,7 @@ Log::warning('Delivery Syria: parcel saved successfully', [
             $walletTransaction->balance = $currentBalance + $creditAmount - $debitAmount;
             $walletTransaction->created_at = now();
             $walletTransaction->updated_at = now();
+            $walletTransaction->fill(app(LedgerAttribution::class)->of(table: $walletTransaction->getTable(), origin: $origin));
             $user->wallet_balance = $currentBalance + $addFundToWalletBonus + $creditAmount - $debitAmount;
 
             $user->save();
