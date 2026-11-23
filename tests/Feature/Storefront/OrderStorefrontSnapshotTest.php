@@ -314,11 +314,20 @@ class OrderStorefrontSnapshotTest extends TestCase
     }
 
     /**
-     * What makes the rate of an order one or nothing, and never another number: this service is the only writer there is. No PHP file of the
-     * application outside it and the migration that adds the column so much as names the rate, and none of the three columns may be filled from
-     * a request, so a second writer, in a panel, a console command, an importer or a module, has to name the column here or open the model up to
-     * it. Either way this test says so, and what a record means, an amount stored as it is in the currency the order names, stops resting on a
-     * sentence.
+     * What makes the rate of an order one or nothing, and never another number: this service is the only WRITER there is. Every PHP file of the
+     * application that so much as names the rate is listed below with what it does with it, and only one of them writes it; none of the three
+     * columns may be filled from a request. So a second writer, in a panel, a console command, an importer or a module, has to name the column
+     * here or open the model up to it. Either way this test says so, and what a record means, an amount stored as it is in the currency the
+     * order names, stops resting on a sentence.
+     *
+     * The list grew from two to eight as the refund (D1-10) and order-currency (D1-06) lanes landed, and every one of the six it grew by READS
+     * the rate the sale recorded -- which is the whole point of recording it -- or declares a rate column of its own on another table. They are
+     * named one by one rather than allowed as a pattern, so a new name still fails this test and still has to be accounted for.
+ *
+ * Deliberately NOT a read-versus-write scan of the text: this service writes the column as `self::RATE => ...`, through a constant, so a
+ * one-file reader cannot tell its write from a mention, and a detector with that blind spot would pass a real second writer that used a
+ * constant too. The accounted-for list carries the guarantee instead, and it carries it whole: nothing can name this column without
+ * being written down here.
      */
     public function test_this_service_is_the_only_place_in_the_application_that_names_the_rate_column(): void
     {
@@ -333,9 +342,22 @@ class OrderStorefrontSnapshotTest extends TestCase
         sort($naming);
 
         $this->assertSame([
+            // Reads the order's rate to decide whether the row's stored amount can be shown in the order's own currency; writes nothing.
+            'app/Models/RefundTransaction.php',
+            // The one WRITER of orders.currency_rate, and the subject of this class.
             'app/Services/Storefront/OrderStorefrontSnapshot.php',
+            // D1-10: copies the order's record onto a REFUND row when that row is made. Reads orders.currency_rate; writes the refund table's own column, not this one.
+            'app/Services/Storefront/RefundFromOriginalPayment.php',
+            'app/Services/Storefront/RefundOrderMoney.php',
+            // D1-06: reads the rate recorded on the order to answer in the order's own money, and refuses any rate but one rather than re-scaling by a guess.
+            'app/Services/Storefront/StorefrontCurrency.php',
+            // The migration that adds this column.
             'database/migrations/2026_11_26_100000_add_storefront_snapshot_to_orders_table.php',
-        ], $naming);
+            // D1-06 and D1-10: declare a currency_rate of their own on the four money-row tables and the two refund tables. Neither names orders.
+            'database/migrations/2026_11_27_100000_add_order_currency_to_order_money_rows.php',
+            'database/migrations/2026_12_03_100000_add_order_money_to_refund_tables.php',
+        ], $naming, 'A file names the order rate that is not accounted for. If it WRITES orders.currency_rate the record stops meaning what it says; if it reads it, add it here with what it reads it for.');
+
         $this->assertSame([], array_intersect(self::SNAPSHOT_COLUMNS, (new Order())->getFillable()), 'none of the three may be filled from a request');
     }
 

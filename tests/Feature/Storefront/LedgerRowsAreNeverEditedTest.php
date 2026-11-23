@@ -13,12 +13,14 @@ use Tests\Support\LedgerEditScanner;
  * balance that can be checked against its ledger is only worth anything while no row of the ledger is rewritten or removed. This test reads the source of app/, Modules/ and routes/ and fails when a
  * statement updates or deletes a ledger row in any of the ways listed by waysToEditALedgerRow(), each of which is proved on a fixture below. It needs no database.
  *
- * THE RULE IS NOT WHOLE, AND THAT IS A FINDING, NOT AN EXCEPTION. The two ledger repositories (`WalletTransactionRepository`, `LoyaltyPointTransactionRepository`) carry the generic `update()` and `delete()` of the
- * repository contract: four statements that update and delete rows of their ledger through the model each holds in a property (the scan calls that way INJECTED_MODEL). No code calls them (the REPOSITORY case is
- * the guard that keeps them dormant), but they are there, so the sentence "no application code updates or deletes a ledger row" is false of main and E-08.0 must not be read as met. A test of the whole rule would fail on
- * main, so INJECTED_MODEL is not in waysToEditALedgerRow(), and no exception is written for the two files: they belong to the ledger's own writers. What is pinned instead is the finding itself, by file and text:
- * these four statements are the only edits of that way in the tree, so that a fifth cannot be added unnoticed (the test named current_behaviour). That pin is not an endorsement. When the owner removes the four
- * statements (an application change, not made here) it fails; delete it and its list, and add INJECTED_MODEL to waysToEditALedgerRow(): the rule is then whole.
+ * THE RULE IS NOW WHOLE. It was not: the two ledger repositories (`WalletTransactionRepository`, `LoyaltyPointTransactionRepository`) carried the generic `update()` and `delete()` of the repository contract --
+ * four statements that updated and deleted rows of their ledger through the model each holds in a property, the way the scan calls INJECTED_MODEL. Nothing called them, but they were there, so the sentence "no
+ * application code updates or deletes a ledger row" was false of main and E-08.0 could not be read as met. What stood here instead was a pin of the finding itself, by file and text, so that a fifth could not be
+ * added unnoticed, and the instruction that when the four were removed the pin had done its work and INJECTED_MODEL should join waysToEditALedgerRow().
+ *
+ * The four are gone. The append-only lane removed `update()` and `delete()` from both repositories AND from both interfaces, and no caller is left anywhere in app/ or Modules/ (a ledger correction is a new row,
+ * which tests/Unit/Customer/LedgerRowsAreAppendOnlyTest pins). So that pin and its list are deleted, as it said to, and INJECTED_MODEL is one of the ways below: every way the scan knows is now forbidden outright
+ * rather than eight forbidden and one merely counted.
  *
  * What the scan cannot see is listed in the docblock of LedgerEditScanner. The files outside the three roots (resources/views, config, database, tests) are not read.
  */
@@ -45,14 +47,6 @@ class LedgerRowsAreNeverEditedTest extends TestCase
     private const READERS = [
         'app/Http/Controllers/RestAPI/v1/UserWalletController.php',
         'app/Http/Controllers/RestAPI/v1/UserLoyaltyController.php',
-    ];
-
-    /** @var list<string> file and statement of the four edits through a ledger model held in a property that the two ledger repositories carry today: a finding that is pinned, and not endorsed (see the class comment) */
-    private const KNOWN_INJECTED_MODEL_EDITS = [
-        "app/Repositories/LoyaltyPointTransactionRepository.php  \$this->loyaltyPointTransaction->find(\$id)->update(\$data)",
-        "app/Repositories/LoyaltyPointTransactionRepository.php  \$this->loyaltyPointTransaction->where(\$params)->delete()",
-        "app/Repositories/WalletTransactionRepository.php  \$this->walletTransaction->where('id', \$id)->update(\$data)",
-        "app/Repositories/WalletTransactionRepository.php  \$this->walletTransaction->where(\$params)->delete()",
     ];
 
     /** @var list<array{file: string, kind: string, line: int, statement: string}>|null */
@@ -137,12 +131,13 @@ class LedgerRowsAreNeverEditedTest extends TestCase
         return self::$editsInTheTree;
     }
 
-    /** @return array<string, array{string}> every way the scan knows, except INJECTED_MODEL, which is a finding on main and is pinned by the test named current_behaviour (see the class comment) */
+    /** @return array<string, array{string}> every way the scan knows, INJECTED_MODEL among them now that the four statements it used to find are gone (see the class comment) */
     public static function waysToEditALedgerRow(): array
     {
         $kinds = [
             LedgerEditScanner::MODEL_CLASS, LedgerEditScanner::QUERY_BUILDER, LedgerEditScanner::RAW_SQL, LedgerEditScanner::SCHEMA,
             LedgerEditScanner::RELATION, LedgerEditScanner::HELD_ROW, LedgerEditScanner::PARAMETER_MODEL, LedgerEditScanner::REPOSITORY,
+            LedgerEditScanner::INJECTED_MODEL,
         ];
 
         return array_combine($kinds, array_map(static fn (string $kind): array => [$kind], $kinds));
@@ -157,28 +152,6 @@ class LedgerRowsAreNeverEditedTest extends TestCase
             [],
             array_map(static fn (array $edit): string => $edit['file'] . ':' . $edit['line'] . '  ' . $edit['statement'], $found),
             "A statement edits a row of the wallet or loyalty ledger through {$kind}. A correction is a new row: add one with the ledger's writers instead of rewriting or removing a row.",
-        );
-    }
-
-    /** Not endorsed, and not an exception to the rule above: it pins the finding of the class comment at exactly its present size. */
-    public function test_current_behaviour_the_only_edits_through_a_ledger_model_held_in_a_property_are_the_four_statements_of_the_two_ledger_repositories(): void
-    {
-        $found = [];
-        foreach (self::editsInTheTree() as $edit) {
-            if ($edit['kind'] === LedgerEditScanner::INJECTED_MODEL) {
-                $found[] = $edit['file'] . '  ' . $edit['statement'];
-            }
-        }
-        sort($found);
-        $known = self::KNOWN_INJECTED_MODEL_EDITS;
-        sort($known);
-
-        $this->assertSame(
-            $known,
-            $found,
-            'The statements that update or delete a ledger row through a ledger model held in a property of a class are no longer the four known ones of the two ledger repositories, which are a finding for the owner and '
-            . 'not an endorsement. A new one is a new way for code to rewrite a ledger: a correction is a new row, so add one instead. If the four were removed (the owner\'s change), this pin has done its work: '
-            . 'delete it and KNOWN_INJECTED_MODEL_EDITS, and add LedgerEditScanner::INJECTED_MODEL to waysToEditALedgerRow() so that the rule is whole.',
         );
     }
 

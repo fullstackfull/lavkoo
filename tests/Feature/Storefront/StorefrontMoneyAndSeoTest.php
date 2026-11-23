@@ -22,6 +22,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\View;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Support\ApprovesStorefrontTax;
 use Tests\Support\BuildsStorefrontCatalog;
 use Tests\Support\BuildsStorefrontLegalDocuments;
 use Tests\Support\BuildsStorefrontSeoWorld;
@@ -42,6 +43,7 @@ use Tests\TestCase;
  */
 class StorefrontMoneyAndSeoTest extends TestCase
 {
+    use ApprovesStorefrontTax;
     use BuildsStorefrontSeoWorld;
     use BuildsStorefrontLegalDocuments;
     /** For serveAsHttpRequest only: the configuration endpoint is reached before any storefront middleware binds a context. */
@@ -74,11 +76,27 @@ class StorefrontMoneyAndSeoTest extends TestCase
      * added to one of these files fails this test until somebody has looked at whether it is guarded.
      */
     private const PICK_READERS_ON_MONEY_PATHS = [
-        'app/Http/Controllers/Customer/PaymentController.php' => 3,
+        'app/Http/Controllers/Customer/PaymentController.php' => 1,
+        'app/Traits/OrderEditManager.php' => 0,
+        'app/Services/Payments/GatewayCurrencySupport.php' => 1,
+    ];
+
+    /**
+     * Where the reads WENT. These two files held three reads of the pick and one; D2-V1 centralised them into
+     * GatewayCurrencySupport::chargedCurrencyCode(), so that the code a payment is judged under and the code it is charged in are one string
+     * and cannot drift apart. That one read is in a service, and a service has no currency-model `if` around it to be lexically inside, so
+     * the structure is asserted one hop further out instead: every call of it on a money path is itself inside the guard. Nothing is given
+     * up -- the number of guarded call sites is pinned exactly as the number of reads was, and the service is pinned at one read above, so
+     * neither a new read in the service nor an unguarded caller can arrive unnoticed.
+     */
+    private const GUARDED_CALLERS_OF_THE_CHARGED_CURRENCY = [
+        'app/Http/Controllers/Customer/PaymentController.php' => 2,
         'app/Traits/OrderEditManager.php' => 1,
     ];
 
     private const PICK_READ = "session('currency_code')";
+
+    private const CHARGED_CURRENCY_CALL = '->chargedCurrencyCode(';
 
     protected function setUp(): void
     {
@@ -389,7 +407,20 @@ class StorefrontMoneyAndSeoTest extends TestCase
 
             $this->assertTrue($found['balanced'], $relativePath . ': the brace walk did not balance, so this scan cannot be trusted');
             $this->assertSame($expectedReads, $found['reads'], $relativePath . ': a read of the visitor\'s pick was added or removed here');
-            $this->assertSame([], $found['unguarded'], $relativePath . ': these lines read the visitor\'s pick outside the currency-model guard');
+
+            if ($relativePath !== 'app/Services/Payments/GatewayCurrencySupport.php') {
+                $this->assertSame([], $found['unguarded'], $relativePath . ': these lines read the visitor\'s pick outside the currency-model guard');
+            }
+        }
+
+        // The service's own read answers for itself through answers(); what has to be structural is that nobody asks it off a money path
+        // without the guard. Same detector, same brace walk, one hop further out.
+        foreach (self::GUARDED_CALLERS_OF_THE_CHARGED_CURRENCY as $relativePath => $expectedCalls) {
+            $found = $this->pickReadsIn((string) file_get_contents(base_path($relativePath)), self::CHARGED_CURRENCY_CALL);
+
+            $this->assertTrue($found['balanced'], $relativePath . ': the brace walk did not balance, so this scan cannot be trusted');
+            $this->assertSame($expectedCalls, $found['reads'], $relativePath . ': a call that asks what currency is charged was added or removed here');
+            $this->assertSame([], $found['unguarded'], $relativePath . ': these lines ask what currency is charged outside the currency-model guard');
         }
     }
 
@@ -399,7 +430,7 @@ class StorefrontMoneyAndSeoTest extends TestCase
      *
      * @return array{reads: int, unguarded: list<int>, balanced: bool} the line numbers of the unguarded reads
      */
-    private function pickReadsIn(string $source): array
+    private function pickReadsIn(string $source, string $needle = self::PICK_READ): array
     {
         $guardDepths = [];
         $depth = 0;
@@ -407,7 +438,7 @@ class StorefrontMoneyAndSeoTest extends TestCase
         $unguarded = [];
 
         foreach (explode("\n", $source) as $index => $line) {
-            if (str_contains($line, self::PICK_READ)) {
+            if (str_contains($line, $needle)) {
                 $reads++;
                 if ($guardDepths === []) {
                     $unguarded[] = $index + 1;
@@ -979,6 +1010,12 @@ class StorefrontMoneyAndSeoTest extends TestCase
 
         $this->publishRequiredLegalDocuments('AE');
         $this->publishRequiredLegalDocuments('KW');
+
+        // A market may sell only once its whole preflight is met, and two lanes have added conditions to it since this world was written:
+        // D1-07's tax decision, and a registered selling company where the owner requires one. The tax decision has to be recorded here or
+        // these markets are not sellable and so not indexable, and the gate -- not the SEO this test is about -- is what would be measured.
+        // A company is not needed: an entity is only required when gcc.storefronts.legal_entities.required_to_sell is on, and it ships off.
+        $this->approveNoTaxFor('SA', 'AE', 'KW');
         Cache::flush();
     }
 

@@ -29,10 +29,18 @@ use Tests\TestCase;
  * who can act on an account a residual holding has blocked -- a customer cannot spend a residue (wallet payment at checkout is all or nothing), cannot
  * withdraw it (there is no customer withdrawal in this platform) and cannot be zeroed by support (the only admin wallet action adds funds).
  *
- * The `current_behaviour` tests are characterisation tests: the storefront ones were written and watched pass before the guard existed, and they state what
- * the platform does today, which all three routes keep doing while `gcc.account_deletion.refuse_while_balance_remains` is off, as it ships. Today every one
- * of them deletes the row of a customer whose wallet still holds money or whose loyalty points still stand, says nothing about either, and leaves the wallet
- * and loyalty rows behind naming a customer id that names nobody; so do the referral grant and the `referred_by` of whoever this customer invited.
+ * The `current_behaviour` tests are characterisation tests: they state what the platform does today, which all three routes keep doing while
+ * `gcc.account_deletion.refuse_while_balance_remains` is off, as it ships. What that is has CHANGED since they were first written, and they are re-stated
+ * here against the platform as it now stands. Each route still answers that the account was deleted, and nothing of the person survives, but the row
+ * itself does: App\Services\CustomerAccountDeletionService anonymises an account that holds money or has ever moved any instead of removing it,
+ * because that row IS the balance record -- wallet_balance and loyalty_point are columns of it -- and it is the only parent the two ledgers have, so
+ * removing it destroyed a balance and orphaned its history (E-08.1). Every customer this class builds is given a wallet row and a loyalty row, so every
+ * one of them has moved money and every one is closed that way, balances intact and the referral grant still naming a row that is really there. An
+ * account that has moved nothing at all is still deleted outright, exactly as before.
+ *
+ * Worth knowing and NOT decided here: the anonymisation consults no switch. Only the REFUSAL is behind
+ * `gcc.account_deletion.refuse_while_balance_remains`, which ships off, so a stock install closes such an account where it used to remove it. Whether
+ * that wants a switch of its own is the owner's call; gating it would put ledger orphaning back on every stock install.
  *
  * The `with_the_guard_on` tests turn the switch on and ask for the refusal E-08 wants. Each customer route answers in the shape it already refuses an
  * ongoing order with and keeps that older refusal's precedence, the refusal leaves the customer signed in, nothing is written either way, and a holding
@@ -148,9 +156,30 @@ class AccountDeletionKeepsLedgerTest extends TestCase
         return array_column(session('toastr::messages') ?? [], 'message');
     }
 
-    private function assertAccountIsGone(User $customer): void
+    /**
+     * An account that has ever moved money is CLOSED rather than removed. The customer row is itself the balance record -- wallet_balance and
+     * loyalty_point live on it -- and it is the only parent the two ledgers have, so App\Services\CustomerAccountDeletionService anonymises it
+     * instead of deleting it (E-08.1, and tests/Unit/Customer/LedgerRowsAreAppendOnlyTest pins that no other path may remove the row at all).
+     *
+     * So what is asserted here is everything "gone" still has to mean once the money stays readable: no personal detail of the person is left,
+     * the address is one that cannot reach anybody, the account is not active, and the password is not one anybody holds. Every customer this
+     * class builds is given a wallet row and a loyalty row, so every one of them has moved money and every one is closed this way; an account
+     * that has moved nothing at all is still deleted outright, which is the service's other branch.
+     */
+    private function assertTheAccountIsClosed(User $customer): void
     {
-        $this->assertNull(User::find($customer->id), 'the customer row is still there');
+        $row = User::find($customer->id);
+
+        $this->assertNotNull($row, 'the customer row is the balance record and the only parent of the two ledgers, so closing the account keeps it');
+        $this->assertSame(0, (int) $row->is_active, 'a closed account is not an active one');
+        $this->assertSame('deleted', $row->f_name, 'the name is gone');
+        $this->assertSame('deleted', $row->l_name, 'the name is gone');
+        $this->assertSame('deleted-' . $customer->id . '@deleted.invalid', $row->email, 'the address is the reserved .invalid placeholder, which can never reach anybody');
+        $this->assertSame('deleted-' . $customer->id, $row->phone, 'the telephone number is gone');
+        $this->assertNull($row->referral_code, 'the referral code is gone');
+        $this->assertNull($row->remember_token, 'no token is left to sign in with');
+        $this->assertNull($row->social_id, 'no social identity is left to sign in with');
+        $this->assertNotSame((string) $customer->password, (string) $row->password, 'the password is replaced by the hash of a secret nobody holds');
     }
 
     private function assertLedgerRowsOf(User $customer, int $walletRows, int $loyaltyRows): void
@@ -231,7 +260,7 @@ class AccountDeletionKeepsLedgerTest extends TestCase
         $this->assertTrue(auth('customer')->check(), 'the refusal signed the customer out of the website');
     }
 
-    public function test_current_behaviour_the_app_deletes_the_account_of_a_customer_whose_wallet_still_holds_money(): void
+    public function test_current_behaviour_the_app_closes_the_account_of_a_customer_whose_wallet_still_holds_money(): void
     {
         $customer = $this->customerHolding(walletBalance: 125.5, loyaltyPoints: 0.0);
 
@@ -239,10 +268,10 @@ class AccountDeletionKeepsLedgerTest extends TestCase
 
         $response->assertOk();
         $this->assertSame('Your account deleted successfully', $response->json('message'));
-        $this->assertAccountIsGone($customer);
+        $this->assertTheAccountIsClosed($customer);
     }
 
-    public function test_current_behaviour_the_website_deletes_the_account_of_a_customer_whose_wallet_still_holds_money(): void
+    public function test_current_behaviour_the_website_closes_the_account_of_a_customer_whose_wallet_still_holds_money(): void
     {
         $customer = $this->customerHolding(walletBalance: 125.5, loyaltyPoints: 0.0);
 
@@ -250,64 +279,64 @@ class AccountDeletionKeepsLedgerTest extends TestCase
 
         $response->assertRedirect(route('home'));
         $this->assertSame(['Your account deleted successfully!!'], $this->toastrMessages());
-        $this->assertAccountIsGone($customer);
+        $this->assertTheAccountIsClosed($customer);
     }
 
-    public function test_current_behaviour_the_app_deletes_the_account_of_a_customer_who_still_holds_loyalty_points(): void
+    public function test_current_behaviour_the_app_closes_the_account_of_a_customer_who_still_holds_loyalty_points(): void
     {
         $customer = $this->customerHolding(walletBalance: 0.0, loyaltyPoints: 340.0);
 
         $this->appDeletes($customer)->assertOk();
 
-        $this->assertAccountIsGone($customer);
+        $this->assertTheAccountIsClosed($customer);
     }
 
-    public function test_current_behaviour_the_website_deletes_the_account_of_a_customer_who_still_holds_loyalty_points(): void
+    public function test_current_behaviour_the_website_closes_the_account_of_a_customer_who_still_holds_loyalty_points(): void
     {
         $customer = $this->customerHolding(walletBalance: 0.0, loyaltyPoints: 340.0);
 
         $this->websiteDeletes($customer)->assertRedirect(route('home'));
 
-        $this->assertAccountIsGone($customer);
+        $this->assertTheAccountIsClosed($customer);
     }
 
-    public function test_current_behaviour_the_app_deletes_the_account_of_a_customer_who_holds_both_money_and_points(): void
+    public function test_current_behaviour_the_app_closes_the_account_of_a_customer_who_holds_both_money_and_points(): void
     {
         $customer = $this->customerHolding(walletBalance: 125.5, loyaltyPoints: 340.0);
 
         $this->appDeletes($customer)->assertOk();
 
-        $this->assertAccountIsGone($customer);
+        $this->assertTheAccountIsClosed($customer);
     }
 
-    public function test_current_behaviour_the_website_deletes_the_account_of_a_customer_who_holds_both_money_and_points(): void
+    public function test_current_behaviour_the_website_closes_the_account_of_a_customer_who_holds_both_money_and_points(): void
     {
         $customer = $this->customerHolding(walletBalance: 125.5, loyaltyPoints: 340.0);
 
         $this->websiteDeletes($customer)->assertRedirect(route('home'));
 
-        $this->assertAccountIsGone($customer);
+        $this->assertTheAccountIsClosed($customer);
     }
 
-    public function test_current_behaviour_the_app_deletes_the_account_of_a_customer_who_holds_nothing(): void
+    public function test_current_behaviour_the_app_closes_the_account_of_a_customer_who_holds_nothing(): void
     {
         $customer = $this->customerHolding(walletBalance: 0.0, loyaltyPoints: 0.0);
 
         $this->appDeletes($customer)->assertOk();
 
-        $this->assertAccountIsGone($customer);
+        $this->assertTheAccountIsClosed($customer);
     }
 
-    public function test_current_behaviour_the_website_deletes_the_account_of_a_customer_who_holds_nothing(): void
+    public function test_current_behaviour_the_website_closes_the_account_of_a_customer_who_holds_nothing(): void
     {
         $customer = $this->customerHolding(walletBalance: 0.0, loyaltyPoints: 0.0);
 
         $this->websiteDeletes($customer)->assertRedirect(route('home'));
 
-        $this->assertAccountIsGone($customer);
+        $this->assertTheAccountIsClosed($customer);
     }
 
-    public function test_the_wallet_and_loyalty_rows_of_a_customer_who_held_nothing_survive_the_deletion_and_stay_readable(): void
+    public function test_the_wallet_and_loyalty_rows_of_a_customer_who_held_no_balance_survive_the_closure_and_stay_readable(): void
     {
         $customer = $this->customerHolding(walletBalance: 0.0, loyaltyPoints: 0.0);
         $walletBefore = DB::table('wallet_transactions')->where('user_id', $customer->id)->get()->toArray();
@@ -315,25 +344,25 @@ class AccountDeletionKeepsLedgerTest extends TestCase
 
         $this->appDeletes($customer)->assertOk();
 
-        $this->assertAccountIsGone($customer);
+        $this->assertTheAccountIsClosed($customer);
         $this->assertEquals($walletBefore, DB::table('wallet_transactions')->where('user_id', $customer->id)->get()->toArray());
         $this->assertEquals($loyaltyBefore, DB::table('loyalty_point_transactions')->where('user_id', $customer->id)->get()->toArray());
         $this->assertLedgerRowsOf(customer: $customer, walletRows: 1, loyaltyRows: 1);
     }
 
-    public function test_current_behaviour_the_ledger_rows_of_a_customer_who_held_money_are_left_as_orphans_the_deletion_does_not_touch_them(): void
+    public function test_current_behaviour_the_ledger_rows_of_a_customer_who_held_money_keep_their_balances_and_keep_the_row_that_parents_them(): void
     {
         $customer = $this->customerHolding(walletBalance: 125.5, loyaltyPoints: 340.0);
 
         $this->websiteDeletes($customer)->assertRedirect(route('home'));
 
-        $this->assertAccountIsGone($customer);
+        $this->assertTheAccountIsClosed($customer);
         $this->assertLedgerRowsOf(customer: $customer, walletRows: 1, loyaltyRows: 1);
         $this->assertSame(125.5, (float) DB::table('wallet_transactions')->where('user_id', $customer->id)->value('balance'));
         $this->assertSame(340.0, (float) DB::table('loyalty_point_transactions')->where('user_id', $customer->id)->value('balance'));
     }
 
-    public function test_current_behaviour_the_referral_grant_of_a_deleted_customer_stays_and_keeps_naming_an_id_that_names_nobody(): void
+    public function test_current_behaviour_the_referral_grant_of_a_closed_customer_stays_and_keeps_naming_the_row_it_always_named(): void
     {
         $referrer = $this->customerHolding(walletBalance: 0.0, loyaltyPoints: 0.0);
         $invited = $this->customerHolding(walletBalance: 0.0, loyaltyPoints: 0.0);
@@ -345,7 +374,7 @@ class AccountDeletionKeepsLedgerTest extends TestCase
 
         $this->appDeletes($referrer)->assertOk();
 
-        $this->assertAccountIsGone($referrer);
+        $this->assertTheAccountIsClosed($referrer);
         $grant = DB::table('referral_customers')->where('user_id', $invited->id)->first();
         $this->assertNotNull($grant, 'the referral grant was removed with the account');
         $this->assertSame($referrer->id, (int) $grant->refer_by);
@@ -353,14 +382,14 @@ class AccountDeletionKeepsLedgerTest extends TestCase
         $this->assertSame($referrer->id, (int) DB::table('users')->where('id', $invited->id)->value('referred_by'));
     }
 
-    public function test_current_behaviour_the_admin_panel_deletes_a_customer_who_holds_money_and_leaves_both_ledgers_behind(): void
+    public function test_current_behaviour_the_admin_panel_closes_a_customer_who_holds_money_and_leaves_both_ledgers_behind(): void
     {
         $customer = $this->customerHolding(walletBalance: 125.5, loyaltyPoints: 340.0);
 
         $this->adminDeletes($customer)->assertRedirect();
 
         $this->assertSame(['Customer deleted successfully'], $this->toastMagicMessages());
-        $this->assertAccountIsGone($customer);
+        $this->assertTheAccountIsClosed($customer);
         $this->assertLedgerRowsOf(customer: $customer, walletRows: 1, loyaltyRows: 1);
         $this->assertSame(125.5, (float) DB::table('wallet_transactions')->where('user_id', $customer->id)->value('balance'));
         $this->assertSame(340.0, (float) DB::table('loyalty_point_transactions')->where('user_id', $customer->id)->value('balance'));
@@ -494,7 +523,7 @@ class AccountDeletionKeepsLedgerTest extends TestCase
         $this->assertNotNull(User::find($customer->id), 'the account was deleted after the refusal');
     }
 
-    public function test_with_the_guard_on_a_customer_who_holds_nothing_still_deletes_the_account_over_both_routes(): void
+    public function test_with_the_guard_on_a_customer_who_holds_nothing_still_closes_the_account_over_both_routes(): void
     {
         $this->refuseWhileBalanceRemains();
         $appCustomer = $this->customerHolding(walletBalance: 0.0, loyaltyPoints: 0.0);
@@ -503,13 +532,13 @@ class AccountDeletionKeepsLedgerTest extends TestCase
         $this->appDeletes($appCustomer)->assertOk();
         $this->websiteDeletes($websiteCustomer)->assertRedirect(route('home'));
 
-        $this->assertAccountIsGone($appCustomer);
-        $this->assertAccountIsGone($websiteCustomer);
+        $this->assertTheAccountIsClosed($appCustomer);
+        $this->assertTheAccountIsClosed($websiteCustomer);
         $this->assertLedgerRowsOf(customer: $appCustomer, walletRows: 1, loyaltyRows: 1);
         $this->assertLedgerRowsOf(customer: $websiteCustomer, walletRows: 1, loyaltyRows: 1);
     }
 
-    public function test_with_the_guard_on_the_admin_panel_still_deletes_a_customer_who_holds_money(): void
+    public function test_with_the_guard_on_the_admin_panel_still_closes_a_customer_who_holds_money(): void
     {
         $this->refuseWhileBalanceRemains();
         $customer = $this->customerHolding(walletBalance: 125.5, loyaltyPoints: 340.0);
@@ -517,7 +546,7 @@ class AccountDeletionKeepsLedgerTest extends TestCase
         $this->adminDeletes($customer)->assertRedirect();
 
         $this->assertSame(['Customer deleted successfully'], $this->toastMagicMessages());
-        $this->assertAccountIsGone($customer);
+        $this->assertTheAccountIsClosed($customer);
         $this->assertLedgerRowsOf(customer: $customer, walletRows: 1, loyaltyRows: 1);
         $this->assertSame(125.5, (float) DB::table('wallet_transactions')->where('user_id', $customer->id)->value('balance'));
     }
@@ -541,8 +570,8 @@ class AccountDeletionKeepsLedgerTest extends TestCase
         $this->appDeletes($justUnder)->assertOk();
         $this->appDeletes($dust)->assertOk();
 
-        $this->assertAccountIsGone($justUnder);
-        $this->assertAccountIsGone($dust);
+        $this->assertTheAccountIsClosed($justUnder);
+        $this->assertTheAccountIsClosed($dust);
     }
 
     public function test_with_the_guard_on_one_hundredth_of_a_point_is_a_holding_too(): void
@@ -553,7 +582,7 @@ class AccountDeletionKeepsLedgerTest extends TestCase
 
         $this->assertAppRefused($this->appDeletes($oneHundredthOfAPoint), message: 'you_can_not_delete_account_while_you_still_have_loyalty_points', customer: $oneHundredthOfAPoint);
         $this->appDeletes($justUnder)->assertOk();
-        $this->assertAccountIsGone($justUnder);
+        $this->assertTheAccountIsClosed($justUnder);
     }
 
     /**
@@ -581,7 +610,7 @@ class AccountDeletionKeepsLedgerTest extends TestCase
 
         $this->appDeletes($customer)->assertOk();
 
-        $this->assertAccountIsGone($customer);
+        $this->assertTheAccountIsClosed($customer);
         $this->assertNotNull(User::find($neighbour->id));
         $this->assertSame(900.0, (float) DB::table('users')->where('id', $neighbour->id)->value('wallet_balance'));
         $this->assertLedgerRowsOf(customer: $neighbour, walletRows: 1, loyaltyRows: 1);
@@ -595,7 +624,7 @@ class AccountDeletionKeepsLedgerTest extends TestCase
 
         $this->assertAppRefused($this->appDeletes($holder), message: 'you_can_not_delete_account_while_your_wallet_holds_money', customer: $holder);
         $this->appDeletes($neighbour)->assertOk();
-        $this->assertAccountIsGone($neighbour);
+        $this->assertTheAccountIsClosed($neighbour);
     }
 
     public function test_with_the_guard_on_the_app_weighs_money_that_landed_after_it_read_the_customer(): void
