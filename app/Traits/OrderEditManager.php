@@ -605,7 +605,6 @@ trait OrderEditManager
     private function writeEditedOrder(object $order, object|array $editedOrder, array $editOrderSummary, object|array $data): void
     {
         $orderData = $editOrderSummary['order_data'];
-
         $taxConfig = self::getTaxSystemTypeOfOrder(order: $order);
         OrderTax::where('order_id', $order['id'])->where('tax_for', 'tax_for_orders')->delete();
         self::updateEditOrderTaxAmount(order: $order, taxConfig: $taxConfig, taxSummary: $editOrderSummary['tax_summary']);

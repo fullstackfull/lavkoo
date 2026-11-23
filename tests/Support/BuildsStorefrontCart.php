@@ -24,7 +24,6 @@ trait BuildsStorefrontCart
      * tests/Feature/Storefront until the two names were told apart.
      */
     private const IN_HOUSE_PRODUCT_COLUMNS = ['added_by' => 'admin', 'user_id' => 1, 'code' => 'SKU-1', 'variation' => '[]', 'images' => '[]', 'thumbnail' => 'x.png', 'category_ids' => '[]', 'discount' => 0, 'discount_type' => 'flat', 'choice_options' => '[]', 'tax' => 0, 'tax_type' => 'percent', 'tax_model' => 'exclude'];
-
     protected function buildStorefrontCartWorld(): void
     {
         $this->createOrderPipelineTables();
