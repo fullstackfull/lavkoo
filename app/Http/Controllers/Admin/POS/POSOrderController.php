@@ -12,6 +12,7 @@ use App\Contracts\Repositories\VendorRepositoryInterface;
 use App\Enums\SessionKey;
 use App\Events\DigitalProductDownloadEvent;
 use App\Exceptions\InsufficientStockException;
+use App\Exceptions\WalletDebitRefusedException;
 use App\Http\Controllers\BaseController;
 use App\Services\CartService;
 use App\Services\Marketplace\InventoryService;
@@ -149,8 +150,12 @@ class POSOrderController extends BaseController
                 // debit's unlocked read of the customer was the transaction's first consistent read, which fixed the
                 // REPEATABLE READ snapshot the order id is then checked against, so an overlapping sale's order was invisible
                 // and its id was chosen again.
-                if ($payByWallet) {
-                    $this->createWalletTransaction(user_id: $userId, amount: floatval($amount), transaction_type: 'order_place', reference: 'order_place_in_pos');
+                // The REFUSAL IS READ. createWalletTransaction answers false when the debit is refused -- the overdraft guard,
+                // a closed wallet, a customer that is gone -- and ignoring that answer wrote the order and marked it paid with
+                // no money taken. Throwing rolls the whole sale back, which is what the catch below turns into the operator's
+                // message with the cart kept.
+                if ($payByWallet && $this->createWalletTransaction(user_id: $userId, amount: floatval($amount), transaction_type: 'order_place', reference: 'order_place_in_pos') === false) {
+                    throw new WalletDebitRefusedException(customerId: $userId);
                 }
 
                 $products = $this->productRepo->getListWithScope(whereIn: ['id' => $cartListSession->pluck('id')->toArray()], relations: ['clearanceSale' => function ($query) {
@@ -256,6 +261,14 @@ class POSOrderController extends BaseController
 
                 return $orderId;
             });
+            } catch (WalletDebitRefusedException) {
+                // The transaction has rolled back: no order, no line, no stock and no debit. The CART IS KEPT so the
+                // operator can take another payment -- an early return before the cart is forgotten below. Restoring the
+                // catch the over-sell merge replaced rather than added to: without it a refused wallet sale lost the cart
+                // and the sale had to be rung up again (tests/Feature/Wallet/PosWalletSaleTest).
+                ToastMagic::error(translate('need_Sufficient_Amount_Balance'));
+
+                return response()->json();
             } catch (InsufficientStockException $exception) {
                 // The transaction has rolled back: no order, no order line, no stock taken and no wallet debit. The cart is
                 // left as it was so the cashier can change the quantity and try again.
