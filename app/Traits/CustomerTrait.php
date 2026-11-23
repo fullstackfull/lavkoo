@@ -16,6 +16,7 @@ use App\Services\Storefront\LedgerAttribution;
 use App\Services\Storefront\LedgerOrigin;
 use App\Models\BusinessSetting;
 use App\Models\WalletTransaction;
+use App\Models\User;
 
 trait CustomerTrait
 {
