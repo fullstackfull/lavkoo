@@ -693,13 +693,12 @@ $blocks = $row->blocks
             // different pages, and an activation must never serve the old theme from cache.
             (string) $this->revision()['checksum'] . '#' . $this->revision()['revision'],
             $viewer->platform,
-            // Two apps are both `platform: app`; a section restricted to one channel is delivered to that channel's viewers and not the other's, so the channel is part of the key
-            // or the app that warms the cache first decides what the other is sent.
-            $viewer->channel(),
             $viewer->device,
             $viewer->audience(),
-            // The channel decides which sections a client is sent (SectionVisibility), and the response already says it varies by X-UI-Channel: without it in the key the client that asks
-            // first decides what the others get, and a section kept for the seller app is sent to the customer app.
+            // The channel decides which sections a client is sent (SectionVisibility), and the response already says it varies by X-UI-Channel: without it in the key the client that
+            // asks first decides what the others get, and a section kept for the seller app is sent to the customer app. Two apps are both `platform: app`, so the platform alone
+            // does not separate them. ONCE: two lanes fixed this same defect independently (F-03 criterion 2 and F-09.1) and a merge kept both lines, which put the channel in the
+            // key twice -- harmless to the hash but a second copy of one rule, and it moved every key away from the one both lanes' own tests restate.
             $viewer->channel(),
             // The matched segment SET joins the key (§64–65): what varies the response must vary
             // the cache. Bounded by the segments actually defined, not by customers — two repeat
