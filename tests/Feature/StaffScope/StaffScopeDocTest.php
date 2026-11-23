@@ -129,7 +129,8 @@ class StaffScopeDocTest extends TestCase
         }
 
         $this->assertSame([], $missing);
-        $this->assertStringContainsString('The rules of the 44 routes', $this->doc);
+        // 45 since the product-identity lane added POST admin/products/copy-to-country/{id}.
+        $this->assertStringContainsString('The rules of the 45 routes', $this->doc);
         $this->assertStringContainsString('The rules of the 49 routes', $this->doc);
         $this->assertSame(49, array_sum(array_map(static fn (string $controller): int => count(StaffOrderRoutes::rulesOf($controller)), StaffOrderRoutes::orderScreenControllers())));
     }

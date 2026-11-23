@@ -176,7 +176,9 @@ class StaffProductIdRoutesTest extends TestCase
 
         $this->assertSame(['input', 'inputs', 'list', 'new', 'none', 'restock', 'route', 'variation'], $kinds);
         $this->assertSame([ProductModerationController::class, ProductController::class], $controllers);
-        $this->assertCount(44, $this->coveredRoutes());
+        // 45 since the product-identity lane added POST admin/products/copy-to-country/{id}, which is a route of a covered controller and so
+        // must carry a rule (route:id, the product it copies named by its route parameter).
+        $this->assertCount(45, $this->coveredRoutes());
     }
 
     // ---- a restricted employee ---------------------------------------------------------------------------------------------------

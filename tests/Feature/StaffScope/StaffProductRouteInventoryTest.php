@@ -227,7 +227,8 @@ class StaffProductRouteInventoryTest extends TestCase
         $found = $this->scanner->controllers();
 
         $this->assertArrayHasKey('App\Http\Controllers\Admin\Product\ProductController', $found);
-        $this->assertCount(40, $found['App\Http\Controllers\Admin\Product\ProductController']['productRoutes']);
+        // 41 since the product-identity lane added POST admin/products/copy-to-country/{id} to this controller.
+        $this->assertCount(41, $found['App\Http\Controllers\Admin\Product\ProductController']['productRoutes']);
         $this->assertGreaterThan(40, count($found));
         $this->assertGreaterThan(140, array_sum(array_map(static fn (array $controller): int => count($controller['productRoutes']), $found)));
     }

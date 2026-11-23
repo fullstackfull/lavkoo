@@ -99,7 +99,7 @@ combination views of the add form have no product yet) passes when it is missing
 (a redirect, an error page): only the restricted employee's answers are uniform, because only theirs can leak.
 
 **A route of a covered controller that has no rule is refused to a restricted employee**, never let through, and a test fails for it, so a screen added later cannot widen
-anybody. The rules of the 44 routes:
+anybody. The rules of the 45 routes:
 
 | Rule | Meaning |
 |---|---|
@@ -143,6 +143,7 @@ anybody. The rules of the 44 routes:
 | `POST admin/products/deny` | `ProductController::deny` | `input:id` | module:catalog |
 | `POST admin/products/approve-status` | `ProductController::approveStatus` | `input:id` | module:catalog |
 | `GET admin/products/product-gallery` | `ProductController::getProductGalleryView` | `list` | module:catalog |
+| `POST admin/products/copy-to-country/{id}` | `ProductController::copyToCountry` | `route:id` | module:catalog |
 | `GET admin/products/stock-limit-status/{type}` | `ProductController::getStockLimitStatus` | `list` | module:catalog |
 | `POST admin/products/delete-preview-file` | `ProductController::deletePreviewFile` | `input:product_id` | module:catalog |
 | `GET admin/products/request-restock-list` | `ProductController::getRequestRestockListView` | `list` | module:catalog |
@@ -525,7 +526,7 @@ each action, its path and its parameters, and the file of each controller (so a 
 product manager, the products table, and a product id in a request.
 
 **49 controllers: 2 scoped in slice 1, 5 scoped in slice 2, 9 scoped in slice 3, 6 not needed, 27 out of slice 3.**
-**155 routes read or name a product: 44 scoped in slice 1, 16 scoped in slice 2, 13 scoped in slice 3, 22 not needed, 60 out of slice 3.**
+**156 routes read or name a product: 45 scoped in slice 1, 16 scoped in slice 2, 13 scoped in slice 3, 22 not needed, 60 out of slice 3.**
 
 The slices that follow slice 3 (the people, the dashboard, the reports and the shared layout), in the order proposed:
 
@@ -537,7 +538,7 @@ The slices that follow slice 3 (the people, the dashboard, the reports and the s
 
 | Controller | Admin routes | Routes that read or name a product | Status | Why |
 |---|---:|---:|---|---|
-| `Admin\Product\ProductController` | 40 | 40 | scoped in slice 1 | The product screens: lists, counters, pickers, exports, the add and edit forms, and every action on a product. Every action has a rule in StaffProductRoutes. |
+| `Admin\Product\ProductController` | 41 | 41 | scoped in slice 1 | The product screens: lists, counters, pickers, exports, the add and edit forms, and every action on a product. Every action has a rule in StaffProductRoutes. |
 | `Admin\Marketplace\ProductModerationController` | 4 | 4 | scoped in slice 1 | Approve, reject or suspend a seller product by its id, singly or in bulk, and read its history: an id route like the product screens. |
 | `Admin\Product\BrandController` | 9 | 1 | not needed | Reads the products of a brand only to refuse deleting a brand that is in use. The answer must count every country's products, or a brand a product of another country uses could be deleted. |
 | `Admin\Product\CategoryController` | 7 | 2 | not needed | As the brands: the products of a category are read only to refuse deleting or moving a category that is in use, and that count must include every country. |
@@ -718,7 +719,7 @@ in the file of each controller. The scoped controllers are exactly the ones that
 | `Admin\Telemetry\AnalyticsController` | 7 | 1 | scoped in slice 3 | The analytics screens count visits, orders and revenue from rollups that carry no country of the shop, so they cannot be told apart by country: every action is unavailable to a restricted employee until the owner decides what they may see. Every action has a rule in StaffOrderRoutes. |
 | `Modules\TaxModule\Admin\Reports\AdminTaxReportController` | 4 | 0 | scoped in slice 3 | The tax report and its details and exports sum the taxes of the money records of the orders of the employee's countries. Every action has a rule in StaffOrderRoutes. |
 | `Modules\TaxModule\Admin\Reports\VendorTaxReportController` | 4 | 2 | scoped in slice 3 | The vendor tax reports and their exports sum the orders and taxes of the employee's countries; the raw sum over the orders table is narrowed by the same rule. Every action has a rule in StaffOrderRoutes. |
-| `Admin\Product\ProductController` | 40 | 2 | not needed | Counts the order lines of a product the employee works with: the lines of their own products, narrowed by the product scope of slice 1. It lists no order. |
+| `Admin\Product\ProductController` | 41 | 2 | not needed | Counts the order lines of a product the employee works with: the lines of their own products, narrowed by the product scope of slice 1. It lists no order. |
 | `Admin\Settings\BusinessSettingsController` | 15 | 2 | not needed | The refund setup page is a setting of the shop. It reads no order. |
 | `Admin\Settings\OrderSettingsController` | 2 | 2 | not needed | The order settings page is a setting of the shop. It reads no order. |
 | `Admin\Marketplace\PurchaseOrderController` | 7 | 7 | not needed | Purchase orders to suppliers are not customer orders: they have no order, no order line and no country of their own. |

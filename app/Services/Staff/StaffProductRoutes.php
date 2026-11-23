@@ -60,6 +60,10 @@ final class StaffProductRoutes
             'deny' => 'input:id',
             'approveStatus' => 'input:id',
             'getProductGalleryView' => 'list',
+            // B-04..B-07: copying a product into another market's catalogue names the product it copies by its route id, so a restricted
+            // employee may copy only a product of a country they hold. Whether holding the TARGET country should be required as well is the
+            // product-identity lane's decision; until it is taken, the product scope is what applies, as it does to every other action on a product.
+            'copyToCountry' => 'route:id',
             'getStockLimitStatus' => 'list',
             'deletePreviewFile' => 'input:product_id',
             'getRequestRestockListView' => 'list',
