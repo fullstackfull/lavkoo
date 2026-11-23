@@ -13,13 +13,6 @@ use RuntimeException;
  *
  * Like the other schema builders in this directory these are INFERRED from the models and from the code that writes them —
  * the installation dump is not in the repository — and hold only the columns the till path reads or writes.
- *
- * The MONEY columns are DECIMAL(40,20), which is what the migrations leave them as: see
- * database/migrations/2026_05_07_000001_update_all_decimal_columns_to_40_20.php, which widens `orders`, `order_details`,
- * `users.wallet_balance` and `wallet_transactions` to that. They were DECIMAL(16,2) here, and a column with two decimal
- * places silently ROUNDS anything finer, so a three-decimal currency (KWD, BHD, OMR) could not have been measured through
- * them at all and a figure the code got wrong in the third place would have come back looking right. Scale is an engine
- * property, so this is one of the places an inferred schema has to match the real one.
  */
 trait BuildsPosSchema
 {
@@ -53,8 +46,8 @@ trait BuildsPosSchema
             $table->string('l_name')->nullable();
             $table->string('email')->nullable();
             $table->string('phone')->nullable();
-            $table->decimal('wallet_balance', 40, 20)->default(0);
-            $table->decimal('loyalty_point', 40, 20)->default(0);
+            $table->decimal('wallet_balance', 16, 2)->default(0);
+            $table->decimal('loyalty_point', 16, 2)->default(0);
             $table->string('street_address')->nullable();
             $table->string('city')->nullable();
             $table->string('zip')->nullable();
@@ -104,14 +97,14 @@ trait BuildsPosSchema
             $table->longText('colors')->nullable();
             $table->integer('status')->default(1);
             $table->integer('request_status')->default(1);
-            $table->decimal('unit_price', 40, 20)->default(10);
-            $table->decimal('purchase_price', 40, 20)->default(0);
-            $table->decimal('tax', 40, 20)->default(0);
+            $table->decimal('unit_price', 16, 2)->default(10);
+            $table->decimal('purchase_price', 16, 2)->default(0);
+            $table->decimal('tax', 16, 2)->default(0);
             $table->string('tax_type')->nullable();
             $table->string('tax_model')->nullable();
-            $table->decimal('discount', 40, 20)->default(0);
+            $table->decimal('discount', 16, 2)->default(0);
             $table->string('discount_type')->nullable();
-            $table->decimal('shipping_cost', 40, 20)->default(0);
+            $table->decimal('shipping_cost', 16, 2)->default(0);
             $table->integer('multiply_qty')->default(0);
             $table->text('category_ids')->nullable();
             $table->string('thumbnail')->nullable();
@@ -154,18 +147,18 @@ trait BuildsPosSchema
             $table->string('payment_method')->nullable();
             $table->string('transaction_ref')->nullable();
             $table->string('order_type')->default('default_type');
-            $table->decimal('order_amount', 40, 20)->default(0);
-            $table->decimal('paid_amount', 40, 20)->default(0);
-            $table->decimal('discount_amount', 40, 20)->default(0);
+            $table->decimal('order_amount', 16, 2)->default(0);
+            $table->decimal('paid_amount', 16, 2)->default(0);
+            $table->decimal('discount_amount', 16, 2)->default(0);
             $table->string('discount_type')->nullable();
             $table->string('coupon_code')->nullable();
             $table->string('coupon_discount_bearer')->default('inhouse');
-            $table->decimal('total_tax_amount', 40, 20)->default(0);
+            $table->decimal('total_tax_amount', 16, 2)->default(0);
             $table->string('tax_type')->nullable();
             $table->string('tax_model')->nullable();
-            $table->decimal('init_order_amount', 40, 20)->default(0);
-            $table->decimal('shipping_cost', 40, 20)->default(0);
-            $table->decimal('extra_discount', 40, 20)->default(0);
+            $table->decimal('init_order_amount', 16, 2)->default(0);
+            $table->decimal('shipping_cost', 16, 2)->default(0);
+            $table->decimal('extra_discount', 16, 2)->default(0);
             $table->string('extra_discount_type')->nullable();
             $table->unsignedBigInteger('shipping_address')->nullable();
             $table->longText('shipping_address_data')->nullable();
@@ -190,10 +183,10 @@ trait BuildsPosSchema
             $table->unsignedBigInteger('seller_id')->nullable();
             $table->longText('product_details')->nullable();
             $table->integer('qty')->default(0);
-            $table->decimal('price', 40, 20)->default(0);
-            $table->decimal('tax', 40, 20)->default(0);
+            $table->decimal('price', 16, 2)->default(0);
+            $table->decimal('tax', 16, 2)->default(0);
             $table->string('tax_model')->nullable();
-            $table->decimal('discount', 40, 20)->default(0);
+            $table->decimal('discount', 16, 2)->default(0);
             $table->string('discount_type')->nullable();
             $table->string('delivery_status')->nullable();
             $table->string('payment_status')->nullable();
@@ -210,10 +203,10 @@ trait BuildsPosSchema
             $table->string('reference')->nullable();
             $table->string('transaction_type')->nullable();
             $table->string('payment_method')->nullable();
-            $table->decimal('credit', 40, 20)->default(0);
-            $table->decimal('debit', 40, 20)->default(0);
-            $table->decimal('admin_bonus', 40, 20)->default(0);
-            $table->decimal('balance', 40, 20)->default(0);
+            $table->decimal('credit', 16, 2)->default(0);
+            $table->decimal('debit', 16, 2)->default(0);
+            $table->decimal('admin_bonus', 16, 2)->default(0);
+            $table->decimal('balance', 16, 2)->default(0);
             $table->timestamps();
         });
 
@@ -221,7 +214,7 @@ trait BuildsPosSchema
             $table->id();
             $table->unsignedBigInteger('product_id')->nullable();
             $table->string('variant_key')->nullable();
-            $table->decimal('price', 40, 20)->default(0);
+            $table->decimal('price', 16, 2)->default(0);
             $table->string('file')->nullable();
             $table->timestamps();
         });
