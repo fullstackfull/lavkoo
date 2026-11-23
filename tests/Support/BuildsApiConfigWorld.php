@@ -60,14 +60,17 @@ trait BuildsApiConfigWorld
             $table->integer('visit_count')->default(0);
             $table->timestamps();
         });
-        Schema::create('system_tax_setups', function (Blueprint $table): void {
+        // Guarded: more than one world builder creates this table, and a test that builds two of them raised "table already exists" before a single assertion ran.
+        if (!Schema::hasTable('system_tax_setups')) {
+            Schema::create('system_tax_setups', function (Blueprint $table): void {
             $table->id();
             $table->string('tax_type')->nullable();
             $table->boolean('is_included')->default(false);
             $table->boolean('is_active')->default(false);
             $table->boolean('is_default')->default(false);
             $table->timestamps();
-        });
+            });
+        }
         Schema::create('ai_settings', function (Blueprint $table): void {
             $table->id();
             $table->boolean('status')->default(false);

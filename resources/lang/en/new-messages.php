@@ -11380,4 +11380,6 @@ return [
 	'password_updated_successfully' => 'Password updated successfully',
 	'download_Digital_Product' => 'Download Digital Product',
 	'download_your_product' => 'Download your product',
+	'invalid_file!' => 'Invalid file!',
+	'Minimum_Order_Amount' => 'Minimum Order Amount',
 ];

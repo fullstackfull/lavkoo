@@ -30,11 +30,14 @@ trait RunsBulkImport
             $table->string('name')->nullable();
         });
         DB::table('shops')->insert(['id' => 1, 'author_type' => 'admin', 'name' => 'In-house']);
-        Schema::create('system_tax_setups', function (Blueprint $table) {
+        // Guarded: more than one world builder creates this table, and a test that builds two of them raised "table already exists" before a single assertion ran.
+        if (!Schema::hasTable('system_tax_setups')) {
+            Schema::create('system_tax_setups', function (Blueprint $table) {
             $table->id();
             $table->boolean('is_active')->default(true);
             $table->boolean('is_default')->default(true);
-        });
+            });
+        }
         DB::table('system_tax_setups')->insert(['id' => 1]);
         Schema::create('taxes', function (Blueprint $table) {
             $table->id();

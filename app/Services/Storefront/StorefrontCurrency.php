@@ -495,7 +495,6 @@ final class StorefrontCurrency
         }
 
         $currency = $this->activeCurrency(StorefrontResolver::fromConfig()->currencyOf($country));
-        $currency = $this->activeCurrency($resolver->currencyOf($country));
 
         return $currency === null ? null : ['country' => $country, 'currency' => $currency];
     }

@@ -76,11 +76,14 @@ class StaffBulkImportTest extends TestCase
         foreach (['taxables', 'taxes', 'system_tax_setups'] as $table) {
             Schema::dropIfExists($table);
         }
-        Schema::create('system_tax_setups', function (Blueprint $table) {
+        // Guarded: more than one world builder creates this table, and a test that builds two of them raised "table already exists" before a single assertion ran.
+        if (!Schema::hasTable('system_tax_setups')) {
+            Schema::create('system_tax_setups', function (Blueprint $table) {
             $table->id();
             $table->boolean('is_default')->default(false);
             $table->boolean('is_active')->default(true);
-        });
+            });
+        }
         Schema::create('taxes', function (Blueprint $table) {
             $table->id();
             $table->boolean('is_active')->default(true);
@@ -228,7 +231,10 @@ class StaffBulkImportTest extends TestCase
     public function test_a_vendor_import_is_not_touched(): void
     {
         config(['gcc.storefronts.enabled' => true]);
-        $request = $this->boundTo(['KW', 'SA']);
+        // Called for its effect, not its return: it gives admin 2 two countries and binds the staff scope, so the scopes really
+        // ARE active. The request is then replaced by a VENDOR one, which is the point of the case -- a vendor import is untouched
+        // by a scope that is switched on and bound.
+        $this->boundTo(['KW', 'SA']);
         $request = Request::create('/vendor/products/bulk-import', 'POST', files: ['products_file' => $this->sheet()]);
         $this->app->instance('request', $request);
 

@@ -7,6 +7,8 @@ use App\Models\User;
 use App\Models\WalletTransaction;
 use App\Services\Wallet\WalletOverdraft;
 use Illuminate\Support\Str;
+use App\Services\Storefront\LedgerAttribution;
+use App\Services\Storefront\LedgerOrigin;
 
 /**
  * The single place a customer's `wallet_balance` is read and written, and the only writer of `wallet_transactions`.
@@ -55,13 +57,13 @@ final class CustomerWalletWriter
      * @return bool|WalletTransaction the row for the types above, `true` for the rest, and false when the wallet is switched
      *                                off, the customer does not exist, or the write failed and was rolled back.
      */
-    public static function write(int|string $customerId, WalletPosting $posting): bool|WalletTransaction
+    public static function write(int|string $customerId, WalletPosting $posting, ?LedgerOrigin $origin = null): bool|WalletTransaction
     {
         if (BusinessSetting::where('type', 'wallet_status')->first()->value != 1) {
             return false;
         }
 
-        return CustomerBalanceLock::apply($customerId, function (User $customer) use ($posting): bool|WalletTransaction {
+        return CustomerBalanceLock::apply($customerId, function (User $customer) use ($posting, $origin): bool|WalletTransaction {
             // A debit never takes a wallet below nothing. The balance is read under the customer's row lock just above, so this
             // judges the figure the write is about to be made from, not one another writer has since moved. Every other wallet
             // writer on the platform asks the same question in the same place (WalletTransactionRepository, CustomerManager,
@@ -85,6 +87,11 @@ final class CustomerWalletWriter
             $transaction->created_at = now();
             $transaction->updated_at = now();
 
+            // What stands behind the row (E-05), as the other four writers record it. Dormant until its migration runs: of()
+            // answers [] while none of the attribution columns exist. Written AFTER the overdraft guard and inside the balance
+            // lock, so it records the write rather than deciding it.
+            $transaction->fill(app(LedgerAttribution::class)->of(table: $transaction->getTable(), origin: $origin));
+
             $customer->wallet_balance = $balanceAfter;
             $customer->save();
             $transaction->save();
@@ -100,7 +107,7 @@ final class CustomerWalletWriter
      *
      * @param array<string, mixed> $paymentData
      */
-    public static function record(int|string $customerId, float $amount, string $transactionType, ?string $reference = null, array $paymentData = []): bool|WalletTransaction
+    public static function record(int|string $customerId, float $amount, string $transactionType, ?string $reference = null, array $paymentData = [], ?LedgerOrigin $origin = null): bool|WalletTransaction
     {
         return self::write(
             customerId: $customerId,
@@ -110,6 +117,7 @@ final class CustomerWalletWriter
                 reference: $reference,
                 paymentData: $paymentData,
             ),
+            origin: $origin,
         );
     }
 }

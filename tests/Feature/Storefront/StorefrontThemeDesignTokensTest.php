@@ -169,8 +169,10 @@ class StorefrontThemeDesignTokensTest extends TestCase
         $this->givePublishedThemeTo(country: 'SA');
         $this->givePublishedThemeTo(country: 'AE');
         $defaults = app(ThemeManager::class)->defaultSettings();
+        // A storefront's own overrides lie OVER the default storefront's, which is the design identity every storefront shares
+        // (F-12, StorefrontThemeResolver::sharedIdentityBeneath). A merge left a second, flatter line here that dropped the SA
+        // layer, and it overwrote this one: the Emirati case then expected AE's own tokens where the page really serves AE over SA.
         $expected = array_replace_recursive($defaults, $country === 'SA' ? [] : self::OVERRIDES['SA'], self::OVERRIDES[$country]);
-        $expected = array_replace_recursive($defaults, self::OVERRIDES[$country]);
 
         $web = $this->cssVariablesOfThePageHeadOf(country: $country);
         $app = $this->tokensTheAppIsGivenBy(country: $country);

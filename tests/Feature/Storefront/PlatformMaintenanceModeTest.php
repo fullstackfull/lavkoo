@@ -136,11 +136,14 @@ class PlatformMaintenanceModeTest extends TestCase
             $table->unsignedBigInteger('seller_id')->nullable();
             $table->string('shipping_type')->nullable();
         });
-        Schema::create('system_tax_setups', function (Blueprint $table) {
+        // Guarded: more than one world builder creates this table, and a test that builds two of them raised "table already exists" before a single assertion ran.
+        if (!Schema::hasTable('system_tax_setups')) {
+            Schema::create('system_tax_setups', function (Blueprint $table) {
             $table->id();
             $table->boolean('is_default')->default(false);
             $table->boolean('is_active')->default(true);
-        });
+            });
+        }
         Schema::create('meta_app_integrations', function (Blueprint $table) {
             $table->id();
             $table->string('app_type')->nullable();

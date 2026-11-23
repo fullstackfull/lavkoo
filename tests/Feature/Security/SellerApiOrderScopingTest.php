@@ -479,14 +479,17 @@ class SellerApiOrderScopingTest extends TestCase
             $table->timestamps();
         });
 
-        Schema::create('system_tax_setups', function (Blueprint $table) {
+        // Guarded: more than one world builder creates this table, and a test that builds two of them raised "table already exists" before a single assertion ran.
+        if (!Schema::hasTable('system_tax_setups')) {
+            Schema::create('system_tax_setups', function (Blueprint $table) {
             $table->id();
             $table->string('tax_payer')->nullable();
             $table->boolean('is_default')->default(false);
             $table->boolean('is_active')->default(true);
             $table->boolean('is_included')->default(false);
             $table->timestamps();
-        });
+            });
+        }
 
         Schema::create('products', function (Blueprint $table) {
             $table->id();
