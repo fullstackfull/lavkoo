@@ -81,7 +81,10 @@ class ProductCodeReadinessTest extends TestCase
 
         $output = $this->run_command()[1];
 
-        $this->assertNotEmpty(ProductCodeSites::notCovered(), 'the registry keeps the open sites');
+        // No assertion that the registry is non-empty: the branch at the end of this method already covers the case where every
+        // site has been reached, and the two together contradicted each other once that became true. The command must name every
+        // site the registry still lists, and say so plainly when the list is empty -- which is what it now is, since the
+        // country-scoping lanes covered the last of them.
         foreach (ProductCodeSites::notCovered() as $site) {
             $this->assertStringContainsString($site['id'], $output);
             $this->assertStringContainsString($site['where'], $output);

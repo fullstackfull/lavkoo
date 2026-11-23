@@ -198,7 +198,12 @@ class OnePriceWriteTouchesOneRowTest extends TestCase
         // improvement in the code, which is why
         // test_the_one_stock_write_this_scan_cannot_see_is_still_scoped_and_locked reads that one site
         // by name rather than letting the count quietly drop.
-        $this->assertCount(12, $writes, 'the number of price and stock writes moved; each new one wants reading');
+        // It is 9, and it was 9 before the open branches were assembled into main: the same nine files, measured by running this
+        // scan against pre-session main in a worktree. The 12 above it was already stale, so this is a census catching up with
+        // the code rather than the code having changed. The nine are OrderManager, M5aznProductImporter,
+        // ProductProviderAssignmentService, BulkPriceOperation, PurchaseOrderService, InventoryService, OrderEditManager and
+        // UpdateClass twice.
+        $this->assertCount(9, $writes, 'the number of price and stock writes moved; each new one wants reading');
 
         $unscoped = array_values(array_filter($writes, static fn (array $w): bool => !$w['scoped']));
 
