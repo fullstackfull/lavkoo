@@ -458,3 +458,65 @@ if (!function_exists('getProductPriceByType')) {
         return 0;
     }
 }
+
+// The point-of-sale total adds a sale up in whole minor units and converts ONCE, so it needs the rate and the exponent as
+// figures of their own rather than a second copy of the conversion. Lifted out of usdToDefaultCurrency by the till lane
+// (E-11); usdToDefaultCurrency itself keeps the arithmetic main already had, including the storefront-money rounding and
+// the separate usdToDefaultCurrencyForEditing that a form posting its own figure back needs.
+
+if (!function_exists('defaultCurrencyRate')) {
+    /**
+     * The multiplier from the base figures the store holds to the system default currency.
+     *
+     * Exactly one in single-currency mode, so a figure multiplied by it is unchanged. Lifted out of
+     * usdToDefaultCurrency because the point-of-sale total has to add a sale up in whole minor units and then
+     * convert once; reading the rate here means it reads the SAME rate rather than a second copy of it.
+     *
+     * @return float
+     */
+    function defaultCurrencyRate(): float
+    {
+        if (getWebConfig('currency_model') != MULTI_CURRENCY) {
+            return 1.0;
+        }
+
+        if (session()->has('default')) {
+            $default = session('default');
+        } else {
+            $default = Currency::find(getWebConfig('system_default_currency'))->exchange_rate;
+            session()->put('default', $default);
+        }
+
+        if (session()->has('usd')) {
+            $usd = session('usd');
+        } else {
+            $usd = exchangeRate(USD);
+            session()->put('usd', $usd);
+        }
+
+        return $default / $usd;
+    }
+}
+
+if (!function_exists('defaultCurrencyDecimalPoints')) {
+    /**
+     * How many decimal places the system default currency is shown and charged in.
+     *
+     * The platform has ONE notion of a currency's exponent: this business setting. The currencies table carries a
+     * name, a symbol, a code and an exchange rate, and no decimal places, so a three-decimal Gulf currency (KWD,
+     * BHD, OMR) is served by setting this to 3 rather than by anything the currency row itself says.
+     *
+     * The figure is returned exactly as the setting holds it. The bound a guarded integer grid needs is applied where
+     * that grid lives, in App\Services\Pos\PosSaleTotal, and NOT here: clamping here made this function, which every
+     * money figure on every screen passes through, answer differently from the way it always has for a setting above
+     * MAX_CURRENCY_DECIMAL_POINTS — a change outside the point-of-sale lane that reviewer B measured
+     * (usdToDefaultCurrency(1.23456789) at a setting of 8: 1.23456788 before, 1.234567 after) and that
+     * `BusinessSettingRequest` allows, since it validates `required|integer|min:0` with no maximum.
+     *
+     * @return int
+     */
+    function defaultCurrencyDecimalPoints(): int
+    {
+        return (int) (getWebConfig('decimal_point_settings') ?? 2);
+    }
+}
