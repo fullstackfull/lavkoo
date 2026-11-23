@@ -37,6 +37,7 @@ use Illuminate\Support\Facades\DB;
 use Modules\TaxModule\app\Models\OrderTax;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
 use App\Services\Customer\CustomerWalletWriter;
+use App\Utils\CustomerManager;
 
 trait OrderEditManager
 {

@@ -24,6 +24,7 @@ use Illuminate\Support\Facades\Validator;
 use App\Contracts\Repositories\CustomerRepositoryInterface;
 use App\Contracts\Repositories\LoginSetupRepositoryInterface;
 use App\Contracts\Repositories\PhoneOrEmailVerificationRepositoryInterface;
+use App\Models\PhoneOrEmailVerification;
 
 class CustomerAuthController extends Controller
 {

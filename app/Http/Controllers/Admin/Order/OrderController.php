@@ -72,6 +72,8 @@ use App\Contracts\Repositories\DeliveryManTransactionRepositoryInterface;
 use App\Contracts\Repositories\LoyaltyPointTransactionRepositoryInterface;
 use App\Contracts\Repositories\OrderExpectedDeliveryHistoryRepositoryInterface;
 use App\Services\Storefront\StorefrontCurrency;
+use App\Utils\CustomerManager;
+use App\Services\Customer\CustomerWalletWriter;
 
 class OrderController extends BaseController
 {

@@ -14,6 +14,8 @@ use App\Services\Customer\CustomerBalanceLock;
 use App\Services\Wallet\WalletOverdraft;
 use App\Services\Storefront\LedgerAttribution;
 use App\Services\Storefront\LedgerOrigin;
+use App\Models\BusinessSetting;
+use App\Models\WalletTransaction;
 
 trait CustomerTrait
 {

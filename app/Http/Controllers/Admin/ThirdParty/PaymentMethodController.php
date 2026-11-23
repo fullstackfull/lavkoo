@@ -19,6 +19,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Pagination\LengthAwarePaginator;
 use App\Models\MtnCashTerminal;
+use Brian2694\Toastr\Facades\Toastr;
 
 
 class PaymentMethodController extends BaseController

@@ -5,6 +5,7 @@ namespace App\Services\Customer;
 use App\Models\BusinessSetting;
 use App\Models\User;
 use App\Models\WalletTransaction;
+use App\Services\Wallet\WalletOverdraft;
 use Illuminate\Support\Str;
 
 /**
@@ -61,6 +62,14 @@ final class CustomerWalletWriter
         }
 
         return CustomerBalanceLock::apply($customerId, function (User $customer) use ($posting): bool|WalletTransaction {
+            // A debit never takes a wallet below nothing. The balance is read under the customer's row lock just above, so this
+            // judges the figure the write is about to be made from, not one another writer has since moved. Every other wallet
+            // writer on the platform asks the same question in the same place (WalletTransactionRepository, CustomerManager,
+            // CustomerTrait), and this one answers the six callers that now come through here.
+            if (WalletOverdraft::refuses($customer->wallet_balance, $posting->debit)) {
+                return false;
+            }
+
             $balanceAfter = $customer->wallet_balance + $posting->bonus + $posting->credit - $posting->debit;
 
             $transaction = new WalletTransaction();
