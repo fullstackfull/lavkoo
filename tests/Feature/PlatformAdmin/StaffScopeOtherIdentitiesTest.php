@@ -60,7 +60,7 @@ class StaffScopeOtherIdentitiesTest extends PlatformAdminTestCase
         $answers = [];
         foreach ([false, true] as $switchOn) {
             $this->switchStaffScopes(on: $switchOn);
-            Cache::flush();
+            $this->releaseEveryRateLimit();
             $answers[$switchOn] = [
                 $this->normalised($this->getJson('/api/v1/storefronts')),
                 $this->normalised($this->getJson('/api/v3/seller/seller-info', $this->bearer(Str::random(50)))),

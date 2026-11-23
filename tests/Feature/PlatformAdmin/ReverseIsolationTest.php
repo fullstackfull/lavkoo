@@ -152,7 +152,7 @@ class ReverseIsolationTest extends PlatformAdminTestCase
         $answers = [];
         foreach ([false, true] as $enabled) {
             config(['gcc.platform_admin.enabled' => $enabled]);
-            Cache::flush();
+            $this->releaseEveryRateLimit();
             $answers[$enabled] = [
                 $this->normalised($this->getJson('/api/v1/storefronts')),
                 $this->normalised($this->getJson('/api/v3/seller/seller-info', $this->bearer(Str::random(50)))),
@@ -214,9 +214,9 @@ class ReverseIsolationTest extends PlatformAdminTestCase
         foreach ($this->sample(routes: $this->routesOf(area: $area), every: $every) as $route) {
             [$method, $uri] = $this->requestTo($route);
 
-            Cache::flush();
+            $this->releaseEveryRateLimit();
             $without = $this->json($method, $uri);
-            Cache::flush();
+            $this->releaseEveryRateLimit();
             $with = $this->json($method, $uri, [], $this->bearer($token));
 
             $this->assertSame($this->saying($without), $this->saying($with), "{$area}: {$method} {$uri}");

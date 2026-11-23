@@ -5,6 +5,7 @@ namespace Tests\Feature\PlatformAdmin;
 use App\Models\Admin;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Routing\Route as RoutingRoute;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
@@ -31,6 +32,7 @@ abstract class PlatformAdminTestCase extends TestCase
         parent::setUp();
 
         $this->buildPlatformAdminWorld();
+
         config([
             'gcc.platform_admin.enabled' => true,
             // The tests of level 1 pin the one-step sign-in and what a session may do, which the second factor does not change: they run in the staging
@@ -43,6 +45,22 @@ abstract class PlatformAdminTestCase extends TestCase
             'gcc.platform_admin.requests_per_minute' => 1_000_000,
             'gcc.platform_admin.login_attempts_per_minute' => 1_000_000,
         ]);
+    }
+
+    /**
+     * Empties every store a rate limit is counted in, so that a test which signs in several times over may read what a route ANSWERS instead of
+     * what its throttle says.
+     *
+     * Cache::flush() alone used to do this and no longer does, deliberately: the security fix that moved the throttle counters into a store of
+     * their own exists precisely so that emptying the application's cache cannot release a limit. The tests below sign in at the seller, customer
+     * and delivery-man apis several times in one loop to ask what each answers an admin, and their own messages say what they are about -- "it is
+     * not a throttle or a failure" -- so they reset the limit between attempts, and this is what resetting it now means. The limiter's store is
+     * `array` under both phpunit configurations, so nothing outside the process is touched.
+     */
+    protected function releaseEveryRateLimit(): void
+    {
+        Cache::flush();
+        Cache::store(config('cache.limiter'))->flush();
     }
 
     /**

@@ -118,7 +118,7 @@ class PlatformSignInIsolationTest extends PlatformAdminTestCase
             'the customer API' => fn (): TestResponse => $this->postJson('/api/v1/auth/login', ['email_or_phone' => $admin['email'], 'password' => $admin['password'], 'type' => 'email']),
             'the delivery man API' => fn (): TestResponse => $this->postJson('/api/v2/delivery-man/auth/login', ['phone' => '+96550000003', 'password' => $admin['password']]),
         ] as $place => $signIn) {
-            Cache::flush();
+            $this->releaseEveryRateLimit();
             $response = $signIn();
 
             $this->assertContains($response->getStatusCode(), [401, 403, 422], "{$place} refuses an admin, and it is not a throttle or a failure");
@@ -148,7 +148,7 @@ class PlatformSignInIsolationTest extends PlatformAdminTestCase
         $this->assertStringStartsNotWith('lkpa_', $seller->json('token'));
 
         foreach ([$admin['password'], 'seller-password-1'] as $notTheCustomers) {
-            Cache::flush();
+            $this->releaseEveryRateLimit();
             $response = $this->postJson('/api/v1/auth/login', ['email_or_phone' => self::SHARED_EMAIL, 'password' => $notTheCustomers, 'type' => 'email']);
 
             $this->assertSame(403, $response->getStatusCode(), 'the customer sign-in found the customer and refused a password that is not his');
