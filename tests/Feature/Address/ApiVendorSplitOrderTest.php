@@ -38,8 +38,11 @@ class ApiVendorSplitOrderTest extends ApiAddressTestCase
         DB::table('shipping_types')->insert(['seller_id' => 0, 'shipping_type' => 'order_wise']);
 
         $this->customer = $this->makeCustomer();
-        $this->addSellerWithProducts(sellerId: self::FIRST_SELLER, productIds: [21, 23]);
-        $this->addSellerWithProducts(sellerId: self::SECOND_SELLER, productIds: [22]);
+        // Each product is priced at what its cart row carries. The checkout refreshes a cart row's price from the product's own price before it
+        // totals anything (ProductManager::updateProductPriceInCartList), so a product priced differently from its cart row is a cart that
+        // charges the product's price, not the row's: the prices are kept in step here so the arithmetic below is the cart's and not a fixture's.
+        $this->addSellerWithProducts(sellerId: self::FIRST_SELLER, pricedProducts: [21 => 40, 23 => 25]);
+        $this->addSellerWithProducts(sellerId: self::SECOND_SELLER, pricedProducts: [22 => 70]);
         $this->putInTheCart(sellerId: self::FIRST_SELLER, productId: 21, cartGroupId: 'cart-of-seller-11', quantity: 2, price: 40, shipping: 10);
         $this->putInTheCart(sellerId: self::FIRST_SELLER, productId: 23, cartGroupId: 'cart-of-seller-11', quantity: 1, price: 25);
         $this->putInTheCart(sellerId: self::SECOND_SELLER, productId: 22, cartGroupId: 'cart-of-seller-12', quantity: 1, price: 70, shipping: 15);
@@ -53,13 +56,13 @@ class ApiVendorSplitOrderTest extends ApiAddressTestCase
         }
     }
 
-    /** @param list<int> $productIds */
-    private function addSellerWithProducts(int $sellerId, array $productIds): void
+    /** @param array<int, float> $pricedProducts the id of each of the seller's products, and the price it sells at */
+    private function addSellerWithProducts(int $sellerId, array $pricedProducts): void
     {
         DB::table('sellers')->insert(['id' => $sellerId, 'f_name' => 'Seller ' . $sellerId, 'status' => 'approved']);
         DB::table('shops')->insert(['seller_id' => $sellerId, 'author_type' => 'vendor', 'name' => 'Shop of seller ' . $sellerId]);
-        foreach ($productIds as $productId) {
-            DB::table('products')->insert(['id' => $productId, 'name' => 'Product ' . $productId, 'added_by' => 'seller', 'user_id' => $sellerId, 'unit_price' => 10, 'current_stock' => 10]);
+        foreach ($pricedProducts as $productId => $price) {
+            DB::table('products')->insert(['id' => $productId, 'name' => 'Product ' . $productId, 'added_by' => 'seller', 'user_id' => $sellerId, 'unit_price' => $price, 'current_stock' => 10]);
         }
     }
 
