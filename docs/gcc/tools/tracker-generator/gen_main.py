@@ -4989,6 +4989,211 @@ def load_all():
     return data
 
 
+# ---------------------------------------------------------------------------
+# Seller app K axis, measured against the ONE TREE the integration created.
+#
+# Nine criteria were written when their halves sat on separate unmerged drafts.
+# The seller integration branch put them in one tree, so they became measurable
+# for the first time. Eight are MET on measurement; the ninth was MISSING and
+# stays MISSING, measured rather than assumed.
+#
+# The lane ran the two-agent protocol. Its review pass earned its keep twice:
+#
+#  1. IT CAUGHT A HOLE THE REORDER I ASKED FOR HAD OPENED. Moving the named
+#     steps ahead of the whole-suite step left `- name: Test` with no `if:`, so
+#     GitHub's default success() applied -- one red named step would have
+#     SKIPPED the whole run, and with it the only figures that say how many
+#     tests fail and which. That is hiding a failing test by accident, which is
+#     exactly what the owner forbade. Fixed with `if: always()` and then pinned
+#     by a test that reads the shipped workflow.
+#  2. It found that the statement's own currency refusal had NO test at all,
+#     while the record listed it among what this tree holds.
+#
+# It also corrected the record's own pessimism in two places, upward, and closed
+# a gap the build agent had admitted in writing it had not tested.
+#
+# 19 mutations, 19 caught, none survived. Eight METs attacked with sixteen
+# mutations chosen to kill them; all caught.
+#
+# What I checked myself rather than taking from the lane:
+#   * final head ca722974e0703264aca900881c32d5f5447ac6a0 on gcc/integration;
+#     origin/main still d556fb4f, untouched;
+#   * `git diff --name-only fe4b697c ca722974 -- lib/` is EMPTY: no application
+#     source changed. Five files in all, four of them tests;
+#   * the workflow by my own parse: 37 steps, `Test` at index 33 carrying
+#     `if: always()`, 29 named flutter-test steps ALL before it, and not one of
+#     them lacking a guard;
+#   * CI on that head: analyze "39 issues found", translations OK, and the whole
+#     suite `1759 tests passed, 1 failed, 2 skipped` with exactly one failing
+#     test, test/app_version_gate_test.dart -- the version gate, red on main too
+#     and reserved to the owner. build-android stays SKIPPED because it needs
+#     the test job, so no Android build is proved on this head.
+# ---------------------------------------------------------------------------
+
+_KAXIS_HEAD = (
+    ' // SELLER APP K AXIS, measured on the integration tree. Head gcc/integration '
+    'ca722974e0703264aca900881c32d5f5447ac6a0 (PR 21, draft, base main; NOT merged -- the suite cannot go green '
+    'without a version change, which is reserved). No application source changed: git diff --name-only '
+    'fe4b697c..ca722974 -- lib/ is empty, and the five changed files are .github/workflows/ci.yml plus four test '
+    'files. CI run 45095016124 on that head: every named feature step green, analyze 39 issues with 0 warnings '
+    'and 0 errors (the same 39 as main), translations OK at 2000 keys per language, whole suite 1759 passed / 1 '
+    'failed / 2 skipped with EXACTLY ONE failing test -- test/app_version_gate_test.dart, which is red on main '
+    'too and whose clearing needs release or minimum evidence only the owner can supply. build-android is '
+    'SKIPPED because it needs the test job, so no Android build is proved on this head. I read the head, the '
+    'lib/ diff, the workflow shape by my own parse and that CI run myself. 19 mutations were run across the '
+    'lane, 19 caught, none survived.'
+)
+
+_KAXIS = [
+    ('K-03', 0, 'MET',
+     'MET. PROVED on the real objects: the More screen offers a Market tile that opens the six GCC markets with '
+     'the one worked in marked, in English and in Arabic against the real language files, and a pick is written '
+     'by the real SellerMarketChoice to the real preferences. Attacked with three mutations the build agent had '
+     'not run: replacing the real preference write with a no-op failed 28 tests across four files, so "the pick '
+     'is saved" rests on the real write and not on a stand-in; shortening the label to the country alone failed '
+     '23. NOT PROVED: "visible on money screens" is still satisfied by two things measured in two places. No '
+     'test builds a money screen -- the wallet, the statement, a payout sheet -- and reads the market label and '
+     'a figure in that market\'s currency on it at once; the reviewer grepped every test naming MarketLabel for '
+     'any use of the price formatter and found none. The picker is only ever reached from the More screen in '
+     'these tests.'),
+
+    ('K-03', 3, 'MET',
+     'MET, and the record\'s own not-proved was too pessimistic -- corrected UPWARD by the reviewer. The two '
+     'halves are now proved by ONE switch through the handler the application itself wires '
+     '(storefront_dependencies hands the market controller reloadMarketScopedState, and the controller calls it '
+     'on a switch): a sale is rung up offline in Saudi Arabia with a cart in hand and a cart on hold, the seller '
+     'switches to Kuwait, and then the cart in hand, the carts on hold and the stored cart are all empty, the '
+     'lists, notifications and dashboard are reloaded, the queued sale still carries SA in the outbox AND in the '
+     'entry on the disk, and its replay goes out with the storefront header of SA while the seller works in KW. '
+     'The reload half is asserted on REAL controller state going from a value to null and back where the server '
+     'answers, on the real notification, analytics, seller-centre, action-centre, product and statement '
+     'controllers -- not on method calls on recording subclasses, as the record had said. A mutation that '
+     'removes the storefront from the stored entry, so the market survives in memory but never reaches the disk, '
+     'failed 8 tests. NOT PROVED: no WIDGET test builds the dashboard or the notification screen and reads '
+     'rendered text -- the drop and the reload are controller state, not pixels. The profile is deliberately not '
+     'dropped before being reloaded, so there is a window in which the profile of the market just left is on '
+     'show, and nothing measures it. Requests already in flight at the moment of the switch are out of scope by '
+     'design and untested. Nothing runs against a real server.'),
+
+    ('K-06', 2, 'MET',
+     'MET. The conjunction the criterion asks for holds on measurement: a queued sale is replayed only under the '
+     'seller and the market that took it, and is never deleted silently at sign-out. The market half survives a '
+     'disk round trip, not merely memory -- a mutation that stops the storefront being written to the stored '
+     'entry failed 8 tests across two files. The seller half is the id the real profile answers with: the '
+     'signed-in seller lists, counts, replays, retries, removes and clears the sales carrying their id and the '
+     'sales carrying none, and a sale carrying another seller\'s id stays on the disk unsent, uncounted and '
+     'unlisted. NOT PROVED: the conjunction rests on reading three test files together rather than on one test '
+     'holding the real profile, the real market and the real replay at once. The market is observed as an '
+     'outgoing storefront header and the seller as an authorization header, so "replayed under that seller and '
+     'that market" is proved at the APP\'s boundary, not against a row a backend actually wrote. "Never deleted '
+     'silently" is proved for a sign-out and for a 401-forced sign-out, not for an uninstall, a cleared data '
+     'directory, or a sign-out interleaved with a replay already in flight.'),
+
+    ('K-10', 1, 'MET',
+     'MET, measured on the object the app calls. The record\'s mutations were all at the market-money level; the '
+     'reviewer went at the real price formatter itself, one function at a time, and SEVEN of its eleven money '
+     'writers are now behaviourally pinned -- disabling the market branch of the main conversion failed 7 tests '
+     'including "the list shows the price of the product in dinars" and "the currency code stands beside the '
+     'amount, and the cash in hand is written in dinars"; the amount conversion 3; the discount calculation 2; '
+     'the currency mark 5. Every amount is written with the market\'s own decimals, three for KWD, BHD and OMR '
+     'and two for SAR, AED and QAR. NOT PROVED: the criterion says "on a market\'s screens", and the six-market '
+     'sweep reads the formatter\'s RETURN VALUES, not text read off a built screen; it injects the market '
+     'through a visible-for-testing seam rather than through the stored market, which is proved separately but '
+     'not for all six markets in one test. Four of the eleven formatter functions have no market branch and are '
+     'excluded by a hand-written reason.'),
+
+    ('K-10', 2, 'MET',
+     'MET, and the build agent\'s OWN stated gap is closed. It had written plainly that it did not mutate the '
+     'exchange-rate guard itself; the reviewer ran exactly that mutation, dropping the market term from the '
+     'reverse conversion\'s guard so that in a market the amount is divided by the exchange rate again, and it '
+     'was CAUGHT. So the criterion no longer rests on asserted outputs and a single-currency store. Measured on '
+     'the real formatter against a real splash controller holding a real multi-currency config whose shown '
+     'currency is worth 3.75 of the base. NOT PROVED: the ordering rule -- that every multiplying function asks '
+     'for the market BEFORE it reads the exchange rate -- is still enforced by a source scan that compares '
+     'string positions, not by behaviour. This is the seller app\'s own arithmetic only: nothing here says the '
+     'server did not convert before answering. Multiplication outside the formatter is covered only by the '
+     'scan\'s claim about which functions write money.'),
+
+    ('K-10', 3, 'MET',
+     'MET. Two mutations the build agent had not run each kill it, both on the line that carries the market\'s '
+     'decimals into the real widget: fixing the formatter to two decimals failed 16 tests, including "in Kuwait '
+     'a price to set is typed with three decimals and the fourth is refused" and "the price to set is sent as it '
+     'was typed, with three decimals"; flipping the withdraw formatter\'s truncation so a balance rounds up '
+     'rather than down also failed. One shared money-input formatter serves the payout request, the bulk price '
+     'change and the POS extra discount, and the POS discount gets a decimal keyboard. NOT PROVED: "send" is '
+     'observed at the service boundary or in the field\'s own controller text, not as a request a server '
+     'received -- the delivery-man cash field is the one exception. For the POS extra discount, the third of the '
+     'three fields the criterion names, nothing walks a whole sale: the reviewer grepped for that field\'s key '
+     'beside any place-order or request assertion and found nothing, so its "and send" half is inferred from '
+     'which formatter the field holds. Which widgets count as money fields is fixed by a hand-maintained list.'),
+
+    ('K-12', 3, 'MET',
+     'MET for the behaviour the criterion asks for, with one clause recorded as vacuous by construction. All '
+     'three keys are behaviourally load-bearing, not just the cart the build agent mutated: dropping the '
+     'currency key from the signed-in seller\'s key list failed 5 tests, including "a sign-out takes the market, '
+     'the cart and the currency the seller was working in" and "the second seller to sign in on the same phone '
+     'starts in no market, with no cart on hold and in the currency of the shop"; dropping the stored-market key '
+     'failed 8. The unsent sales stay queued for the seller who took them. NOT PROVED, and it matters: THE '
+     'CURRENCY HALF\'S WRITE IS MADE BY THE TEST, NOT BY THE APP -- the helper says so in its own words, '
+     'because the writer is the other half of a currency picker this build does not wire up. The READ path is '
+     'real, so the clearing is pinned against a value only the test puts there. The criterion is an ABSENCE ("a '
+     'second login inherits no stored currency"), and an absence is satisfied more strongly by there being no '
+     'writer at all, which is why this is MET rather than CODED; but the clause is vacuous in this build and the '
+     'record should say so. Nothing drives this through the real login screen or the real sign-out dialog.'),
+
+    ('K-15', 4, 'MET',
+     'MET, and it acquired enforcement it did not have. The criterion asks for each GCC feature\'s tests as a '
+     'NAMED CI step BEFORE the full run. On the integration tree twelve named steps ran AFTER the whole-suite '
+     'step; they are now ahead of it, verified as a pure reorder by comparing every step of the job on the base '
+     'with the new file by the tuple of name, condition, command, action and inputs -- nothing dropped, nothing '
+     'altered, only four steps added. Four files that had NO named step and were read only inside the red whole '
+     'run each got one, and a thirteen-file contract group got another, taking named coverage from 83 to 102 of '
+     '103 test files; the one exception is the reserved version-gate test. THE HOLE THE REORDER OPENED, found by '
+     'the review pass and fixed: the whole-suite step carried no condition, so the runner\'s default would have '
+     'SKIPPED it after any red named step -- hiding the only figures that say how many tests fail and which. It '
+     'now carries always(), as all 29 named test steps already did, and a new test reads the shipped workflow '
+     'and pins the shape: exactly one whole-suite step, every named feature step ahead of it, and no test step '
+     'without a guard. I verified that shape by my own parse of the file at the head. NOT PROVED: the '
+     'enforcement test reads the workflow FILE, not the runner, so it cannot prove the runner honours always() '
+     '-- that rests on the run itself, where the whole-suite step did execute last. Because all 29 named steps '
+     'were green on this head, always() changed nothing about today\'s outcome: its value is entirely on a '
+     'future red head, so it is asserted rather than exercised in anger. The format, analyze and translation '
+     'steps still carry no guard and the test does not cover them.'),
+]
+
+_K122 = (
+    'STILL MISSING, and now MEASURED rather than assumed. The CI log of this tree shows the platform secure '
+    'store being spoken to, so something was built and the question had to be asked properly. What that store '
+    'holds on this tree is the seller\'s stored PASSWORD (with a legacy plaintext value migrated out of '
+    'preferences on first prime and then erased) and the platform-admin token -- NOT the session token. The '
+    'session token is still kept in the ordinary preferences, as the earlier evidence said, so the reviewer '
+    'lowered nothing and confirmed the record was right. The lane deliberately wrote NO code for this: moving a '
+    'session token between stores touches sign-in, sign-out, the client that fills the authorization header and '
+    'the logged-in check, and it is a security boundary that deserves its own lane with its own review rather '
+    'than a line in a measurement pass. NOT PROVED: all of it. Nothing of this criterion is met.'
+)
+
+_load_all_before_kaxis = load_all
+
+
+def load_all():
+    data = _load_all_before_kaxis()
+    pending = {(rid, idx) for rid, idx, _, _ in _KAXIS} | {('K-12', 2)}
+    for unit in data:
+        for requirement in data[unit]['reqs']:
+            for rid, idx, state, evidence in _KAXIS:
+                if requirement['id'] == rid and idx < len(requirement['ac']):
+                    requirement['ac'][idx]['s'] = state
+                    requirement['ac'][idx]['e'] = requirement['ac'][idx]['e'] + ' // ' + evidence + _KAXIS_HEAD
+                    pending.discard((rid, idx))
+            if requirement['id'] == 'K-12' and len(requirement['ac']) > 2:
+                requirement['ac'][2]['e'] = requirement['ac'][2]['e'] + ' // ' + _K122 + _KAXIS_HEAD
+                pending.discard(('K-12', 2))
+    if pending:
+        raise SystemExit('K-axis block: these criteria were not found: %s' % sorted(pending))
+    return data
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]

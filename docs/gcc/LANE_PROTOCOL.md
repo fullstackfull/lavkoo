@@ -105,6 +105,7 @@ record.
 | GCC-21 stages A+B | old, 4 agents | 330 min | — | — | broad scope |
 | D2-V1 refusal | old, 4 agents | **130 min** | 1.54 M | 544 | **narrow scope** |
 | J-11 push per storefront | **new, 2 agents** | **106 min** | **0.67 M** | **236** | narrow scope |
+| seller K axis on one tree | **new, 2 agents** | **78 min** | **0.69 M** | **271** | narrow scope, 9 criteria |
 
 **Two separate effects, and they must not be confused.** D2-V1 ran the OLD four-agent shape
 and still took 130 minutes, because its scope was one mechanism and three callers. So most
@@ -113,7 +114,37 @@ visible in the last row: J-11 came in at 106 minutes for **less than half the to
 half the tool calls** of a comparable old-shape lane. Cost is where the two-agent shape pays;
 wall-clock is mostly bought by keeping the batch narrow.
 
-Not yet enough lanes to call the 120–150 target met. It is holding on two.
+The third new-shape lane came in at **78 minutes** for nine criteria — below the 120–150 target rather
+than inside it, and the cheapest of the five by tokens per criterion. Three lanes is still not a
+measurement to retire the question on, but the shape is holding: **both new-shape lanes are under half the
+tokens and under half the tool calls of a comparable old-shape lane**, and neither skipped a money or
+security test to get there.
+
+What the third lane also shows is that the saving is not coming out of rigour. It ran 19 mutations, all 19
+caught, attacked eight of its own MET claims with sixteen mutations chosen to kill them, corrected the
+record's own pessimism upward in two places, and closed a gap its build half had admitted in writing it
+had not tested.
+
+## A second rule, from the third lane: a CI change is reviewed as a gate
+
+The third lane was told to move named CI steps ahead of the whole-suite step, because a criterion asks for
+named steps *before* the full run. It did that, and verified the move was pure — every step's name, condition,
+command, action and inputs byte-identical, nothing dropped.
+
+**The move was pure and the result was still wrong.** The whole-suite step carried no condition, so the
+runner's default `success()` applied. With the named steps now ahead of it, one red named step would have
+*skipped the whole run* — and with it the only figures that say how many tests fail and which. A green-looking
+job, a hidden failure, and nothing in the diff to see it by.
+
+So: **a change to how CI decides what runs is a change to what a failure can hide, and it is reviewed as a
+gate rather than as a refactor.** Purity of the move is not the question. The questions are: after this change,
+what can be skipped that could not be skipped before; what figures stop being printed; and is there a test
+that reads the shipped workflow and fails if the shape regresses. The third lane ended with all three answered
+— the step now carries `always()` like the 29 named steps already did, and a test parses the shipped file and
+pins the shape.
+
+This generalises past CI. The same question belongs on any guard that decides whether a check runs at all:
+a skip condition, an environment gate, a `markTestSkipped`, a feature flag around an assertion.
 
 ## One rule the first new-shape lane changed
 
