@@ -114,7 +114,7 @@ class PlatformTokenIsolationTest extends PlatformAdminTestCase
     /** @param array<string, string> $headers */
     private function answerOf(string $method, string $uri, array $headers): string
     {
-        Cache::flush();
+        $this->releaseEveryRateLimit();
         $this->flushSession();
         $response = $this->json($method, $uri, [], $headers);
         $this->restoreAddonsFile();
