@@ -44,7 +44,41 @@ trait BuildsWalletAndVendorLedgerSchema
             $table->decimal('loyalty_point', 40, 20)->nullable()->default(0);
             $table->string('referral_code')->nullable();
             $table->integer('referred_by')->nullable();
+            // What deleting an account scrubs. The handler anonymises the row in ONE update, so a column it names and this table does not
+            // have fails the whole statement -- and the deletion answered 500 before it touched either ledger, which is what every
+            // assertion here is about. Keep this list and the handler's together.
+            $table->string('remember_token')->nullable();
+            $table->string('temporary_token')->nullable();
+            $table->string('street_address')->nullable();
+            $table->string('city')->nullable();
+            $table->string('zip')->nullable();
+            $table->string('country')->nullable();
+            $table->string('house_no')->nullable();
+            $table->string('apartment_no')->nullable();
+            $table->string('cm_firebase_token')->nullable();
+            $table->string('cm_firebase_token_web')->nullable();
+            $table->string('login_medium')->nullable();
+            $table->string('social_id')->nullable();
+            $table->string('payment_card_last_four')->nullable();
+            $table->string('payment_card_brand')->nullable();
+            $table->string('payment_card_fawry_token')->nullable();
+            $table->boolean('is_email_verified')->default(false);
             $table->timestamps();
+        });
+
+        // Deleting an account revokes that customer's access tokens, so the handler writes this table. Without it the delete answered 500
+        // on a PDOException ("no such table: oauth_access_tokens") before it reached anything about the ledger, which is what every
+        // assertion in AccountDeletionKeepsLedgerTest was waiting to read. Columns as the real migration leaves them
+        // (2016_06_01_000002_create_oauth_access_tokens_table), and as BuildsCustomerLedgerSchema already builds them.
+        Schema::create('oauth_access_tokens', static function (Blueprint $table): void {
+            $table->string('id')->primary();
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->unsignedBigInteger('client_id')->nullable();
+            $table->string('name')->nullable();
+            $table->text('scopes')->nullable();
+            $table->boolean('revoked')->default(false);
+            $table->timestamps();
+            $table->dateTime('expires_at')->nullable();
         });
 
         Schema::create('orders', static function (Blueprint $table): void {
