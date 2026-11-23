@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Marketplace;
 
+use App\Exceptions\OrderMixesSellingCompaniesException;
 use App\Models\LegalEntity;
 use App\Models\VendorLedgerEntry;
 use App\Services\Marketplace\CommissionEngine;
@@ -104,7 +105,19 @@ class OrderCompanyOnTheLivePathTest extends ApiAddressTestCase
         $this->assertSame($company->id, $this->ledger()->companyOfSeller(sellerId: self::SELLER));
     }
 
-    public function test_an_order_of_two_countries_names_no_company_and_is_still_placed(): void
+    /**
+     * An order of two countries is REFUSED, not placed without a company.
+     *
+     * This case was written for the earlier rule, in which such an order went through and simply froze no company. D1-02 then
+     * settled the opposite and is the rule in force: no company may invoice another company's sale, so an order never carries two
+     * countries' or two selling companies' rows (App\Services\Storefront\OneSellingCompanyPerOrder, asked by generateOrder
+     * before the transaction opens). It is the stricter of the two and it is the owner's decision, so the expectation moved to
+     * meet it rather than the guard being loosened to meet the expectation.
+     *
+     * Nothing is written when it is refused: the check runs before the transaction, so there is no order row and no ledger entry
+     * to inspect. Each country's rows can still be bought on their own, which the cases above prove.
+     */
+    public function test_an_order_of_two_countries_is_refused(): void
     {
         $this->turnSellingCompaniesOn();
         config(['gcc.storefronts.countries.AE.active' => true]);
@@ -112,11 +125,15 @@ class OrderCompanyOnTheLivePathTest extends ApiAddressTestCase
         $this->registerCompany('AE');
         StorefrontCatalog::flush();
 
-        $orderId = $this->placeAnOrderOfOneSellerLine(extraCountries: ['AE']);
+        $this->expectException(OrderMixesSellingCompaniesException::class);
 
-        $this->assertSame(2, DB::table('order_details')->where('order_id', $orderId)->count());
-        $this->assertNull(DB::table('orders')->where('id', $orderId)->value(LegalEntityRegistry::COLUMN), 'two countries freeze no company');
-        $this->assertSame([null, null, null, null], array_values($this->companiesOnTheLedger()));
+        try {
+            $this->placeAnOrderOfOneSellerLine(extraCountries: ['AE']);
+        } finally {
+            $this->assertSame(0, DB::table('orders')->count(), 'a refused order writes nothing');
+            $this->assertSame(0, DB::table('order_details')->count());
+            $this->assertSame([], $this->companiesOnTheLedger(), 'and records no money');
+        }
     }
 
     public function test_an_empty_registry_leaves_the_ledger_exactly_as_it_is_today(): void
@@ -205,6 +222,11 @@ class OrderCompanyOnTheLivePathTest extends ApiAddressTestCase
             $this->putASellersProductInTheCart(customerId: $customer->id, productId: 2 + $index, country: $country);
         }
 
+        // The checkout resolves who is buying through Helpers::getCustomerInformation, which asks the customer guard and then
+        // the request's own user resolver -- never a `user` key merged into the input. Merging it alone left the cart owned by
+        // nobody, so CartManager::get_cart_group_ids looked for a GUEST's rows, found none, and generateOrder wrote no order at
+        // all. The customer is signed in here, which is what every controller that reaches this code has already done.
+        $this->actingAs($customer, 'customer');
         request()->merge(['user' => $customer]);
 
         $orderIds = OrderManager::generateOrder(data: [

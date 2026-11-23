@@ -96,7 +96,9 @@ class RefundReversalService
                     return ['refund_debit' => 0.0, 'commission_credit' => 0.0];
                 }
 
-                $currency = $this->currencyOfTheEarningBeingReversed(snapshot: $snapshot, orderDetailsId: $orderDetailsId);
+                $earning = $this->earningBeingReversed(snapshot: $snapshot, orderDetailsId: $orderDetailsId);
+                $currency = $earning === null ? $snapshot->currency : $earning->currency;
+                $company = $this->companyOfTheEarning(earning: $earning);
 
                 // The seller gives back the earning on the returned portion (ex-tax, capped at base)...
                 $this->ledger->record(
@@ -108,6 +110,7 @@ class RefundReversalService
                     referenceId: $refundReference ?? $orderDetailsId,
                     description: 'Refund on order line #' . $orderDetailsId,
                     currency: $currency,
+                    legalEntityId: $company,
                 );
 
                 // ...and the marketplace gives back its cut of it.
@@ -121,6 +124,7 @@ class RefundReversalService
                         referenceId: $refundReference ?? $orderDetailsId,
                         description: 'Commission reversed on refund of line #' . $orderDetailsId,
                         currency: $currency,
+                        legalEntityId: $company,
                     );
 
                     $snapshot->forceFill([
@@ -150,16 +154,28 @@ class RefundReversalService
      * with it. The snapshot is the fallback for a line whose earning is not on the ledger, which is where it was
      * the only answer available.
      */
-    private function currencyOfTheEarningBeingReversed(OrderItemCommission $snapshot, int|string $orderDetailsId): ?string
+    /** The earning this reversal gives back, or null when the ledger holds none for the line. */
+    private function earningBeingReversed(OrderItemCommission $snapshot, int|string $orderDetailsId): ?VendorLedgerEntry
     {
-        $earning = $this->ledger->eventAlreadyRecorded(
+        return $this->ledger->eventAlreadyRecorded(
             sellerId: $snapshot->seller_id,
             entryType: VendorLedgerEntry::TYPE_ORDER_EARNING,
             referenceType: 'order_details',
             referenceId: $orderDetailsId,
             sellerIs: $snapshot->seller_is,
         );
+    }
 
-        return $earning === null ? $snapshot->currency : $earning->currency;
+    /**
+     * The company a reversal belongs to: the one that holds the EARNING it reverses, never whatever the registry answers today.
+     *
+     * A refund leaves the company that took the money. Resolving the company afresh would send it out of a different one the day
+     * the registry is edited, which is money leaving a company that never received it. Where the earning names no company -- every
+     * entry before the backfill reaches it, and every entry while the column is dormant -- the reversal names none either, so it
+     * stays in the same chain the earning is in.
+     */
+    private function companyOfTheEarning(?VendorLedgerEntry $earning): ?int
+    {
+        return $earning === null ? null : $this->ledger->companyOfEntry(entryId: $earning->id);
     }
 }

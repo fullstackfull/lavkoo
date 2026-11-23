@@ -418,4 +418,57 @@ class VendorLedger
             return null;
         }
     }
+
+    /**
+     * Whether an entry carries the company that earned it.
+     *
+     * The same question LedgerChain asks before it writes the column, asked through LedgerChain so there is one answer: the
+     * registry is on, the table is there, and the column is there. Dormant until the migration runs.
+     */
+    public function recordsCompanies(): bool
+    {
+        return LedgerChain::entityIsRecorded();
+    }
+
+    /**
+     * The one company a seller's entries all name, or null when they name none, more than one, or the column is dormant.
+     *
+     * Two companies in one seller's ledger is not a company for that seller: it is a seller whose entries disagree, and the
+     * caller is told nothing rather than told the first of them.
+     */
+    public function companyOfSeller(int|string $sellerId, string $sellerIs = 'seller'): ?int
+    {
+        if (!$sellerId || !$this->recordsCompanies()) {
+            return null;
+        }
+
+        // Every value the seller's entries carry, NULLS INCLUDED. Money earned before the column existed is not that company's
+        // money, so a ledger that is part one company and part none names neither: a debit drawn on the whole of it would
+        // otherwise be charged to a company that only earned some of it.
+        $companies = VendorLedgerEntry::query()
+            ->forSeller($sellerId, $sellerIs)
+            ->distinct()
+            ->limit(2)
+            ->pluck(LedgerChain::ENTITY_COLUMN);
+
+        if ($companies->count() !== 1) {
+            return null;
+        }
+
+        $only = $companies->first();
+
+        return $only === null ? null : (int) $only;
+    }
+
+    /** The company one entry names, or null when it names none or the column is dormant. */
+    public function companyOfEntry(int|string|null $entryId): ?int
+    {
+        if (!$entryId || !$this->recordsCompanies()) {
+            return null;
+        }
+
+        $company = VendorLedgerEntry::query()->whereKey($entryId)->value(LedgerChain::ENTITY_COLUMN);
+
+        return $company === null ? null : (int) $company;
+    }
 }
