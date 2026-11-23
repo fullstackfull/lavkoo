@@ -67,7 +67,6 @@ class WithdrawBoundaryCharacterizationTest extends TestCase
         foreach (self::TABLES as $table) {
             Schema::dropIfExists($table);
         }
-
         Schema::create('business_settings', function (Blueprint $table) {
             $table->id();
             $table->string('type');
@@ -292,7 +291,6 @@ class WithdrawBoundaryCharacterizationTest extends TestCase
                 'method_info' => ['iban' => 'SA0380000000608010167519'],
             ]);
     }
-
     /** @return array{0: float, 1: float} total_earning and pending_withdraw as stored */
     private function wallet(): array
     {
