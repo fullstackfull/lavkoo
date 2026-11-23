@@ -83,6 +83,7 @@ final class ProductCountry
      *
      * @return array<string, list<mixed>>
      */
+    /** @return array<string, list<mixed>> the validation of the country field of a new product */
     public static function newProductRules(): array
     {
         if (app(StaffCountryScope::class)->restricts()) {

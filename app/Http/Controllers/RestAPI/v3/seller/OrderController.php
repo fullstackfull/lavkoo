@@ -13,6 +13,7 @@ use App\Events\OrderStatusEvent;
 use App\Http\Controllers\Controller;
 use App\Services\DeveloperPortal\ApiDoc;
 use App\Services\SellerInvoiceService;
+use App\Services\Marketplace\SellerMarketScope;
 use App\Services\Storefront\OrderStorefront;
 use App\Http\Requests\API\v3\DigitalProductFileUploadAfterSell;
 use App\Models\BusinessSetting;
@@ -33,6 +34,7 @@ use App\Utils\CustomerManager;
 use App\Utils\Helpers;
 use App\Utils\OrderManager;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -58,6 +60,7 @@ class OrderController extends Controller
         private readonly DigitalFileAddressService $digitalFileAddresses,
         private readonly ReferralRewardService $referralRewards,
         private readonly OrderStorefront $orderStorefront,
+        private readonly SellerMarketScope $sellerMarkets,
     )
     {
     }
@@ -91,6 +94,13 @@ class OrderController extends Controller
         $storefront = $this->orderStorefront->requestedBy(request: $request);
         if ($storefront !== null) {
             $filters['storefront_country'] = $storefront;
+        }
+
+        // A seller granted markets never sees an order outside them, whatever the list asks for (K-09). The grant comes from the
+        // rows the middleware resolved, never from the request, so the filter above can only narrow inside it.
+        $grant = $this->sellerMarkets->boundGrant();
+        if ($grant !== null) {
+            $filters['storefront_grant'] = $grant;
         }
 
         $filterWhereIn = [];
@@ -155,7 +165,9 @@ class OrderController extends Controller
     )]
     public function invoice(Request $request, $id, SellerInvoiceService $invoices): JsonResponse
     {
-        $order = $invoices->orderFor(orderId: $id, sellerId: $request->seller->id);
+        $order = $this->sellerMarkets->mayReadOrder($id)
+            ? $invoices->orderFor(orderId: $id, sellerId: $request->seller->id)
+            : null;
 
         if (!$order) {
             return response()->json(['errors' => [
@@ -189,7 +201,9 @@ class OrderController extends Controller
         SellerOrderTimelineService $timelines,
     ): JsonResponse {
         $sellerId = $request->seller->id;
-        $breakdown = $breakdowns->breakdownFor(orderId: $id, sellerId: $sellerId);
+        $breakdown = $this->sellerMarkets->mayReadOrder($id)
+            ? $breakdowns->breakdownFor(orderId: $id, sellerId: $sellerId)
+            : null;
 
         if ($breakdown === null) {
             // Either no such order, or one belonging to another seller. Both are the same answer
@@ -212,9 +226,11 @@ class OrderController extends Controller
     public function details(Request $request, $id): JsonResponse
     {
         $seller = $request->seller;
-        $detailsList = OrderDetail::ofSeller(sellerId: $seller['id'])->with(['order.offlinePayments', 'order.customer', 'order.deliveryMan', 'verificationImages', 'latestEditHistory', 'orderEditHistory' => function ($query) {
-            return $query->orderBy('updated_at', 'desc');
-        }])->where('order_id', $id)->get();
+        $detailsList = $this->sellerMarkets->mayReadOrder($id)
+            ? OrderDetail::ofSeller(sellerId: $seller['id'])->with(['order.offlinePayments', 'order.customer', 'order.deliveryMan', 'verificationImages', 'latestEditHistory', 'orderEditHistory' => function ($query) {
+                return $query->orderBy('updated_at', 'desc');
+            }])->where('order_id', $id)->get()
+            : collect();
 
         if ($detailsList->isEmpty()) {
             // Either no such order, or one belonging to another seller. Both are the same answer
@@ -313,8 +329,10 @@ class OrderController extends Controller
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)]);
         }
 
+        // Scope to the authenticated seller and to the markets the token was granted (K-09). The not-found answer is new: a
+        // find that matched nothing used to reach the next line and die on a null, so a probe got a 500 rather than a 404.
         $seller = $request->seller;
-        $order = Order::with('deliveryMan')->where(['seller_id' => $seller['id'], 'seller_is' => 'seller'])->find($request['order_id']);
+        $order = $this->narrowOrdersOf($seller['id'])->with('deliveryMan')->find($request['order_id']);
         if (!$order) {
             return response()->json(['success' => 0, 'message' => translate('order_not_found')], 404);
         }
@@ -346,8 +364,8 @@ class OrderController extends Controller
         $deliveryManCharge = $request->deliveryman_charge;
 
         // Scope to the authenticated seller: this writes deliveryman_charge/expected_delivery_date, so an
-        // unscoped find let one seller rewrite another seller's order.
-        $order = Order::with('deliveryMan')->where(['seller_id' => $seller['id'], 'seller_is' => 'seller'])->find($request->order_id);
+        // unscoped find let one seller rewrite another seller's order. And to the granted markets (K-09).
+        $order = $this->narrowOrdersOf($seller['id'])->with('deliveryMan')->find($request->order_id);
         if (!$order) {
             return response()->json(['success' => 0, 'message' => translate('order_not_found')], 404);
         }
@@ -383,8 +401,10 @@ class OrderController extends Controller
     public function digital_file_upload_after_sell(DigitalProductFileUploadAfterSell $request): JsonResponse
     {
         $seller = $request->seller;
-        // Scope the order line to the seller so one seller cannot overwrite another's delivered digital file.
-        $order_details = OrderDetail::ofSeller(sellerId: $seller['id'])->find($request->order_id);
+        // Scope the order line to the seller so one seller cannot overwrite another's delivered digital file, and to the
+        // granted markets (K-09): the market of a line is the market of its order.
+        $order_details = $this->sellerMarkets->narrowByOrder(OrderDetail::ofSeller(sellerId: $seller['id']))
+            ->find($request->order_id);
         if ($order_details) {
             $order_details->digital_file_after_sell = $this->digitalFiles->replace(oldName: $order_details->digital_file_after_sell, file: $request->file('digital_file_after_sell'));
             $order_details->save();
@@ -400,13 +420,31 @@ class OrderController extends Controller
             ?? response()->json(['errors' => [['code' => 'file', 'message' => translate('file_not_found')]]], 404);
     }
 
+    /**
+     * This seller's own orders, held to the markets the token was granted (K-09).
+     *
+     * Eight writers key off an order id. Seven of them found by seller alone, so a token granted one market was refused the
+     * order on `orders/{id}` and then marked it paid, assigned it a courier, reassigned its delivery man and moved its status.
+     * The bound is the order list's own bound, so none of them can reach an order the list will not show.
+     */
+    private function narrowOrdersOf(int|string $sellerId): Builder
+    {
+        return $this->sellerMarkets->narrowOrders(
+            Order::where(['seller_id' => $sellerId, 'seller_is' => 'seller'])
+        );
+    }
+
     public function order_detail_status(Request $request): JsonResponse
     {
         $seller = $request->seller;
         // Scope to the seller: this mutates order/payment status with wallet/stock/settlement side-effects,
         // so an unscoped find let one seller force-deliver or cancel any vendor's order.
-        $order = Order::with(['customer', 'seller.shop', 'deliveryMan', 'latestEditHistory'])
-            ->where(['seller_id' => $seller['id'], 'seller_is' => 'seller'])->find($request['id']);
+        // And to the markets the token was granted (K-09): forcing a status on an order of a market this account does not work
+        // in is the same act as reading it, with side effects.
+        $order = $this->sellerMarkets->narrowOrders(
+            Order::with(['customer', 'seller.shop', 'deliveryMan', 'latestEditHistory'])
+                ->where(['seller_id' => $seller['id'], 'seller_is' => 'seller'])
+        )->find($request['id']);
         if (!$order) {
             return response()->json(['success' => 0, 'message' => translate('order_not_found')], 404);
         }
@@ -542,7 +580,7 @@ class OrderController extends Controller
         // Scope to the authenticated seller: an unscoped find let one seller hijack/wipe the delivery
         // assignment on any vendor's order.
         $seller = $request->seller;
-        $order = Order::where(['seller_id' => $seller['id'], 'seller_is' => 'seller'])->find($request->order_id);
+        $order = $this->narrowOrdersOf($seller['id'])->find($request->order_id);
         if (!$order) {
             return response()->json(['success' => 0, 'message' => translate('order_not_found')], 404);
         }
@@ -571,8 +609,10 @@ class OrderController extends Controller
             return response()->json(['success' => 0, 'message' => translate('When payment status paid then you can`t change payment status paid to unpaid') . '.'], 200);
         }
         // Scope to the authenticated seller: an unscoped find let one seller mark any vendor's order paid.
+        // And to the markets the token was granted (K-09): marking an order of a market this account does not work in as paid
+        // is a money write on an order the order list refuses to show it.
         $seller = $request->seller;
-        $order = Order::where(['seller_id' => $seller['id'], 'seller_is' => 'seller'])->find($request['order_id']);
+        $order = $this->narrowOrdersOf($seller['id'])->find($request['order_id']);
         if (isset($order)) {
             if ($order->is_guest == '0' && empty($order->customer)) {
                 return response()->json(['success' => 0, 'message' => translate("Customer account has been deleted. you can't update status!")], 202);
@@ -600,8 +640,8 @@ class OrderController extends Controller
     public function address_update(Request $request)
     {
         $seller = $request->seller;
-        // Only the seller who owns the order may rewrite its shipping/billing address.
-        $orderModel = $this->order->where('seller_id', $seller['id'])->where('seller_is', 'seller')->find($request->order_id);
+        // Only the seller who owns the order may rewrite its shipping/billing address, and only in a granted market (K-09).
+        $orderModel = $this->narrowOrdersOf($seller['id'])->find($request->order_id);
         if (!$orderModel) {
             return response()->json(['message' => translate('order_not_found')], 404);
         }
@@ -635,9 +675,10 @@ class OrderController extends Controller
 
         $seller = $request->seller;
         // Scope to the authenticated seller: every mutation below keys off order_id, so without this
-        // one seller could flip another seller's payment/order status, reassign delivery, etc.
-        $order = Order::with(['customer', 'seller.shop', 'deliveryMan', 'latestEditHistory'])
-            ->where('seller_id', $seller['id'])->where('seller_is', 'seller')
+        // one seller could flip another seller's payment/order status, reassign delivery, etc. And to the granted markets
+        // (K-09), for the same reason: this one write moved the order status, the payment status and the delivery assignment.
+        $order = $this->narrowOrdersOf($seller['id'])
+            ->with(['customer', 'seller.shop', 'deliveryMan', 'latestEditHistory'])
             ->find($request['order_id']);
 
         if (!$order) {

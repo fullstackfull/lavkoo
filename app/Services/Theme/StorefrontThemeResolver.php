@@ -81,6 +81,9 @@ final class StorefrontThemeResolver
         $shared = $this->publishedVersionOf(theme: $this->activeThemeOf(storefront: $this->defaultStorefront()))?->settings;
 
         return is_array($shared) ? $shared : [];
+        $theme = $this->activeTheme();
+
+        return $theme === null ? null : ThemeVersion::query()->where('theme_id', $theme->id)->published()->first();
     }
 
     /**

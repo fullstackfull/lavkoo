@@ -11303,4 +11303,9 @@ return [
 	'this_payment_method_cannot_take_payments_in_your_currency' => 'This payment method cannot take payments in your currency',
 	'this_storefront_trades_in_one_currency' => 'This storefront trades in one currency, so the currency cannot be changed here.',
 	'a_sale_needs_at_least_one_product' => 'A sale needs at least one product',
+	'your_account_does_not_work_in_that_market' => 'Your account does not work in that market',
+	'your_account_does_not_work_in_any_market' => 'Your account does not work in any market',
+	'name_the_market_this_product_belongs_to_your_account_works_in_more_than_one' => 'Name the market this product belongs to: your account works in more than one',
+	'this_action_covers_every_market_of_the_shop_and_your_account_does_not' => 'This action covers every market of the shop, and your account does not',
+	'totals_of_different_currencies_are_not_added' => 'Totals of different currencies are not added',
 ];

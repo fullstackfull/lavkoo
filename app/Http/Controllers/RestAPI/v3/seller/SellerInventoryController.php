@@ -11,12 +11,18 @@ use App\Models\Warehouse;
 use App\Services\DeveloperPortal\ApiDoc;
 use App\Services\Marketplace\BatchService;
 use App\Services\Marketplace\InventoryService;
+use App\Services\Marketplace\SellerMarketScope;
+use App\Services\Marketplace\SellerMarketTotals;
 use App\Services\Marketplace\SellerPrincipal;
 use App\Services\Marketplace\WarehouseService;
 use App\Services\SellerCenter\ModuleFlags;
+use App\Services\Storefront\StorefrontCatalog;
+use App\Services\Storefront\StorefrontResolver;
 use App\Utils\Helpers;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 
@@ -43,6 +49,8 @@ class SellerInventoryController extends Controller
         private readonly InventoryService $inventory,
         private readonly WarehouseService $warehouses,
         private readonly BatchService $batches,
+        private readonly SellerMarketScope $markets,
+        private readonly SellerMarketTotals $totals,
     ) {
     }
 
@@ -90,7 +98,61 @@ class SellerInventoryController extends Controller
             // The same answer the panel's navigation reads, from the same service.
             'warehouses_enabled' => ModuleFlags::hasWarehouses($sellerId),
             'batches_enabled' => ModuleFlags::hasBatches($sellerId),
-        ], 200);
+        ] + $this->perMarket(products: $products, threshold: $threshold), 200);
+    }
+
+    /**
+     * The same shelf, market by market, for a seller who works in more than one (K-04).
+     *
+     * Counts are added across markets, because a unit in Riyadh and a unit in Dubai are two units. The value of the stock is not:
+     * each market's value is in that market's currency, and the one combined value exists only while every market of the view
+     * trades in the same currency. Where it does not, `stock_value_refused_because` says so where the reader is, rather than
+     * printing a sum of two currencies as if it were money.
+     *
+     * Nothing is added for a seller with no market grant — every seller while the switch is off — so this answer stays the answer
+     * it has always been, key for key.
+     *
+     * @return array<string, mixed>
+     */
+    private function perMarket(Builder $products, int $threshold): array
+    {
+        $grant = $this->markets->boundGrant();
+
+        if ($grant === null || !Schema::hasColumn('products', StorefrontCatalog::COLUMN)) {
+            return [];
+        }
+
+        $counts = [];
+        $value = [];
+        $storefronts = StorefrontResolver::fromConfig();
+
+        foreach ($grant as $market) {
+            $inMarket = (clone $products)->where(StorefrontCatalog::COLUMN, $market);
+
+            $counts[$market] = [
+                'products' => (clone $inMarket)->count(),
+                'out_of_stock' => (clone $inMarket)->where('current_stock', '<=', 0)->count(),
+                'running_low' => (clone $inMarket)->where('current_stock', '>', 0)->where('current_stock', '<=', $threshold)->count(),
+                'units_on_hand' => (int) (clone $inMarket)->sum('current_stock'),
+            ];
+
+            $currency = $storefronts->currencyOf($market);
+            $value[$currency]['stock_value'] = round(
+                (float) ($value[$currency]['stock_value'] ?? 0) + (float) (clone $inMarket)->sum(DB::raw('current_stock * unit_price')),
+                2,
+            );
+        }
+
+        $byMarket = $this->totals->counts($counts);
+        $money = $this->totals->money($value);
+
+        return [
+            'by_market' => $byMarket['by_market'],
+            'combined_counts' => $byMarket['combined'],
+            'stock_value_by_currency' => $money['by_currency'],
+            'stock_value_combined' => $money['combined'],
+            'stock_value_refused_because' => $money['refused_because'],
+        ];
     }
 
     #[ApiDoc(
@@ -269,9 +331,11 @@ class SellerInventoryController extends Controller
     /** Products this seller owns. The only query any of this is allowed to start from. */
     private function ownedProducts(int|string $sellerId)
     {
-        return Product::withoutGlobalScope('translate')
+        // Bound to the markets the request was granted, so the overview, the movement filter and every figure drawn from this
+        // query hold the same line (K-09). A seller with no grant reads their whole catalogue, as before.
+        return $this->markets->narrowQuery(Product::withoutGlobalScope('translate')
             ->where('added_by', 'seller')
-            ->where('user_id', $sellerId);
+            ->where('user_id', $sellerId));
     }
 
     /**

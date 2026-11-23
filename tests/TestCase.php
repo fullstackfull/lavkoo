@@ -45,5 +45,6 @@ abstract class TestCase extends BaseTestCase
             Schema::dropAllTables();
             Cache::flush();
         }
+        StorefrontVisibility::flush();
     }
 }

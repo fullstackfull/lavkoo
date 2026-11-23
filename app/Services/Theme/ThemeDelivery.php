@@ -699,6 +699,8 @@ $blocks = $row->blocks
             // asks first decides what the others get, and a section kept for the seller app is sent to the customer app. Two apps are both `platform: app`, so the platform alone
             // does not separate them. ONCE: two lanes fixed this same defect independently (F-03 criterion 2 and F-09.1) and a merge kept both lines, which put the channel in the
             // key twice -- harmless to the hash but a second copy of one rule, and it moved every key away from the one both lanes' own tests restate.
+            // The channel decides which sections a client is sent (SectionVisibility), and the response already says it varies by X-UI-Channel: without it in the key the client that asks
+            // first decides what the others get, and a section kept for the seller app is sent to the customer app.
             $viewer->channel(),
             // The matched segment SET joins the key (§64–65): what varies the response must vary
             // the cache. Bounded by the segments actually defined, not by customers — two repeat

@@ -74,7 +74,7 @@ Route::group(['namespace' => 'RestAPI\v3\seller', 'prefix' => 'v3/seller', 'midd
     // Opened by the app in the phone's browser, which holds no token: the signature of the link says which seller's product it is for, and for how long.
     Route::get('products/barcode/sheet', [ProductBarcodeSheetController::class, 'show'])->middleware('signed:relative')->name('seller-barcode-sheet');
 
-    Route::group(['middleware' => ['seller_api_auth']], function () {
+    Route::group(['middleware' => ['seller_api_auth', 'seller_market']], function () {
         Route::controller(SellerController::class)->group(function () {
             // The caller's own session and their own shop's public face: available to whoever
             // holds a credential for this shop, because withholding them would leave a staff
@@ -90,7 +90,7 @@ Route::group(['namespace' => 'RestAPI\v3\seller', 'prefix' => 'v3/seller', 'midd
             // a role that could change the owner's password or delete the shop would be a role
             // that can take the shop, which is not something an owner should be able to hand out
             // — and certainly not something an issued key should reach.
-            Route::middleware('seller_owner')->group(function () {
+            Route::middleware(['seller_owner', 'seller_all_markets'])->group(function () {
                 // Deleting an account is not a read. GET is kept only so builds already
                 // installed keep working, and can go once they are gone; new callers
                 // use DELETE, which no prefetcher, retry layer or proxy will replay.
@@ -403,7 +403,7 @@ Route::group(['namespace' => 'RestAPI\v3\seller', 'prefix' => 'v3/seller', 'midd
                     Route::get('withdrawal-method-list', 'getWithdrawalMethods');
                 });
 
-                Route::middleware('seller_owner')->group(function () {
+                Route::middleware(['seller_owner', 'seller_all_markets'])->group(function () {
                     Route::post('add', 'add');
                     Route::post('update', 'update');
                     Route::post('default', 'updateDefault');
@@ -433,7 +433,7 @@ Route::group(['namespace' => 'RestAPI\v3\seller', 'prefix' => 'v3/seller', 'midd
                 // with the marketplace rather than an operation inside it, so it belongs to the
                 // account holder rather than to any delegable permission.
                 Route::controller(SellerVerificationController::class)->group(function () {
-                    Route::middleware('seller_owner')->group(function () {
+                    Route::middleware(['seller_owner', 'seller_all_markets'])->group(function () {
                         Route::get('/', 'index');
                         Route::post('submit', 'submit');
                         Route::get('document/{id}', 'document')->whereNumber('id');
@@ -554,7 +554,7 @@ Route::group(['namespace' => 'RestAPI\v3\seller', 'prefix' => 'v3/seller', 'midd
                     // before and after of a bank-details change, and the team list carries every
                     // employee's email and last login — a credential that may not manage the team
                     // has no business reading either.
-                    Route::middleware('seller_can:staff.manage')->group(function () {
+                    Route::middleware(['seller_can:staff.manage', 'seller_all_markets'])->group(function () {
                         Route::get('permissions', 'permissions');
                         Route::get('roles', 'roles');
                         Route::get('staff', 'staff');
@@ -704,7 +704,7 @@ Route::group(['namespace' => 'RestAPI\v3\seller', 'prefix' => 'v3/seller', 'midd
      * The controller must still verify the token's seller owns {seller_id} — see the ownership
      * check added in getVendorAllProducts().
      */
-    Route::group(['middleware' => ['seller_api_auth']], function () {
+    Route::group(['middleware' => ['seller_api_auth', 'seller_market']], function () {
         Route::controller(ProductController::class)->group(function () {
             Route::group(['prefix' => 'products'], function () {
                 Route::middleware('seller_can:products.view,products.manage,orders.manage')->group(function () {

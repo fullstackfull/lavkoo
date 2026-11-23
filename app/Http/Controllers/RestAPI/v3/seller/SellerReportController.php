@@ -24,7 +24,16 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
  * panel cannot drift apart on what a period covers or what was earned in it.
  *
  * The seller id comes from the auth token and nowhere else: there is no id parameter to change, and
- * the scoping is a WHERE inside the service rather than a filter over a wider result set.
+ * the scoping is a WHERE inside the service rather than a filter over a wider result set. The markets come from the grant rows the
+ * same way, inside the same service, so a report answers the orders and products of the markets the token holds and no others
+ * (K-09) — and the four exports below, which read the service's own queries, carry the same rows and no more.
+ *
+ * No screen here adds two currencies (K-04.2). Where the period holds orders in more than one, the combined money is withheld and
+ * each currency's real figures are given with the reason; the PDF, which has no room for a refusal, is refused outright with the
+ * market to name instead. That holds for the **product** report too, which this sentence once claimed while
+ * `reports/products` answered `sold_amount` 1200 for a thousand riyals plus two hundred dirhams and `discount_given` 10 for 7
+ * plus 3. Quantities are still added, there and on the stock screen: a unit sold in Riyadh and a unit sold in Dubai are two
+ * units, and only money is refused.
  */
 class SellerReportController extends Controller
 {
@@ -52,18 +61,14 @@ class SellerReportController extends Controller
         $search = $this->search($request);
 
         $report = $this->reports->orderReport($sellerId, $window, $search);
+        $money = $this->reports->orderMoneyByCurrency($sellerId, $window);
         $orders = $this->reports->orderQuery($sellerId, $window, $search)
             ->paginate($this->limit($request), ['*'], 'page', $this->page($request));
 
         return response()->json([
             'period' => $this->period($window),
             'counts' => $report['counts'],
-            'amounts' => $report['amounts'],
-            'payments' => $report['payments'],
-            'chart' => [
-                'labels' => $report['chart_labels'],
-                'values' => array_values($report['chart']),
-            ],
+        ] + $this->money($report, $money) + [
             'orders' => [
                 'total_size' => $orders->total(),
                 'limit' => $orders->perPage(),
@@ -103,13 +108,14 @@ class SellerReportController extends Controller
         $search = $this->search($request);
 
         $report = $this->reports->productReport($sellerId, $window, $search);
+        $money = $this->reports->productMoneyByCurrency($sellerId, $window);
         $products = $this->reports->productQuery($sellerId, $window, $search)
             ->paginate($this->limit($request), ['*'], 'page', $this->page($request));
 
         return response()->json([
             'period' => $this->period($window),
             'counts' => $report['counts'],
-            'totals' => $report['totals'],
+        ] + $this->soldTotals($report, $money) + [
             'chart' => [
                 'labels' => $report['chart_labels'],
                 'values' => array_values($report['chart']),
@@ -272,8 +278,16 @@ class SellerReportController extends Controller
         idempotent: true,
         group: 'vendors',
     )]
-    public function exportOrdersPdf(Request $request): Response
+    public function exportOrdersPdf(Request $request): Response|JsonResponse
     {
+        $refusal = $this->whyThePrintedReportIsRefused($request);
+
+        if ($refusal !== null) {
+            return response()->json(['errors' => [
+                ['code' => 'currency_scope', 'message' => translate($refusal)],
+            ]], 409);
+        }
+
         $window = $this->window($request);
         $orders = $this->reports->orderQuery($request->seller->id, $window, $this->search($request))->get();
         $seller = $request->seller;
@@ -309,6 +323,80 @@ class SellerReportController extends Controller
             'Content-Type' => 'application/pdf',
             'Content-Disposition' => 'attachment; filename="order-report.pdf"',
         ]);
+    }
+
+    /**
+     * What the period sold, as one set of figures while it is in one currency and as the per-currency figures while it is not.
+     *
+     * The quantity survives the refusal because it is a count: only `sold_amount` and `discount_given` are money. A period of one
+     * currency is answered the one `totals` key it always was, with the three figures it always carried.
+     *
+     * @param  array<string, mixed>  $report
+     * @param  array{by_currency: list<array<string, mixed>>, refused_because: string|null, sold_quantity: float}  $money
+     * @return array<string, mixed>
+     */
+    private function soldTotals(array $report, array $money): array
+    {
+        if ($money['refused_because'] === null) {
+            return ['totals' => $report['totals']];
+        }
+
+        return [
+            'totals' => [
+                'sold_quantity' => $money['sold_quantity'],
+                'sold_amount' => null,
+                'discount_given' => null,
+            ],
+            'totals_by_currency' => $money['by_currency'],
+            'totals_refused_because' => $money['refused_because'],
+        ];
+    }
+
+    /**
+     * The report's money, as one set of figures while the period is in one currency and as the per-currency figures with the
+     * reason while it is not (K-04.2).
+     *
+     * A period of one currency keeps the three keys it always had, in the order it always had them, with the figures it always
+     * carried — which is every seller of one market. A period of two gets `amounts`, `payments` and the chart's values as null,
+     * so no client can read a sum that was never money, plus `amounts_by_currency` and `chart_by_currency` with each currency's
+     * own real figures and `totals_refused_because` saying why the one figure is missing.
+     *
+     * @param  array<string, mixed>  $report
+     * @param  array{by_currency: list<array<string, mixed>>, refused_because: string|null, chart_by_currency: list<array<string, mixed>>}  $money
+     * @return array<string, mixed>
+     */
+    private function money(array $report, array $money): array
+    {
+        if ($money['refused_because'] === null) {
+            return [
+                'amounts' => $report['amounts'],
+                'payments' => $report['payments'],
+                'chart' => ['labels' => $report['chart_labels'], 'values' => array_values($report['chart'])],
+            ];
+        }
+
+        return [
+            'amounts' => null,
+            'payments' => null,
+            'chart' => ['labels' => $report['chart_labels'], 'values' => null],
+            'amounts_by_currency' => $money['by_currency'],
+            'chart_by_currency' => $money['chart_by_currency'],
+            'totals_refused_because' => $money['refused_because'],
+        ];
+    }
+
+    /**
+     * Why the printed report cannot be produced, as a language key, or null when it can.
+     *
+     * A PDF carries totals at its foot and no way to say that a figure is missing, so a period holding two currencies is refused
+     * rather than printed with a sum of them. The seller names a market — the header or the field the API already reads — and
+     * gets that market's report.
+     */
+    private function whyThePrintedReportIsRefused(Request $request): ?string
+    {
+        $money = $this->reports->orderMoneyByCurrency($request->seller->id, $this->window($request));
+
+        return $money['refused_because'];
     }
 
     /**

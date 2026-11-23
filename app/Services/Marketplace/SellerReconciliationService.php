@@ -4,6 +4,7 @@ namespace App\Services\Marketplace;
 
 use App\Models\VendorLedgerEntry;
 use App\Services\Platform\Policy;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -36,6 +37,15 @@ class SellerReconciliationService
     /** Enough to open, not so many that the answer becomes a report nobody reads. */
     private const SAMPLE_SIZE = 20;
 
+    /** The column an order records its currency in, written by the storefront snapshot. */
+    private const ORDER_CURRENCY = 'currency_code';
+
+    public function __construct(
+        private readonly SellerMarketScope $markets,
+        private readonly VendorLedger $ledger,
+    ) {
+    }
+
     /**
      * @return array{
      *     from: string, to: string,
@@ -57,9 +67,32 @@ class SellerReconciliationService
         $linesWithoutEarning = $this->linesWithoutEarning($sellerId, $start, $end);
         $earningsWithoutCredit = $this->earningsWithoutCredit($sellerId, $start, $end);
 
-        return [
+        $window = [
             'from' => $start->toDateString(),
             'to' => $end->toDateString(),
+        ];
+
+        $deliveredByCurrency = $this->deliveredByCurrency($sellerId, $start, $end);
+        $creditedByCurrency = $this->creditedByCurrency($sellerId, $start, $end);
+        $refusal = $this->whyThereIsNoOneComparison($deliveredByCurrency, $creditedByCurrency);
+
+        if ($refusal !== null) {
+            return $window + [
+                'delivered' => ['lines' => $delivered['lines'], 'orders' => $delivered['orders'], 'gross' => null],
+                'recorded' => ['lines' => $recorded['lines'], 'commission' => null, 'net' => null, 'source' => $recorded['source']],
+                'credited' => ['entries' => $credited['entries'], 'amount' => null],
+                'gaps' => [
+                    'lines_without_earning' => ['count' => $linesWithoutEarning['count'], 'amount' => null, 'sample' => $linesWithoutEarning['sample']],
+                    'earnings_without_credit' => ['count' => $earningsWithoutCredit['count'], 'amount' => null, 'sample' => $earningsWithoutCredit['sample']],
+                ],
+                'delivered_by_currency' => $this->asGroups($deliveredByCurrency),
+                'credited_by_currency' => $this->asGroups($creditedByCurrency),
+                'reconciles' => null,
+                'totals_refused_because' => $refusal,
+            ];
+        }
+
+        return $window + [
             'delivered' => $delivered,
             'recorded' => $recorded,
             'credited' => $credited,
@@ -76,6 +109,141 @@ class SellerReconciliationService
         ];
     }
 
+    /**
+     * Why this shop's sales and credits cannot be compared as one pair of figures (K-04.2).
+     *
+     * `reconciles` is `abs(recorded.net - credited.amount) < a cent`. Both sides were sums over every currency the shop trades
+     * in, so a shop selling in Riyadh and Dubai was told whether a riyal-plus-dirham sales figure matched a riyal-plus-dirham
+     * credit figure — a verdict about money that is not money. Where more than one currency is in the window the three figures
+     * and the verdict are withheld, the reason travels in the answer, and the two sides that **can** be split by currency are
+     * given per currency. A shop in one currency, which is every shop today, is answered what it was answered before.
+     *
+     * @param  array<string, array<string, float|int>>  $delivered
+     * @param  array<string, array<string, float|int>>  $credited
+     */
+    private function whyThereIsNoOneComparison(array $delivered, array $credited): ?string
+    {
+        $currencies = array_unique(array_merge(array_keys($delivered), array_keys($credited)));
+
+        return count($currencies) > 1 ? SellerMarketTotals::CURRENCIES_DIFFER : null;
+    }
+
+    /**
+     * What was delivered in each currency the orders of the window were taken in.
+     *
+     * @return array<string, array{lines: int, orders: int, gross: float}>
+     */
+    private function deliveredByCurrency(int|string $sellerId, Carbon $start, Carbon $end): array
+    {
+        if (!Schema::hasTable('order_details') || !Schema::hasColumn('orders', self::ORDER_CURRENCY)) {
+            return [];
+        }
+
+        $rows = $this->deliveredLines($sellerId, $start, $end)
+            ->groupBy('orders.' . self::ORDER_CURRENCY)
+            ->selectRaw('orders.' . self::ORDER_CURRENCY . ' as code, COUNT(*) as line_count, '
+                . 'COUNT(DISTINCT order_details.order_id) as orders, '
+                . 'COALESCE(SUM(order_details.price * order_details.qty - order_details.discount), 0) as gross')
+            ->get();
+
+        $byCurrency = [];
+
+        foreach ($rows as $row) {
+            $code = $this->currencyOf($row->code);
+            $byCurrency[$code] = [
+                'lines' => (int) ($byCurrency[$code]['lines'] ?? 0) + (int) $row->line_count,
+                'orders' => (int) ($byCurrency[$code]['orders'] ?? 0) + (int) $row->orders,
+                'gross' => round((float) ($byCurrency[$code]['gross'] ?? 0) + (float) $row->gross, 2),
+            ];
+        }
+
+        ksort($byCurrency);
+
+        return $byCurrency;
+    }
+
+    /**
+     * What reached the balance in each currency the ledger recorded it in.
+     *
+     * @return array<string, array{entries: int, amount: float}>
+     */
+    private function creditedByCurrency(int|string $sellerId, Carbon $start, Carbon $end): array
+    {
+        if (!Schema::hasTable('vendor_ledger_entries')) {
+            return [];
+        }
+
+        $rows = DB::table('vendor_ledger_entries')
+            ->where(['seller_is' => 'seller', 'seller_id' => $sellerId])
+            ->whereIn('entry_type', [VendorLedgerEntry::TYPE_ORDER_EARNING, VendorLedgerEntry::TYPE_COMMISSION_CHARGE])
+            ->whereBetween('created_at', [$start, $end])
+            ->groupBy('currency')
+            ->selectRaw(
+                'currency as code, COALESCE(SUM(credit - debit), 0) as amount, '
+                . 'COALESCE(SUM(CASE WHEN entry_type = ? THEN 1 ELSE 0 END), 0) as entries',
+                [VendorLedgerEntry::TYPE_ORDER_EARNING],
+            )
+            ->get();
+
+        $byCurrency = [];
+
+        foreach ($rows as $row) {
+            $code = $this->currencyOf($row->code);
+            $byCurrency[$code] = [
+                'entries' => (int) ($byCurrency[$code]['entries'] ?? 0) + (int) $row->entries,
+                'amount' => round((float) ($byCurrency[$code]['amount'] ?? 0) + (float) $row->amount, 2),
+            ];
+        }
+
+        ksort($byCurrency);
+
+        return $byCurrency;
+    }
+
+    /**
+     * @param  array<string, array<string, float|int>>  $byCurrency
+     * @return list<array<string, mixed>>
+     */
+    private function asGroups(array $byCurrency): array
+    {
+        return array_map(
+            static fn (string $code, array $figures): array => ['currency_code' => $code] + $figures,
+            array_keys($byCurrency),
+            array_values($byCurrency),
+        );
+    }
+
+    /** The currency a row names, or the store's own when it names none, as the rest of the money rule reads it. */
+    private function currencyOf(mixed $named): string
+    {
+        $code = is_string($named) ? trim($named) : '';
+
+        return $code !== '' ? $code : (string) $this->ledger->baseCurrency();
+    }
+
+    /**
+     * The delivered lines of this seller, held to the markets the request was granted (K-09).
+     *
+     * `gross: 111111` was once composed entirely of two markets the token had been refused, because this walked the orders by
+     * seller alone while `orders/list` refused them. The bound is the order list's own, asked as a subquery.
+     */
+    private function deliveredLines(int|string $sellerId, Carbon $start, Carbon $end): QueryBuilder
+    {
+        return $this->narrowToGrantedOrders(DB::table('order_details')
+            ->join('orders', 'orders.id', '=', 'order_details.order_id')
+            ->where(['orders.seller_is' => 'seller', 'orders.seller_id' => $sellerId])
+            ->where('order_details.delivery_status', 'delivered')
+            ->whereBetween('order_details.created_at', [$start, $end]), 'orders.id');
+    }
+
+    /** Keeps the rows whose order the request was granted, and every row when it is not narrowed. */
+    private function narrowToGrantedOrders(QueryBuilder $query, string $column): QueryBuilder
+    {
+        $granted = $this->markets->grantedOrderIds();
+
+        return $granted === null ? $query : $query->whereIn($column, $granted);
+    }
+
     /** @return array{lines: int, orders: int, gross: float} */
     private function delivered(int|string $sellerId, Carbon $start, Carbon $end): array
     {
@@ -83,11 +251,7 @@ class SellerReconciliationService
             return ['lines' => 0, 'orders' => 0, 'gross' => 0.0];
         }
 
-        $row = DB::table('order_details')
-            ->join('orders', 'orders.id', '=', 'order_details.order_id')
-            ->where(['orders.seller_is' => 'seller', 'orders.seller_id' => $sellerId])
-            ->where('order_details.delivery_status', 'delivered')
-            ->whereBetween('order_details.created_at', [$start, $end])
+        $row = $this->deliveredLines($sellerId, $start, $end)
             ->selectRaw('COUNT(*) as line_count, COUNT(DISTINCT order_details.order_id) as orders, '
                 . 'COALESCE(SUM(order_details.price * order_details.qty - order_details.discount), 0) as gross')
             ->first();
@@ -111,9 +275,9 @@ class SellerReconciliationService
     private function recorded(int|string $sellerId, Carbon $start, Carbon $end): array
     {
         if (Schema::hasTable('order_item_commissions')) {
-            $row = DB::table('order_item_commissions')
+            $row = $this->narrowToGrantedOrders(DB::table('order_item_commissions')
                 ->where(['seller_is' => 'seller', 'seller_id' => $sellerId])
-                ->whereBetween('created_at', [$start, $end])
+                ->whereBetween('created_at', [$start, $end]), 'order_item_commissions.order_id')
                 ->selectRaw('COUNT(*) as line_count, COALESCE(SUM(commission_amount), 0) as commission, '
                     . 'COALESCE(SUM(seller_net_amount - reversed_amount), 0) as net')
                 ->first();
@@ -131,9 +295,9 @@ class SellerReconciliationService
         }
 
         if (Schema::hasTable('order_transactions')) {
-            $row = DB::table('order_transactions')
+            $row = $this->narrowToGrantedOrders(DB::table('order_transactions')
                 ->where(['seller_is' => 'seller', 'seller_id' => $sellerId])
-                ->whereBetween('created_at', [$start, $end])
+                ->whereBetween('created_at', [$start, $end]), 'order_transactions.order_id')
                 ->selectRaw('COUNT(*) as line_count, COALESCE(SUM(admin_commission), 0) as commission, '
                     . 'COALESCE(SUM(seller_amount), 0) as net')
                 ->first();
@@ -191,13 +355,13 @@ class SellerReconciliationService
             return ['count' => 0, 'amount' => 0.0, 'sample' => []];
         }
 
-        $query = DB::table('order_details')
+        $query = $this->narrowToGrantedOrders(DB::table('order_details')
             ->join('orders', 'orders.id', '=', 'order_details.order_id')
             ->leftJoin('order_item_commissions', 'order_item_commissions.order_details_id', '=', 'order_details.id')
             ->where(['orders.seller_is' => 'seller', 'orders.seller_id' => $sellerId])
             ->where('order_details.delivery_status', 'delivered')
             ->whereBetween('order_details.created_at', [$start, $end])
-            ->whereNull('order_item_commissions.id');
+            ->whereNull('order_item_commissions.id'), 'orders.id');
 
         $totals = (clone $query)
             ->selectRaw('COUNT(*) as line_count, COALESCE(SUM(order_details.price * order_details.qty - order_details.discount), 0) as amount')
@@ -271,10 +435,10 @@ class SellerReconciliationService
                 ->values();
         }
 
-        $query = DB::table('order_item_commissions')
+        $query = $this->narrowToGrantedOrders(DB::table('order_item_commissions')
             ->where(['seller_is' => 'seller', 'seller_id' => $sellerId])
             ->whereBetween('created_at', [$start, $end])
-            ->when($creditedOrders->isNotEmpty(), fn ($q) => $q->whereNotIn('order_id', $creditedOrders->all()))
+            ->when($creditedOrders->isNotEmpty(), fn ($q) => $q->whereNotIn('order_id', $creditedOrders->all())), 'order_item_commissions.order_id')
             ->groupBy('order_id');
 
         $rows = (clone $query)

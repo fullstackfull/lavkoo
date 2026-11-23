@@ -17875,4 +17875,9 @@ return [
 	'this_payment_method_is_not_available_in_this_storefront' => 'طريقة الدفع هذه غير متاحة في هذا المتجر.',
 	'this_payment_method_cannot_take_payments_in_your_currency' => 'وسيلة الدفع هذه لا تقبل الدفع بعملتك',
 	'this_storefront_trades_in_one_currency' => 'يتداول هذا المتجر بعملة واحدة، لذلك لا يمكن تغيير العملة هنا.',
+	'your_account_does_not_work_in_that_market' => 'حسابك لا يعمل في ذلك السوق',
+	'your_account_does_not_work_in_any_market' => 'حسابك لا يعمل في أي سوق',
+	'name_the_market_this_product_belongs_to_your_account_works_in_more_than_one' => 'حدّد السوق الذي ينتمي إليه هذا المنتج: حسابك يعمل في أكثر من سوق',
+	'this_action_covers_every_market_of_the_shop_and_your_account_does_not' => 'هذا الإجراء يشمل كل أسواق المتجر، وحسابك لا يشملها',
+	'totals_of_different_currencies_are_not_added' => 'لا تُجمع مبالغ بعملات مختلفة',
 ];

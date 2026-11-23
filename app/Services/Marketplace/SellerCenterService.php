@@ -21,6 +21,7 @@ class SellerCenterService
         private readonly SellerVerificationService $verification,
         private readonly SellerScorecardService $scorecards,
         private readonly VendorLedger $ledger,
+        private readonly SellerMarketTotals $totals,
     ) {
     }
 
@@ -42,22 +43,47 @@ class SellerCenterService
         ];
     }
 
+    /**
+     * What the shop holds. One figure while the account is in one currency, and none at all when it is in two (K-04.2).
+     *
+     * `available`, `balance` and `withdrawable` all read 140 for a shop holding 100 riyals and 40 dirhams, which is not money and
+     * is not labelled with a currency either. Where the account holds more than one currency the three figures are withheld, the
+     * reason travels in the answer, and each currency's own real figures are given beside it — the rule the statement already
+     * applies, read from the same place in the ledger.
+     */
     private function finance(int|string $sellerId): array
     {
-        $balances = $this->ledger->balances($sellerId);
         $recentPayout = null;
         if (Schema::hasTable('vendor_payout_requests')) {
             $recentPayout = VendorPayoutRequest::where('seller_id', $sellerId)->latest('id')->first();
         }
+
+        $payout = [
+            'recent_payout_status' => $recentPayout?->status,
+            'recent_payout_reference' => $recentPayout?->reference,
+        ];
+
+        $money = $this->totals->money($this->ledger->balancesByCurrency($sellerId));
+
+        if ($money['refused_because'] !== null) {
+            return [
+                'available' => null,
+                'pending' => null,
+                'balance' => null,
+                'withdrawable' => null,
+                'balances_by_currency' => $money['by_currency'],
+                'totals_refused_because' => $money['refused_because'],
+            ] + $payout;
+        }
+
+        $balances = $this->ledger->balances($sellerId);
 
         return [
             'available' => $balances['available'] ?? 0.0,
             'pending' => $balances['pending'] ?? 0.0,
             'balance' => $balances['balance'] ?? 0.0,
             'withdrawable' => $this->ledger->withdrawable($sellerId),
-            'recent_payout_status' => $recentPayout?->status,
-            'recent_payout_reference' => $recentPayout?->reference,
-        ];
+        ] + $payout;
     }
 
     private function sla(int|string $sellerId): array

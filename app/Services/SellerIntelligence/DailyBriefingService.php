@@ -3,6 +3,7 @@
 namespace App\Services\SellerIntelligence;
 
 use App\Models\SellerInsight;
+use App\Services\Marketplace\SellerMarketTotals;
 use App\Services\Marketplace\SlaService;
 use App\Services\Marketplace\VendorLedger;
 use App\Services\SellerCenter\Revenue;
@@ -27,6 +28,7 @@ class DailyBriefingService
         private readonly ControlTowerService $tower,
         private readonly SlaService $sla,
         private readonly VendorLedger $ledger,
+        private readonly SellerMarketTotals $totals,
     ) {
     }
 
@@ -165,9 +167,31 @@ class DailyBriefingService
             ->sum('affected_count');
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * What the shop holds, in the money it holds it in (K-04.2).
+     *
+     * This was the worst of the four: a shop with 100 riyals and 40 dirhams was briefed
+     * `{"currency":"SAR","pending":0,"withdrawable":140}` — a riyal-plus-dirham total printed **under the riyal's own code**,
+     * which is worse than an unlabelled sum because it reads as a checked figure. Where the account holds more than one currency
+     * there is no single figure and no single code: both are withheld with the reason, and each currency's own real figures are
+     * given. A shop in one currency is briefed exactly the three keys it was briefed before.
+     *
+     * @return array<string, mixed>
+     */
     private function balance(int|string $sellerId): array
     {
+        $money = $this->totals->money($this->ledger->balancesByCurrency($sellerId));
+
+        if ($money['refused_because'] !== null) {
+            return [
+                'currency' => null,
+                'pending' => null,
+                'withdrawable' => null,
+                'balance_by_currency' => $money['by_currency'],
+                'totals_refused_because' => $money['refused_because'],
+            ];
+        }
+
         $balances = $this->ledger->balances($sellerId);
 
         return [

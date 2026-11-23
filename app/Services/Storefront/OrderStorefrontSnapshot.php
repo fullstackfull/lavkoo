@@ -148,6 +148,7 @@ final class OrderStorefrontSnapshot
     }
 
     /** Whether the orders migration has run, that is whether an order can hold a record at all. The question OrderStorefront asks. */
+    /** Whether the orders migration has run, that is whether an order can hold a record at all. */
     public function columnReady(): bool
     {
         return $this->columnExists(table: 'orders', column: self::COLUMN);

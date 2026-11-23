@@ -9,10 +9,12 @@ use App\Models\DeliveryMan;
 use App\Models\Order;
 use App\Models\OrderStatusHistory;
 use App\Models\Review;
+use App\Services\Marketplace\SellerMarketScope;
 use App\Traits\CommonTrait;
 use App\Traits\SellerOwnedRecords;
 use App\Utils\Helpers;
 use App\Utils\ImageManager;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -25,9 +27,24 @@ class DeliveryManController extends Controller
 
     private $shippingMethod;
 
-    public function __construct()
+    public function __construct(private readonly SellerMarketScope $markets)
     {
         $this->shippingMethod = getWebConfig(name: 'shipping_method');
+    }
+
+    /**
+     * The orders of one of the shop's delivery men, held to the markets the token was granted (K-09).
+     *
+     * Found by survey rather than named in the brief: these two reads return order rows and were bound to the shop's delivery
+     * man and not to a market, so a token granted Saudi Arabia alone read the Kuwaiti orders its own courier had carried —
+     * past the order list that refuses them.
+     */
+    private function ordersOfTheShopsDeliveryMan(int|string $deliveryManId, int|string $sellerId): Builder
+    {
+        return $this->markets->narrowOrders(
+            Order::where(['delivery_man_id' => $deliveryManId])
+                ->whereHas('deliveryMan', fn (Builder $query): Builder => $query->where('seller_id', $sellerId))
+        );
     }
 
     public function list(Request $request): JsonResponse
@@ -216,10 +233,7 @@ class DeliveryManController extends Controller
     public function order_list(Request $request, $id): JsonResponse
     {
         $seller = $request->seller;
-        $orders = Order::where('delivery_man_id', $id)
-            ->whereHas('deliveryMan', function ($query) use ($seller) {
-                $query->where('seller_id', $seller->id);
-            })
+        $orders = $this->ordersOfTheShopsDeliveryMan(deliveryManId: $id, sellerId: $seller->id)
             ->latest('updated_at')
             ->paginate($request['limit'], ['*'], 'page', $request['offset']);
 
@@ -258,11 +272,8 @@ class DeliveryManController extends Controller
             return response()->json(['message' => translate('invalid_deliveryman!')], 403);
         }
 
-        $orders = Order::select('id', 'deliveryman_charge', 'order_status', 'delivery_man_id', 'updated_at')
-            ->where(['delivery_man_id' => $id])
-            ->whereHas('deliveryMan', function ($query) use ($seller) {
-                $query->where('seller_id', $seller->id);
-            })
+        $orders = $this->ordersOfTheShopsDeliveryMan(deliveryManId: $id, sellerId: $seller->id)
+            ->select('id', 'deliveryman_charge', 'order_status', 'delivery_man_id', 'updated_at')
             ->latest('updated_at')
             ->paginate($request['limit'], ['*'], 'page', $request['offset']);
 

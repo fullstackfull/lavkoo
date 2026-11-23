@@ -41,6 +41,7 @@ trait BuildsSellerMarketWorld
     private const SELLER_MARKET_TABLES = [
         'business_settings', 'sellers', 'shops', 'seller_roles', 'seller_staff', 'seller_api_keys', 'users', 'storages', 'orders', 'order_details',
         'shipping_methods', 'delivery_men', 'offline_payments', 'order_delivery_verifications', 'order_edit_histories', 'products', 'colors',
+        'currencies',
     ];
 
     protected function buildSellerMarketWorld(bool $ordersRecordTheirStorefront = true): void
@@ -60,6 +61,7 @@ trait BuildsSellerMarketWorld
         }
 
         $this->seedTheSellersAndTheirOrders();
+        $this->useTheStoresOwnCurrency();
         $this->useOrderWiseTax();
     }
 
@@ -76,6 +78,45 @@ trait BuildsSellerMarketWorld
         foreach (['AE', 'KW', 'QA', 'BH', 'OM'] as $country) {
             config(["gcc.storefronts.countries.{$country}.active" => true]);
         }
+    }
+
+    /**
+     * The columns the eight order writers of the seller app write, and the two refund columns of an order line.
+     *
+     * Opt-in rather than part of the world, because the order answers of this world are compared against recorded golden files:
+     * a column added to the table appears in the serialised order and moves an answer no test here is about. A strict engine
+     * refuses an UPDATE of a column that is not there, so without these every writer answered 500 — and a surface that 500s
+     * before it reaches its query proves nothing about whether a market bound holds on it. SQLite reads an unresolvable quoted
+     * identifier as a string literal rather than failing, so a missing column also made an assertion about what was stored pass
+     * against the column's own name.
+     */
+    protected function giveOrdersTheColumnsItsWritersWrite(): void
+    {
+        Schema::table('orders', function (Blueprint $table) {
+            $table->string('delivery_type')->nullable();
+            $table->string('delivery_service_name')->nullable();
+            $table->string('third_party_delivery_tracking_id')->nullable();
+            $table->decimal('deliveryman_charge', 16, 2)->default(0);
+            $table->timestamp('deliveryman_assigned_at')->nullable();
+            $table->date('expected_delivery_date')->nullable();
+            $table->longText('shipping_address_data')->nullable();
+            $table->longText('billing_address_data')->nullable();
+            $table->unsignedBigInteger('shipping_address')->nullable();
+            $table->unsignedBigInteger('billing_address')->nullable();
+            $table->decimal('discount_amount', 16, 2)->default(0);
+            $table->decimal('admin_commission', 16, 2)->default(0);
+        });
+
+        Schema::table('order_details', function (Blueprint $table) {
+            $table->unsignedTinyInteger('refund_request')->default(0);
+            $table->text('digital_file_after_sell')->nullable();
+        });
+
+        // Whose courier this is. The two reads of one delivery man's orders scope on it, so without it they can reach nothing
+        // and a bound over them cannot be told from no bound at all.
+        Schema::table('delivery_men', function (Blueprint $table) {
+            $table->unsignedBigInteger('seller_id')->nullable();
+        });
     }
 
     /** @param array<string, mixed> $data */
@@ -135,6 +176,28 @@ trait BuildsSellerMarketWorld
         ]);
     }
 
+    /**
+     * The store's own money, which every install has and which the ledger and the reports read an unlabelled figure as.
+     *
+     * Without it `baseCurrency()` is null, and a figure that names no currency cannot be told apart from one that names the
+     * store's — so a report of orders from before the storefront snapshot would withhold a total that was always right. The
+     * default market is Saudi Arabia, so the store's money is the riyal.
+     */
+    protected function useTheStoresOwnCurrency(string $code = 'SAR'): void
+    {
+        DB::table('currencies')->insert([
+            'id' => 1, 'name' => 'Saudi Riyal', 'symbol' => 'SR', 'code' => $code, 'exchange_rate' => 1, 'status' => 1,
+            'created_at' => '2026-11-01 08:00:00', 'updated_at' => '2026-11-01 08:00:00',
+        ]);
+
+        DB::table('business_settings')->insert([
+            'type' => 'system_default_currency', 'value' => '1',
+            'created_at' => '2026-11-01 08:00:00', 'updated_at' => '2026-11-01 08:00:00',
+        ]);
+
+        Cache::forget('system_default_currency');
+    }
+
     /** The order detail asks which tax system the store runs on; the answer is given here instead of building the tax module's tables. */
     private function useOrderWiseTax(): void
     {
@@ -153,6 +216,14 @@ trait BuildsSellerMarketWorld
         }
 
         DB::table('users')->insert(['id' => 1, 'f_name' => 'Customer', 'l_name' => 'One', 'email' => 'customer-one@example.test']);
+
+        // Each shop its own row: the export sheets print the store's name in their header, so a seller without one cannot export.
+        foreach ([self::SELLER, self::OTHER_SELLER] as $id) {
+            DB::table('shops')->insert([
+                'id' => $id, 'seller_id' => $id, 'name' => 'Shop ' . $id,
+                'created_at' => '2026-11-01 08:00:00', 'updated_at' => '2026-11-01 08:00:00',
+            ]);
+        }
 
         // Seller 1: one order of each kind of record the snapshot can leave, and a second default-storefront order with no currency.
         $this->insertSellerMarketOrder(id: 101, sellerId: self::SELLER, country: 'SA', currency: 'SAR');
@@ -182,6 +253,11 @@ trait BuildsSellerMarketWorld
             $table->string('l_name')->nullable();
             $table->string('status')->default('approved');
             $table->string('auth_token')->nullable();
+            // The tax number an invoice prints and the shelf level the stock screens read. A strict engine refuses a SELECT of a
+            // column that is not there, so leaving them out made the invoice and the stock report 500 on MySQL and MariaDB while
+            // they answered on SQLite — the engine, not the code, was the difference.
+            $table->string('gst')->nullable();
+            $table->integer('stock_limit')->default(0);
             $table->timestamps();
             $table->softDeletes();
         });
@@ -338,6 +414,16 @@ trait BuildsSellerMarketWorld
         Schema::create('products', function (Blueprint $table) {
             $table->id();
             $table->string('name')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('currencies', function (Blueprint $table) {
+            $table->id();
+            $table->string('name')->nullable();
+            $table->string('symbol')->nullable();
+            $table->string('code')->nullable();
+            $table->decimal('exchange_rate', 24, 6)->default(1);
+            $table->unsignedTinyInteger('status')->default(1);
             $table->timestamps();
         });
 

@@ -28,8 +28,10 @@ use Illuminate\Support\Facades\Schema;
  */
 class SellerLedgerStatementService
 {
-    public function __construct(private readonly VendorLedger $ledger)
-    {
+    public function __construct(
+        private readonly VendorLedger $ledger,
+        private readonly SellerMarketTotals $totals,
+    ) {
     }
 
     /** @return array<int, string> */
@@ -87,7 +89,7 @@ class SellerLedgerStatementService
 
         $balances = $this->ledger->balances($sellerId);
 
-        return [
+        $summary = [
             'currency' => $this->ledger->baseCurrency(),
             'range' => [
                 'entries' => (int) ($totals->entries ?? 0),
@@ -106,6 +108,101 @@ class SellerLedgerStatementService
             // to net settlements and holds rather than reading a single bucket.
             'withdrawable' => round($this->ledger->withdrawable($sellerId), 2),
         ];
+
+        return $this->keptApartByCurrency(sellerId: $sellerId, filters: $filters, summary: $summary);
+    }
+
+    /**
+     * The same summary, with every added-up figure withdrawn when the account holds more than one currency (K-04).
+     *
+     * A seller whose ledger is in one currency — every seller today — is answered the five keys of before, byte for byte. A seller
+     * whose ledger holds two gets no single `range`, `buckets` or `withdrawable` figure, because a sum of riyals and dinars is not
+     * money; they get the real figures of each currency, and `totals_refused_because` says why the one figure is missing. Silently
+     * printing the sum is the one outcome that can mislead an operator into a wrong decision.
+     *
+     * @param  array<string, mixed>  $filters
+     * @param  array<string, mixed>  $summary
+     * @return array<string, mixed>
+     */
+    private function keptApartByCurrency(int|string $sellerId, array $filters, array $summary): array
+    {
+        $range = $this->rangeByCurrency($sellerId, $filters);
+        $money = $this->totals->money($range);
+
+        if ($money['refused_because'] === null) {
+            return $summary;
+        }
+
+        return [
+            'currency' => null,
+            'range' => null,
+            'buckets' => null,
+            'withdrawable' => null,
+            'range_by_currency' => $money['by_currency'],
+            'buckets_by_currency' => $this->bucketsByCurrency($sellerId),
+            'totals_refused_because' => $money['refused_because'],
+        ];
+    }
+
+    /**
+     * What the filtered range adds up to in each currency it holds. An entry that names no currency is read as the store's base
+     * currency, as SettlementCurrency reads it, so an old entry does not become a currency of its own.
+     *
+     * @param  array<string, mixed>  $filters
+     * @return array<string, array<string, float|int>>
+     */
+    private function rangeByCurrency(int|string $sellerId, array $filters): array
+    {
+        $rows = $this->query($sellerId, $filters)
+            ->selectRaw('currency, COUNT(*) as entries, SUM(credit) as credits, SUM(debit) as debits')
+            ->groupBy('currency')
+            ->get();
+
+        $byCurrency = [];
+
+        foreach ($rows as $row) {
+            $code = $this->currencyOf($row->currency);
+            $credits = round((float) $row->credits, 2);
+            $debits = round((float) $row->debits, 2);
+
+            $byCurrency[$code] = [
+                'entries' => (int) ($byCurrency[$code]['entries'] ?? 0) + (int) $row->entries,
+                'credits' => round((float) ($byCurrency[$code]['credits'] ?? 0) + $credits, 2),
+                'debits' => round((float) ($byCurrency[$code]['debits'] ?? 0) + $debits, 2),
+                'net' => round((float) ($byCurrency[$code]['net'] ?? 0) + $credits - $debits, 2),
+            ];
+        }
+
+        return $byCurrency;
+    }
+
+    /**
+     * The whole account's buckets in each currency it holds, so a seller who is denied one balance is not denied every balance.
+     *
+     * Read from `VendorLedger::balancesByCurrency()`, which is the one place these are computed now: the overview, the payout
+     * screen and the daily briefing read the same figures, and a second copy of this arithmetic is how a label and an amount
+     * drift apart. It carries each currency's own `withdrawable` as well, which is the figure the combined answer withholds.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function bucketsByCurrency(int|string $sellerId): array
+    {
+        $buckets = $this->ledger->balancesByCurrency($sellerId);
+
+        return array_map(
+            static fn (string $code, array $figures): array => ['currency_code' => $code]
+                + array_map(static fn (float $figure): float => round($figure, 2), $figures),
+            array_keys($buckets),
+            array_values($buckets),
+        );
+    }
+
+    /** The currency an entry is in: the one it names, or the store's base currency when it names none. */
+    private function currencyOf(mixed $named): string
+    {
+        $code = is_string($named) ? trim($named) : '';
+
+        return $code !== '' ? $code : (string) $this->ledger->baseCurrency();
     }
 
     /**
