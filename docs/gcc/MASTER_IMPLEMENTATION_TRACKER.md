@@ -82,7 +82,7 @@ Next in line (not in the top three because they depend on these, or are optional
 - **Code completion** = (MET + CODED) / all criteria. **Proven by tests** = MET / all criteria. Both use the same denominator, so the gap between them is exactly the untested code.
 - **Release readiness** = sum of gate points / (5 x requirements). Gate points: NOT STARTED and IN PROGRESS 0, IMPLEMENTED IN DRAFT 1, INTEGRATED AND TESTED 2, READY FOR OWNER REVIEW 3, MERGED 4, DEPLOYED AND VERIFIED 5. It measures travel along the gates, not quality.
 - **States:** NOT STARTED (no code on any branch); IN PROGRESS (some code, at least one criterion MISSING); IMPLEMENTED IN DRAFT (all criteria coded in a draft pull request, not yet in a tested integration); INTEGRATED AND TESTED (inside an integration tree whose CI is green on the engines that matter); READY FOR OWNER REVIEW (nothing known open, evidence listed); MERGED; DEPLOYED AND VERIFIED.
-- **Evidence:** every card carries evidence triples (repository, ref, file, text) that a script checked mechanically against the git objects: 359 requirements, 0 failures.
+- **Evidence:** every card carries evidence triples (repository, ref, file, text) that a script checked mechanically against the git objects: 359 requirements, 40 failures.
 
 ## 5. Blockers and decisions that are the owner's
 

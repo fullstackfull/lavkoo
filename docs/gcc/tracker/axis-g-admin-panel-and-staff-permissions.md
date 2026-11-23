@@ -24,6 +24,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MET] No route of the admin prefix is reachable without the admin guard (AdminRouteAuthenticationTest::test_no_admin_route_is_reachable_without_the_admin_guard; #83 8ff3410 Fulfillment + security MySQL 8/MariaDB 11.4.2)
   - [MET] An inactive role, a missing role or a role with no module_access holds nothing; only role 1 passes (ModulePermissionMiddlewareTest in #73 4174972 (SQLite 8.2/8.3); the behaviour is in main, the pin is not merged)
 - **(10) Next coding task.** From main add tests for the four finer capability services (Theme, Monitoring, Analytics, DeveloperPortal PermissionService) and for EmployeeController refusing role 1 on add and update: tests/Unit/Services and tests/Feature/Security/AdminEmployeeFormTest.php. No production change.
+- **Evidence not confirmed by the script:** lavkoo origin/main:app/Http/Middleware/ModulePermissionMiddleware.php (pattern not found: Helpers::module_permission_check($module))
 
 #### G-02. Staff country scope: table, resolution rules, console assignment, default-off switch, the server decides
 
@@ -360,6 +361,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] A role editor cannot grant a module the editor does not hold (CustomRoleController stores modules as posted (#66 note))
 - **(10) Next coding task.** On the #74 stack extend EmployeeController add, update and updateStatus and CustomRoleController: refuse a target the caller may not manage (id 1, a wider scope), copy the creator's countries to a new employee in one transaction through StaffCountryAssignments, refuse modules the caller lacks; add a scan of the employee and role routes like the inventories; tests in tests/Feature/StaffScope/StaffEmployeeManagementTest.php.
 - **Open owner decisions.** Whether people managers may edit master #1 (#57); whether a role editor is limited to the modules it holds (#66 note: may be intended, then it should be said); who may widen an employee's scope.
+- **Evidence not confirmed by the script:** lavkoo origin/main:app/Http/Controllers/Admin/Employee/EmployeeController.php (pattern not found: if ($request['role_id'] == 1) {); lavkoo origin/main:routes/admin/routes.php (pattern not found: Route::group(['prefix' => 'employee', 'as' => 'employee.', ')
 
 #### G-18. Every admin route asks for the permission of its menu, or is listed with a reason
 
