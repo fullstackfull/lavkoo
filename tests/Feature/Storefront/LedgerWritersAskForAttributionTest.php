@@ -34,8 +34,11 @@ class LedgerWritersAskForAttributionTest extends TestCase
      * @var array<string, list<string>>
      */
     private const ORIGINS = [
+        // The wallet checkout debit lives inside OrderManager::generateOrder's transaction, so an order refused for stock takes nothing from the wallet: the `checkout`
+        // origin is passed there, and RestAPI/v1/OrderController and Web/WebController call no ledger writer at all. Moving that debit back out changes this list.
+
         'app/Utils/module-helper.php' => ['payment'],
-        'app/Utils/OrderManager.php' => ['order'],
+        'app/Utils/OrderManager.php' => ['checkout', 'order'],
         'app/Traits/OrderEditManager.php' => ['order'],
         'app/Services/RefundStatusService.php' => ['refund'],
         'app/Http/Controllers/Admin/Customer/CustomerWalletController.php' => ['by'],
@@ -45,8 +48,6 @@ class LedgerWritersAskForAttributionTest extends TestCase
         'app/Http/Controllers/Vendor/Order/OrderController.php' => ['order', 'order', 'order', 'order'],
         'app/Http/Controllers/Vendor/RefundController.php' => ['refund'],
         'app/Http/Controllers/Vendor/POS/POSOrderController.php' => ['by'],
-        'app/Http/Controllers/RestAPI/v1/OrderController.php' => ['checkout'],
-        'app/Http/Controllers/Web/WebController.php' => ['checkout'],
         'app/Http/Controllers/RestAPI/v2/delivery_man/DeliveryManController.php' => ['order'],
         'app/Http/Controllers/RestAPI/v2/seller/OrderController.php' => ['order'],
         'app/Http/Controllers/RestAPI/v3/seller/OrderController.php' => ['order', 'order', 'order', 'order'],
@@ -56,12 +57,16 @@ class LedgerWritersAskForAttributionTest extends TestCase
      * The callers that pass no origin, with why. A conversion of points writes two rows that already point at each other (the loyalty row's reference is the wallet row's
      * id) and has no order, refund or payment behind it; the seller app's point of sale takes the money before its order exists and has no staff guard to read the seller from.
      *
+     * The conversion is split across two files: PointsToWalletConversion debits the points, inside the transaction that credits the wallet, and each loyalty controller
+     * passes the wallet credit into it as a closure. That is why there is one call in each of the three rather than two in each of the controllers.
+     *
      * @var array<string, int>
      */
     private const CALLERS_WITHOUT_AN_ORIGIN = [
-        'app/Http/Controllers/RestAPI/v1/UserLoyaltyController.php' => 2,
-        'app/Http/Controllers/Web/UserLoyaltyController.php' => 2,
+        'app/Http/Controllers/RestAPI/v1/UserLoyaltyController.php' => 1,
+        'app/Http/Controllers/Web/UserLoyaltyController.php' => 1,
         'app/Http/Controllers/RestAPI/v3/seller/POSController.php' => 1,
+        'app/Services/Loyalty/PointsToWalletConversion.php' => 1,
     ];
 
     /** @return array<string, string> the source of every PHP file of the application, by its path from the root */
