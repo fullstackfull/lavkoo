@@ -57,7 +57,6 @@ trait ReadsRouteMiddleware
 
         return $permissions;
     }
-
     private function routeFor(string $method, string $uri): RoutingRoute
     {
         return Route::getRoutes()->match(Request::create(uri: $uri, method: $method));

@@ -25,7 +25,6 @@ trait RestoresLanguageFiles
             if (!is_file($path)) {
                 continue;
             }
-
             $contents = (string) file_get_contents($path);
             if (str_starts_with($contents, "<?php\n") && str_ends_with($contents, "];\n")) {
                 $this->languageFileCopies[$path] = $contents;

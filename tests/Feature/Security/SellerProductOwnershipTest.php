@@ -44,7 +44,6 @@ class SellerProductOwnershipTest extends TestCase
     private const V2_HANDLERS = ['v2 edit', 'v2 update', 'v2 status update', 'v2 delete', 'v2 barcode', 'v2 review status'];
 
     private bool $createdTheBarcodeDirectory = false;
-
     protected function setUp(): void
     {
         parent::setUp();
@@ -347,7 +346,6 @@ class SellerProductOwnershipTest extends TestCase
             @rmdir(storage_path('app/public/product'));
         }
     }
-
     private function seedCatalogue(): void
     {
         Cache::flush();

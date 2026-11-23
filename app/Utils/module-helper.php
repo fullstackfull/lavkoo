@@ -109,7 +109,6 @@ if (!function_exists('digital_payment_place_orders')) {
             billingAddressId: $additionalData['billing_address_id'] ?? null,
             newCustomer: $newCustomer,
         );
-
         $settlement->run(function () use ($additionalData, $paymentData, $newCustomer, $customerId, $isGuestInOrder, $requestObj) {
             $orderIds = OrderManager::generateOrder(data: [
                 'is_guest' => $isGuestInOrder ? 1 : 0,

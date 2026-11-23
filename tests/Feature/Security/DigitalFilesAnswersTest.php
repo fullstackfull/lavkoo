@@ -159,7 +159,6 @@ class DigitalFilesAnswersTest extends TestCase
             $this->assertIsArray($answer, 'the row serializes without raising for the mode ' . ($private ? 'on' : 'off'));
         }
     }
-
     #[DataProvider('areasAndKinds')]
     public function test_while_the_mode_is_off_the_answer_is_the_public_address_in_every_area_as_always(string $path, string $area, string $kind): void
     {

@@ -1274,7 +1274,6 @@ class ProductController extends Controller
         if ($product === null) {
             return $this->productNotFound();
         }
-
         $oldProductData = $product;
         $codeScope = app(ProductCodeScope::class);
         $validator = Validator::make($request->all(), [
@@ -1878,7 +1877,6 @@ class ProductController extends Controller
         if ($product === null) {
             return $this->productNotFound();
         }
-
         foreach (json_decode($product['images'], true) as $image) {
             $imageName = is_string($image) ? $image : $image['image_name'];
             $this->deleteFile('/product/' . $imageName);
@@ -2021,7 +2019,6 @@ class ProductController extends Controller
         if ($product === null) {
             return $this->productNotFound();
         }
-
         $average_rating = count($product->rating) > 0 ? number_format($product->rating[0]->average, 2, '.', ' ') : 0;
         $reviews = Review::with(['customer', 'product', 'reply'])->where(['product_id' => $product_id])
             ->latest('updated_at')

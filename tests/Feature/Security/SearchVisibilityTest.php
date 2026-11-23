@@ -125,7 +125,6 @@ class SearchVisibilityTest extends TestCase
         $this->serveRequestFrom('AE');
         $this->assertSame([6], $this->idsOf($search('Alpha', self::SUB_CATEGORY)));
     }
-
     #[DataProvider('nameSearches')]
     public function test_a_translated_name_search_finds_only_products_a_customer_may_see(Closure $search): void
     {
