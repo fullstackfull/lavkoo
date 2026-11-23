@@ -706,7 +706,8 @@ class OrderController extends BaseController
                         user_id: $referredByUser['id'],
                         amount: floatval($refEarningExchangeRate),
                         transactionType: 'add_fund_by_admin',
-                        reference: 'earned_by_referral'),
+                        reference: 'earned_by_referral',
+                        origin: LedgerOrigin::order(id: $order['id'])),
                 );
             }
         }

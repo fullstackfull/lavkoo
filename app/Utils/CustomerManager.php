@@ -126,6 +126,7 @@ class CustomerManager
             $loyalty_point_transaction->debit = $debit;
             $loyalty_point_transaction->created_at = now();
             $loyalty_point_transaction->updated_at = now();
+            $loyalty_point_transaction->fill(app(LedgerAttribution::class)->of(table: $loyalty_point_transaction->getTable(), origin: $origin));
             $user->loyalty_point = $current_balance;
 
             $user->save();

@@ -511,6 +511,7 @@ class POSController extends Controller
         } catch (PosSaleReplayedException $exception) {
             return response()->json(['order_id' => $exception->orderId], 200);
         }
+
         if ($isDigitalProduct) {
             $order = Order::with(['details.productAllStatus', 'customer'])->find($generateOrderID);
             $data = [

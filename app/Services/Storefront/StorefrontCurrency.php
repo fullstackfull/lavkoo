@@ -353,6 +353,7 @@ final class StorefrontCurrency
 
         return is_numeric($decimals) ? (int) $decimals : self::DEFAULT_DECIMALS;
     }
+
     /** Whether a storefront has the currency it trades in. Every storefront is ready while the switch is off, and so is the default one. */
     public function isReady(string $country, string $currencyCode): bool
     {

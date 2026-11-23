@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Services\Address\OrderAddressService;
 use App\Services\Payments\PaymentSettlementScope;
 use App\Services\Payments\WalletTopUpRegister;
+use App\Services\Storefront\LedgerOrigin;
 use App\Services\Storefront\PaymentStorefront;
 use App\Services\Storefront\StorefrontTax;
 use App\Utils\Convert;
@@ -251,7 +252,7 @@ if (!function_exists('add_fund_to_wallet_success')) {
             $wallet_transaction = app(WalletTopUpRegister::class)->creditOnce(
                 paymentId: (string) $payment_data['id'],
                 customerId: (int) $payment_data['payer_id'],
-                credit: fn () => CustomerManager::create_wallet_transaction($payment_data['payer_id'], $paymentAmount, 'add_fund', 'add_funds_to_wallet', $payment_data),
+                credit: fn () => CustomerManager::create_wallet_transaction($payment_data['payer_id'], $paymentAmount, 'add_fund', 'add_funds_to_wallet', $payment_data, origin: LedgerOrigin::payment(id: $payment_data['id'])),
             );
 
             if ($wallet_transaction) {
