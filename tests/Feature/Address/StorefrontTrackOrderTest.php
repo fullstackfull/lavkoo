@@ -206,7 +206,6 @@ class StorefrontTrackOrderTest extends StorefrontTestCase
         $this->track(405, '+966551234567')->assertRedirect();
         $this->track(405, '%')->assertRedirect();
     }
-
     public function test_opening_an_order_with_its_phone_marks_it_verified_for_this_session(): void
     {
         $this->placeGuestOrder(307, ['phone' => '+966551234567', 'address' => 'Street']);
