@@ -1,6 +1,6 @@
 # Axis I: Marketing, policies and operations
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-22. Requirements: 37. Acceptance criteria: 185 (MET 86, CODED 47, MISSING 52). Code completion 72%, proven by a passing test 46%, release readiness 3%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-23. Requirements: 37. Acceptance criteria: 185 (MET 86, CODED 47, MISSING 52). Code completion 72%, proven by a passing test 46%, release readiness 3%.
 
 Independent verification: done for unit(s) I1, I2.
 

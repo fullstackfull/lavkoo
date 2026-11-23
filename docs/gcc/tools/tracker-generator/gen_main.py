@@ -4812,6 +4812,70 @@ def load_all():
     return data
 
 
+# ---------------------------------------------------------------------------
+# J-01 criterion 4, after the customer app's integration branch was merged into
+# its main. The criterion was MISSING and its evidence read "the fallback is the
+# const saudiArabia". That sentence was true of main as it then stood; it is not
+# true of main now. The merge of lavkooapp gcc/integration brought the real
+# fallback and a 24-test file for it, and the record had not caught up.
+#
+# I found this while surveying the app criteria against the merged main rather
+# than against the record, which is the only way a stale MISSING shows itself.
+# Thirteen criteria name a lavkooapp pull request and are not MET; this is the
+# first of them measured against main. The others are not ruled here: being on
+# main does not upgrade a criterion whose proof was a source scan.
+#
+# What I checked myself: the fallback code on origin/main; all 24 test names in
+# their five groups; CI run 45067118601, job storefront-header success, which
+# runs the J-01.4 step in both flag builds; and that the run's head tree
+# (gcc/integration 7361ec24) is byte-identical to main 9743e5ed, so the run is a
+# run on main's tree.
+# ---------------------------------------------------------------------------
+
+_J014_EVIDENCE = (
+    'MET, and the evidence above is STALE -- it describes lavkooapp main as it stood BEFORE the integration '
+    'branch was merged into it. On main 9743e5ed the fallback is not a const: StorefrontConfig._fallbackFor '
+    'calls StorefrontCountry.fallbackAmong(StoredStorefronts(preferences).read()), which answers the entry the '
+    'server\'s last list marked is_default and reaches defaultCountry only when the answer names none. PROVED by '
+    'test/storefront_server_default_test.dart, 24 behaviour tests in five groups driving the app\'s own '
+    'StorefrontChoice, StorefrontSwitcher, StorefrontController and StoredStorefronts: the default is read from '
+    'default_country, whatever its case and surrounding spaces; an entry\'s own is_default is read when the '
+    'answer carries no default_country, and default_country governs when the two disagree; a default that cannot '
+    'be read, or that the answer does not list, names nothing. A customer who has chosen none is on the server\'s '
+    'default, FOLLOWS IT WHEN A NEWER ANSWER MOVES IT, and what the storefront they were moved off had cached is '
+    'dropped; a customer whose stored choice the app cannot honour gets the server\'s default; a customer who '
+    'chose a storefront the answer still lists is left where they are. Saudi Arabia is the floor in three '
+    'measured ways: before the server has answered once, when the answer names no default (even when it does not '
+    'list Saudi Arabia) and when the default it names is one it does not list -- so no customer is left without a '
+    'storefront. DORMANCY, in the same file: with storefronts off the server\'s default is not read, the '
+    'storefront is Saudi Arabia, nothing is written, and a storefront the answer no longer lists is left alone '
+    'with the server not even asked. CI: run 45067118601, job storefront-header SUCCESS, which runs the step '
+    '"J-01.4 the fallback storefront is the default the server\'s list names" in BOTH builds, default and '
+    '--dart-define=GCC_STOREFRONTS_ENABLED=true. That run sits on gcc/integration 7361ec24, whose tree is '
+    'BYTE-IDENTICAL to main 9743e5ed (git diff --stat between the two is empty), so it is a run on main\'s tree. '
+    'I read the fallback code, the 24 test names, the run, its four job conclusions and the tree equality myself. '
+    'NOT PROVED: the X-Storefront write is exercised through a switcher the test builds to mirror what the Dio '
+    'interceptor does, not through the real interceptor; the server\'s answer is a stored map and never a live '
+    'HTTP response; nothing ran on a device.'
+)
+
+_load_all_before_j014 = load_all
+
+
+def load_all():
+    data = _load_all_before_j014()
+    found = False
+    for unit in data:
+        for requirement in data[unit]['reqs']:
+            if requirement['id'] == 'J-01' and len(requirement['ac']) > 4:
+                requirement['ac'][4]['s'] = 'MET'
+                requirement['ac'][4]['e'] = requirement['ac'][4]['e'] + ' // ' + _J014_EVIDENCE
+                found = True
+    if not found:
+        raise SystemExit('J-01.4 block: the criterion was not found')
+    return data
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]

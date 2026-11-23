@@ -1,6 +1,6 @@
 # Axis D: Orders, checkout and payments
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-22. Requirements: 37. Acceptance criteria: 179 (MET 101, CODED 34, MISSING 44). Code completion 75%, proven by a passing test 56%, release readiness 8%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-23. Requirements: 37. Acceptance criteria: 179 (MET 101, CODED 34, MISSING 44). Code completion 75%, proven by a passing test 56%, release readiness 8%.
 
 Independent verification: done for unit(s) D1, D2.
 

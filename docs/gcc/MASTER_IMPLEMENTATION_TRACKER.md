@@ -1,6 +1,6 @@
 # LAVKOO GCC: master implementation tracker
 
-As of 2026-11-22. Generated from the independent assessment of every requirement of the original multi-country plan (13 axes, A to M) against the state of GitHub, then checked by independent verifiers. It replaces any reading of the pull request list as progress: **a pull request that is open is not a requirement that is done.**
+As of 2026-11-23. Generated from the independent assessment of every requirement of the original multi-country plan (13 axes, A to M) against the state of GitHub, then checked by independent verifiers. It replaces any reading of the pull request list as progress: **a pull request that is open is not a requirement that is done.**
 
 ## 1. Read this first
 
@@ -23,11 +23,11 @@ As of 2026-11-22. Generated from the independent assessment of every requirement
 | [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 102 | 59 | 13 | 30 | 71% | 58% | 15% | all |
 | [H. Shipping and integrations](tracker/axis-h-shipping-and-integrations.md) | 34 | 157 | 79 | 13 | 65 | 59% | 50% | 16% | all |
 | [I. Marketing, policies and operations](tracker/axis-i-marketing-policies-and-operations.md) | 37 | 185 | 86 | 47 | 52 | 72% | 46% | 3% | all |
-| [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 98 | 47 | 31 | 20 | 80% | 48% | 5% | all |
+| [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 98 | 48 | 31 | 19 | 81% | 49% | 5% | all |
 | [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 104 | 40 | 30 | 34 | 67% | 38% | 3% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 49 | 14 | 31 | 67% | 52% | 7% | all |
 | [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 311 | 106 | 118 | 87 | 72% | 34% | 3% | all |
-| **All axes (pooled)** | **359** | **1753** | **855** | **384** | **514** | **71%** | **49%** | **8%** | |
+| **All axes (pooled)** | **359** | **1753** | **856** | **384** | **513** | **71%** | **49%** | **8%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -408,7 +408,7 @@ Executable on an isolated branch without production access, ordered by the prior
 
 | Id | State | M/C/X | Requirement |
 |---|---|---|---|
-| [J-01](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 4/1/1 | Default storefront and manual choice precedence |
+| [J-01](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 5/1/0 | Default storefront and manual choice precedence |
 | [J-02](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 5/1/0 | Country chooser and storefront switch |
 | [J-03](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 6/0/0 | X-Storefront header on every API request |
 | [J-04](tracker/axis-j-flutter-customer-app.md) | IMPLEMENTED IN DRAFT | 4/1/0 | Caches and local storage keyed by storefront |
