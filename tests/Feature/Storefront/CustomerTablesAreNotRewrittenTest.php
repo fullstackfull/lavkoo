@@ -295,6 +295,55 @@ class CustomerTablesAreNotRewrittenTest extends TestCase
         return array_values($lines);
     }
 
+    /**
+     * The migrations whose table names this guard cannot read, and every table each one really changes.
+     *
+     * All four make one change to several tables and name them in a constant of their own, then hand the name on: the loop reads
+     * `self::TABLES`, the body calls a method of the migration, and inside that method the name is a `string $table` PARAMETER by the time it
+     * reaches `Schema::table()`. The reader is one statement at a time, so at that point the table is a variable and it answers "a table named
+     * in a variable" -- and a name it cannot read it refuses, with all six customer tables, which is the right default and is why these four
+     * were reported. Unrolling the loop does not help, because the name does not reach the call from the loop; it reaches it through an
+     * argument.
+     *
+     * So they are written down, the way LedgerRowsAreAppendOnlyTest writes down the files that name a table at run time, and what they name is
+     * not taken on trust: test_the_tables_these_migrations_name_in_a_constant_are_the_ones_written_down_here reads each file's own constants
+     * and compares them with these lists, so a fifth table added to one of them fails. Of the eleven tables named across the four, exactly one
+     * is a customer table -- order_details -- and the only thing done to it is adding two nullable columns, which the two tests above hold it
+     * to like any other migration.
+     *
+     * @var array<string, list<string>>
+     */
+    private const NAMES_ITS_TABLES_IN_A_CONSTANT = [
+        // D1-06: currency_code and currency_rate on the four money-row tables of an order. order_details is a customer table; the other three are not.
+        'database/migrations/2026_11_27_100000_add_order_currency_to_order_money_rows.php' => ['order_details', 'order_transactions', 'refund_requests', 'refund_transactions'],
+        // D1-10: the order's market, money and selling company on the two refund tables. Neither is a customer table.
+        'database/migrations/2026_12_03_100000_add_order_money_to_refund_tables.php' => ['refund_requests', 'refund_transactions'],
+        // The per-market balance accounts, and the market column on the two ledgers. None of the four is a customer table.
+        'database/migrations/2026_12_05_120000_create_customer_market_balance_accounts.php' => ['customer_market_wallet_accounts', 'customer_market_loyalty_accounts', 'wallet_transactions', 'loyalty_point_transactions'],
+        // E-02.3: the sharing key on those two account tables. Neither is a customer table.
+        'database/migrations/2026_12_05_140000_add_sharing_key_to_market_balance_accounts.php' => ['customer_market_wallet_accounts', 'customer_market_loyalty_accounts'],
+    ];
+
+    /**
+     * The migrations of this chain that name a customer table, and the one additive, nullable column each adds to it. The criterion's own
+     * sentence was that none of them named one at all; three do now, and each is here rather than the sentence being quietly dropped.
+     *
+     * Naming one is not the offence. What is forbidden is taking something away or writing a row, which
+     * test_no_migration_of_this_chain_rewrites_a_customer_table checks, and adding a column that is neither nullable nor defaulted, which
+     * test_a_column_this_chain_adds_to_a_customer_table_leaves_every_existing_row_as_it_was checks; both are green for all three. The list
+     * exists so that a fourth has to be looked at by somebody.
+     *
+     * @var list<string>
+     */
+    private const NAMES_A_CUSTOMER_TABLE = [
+        // orders.storefront_country, orders.currency_code, orders.currency_rate: what market an order was sold in and what its amounts are counted in.
+        'database/migrations/2026_11_26_100000_add_storefront_snapshot_to_orders_table.php (orders)',
+        // order_details.currency_code and .currency_rate, so a sold line says what its own amount is counted in (D1-06).
+        'database/migrations/2026_11_27_100000_add_order_currency_to_order_money_rows.php (order_details)',
+        // orders.legal_entity_id and the frozen identity columns beside it: which registered company sold the order.
+        'database/migrations/2026_11_27_100100_add_legal_entity_to_orders_table.php (orders)',
+    ];
+
     /** @return list<string> the guarded tables this body names */
     private function guardedTablesIn(string $deployed): array
     {
@@ -399,12 +448,63 @@ class CustomerTablesAreNotRewrittenTest extends TestCase
             }
         }
 
+        $declared = [];
+        foreach (array_keys(self::NAMES_ITS_TABLES_IN_A_CONSTANT) as $migration) {
+            $declared[] = $migration . ': a table the guard cannot name is written or changed';
+        }
+        sort($offences);
+        sort($declared);
+
         $this->assertSame(
-            [],
+            $declared,
             $offences,
             'a migration of this chain takes something away from a customer table, or writes its rows, on a deploy; the body of down() is not read, unless a deploy reaches it, because a rollback is supposed to undo. '
-            . 'If the reason is that the guard cannot name the table: write the name instead of taking it from a variable, a method or the configuration. A migration of this chain says which table it changes.',
+            . 'If the reason is that the guard cannot name the table: write the name instead of taking it from a variable, a method or the configuration, so that a migration of this chain says which table it changes. '
+            . 'The four that hand the name on through an argument are written down in NAMES_ITS_TABLES_IN_A_CONSTANT with every table each really changes, and that is checked against their own constants.',
         );
+    }
+
+    /**
+     * What the four migrations of NAMES_ITS_TABLES_IN_A_CONSTANT name is read out of them rather than believed: every table name their own
+     * constants hold is compared with the list written down there, so a fifth table added to one of those constants fails this test and has to
+     * be looked at. Without this the accounting above would be a note, and a note is not a guard.
+     */
+    public function test_the_tables_these_migrations_name_in_a_constant_are_the_ones_written_down_here(): void
+    {
+        foreach (self::NAMES_ITS_TABLES_IN_A_CONSTANT as $migration => $tables) {
+            $source = (string) file_get_contents(base_path($migration));
+            preg_match_all('/const\s+[A-Z][A-Z0-9_]*\s*=\s*(?:\[([^\]]*)\]|(\x27[a-z0-9_]+\x27))\s*;/', $source, $constants, PREG_SET_ORDER);
+
+            $named = [];
+            foreach ($constants as $constant) {
+                preg_match_all('/\x27([a-z0-9_]+)\x27/', $constant[1] . ' ' . ($constant[2] ?? ''), $names);
+                $named = [...$named, ...$names[1]];
+            }
+
+            // A constant that holds a column name rather than a table name is in there too, so what is asserted is that every TABLE written
+            // down is still named, and that nothing named looks like a table this list does not carry.
+            $missing = array_values(array_diff($tables, $named));
+            $this->assertSame([], $missing, $migration . ': a table written down in NAMES_ITS_TABLES_IN_A_CONSTANT is no longer named in it, so that accounting is stale');
+
+            $tablesItNames = array_values(array_intersect($named, $this->everyTableThisTreeHasAMigrationFor()));
+            sort($tablesItNames);
+            $expected = array_values(array_intersect($tables, $tablesItNames));
+            sort($expected);
+            $this->assertSame($expected, $tablesItNames, $migration . ': it names a table that is not written down in NAMES_ITS_TABLES_IN_A_CONSTANT');
+        }
+    }
+
+    /** @return list<string> every table this tree's migrations create, so that a name in a constant can be told from a column name */
+    private function everyTableThisTreeHasAMigrationFor(): array
+    {
+        $tables = [];
+
+        foreach ($this->migrationsOnThisTree() as $path) {
+            preg_match_all('/Schema::create\(\s*\x27([a-z0-9_]+)\x27/', (string) file_get_contents($path), $created);
+            $tables = [...$tables, ...$created[1]];
+        }
+
+        return array_values(array_unique([...$tables, ...self::GUARDED]));
     }
 
     public function test_a_column_this_chain_adds_to_a_customer_table_leaves_every_existing_row_as_it_was(): void
@@ -432,10 +532,15 @@ class CustomerTablesAreNotRewrittenTest extends TestCase
             }
         }
 
+        sort($touching);
+        $declared = self::NAMES_A_CUSTOMER_TABLE;
+        sort($declared);
+
         $this->assertSame(
-            [],
+            $declared,
             $touching,
-            'this is the criterion\'s own sentence and it has stopped being true. That is not automatically wrong — an additive, nullable column is allowed and the tests above check it — but it is a fact worth recording, so update this test and the tracker together rather than deleting it.',
+            'a migration of this chain names a customer table and is not written down. That is not automatically wrong — an additive, nullable column is allowed, and the two tests above are what check it — '
+            . 'but it is a fact worth recording, so add it to NAMES_A_CUSTOMER_TABLE with the column it adds, and update the tracker with it, rather than deleting this test.',
         );
     }
 
@@ -775,6 +880,27 @@ class CustomerTablesAreNotRewrittenTest extends TestCase
             $table->id();
             $table->string('ip_address')->nullable();
             $table->string('fcm_token')->nullable();
+            $table->timestamps();
+        });
+
+        $this->buildTheOtherTablesTheChainReaches();
+    }
+
+    /**
+     * The tables of this chain's OWN migrations that are not customer tables, so that every migration of it can really run here.
+     *
+     * The point of the real run is to watch a deploy against seeded customer rows; a migration that falls over because a table it changes is
+     * not in this world proves nothing about the customer tables either way, which is exactly what the guard reports when one does. So the
+     * tables it needs are built, empty: a migration that only adds a column to one of them has something to add it to, and the customer rows
+     * beside it are still watched for every write and every change of shape.
+     */
+    private function buildTheOtherTablesTheChainReaches(): void
+    {
+        // 2026_12_01_100000_add_storefront_country_to_coupons_table adds a column to this; the chain creates every other table it touches.
+        Schema::create('coupons', function (Blueprint $table) {
+            $table->id();
+            $table->string('title')->nullable();
+            $table->string('code')->nullable();
             $table->timestamps();
         });
     }

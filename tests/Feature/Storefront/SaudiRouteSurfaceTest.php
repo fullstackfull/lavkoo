@@ -37,10 +37,20 @@ use Tests\TestCase;
  *
  *   - `GET api/v1/storefronts`, the list of markets, which is the one addition A1-08 names;
  *   - the `api/platform-admin/v1` namespace, the GCC-20 platform administrator API, which is a new
- *     namespace of its own and touches no address the Saudi platform serves (axis L).
+ *     namespace of its own and touches no address the Saudi platform serves (axis L);
+ *   - the routes in DECLARED_ADDITIONS below, each written out and grouped under the lane that added
+ *     it. That list grew when the lanes were unified: the question this test asks is not "has anything
+ *     been added" but "is every addition one somebody chose", so each is named rather than matched by
+ *     a prefix, and a route added outside the list still fails.
  *
- * A route added outside those two fails this test, and the right answer is then to decide whether it
- * belongs in the list, not to widen the list reflexively.
+ * ## The declared departures
+ *
+ * Three addresses main serves are not served here, and all three are deliberate; they are in
+ * DECLARED_DEPARTURES with the reason. The test still fails for any other one, which is the point:
+ * nothing may quietly stop being served.
+ *
+ * A route added or removed outside those lists fails this test, and the right answer is then to decide
+ * whether it belongs in the list, not to widen the list reflexively.
  */
 class SaudiRouteSurfaceTest extends TestCase
 {
@@ -53,6 +63,87 @@ class SaudiRouteSurfaceTest extends TestCase
     private const STOREFRONT_LIST = 'GET api/v1/storefronts | api.v1.storefronts';
 
     private const PLATFORM_ADMIN_PREFIX = 'api/platform-admin/v1';
+
+    /**
+     * Every other route this chain adds, by the lane that added it. A prefix match would have let a lane add anything under a folder it had
+     * already opened, so each is written out and the whole set is compared, which is what makes a thirty-fourth fail.
+     *
+     * @var list<string>
+     */
+    private const DECLARED_ADDITIONS = [
+        // The digital-file privatisation lane. A customer's paid file used to be served from a public folder by its name; every surface that
+        // hands one over now answers through a route that checks who is asking, which is why each of these exists on all five surfaces
+        // (admin, vendor, the two seller APIs, the website) and why each takes an optional file name.
+        'GET admin/orders/digital-file/{id}/{fileName?} | admin.orders.digital-file',
+        'GET admin/products/digital-file/{id}/{fileName?} | admin.products.digital-file',
+        'GET admin/products/digital-variation-file/{id}/{fileName?} | admin.products.digital-variation-file',
+        'GET api/v1/customer/order/digital-product-download/{id}/{fileName?} | customer-api.orders.digital-file',
+        'GET api/v2/seller/orders/digital-file/{id}/{fileName?} | seller-api.v2.orders.digital-file',
+        'GET api/v2/seller/products/digital-file/{id}/{fileName?} | seller-api.v2.products.digital-file',
+        'GET api/v2/seller/products/digital-variation-file/{id}/{fileName?} | seller-api.v2.products.digital-variation-file',
+        'GET api/v3/seller/orders/digital-file/{id}/{fileName?} | seller-api.v3.orders.digital-file',
+        'GET api/v3/seller/products/digital-file/{id}/{fileName?} | seller-api.v3.products.digital-file',
+        'GET api/v3/seller/products/digital-variation-file/{id}/{fileName?} | seller-api.v3.products.digital-variation-file',
+        'GET digital-product-download-file/{id}/{fileName?} | digital-product-download-file',
+        'GET vendor/orders/digital-file/{id}/{fileName?} | vendor.orders.digital-file',
+        'GET vendor/products/digital-file/{id}/{fileName?} | vendor.products.digital-file',
+        'GET vendor/products/digital-variation-file/{id}/{fileName?} | vendor.products.digital-variation-file',
+
+        // The storefront lifecycle and the legal texts a market must publish before it may sell: the market list and its four lifecycle
+        // moves, and the seven a legal text goes through. All under admin/storefronts, all gated by EnsureStorefrontPermission.
+        'GET admin/storefronts | admin.storefronts.index',
+        'POST admin/storefronts/{country}/activate | admin.storefronts.activate',
+        'POST admin/storefronts/{country}/pause | admin.storefronts.pause',
+        'POST admin/storefronts/{country}/ready | admin.storefronts.ready',
+        'POST admin/storefronts/{country}/resume | admin.storefronts.resume',
+        'GET admin/storefronts/{country}/legal-texts | admin.storefronts.legal-texts.index',
+        'POST admin/storefronts/{country}/legal-texts | admin.storefronts.legal-texts.draft',
+        'POST admin/storefronts/legal-texts/{text}/approve | admin.storefronts.legal-texts.approve',
+        'POST admin/storefronts/legal-texts/{text}/discard | admin.storefronts.legal-texts.discard',
+        'POST admin/storefronts/legal-texts/{text}/edit | admin.storefronts.legal-texts.edit',
+        'POST admin/storefronts/legal-texts/{text}/new-version | admin.storefronts.legal-texts.new-version',
+        'POST admin/storefronts/legal-texts/{text}/publish | admin.storefronts.legal-texts.publish',
+        'POST admin/storefronts/legal-texts/{text}/revoke | admin.storefronts.legal-texts.revoke',
+
+        // Marketing consent and unsubscribe (A2-13, I1-08): the signed link every marketing message has to carry.
+        'GET marketing/unsubscribe/{token} | marketing.unsubscribe',
+
+        // Product identity per country (B-04..B-07): one product copied into another market's catalogue.
+        'POST admin/products/copy-to-country/{id} | admin.products.copy-to-country',
+
+        // The seller app's own two additions: the barcode sheet its till prints, and the screen that tells a signed-in seller who they are.
+        'GET api/v3/seller/products/barcode/sheet | seller-barcode-sheet',
+        'GET api/v3/seller/seller-center/security/me | (none)',
+
+        // A blog draft is previewed through a route of its own rather than by publishing it.
+        'GET admin/blog/draft-preview/{id} | admin.blog.draft-preview',
+
+        // The same address as main's, hardened from GET to POST: see DECLARED_DEPARTURES, where its GET is accounted for.
+        'POST vendor/business-settings/withdraw/close/{id} | vendor.business-settings.withdraw.close',
+    ];
+
+    /**
+     * The three addresses main serves that this chain does not, and why each one is allowed to go. Everything else main serves is still
+     * served, which is what test_no_route_of_the_saudi_platform_has_disappeared asks.
+     *
+     * @var array<string, string>
+     */
+    private const DECLARED_DEPARTURES = [
+        // Removed outright by the security fix 8ec87fbd: it loaded an order by its id alone, with no seller in the lookup, so any vendor
+        // could read any order. Nothing links to it, nothing calls route('vendor.pos.order-details'), POSOrder::ORDER_DETAILS is referenced
+        // nowhere, and the page it fed crashed for every order. It is pinned as removed by
+        // VendorPosOwnershipTest::test_the_point_of_sale_has_no_order_details_route_that_reads_an_order_by_its_id.
+        'POST vendor/pos/order-details/{id} | vendor.pos.order-details' => 'removed: it read any order by its id (8ec87fbd)',
+
+        // The same address, now a POST: closing a withdrawal request moves money and a state-changing route is not a GET. The POST is in
+        // DECLARED_ADDITIONS, so the pair is visible as one change rather than as a loss and an unexplained addition.
+        'GET vendor/business-settings/withdraw/close/{id} | vendor.business-settings.withdraw.close' => 'hardened from GET to POST',
+
+        // The same download, now named and privatised: the URI gained an optional {fileName?} segment, so the old URI still matches, and it
+        // gained the name customer-api.orders.digital-file, which nothing on main could call because on main it had none. The replacement is
+        // in DECLARED_ADDITIONS.
+        'GET api/v1/customer/order/digital-product-download/{id} | (none)' => 'replaced by the named, privatised route with an optional file name',
+    ];
 
     /** @return list<string> one line per route of this tree, as the fixture spells them */
     private function routesHere(): array
@@ -98,11 +189,14 @@ class SaudiRouteSurfaceTest extends TestCase
     public function test_no_route_of_the_saudi_platform_has_disappeared(): void
     {
         $gone = array_values(array_diff($this->routesOnMain(), $this->routesHere()));
+        $declared = array_keys(self::DECLARED_DEPARTURES);
+        sort($declared);
 
         $this->assertSame(
-            [],
+            $declared,
             $gone,
-            "a route main serves is not served here. Each line is 'METHOD uri | name': a URI change breaks a bookmark, a name change breaks every route() call that names it.",
+            "a route main serves is not served here and is not one of the three declared departures. Each line is 'METHOD uri | name': a URI change breaks a bookmark, a name change breaks every route() call that names it. "
+            . 'If it really should go, say why in DECLARED_DEPARTURES; three lines of reason are cheaper than a bookmark nobody can explain.',
         );
     }
 
@@ -128,9 +222,14 @@ class SaudiRouteSurfaceTest extends TestCase
 
         $this->assertNotEmpty($platformAdmin, 'the platform admin API is not on this tree, so this test is being run somewhere it does not belong');
         $this->assertCount(
-            count($added) - 1,
+            count($added) - 1 - count(array_intersect($added, self::DECLARED_ADDITIONS)),
             $platformAdmin,
-            'everything added beyond the storefront list has to be in the platform admin namespace',
+            'everything added beyond the storefront list and the routes written out in DECLARED_ADDITIONS has to be in the platform admin namespace',
+        );
+        $this->assertSame(
+            [],
+            array_values(array_diff(self::DECLARED_ADDITIONS, $added)),
+            'a route is declared here that this tree does not serve: the list states what the chain adds, so a line of it that adds nothing is either a typo or a route that has been lost',
         );
     }
 
@@ -143,7 +242,9 @@ class SaudiRouteSurfaceTest extends TestCase
 
     private function isDeclared(string $row): bool
     {
-        return $row === self::STOREFRONT_LIST || $this->isPlatformAdmin(row: $row);
+        return $row === self::STOREFRONT_LIST
+            || in_array($row, self::DECLARED_ADDITIONS, true)
+            || $this->isPlatformAdmin(row: $row);
     }
 
     private function isPlatformAdmin(string $row): bool
