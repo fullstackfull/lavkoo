@@ -14,6 +14,8 @@ use App\Models\ReferralCustomer;
 use App\Models\WalletTransaction;
 use App\Models\LoyaltyPointTransaction;
 use App\Services\Customer\CustomerBalanceLock;
+use App\Services\Storefront\LedgerAttribution;
+use App\Services\Storefront\LedgerOrigin;
 use App\Services\Wallet\WalletOverdraft;
 
 class CustomerManager
@@ -34,11 +36,11 @@ class CustomerManager
     }
 
     /**create_wallet_transaction -> function on Customer trait -> createWalletTransaction*/
-    public static function create_wallet_transaction($user_id, float $amount, $transaction_type, $reference, $payment_data = [], bool $amountInUsd = false)
+    public static function create_wallet_transaction($user_id, float $amount, $transaction_type, $reference, $payment_data = [], bool $amountInUsd = false, ?LedgerOrigin $origin = null)
     {
         if (BusinessSetting::where('type', 'wallet_status')->first()->value != 1) return false;
 
-        return CustomerBalanceLock::apply($user_id, function (User $user) use ($amount, $transaction_type, $reference, $payment_data, $amountInUsd) {
+        return CustomerBalanceLock::apply($user_id, function (User $user) use ($amount, $transaction_type, $reference, $payment_data, $amountInUsd, $origin) {
             $current_balance = $user->wallet_balance;
 
             $wallet_transaction = new WalletTransaction();
@@ -81,6 +83,9 @@ class CustomerManager
             $wallet_transaction->balance = $settle($balance_before + $credit_amount - $debit_amount);
             $wallet_transaction->created_at = now();
             $wallet_transaction->updated_at = now();
+            // What stands behind the row (E-05); dormant until its migration runs, written inside the balance lock and
+            // after the overdraft guard, so it records the write rather than deciding it.
+            $wallet_transaction->fill(app(LedgerAttribution::class)->of(table: $wallet_transaction->getTable(), origin: $origin));
             $user->wallet_balance = $settle($balance_before + $add_fund_to_wallet_bonus + $credit_amount - $debit_amount);
 
             $user->save();

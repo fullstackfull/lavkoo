@@ -8,6 +8,8 @@ use App\Models\WalletTransaction;
 use App\Models\BusinessSetting;
 use App\Models\User;
 use App\Services\Customer\CustomerBalanceLock;
+use App\Services\Storefront\LedgerAttribution;
+use App\Services\Storefront\LedgerOrigin;
 use App\Services\Wallet\WalletOverdraft;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
@@ -94,11 +96,11 @@ class WalletTransactionRepository implements WalletTransactionRepositoryInterfac
         return $dataLimit == 'all' ? $query->get() : $query->paginate($dataLimit)->appends(['searchValue' => $searchValue]);
     }
 
-    public function addWalletTransaction(string $user_id, float $amount, string $transactionType, ?string $reference = null, array $payment_data = []): bool|WalletTransaction
+    public function addWalletTransaction(string $user_id, float $amount, string $transactionType, ?string $reference = null, array $payment_data = [], ?LedgerOrigin $origin = null): bool|WalletTransaction
     {
         if ($this->businessSetting->where('type', 'wallet_status')->first()->value != 1) return false;
 
-        return CustomerBalanceLock::apply($user_id, function (User $user) use ($user_id, $amount, $transactionType, $reference, $payment_data) {
+        return CustomerBalanceLock::apply($user_id, function (User $user) use ($user_id, $amount, $transactionType, $reference, $payment_data, $origin) {
             $currentBalance = $user->wallet_balance;
 
             $wallet_transaction = new WalletTransaction();
@@ -134,6 +136,10 @@ class WalletTransactionRepository implements WalletTransactionRepositoryInterfac
             $wallet_transaction['balance'] = $currentBalance + $credit_amount - $debit_amount;
             $wallet_transaction['created_at'] = now();
             $wallet_transaction['updated_at'] = now();
+            // What stands behind the row (E-05). Dormant until its migration runs: of() answers [] while none of the
+            // attribution columns exist. It is written AFTER the overdraft guard and inside the balance lock, so it
+            // records the write rather than deciding it.
+            $wallet_transaction->fill(app(LedgerAttribution::class)->of(table: $wallet_transaction->getTable(), origin: $origin));
 
             $this->user->where('id', $user_id)->update([
                 'wallet_balance' => $currentBalance + $addFundToWalletBonus + $credit_amount - $debit_amount,

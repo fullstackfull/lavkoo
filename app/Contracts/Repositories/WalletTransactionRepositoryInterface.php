@@ -3,6 +3,7 @@
 namespace App\Contracts\Repositories;
 
 use App\Models\WalletTransaction;
+use App\Services\Storefront\LedgerOrigin;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Pagination\LengthAwarePaginator;
 
@@ -25,9 +26,10 @@ interface WalletTransactionRepositoryInterface extends AppendOnlyRepositoryInter
      * @param string $transactionType
      * @param string $reference
      * @param array $payment_data
+     * @param LedgerOrigin|null $origin
      * @return bool|WalletTransaction
      */
-    public function addWalletTransaction(string $user_id, float $amount, string $transactionType, string $reference, array $payment_data=[]): bool|WalletTransaction;
+    public function addWalletTransaction(string $user_id, float $amount, string $transactionType, string $reference, array $payment_data=[], ?LedgerOrigin $origin = null): bool|WalletTransaction;
 
     /**
      * @param float $amount
