@@ -334,6 +334,12 @@ class PaymobController extends Controller
         if (!$signed) {
             // Not Paymob's return, or this shop has no secret to tell whether it is. Either way it decides nothing about the payment, so no hook runs
             // and nothing is marked failed on the strength of it.
+            //
+            // TWO MERGED BRANCHES DISAGREE HERE and this keeps the later one. PaymobSaudiBaselineTest wants the failure hook run, which is what the
+            // platform did before per-company accounts landed and what releases the order's hold; CompanyAccountsAreDormantTest is named
+            // test_an_unauthenticated_return_no_longer_runs_the_failure_hook and wants it NOT run, so that nobody who can reach this address and guess
+            // a payment id can fire another customer's failure hook. Both are the owner's work and both are in main. Left as merged, awaiting the
+            // owner's decision; the Saudi baseline case is the one red test it leaves.
             return $this->payment_response($waiting, 'fail');
         }
 
@@ -345,7 +351,10 @@ class PaymobController extends Controller
             return $confirmation->isRefused() ? $this->fail($waiting) : $this->payment_response($waiting, 'fail');
         }
 
-        $success = $confirmation->isPaid() || $this->isTrue($data['success'] ?? null);
+        // The RETURN's flag is read exactly as it always was: Paymob writes `success=true`, and only that string settles a payment.
+        // isTrue() is for the gateway's own API answer, where the booleans really are booleans; applying it here as well widened the
+        // return so that `TRUE` and `1` settled an order too, which PaymobSaudiBaselineTest names one by one as returns that must not.
+        $success = $confirmation->isPaid() || ($data['success'] ?? null) === 'true';
 
         if ($success) {
             $payment_data = $this->settle(
