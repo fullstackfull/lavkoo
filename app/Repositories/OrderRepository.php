@@ -49,8 +49,13 @@ class OrderRepository implements OrderRepositoryInterface
         $order = $this->order->create($data);
 
         // Analytics. This is the POS funnel: the two point-of-sale screens create orders through
-        // here, while the storefront and both APIs go through OrderManager::generateOrder, which
-        // writes with the query builder and is instrumented separately.
+        // here, while the storefront and the customer APIs go through OrderManager::generateOrder,
+        // which writes with the query builder and is instrumented separately.
+        //
+        // NOT every order: the seller app's point of sale (RestAPI\v3\seller\POSController::
+        // place_order) and the channel materializer both insert with the query builder and reach
+        // neither counter, so a sale made in the seller app is counted nowhere. That is an open
+        // gap in the funnel, not a claim this method covers it.
         //
         // Deliberately NOT an Order::created model listener. That would fire here AND nowhere for
         // generateOrder, so it would look like a fix while leaving the same gap — and if

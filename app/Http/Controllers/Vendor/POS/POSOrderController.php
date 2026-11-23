@@ -20,6 +20,7 @@ use App\Services\Marketplace\InventoryService;
 use App\Services\OrderDetailsService;
 use App\Services\OrderService;
 use App\Services\POSService;
+use App\Services\Storefront\OneSellingCompanyPerOrder;
 use App\Traits\CalculatorTrait;
 use App\Traits\CustomerTrait;
 use App\Utils\CartManager;
@@ -146,11 +147,12 @@ class POSOrderController extends BaseController
         // rather than left to throw. Neither panel's place-order $.post defines an `error:` callback (reviewer B, F6),
         // so an exception out of this action shows the cashier a stopped spinner and nothing else. That is a
         // pre-existing hole this lane does not widen: every refusal it adds answers in a shape the panel displays.
+        $cartProducts = $this->getCartProductsForPricing(cartId: $cartId);
         try {
             $saleTotal = $this->cartService->getPosSaleTotal(
                 cartName: $cartId,
                 customerId: $userId,
-                products: $this->getCartProductsForPricing(cartId: $cartId),
+                products: $cartProducts,
             );
         } catch (InvalidArgumentException $exception) {
             Log::warning('POS sale refused: ' . $exception->getMessage(), ['cart' => $cartId]);
@@ -171,6 +173,16 @@ class POSOrderController extends BaseController
         // InventoryService::takeForSale.
         if ($saleTotal->lineCount() === 0) {
             ToastMagic::error(translate('a_sale_needs_at_least_one_product'));
+            return response()->json();
+        }
+
+        // A counter sale is a sale: one order may name one country and one selling company (D1-02). The products the
+        // till already loaded to price the cart are judged here, before the stock is taken and before the order and
+        // its lines are written, so a till holding two countries' products sells neither of them on one receipt. It
+        // sits above the wallet block on purpose: nothing has been written or charged at this point, so a refusal
+        // leaves the balance exactly where it was.
+        if (OneSellingCompanyPerOrder::productsSpanMoreThanOne(products: $cartProducts)) {
+            ToastMagic::error(translate('Product_is_unavailable'));
             return response()->json();
         }
 

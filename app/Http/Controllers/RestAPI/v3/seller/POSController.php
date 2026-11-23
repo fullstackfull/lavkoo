@@ -23,6 +23,7 @@ use App\Services\Marketplace\SellerMarketScope;
 use App\Services\PasswordResetService;
 use App\Services\Storefront\OrderStorefrontSnapshot;
 use App\Services\Storefront\StorefrontCurrency;
+use App\Services\Storefront\OneSellingCompanyPerOrder;
 use App\Models\User;
 use App\Traits\API\v3\VendorPOSManagement;
 use App\Traits\CustomerTrait;
@@ -341,8 +342,8 @@ class POSController extends Controller
             ]);
         }
 
-        if ($unavailableProductResponse = $this->unavailableProductResponse(modifiedCart: $request['modified_cart'], sellerId: $seller->id)) {
-            return $unavailableProductResponse;
+        if ($cartRefusalResponse = $this->cartRefusalResponse(modifiedCart: $request['modified_cart'], sellerId: $seller->id)) {
+            return $cartRefusalResponse;
         }
 
         // A sale with no lines was written anyway: the id was taken, the line block below was skipped and an order row was stored with
@@ -528,8 +529,14 @@ class POSController extends Controller
         return response()->json(['order_id' => $generateOrderID], 200);
     }
 
-    private function unavailableProductResponse(mixed $modifiedCart, int|string $sellerId): ?JsonResponse
+    /**
+     * The refusal this payload earns before anything is written, or null when the sale may go ahead. One pass over the lines answers
+     * both questions, because both are asked of the same product rows: whether each line can be sold at all, and whether the lines may
+     * be sold together on one receipt.
+     */
+    private function cartRefusalResponse(mixed $modifiedCart, int|string $sellerId): ?JsonResponse
     {
+        $products = [];
         foreach ($modifiedCart ?: [] as $cartItem) {
             if (!is_array($cartItem)) {
                 continue;
@@ -542,6 +549,18 @@ class POSController extends Controller
                     'message' => trim(($product['name'] ?? '') . ' ' . translate('not_available_for_order_place'))
                 ]);
             }
+            $products[] = $product;
+        }
+
+        // A counter sale is a sale: one order may name one country and one selling company (D1-02). The products this loop has already
+        // read are judged here, so nothing new is queried, and the answer comes before the stock is taken and before the order and its
+        // lines are written. It is above the wallet block for the same reason the two panels are: nothing has been charged yet, so a
+        // refused receipt leaves the balance where it was.
+        if (OneSellingCompanyPerOrder::productsSpanMoreThanOne(products: $products)) {
+            return response()->json([
+                'product_not_available' => true,
+                'message' => translate('not_available_for_order_place'),
+            ]);
         }
 
         return null;

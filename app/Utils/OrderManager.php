@@ -1747,7 +1747,8 @@ class OrderManager
         // No company may invoice another company's sale, so an order never carries two countries' or two selling companies' rows
         // (D1-02). The cart keeps a storefront's rows apart, but only for a request a storefront was resolved for and only while
         // storefronts are on; this reads the rows that are about to be written, so the rule holds for every caller. Before the
-        // transaction, so an order that would mix is never partly written.
+        // transaction, so an order that would mix is refused without opening one and is never partly written; and again inside it on
+        // the locked rows, which are the ones the lines are written from.
         OneSellingCompanyPerOrder::assertRowsBelongToOne(
             cartRows: collect($vendorWiseCartList)->pluck('cart_list')->flatten(1),
         );
@@ -1809,7 +1810,13 @@ class OrderManager
                     ->filter()->unique()->sort()->values()->all();
 
                 if ($lockProductIds) {
-                    Product::whereIn('id', $lockProductIds)->orderBy('id')->lockForUpdate()->get();
+                    $lockedProducts = Product::whereIn('id', $lockProductIds)->orderBy('id')->lockForUpdate()->get();
+
+                    // Judged again, on the locked rows. The assertion above read the copies the cart loaded before the transaction
+                    // opened; addOrderDetailsData re-reads each product under this lock and writes the line from what it finds, so a
+                    // product moved between the two reads would be judged on the old row and invoiced from the new one. These are the
+                    // rows the lines are written from, already read for the lock, so the order costs no extra query.
+                    OneSellingCompanyPerOrder::assertProductsBelongToOne(products: $lockedProducts);
                 }
 
         foreach ($vendorWiseCartList as $vendorWiseGroupId => $vendorWiseCart) {

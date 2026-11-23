@@ -10,9 +10,11 @@ use App\Models\ExternalOrderMapping;
 use App\Services\AuditLogger;
 use App\Services\Fulfillment\OrderItemOwnershipSnapshotter;
 use App\Services\Fulfillment\Support\ProviderCurrency;
+use App\Services\Storefront\OneSellingCompanyPerOrder;
 use App\Utils\OrderManager;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -106,9 +108,19 @@ class ChannelOrderMaterializer
                 throw new DispatchRefused('recipient_incomplete');
             }
 
+            $lines = $locked->lines->filter(static fn (ExternalOrderLine $line): bool => $line->activeQuantity() > 0);
+            $products = $this->productsOf($lines);
+            // One order may name one country and one selling company (D1-02). A channel order's lines are whatever the channel sold
+            // together, which no cart of ours kept apart, so the rule is asked of them before the order row exists. The refusal is the
+            // dispatch's own: the attempt is given back with a reason on the row and is not retried, because a channel order that mixes
+            // two selling companies will never stop mixing them. The products are the ones the lines are written from, so nothing new is read.
+            if (OneSellingCompanyPerOrder::productsSpanMoreThanOne(products: $products)) {
+                throw new DispatchRefused('order_mixes_selling_companies');
+            }
+
             $orderId = $this->insertOrder($locked, $recipient);
-            foreach ($locked->lines->filter(static fn (ExternalOrderLine $line): bool => $line->activeQuantity() > 0) as $line) {
-                $this->insertLine($orderId, $locked, $line, $provider);
+            foreach ($lines as $line) {
+                $this->insertLine($orderId, $locked, $line, $provider, $products[(int) $line->product_id] ?? null);
             }
 
             $locked->forceFill(['order_id' => $orderId, 'execution_policy' => ExecutionPolicy::Managed->value, 'provider' => $provider])->save();
@@ -170,9 +182,28 @@ class ChannelOrderMaterializer
         return $orderId;
     }
 
-    private function insertLine(int $orderId, ExternalOrderMapping $mapping, ExternalOrderLine $line, string $provider): void
+    /**
+     * The products the given lines name, read once and keyed by id: one query where the lines used to be one query each, and the rows the
+     * selling-company rule is asked about are the very rows the lines are written from.
+     *
+     * @param Collection<int, ExternalOrderLine> $lines
+     * @return Collection<int, object>
+     */
+    private function productsOf(Collection $lines): Collection
     {
-        $product = (array) DB::table('products')->where('id', $line->product_id)->first();
+        $ids = $lines->pluck('product_id')->unique()->all();
+
+        if ($ids === []) {
+            return collect();
+        }
+
+        return DB::table('products')->whereIn('id', $ids)->get()
+            ->keyBy(static fn (object $product): int => (int) $product->id);
+    }
+
+    private function insertLine(int $orderId, ExternalOrderMapping $mapping, ExternalOrderLine $line, string $provider, ?object $productRow): void
+    {
+        $product = (array) $productRow;
         $product['fulfillment_provider'] = $provider;
 
         $active = $line->activeQuantity();
