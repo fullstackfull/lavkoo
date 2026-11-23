@@ -43,6 +43,8 @@ class SellerProductOwnershipTest extends TestCase
     private const REVIEW_HANDLERS = ['v3 review status', 'v3 review reply', 'v2 review status'];
     private const V2_HANDLERS = ['v2 edit', 'v2 update', 'v2 status update', 'v2 delete', 'v2 barcode', 'v2 review status'];
 
+    private bool $createdTheBarcodeDirectory = false;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -51,10 +53,12 @@ class SellerProductOwnershipTest extends TestCase
         $this->buildSellerApiWorld();
         $this->createCatalogueTables();
         $this->seedCatalogue();
+        $this->prepareTheBarcodeDirectory();
     }
 
     protected function tearDown(): void
     {
+        $this->removeTheBarcodeFile();
         $this->tearDownSellerApiWorld();
 
         parent::tearDown();
@@ -325,6 +329,23 @@ class SellerProductOwnershipTest extends TestCase
     private function reviewStatuses(): array
     {
         return DB::table('reviews')->orderBy('id')->pluck('status')->map(fn ($status) => (int) $status)->all();
+    }
+
+    private function prepareTheBarcodeDirectory(): void
+    {
+        $directory = storage_path('app/public/product');
+        if (!is_dir($directory)) {
+            mkdir($directory, 0775, true);
+            $this->createdTheBarcodeDirectory = true;
+        }
+    }
+
+    private function removeTheBarcodeFile(): void
+    {
+        @unlink(storage_path('app/public/product/barcode.pdf'));
+        if ($this->createdTheBarcodeDirectory) {
+            @rmdir(storage_path('app/public/product'));
+        }
     }
 
     private function seedCatalogue(): void

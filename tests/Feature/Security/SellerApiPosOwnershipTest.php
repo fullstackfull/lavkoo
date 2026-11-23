@@ -375,7 +375,6 @@ class SellerApiPosOwnershipTest extends TestCase
             $table->string('created_by_type', 24)->nullable();
             $table->timestamps();
         });
-
         $this->createSellerApiTable('translations', function (Blueprint $table) {
             $table->string('translationable_type');
             $table->unsignedBigInteger('translationable_id');
