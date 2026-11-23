@@ -105,7 +105,6 @@ final class StorefrontLegalReadiness
 
         return array_values(array_merge(array_intersect($configured, $present), $others));
     }
-
     /** When the next scheduled text of the storefront takes effect, or null when none is scheduled: what was read before that moment is stale after it. */
     public function nextTextTakesEffectAt(string $countryCode): ?CarbonImmutable
     {

@@ -61,7 +61,6 @@ class StorefrontLegalVisibleTextsTest extends TestCase
 
         $this->assertSame($configured, $this->visibleTypes(country: 'KW', locale: 'en'), 'the configured order, not the order the rows were written in');
     }
-
     public function test_the_country_and_the_locale_are_matched_regardless_of_case(): void
     {
         $this->publishStorefrontTexts(country: 'KW');
