@@ -23,6 +23,9 @@ final class StorefrontCatalog
 {
     public const COLUMN = 'storefront_country';
 
+    /** The company that sells a product, once products carry one (D1-03). No migration adds it yet, so the company half of a selling scope is dormant. */
+    public const ENTITY_COLUMN = 'legal_entity_id';
+
     private const TABLE = 'products';
 
     /** What the panels and the seller APIs answer. They work across every country. */
@@ -105,6 +108,34 @@ final class StorefrontCatalog
         }
 
         return self::isDefaultCountry($country);
+    }
+
+    /**
+     * Who sells this product: the country it belongs to, and the company that sells it once products carry one. Two products with the same
+     * scope may be invoiced on one order; two with different scopes may not, whichever request is asking and whether or not storefronts are
+     * switched on. An order asks this of its rows one last time before it is written (OneSellingCompanyPerOrder).
+     *
+     * Both halves are read the same way, off the row the caller already loaded, so the company half comes on by itself the day a migration
+     * adds the column and costs nothing until then — no schema is read and no query is made, which is what keeps it off the Saudi checkout's
+     * query count. A product loaded without these columns therefore says nothing about who sells it, which is also the answer before the
+     * country migration has run: the database the platform has today.
+     */
+    public static function sellingScopeOf(?Model $product): ?string
+    {
+        if ($product === null) {
+            return null;
+        }
+
+        $scope = [];
+        foreach ([self::COLUMN, self::ENTITY_COLUMN] as $column) {
+            $value = $product->getAttribute($column);
+
+            if ($value !== null) {
+                $scope[] = $column . '=' . $value;
+            }
+        }
+
+        return $scope === [] ? null : implode('/', $scope);
     }
 
     /**

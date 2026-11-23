@@ -80,8 +80,11 @@ owns can still be told from a typo (the query under "What to watch" lists the co
 
 **Do not turn the flag off once another country has products.** Without the flag nothing is narrowed, so every country's products appear in
 every list, the cart accepts them and they are priced in the wrong currency. A payment started in another country and finished after the flag
-is off is built from every checked cart row, and its order can exceed what was paid (reproduced: paid 275, order 375). Both behaviours are
-pinned by `StorefrontKillSwitchTest`.
+is off is built from every checked cart row, so before the order-time rule its order could exceed what was paid (reproduced: paid 275, order
+375). It no longer can: an order whose checked rows belong to two countries is refused before anything is written (`OneSellingCompanyPerOrder`,
+always on), because no company may invoice another company's sale. The customer is then left paid with no order, which a refund settles and
+which is why this is still not a kill switch. The catalogue behaviour is pinned by `StorefrontKillSwitchTest` and the order-time rule by
+`StorefrontCheckoutSingleCompanyTest`.
 
 Rolling the products migration back is refused while a product of another country exists, because dropping the column would merge the
 catalogues for good.
@@ -99,6 +102,11 @@ SELECT id, storefront_country FROM products WHERE storefront_country NOT IN ('SA
 The column is compared byte for byte on MySQL and MariaDB (`sa` is not `SA`), as it is in PHP. Nothing in the application writes it yet, so a
 value outside the six codes can only come from a direct write or from the future copy-to-country tool, which has to validate against
 `gcc.storefronts.countries`.
+
+The order-time rule reads the same column the same way, so a hand-written `sa` or an empty string makes **two** selling scopes out of one
+catalogue, and a checkout holding both is refused — a live Saudi checkout among them. Keep the column NOT NULL as the migration creates it
+(`char(2)` default `SA`): a row whose code is null names no scope and is not judged at all, so making it nullable would quietly stop the rule
+judging those rows. Both readings are pinned by `StorefrontCheckoutSingleCompanyTest`.
 
 ## How a request is served
 
