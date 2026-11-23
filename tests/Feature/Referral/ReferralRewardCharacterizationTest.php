@@ -2,10 +2,23 @@
 
 namespace Tests\Feature\Referral;
 
+use App\Http\Controllers\Admin\Order\OrderController as AdminOrderController;
+use App\Http\Controllers\RestAPI\v2\delivery_man\DeliveryManController;
+use App\Http\Controllers\RestAPI\v2\seller\OrderController as SellerApiV2OrderController;
+use App\Http\Controllers\RestAPI\v3\seller\OrderController as SellerApiV3OrderController;
+use App\Http\Controllers\Vendor\Order\OrderController as VendorOrderController;
+use App\Models\Seller;
 use App\Repositories\WalletTransactionRepository;
+use App\Services\DeliveryManTransactionService;
+use App\Services\DeliveryManWalletService;
+use App\Services\OrderStatusHistoryService;
 use App\Utils\CustomerManager;
 use App\Utils\OrderManager;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Tests\Support\BuildsReferralRewardWorld;
 use Tests\TestCase;
 
@@ -513,7 +526,7 @@ class ReferralRewardCharacterizationTest extends TestCase
             ['id' => self::REFERRER_ID, 'f_name' => 'Referrer', 'referred_by' => null, 'wallet_balance' => 0],
             ['id' => self::REFEREE_ID, 'f_name' => 'Referee', 'referred_by' => self::REFERRER_ID, 'wallet_balance' => 0],
         ]);
-        DB::table('sellers')->insert(['id' => self::SELLER_ID, 'f_name' => 'Vendor', 'auth_token' => self::SELLER_V2_AUTH_TOKEN]);
+        DB::table('sellers')->insert(['id' => self::SELLER_ID, 'f_name' => 'Vendor', 'auth_token' => self::SELLER_V2_AUTH_TOKEN, 'status' => 'approved']);
         DB::table('shops')->insert(['seller_id' => self::SELLER_ID, 'author_type' => 'vendor', 'name' => 'Vendor shop']);
         DB::table('delivery_men')->insert(['id' => self::DELIVERY_MAN_ID, 'f_name' => 'Courier']);
     }
@@ -613,6 +626,9 @@ class ReferralRewardCharacterizationTest extends TestCase
             $table->string('order_return_payment_status')->nullable();
             $table->string('order_due_payment_note')->nullable();
             $table->decimal('order_due_amount', 24, 6)->default(0);
+            // The edit-history reader asks for the RETURN side too -- `order_due_amount > 0 or order_return_amount > 0` -- so a
+            // table without this column makes every order-status change raise, whatever the test was about.
+            $table->decimal('order_return_amount', 24, 6)->default(0);
             $table->timestamps();
         });
         Schema::create('order_details_rewards', function (Blueprint $table) {
@@ -695,6 +711,8 @@ class ReferralRewardCharacterizationTest extends TestCase
             $table->id();
             $table->string('f_name')->nullable();
             $table->string('auth_token')->nullable();
+            // The seller API authenticates on `status = approved`, so the token alone finds nobody without this column.
+            $table->string('status')->default('pending');
             $table->timestamps();
             $table->softDeletes();
         });
