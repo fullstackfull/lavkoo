@@ -305,7 +305,14 @@ class CommissionAndLedgerPerSubOrderLineTest extends TestCase
      */
     private function checkout(): array
     {
+        // The resolver, not the merged input. Identity comes from the guard, the request's own resolver or the session and
+        // never from request input, because a request-supplied `user` was an identity hole (9db1506b, "request identity comes
+        // only from the guard, the request's resolver or the session"). Without the resolver the reader answers 'offline', the
+        // cart lookup goes looking for a guest's rows, finds none, and generateOrder writes no order at all -- which is what
+        // "two vendors and the in-house shop are three sub-orders: actual size 0" was. tests/Feature/Wallet/WalletCheckoutTest
+        // drives the same writer and was given the same line.
         request()->merge(['user' => $this->customer]);
+        request()->setUserResolver(fn () => $this->customer);
 
         return OrderManager::generateOrder(data: [
             'is_guest' => 0,
