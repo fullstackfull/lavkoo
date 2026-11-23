@@ -357,7 +357,6 @@ class OrderStorefrontSnapshotTest extends TestCase
             'database/migrations/2026_11_27_100000_add_order_currency_to_order_money_rows.php',
             'database/migrations/2026_12_03_100000_add_order_money_to_refund_tables.php',
         ], $naming, 'A file names the order rate that is not accounted for. If it WRITES orders.currency_rate the record stops meaning what it says; if it reads it, add it here with what it reads it for.');
-
         $this->assertSame([], array_intersect(self::SNAPSHOT_COLUMNS, (new Order())->getFillable()), 'none of the three may be filled from a request');
     }
 
