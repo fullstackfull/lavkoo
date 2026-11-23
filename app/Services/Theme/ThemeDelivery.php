@@ -693,6 +693,9 @@ $blocks = $row->blocks
             // different pages, and an activation must never serve the old theme from cache.
             (string) $this->revision()['checksum'] . '#' . $this->revision()['revision'],
             $viewer->platform,
+            // Two apps are both `platform: app`; a section restricted to one channel is delivered to that channel's viewers and not the other's, so the channel is part of the key
+            // or the app that warms the cache first decides what the other is sent.
+            $viewer->channel(),
             $viewer->device,
             $viewer->audience(),
             // The channel decides which sections a client is sent (SectionVisibility), and the response already says it varies by X-UI-Channel: without it in the key the client that
