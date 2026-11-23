@@ -35,8 +35,9 @@ class AdminOperationalCostsReportsTest extends AdminPagesTestCase
     /** @return array{0: string, 1: list<list<string>>} the file as sent, and its rows (heading first) */
     private function download(string $report, array $query = []): array
     {
-        // The exports are rate limited (that has a test of its own); a test that reads several files is not.
-        Cache::flush();
+        // The exports are rate limited (that has a test of its own); a test that reads several files is not. The counters are deliberately kept
+        // in a store the application does not empty, so emptying the default store no longer releases them: the limiter's own store is emptied.
+        Cache::store(config('cache.limiter'))->flush();
         $response = $this->get(route('admin.operational-costs.reports.export', ['report' => $report] + $query + self::NOVEMBER))->assertOk();
         $csv = $response->streamedContent();
 

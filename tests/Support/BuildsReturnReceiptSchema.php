@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\Schema;
  */
 trait BuildsReturnReceiptSchema
 {
-    private const RECEIPT_TABLES = ['return_shipments', 'stock_movements', 'order_details', 'products'];
+    private const RECEIPT_TABLES = ['return_shipments', 'stock_movements', 'storages', 'order_details', 'products'];
 
     /** @var array<string, string> */
     private array $languageFileHashes = [];
@@ -63,6 +63,18 @@ trait BuildsReturnReceiptSchema
             $table->text('note')->nullable();
             $table->unsignedBigInteger('created_by')->nullable();
             $table->string('created_by_type', 24)->nullable();
+            $table->timestamps();
+        });
+
+        // App\Models\OrderDetail eager-loads `storage` on every read ($with = ['storage']), so any reader on the returns path that hydrates
+        // the model — rather than reading the row with the query builder — needs this table to exist. Shaped as
+        // database/migrations/2024_05_30_101603_create_storages_table.php ships it.
+        Schema::create('storages', function (Blueprint $table): void {
+            $table->id();
+            $table->string('data_type');
+            $table->string('data_id', 100)->index();
+            $table->string('key')->nullable();
+            $table->string('value')->index();
             $table->timestamps();
         });
 

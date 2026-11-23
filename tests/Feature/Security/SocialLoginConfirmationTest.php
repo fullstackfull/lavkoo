@@ -670,7 +670,13 @@ class SocialLoginConfirmationTest extends TestCase
             $this->buildCustomerLoginTables();
             $this->fail('the customer tables were dropped and rebuilt although the environment is not testing');
         } catch (RuntimeException $refusal) {
-            $this->assertStringContainsString('Refusing to drop every table', $refusal->getMessage());
+            // Several test-support traits carry this same guard, each with its own verb ("drop tables in", "drop every table of"). What matters
+            // is that it refuses, that it names the database it refused, and that it states both conditions, so the assertion reads those three
+            // and not one trait's phrasing.
+            $this->assertMatchesRegularExpression(
+                "/Refusing to drop[^']*'" . preg_quote(DB::connection()->getDatabaseName(), '/') . "'.*must contain 'test'.*must be 'testing'/s",
+                $refusal->getMessage(),
+            );
         }
 
         $this->assertDatabaseHas('users', ['id' => self::VICTIM_ID, 'email' => self::VICTIM_EMAIL]);
