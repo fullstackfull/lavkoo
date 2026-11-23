@@ -99,7 +99,6 @@ class RefundSequentialGuardCharacterizationTest extends TestCase
         if (DB::connection()->getDriverName() !== 'sqlite') {
             $this->markTestSkipped('A decimal column comes back as a string from MySQL and MariaDB, so the case needs a driver that returns a number (SQLite does).');
         }
-
         RefundFlows::seedOrderLine(orderStatus: 'confirmed', editReturnAmount: RefundFlows::RETURN_AMOUNT);
 
         RefundFlows::returnAmountToWallet(amount: RefundFlows::storedReturnAmount());
