@@ -25,7 +25,7 @@ All three are **public**. That single fact governs several rules below.
 
 | repository | `main` | `gcc/integration` |
 |---|---|---|
-| lavkoo | **fb7753afadb701c57666e0fd62460628b87102d5** | 7b908c073d53ac8bb5e329a5ef9f6ccc9e44871c |
+| lavkoo | **fb7753afadb701c57666e0fd62460628b87102d5** | fb7753af… (identical to main; it was 7b908c07 earlier in the round) |
 | lavkooapp | **7c28f193b5c07aefc30705d224631a98cd63efc4** | 7c28f193… (identical to main) |
 | lavkooappseller | **2fba4835d2a08d90db3db37994b36a511fd425e3** | ca722974e0703264aca900881c32d5f5447ac6a0 |
 
