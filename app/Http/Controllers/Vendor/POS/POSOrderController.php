@@ -237,7 +237,7 @@ class POSOrderController extends BaseController
                     }
                 }
 
-                $products = $this->productRepo->getListWithScope(whereIn: ['id' => $cartListSession->pluck('id')->toArray()], relations: ['clearanceSale' => function ($query) {
+                $products = $this->productRepo->getListWithScope(filters: ['added_by' => 'seller', 'seller_id' => auth('seller')->id()], whereIn: ['id' => $cartListSession->pluck('id')->toArray()], relations: ['clearanceSale' => function ($query) {
                     return $query->active();
                 }], dataLimit: 'all');
                 $totalDiscountedPrice = $this->cartService->getCartTotalDiscountPrice(session($cartId), $products, $userId);
@@ -427,6 +427,9 @@ class POSOrderController extends BaseController
     private function getCartProductsForPricing(string $cartId): Collection|LengthAwarePaginator
     {
         return $this->productRepo->getListWithScope(
+            // This vendor's own products only. A cart can hold a line for a product that is not theirs, and the sale must
+            // neither price it nor take its stock: VendorPosOwnershipTest drives exactly that.
+            filters: ['added_by' => 'seller', 'seller_id' => auth('seller')->id()],
             whereIn: ['id' => $this->cartService->filterSessionCartList(cart: session($cartId))->pluck('id')->toArray()],
             relations: ['clearanceSale' => function ($query) {
                 return $query->active();
@@ -491,7 +494,7 @@ class POSOrderController extends BaseController
         $cartListSession = $this->cartService->filterSessionCartList(cart: session($cartName));
 
         if (count($cartListSession) > 0) {
-            $products = $this->productRepo->getListWithScope(whereIn: ['id' => $cartListSession->pluck('id')->toArray()], relations: ['clearanceSale' => function ($query) {
+            $products = $this->productRepo->getListWithScope(filters: ['added_by' => 'seller', 'seller_id' => auth('seller')->id()], whereIn: ['id' => $cartListSession->pluck('id')->toArray()], relations: ['clearanceSale' => function ($query) {
                 return $query->active();
             }], dataLimit: 'all');
             $totalDiscountedPrice = $this->cartService->getCartTotalDiscountPrice(session($cartName), $products, $customerCartData[$cartName]['customerId']);
