@@ -384,10 +384,13 @@ class POSController extends Controller
         if ($paymentMethod == 'cash' && !$isCashOnDelivery && round($tenderedAmount, 6) < round($orderTotal, 6)) {
             return response()->json(['message' => translate('paid_amount_is_less_than_total_amount')], 403);
         }
-        $amountPaid = $payByWallet ? currencyConverter(amount: $orderTotal) : currencyConverter(amount: $tenderedAmount);
+        // What the ORDER records is a different question from what the WALLET is debited. The wallet holds one balance in the platform's own
+        // money until the balances are per market (GCC-15), so that debit converts as it always did; the order's own amounts are converted
+        // below, inside the money the till's lines trade in (D1-06). The server-computed total is still what a wallet sale is charged.
+        $amountTendered = $payByWallet ? $orderTotal : $tenderedAmount;
 
         try {
-            $generateOrderID = DB::transaction(function () use ($request, $seller, $customerId, $carts, $extraDiscount, $extraDiscountType, $couponDiscountAmount, $couponCode, $paymentMethod, $orderTotal, $amountPaid, $fulfillment, $isCashOnDelivery, $taxConfig, $deliveryShippingAddress, $payByWallet, $idempotencyKey) {
+            $generateOrderID = DB::transaction(function () use ($request, $seller, $customerId, $carts, $extraDiscount, $extraDiscountType, $couponDiscountAmount, $couponCode, $paymentMethod, $orderTotal, $amountTendered, $fulfillment, $isCashOnDelivery, $taxConfig, $deliveryShippingAddress, $payByWallet, $idempotencyKey) {
                 if ($idempotencyKey !== null && !$this->claimIdempotencyKey(sellerId: $seller->id, key: $idempotencyKey)) {
                     throw new PosSaleReplayedException(orderId: (int) $this->placedOrderIdOf(sellerId: $seller->id, key: $idempotencyKey, lock: true));
                 }
@@ -433,6 +436,20 @@ class POSController extends Controller
                 $deliveryShippingResponsibility = $fulfillment == 'delivery' ? getWebConfig(name: 'shipping_method') : null;
                 $deliveryAddressSnapshot = $this->orderAddresses->snapshot(address: $deliveryShippingAddress);
 
+                // The lines are already saved raw, in the money their storefront trades in, and the order is stamped from them below as
+                // "every amount here is in that currency at rate one". These two were the only amounts converted into the platform's base
+                // unit on the way in, so one order carried amounts in two units: a ten-dinar coupon was stored as 2.67 and a reader of the
+                // order's own currency printed 2.666KD, a figure nobody was charged. Stored in the till's own money they are in the unit the
+                // rest of the order is in. A till of the default storefront, and a shop with storefront currencies off, convert as before.
+                $storefrontSnapshot = app(OrderStorefrontSnapshot::class);
+                $tillMoney = app(StorefrontCurrency::class)->within(
+                    country: $storefrontSnapshot->countryOfMoney(orderId: $generateOrderID),
+                    callback: fn (): array => [
+                        'paid_amount' => currencyConverter(amount: $amountTendered),
+                        'discount_amount' => currencyConverter(amount: $couponDiscountAmount ?? 0),
+                    ],
+                );
+
                 $orderData = [
                     'id' => $generateOrderID,
                     'customer_id' => $customerId,
@@ -454,8 +471,8 @@ class POSController extends Controller
                     'init_order_amount' => $orderTotal,
                     'total_tax_amount' => $request['total_tax_amount'] ?? 0,
                     'tax_type' => $taxConfig['SystemTaxVatType'],
-                    'paid_amount' => $isCashOnDelivery ? 0 : $amountPaid,
-                    'discount_amount' => currencyConverter(amount: $couponDiscountAmount ?? 0),
+                    'paid_amount' => $isCashOnDelivery ? 0 : $tillMoney['paid_amount'],
+                    'discount_amount' => $tillMoney['discount_amount'],
                     'coupon_code' => $couponCode ?? null,
                     'discount_type' => (isset($carts['coupon_code']) && $carts['coupon_code']) ? 'coupon_discount' : NULL,
                     'coupon_discount_bearer' => $carts['coupon_bearer'] ?? 'inhouse',
@@ -463,7 +480,10 @@ class POSController extends Controller
                     'updated_at' => now(),
                 ];
                 DB::table('orders')->insertGetId($orderData);
-                app(OrderStorefrontSnapshot::class)->record(orderId: $generateOrderID);
+                // The till writes its lines before the order row exists, so the order is stamped from them here and the lines take that
+                // currency afterwards. Asked any earlier, a line would read an order that is not there yet and record nothing.
+                $storefrontSnapshot->record(orderId: $generateOrderID);
+                $storefrontSnapshot->stampMoneyRows(table: 'order_details', orderId: $generateOrderID);
                 if ($idempotencyKey !== null) {
                     $this->recordIdempotencyKeyOrder(sellerId: $seller->id, key: $idempotencyKey, orderId: $generateOrderID);
                 }

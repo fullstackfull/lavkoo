@@ -128,6 +128,16 @@ trait BuildsOrderMoneyRowCurrency
         DB::table('shops')->updateOrInsert(['seller_id' => self::TILL_SELLER], ['author_type' => 'vendor', 'name' => 'The till shop']);
     }
 
+    /**
+     * Puts one catalog product in the till seller's own hands, which is what the seller app's point of sale requires of anything it sells
+     * (`Product::ofSeller` binds both `added_by` and `user_id`). The product's country is untouched, so the money the till sells in is still
+     * the money of that product's storefront.
+     */
+    private function giveTheTillItsOwnStock(int $productId): void
+    {
+        DB::table('products')->where('id', $productId)->update(['added_by' => 'seller', 'user_id' => self::TILL_SELLER]);
+    }
+
     /** The wallets of the shop and of its one in-house seller, which exist in a running shop before any order is placed. */
     private function seedThePlatformWallets(): void
     {
@@ -299,16 +309,24 @@ trait BuildsOrderMoneyRowCurrency
             'total_tax_amount' => 0,
         ];
 
+        // A seller's till prices and sells only that seller's own products, so a sale at the till is a sale of stock the till owns. The catalog
+        // this world builds is the platform's in-house one, which the till rightly refuses, so the line's product is put in the till's own
+        // hands here rather than weakening the rule that refuses it.
+        $this->giveTheTillItsOwnStock(productId: $productId);
+
         $request = Request::create('/api/v3/seller/pos/place-order', 'POST', [], [], [], ['CONTENT_TYPE' => 'application/json'], (string) json_encode($input));
         $request['seller'] = (new Seller())->forceFill(['id' => self::TILL_SELLER]);
 
         $response = app(POSController::class)->place_order($request);
+        $answer = json_decode((string) $response->getContent(), true);
 
-        if ($response->getStatusCode() !== 200) {
+        // The till answers a refusal with 200 and a reason in the body, so a status check alone reads a refusal as a sale and then finds no
+        // order. Both are read here, and the reason is quoted, so a refused sale names itself instead of arriving as a null order.
+        if ($response->getStatusCode() !== 200 || !is_array($answer) || !array_key_exists('order_id', $answer)) {
             throw new RuntimeException('The till refused the sale: ' . $response->getContent());
         }
 
-        return DB::table('orders')->latest('id')->first();
+        return DB::table('orders')->where('id', $answer['order_id'])->sole();
     }
 
     /**
