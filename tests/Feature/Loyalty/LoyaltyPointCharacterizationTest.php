@@ -39,7 +39,6 @@ class LoyaltyPointCharacterizationTest extends TestCase
         WalletTables::drop();
         parent::tearDown();
     }
-
     public function test_an_order_credit_rounds_the_points_down_to_whole_points(): void
     {
         $this->withPoints(0);
