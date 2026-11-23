@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\MyFatoorahWebhookController;
+use App\Http\Controllers\Api\PaymentAccountWebhookController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -19,3 +20,23 @@ use Illuminate\Support\Facades\Route;
 Route::post('myfatoorah/webhook', [MyFatoorahWebhookController::class, 'receive'])
     ->middleware('throttle:myfatoorah-webhooks')
     ->name('myfatoorah.webhook');
+
+/*
+| A company's own notification address (D2-09).
+|
+|   POST /api/payments/account/{account}/webhook
+|
+| The token in the path names ONE gateway account of ONE company, and the delivery is authenticated with that account's own secret. Nothing is answered
+| here until a company has an account with a token (payment_gateway_accounts), so while per-company accounts are off this address resolves no account
+| and refuses every request; the platform-wide address above keeps taking every notification exactly as it does today.
+|
+| Outside the `api` middleware group for the same reason as the address above: that group records a telemetry row per request and these bodies carry a
+| cardholder name and a masked card number.
+|
+| Its own rate limiter, not the platform address': a named limiter's bucket carries its own name, so a storm here no longer spends the allowance of the
+| address above, and each company's address has an allowance of its own inside the ceiling for the source address (App\Providers\RouteServiceProvider).
+*/
+Route::post('payments/account/{account}/webhook', [PaymentAccountWebhookController::class, 'receive'])
+    ->middleware('throttle:payment-account-webhooks')
+    ->where('account', '[A-Za-z0-9_-]{1,64}')
+    ->name('payments.account.webhook');

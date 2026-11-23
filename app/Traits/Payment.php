@@ -2,6 +2,7 @@
 
 namespace App\Traits;
 
+use App\Services\Payments\PaymentAccountBinding;
 use App\Services\Storefront\GatewayCurrencyPolicy;
 use App\Services\Storefront\PaymentStorefront;
 use App\Services\Storefront\StorefrontPaymentMethods;
@@ -34,7 +35,11 @@ trait Payment
         $payment->receiver_id = $payment_info->getReceiverId();
         $payment->currency_code = strtoupper($payment_info->getCurrencyCode());
         $payment->payment_method = $payment_info->getPaymentMethod();
-        $payment->additional_data = json_encode(PaymentStorefront::record(additionalData: $payment_info->getAdditionalData()));
+        $payment->additional_data = json_encode(app(PaymentAccountBinding::class)->record(
+            additionalData: PaymentStorefront::record(additionalData: $payment_info->getAdditionalData()),
+            gateway: (string) $payment_info->getPaymentMethod(),
+            currencyCode: (string) $payment_info->getCurrencyCode(),
+        ));
         $payment->payer_information = json_encode($payer->information());
         $payment->receiver_information = json_encode($receiver->information());
         $payment->external_redirect_link = $payment_info->getExternalRedirectLink();

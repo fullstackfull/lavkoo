@@ -293,6 +293,7 @@
                             {{ translate('the_same_url_is_also_sent_with_every_invoice_so_notifications_work_before_it_is_registered') }}.
                             {{ translate('deliveries_without_a_valid_signature_are_refused') }}.
                         </p>
+                        @include('admin-views.third-party.payment-method.partials._company-gateway-accounts', ['gatewayAccounts' => $gatewayAccounts])
                     </div>
                 </div>
             </div>

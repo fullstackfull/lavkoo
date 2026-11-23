@@ -258,6 +258,22 @@ class RouteServiceProvider extends ServiceProvider
         // not to pace a provider that is behaving.
         RateLimiter::for('myfatoorah-webhooks', static fn (Request $request): Limit => Limit::perMinute(600)->by($request->ip()));
 
+        // A company's own notification address (D2-09) gets a limiter of its own, with TWO limits.
+        //
+        // Deliveries arrive from the gateway's own hosts, so every company's address and the platform's are a handful of source addresses between them.
+        // Under one bucket keyed by address alone, one market's retry storm spends the allowance of all the others and of the platform address with it.
+        // The per-account limit gives each address its own allowance, so a storm at one is bounded to that one. Naming this limiter separately is what
+        // takes the platform address out of the shared bucket: a named limiter's key carries its own name.
+        //
+        // The per-address limit stays at 600, the same ceiling as before, and that is deliberate: it is the limit a prober would meet, and a prober
+        // chooses the token in the path. Keyed by the token ALONE, varying it would buy an unlimited number of requests from one address, so the
+        // address ceiling is kept and the token limit sits inside it. Whether that ceiling should be raised so six markets' simultaneous retries do not
+        // share one 600 is a posture number, and posture is the owner's; it is recorded on the pull request rather than chosen here.
+        RateLimiter::for('payment-account-webhooks', static fn (Request $request): array => [
+            Limit::perMinute(600)->by('account:' . (string) $request->route('account')),
+            Limit::perMinute(600)->by('ip:' . (string) $request->ip()),
+        ]);
+
         // The payment-status endpoint the app polls. The `api` group allows 3000 a minute, which is far
         // too generous for a route that can cost one MyFatoorah read per request. The app's own polling
         // tops out near ten requests per payment, so this leaves plenty of room for several customers
