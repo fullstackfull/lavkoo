@@ -105,7 +105,6 @@ trait BuildsReturnReceiptSchema
             $table->string('value')->index();
             $table->timestamps();
         });
-
         Schema::create('stock_movements', function (Blueprint $table): void {
             $table->id();
             $table->unsignedBigInteger('product_id');

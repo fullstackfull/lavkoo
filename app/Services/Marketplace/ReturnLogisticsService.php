@@ -412,7 +412,6 @@ class ReturnLogisticsService
             ->where('is_stock_decreased', 1)
             ->update(['is_stock_decreased' => 0]) > 0;
     }
-
     /** The product's variations with the returned units added back to the one the order line bought, as the order-status restock does. */
     private function variationWithReturnedUnits(?string $variation, string $variant, int $qty): string
     {
