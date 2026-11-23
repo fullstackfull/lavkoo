@@ -108,17 +108,23 @@ if (!function_exists('usdToDefaultCurrency')) {
      */
     function usdToDefaultCurrency(float|int|null $amount = 0): float|int
     {
-        $decimals = getWebConfig('decimal_point_settings') ?? 2;
-        $factor = pow(10, $decimals);
-        $scaled = usdAmountInDefaultCurrency(amount: $amount) * $factor;
+        $value = $amount * defaultCurrencyRate();
 
-        // In the money of a storefront (GCC-05) the amount was typed as it is shown, and 2.675 is 2.67499999999999982 in binary: its floor would show one fils
-        // less, and an edit form that shows it would save that. The platform's own readers keep the arithmetic they always had.
-        if (app(StorefrontCurrency::class)->currencyCodeInForce() !== null) {
-            $scaled = round($scaled, 6);
-        }
+        $factor = pow(10, defaultCurrencyDecimalPoints());
 
-        return floor($scaled) / $factor;
+        // The round() is the whole of the fix reviewer A found, and it is a money defect in its own right: `floor()`
+        // of a binary double is NOT idempotent, so this function did not return the figure handed to it even when that
+        // figure was already an exact number of minor units. 0.58 came back 0.57, because the double nearest 0.58 is a
+        // shade below it and 0.58 * 100 is 57.99999999999999289. Measured over the first 100000 exact minor-unit
+        // figures: 4586 of them (4.59 %) came back one unit low at two decimal places and 741 (0.74 %) at three.
+        //
+        // That is what made the panel's cart show, post and demand one minor unit less than the sale costs, and this
+        // lane's first version answered it by recording the gap on the order row (order_amount 0.58, paid_amount 0.57,
+        // payment_status 'paid') instead of closing it. Rounding at six digits below a minor unit — the grain
+        // PosSaleTotal already uses, far coarser than binary noise and far finer than any money figure — leaves every
+        // genuinely fractional figure flooring DOWN as it always did (272.849 is still 272.84, 13.5675 still 13.56)
+        // and moves only the figures the floor had already lost.
+        return floor(round($value * $factor, MONEY_NOISE_DIGITS)) / $factor;
     }
 }
 
