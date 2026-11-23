@@ -429,6 +429,27 @@ trait BuildsApiAddressSchema
             $table->decimal('shipping_cost', 16, 2)->default(0);
             $table->timestamps();
         });
+
+        // A till sale records its stock movement, and InventoryService refuses the whole sale when that record cannot be written
+        // (SaleNotRecordedException: stock that moved with nothing saying so is the one thing it will not allow). The table has no
+        // migration in this repository -- it comes from the installation dump -- so the columns are the ones
+        // InventoryService::record() writes, at the widths BuildsPlatformProcurementSchema uses: an unbounded string() here would
+        // accept a value the real column cannot hold.
+        $this->createTableOnce('stock_movements', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('product_id');
+            $table->unsignedBigInteger('seller_id')->nullable();
+            $table->string('type', 24);
+            $table->integer('qty_change');
+            $table->integer('balance_after')->nullable();
+            $table->string('reason', 40)->nullable();
+            $table->string('reference_type', 40)->nullable();
+            $table->unsignedBigInteger('reference_id')->nullable();
+            $table->text('note')->nullable();
+            $table->unsignedBigInteger('created_by')->nullable();
+            $table->string('created_by_type', 24)->nullable();
+            $table->timestamps();
+        });
     }
 
     /** One in-house product and a cart line for the caller: a customer ($isGuest false) or a guest, the id being either's. */

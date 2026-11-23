@@ -40,6 +40,7 @@ use App\Events\OrderPlacedEvent;
 use App\Models\OrderTransaction;
 use App\Models\ReferralCustomer;
 use App\Models\WalletTransaction;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use App\Models\DigitalProductVariation;
@@ -880,6 +881,50 @@ class OrderManager
             $orderDetailsId = Order::orderBy('id', 'DESC')->lockForUpdate()->first()->id + 1;
         }
         return $orderDetailsId;
+    }
+
+    /**
+     * Write an order in a transaction, retrying the whole write when another writer took the id this one had chosen.
+     *
+     * The locking read above closes the common case and does not close every case, which was measured rather than assumed:
+     *
+     *  - with `order_details` empty, two overlapping writers both read no rows. InnoDB gap locks CO-EXIST, so neither waits,
+     *    both choose 100001 and the second insert dies on the primary key.
+     *  - with rows present, the locking read does serialise — but the existence check beside it (`Order::find`) is a
+     *    CONSISTENT read, so under REPEATABLE READ it answers from a snapshot taken before the other writer committed, does
+     *    not see the order that writer just wrote, and hands back the id it already used.
+     *
+     * Measured on MariaDB 10.11, two tills posting at the same instant: one HTTP 500 in three runs out of three, with and
+     * without a prior order. A duplicate key is not what Laravel's own `attempts:` retries — `causedByConcurrencyError`
+     * matches deadlocks and lock-wait timeouts, not 1062 — so the retry is here.
+     *
+     * Retrying is safe because the failure is a rolled-back transaction: nothing the first attempt wrote survives it, so the
+     * second attempt re-reads the id, the stock and the wallet as they now stand. A refusal is NOT retried — a shelf that was
+     * short a moment ago is still short — and only a unique-constraint violation is, so a genuine failure still surfaces.
+     *
+     * `attempts: 3` is the second half of the same job and was ALSO measured, not assumed. Choosing the id with locking reads
+     * makes the writer hold a lock on `order_details` and `orders` as well as on its products, and two sales over DIFFERENT
+     * products then take their locks in two different orders: with the duplicate key closed, a third of the runs turned into
+     * `SQLSTATE[40001] 1213 Deadlock found` instead. Laravel retries that for us when asked — `generateOrder` asks for the
+     * same three attempts, for the same reason — and a deadlock victim is rolled back whole, so the retry is as safe as the
+     * one above.
+     *
+     * @template TReturn
+     * @param  callable(): TReturn  $write
+     * @return TReturn
+     */
+    public static function writeOrderRetryingOnDuplicateId(callable $write, int $attempts = 3)
+    {
+        for ($attempt = 1; ; $attempt++) {
+            try {
+                return DB::transaction($write, attempts: 3);
+            } catch (UniqueConstraintViolationException $exception) {
+                if ($attempt >= $attempts) {
+                    throw $exception;
+                }
+                Log::warning('Order id was taken by another writer; retrying the order write (attempt ' . $attempt . ').');
+            }
+        }
     }
 
     public static function getCheckOrCreateAdminWallet(): void

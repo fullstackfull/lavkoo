@@ -11302,4 +11302,5 @@ return [
 	'you_can_not_delete_account_while_you_still_have_loyalty_points' => 'You can not delete account while you still have loyalty points',
 	'this_payment_method_cannot_take_payments_in_your_currency' => 'This payment method cannot take payments in your currency',
 	'this_storefront_trades_in_one_currency' => 'This storefront trades in one currency, so the currency cannot be changed here.',
+	'a_sale_needs_at_least_one_product' => 'A sale needs at least one product',
 ];
