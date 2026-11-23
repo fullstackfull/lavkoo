@@ -144,15 +144,10 @@ abstract class PosTillTestCase extends TestCase
         return ['http' => $response->status(), 'cart' => session($cartId)];
     }
 
-    /**
-     * Puts the cart in the session the way the till's own page does: one line per product.
-     *
-     * A walk-in customer unless a customer id is given, in which case the cart is the one the till keeps for a saved
-     * customer, under the key `CartService::getUserId()` reads the id back out of.
-     */
-    protected function givenCartAtTill(string $till, array $lines, int $customerId = 0): string
+    /** Puts the cart in the session the way the till's own page does: a walk-in customer and one line per product. */
+    protected function givenCartAtTill(string $till, array $lines): string
     {
-        $cartId = $customerId === 0 ? 'walk-in-customer-1' : 'saved-customer-' . $customerId;
+        $cartId = 'walk-in-customer-1';
         $cart = [];
         foreach ($lines as $productId => $line) {
             $quantity = is_array($line) ? (int) $line['quantity'] : (int) $line;
@@ -166,7 +161,7 @@ abstract class PosTillTestCase extends TestCase
                 'variant' => is_array($line) ? ($line['variant'] ?? null) : null,
                 'variations' => is_array($line) ? ($line['variations'] ?? []) : [],
                 'productType' => 'physical',
-                'customerId' => $customerId,
+                'customerId' => 0,
                 'customerOnHold' => false,
                 'image' => null,
                 'maximum_order_quantity' => 1000,
@@ -229,14 +224,5 @@ abstract class PosTillTestCase extends TestCase
     protected function toastTypes(): array
     {
         return array_column(session('laravel-toaster-magic::messages', []), 'type');
-    }
-
-    /** A saved customer with money in their wallet, which is what a wallet sale is refused or allowed on. */
-    protected function walletCustomer(int $id, float $balance): void
-    {
-        DB::table('users')->insert([
-            'id' => $id, 'f_name' => 'Sara', 'l_name' => 'Alharbi', 'email' => "customer{$id}@example.test",
-            'phone' => '0551234567', 'wallet_balance' => $balance, 'created_at' => now(), 'updated_at' => now(),
-        ]);
     }
 }

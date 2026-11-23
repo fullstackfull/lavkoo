@@ -1653,13 +1653,6 @@ class OrderManager
             'order_type' => 'order',
             'quantity' => $data['quantity'] ?? 0,
             'tax_id' => $taxRate['id'],
-            // NULL, not '': both columns are nullable() and an ORDER-level tax row has no taxable entity, so '' was
-            // never a value — it was a non-strict server quietly coercing it. On a server with STRICT_ALL_TABLES the
-            // same insert is refused outright with "1366 Incorrect integer value: '' for column
-            // order_taxes.taxable_id", and because this insert is inside the sale's transaction the WHOLE SALE rolls
-            // back: on a strict server no sale carrying any tax could be written at all, by any till or by the web
-            // checkout. Found by this branch's own VAT test in CI's strict-mode group, which is the first test in the
-            // repository to ring up a taxed sale. Nothing reads order_taxes.taxable_id anywhere.
             'taxable_id' => null,
             'taxable_type' => null,
             'seller_id' => $data['seller_id'] ?? 0,
