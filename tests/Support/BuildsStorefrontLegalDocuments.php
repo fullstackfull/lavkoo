@@ -67,7 +67,6 @@ trait BuildsStorefrontLegalDocuments
         if ($activated) {
             $this->activateStorefrontFor($country);
         }
-
         $locales = config("gcc.storefronts.legal.locales_by_country.{$country}") ?? config('gcc.storefronts.legal.required_locales');
 
         foreach (config('gcc.storefronts.legal.required_documents') as $type) {

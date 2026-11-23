@@ -183,6 +183,7 @@ class StorefrontCurrencyReadinessCommand extends Command
 
         return true;
     }
+
     /** The checks that do not belong to one storefront: the coupons and the shipping row. Answers whether anything on them is unsafe. */
     private function sharedLines(StorefrontLaunchChecks $checks, StorefrontCurrency $currency): bool
     {
