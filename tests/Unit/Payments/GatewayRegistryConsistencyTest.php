@@ -180,7 +180,6 @@ class GatewayRegistryConsistencyTest extends TestCase
         $this->assertContains('paymob_accept', $defaults, 'the default gateways are the payment gateways');
         $this->assertSame([], array_intersect(['twilio', 'nexmo', '2factor', 'msg91', 'releans'], $defaults), 'an SMS gateway is not a payment gateway: the reader is reading the wrong array literal');
     }
-
     public function test_every_default_gateway_is_in_the_route_map_and_the_currency_map(): void
     {
         $routedKeys = array_keys(PaymentGatewayRegistryReader::liveRouteMap());

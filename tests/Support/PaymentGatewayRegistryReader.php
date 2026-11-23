@@ -127,7 +127,6 @@ final class PaymentGatewayRegistryReader
 
         throw new RuntimeException("No body follows {$declaration} in {$file}; the registry reader needs updating.");
     }
-
     /** @return list<string> */
     public static function globalConstantDefaultGatewayKeys(): array
     {
