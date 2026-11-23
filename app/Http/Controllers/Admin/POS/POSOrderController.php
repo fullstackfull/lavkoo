@@ -11,10 +11,10 @@ use App\Contracts\Repositories\StorageRepositoryInterface;
 use App\Contracts\Repositories\VendorRepositoryInterface;
 use App\Enums\SessionKey;
 use App\Events\DigitalProductDownloadEvent;
-use App\Exceptions\WalletDebitRefusedException;
+use App\Exceptions\InsufficientStockException;
 use App\Http\Controllers\BaseController;
-use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Services\CartService;
+use App\Services\Marketplace\InventoryService;
 use App\Services\OrderDetailsService;
 use App\Services\OrderService;
 use App\Services\POSService;
@@ -30,7 +30,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
 use Throwable;
@@ -53,6 +53,7 @@ class POSOrderController extends BaseController
      * @param CartService $cartService
      * @param OrderDetailsService $orderDetailsService
      * @param OrderService $orderService
+     * @param InventoryService $inventoryService
      */
     public function __construct(
         private readonly ProductRepositoryInterface                 $productRepo,
@@ -66,9 +67,9 @@ class POSOrderController extends BaseController
         private readonly CartService                                $cartService,
         private readonly OrderDetailsService                        $orderDetailsService,
         private readonly OrderService                               $orderService,
+        private readonly InventoryService                           $inventoryService,
     )
     {
-        $this->middleware(ScopeOrdersToStaffCountries::class);
     }
 
     /**
@@ -115,6 +116,8 @@ class POSOrderController extends BaseController
         if ($userId == 0 && $checkProductTypeDigital) {
             return response()->json(['checkProductTypeForWalkingCustomer' => true, 'message' => translate('To_order_digital_product') . ',' . translate('_kindly_fill_up_the_“Add_New_Customer”_form') . '.']);
         }
+        // The debit itself is made inside the sale's transaction below. A sale this panel refuses for want of stock must not
+        // leave the customer's wallet lighter, which is what a debit taken before the stock was checked would do.
         $payByWallet = $request['type'] == 'wallet' && $userId != 0;
         if ($payByWallet) {
             $customerBalance = $this->customerRepo->getFirstWhere(params: ['id' => $userId]) ?? 0;
@@ -129,142 +132,140 @@ class POSOrderController extends BaseController
 
         $cartListSession = $this->cartService->filterSessionCartList(cart: session($cartId));
 
+        // Ascending product id order, so the decrement follows the same order as the lock above: the lock makes
+        // concurrent sales take rows in one order, and taking them in a different order afterwards would put two
+        // sales' writes back out of step. PosStockDecrementOrderTest asserts the decrements themselves ascend.
+        $cartListSession = $cartListSession->sortBy(static fn (array $cartItem): int => (int) ($cartItem['id'] ?? 0))->values();
+
         if (count($cartListSession) > 0) {
-            $products = $this->productRepo->getListWithScope(whereIn: ['id' => $cartListSession->pluck('id')->toArray()], relations: ['clearanceSale' => function ($query) {
-                return $query->active();
-            }], dataLimit: 'all');
-            $totalDiscountedPrice = $this->cartService->getCartTotalDiscountPrice(session($cartId), $products, $userId);
-
             try {
-                $orderId = DB::transaction(function () use ($request, $amount, $fulfillment, $paidAmount, $cartId, $userId, $payByWallet, $taxConfig, $cart, $cartListSession, $products, $totalDiscountedPrice) {
-                    if ($payByWallet && $this->createWalletTransaction(user_id: $userId, amount: floatval($amount), transaction_type: 'order_place', reference: 'order_place_in_pos') === false) {
-                        throw new WalletDebitRefusedException(customerId: $userId);
-                    }
+                $orderId = OrderManager::writeOrderRetryingOnDuplicateId(function () use ($request, $cartId, $cartListSession, $cart, $taxConfig, $userId, $amount, $paidAmount, $fulfillment, $payByWallet) {
+                // Every product of the sale is locked here, in ascending id order, before a line is priced or taken. See
+                // InventoryService::lockProductsForSale for why the order is the point.
+                $this->inventoryService->lockProductsForSale(productIds: $cartListSession->pluck('id')->all());
 
-                    $orderId = 100000 + $this->orderRepo->getList()->count() + 1;
-                    $order = $this->orderRepo->getFirstWhere(params: ['id' => $orderId]);
-                    if ($order) {
-                        $orderId = $this->orderRepo->getList(orderBy: ['id' => 'DESC'])->first()->id + 1;
-                    }
-                    $totalTaxAmount = 0;
-                    // Ascending product id, as generateOrder locks: two sales never lock the same product rows in opposite orders.
-                    foreach ($cartListSession->sortBy('id') as $item) {
-                        if (is_array($item)) {
-                            $product = $products->firstWhere('id', $item['id']);
-                            if ($product) {
-                                $price = $item['price'];
+                // The debit comes after that lock, not before it. Two reasons, both measured: the lock is this sale's only
+                // ordered lock, and taking the customer's row first put the two in an order nothing else follows; and the
+                // debit's unlocked read of the customer was the transaction's first consistent read, which fixed the
+                // REPEATABLE READ snapshot the order id is then checked against, so an overlapping sale's order was invisible
+                // and its id was chosen again.
+                if ($payByWallet) {
+                    $this->createWalletTransaction(user_id: $userId, amount: floatval($amount), transaction_type: 'order_place', reference: 'order_place_in_pos');
+                }
 
-                                $digitalProductVariation = $this->digitalProductVariationRepo->getFirstWhere(params: ['product_id' => $item['id'], 'variant_key' => $item['variant']], relations: ['storage']);
-                                if ($product['product_type'] == 'digital' && $digitalProductVariation) {
-                                    $price = $digitalProductVariation['price'];
+                $products = $this->productRepo->getListWithScope(whereIn: ['id' => $cartListSession->pluck('id')->toArray()], relations: ['clearanceSale' => function ($query) {
+                    return $query->active();
+                }], dataLimit: 'all');
+                $totalDiscountedPrice = $this->cartService->getCartTotalDiscountPrice(session($cartId), $products, $userId);
 
-                                    if ($product['digital_product_type'] == 'ready_product') {
-                                        $getStoragePath = $this->storageRepo->getFirstWhere(params: [
-                                            'data_id' => $digitalProductVariation['id'],
-                                            "data_type" => "App\Models\DigitalProductVariation",
-                                        ]);
-                                        $product['digital_file_ready'] = $digitalProductVariation['file'];
-                                        $product['storage_path'] = $getStoragePath ? $getStoragePath['value'] : 'public';
-                                    }
-                                } elseif ($product['digital_product_type'] == 'ready_product' && !empty($product['digital_file_ready'])) {
-                                    $product['storage_path'] = $product['digital_file_ready_storage_type'] ?? 'public';
+                // Counting the rows and adding one picks the SAME number for two sales that overlap, and the second insert
+                // dies on the primary key: a lawful sale lost to a 500. generateNewOrderID is the web checkout's own picker,
+                // written for that crash, and its read is a locking one, so the second sale waits and reads the id the first
+                // one just wrote.
+                $orderId = OrderManager::generateNewOrderID();
+                $totalTaxAmount = 0;
+                foreach ($cartListSession as $item) {
+                    if (is_array($item)) {
+                        $product = $products->firstWhere('id', $item['id']);
+                        if ($product) {
+                            $price = $item['price'];
+
+                            $digitalProductVariation = $this->digitalProductVariationRepo->getFirstWhere(params: ['product_id' => $item['id'], 'variant_key' => $item['variant']], relations: ['storage']);
+                            if ($product['product_type'] == 'digital' && $digitalProductVariation) {
+                                $price = $digitalProductVariation['price'];
+
+                                if ($product['digital_product_type'] == 'ready_product') {
+                                    $getStoragePath = $this->storageRepo->getFirstWhere(params: [
+                                        'data_id' => $digitalProductVariation['id'],
+                                        "data_type" => "App\Models\DigitalProductVariation",
+                                    ]);
+                                    $product['digital_file_ready'] = $digitalProductVariation['file'];
+                                    $product['storage_path'] = $getStoragePath ? $getStoragePath['value'] : 'public';
                                 }
+                            } elseif ($product['digital_product_type'] == 'ready_product' && !empty($product['digital_file_ready'])) {
+                                $product['storage_path'] = $product['digital_file_ready_storage_type'] ?? 'public';
+                            }
 
-                                $cartSubTotalCalculation = $this->cartService->getCartSubtotalCalculation(
-                                    product: $product,
-                                    cartItem: $item,
-                                    totalDiscountedPrice: $totalDiscountedPrice,
-                                    cartName: $cartId,
+                            $cartSubTotalCalculation = $this->cartService->getCartSubtotalCalculation(
+                                product: $product,
+                                cartItem: $item,
+                                totalDiscountedPrice: $totalDiscountedPrice,
+                                cartName: $cartId,
+                            );
+
+                            $orderDetail = $this->orderDetailsService->getPOSOrderDetailsData(
+                                orderId: $orderId, item: $item,
+                                product: $product, price: $price, tax: $cartSubTotalCalculation['appliedTaxAmount'],
+                                fulfillment: $fulfillment, paymentType: $request['type']
+                            );
+                            $totalTaxAmount += $cartSubTotalCalculation['appliedTaxAmount'];
+
+                            // The shelf, the variant and the movement row in one call, under the lock taken above, by the same
+                            // rule the web checkout follows: a line the shelf cannot cover throws and the whole sale rolls back.
+                            // The till used to floor the shortfall at zero and sell anyway, charging for units it did not have.
+                            if ($product['product_type'] == 'physical') {
+                                $this->inventoryService->takeForSale(
+                                    productId: $product['id'],
+                                    quantity: (int) $item['quantity'],
+                                    variant: $item['variant'],
+                                    referenceType: 'pos_order',
+                                    referenceId: $orderId,
                                 );
+                            }
+                            $this->orderDetailRepo->add(data: $orderDetail);
 
-                                $orderDetail = $this->orderDetailsService->getPOSOrderDetailsData(
-                                    orderId: $orderId, item: $item,
-                                    product: $product, price: $price, tax: $cartSubTotalCalculation['appliedTaxAmount'],
-                                    fulfillment: $fulfillment, paymentType: $request['type']
+                            $appliedTaxIds = CartManager::getAppliedTaxIds(
+                                product: $product,
+                                taxConfig: $taxConfig
+                            );
+
+                            $appliedTaxRate = collect($appliedTaxIds)->sum('tax_rate');
+                            $finalAmount = ($item['price'] - $item['discount']) * $item['quantity'];
+
+                            foreach ($appliedTaxIds as $taxItem) {
+                                OrderManager::getAddOrderTaxDetails(
+                                    systemTaxVat: $taxConfig['SystemTaxVat'],
+                                    taxRate: $taxItem,
+                                    orderId: $orderId,
+                                    data: [
+                                        'tax_amount' => ($cartSubTotalCalculation['appliedTaxAmount'] > 0 && $appliedTaxRate > 0) ? ($cartSubTotalCalculation['appliedTaxAmount'] * $taxItem['tax_rate']) / $appliedTaxRate : 0,
+                                        'before_tax_amount' => $finalAmount,
+                                        'after_tax_amount' => $finalAmount + $cartSubTotalCalculation['appliedTaxAmount'],
+                                        'quantity' => $item['quantity'],
+                                        'seller_id' => $product['seller_id'],
+                                        'seller_type' => $product['seller_is'],
+                                    ]
                                 );
-                                $totalTaxAmount += $cartSubTotalCalculation['appliedTaxAmount'];
-                                if ($item['variant'] != null) {
-                                    $variantData = $this->POSService->getVariantData(
-                                        type: $item['variant'],
-                                        variation: json_decode($product['variation'], true),
-                                        quantity: $item['quantity']
-                                    );
-                                    $this->productRepo->update(id: $product['id'], data: ['variation' => json_encode($variantData)]);
-                                }
-
-                                if ($product['product_type'] == 'physical') {
-                                    // Atomic conditional decrement, floored at zero — the old non-atomic write
-                                    // lost concurrent updates and could drive stock negative. decrement never
-                                    // loses an update; the >= guard stops it going below zero.
-                                    $taken = \App\Models\Product::where('id', $product['id'])
-                                        ->where('current_stock', '>=', $item['quantity'])
-                                        ->decrement('current_stock', $item['quantity']);
-                                    if ($taken === 0) {
-                                        \App\Models\Product::where('id', $product['id'])->update(['current_stock' => 0]);
-                                    }
-                                    // Log the POS sale into the stock-movement history (non-throwing).
-                                    try {
-                                        app(\App\Services\Marketplace\InventoryService::class)->record(
-                                            productId: $product['id'],
-                                            type: \App\Models\StockMovement::TYPE_SALE,
-                                            qtyChange: -(int) $item['quantity'],
-                                            balanceAfter: (int) (\App\Models\Product::where('id', $product['id'])->value('current_stock') ?? 0),
-                                            referenceType: 'pos_order',
-                                            referenceId: $orderId,
-                                            sellerId: $product['seller_id'] ?? null,
-                                        );
-                                    } catch (\Throwable $exception) {
-                                        \Illuminate\Support\Facades\Log::warning('POS sale stock-movement log failed for product ' . $product['id'] . ': ' . $exception->getMessage());
-                                    }
-                                }
-                                $this->orderDetailRepo->add(data: $orderDetail);
-
-                                $appliedTaxIds = CartManager::getAppliedTaxIds(
-                                    product: $product,
-                                    taxConfig: $taxConfig
-                                );
-
-                                $appliedTaxRate = collect($appliedTaxIds)->sum('tax_rate');
-                                $finalAmount = ($item['price'] - $item['discount']) * $item['quantity'];
-
-                                foreach ($appliedTaxIds as $taxItem) {
-                                    OrderManager::getAddOrderTaxDetails(
-                                        systemTaxVat: $taxConfig['SystemTaxVat'],
-                                        taxRate: $taxItem,
-                                        orderId: $orderId,
-                                        data: [
-                                            'tax_amount' => ($cartSubTotalCalculation['appliedTaxAmount'] > 0 && $appliedTaxRate > 0) ? ($cartSubTotalCalculation['appliedTaxAmount'] * $taxItem['tax_rate']) / $appliedTaxRate : 0,
-                                            'before_tax_amount' => $finalAmount,
-                                            'after_tax_amount' => $finalAmount + $cartSubTotalCalculation['appliedTaxAmount'],
-                                            'quantity' => $item['quantity'],
-                                            'seller_id' => $product['seller_id'],
-                                            'seller_type' => $product['seller_is'],
-                                        ]
-                                    );
-                                }
                             }
                         }
                     }
+                }
 
-                    $order = $this->orderService->getPOSOrderData(
-                        orderId: $orderId,
-                        cart: $cart,
-                        amount: $amount,
-                        totalTaxAmount: $totalTaxAmount,
-                        paidAmount: $paidAmount ?? ($request['type'] == 'cash' ? 0 : $amount),
-                        paymentType: $request['type'],
-                        addedBy: 'admin',
-                        userId: $userId,
-                        fulfillment: $fulfillment
-                    );
-                    $this->orderRepo->add(data: $order);
+                $order = $this->orderService->getPOSOrderData(
+                    orderId: $orderId,
+                    cart: $cart,
+                    amount: $amount,
+                    totalTaxAmount: $totalTaxAmount,
+                    paidAmount: $paidAmount ?? ($request['type'] == 'cash' ? 0 : $amount),
+                    paymentType: $request['type'],
+                    addedBy: 'admin',
+                    userId: $userId,
+                    fulfillment: $fulfillment
+                );
+                $this->orderRepo->add(data: $order);
 
-                    return $orderId;
-                });
-            } catch (WalletDebitRefusedException) {
-                ToastMagic::error(translate('need_Sufficient_Amount_Balance'));
-                return response()->json();
+                return $orderId;
+            });
+            } catch (InsufficientStockException $exception) {
+                // The transaction has rolled back: no order, no order line, no stock taken and no wallet debit. The cart is
+                // left as it was so the cashier can change the quantity and try again.
+                Log::warning('POS sale refused: ' . $exception->getMessage(), ['product_id' => $exception->productId, 'requested' => $exception->requested]);
+                ToastMagic::error(translate('not_enough_stock_to_place_this_order'));
+
+                return response()->json(['stockShortfall' => true, 'message' => translate('not_enough_stock_to_place_this_order')]);
             }
+
+            // Past the commit: everything from here has a side effect the database cannot undo.
             if ($checkProductTypeDigital) {
                 $order = $this->orderRepo->getFirstWhere(params: ['id' => $orderId], relations: ['details.productAllStatus']);
                 $data = [

@@ -36,6 +36,10 @@ use Illuminate\Validation\ValidationException;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
 use App\Services\Catalog\ProductCodeScope;
 use App\Services\Catalog\ProductVariantSku;
+use App\Exceptions\InsufficientStockException;
+use App\Services\Marketplace\InventoryService;
+use Illuminate\Support\Facades\Log;
+use App\Utils\OrderManager;
 use Illuminate\Support\Collection;
 
 class POSController extends Controller
@@ -78,46 +82,29 @@ class POSController extends Controller
         return $product['discount'];
     }
 
+    /**
+     * Takes the line's stock through InventoryService, which REFUSES rather than absorbing an over-sell.
+     *
+     * The three ways this till used to absorb one, all of them measured by tests/Feature/Pos/SellerAppTillStockTest:
+     * a negative quantity satisfied `current_stock >= quantity`, so the conditional decrement ADDED stock and the
+     * movement row logged the addition as a sale; a line the shelf could not cover set current_stock to 0 and sold
+     * anyway; and a variant short of the line was floored at 0 while the parent's stock was still taken, so the
+     * variant quantities stopped summing to current_stock. takeForSale throws InsufficientStockException for each,
+     * which rolls the sale back and leaves the stock exactly as it was.
+     */
     public function getProductStockCalculate($cartItem, $product, $orderId = null): void
     {
-        if ($cartItem['variant'] != null) {
-            $variationStore = [];
-            foreach (json_decode($product['variation'], true) as $variation) {
-                if ($cartItem['variant'] == $variation['type']) {
-                    // Floor at zero so a concurrent race can never drive a variant negative.
-                    $variation['qty'] = max(0, (int) $variation['qty'] - (int) $cartItem['quantity']);
-                }
-                $variationStore[] = $variation;
-            }
-            $this->productRepo->updateByParams(params: ['id' => $product['id']], data: ['variation' => json_encode($variationStore)]);
+        if ($product['product_type'] != 'physical') {
+            return;
         }
 
-        if ($product['product_type'] == 'physical') {
-            // Atomic conditional decrement, floored at zero — mirrors the Admin/Vendor POS fix. The old
-            // absolute write (current_stock = stale_value - qty) lost concurrent decrements and oversold,
-            // and could drive current_stock negative. decrement() never loses an update; the >= guard
-            // stops it going below zero.
-            $taken = Product::where('id', $product['id'])
-                ->where('current_stock', '>=', $cartItem['quantity'])
-                ->decrement('current_stock', $cartItem['quantity']);
-            if ($taken === 0) {
-                Product::where('id', $product['id'])->update(['current_stock' => 0]);
-            }
-            // Record the POS sale in the stock-movement ledger so history reconciles against stock.
-            try {
-                app(\App\Services\Marketplace\InventoryService::class)->record(
-                    productId: $product['id'],
-                    type: \App\Models\StockMovement::TYPE_SALE,
-                    qtyChange: -(int) $cartItem['quantity'],
-                    balanceAfter: (int) (Product::where('id', $product['id'])->value('current_stock') ?? 0),
-                    referenceType: 'pos_order',
-                    referenceId: $orderId,
-                    sellerId: $product['user_id'] ?? $product['seller_id'] ?? null,
-                );
-            } catch (\Throwable $exception) {
-                \Illuminate\Support\Facades\Log::warning('Seller POS sale stock-movement log failed for product ' . $product['id'] . ': ' . $exception->getMessage());
-            }
-        }
+        app(InventoryService::class)->takeForSale(
+            productId: $product['id'],
+            quantity: (int) $cartItem['quantity'],
+            variant: $cartItem['variant'],
+            referenceType: 'pos_order',
+            referenceId: $orderId,
+        );
     }
 
     public static function getOrderNewId()
@@ -351,6 +338,15 @@ class POSController extends Controller
             return $unavailableProductResponse;
         }
 
+        // A sale with no lines was written anyway: the id was taken, the line block below was skipped and an order row was stored with
+        // no lines, order_amount 0 and paid_amount whatever was posted. Refused here, before anything is taken or written.
+        if (collect($request['modified_cart'] ?? [])->filter(static fn ($cartItem): bool => is_array($cartItem))->isEmpty()) {
+            return response()->json([
+                'product_not_available' => true,
+                'message' => translate('a_sale_needs_at_least_one_product'),
+            ]);
+        }
+
         $deliveryShippingAddress = $fulfillment == 'delivery' ? $this->orderAddresses->latestSavedAddress(customerId: $customerId) : null;
         if ($deliveryShippingAddress) {
             try {
@@ -390,7 +386,11 @@ class POSController extends Controller
         $amountTendered = $payByWallet ? $orderTotal : $tenderedAmount;
 
         try {
-            $generateOrderID = DB::transaction(function () use ($request, $seller, $customerId, $carts, $extraDiscount, $extraDiscountType, $couponDiscountAmount, $couponCode, $paymentMethod, $orderTotal, $amountTendered, $fulfillment, $isCashOnDelivery, $taxConfig, $deliveryShippingAddress, $payByWallet, $idempotencyKey) {
+            $generateOrderID = OrderManager::writeOrderRetryingOnDuplicateId(function () use ($request, $seller, $customerId, $carts, $extraDiscount, $extraDiscountType, $couponDiscountAmount, $couponCode, $paymentMethod, $orderTotal, $amountTendered, $fulfillment, $isCashOnDelivery, $taxConfig, $deliveryShippingAddress, $payByWallet, $idempotencyKey) {
+                // Every product of the sale is locked here, in ascending id order, before a line is priced or taken and before the
+                // customer's wallet is touched. InventoryService::lockProductsForSale says why the order is the point.
+                app(InventoryService::class)->lockProductsForSale(productIds: collect($request['modified_cart'] ?? [])->pluck('id')->all());
+
                 if ($idempotencyKey !== null && !$this->claimIdempotencyKey(sellerId: $seller->id, key: $idempotencyKey)) {
                     throw new PosSaleReplayedException(orderId: (int) $this->placedOrderIdOf(sellerId: $seller->id, key: $idempotencyKey, lock: true));
                 }
@@ -490,6 +490,15 @@ class POSController extends Controller
 
                 return $generateOrderID;
             });
+        } catch (InsufficientStockException $exception) {
+            // The transaction has rolled back: no order, no order line, no stock taken and no wallet debit. The response keeps
+            // the shape the seller app already reads, so no app build has to change for the refusal to be understood.
+            Log::warning('Seller POS sale refused: ' . $exception->getMessage(), ['product_id' => $exception->productId, 'requested' => $exception->requested]);
+
+            return response()->json([
+                'product_not_available' => true,
+                'message' => trim(($exception->productName ?? '') . ' ' . translate('not_available_for_order_place')),
+            ]);
         } catch (WalletDebitRefusedException) {
             return $this->walletBalanceNeededResponse();
         } catch (PosSaleReplayedException $exception) {

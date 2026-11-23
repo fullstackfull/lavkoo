@@ -91,7 +91,7 @@ jobs:
       fail-fast: false
       matrix:
         engine: ['MySQL 8', 'MariaDB 11.4.2']
-        group: ['Fulfillment + security tests', 'Address tests', 'Storefront tests', 'Catalog tests', 'Staff scope tests', 'Checkout, payment and permission tests', 'Saudi baseline pack', 'Report pagination tests', 'Notification and localization tests', 'Wallet tests', 'Marketplace and ledger tests', 'Marketing consent tests', 'Payment tests', 'Fulfillment, security and customer tests']
+        group: ['Fulfillment + security tests', 'Address tests', 'Storefront tests', 'Catalog tests', 'Staff scope tests', 'Checkout, payment and permission tests', 'Saudi baseline pack', 'Report pagination tests', 'Notification and localization tests', 'Wallet tests', 'Marketplace and ledger tests', 'Marketing consent tests', 'Payment tests', 'Fulfillment, security and customer tests', 'Till stock tests']
         include:
           - engine: MySQL 8
             image: mysql:8.0
@@ -158,6 +158,15 @@ jobs:
           # existing groups each take 15 to 20 minutes against a 35-minute ceiling.
           - group: Payment tests
             paths: tests/Feature/Payments
+          - group: Till stock tests
+            # The three tills: the two panels, driven through their own place-order routes, and the seller app's, driven
+            # through its controller action with the Request its API middleware leaves. On a real engine because what the sale now
+            # rests on is engine behaviour: a conditional decrement whose affected-row count is the refusal, and a row lock
+            # taken in id order. SQLite agreeing proves neither — its grammar compiles lockForUpdate to nothing at all, which
+            # the lock-order test says in so many words and asserts the clause only where it exists.
+            # CiDatabaseTest comes with it, as it does for the fulfillment group: if a configuration slip ran this group on
+            # SQLite after all, the till tests would still pass and the group would be green and worthless.
+            paths: tests/Feature/Pos tests/Feature/CiDatabaseTest.php
     services:
       mysql:
         image: ${{ matrix.image }}
