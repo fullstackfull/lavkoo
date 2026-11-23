@@ -434,7 +434,6 @@ class OrderController extends Controller
             Order::where(['seller_id' => $sellerId, 'seller_is' => 'seller'])
         );
     }
-
     public function order_detail_status(Request $request): JsonResponse
     {
         $seller = $request->seller;

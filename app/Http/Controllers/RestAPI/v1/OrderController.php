@@ -728,6 +728,7 @@ class OrderController extends Controller
                             'message' => translate('file_not_found'),
                         ]);
                     }
+
                     if (PlainFileName::isPlain($file_name) && File::exists(base_path('storage/app/public/product/digital-product/' . $file_name))) {
                         return \response()->download($file_path);
                     } else {
