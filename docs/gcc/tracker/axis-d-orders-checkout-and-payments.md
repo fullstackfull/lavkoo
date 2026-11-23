@@ -76,7 +76,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MET] A legal acceptance receipt names the legal entity from configuration (StorefrontLegalAcceptanceTest::test_the_acceptance_names_the_legal_entity_from_configuration (unchanged))
 - **(10) Next coding task.** Read the CI of PR 90 per job; then the owner's rule for the invoice number of each company (format, restart, gaps, tax authority) and the series on top of invoice_series_key; then the company on the payment request (D2-07).
 - **Open owner decisions.** Legal name, tax registration, invoice-series and e-invoicing duties of each country's company; whether the first launch has one entity per country (the plan says so).
-- **Evidence not confirmed by the script:** lavkoo origin/main:resources/views/admin-views/order/invoice.blade.php (pattern not found: getWebConfig('shop_address'))
 
 #### D1-04. Country, storefront, legal entity, seller and shop kept as separate keys
 
@@ -174,7 +173,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MET] The selling company's tax registration is frozen on the order (PR 90 (26995055): the order's entity_snapshot freezes the company's tax_registration_number with the rest of its identity (OrderLegalEntitySnapshotTest, OrderInvoiceIssuerTest), and the three invoices print it; run 302 on 26995055 (read job by job on 2026-11-18): 22 of 23 jobs success, the deployment-overlay job red by design; the Storefront tests (SQLite 8.2 and 8.3, MySQL 8, MariaDB 11.4.2) and the Address tests (MySQL 8, MariaDB 11.4.2) are among the green ones)
 - **(10) Next coding task.** Test-first on the PR 83 chain: characterization tests that create a TaxModule setup (excluded, order_wise and product_wise) and assert order_taxes, total_tax_amount and tax_model; then pass StorefrontContext::country() into VatTaxManagement::getTaxSystemType with a market-scoped cache key and record included tax, behind a default-off flag; SQLite, MySQL 8, MariaDB 11.4.2.
 - **Open owner decisions.** VAT rate and mode per country and entity; whether included tax must be stored; any e-invoicing duty (none exists in code).
-- **Evidence not confirmed by the script:** lavkoo origin/main:Modules/TaxModule/app/Traits/VatTaxManagement.php (pattern not found: "tax_system_type_{$tax_payer}_")
 - **Update after the assessment.** PR 98 (draft, main based, 718edb99): OrderTaxRecordedAtPlacementTest pins what an order keeps of its tax on main and fixes the empty string written into the integer column taxable_id, which a strict SQL server refuses. PR 99 (draft, stacked on PR 87, f2942370, off by default): a storefront other than the default one is taxed by the active default setup whose country_code is its own and, when it has none, by nothing (a setup built in memory and never saved): the platform's Saudi setup is never used for it, whether or not the currency switch is on (StorefrontTax; the module trait and its twin helper, five reads of the panel order edit, the admin screen of the system tax setup and the module calculator never read a storefront's row as the platform's; one cache entry for each storefront). StorefrontTaxApproval and the selling gate: a storefront does not sell before a person with the authority has approved its setup (a fingerprint of the rates, type, included flag and shipping tax, stale when any of them changes) or recorded, in a document, that it charges no tax; gcc:storefront:tax-approve records, withdraws and shows the decision with an audit line (an approver that names a tool or an assistant is refused); the readiness report marks a storefront without one UNSAFE; 123 tests in the tax classes, a mutation of each mechanism fails the matching tests. PR 102 (draft, stacked on PR 98, d2d130f8, awaiting the finance review): the rows of order_taxes added up to a share of the order's tax in a cart of several lines (half in the case of two lines, a third of the shipping tax); new orders write rows that add up, orders already placed keep theirs, and orders:tax-rows-reconcile lists the orders whose rows differ without writing anything; 29 tests. Still missing: the tax of a tax-included price is recorded nowhere, and the rates, the model and the registration of each country, and who approves them, are the owner's.
 - **Next coding task today (supersedes item 10 above).** Read the CI of PR 99, PR 98 and PR 102 per job; the finance review of PR 102 (R6); with the owner's decision on whether a tax-included price must record its tax, compute and record it behind its own default-off switch (an additive record, not a change of the order's amounts); the owner gives each storefront its setup (gcc:storefront:tax) and a person approves it (gcc:storefront:tax-approve) before it opens.
 
@@ -421,7 +419,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] A Paymob characterisation suite runs in CI on SQLite, MySQL 8 and MariaDB (none exists)
 - **(10) Next coding task.** Test-only branch gcc/p0-paymob-characterization from main: tests/Feature/Payment/PaymobControllerTest.php with a signed callback fixture for the callback criteria and a namespaced curl stub (or a separately approved one-line seam) for the pay request; add its folder to a CI group that runs on MySQL 8 and MariaDB.
 - **Open owner decisions.** Q-33: which GCC markets Paymob serves and for which legal entity; whether Paymob gets a server-to-server notification (R-071), decided after the characterisation.
-- **Evidence not confirmed by the script:** lavkoo origin/main:app/Http/Controllers/Payment_Methods/PaymobController.php (pattern not found: $hased = hash_hmac('sha512', $connectedString, $secret);); lavkoo origin/main:app/Http/Controllers/Payment_Methods/PaymobController.php (pattern not found: if ($hased == $hmac && $data['success'] === "true") {)
 - **Verifier note (not applied automatically).** deps_blockers corrected by the verifier (applied above).
 - **Verifier note (not applied automatically).** next_task corrected by the verifier (applied above).
 - **Verifier note (not applied automatically).** exists_now corrected by the verifier (applied above).
@@ -484,7 +481,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [CODED] A stub key (no route or controller) is never offered at checkout (payment_gateways() limits to the default list unless the Gateways add-on is published; no test)
 - **(10) Next coding task.** On the PR 3 branch add tests/Unit/Payments/GatewayRegistryConsistencyTest.php that parses the route map in Payment::generate_link, the two default lists, the currency map and the registered routes and asserts criteria 3 and 4; keep the other dead copies until the owner confirms they are dead.
 - **Open owner decisions.** Confirm the discarded Paymera copy holds no logic worth keeping (PR 3 body); whether legacy non-GCC gateways (Paymera, MTN Cash, bKash, SSLCommerz, Paytm) and the 23 stubs are disabled for GCC (audit: Isolate).
-- **Evidence not confirmed by the script:** lavkoo origin/main:app/Traits/Payment.php (pattern not found: 'hyper_pay' => 'payment/hyperpay/pay',); lavkoo origin/main:app/Services/PaymentRoutingService.php (file or ref not found)
 - **Verifier note (not applied automatically).** exists_now corrected by the verifier (applied above).
 - **Verifier note (not applied automatically).** remaining corrected by the verifier (applied above).
 
@@ -506,7 +502,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] A capability entry needs an explicit confirmed flag with provider, date and currency; a country name alone grants nothing (no registry on any branch)
 - **(10) Next coding task.** Branch from gcc/p1-storefront-currency@25f83fe5 (not from the PR 83 tree) and extend GatewayCurrencyPolicy with the capability registry (default deny, config gcc.payments.<CC>.<gateway>, confirmed flag with provider, date, currency); call it from payment_gateways() and keep the single guard in Payment::generate_link; tests in tests/Feature/Storefront so MySQL 8 and MariaDB run them.
 - **Open owner decisions.** Q-33: for each market, which of Paymob, MyFatoorah, Tabby, Tamara are confirmed, with currency, methods and merchant eligibility; accept default-deny as the rule.
-- **Evidence not confirmed by the script:** lavkoo origin/main:app/Http/Controllers/RestAPI/v1/ConfigController.php (pattern not found: $paymentMethods = payment_gateways();)
 - **Verifier note (not applied automatically).** done_in_drafts corrected by the verifier (applied above).
 - **Verifier note (not applied automatically).** next_task corrected by the verifier (applied above).
 - **Verifier note (not applied automatically).** exists_now corrected by the verifier (applied above).
@@ -611,7 +606,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [CODED] A paid payment with no order is detected and listed for an operator (PaymentsPanel::capturedWithoutOrder (read-only, no test) and the critical log of PR 56)
 - **(10) Next coding task.** On PR 53's branch: record legal entity and gateway account next to the storefront in additional_data (no migration) behind the same flag, tests in tests/Feature/Storefront; then draft additive columns once the real payment_requests schema is read from the installed SQL dump.
 - **Open owner decisions.** Columns on payment_requests (needs the real schema) or keep additional_data; entity identity (Q-10).
-- **Evidence not confirmed by the script:** lavkoo origin/main:app/Traits/Payment.php (pattern not found: $payment->additional_data = json_encode($payment_info->getAd)
 - **Verifier note (not applied automatically).** done_in_drafts corrected by the verifier (applied above).
 - **Update after the assessment.** PR 87 (GCC-05 slice 3): the payment request carries the storefront currency and the refusal is decided before the row exists; the row still carries no market or company.
 
@@ -636,7 +630,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] A settlement refuses or flags an order total that differs from the amount paid (PR 56 body: the hook does not compare (paid 275, order 375 reproduced))
 - **(10) Next coding task.** Paymob: add PaymobVerification (transaction inquiry; amount_cents, currency and order reference matched against payment_requests) used by PaymobController::callback behind a config switch default off, with a partial-mock test of cURL(); run on SQLite, MySQL 8 and MariaDB.
 - **Open owner decisions.** Whether a settlement whose order total differs from the paid amount is refused or flagged (PR 56 left it to the owner); whether Paymob needs the confirmation call (R-071).
-- **Evidence not confirmed by the script:** lavkoo origin/main:app/Http/Controllers/Payment_Methods/PaymobController.php (pattern not found: if ($hased == $hmac && $data['success'] === "true") {)
 - **Verifier note (not applied automatically).** exists_now corrected by the verifier (applied above).
 
 #### D2-12. Webhook verification: only authentic notifications, each processed once
@@ -772,7 +765,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] Public payment endpoints are rate-limited (limiters myfatoorah-webhooks (600 a minute) and myfatoorah-status (90) only; no test)
 - **(10) Next coding task.** Branch from the PR 56 tree: delete the order_generate_test.txt block from the success hook, add a leak-guard test that fails on file_put_contents in app/Utils/module-helper.php and the gateway controllers, and extend tests/Support/KeepsOrderDebugLogClean accordingly.
 - **Open owner decisions.** Guest ids are sequential and guessable (PR 21 decision 1): add a guest token or accept; delete the old debug files only after a retention review; DR-1 stays in the owner register.
-- **Evidence not confirmed by the script:** lavkoo origin/main:app/Utils/module-helper.php (pattern not found: storage_path('logs/order_generate_test.txt'),)
 
 #### D2-18. Payment lifecycle (axis F) pinned end to end per market
 

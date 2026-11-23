@@ -1,0 +1,280 @@
+{
+  "why": "These evidence triples pin what each repository's main did BEFORE the GCC integration. They were written against the moving ref origin/main, and the integration changed or removed exactly those lines, so on origin/main they read as failures when they are not. Each is anchored here to its repository's frozen pre-integration main commit, which is what it actually describes. gen_main refuses to run if an entry here no longer matches, so this list cannot rot silently and cannot mask a real regression.",
+  "baselines": {
+    "lavkoo": "c5c04b7bf32ceeacdac06d179dbed869c28479a4",
+    "lavkooapp": "aee6c98ac6643aa79fdcb86c1ef4bcbd1337dddd",
+    "lavkooappseller": "d556fb4fa6fb2f96ff9abd9518147071ce346c0d"
+  },
+  "anchors": [
+    {
+      "req": "A2-05",
+      "repo": "lavkoo",
+      "path": "app/Http/Controllers/Customer/Auth/CustomerAuthController.php",
+      "pattern": "$newTokenGenerate = (config('app.mode') == 'live') ? rand(100000, 999999) : 123456;"
+    },
+    {
+      "req": "A2-07",
+      "repo": "lavkoo",
+      "path": "app/Utils/Helpers.php",
+      "pattern": "$user = $request->user() ?? $request->user;"
+    },
+    {
+      "req": "A2-13",
+      "repo": "lavkooapp",
+      "path": "lib/features/auth/domain/repositories/auth_repository.dart",
+      "pattern": "FirebaseMessaging.instance.subscribeToTopic(AppConstants.topic);"
+    },
+    {
+      "req": "A2-15",
+      "repo": "lavkoo",
+      "path": "app/Utils/module-helper.php",
+      "pattern": "storage_path('logs/order_generate_test.txt'),"
+    },
+    {
+      "req": "B-04",
+      "repo": "lavkoo",
+      "path": "app/Http/Requests/ProductAddRequest.php",
+      "pattern": "unique:products,code"
+    },
+    {
+      "req": "D1-03",
+      "repo": "lavkoo",
+      "path": "resources/views/admin-views/order/invoice.blade.php",
+      "pattern": "getWebConfig('shop_address')"
+    },
+    {
+      "req": "D1-07",
+      "repo": "lavkoo",
+      "path": "Modules/TaxModule/app/Traits/VatTaxManagement.php",
+      "pattern": "\"tax_system_type_{$tax_payer}_\""
+    },
+    {
+      "req": "D2-01",
+      "repo": "lavkoo",
+      "path": "app/Http/Controllers/Payment_Methods/PaymobController.php",
+      "pattern": "$hased = hash_hmac('sha512', $connectedString, $secret);"
+    },
+    {
+      "req": "D2-01",
+      "repo": "lavkoo",
+      "path": "app/Http/Controllers/Payment_Methods/PaymobController.php",
+      "pattern": "if ($hased == $hmac && $data['success'] === \"true\") {"
+    },
+    {
+      "req": "D2-04",
+      "repo": "lavkoo",
+      "path": "app/Traits/Payment.php",
+      "pattern": "'hyper_pay' => 'payment/hyperpay/pay',"
+    },
+    {
+      "req": "D2-04",
+      "repo": "lavkoo",
+      "path": "app/Services/PaymentRoutingService.php",
+      "pattern": "namespace App\\Services\\Marketplace;"
+    },
+    {
+      "req": "D2-05",
+      "repo": "lavkoo",
+      "path": "app/Http/Controllers/RestAPI/v1/ConfigController.php",
+      "pattern": "$paymentMethods = payment_gateways();"
+    },
+    {
+      "req": "D2-10",
+      "repo": "lavkoo",
+      "path": "app/Traits/Payment.php",
+      "pattern": "$payment->additional_data = json_encode($payment_info->getAdditionalData());"
+    },
+    {
+      "req": "D2-11",
+      "repo": "lavkoo",
+      "path": "app/Http/Controllers/Payment_Methods/PaymobController.php",
+      "pattern": "if ($hased == $hmac && $data['success'] === \"true\") {"
+    },
+    {
+      "req": "D2-17",
+      "repo": "lavkoo",
+      "path": "app/Utils/module-helper.php",
+      "pattern": "storage_path('logs/order_generate_test.txt'),"
+    },
+    {
+      "req": "E-03",
+      "repo": "lavkoo",
+      "path": "app/Utils/CustomerManager.php",
+      "pattern": "$credit_amount = Convert::usd($credit);"
+    },
+    {
+      "req": "E-06",
+      "repo": "lavkoo",
+      "path": "app/Utils/CustomerManager.php",
+      "pattern": "$user->wallet_balance = $current_balance + $add_fund_to_wallet_bonus + $credit_amount - $debit_amount;"
+    },
+    {
+      "req": "E-08",
+      "repo": "lavkoo",
+      "path": "app/Http/Controllers/RestAPI/v1/CustomerController.php",
+      "pattern": "$user->delete();"
+    },
+    {
+      "req": "E-08",
+      "repo": "lavkoo",
+      "path": "app/Repositories/WalletTransactionRepository.php",
+      "pattern": "$this->walletTransaction->where($params)->delete();"
+    },
+    {
+      "req": "E-11",
+      "repo": "lavkoo",
+      "path": "app/Http/Controllers/Admin/POS/POSOrderController.php",
+      "pattern": "if ($customerBalance['wallet_balance'] >= currencyConverter(amount: $amount)) {"
+    },
+    {
+      "req": "E-12",
+      "repo": "lavkoo",
+      "path": "app/Http/Controllers/RestAPI/v3/seller/SellerController.php",
+      "pattern": "WithdrawRequest::find($request['id'])"
+    },
+    {
+      "req": "E-16",
+      "repo": "lavkoo",
+      "path": "app/Http/Controllers/Admin/POS/POSOrderController.php",
+      "pattern": "if ($customerBalance['wallet_balance'] >= currencyConverter(amount: $amount)) {"
+    },
+    {
+      "req": "E-17",
+      "repo": "lavkoo",
+      "path": "app/Services/Marketplace/SettlementEngine.php",
+      "pattern": "'currency' => $first->currency,"
+    },
+    {
+      "req": "E-17",
+      "repo": "lavkoo",
+      "path": "app/Services/Marketplace/VendorLedger.php",
+      "pattern": "'currency' => $currency ?? $this->baseCurrency(),"
+    },
+    {
+      "req": "F-03",
+      "repo": "lavkooappseller",
+      "path": "lib/features/shop/screens/shop_update_screen.dart",
+      "pattern": "configModel?.activeTheme == \"theme_aster\""
+    },
+    {
+      "req": "F-07",
+      "repo": "lavkoo",
+      "path": "app/Http/Controllers/RestAPI/v1/ThemeSectionController.php",
+      "pattern": "->header('Cache-Control', 'no-store, private');"
+    },
+    {
+      "req": "F-14",
+      "repo": "lavkoo",
+      "path": "resources/views/admin-views/order/invoice.blade.php",
+      "pattern": "$invoiceSettings['business_identity_value']"
+    },
+    {
+      "req": "G-01",
+      "repo": "lavkoo",
+      "path": "app/Http/Middleware/ModulePermissionMiddleware.php",
+      "pattern": "Helpers::module_permission_check($module)"
+    },
+    {
+      "req": "G-17",
+      "repo": "lavkoo",
+      "path": "app/Http/Controllers/Admin/Employee/EmployeeController.php",
+      "pattern": "if ($request['role_id'] == 1) {"
+    },
+    {
+      "req": "G-17",
+      "repo": "lavkoo",
+      "path": "routes/admin/routes.php",
+      "pattern": "Route::group(['prefix' => 'employee', 'as' => 'employee.', 'middleware' => ['module:people']], function () {"
+    },
+    {
+      "req": "H1-07",
+      "repo": "lavkoo",
+      "path": "app/Utils/OrderManager.php",
+      "pattern": "->where('current_stock', '>=', $detail['qty'])"
+    },
+    {
+      "req": "H1-09",
+      "repo": "lavkoo",
+      "path": "Modules/TaxModule/app/Services/CalculateTaxService.php",
+      "pattern": "->when($countryCode, fn($query) => $query->where('country_code', $countryCode))"
+    },
+    {
+      "req": "I1-01",
+      "repo": "lavkoo",
+      "path": "app/Traits/EmailTemplateTrait.php",
+      "pattern": "Mail::to($sendMailTo)->send(new SendMail($data, $template, $socialMedia));"
+    },
+    {
+      "req": "I1-06",
+      "repo": "lavkoo",
+      "path": "app/Listeners/OrderStatusListener.php",
+      "pattern": "$this->sendOrderNotification(key: $key, type: $type, order: $order);"
+    },
+    {
+      "req": "I1-17",
+      "repo": "lavkoo",
+      "path": "app/Utils/language.php",
+      "pattern": "$newMessagesArray[$key] = $processedKey;"
+    },
+    {
+      "req": "I2-03",
+      "repo": "lavkoo",
+      "path": "app/Http/Controllers/Web/PageController.php",
+      "pattern": "$request->source == 'admin'"
+    },
+    {
+      "req": "I2-04",
+      "repo": "lavkoo",
+      "path": "resources/themes/default/web-views/partials/_order-summary.blade.php",
+      "pattern": "route('business-page.view', ['slug' => 'terms-and-conditions'])"
+    },
+    {
+      "req": "J-11",
+      "repo": "lavkooapp",
+      "path": "lib/features/auth/domain/repositories/auth_repository.dart",
+      "pattern": "FirebaseMessaging.instance.subscribeToTopic(AppConstants.topic);"
+    },
+    {
+      "req": "K-10",
+      "repo": "lavkooappseller",
+      "path": "lib/features/seller_center/widgets/request_payout_sheet_widget.dart",
+      "pattern": "RegExp(r'^\\d*\\.?\\d{0,2}')"
+    },
+    {
+      "req": "K-11",
+      "repo": "lavkooappseller",
+      "path": "lib/notification/my_notification.dart",
+      "pattern": "title!.contains('Order')"
+    },
+    {
+      "req": "K-15",
+      "repo": "lavkooappseller",
+      "path": ".github/workflows/ci.yml",
+      "pattern": "branches: [main]"
+    },
+    {
+      "req": "K-18",
+      "repo": "lavkooappseller",
+      "path": "lib/features/shop/screens/shop_update_screen.dart",
+      "pattern": "configModel?.activeTheme == \"theme_aster\""
+    },
+    {
+      "req": "M1-04",
+      "repo": "lavkoo",
+      "path": "app/Http/Controllers/Vendor/Auth/ForgotPasswordController.php",
+      "pattern": "Log::info('OTP BEFORE ZENDER', ["
+    },
+    {
+      "req": "M2-13",
+      "repo": "lavkoo",
+      "path": "app/Http/Controllers/Vendor/Auth/ForgotPasswordController.php",
+      "pattern": "OTP BEFORE ZENDER"
+    },
+    {
+      "req": "M2-15",
+      "repo": "lavkoo",
+      "path": ".github/workflows/ci.yml",
+      "pattern": "group: ['Fulfillment + security tests', 'Address tests']"
+    }
+  ]
+}

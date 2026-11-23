@@ -5420,6 +5420,47 @@ def load_all():
     return data
 
 
+_load_all_before_baseline_anchors = load_all
+_BASELINE_ANCHORS = json.load(open(os.path.join(T.MASTER, 'evidence-baseline-anchors.json')))
+
+
+def load_all():
+    """Anchors the pre-integration evidence triples at the frozen main they describe.
+
+    A triple written against origin/main that pins what main did BEFORE the GCC integration reads as a
+    failure once the integration changes that line, though nothing regressed. Each such triple is listed in
+    data/evidence-baseline-anchors.json and is re-anchored here to its repository's frozen pre-integration
+    main. An entry that no longer matches a triple, or whose pattern is no longer at the baseline, stops the
+    run, so the list cannot rot silently and cannot excuse a real regression.
+    """
+    data = _load_all_before_baseline_anchors()
+    baselines = _BASELINE_ANCHORS['baselines']
+    wanted = {(a['req'], a['repo'], a['path'], a['pattern']): a for a in _BASELINE_ANCHORS['anchors']}
+    used = set()
+    for unit in data:
+        for requirement in data[unit]['reqs']:
+            for evidence in requirement.get('evidence', []):
+                if evidence['ref'] != 'origin/main':
+                    continue
+                key = (requirement['id'], evidence['repo'], evidence['path'], evidence['pattern'])
+                if key not in wanted:
+                    continue
+                baseline = baselines[evidence['repo']]
+                text = T.blob(evidence['repo'], baseline, evidence['path'])
+                if text is None or evidence['pattern'] not in text:
+                    raise SystemExit('baseline anchor no longer holds at %s: %s %s' % (baseline, requirement['id'], evidence['path']))
+                evidence['ref'] = baseline
+                used.add(key)
+    stale = sorted(key[:3] for key in wanted if key not in used)
+    if stale:
+        raise SystemExit('evidence-baseline-anchors.json has %d entry/entries that match no triple: %s' % (len(stale), stale))
+    for unit in data:
+        for requirement in data[unit]['reqs']:
+            if any(key[0] == requirement['id'] for key in used):
+                requirement['evidence_failures'] = T.check_evidence(requirement)
+    return data
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
@@ -5429,6 +5470,9 @@ def main():
     fails = [(u, r['id'], f) for u, d in all_reqs.items() for r in d['reqs'] for f in r.get('evidence_failures', [])]
     print('requirements:', total['n'], 'criteria:', total['ac'], 'MET', total['met'], 'CODED', total['coded'], 'implemented %.1f%% proven %.1f%% release %.1f%%' % (total['implemented_pct'], total['proven_pct'], total['release_pct']))
     print('evidence failures:', len(fails))
+    if os.environ.get('GCC_LIST_EVIDENCE_FAILURES'):
+        for unit, req_id, failure in fails:
+            print('  %s %s %s' % (unit, req_id, failure))
 
 
 if __name__ == '__main__':

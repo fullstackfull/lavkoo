@@ -143,7 +143,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] The order records its source storefront and selling entity separately from the destination country (orders carry no country or entity; #48 defers the stamp)
 - **(10) Next coding task.** Stack on PR 87 (gcc/p1-storefront-currency) and do not add a second orders.storefront_country. Add only the destination (orders.destination_country, or read it from the address snapshot) and the selling entity, behind the storefront flag, plus tests/Feature/Storefront/CrossBorderOwnershipTest on SQLite and the Storefront MySQL group: a Saudi-storefront order to a Kuwait address keeps the Saudi product row, stock, seller and provider snapshot. Share fixtures with C-16.
 - **Open owner decisions.** Q-10 first legal-entity model; Q-39 one-entity cart against seller split; which entity invoices a cross-border sale (the source entity, by GCC-16).
-- **Evidence not confirmed by the script:** lavkoo origin/main:app/Utils/OrderManager.php (pattern not found: ->where('current_stock', '>=', $detail['qty']))
 - **Verifier note (not applied automatically).** next_task corrected by the verifier (applied above).
 - **Verifier note (not applied automatically).** done_in_drafts corrected by the verifier (applied above).
 
@@ -188,7 +187,6 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - [MISSING] A route whose tax or duty cannot be determined refuses the order and never charges zero (no engine)
 - **(10) Next coding task.** Test-only on main first: tests/Unit/TaxModule/CalculateTaxServiceCountryTest pinning that countryCode selects a SystemTaxSetup and that getTaxSystemType ignores it. Then, stacked on the H1-06 branch, a CrossBorderTaxQuote value object whose default is 'not quoted', which the engine treats as refused (fail closed).
 - **Open owner decisions.** Q-11: tax and invoice per entity and who approves rates; whether the seller or the buyer pays duty per route; which entity invoices a cross-border sale.
-- **Evidence not confirmed by the script:** lavkoo origin/main:Modules/TaxModule/app/Services/CalculateTaxService.php (pattern not found: ->when($countryCode, fn($query) => $query->where('country_co)
 
 #### H1-10. Address-to-carrier city mapping that works in every country
 
