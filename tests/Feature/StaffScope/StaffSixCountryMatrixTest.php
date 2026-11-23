@@ -558,14 +558,17 @@ class StaffSixCountryMatrixTest extends TestCase
                 $this->withSession(['current_user' => 'walk-in-customer-1', 'walk-in-customer-1' => [...array_map(static fn (int $id): array => ['id' => $id, 'customerId' => 0, 'customerOnHold' => false, 'quantity' => 1, 'price' => 10, 'name' => "P{$id}", 'productType' => 'physical', 'image' => [], 'discount' => 0, 'variant' => null, 'variations' => []], $cart), 'add_to_cart_time' => now()]]);
                 $inScope = array_reduce($cart, fn (bool $all, int $id): bool => $all && in_array($this->productCountry[$id], $scope, true), true);
                 $before = (int) DB::table('orders')->max('id');
-                $number = 100000 + DB::table('orders')->count() + 1;
+                // Read, not predicted: OrderManager numbers a till order from the highest id already in the 100000 series, so
+                // counting every order in the table named the wrong one once the fixture seeded low-numbered orders too.
+                $idsBefore = DB::table('orders')->pluck('id')->all();
 
                 $response = $this->postJson('/admin/pos/order-place', ['amount' => 10 * count($cart), 'type' => 'cash', 'paid_amount' => 10 * count($cart)]);
 
                 if ($inScope) {
                     $response->assertOk();
                     $this->assertGreaterThan($before, (int) DB::table('orders')->max('id'), $name . ': the order of ' . implode(',', $cart) . ' is placed');
-                    $this->assertSame($number, (int) DB::table('orders')->max('id'), $name . ': its number counts every order');
+                    $number = (int) collect(DB::table('orders')->pluck('id')->all())->diff($idsBefore)->first();
+                    $this->assertSame($number, (int) DB::table('orders')->max('id'), $name . ': the order just placed is the newest');
                     $this->assertContains($number, $this->ordersListed('/admin/orders/list/all'), $name . ': it is theirs');
                 } else {
                     $response->assertNotFound();

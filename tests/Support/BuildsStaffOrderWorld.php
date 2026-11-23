@@ -274,6 +274,24 @@ trait BuildsStaffOrderWorld
             $table->string('refund_id')->nullable();
             $table->timestamps();
         });
+        // Every till sale records its stock movement, and InventoryService REFUSES the sale when it cannot
+        // (SaleNotRecordedException), so without this table a point-of-sale order answers 500 and no staff-scope
+        // assertion about it is ever reached. Columns as InventoryService::record() writes them.
+        Schema::create('stock_movements', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('product_id');
+            $table->unsignedBigInteger('seller_id')->nullable();
+            $table->string('type', 24);
+            $table->integer('qty_change');
+            $table->integer('balance_after')->nullable();
+            $table->string('reason', 40)->nullable();
+            $table->string('reference_type', 40)->nullable();
+            $table->unsignedBigInteger('reference_id')->nullable();
+            $table->text('note')->nullable();
+            $table->unsignedBigInteger('created_by')->nullable();
+            $table->string('created_by_type', 24)->nullable();
+            $table->timestamps();
+        });
     }
 
     /** The list of customers a screen offers is written in MySQL (IF, CONCAT) and is not what these tests are about: it is answered empty. */

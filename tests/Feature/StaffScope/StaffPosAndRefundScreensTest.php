@@ -185,9 +185,13 @@ class StaffPosAndRefundScreensTest extends TestCase
         $this->insertStaffOrder(id: 100003, products: [1]);
         $this->asKuwaitEmployee();
         $this->putCart([2, 3]);
-        $nextNumber = 100000 + DB::table('orders')->count() + 1;
+        // The till's own numbering is not this test's business, so the id is READ after the sale rather than predicted. Counting
+        // every order gave 100007 and counting only the 100000 series gave 100002, where the sale really wrote 100004: OrderManager
+        // numbers from the highest id already in that series, and the fixture seeds five low-numbered orders as well.
+        $idsBefore = DB::table('orders')->pluck('id')->all();
 
         $this->postJson('/admin/pos/order-place', ['amount' => 20, 'type' => 'cash', 'paid_amount' => 20])->assertOk();
+        $nextNumber = (int) collect(DB::table('orders')->pluck('id')->all())->diff($idsBefore)->first();
 
         $this->assertSame(1, DB::table('orders')->where('id', $nextNumber)->count(), 'the number counts every order, not only the ones the employee can see: order 100003 is Saudi and exists');
         $this->assertSame('POS', DB::table('orders')->where('id', $nextNumber)->value('order_type'));
@@ -202,9 +206,10 @@ class StaffPosAndRefundScreensTest extends TestCase
         $this->giveCountries(adminId: 7, countries: ['KW']);
         $this->signInAsStaff(adminId: 1);
         $this->putCart([2, 1]);
-        $nextNumber = 100000 + DB::table('orders')->count() + 1;
+        $idsBefore = DB::table('orders')->pluck('id')->all();
 
         $this->postJson('/admin/pos/order-place', ['amount' => 20, 'type' => 'cash', 'paid_amount' => 20])->assertOk();
+        $nextNumber = (int) collect(DB::table('orders')->pluck('id')->all())->diff($idsBefore)->first();
 
         $this->assertSame(1, DB::table('orders')->where('id', $nextNumber)->count());
         $this->assertNotContains($nextNumber, $this->idsPrinted($this->signInAsStaff(adminId: 7)->get('/admin/orders/list/all'), '/\[order:(\d+)\]/'));

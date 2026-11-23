@@ -145,10 +145,6 @@ final class StaffOrderInventory
             'class' => self::SCOPED, 'slice' => 'slice 3',
             'reason' => 'The vendor tax reports and their exports sum the orders and taxes of the employee\'s countries; the raw sum over the orders table is narrowed by the same rule. Every action has a rule in StaffOrderRoutes.',
         ],
-        V2AdvancedSearchController::class => [
-            'class' => self::SCOPED, 'slice' => 'slice 3', 'by' => 'the search',
-            'reason' => 'The header search of the new layout finds an order or a refund request by its number only when it is the employee\'s, and a product only when it is one of their countries\'. It narrows what it hands back, with no middleware: it fills a cache every employee shares (App\Services\Staff\StaffSearchHits).',
-        ],
         ProductController::class => [
             'class' => self::NOT_NEEDED, 'slice' => null,
             'reason' => 'Counts the order lines of a product the employee works with: the lines of their own products, narrowed by the product scope of slice 1. It lists no order.',
