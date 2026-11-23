@@ -95,13 +95,22 @@ trait BuildsWalletCheckoutWorld
         return number_format((float) ($amount ?? 0), $scale, '.', '');
     }
 
-    /** @return array{orders: int, paid_orders: int, wallet_transactions: int, debited: string, wallet_balance: string} */
+    /**
+     * What ONE customer's checkout left behind. Every figure is that customer's: the three counts used to be counts of the whole table while
+     * `debited` and `wallet_balance` beside them were already the customer's own, which made the array mean two different things at once. It
+     * also made the counts depend on every class that ran before, since a real engine keeps the rows of one test class for the next -- a
+     * concurrency class read `wallet_transactions` as 2 because of a row another class had left, with its own debit correctly at 10.01. Two
+     * callers already read it this way and could not both be right otherwise: one asks for 0 orders for the customer who was refused and 1 for
+     * the customer who paid, in the same test, with one order in the table.
+     *
+     * @return array{orders: int, paid_orders: int, wallet_transactions: int, debited: string, wallet_balance: string}
+     */
     protected function walletLedgerOf(int $customerId): array
     {
         return [
-            'orders' => DB::table('orders')->count(),
-            'paid_orders' => DB::table('orders')->where('payment_status', 'paid')->count(),
-            'wallet_transactions' => DB::table('wallet_transactions')->count(),
+            'orders' => DB::table('orders')->where('customer_id', $customerId)->count(),
+            'paid_orders' => DB::table('orders')->where('customer_id', $customerId)->where('payment_status', 'paid')->count(),
+            'wallet_transactions' => DB::table('wallet_transactions')->where('user_id', $customerId)->count(),
             'debited' => self::decimal(DB::table('wallet_transactions')->where('user_id', $customerId)->sum('debit')),
             'wallet_balance' => self::decimal(DB::table('users')->where('id', $customerId)->value('wallet_balance')),
         ];

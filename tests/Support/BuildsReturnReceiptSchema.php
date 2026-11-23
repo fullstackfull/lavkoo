@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\Schema;
  */
 trait BuildsReturnReceiptSchema
 {
-    private const RECEIPT_TABLES = ['return_shipments', 'stock_movements', 'storages', 'order_details', 'products'];
+    private const RECEIPT_TABLES = ['return_shipments', 'stock_movements', 'storages', 'business_settings', 'translations', 'reviews', 'order_details', 'products'];
 
     /** @var array<string, string> */
     private array $languageFileHashes = [];
@@ -63,6 +63,34 @@ trait BuildsReturnReceiptSchema
             $table->text('note')->nullable();
             $table->unsignedBigInteger('created_by')->nullable();
             $table->string('created_by_type', 24)->nullable();
+            $table->timestamps();
+        });
+
+        // And its review count, through a `reviews` relation.
+        Schema::create('reviews', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('product_id');
+            $table->unsignedBigInteger('delivery_man_id')->nullable();
+            $table->boolean('status')->default(true);
+        });
+
+        // App\Models\Product resolves its translated name through a `translations` relation on every read, so the same applies to it.
+        Schema::create('translations', function (Blueprint $table): void {
+            $table->id();
+            $table->string('translationable_type');
+            $table->unsignedBigInteger('translationable_id');
+            $table->string('locale');
+            $table->string('key');
+            $table->text('value')->nullable();
+        });
+
+        // A worker process boots the whole application, so a reader on the returns path that asks the shop's settings (getWebConfig) needs this
+        // table to be there. Empty is the right content: every such reader is asking for a setting this fixture does not set, and the default
+        // is what the test wants.
+        Schema::create('business_settings', function (Blueprint $table): void {
+            $table->id();
+            $table->string('type')->nullable();
+            $table->longText('value')->nullable();
             $table->timestamps();
         });
 
