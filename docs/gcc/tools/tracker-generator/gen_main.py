@@ -5282,6 +5282,144 @@ def load_all():
     return data
 
 
+# ---------------------------------------------------------------------------
+# Customer app: the four criteria whose only gap was that no test built a screen.
+#
+# Three are MET and one stays CODED -- and the one that stays CODED does so
+# because its sentence is measurably FALSE as worded, which is an owner decision
+# and not a missing test.
+#
+# The review pass committed NOTHING, on purpose: it found no defect in the batch
+# that a code change would fix (eleven mutations, including every survivor the
+# record names, all killed), the three claim defects it did find were in the
+# build agent's REPORT rather than in the repository, and leaving the head where
+# it was keeps the CI evidence attached to the head that was actually measured.
+# That is the right call and worth recording as such.
+#
+# IT ALSO CORRECTED AN ERROR OF MINE. My brief gave "902 passed with storefronts
+# off, 960 with them on" as the bar this head had to clear. Those are the J-11
+# BRANCH's figures, not main's: gcc/j11-push-per-storefront is not an ancestor of
+# main and has ten commits outside it, which I have now confirmed myself. Main
+# measures 787 off and 838 on, which the lane measured in a second worktree
+# rather than assuming. The batch takes it to 809 and 865.
+#
+# What I checked myself:
+#   * head gcc/integration aee6c98ac6643aa79fdcb86c1ef4bcbd1337dddd, main still
+#     9743e5ed;
+#   * the whole diff against main is NINE files -- the workflow, five new test
+#     files, two broadened test files, and ONE lib deletion of 62 lines
+#     (ordered_change_amount_widget.dart, dead code that wrote money by
+#     interpolation);
+#   * tool/analyze_baseline.txt is byte-identical to main's and still reads 255,
+#     so the gate was not widened to make room;
+#   * CI run 45095661044 on that head: conclusion SUCCESS, all four jobs --
+#     storefront-header with 26 named steps all green, analyze-whole-project at
+#     255 findings and 0 errors against a recorded 255, and both whole-suite jobs.
+# ---------------------------------------------------------------------------
+
+_APPSCREENS_HEAD = (
+    ' // CUSTOMER APP, THE SCREENS BUILT AND READ. Head gcc/integration '
+    'aee6c98ac6643aa79fdcb86c1ef4bcbd1337dddd (main still 9743e5ed; no pull request, per the owner\'s '
+    'instruction to use the unified branches). The whole diff against main is nine files: the workflow, five new '
+    'test files, two broadened test files, and one lib deletion of 62 lines -- a dead widget that wrote money by '
+    'interpolation and no screen used. tool/analyze_baseline.txt is byte-identical to main\'s and still reads '
+    '255, so the analyzer gate was not widened. CI run 45095661044 at that head: conclusion SUCCESS, all four '
+    'jobs -- storefront-header with 26 named steps every one green (four of them new and named for these '
+    'criteria), analyze-whole-project at 255 findings with 0 errors against a recorded 255, and both whole-suite '
+    'jobs, 809 passed with storefronts off and 865 with them on. Main itself measures 787 and 838, measured in a '
+    'second worktree: the figures 902/960 that an earlier brief of mine called the bar are the unmerged J-11 '
+    'BRANCH\'s, not main\'s, and the lane caught that error of mine. I read the head, the nine-file diff, the '
+    'baseline file and that CI run myself. The review pass committed nothing, having found no defect a code '
+    'change would fix: eleven mutations, including every survivor the record names, all killed.'
+)
+
+_APPSCREENS = [
+    ('J-05', 3, 'MET',
+     'MET. The three money survivors the record names now each fail, run one line at a time against the object '
+     'the application itself builds: the cart\'s line price rewritten as the number interpolated beside the '
+     'literal text of a currency -- 2 tests failed with the flag on and 2 with it off, WHILE THE SOURCE SCAN '
+     'STAYED GREEN, which is the whole point, because the built screen catches what no scan can; the more '
+     'screen\'s wallet balance rewritten the same way -- 1 failed in each build, scan green; and a coupon '
+     'minimum written with a number formatter in a directory the old scan did not cover -- 1 failed, so the '
+     'whole-lib group genuinely closes that blind spot. The app\'s own cart and checkout screens are BUILT '
+     'through the app\'s provider tree, and so are the wallet card as the wallet screen builds it, the more '
+     'screen\'s wallet tile and the checkout\'s coupon card, and the amounts are read off them as a customer '
+     'would read them. The inventory was also broadened from six directories to the whole of lib. NOT PROVED: '
+     'nothing ran on a device, and at one screen width and one text size. SEVEN files in these features write an '
+     'amount and are built by no test, so they rest on the scan alone -- three wallet widgets, two checkout '
+     'payment widgets and two refund widgets, plus a shop coupon item. The scan sees four shapes only, so an '
+     'amount written by interpolation on one of those unbuilt surfaces would still go unseen; the lane recorded '
+     'that rather than narrowing the scan to hide it.'),
+
+    ('I2-13', 1, 'MET',
+     'MET. Every lever the record named as a scan survivor now fails something, and the reviewer ran five '
+     'mutations itself rather than reading the build agent\'s figures. The two levers the screens have are a '
+     'gate that never shows the notice and a gate that never switches a button off, and the call sites were read '
+     'to be sure both are covered: the cart\'s tap gate moved into a comment failed the press test; a false '
+     'conjunct on the cart\'s notice condition failed three; the checkout\'s notice block commented out failed '
+     'two, in English and in Arabic; a notice that draws nothing failed five; and, for dormancy, the guard '
+     'removed from the choice\'s may-sell answer with the flag off failed two. NOT PROVED: nothing ran on a '
+     'device, at one width and one text size. The server\'s list of storefronts is written by the test, not '
+     'fetched. The screens are built over loose stand-ins for the services their controllers call, so what the '
+     'server would answer is not exercised -- only what the screens draw from the gate. The notice is proved to '
+     'be IN the built tree with the right words; it is NOT proved to be laid out at a non-zero size or inside '
+     'the viewport, so a notice present but drawn to zero height would still pass. "Blocks checkout" is proved '
+     'at the two places a customer presses and at the controller\'s own refusal, not for every route by which a '
+     'customer might arrive at the checkout screen.'),
+
+    ('B-16', 5, 'MET',
+     'MET. The coupon surface the checkout actually shows is BUILT -- the app\'s own coupon-apply widget and the '
+     'bottom sheet it opens -- and read, rather than the controller\'s fields being inspected; the coupon is '
+     'applied the way a customer applies one, through the real controller over a server that grants a discount. '
+     'The reviewer tested this itself because it was the one MET claim it had no independent evidence for, with '
+     'two one-line mutations: the storefront-change handler no longer clearing the discount failed "no longer '
+     'sees the coupon, nor its discount, on the card" -- which is exactly the right test, because the card\'s '
+     'applied state is driven by that very field, read in the widget\'s source; and the dormancy guard removed '
+     'failed its own test. NOT PROVED: nothing ran on a device. Nothing here says what the server does with a '
+     'coupon code belonging to another storefront -- the app simply no longer holds it. The move is made by '
+     'calling the app\'s own notifier directly; that the chooser reaches it rests on a separate switcher test '
+     'rather than end to end in one test. Two other coupon surfaces are built by no test. The HTTP and local '
+     'caches the notifier clears are recorded rather than cleared in this file, so it proves the coupon half '
+     'only; the cache half rests on the pre-existing storefront cache tests.'),
+]
+
+_I2105 = (
+    'STILL CODED, and the reason is now MEASURED: THE CRITERION\'S LAST CLAUSE IS FALSE AS WORDED. The screen '
+    'half is now behaviour on the real screens and it discriminates -- four one-line mutations each killed: the '
+    'cart\'s Checkout tap gate moved into a comment (a lever the build agent never mutated), a false conjunct '
+    'on the cart\'s notice condition, the checkout\'s notice block commented out, and a notice that draws '
+    'nothing. But the clause "no order, payment or wallet top-up request leaves the app" cannot be claimed: the '
+    'four due-payment paths of an order a customer already has, and ordering it again, are payment and order '
+    'requests, and ALL FIVE DO leave the app on a storefront the server has marked browse-only -- measured one '
+    'by one in a test written to MEASURE them, not to guard them, since a guard added to any of the five fails '
+    'it and the backend keeps due payments open by design. So this criterion waits on a wording decision: narrow '
+    'it to the paths that START a sale, or close the open owner question on "order again". It is not waiting on '
+    'a test. NOT PROVED beyond that: nothing ran on a device, at one width and one text size; the list of '
+    'storefronts is written by the test, not fetched; and the screens run over loose stand-ins, so nothing here '
+    'says what the server does with a request that does leave.'
+)
+
+_load_all_before_appscreens = load_all
+
+
+def load_all():
+    data = _load_all_before_appscreens()
+    pending = {(rid, idx) for rid, idx, _, _ in _APPSCREENS} | {('I2-10', 5)}
+    for unit in data:
+        for requirement in data[unit]['reqs']:
+            for rid, idx, state, evidence in _APPSCREENS:
+                if requirement['id'] == rid and idx < len(requirement['ac']):
+                    requirement['ac'][idx]['s'] = state
+                    requirement['ac'][idx]['e'] = requirement['ac'][idx]['e'] + ' // ' + evidence + _APPSCREENS_HEAD
+                    pending.discard((rid, idx))
+            if requirement['id'] == 'I2-10' and len(requirement['ac']) > 5:
+                requirement['ac'][5]['e'] = requirement['ac'][5]['e'] + ' // ' + _I2105 + _APPSCREENS_HEAD
+                pending.discard(('I2-10', 5))
+    if pending:
+        raise SystemExit('app-screens block: these criteria were not found: %s' % sorted(pending))
+    return data
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]

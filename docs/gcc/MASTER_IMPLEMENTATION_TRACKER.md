@@ -15,19 +15,19 @@ As of 2026-11-23. Generated from the independent assessment of every requirement
 | Axis | Requirements | Criteria | MET | CODED | MISSING | Code completion | Proven by tests | Release readiness | Verified |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---|
 | [A. Six-country base and customer identity](tracker/axis-a-six-country-base-and-customer-identity.md) | 37 | 173 | 93 | 25 | 55 | 68% | 54% | 9% | all |
-| [B. Catalogue and products](tracker/axis-b-catalogue-and-products.md) | 18 | 91 | 45 | 31 | 15 | 84% | 49% | 0% | all |
+| [B. Catalogue and products](tracker/axis-b-catalogue-and-products.md) | 18 | 91 | 46 | 30 | 15 | 84% | 51% | 0% | all |
 | [C. Inventory and fulfillment](tracker/axis-c-inventory-and-fulfillment.md) | 18 | 94 | 66 | 9 | 19 | 80% | 70% | 30% | all |
 | [D. Orders, checkout and payments](tracker/axis-d-orders-checkout-and-payments.md) | 37 | 179 | 101 | 34 | 44 | 75% | 56% | 8% | all |
 | [E. Wallets, loyalty and financial records](tracker/axis-e-wallets-loyalty-and-financial-records.md) | 18 | 88 | 42 | 7 | 39 | 56% | 48% | 7% | all |
 | [F. Themes and brand](tracker/axis-f-themes-and-brand.md) | 16 | 77 | 42 | 13 | 22 | 71% | 55% | 4% | all |
 | [G. Admin panel and staff permissions](tracker/axis-g-admin-panel-and-staff-permissions.md) | 20 | 102 | 59 | 13 | 30 | 71% | 58% | 15% | all |
 | [H. Shipping and integrations](tracker/axis-h-shipping-and-integrations.md) | 34 | 157 | 79 | 13 | 65 | 59% | 50% | 16% | all |
-| [I. Marketing, policies and operations](tracker/axis-i-marketing-policies-and-operations.md) | 37 | 185 | 86 | 47 | 52 | 72% | 46% | 3% | all |
-| [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 98 | 48 | 31 | 19 | 81% | 49% | 5% | all |
+| [I. Marketing, policies and operations](tracker/axis-i-marketing-policies-and-operations.md) | 37 | 185 | 87 | 46 | 52 | 72% | 47% | 3% | all |
+| [J. Flutter customer app](tracker/axis-j-flutter-customer-app.md) | 20 | 98 | 49 | 30 | 19 | 81% | 50% | 5% | all |
 | [K. Flutter seller app](tracker/axis-k-flutter-seller-app.md) | 23 | 104 | 48 | 25 | 31 | 70% | 46% | 3% | all |
 | [L. GCC-20 Super Admin](tracker/axis-l-gcc-20-super-admin.md) | 18 | 94 | 49 | 14 | 31 | 67% | 52% | 7% | all |
 | [M. Security, tests and deployment](tracker/axis-m-security-tests-and-deployment.md) | 63 | 311 | 106 | 118 | 87 | 72% | 34% | 3% | all |
-| **All axes (pooled)** | **359** | **1753** | **864** | **380** | **509** | **71%** | **49%** | **8%** | |
+| **All axes (pooled)** | **359** | **1753** | **867** | **377** | **509** | **71%** | **49%** | **8%** | |
 
 The pooled row counts every criterion once; it is not weighted by importance or effort and is not a forecast. The two code figures are not release figures: with nothing merged, release readiness can only come from drafts and integration branches that have been tested.
 
@@ -185,7 +185,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [B-13](tracker/axis-b-catalogue-and-products.md) | NOT STARTED | 4/1/0 | Show or hide a category or brand per store without deleting its central origin |
 | [B-14](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 4/2/0 | Search and filters follow the storefront |
 | [B-15](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 5/0/0 | Banners per store |
-| [B-16](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 2/3/1 | Campaigns, deals and coupon display per store |
+| [B-16](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 3/2/1 | Campaigns, deals and coupon display per store |
 | [B-17](tracker/axis-b-catalogue-and-products.md) | NOT STARTED | 0/5/0 | SEO, canonical and hreflang per storefront: meta, structured data, sitemap |
 | [B-18](tracker/axis-b-catalogue-and-products.md) | IN PROGRESS | 0/2/3 | Old product URLs, redirects, app links and deep links keep working next to the country paths |
 
@@ -396,7 +396,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [I2-10](tracker/axis-i-marketing-policies-and-operations.md) | IMPLEMENTED IN DRAFT | 4/2/0 | Customer app follows the server answer: browse-only storefront cannot order or pay |
 | [I2-11](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 4/1/0 | Store lifecycle states Draft, Ready, Active, Paused, managed by admin |
 | [I2-12](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 4/0/1 | Readiness preflight before a country is activated |
-| [I2-13](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 3/2/0 | Stop mode Browse Only |
+| [I2-13](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 4/1/0 | Stop mode Browse Only |
 | [I2-14](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 5/0/0 | Stop mode Maintenance per storefront |
 | [I2-15](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 2/0/3 | Stop mode Redirect to the default storefront |
 | [I2-16](tracker/axis-i-marketing-policies-and-operations.md) | IN PROGRESS | 2/3/0 | Stop never loses earlier orders or breaks webhooks, refunds, settlements, shipments, support |
@@ -412,7 +412,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [J-02](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 5/1/0 | Country chooser and storefront switch |
 | [J-03](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 6/0/0 | X-Storefront header on every API request |
 | [J-04](tracker/axis-j-flutter-customer-app.md) | IMPLEMENTED IN DRAFT | 4/1/0 | Caches and local storage keyed by storefront |
-| [J-05](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 2/1/1 | Per-storefront currency and price formatting |
+| [J-05](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 3/0/1 | Per-storefront currency and price formatting |
 | [J-06](tracker/axis-j-flutter-customer-app.md) | IMPLEMENTED IN DRAFT | 4/2/0 | Theme rendering per storefront and platform |
 | [J-07](tracker/axis-j-flutter-customer-app.md) | IMPLEMENTED IN DRAFT | 5/0/0 | Cart and wishlist per storefront |
 | [J-08](tracker/axis-j-flutter-customer-app.md) | IN PROGRESS | 4/2/0 | Sellable gate and paused-storefront modes |

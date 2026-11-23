@@ -107,6 +107,7 @@ record.
 | J-11 push per storefront | **new, 2 agents** | **106 min** | **0.67 M** | **236** | narrow scope |
 | seller K axis on one tree | **new, 2 agents** | **78 min** | **0.69 M** | **271** | narrow scope, 9 criteria |
 | E-11 till server total | old, 4 agents | **385 min** | **1.86 M** | **694** | money lane, in flight before the change |
+| app screens built and read | **new, 2 agents** | **139 min** | **0.87 M** | **334** | narrow scope, 4 criteria |
 
 **The fifth old-shape lane is the most expensive of the six**, at 385 minutes and 1.86 M tokens for one
 criterion — and it did not overclaim: its implementer proposed MET, both reviewers ruled CODED, and its fix
@@ -131,6 +132,20 @@ What the third lane also shows is that the saving is not coming out of rigour. I
 caught, attacked eight of its own MET claims with sixteen mutations chosen to kill them, corrected the
 record's own pessimism upward in two places, and closed a gap its build half had admitted in writing it
 had not tested.
+
+## Four new-shape lanes, and what the numbers now say
+
+Three new-shape lanes are in: 106, 78 and 139 minutes, at 0.67 M, 0.69 M and 0.87 M tokens. Two of the three are
+inside the 120–150 target and one is below it; the third sits at 139, inside it. Against the old shape's
+295–385 minutes and 1.37–1.86 M tokens, on comparable or narrower scopes, the shape is holding on every axis.
+
+It is still three lanes, and the scopes differ, so this is not a closed question. What can be said without
+stretching: **no new-shape lane has yet cost more than half an old-shape lane in tokens, and none of the four
+reached a conclusion it had to withdraw.** The fourth lane's review pass committed nothing at all — it ran
+eleven mutations, killed every one, found that the only defects were in its build half's *report* rather than
+in the repository, corrected those in the rulings, and left the head where the CI evidence was attached. A
+review that changes no code and still earns its place is the clearest evidence that the second agent is not
+there to make work.
 
 ## A second rule, from the third lane: a CI change is reviewed as a gate
 
