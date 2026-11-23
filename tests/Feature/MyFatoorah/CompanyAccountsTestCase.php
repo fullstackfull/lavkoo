@@ -3,11 +3,16 @@
 namespace Tests\Feature\MyFatoorah;
 
 use App\Models\LegalEntity;
+use App\Models\MyFatoorahPaymentAttempt;
 use App\Models\PaymentGatewayAccount;
+use App\Models\PaymentRequest;
 use App\Services\MyFatoorah\GatewayConfigRepository;
+use App\Services\MyFatoorah\PaymentInitiationService;
 use App\Services\Payments\GatewayAccountRegistry;
 use App\Services\Payments\GatewayAccountSecrets;
+use App\Services\Payments\PaymentAccountBinding;
 use App\Services\Storefront\LegalEntityRegistry;
+use App\Services\Storefront\StorefrontResolver;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -97,5 +102,56 @@ abstract class CompanyAccountsTestCase extends MyFatoorahTestCase
         app(GatewayAccountRegistry::class)->flush();
 
         return $account->refresh();
+    }
+
+    /**
+     * A MyFatoorah attempt whose payment is stamped with THIS account, whatever gateway the account is registered for.
+     *
+     * Both halves written by production: the stamp by App\Services\Payments\PaymentAccountBinding, the attempt by the real initiation service.
+     */
+    protected function anAttemptStampedWith(PaymentGatewayAccount $account): MyFatoorahPaymentAttempt
+    {
+        $payment = $this->makePaymentRequest([
+            'additional_data' => $this->stampedForTheMarketOf($account, gateway: (string) $account->gateway),
+        ]);
+        app(PaymentInitiationService::class)->start(PaymentRequest::find($payment));
+
+        return MyFatoorahPaymentAttempt::query()->where('payment_request_id', $payment)->firstOrFail();
+    }
+
+    /**
+     * The additional data a payment of this account's market carries, written by the production writer inside that market's storefront.
+     *
+     * App\Services\Payments\PaymentAccountBinding is the same writer every gateway's payment goes through (App\Traits\Payment::generate_link calls
+     * it), so the stamp these tests rest on is the one production writes and not a shape invented here.
+     */
+    protected function stampedForTheMarketOf(PaymentGatewayAccount $account, string $gateway = GatewayConfigRepository::KEY): string
+    {
+        $stamped = $this->theProductionWriterRunFor($account, gateway: $gateway);
+
+        $this->assertSame(
+            (int) $account->id,
+            app(PaymentAccountBinding::class)->of(payment: ['additional_data' => $stamped])?->accountId,
+            'the stamp the production writer produced names the account this payment is meant to belong to',
+        );
+
+        return $stamped;
+    }
+
+    /**
+     * The same production writer run, with nothing assumed about whether it wrote a stamp.
+     *
+     * Separate from `stampedForTheMarketOf()` because a configuration in which the writer records NOTHING is a state worth measuring too — a gateway
+     * the owner has not listed, a market with no account — and a helper that asserts a stamp cannot be used to measure its absence.
+     */
+    protected function theProductionWriterRunFor(PaymentGatewayAccount $account, string $gateway = GatewayConfigRepository::KEY): string
+    {
+        return (string) json_encode(StorefrontResolver::fromConfig()
+            ->context(explicitChoice: (string) $account->storefront_country)
+            ->serve(static fn (): array => app(PaymentAccountBinding::class)->record(
+                additionalData: ['customer_id' => 7, 'order_note' => null],
+                gateway: $gateway,
+                currencyCode: 'SAR',
+            )));
     }
 }

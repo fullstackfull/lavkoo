@@ -11,7 +11,6 @@ use App\Services\MyFatoorah\PaymentInitiationService;
 use App\Services\Payments\GatewayAccountDirectory;
 use App\Services\Payments\GatewayAccountRegistry;
 use App\Services\Payments\PaymentAccountBinding;
-use App\Services\Storefront\StorefrontResolver;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -228,6 +227,153 @@ class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends CompanyAccountsTestCas
         $this->assertSame(0, $this->successHookCalls());
         $this->assertSame(0, MyFatoorahWebhookEvent::count(), 'and records nothing');
         $this->assertEquals($before, $this->attemptRow(), 'and writes no column of the attempt');
+    }
+
+    /**
+     * The address the directory NAMES and the address the route SERVES are the same address, for a gateway the owner has not listed.
+     *
+     * The route already refuses such an account outright (the test above). The directory used to name one all the same: it asked which gateway the
+     * account belongs to and not whether that gateway is on the owner's list, so an operator's screen showed an address at which the account is told
+     * nothing, and GCC-21 would have recorded that address onto a payment as the address its confirmation is expected at. Both halves are measured
+     * here for the SAME account, in both states of the list, so the claim is that the two agree and not merely that each answers something.
+     */
+    public function test_the_directory_names_an_address_only_where_the_route_serves_one(): void
+    {
+        $payload = $this->webhookPayload($this->attempt->external_identifier);
+        $signature = $this->signatureFor($payload, self::KUWAIT_WEBHOOK_SECRET);
+        $this->fakePaid();
+
+        $this->assertNotNull(
+            app(GatewayAccountDirectory::class)->webhookUrlOf(account: $this->kuwait),
+            'while the gateway is on the list the directory names this account an address',
+        );
+        $this->deliverTo($this->kuwait, $payload, $signature)->assertOk();
+
+        config(['gcc.storefronts.payment_accounts.gateways' => $this->shippedGatewayList]);
+        app(GatewayAccountRegistry::class)->flush();
+
+        $this->assertNotContains(GatewayConfigRepository::KEY, $this->shippedGatewayList, 'the premise of the second half is the shipped list');
+        $this->assertNull(
+            app(GatewayAccountDirectory::class)->webhookUrlOf(account: $this->kuwait->refresh()),
+            'and off the list it names none, which is what the route answers',
+        );
+        $this->deliverTo($this->kuwait, $payload, $signature)->assertStatus(401);
+    }
+
+    /**
+     * The fourth condition, and the one the earlier version of this method did not apply: a DEACTIVATED account is named no address.
+     *
+     * `GatewayAccountRegistry::byWebhookToken()` resolves an active row and no other, so the route answers 401 at the address a deactivated account's
+     * token spells. The directory went on naming that address, and the operator row went on carrying it, so the one screen that tells an operator
+     * where this account is reached said it was reached somewhere it is not. Measured for the SAME account in both states of its own flag, both
+     * halves each time, so the claim is that the two agree.
+     *
+     * It is not only a screen. GCC-21 reads this method to decide whether the address a payment recorded is still an address that payment can be
+     * confirmed at, so an address named for an account that is told nothing would be read as live. Found by reviewer B of the stage-C round.
+     */
+    public function test_the_directory_names_no_address_for_a_deactivated_account(): void
+    {
+        $payload = $this->webhookPayload($this->attempt->external_identifier);
+        $signature = $this->signatureFor($payload, self::KUWAIT_WEBHOOK_SECRET);
+        $this->fakePaid();
+
+        $this->assertNotNull(app(GatewayAccountDirectory::class)->webhookUrlOf(account: $this->kuwait), 'while it is active it is named an address');
+        $this->assertNotNull(app(GatewayAccountRegistry::class)->byWebhookToken(token: (string) $this->kuwait->webhook_path_token), 'and the route resolves it');
+
+        PaymentGatewayAccount::query()->whereKey($this->kuwait->id)->update(['status' => false]);
+        app(GatewayAccountRegistry::class)->flush();
+
+        $this->assertNull(
+            app(GatewayAccountDirectory::class)->webhookUrlOf(account: $this->kuwait->refresh()),
+            'deactivated, it is named none -- which is what the route answers',
+        );
+        $this->assertNull(app(GatewayAccountRegistry::class)->byWebhookToken(token: (string) $this->kuwait->webhook_path_token));
+        $this->deliverTo($this->kuwait, $payload, $signature)->assertStatus(401);
+        $this->assertSame([], $this->paidPayments(), 'nothing is delivered there, so nothing is named there');
+    }
+
+    /** And the operator row carries what the method answers, so the screen and the route agree for a deactivated account too. */
+    public function test_the_operator_row_carries_no_address_for_a_deactivated_account(): void
+    {
+        PaymentGatewayAccount::query()->whereKey($this->kuwait->id)->update(['status' => false]);
+        app(GatewayAccountRegistry::class)->flush();
+
+        $row = collect(app(GatewayAccountDirectory::class)->rows(gateway: GatewayConfigRepository::KEY))
+            ->firstWhere('id', (int) $this->kuwait->id);
+
+        $this->assertNotNull($row, 'the row is still listed, because an operator has to be able to see and reactivate it');
+        $this->assertFalse($row['active']);
+        $this->assertNull($row['webhook_url'], 'and it carries no address');
+    }
+
+    /**
+     * For an account of the gateway the SHIPPED list holds, the answer was null before this condition was added and is null after it.
+     *
+     * The exact scope of what that one line moved, measured rather than described: the gateway on the account already decided this case, so the owner's
+     * list added to it changes nothing here. What the list changes is the case above — an account of the gateway that is OFF the list — and that
+     * account is the one the route refuses. Both halves together are the whole of the difference.
+     */
+    public function test_an_account_of_the_shipped_gateway_was_named_no_address_before_this_condition_and_is_named_none_now(): void
+    {
+        $paymob = $this->anAccountFor(country: 'QA', webhookSecret: 'qatar-paymob-webhook-secret', token: 'qatar-paymob-token', gateway: 'paymob_accept');
+
+        $this->assertContains('paymob_accept', $this->shippedGatewayList, 'the premise is that this gateway is the one that ships');
+        $this->assertNull(
+            app(GatewayAccountDirectory::class)->webhookUrlOf(account: $paymob),
+            'on the list and served by another address: the gateway on the account decides it, as it did before',
+        );
+
+        config(['gcc.storefronts.payment_accounts.gateways' => $this->shippedGatewayList]);
+        app(GatewayAccountRegistry::class)->flush();
+
+        $this->assertNull(app(GatewayAccountDirectory::class)->webhookUrlOf(account: $paymob->refresh()), 'and under the shipped list, still none');
+    }
+
+    /**
+     * NEITHER OF THE TWO CONDITIONS THIS STAGE ADDED to this method is behind the stage's own switch, so what each one moves is measured here.
+     *
+     * The switch governs which address CONFIRMS a payment; this method answers which address an account is NAMED at, and a payment reads that answer
+     * when it starts. Reviewer B of the stage-C round found that the body's "reversible by flipping one setting" did not hold of these two lines, and
+     * the body now says so. What is left is to measure the scope, which is this: under the gateway list `config/gcc.php` SHIPS, both conditions move
+     * nothing at all, active or deactivated, because the owner's list already answers no for every account of this gateway.
+     *
+     * So an operator who turns per-company accounts on with the shipped list sees exactly what the base branch shows them. The answers change only
+     * once the owner puts this gateway on the list, which is the change that also moves its api_key onto the account.
+     */
+    public function test_under_the_shipped_gateway_list_neither_new_condition_moves_an_answer(): void
+    {
+        config(['gcc.storefronts.payment_accounts.gateways' => $this->shippedGatewayList]);
+        app(GatewayAccountRegistry::class)->flush();
+
+        $this->assertNotContains(GatewayConfigRepository::KEY, $this->shippedGatewayList, 'the premise is the shipped list');
+        $this->assertNull(app(GatewayAccountDirectory::class)->webhookUrlOf(account: $this->kuwait), 'active: none, as on the base branch');
+
+        PaymentGatewayAccount::query()->whereKey($this->kuwait->id)->update(['status' => false]);
+        app(GatewayAccountRegistry::class)->flush();
+
+        $this->assertNull(
+            app(GatewayAccountDirectory::class)->webhookUrlOf(account: $this->kuwait->refresh()),
+            'deactivated: none -- so the status condition moves nothing under the shipped list either',
+        );
+        $named = array_filter(array_column(app(GatewayAccountDirectory::class)->rows(gateway: GatewayConfigRepository::KEY), 'webhook_url'));
+
+        $this->assertSame([], $named, 'and no operator row of this gateway carries an address under the shipped list');
+    }
+
+    /** The row an operator is shown carries the same answer, so a screen cannot print an address the route refuses. */
+    public function test_the_operator_row_carries_no_address_for_a_gateway_the_owner_has_not_listed(): void
+    {
+        config(['gcc.storefronts.payment_accounts.gateways' => $this->shippedGatewayList]);
+        app(GatewayAccountRegistry::class)->flush();
+
+        $rows = app(GatewayAccountDirectory::class)->rows();
+
+        $this->assertNotSame([], $rows, 'the accounts are still listed');
+        $this->assertSame(
+            [],
+            array_values(array_filter($rows, static fn (array $row): bool => $row['webhook_url'] !== null)),
+            'and not one of them is shown an address',
+        );
     }
 
     /**
@@ -566,46 +712,6 @@ class CompanyWebhookTakesOnlyItsOwnDeliveriesTest extends CompanyAccountsTestCas
             '*/v3/invoices/*' => Http::response(['IsSuccess' => true, 'Data' => ['Transaction' => ['PaymentId' => 'PAY-1', 'Status' => 'SUCCESS']]]),
             '*/v3/payments/*' => Http::response($this->paymentDetails(($attempt ?? $this->attempt)->external_identifier, amount: $amount)),
         ]);
-    }
-
-    /**
-     * A MyFatoorah attempt whose payment is stamped with THIS account, whatever gateway the account is registered for.
-     *
-     * Both halves written by production: the stamp by App\Services\Payments\PaymentAccountBinding, the attempt by the real initiation service.
-     */
-    private function anAttemptStampedWith(PaymentGatewayAccount $account): MyFatoorahPaymentAttempt
-    {
-        $payment = $this->makePaymentRequest([
-            'additional_data' => $this->stampedForTheMarketOf($account, gateway: (string) $account->gateway),
-        ]);
-        app(PaymentInitiationService::class)->start(PaymentRequest::find($payment));
-
-        return MyFatoorahPaymentAttempt::query()->where('payment_request_id', $payment)->firstOrFail();
-    }
-
-    /**
-     * The additional data a payment of this account's market carries, written by the production writer inside that market's storefront.
-     *
-     * App\Services\Payments\PaymentAccountBinding is the same writer every gateway's payment goes through (App\Traits\Payment::generate_link calls
-     * it), so the stamp these tests rest on is the one production writes and not a shape invented here.
-     */
-    private function stampedForTheMarketOf(PaymentGatewayAccount $account, string $gateway = GatewayConfigRepository::KEY): string
-    {
-        $stamped = StorefrontResolver::fromConfig()
-            ->context(explicitChoice: (string) $account->storefront_country)
-            ->serve(static fn (): array => app(PaymentAccountBinding::class)->record(
-                additionalData: ['customer_id' => 7, 'order_note' => null],
-                gateway: $gateway,
-                currencyCode: 'SAR',
-            ));
-
-        $this->assertSame(
-            (int) $account->id,
-            app(PaymentAccountBinding::class)->of(payment: ['additional_data' => $stamped])?->accountId,
-            'the stamp the production writer produced names the account this payment is meant to belong to',
-        );
-
-        return (string) json_encode($stamped);
     }
 
     /** @return list<string> the payments marked paid, so a test can say WHOSE payment was acted on and not only how many were */

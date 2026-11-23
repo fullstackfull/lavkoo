@@ -24,6 +24,11 @@ use Illuminate\Container\Attributes\Singleton;
  * Kuwait account is started, verified and settled through the Kuwait account after that account has been edited, after it has been disabled, and after
  * another market's account has become the only active one.
  *
+ * The stamp also records the ADDRESS this payment's confirmation is expected at (GCC-21): the company account's own notification address, or none,
+ * which is read as the platform-wide address. It is the address and not the account id, because an account row can be deleted and `accountOf()` then
+ * answers null — see PaymentTransactionRecord. Initiation sends that address to the gateway, and a gateway's platform-wide address reads it through
+ * App\Services\Payments\ConfirmationAddresses to decide whether the payment in front of it is one it is expected to confirm.
+ *
  * The gateway refund path does NOT read this yet (D2-16): it still goes to the one platform settings row, so a refund of a company's payment is not
  * drawn on that company's account. This is the single reader of the stamp that is missing, and it is named here rather than implied.
  */
@@ -35,6 +40,7 @@ final class PaymentAccountBinding
 
     public function __construct(
         private readonly GatewayAccountRegistry $registry,
+        private readonly GatewayAccountDirectory $addresses,
         private readonly LegalEntityRegistry $companies,
         private readonly StorefrontCurrency $currencies,
         private readonly StoreCurrencyRateSource $rates,
@@ -102,6 +108,69 @@ final class PaymentAccountBinding
         return $stamped !== null && $stamped === (int) $account->id;
     }
 
+    /**
+     * The address this payment's confirmation is expected at (GCC-21): the one it RECORDED when it started, or the platform-wide address given here
+     * for a payment that recorded none.
+     *
+     * Read as stored and never re-derived, which is the whole point: an account edited, disabled or deleted since the payment started does not move the
+     * address the payment began under. A payment with no stamp — every payment placed today, every legacy payment and every Saudi payment — records
+     * none and so expects the platform address, which is where its confirmation actually goes.
+     *
+     * The platform address is the caller's, because it is the gateway's own: each gateway has its own public notification address, or none at all, and
+     * this class knows about accounts and not about gateways' addresses.
+     */
+    public function confirmationAddressOf(PaymentRequest|array|null $payment, string $platformAddress): string
+    {
+        return $this->of(payment: $payment)?->confirmationAddress ?? $platformAddress;
+    }
+
+    /**
+     * Does this payment positively expect its confirmation at an address OTHER than this one (GCC-21)?
+     *
+     * Keyed on a POSITIVE fact — a RECORDED address, and one that is not the address asking — and never on the absence of a record. That direction is
+     * the whole care of this method. A payment stamped before the address was ever recorded has nothing stored, and for that payment "the platform
+     * address" is not a guess to be refused but the correct answer: it is where its confirmation was asked for and where it will arrive. Reading an
+     * absence as "not the platform's" would strand it.
+     *
+     * So three stored shapes answer FALSE here, and each is a payment whose confirmation really is expected at the platform address:
+     *
+     *   NO STAMP AT ALL — every payment placed before any of this existed, every payment while accounts are off, and every payment of a market with no
+     *   account of its own, the Saudi ones included.
+     *
+     *   A STAMP WITH NO ADDRESS ON IT — a payment taken through a company account of a gateway that is notified at no address of its own, which is
+     *   every payment of the one gateway the owner's shipped list holds. It belongs to a company account and still expects the platform address,
+     *   because its gateway has no other to be told about. `toStored()` leaves the key out rather than storing a null.
+     *
+     *   A STAMP WHOSE ADDRESS IS NOT USABLE TEXT — an empty string, a stored null, a list or a boolean under the key, which
+     *   `PaymentTransactionRecord` reads as no address. `additional_data` is a JSON column this application is not the only writer of, so the shape is
+     *   reachable without this class producing it, and it means the same thing: no address was recorded, so the platform address is what the payment
+     *   expects. A stored NUMBER is NOT one of these — see below.
+     *
+     *   The stamp of such a payment may still name a LIVE company account by id, and reviewer A of the stage-C round was right that saying obligation
+     *   2 "holds" for it would be wrong: the payment demonstrably belongs to a company gateway account and is confirmed at the platform address all
+     *   the same. It is confirmed there BY DESIGN, as a fallback with a stated reason — there is no readable address to hand it to — and not because
+     *   the question was not asked. App\Services\Payments\ConfirmationAddresses makes the same choice for a recorded address that is readable but no
+     *   longer live, and for the same reason.
+     *
+     * A stored NUMBER is the one shape that goes the other way: `PaymentTransactionRecord::text()` casts an int or a float to a string, which the
+     * exchange rate it shares that helper with needs, so a stored `0` reads as the address "0" and this answers TRUE for a platform address. Nothing
+     * writes it, and it costs nothing, because answering TRUE here is not the end of the question: "0" is not the address the payment's account is
+     * named at, so App\Services\Payments\ConfirmationAddresses finds no live address to hand the payment to and the platform address confirms it as
+     * the address of last resort. Its own company address confirms it too, keying on the account. Pinned in both directions by a test rather than left
+     * to be worked out.
+     *
+     * The comparison is the address text as recorded against the address text now. It cannot turn a company address into the platform one — a recorded
+     * value only ever came from a per-account route and the platform addresses are routes of their own — so a change of host or scheme can only make a
+     * company-bound payment answer TRUE, which is the safe direction. The caller gives the address because each gateway has a public address of its
+     * own, or none at all, and this class knows accounts and not gateways' addresses.
+     */
+    public function expectsAnAddressOtherThan(PaymentRequest|array|null $payment, string $address): bool
+    {
+        $recorded = $this->of(payment: $payment)?->confirmationAddress;
+
+        return $recorded !== null && $recorded !== $address;
+    }
+
     /** The record a payment of this market through this account carries. */
     private function recordFor(PaymentGatewayAccount $account, string $market, string $currencyCode): PaymentTransactionRecord
     {
@@ -117,6 +186,7 @@ final class PaymentAccountBinding
             currency: strtoupper($currencyCode),
             exchangeRate: $this->rateInForce(currencyCode: $currencyCode, market: $market),
             recordedAt: now()->toIso8601String(),
+            confirmationAddress: $this->addresses->webhookUrlOf(account: $account),
         );
     }
 

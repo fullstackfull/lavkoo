@@ -3,6 +3,7 @@
 namespace Tests\Feature\Payments;
 
 use App\Models\PaymentGatewayAccount;
+use App\Services\MyFatoorah\GatewayConfigRepository;
 use App\Services\Payments\GatewayAccountDirectory;
 use App\Services\Payments\GatewayAccountRegistry;
 use App\Services\Payments\GatewayAccountSecrets;
@@ -175,10 +176,17 @@ class CompanyGatewaySecretsStayApartTest extends TestCase
         $this->assertTrue($listed['has_webhook_secret'], 'and whether the signing secret is there');
     }
 
-    /** The operator's own listing says what is held and never what it is. */
+    /**
+     * The operator's own listing says what is held and never what it is — and shows an address only for an account that has one.
+     *
+     * Two accounts, because the webhook column is not the same answer for both. The per-account address is served for one gateway's accounts and
+     * refuses an account of any other, so a Paymob account is notified at no address of its own and the listing must not print one for it: an operator
+     * shown a URL that answers 401 to every delivery would paste it into a portal and wait for notifications that cannot arrive.
+     */
     public function test_the_console_listing_shows_the_names_and_never_the_values(): void
     {
-        $this->anAccountFor(country: 'KW', secrets: ['secret_key' => self::LIVE_KEY, 'webhook_secret' => 'the-webhook-secret-of-kuwait'], environment: 'live', webhookToken: 'kuwait-token');
+        $this->anAccountFor(country: 'KW', secrets: ['secret_key' => self::LIVE_KEY, 'webhook_secret' => 'the-webhook-secret-of-kuwait'], environment: 'live', webhookToken: 'kuwait-paymob-token');
+        $this->anAccountFor(country: 'KW', secrets: ['api_key' => 'kuwait-api-key'], gateway: GatewayConfigRepository::KEY, environment: 'live', webhookToken: 'kuwait-notified-token');
 
         $this->assertSame(0, Artisan::call('gcc:payment-account:list'));
 
@@ -186,7 +194,8 @@ class CompanyGatewaySecretsStayApartTest extends TestCase
 
         $this->assertStringContainsString('secret_key', $printed, 'which credentials it holds, by name');
         $this->assertStringContainsString('saved', $printed, 'and whether the signing secret is there');
-        $this->assertStringContainsString('kuwait-token', $printed, 'and its own webhook address');
+        $this->assertStringContainsString('kuwait-notified-token', $printed, 'the address of the account that is notified at one');
+        $this->assertStringNotContainsString('kuwait-paymob-token', $printed, 'and no address for the account that is notified at none');
         $this->assertStringNotContainsString(self::LIVE_KEY, $printed);
         $this->assertStringNotContainsString('the-webhook-secret-of-kuwait', $printed);
     }

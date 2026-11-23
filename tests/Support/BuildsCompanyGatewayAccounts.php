@@ -29,6 +29,16 @@ trait BuildsCompanyGatewayAccounts
     /** The gateway these accounts are for, and the key its settings and its payments are stored under. */
     protected const PAYMOB = 'paymob_accept';
 
+    /**
+     * The gateways config/gcc.php SHIPS as configurable per company, captured before turnCompanyAccountsOn() widens the list.
+     *
+     * A server on the day the master flag is turned on is in exactly this configuration, so a test that wants to measure the shipped behaviour sets the
+     * list back to this rather than to a list of its own.
+     *
+     * @var list<string>
+     */
+    protected array $shippedGatewayList = [];
+
     protected function installTheCompanyAndAccountTables(): void
     {
         Schema::dropIfExists('payment_gateway_accounts');
@@ -51,6 +61,8 @@ trait BuildsCompanyGatewayAccounts
     /** Six markets served, companies registered, and per-company gateway accounts switched on. */
     protected function turnCompanyAccountsOn(): void
     {
+        $this->shippedGatewayList = array_values((array) config('gcc.storefronts.payment_accounts.gateways'));
+
         config([
             'gcc.storefronts.enabled' => true,
             'gcc.storefronts.legal_entities.enabled' => true,

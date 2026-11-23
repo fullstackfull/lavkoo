@@ -173,6 +173,26 @@ return [
             // A customer's return from a gateway proves nothing by itself. Off by default: the return is read exactly as it is today. When it is on, a
             // return settles only after the server has confirmed the payment with the gateway itself, and a return it cannot confirm settles nothing.
             'confirm_returns' => filter_var(env('GCC_PAYMENT_CONFIRM_RETURNS', false), FILTER_VALIDATE_BOOLEAN),
+            // A payment expects ONE confirmation address, and that address is the one it recorded when it started (GCC-21). Off by default: every
+            // address reads a confirmation exactly as it does today. When it is on, the platform-wide address confirms a payment only where the payment
+            // expects it — so a payment that recorded a company account's own address is confirmed there and not at the public one.
+            //
+            // A payment that recorded NO address expects the platform one, and that is not a gap in the record: it is what every payment placed before
+            // this existed, every payment of a market with no account, and every payment of a gateway that is notified at no address of its own
+            // positively expects. Those keep being confirmed at the platform address with this on, which is the half of the owner's decision that keeps
+            // money from being stranded.
+            //
+            // Deliberately separate from `enabled`, and inert without it: the address a payment expects is read from the record the binding writes, so
+            // this must not be turned on before that binding has been writing. With `enabled` off no new payment records an address AND the per-account
+            // addresses resolve nothing, so enforcing here would leave an already-recorded payment with no live address at all.
+            //
+            // WHAT THIS SWITCH DOES AND DOES NOT REVERSE. It governs which address CONFIRMS a payment, and turning it off restores exactly today's
+            // answer on every confirmation path -- measured, including the queries issued. It does NOT reverse the two conditions GCC-21 added to
+            // App\Services\Payments\GatewayAccountDirectory::webhookUrlOf(), which answers which address an account is NAMED at: those apply whatever
+            // this switch says, because an address that is named where nothing is delivered would be recorded onto a payment as the address its
+            // confirmation is expected at. Under the gateway list above they move no answer at all; they move one only once this gateway joins it.
+            // Reviewer B of the stage-C round found that "reversible by flipping one setting" did not hold of those two lines.
+            'one_confirmation_address' => filter_var(env('GCC_PAYMENT_ONE_CONFIRMATION_ADDRESS', false), FILTER_VALIDATE_BOOLEAN),
             // Which class asks each gateway, server to server, what became of a transaction. A gateway with no entry cannot be asked, so a return of
             // it is never confirmed and, while `confirm_returns` is on, never settles.
             'inquiries' => [
