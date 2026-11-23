@@ -22,6 +22,10 @@ class ApiSellerAddressTest extends ApiAddressTestCase
 {
     private const SELLER_ID = 5;
 
+    private const POS_PRODUCT_ID = 1;
+
+    private const POS_PRICE = 100;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -238,9 +242,43 @@ class ApiSellerAddressTest extends ApiAddressTestCase
     }
 
     /** @return array<string, mixed> */
+    /**
+     * A till sale of one line, for the address the test is about.
+     *
+     * The line is not decoration. This used to post an EMPTY `modified_cart`, and the till wrote an order anyway: the line block
+     * was skipped and a row was stored with no lines, order_amount 0 and paid_amount whatever was posted. The till now refuses a
+     * sale with no lines, so a test whose subject is the address has to ring up something real, and the money has to add up or the
+     * cash guard refuses it before any address is read.
+     */
     private function posSale(array $overrides = []): array
     {
-        return $overrides + ['customer_id' => 5, 'cart' => [], 'modified_cart' => [], 'fulfillment' => 'delivery', 'payment_method' => 'cash', 'paid_amount' => 0];
+        $this->shelfProductOfTheSeller();
+
+        return $overrides + [
+            'customer_id' => 5,
+            'cart' => [],
+            'modified_cart' => [[
+                'id' => self::POS_PRODUCT_ID, 'variant' => null, 'quantity' => 1, 'price' => self::POS_PRICE,
+                'discounted_price' => self::POS_PRICE, 'discount' => 0, 'applied_tax_amount' => 0, 'coupon_discount' => 0,
+                'extra_discount' => 0, 'variation' => [],
+            ]],
+            'fulfillment' => 'delivery',
+            'payment_method' => 'cash',
+            'paid_amount' => self::POS_PRICE,
+        ];
+    }
+
+    /** The one product the till sells here, owned by this seller so Product::ofSeller resolves it. */
+    private function shelfProductOfTheSeller(): void
+    {
+        if (DB::table('products')->where('id', self::POS_PRODUCT_ID)->exists()) {
+            return;
+        }
+
+        DB::table('products')->insert([
+            'id' => self::POS_PRODUCT_ID, 'name' => 'Paracetamol', 'added_by' => 'seller', 'user_id' => self::SELLER_ID,
+            'product_type' => 'physical', 'unit_price' => self::POS_PRICE, 'current_stock' => 10,
+        ]);
     }
 
     private function placePosOrder(array $input)
