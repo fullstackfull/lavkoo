@@ -5194,6 +5194,94 @@ def load_all():
     return data
 
 
+# ---------------------------------------------------------------------------
+# E-11 criterion 6 of 6, the last one open on the requirement.
+#
+# The lane ran the OLD four-agent shape (it is a money lane and was already in
+# flight when the protocol changed). Its implementer proposed MET; BOTH reviewers
+# ruled CODED; and the fix round LOWERED its own branch to CODED and agreed with
+# them. It then said, unprompted, that a reviewer reading "charge" as the figure
+# taken and recorded at order level in single-currency mode could reasonably rule
+# MET on its measurements -- and refused to claim it. That is the ruling I am
+# recording, because the criterion says "in whole cents" and in multi-currency
+# mode the stored figure is not one.
+#
+# Two defects outside this criterion were found and fixed on the way, and both
+# are worth the record:
+#   * a wallet till sale costing zero or less was CREDITED rather than refused;
+#   * order_taxes.taxable_id / taxable_type were written as '' rather than null,
+#     so A TAXED SALE CANNOT BE WRITTEN AT ALL ON A STRICT SERVER. The lane found
+#     this by reading its own CI -- its head went red on the Strict-mode job where
+#     the base is green, six failures, all three VAT tests on both tills -- and
+#     fixed it in the shared order writer, which touches every order writer on the
+#     platform. The Strict-mode job is SUCCESS at the final head, 4154 tests and
+#     35979 assertions. No criterion is claimed for it here.
+#
+# What I checked myself:
+#   * CI run 45089049325 at the final head d94390f3: 23 jobs, 18 SUCCESS, 5
+#     FAILURE -- Address tests on MySQL 8 and on MariaDB 11.4.2, both SQLite
+#     whole-suite jobs, and the by-design deployment overlay;
+#   * the BASE branch's own run 45033640756 at 60f5a605: 23 jobs, 18 SUCCESS, 5
+#     FAILURE, and THE SAME FIVE JOB NAMES. So the head adds no red.
+#   * The four Address failures are ApiSellerAddressTest's and belong to the base
+#     branch line, not to this work. They were NOT in the known pre-existing red
+#     list, and they are now tracked as their own task: that base cannot land
+#     while they are red.
+# ---------------------------------------------------------------------------
+
+_E11C6 = (
+    'CODED, not MET. The implementer proposed MET, BOTH independent reviewers ruled CODED, and the fix round '
+    'LOWERED its own branch to CODED and agreed with them -- then added, unprompted, that a reviewer reading '
+    '"charge" as the figure taken and recorded at ORDER level in single-currency mode could reasonably rule MET '
+    'on its measurements, and refused to claim it. PROVED: the admin and the vendor till now charge the total '
+    'THE SERVER works out, not the figure the browser posted, and "charge" covers what the till COLLECTS as well '
+    'as what it records -- the order amount, the initial order amount, the wallet-balance comparison and the '
+    'wallet debit all come from one place (a new PosSaleTotal service over the server\'s own cart, priced by the '
+    'existing per-line calculation, in whole minor units with per-line AND per-cart magnitude bounds). A sale '
+    'posting LESS than it costs is not charged the lower figure; a sale posting MORE is not charged the higher '
+    'one; a float-error cart collects what it charges; and a wallet sale costing zero or less is REFUSED rather '
+    'than credited, which was a second money defect this lane found and fixed. Proved on FIVE readings over four '
+    'engines: SQLite in memory and MariaDB 10.11.14 locally, MySQL 8 and MariaDB 11.4.2 in CI\'s existing till '
+    'group, and MariaDB 11.4.2 in STRICT mode -- 74 tests / 266 assertions in the lane\'s own file, 133 / 505 in '
+    'the enclosing till group. NOT PROVED, and this is the whole reason for CODED: "IN WHOLE CENTS". In '
+    'multi-currency mode the figure that lands in the order amount, the paid amount, the wallet transaction and '
+    'the customer\'s balance is the BASE-CURRENCY EQUIVALENT -- 30.448 at a 3.75 rate -- which is not a whole '
+    'number of minor units; and the line-level money (the order line\'s tax and the order-tax rows) is not on '
+    'the same integer grid as the total. Closing it needs either an owner decision that removes the '
+    'base-currency round trip so the STORED figure is integral too, or a rewording that claims only '
+    'single-currency mode, plus the line-level money brought onto the same grid. All three are the owner\'s to '
+    'decide. SEPARATELY, and claimed for no criterion: the lane found by reading its OWN CI that its head went '
+    'red on the strict-mode job where the base is green -- six failures, all three VAT tests on both tills -- '
+    'because the order-tax rows were written with empty strings where a strict server requires null, so A TAXED '
+    'SALE COULD NOT BE WRITTEN AT ALL ON A STRICT SERVER. It fixed that in the shared order writer, which every '
+    'order writer on the platform goes through, and the strict-mode job is SUCCESS at the final head (4154 tests '
+    '/ 35979 assertions). Branch gcc/p1-till-charges-the-server-total head '
+    'd94390f3ad94d288448894836389b18f90d016ea, PR 168 (draft, based on gcc/p1-pos-refuses-over-quantity, NOT '
+    'main). CI run 45089049325 at that head, read AFTER it finished: 23 jobs, 18 SUCCESS and 5 FAILURE -- and '
+    'the BASE branch\'s own run 45033640756 at 60f5a605 has 18 SUCCESS and 5 FAILURE with THE SAME FIVE JOB '
+    'NAMES (address tests on both engines, both SQLite whole-suite jobs, and the by-design deployment overlay), '
+    'so this head adds no red. I read both runs and compared their failing job names myself. The four address '
+    'failures belong to the BASE branch line, were not in the known pre-existing red list, and are tracked '
+    'separately: that base cannot land while they are red.'
+)
+
+_load_all_before_e11c6 = load_all
+
+
+def load_all():
+    data = _load_all_before_e11c6()
+    found = False
+    for unit in data:
+        for requirement in data[unit]['reqs']:
+            if requirement['id'] == 'E-11' and len(requirement['ac']) > 5:
+                requirement['ac'][5]['s'] = 'CODED'
+                requirement['ac'][5]['e'] = requirement['ac'][5]['e'] + ' // ' + _E11C6
+                found = True
+    if not found:
+        raise SystemExit('E-11 c6 block: the criterion was not found')
+    return data
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]

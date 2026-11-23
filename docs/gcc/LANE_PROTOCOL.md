@@ -106,6 +106,13 @@ record.
 | D2-V1 refusal | old, 4 agents | **130 min** | 1.54 M | 544 | **narrow scope** |
 | J-11 push per storefront | **new, 2 agents** | **106 min** | **0.67 M** | **236** | narrow scope |
 | seller K axis on one tree | **new, 2 agents** | **78 min** | **0.69 M** | **271** | narrow scope, 9 criteria |
+| E-11 till server total | old, 4 agents | **385 min** | **1.86 M** | **694** | money lane, in flight before the change |
+
+**The fifth old-shape lane is the most expensive of the six**, at 385 minutes and 1.86 M tokens for one
+criterion — and it did not overclaim: its implementer proposed MET, both reviewers ruled CODED, and its fix
+round lowered its own branch to CODED. The cost bought a real correction and two defects outside the criterion,
+one of them platform-wide. It is the clearest single contrast in the table: a four-agent money lane on a narrow
+scope still costs three to five times a two-agent lane on nine criteria.
 
 **Two separate effects, and they must not be confused.** D2-V1 ran the OLD four-agent shape
 and still took 130 minutes, because its scope was one mechanism and three callers. So most
