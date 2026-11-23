@@ -398,7 +398,6 @@ class POSController extends Controller
                 // Every product of the sale is locked here, in ascending id order, before a line is priced or taken and before the
                 // customer's wallet is touched. InventoryService::lockProductsForSale says why the order is the point.
                 app(InventoryService::class)->lockProductsForSale(productIds: collect($request['modified_cart'] ?? [])->pluck('id')->all());
-
                 if ($idempotencyKey !== null && !$this->claimIdempotencyKey(sellerId: $seller->id, key: $idempotencyKey)) {
                     throw new PosSaleReplayedException(orderId: (int) $this->placedOrderIdOf(sellerId: $seller->id, key: $idempotencyKey, lock: true));
                 }
@@ -571,7 +570,6 @@ class POSController extends Controller
             return $query->active();
         }])->withCount('reviews')->first();
     }
-
     /** The total of the seller app's lines in the store currency. The sale is charged this, not the amount the client says it was paid. */
     private static function cartsTotalAmount(array $modifiedCart): float
     {
@@ -615,6 +613,7 @@ class POSController extends Controller
     {
         DB::table('pos_sale_idempotency_keys')->where(['seller_id' => $sellerId, 'idempotency_key' => $key])->update(['order_id' => $orderId, 'updated_at' => now()]);
     }
+
     private function walletBalanceNeededResponse(): JsonResponse
     {
         return response()->json([
