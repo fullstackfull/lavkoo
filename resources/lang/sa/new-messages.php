@@ -4934,4 +4934,6 @@ ____________________________________________________on_search_engines_and_see_th
 	'totals_of_different_currencies_are_not_added' => 'لا تُجمع مبالغ بعملات مختلفة',
 	'probe_api_locale_one' => 'Probe api locale one',
 	'probe_api_locale_two' => 'Probe api locale two',
+	'upload_file_must_be_jpeg_jpg_png_gif_webp_format' => 'Upload file must be jpeg jpg png gif webp format',
+	'each_uploaded_image_may_not_be_greater_than_2_MB' => 'Each uploaded image may not be greater than 2 MB',
 ];

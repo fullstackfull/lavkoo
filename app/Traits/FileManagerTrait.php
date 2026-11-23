@@ -100,7 +100,13 @@ trait FileManagerTrait
      */
     public function update(string $dir, $oldImage, string $format, $image, string $fileType = 'image', ?string $disk = null): string
     {
-        $this->deleteUnsharedFiles(filePaths: [$dir . $oldImage]);
+        // Only when there IS an old file. With $oldImage null or empty -- a record that has never had one -- `$dir . $oldImage` is
+        // the DIRECTORY, `admin/` or `product/`, and Storage::exists() answers true for a directory, so the delete was being handed
+        // a folder where a file name belongs. Flysystem does not remove a directory through delete(), so no loss has been measured
+        // from this; it is a path that should never have been built, not a bug with a reproduction behind it.
+        if ($oldImage !== null && trim((string) $oldImage) !== '') {
+            $this->deleteUnsharedFiles(filePaths: [$dir . $oldImage]);
+        }
 
         return $fileType == 'file' ? $this->fileUpload($dir, $format, $image, $disk) : $this->upload($dir, $format, $image);
     }
