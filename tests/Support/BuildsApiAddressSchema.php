@@ -90,7 +90,10 @@ trait BuildsApiAddressSchema
             $table->string('order_status')->default('pending');
             $table->string('payment_status')->default('unpaid');
             $table->string('payment_method')->nullable();
-            $table->string('transaction_ref')->nullable();
+            // The width the installed database has. App\Services\Monitoring\Panels\PaymentsPanel pins it (REFERENCE_WIDTH = 30, with a finding flag
+            // for a gateway reference too long to be matched at all), and `payment_requests.transaction_id` is varchar(100): a wider fixture hides the
+            // one column every order-to-payment join runs on being narrower in production than the reference a gateway hands back.
+            $table->string('transaction_ref', 30)->nullable();
             $table->string('payment_by')->nullable();
             $table->text('payment_note')->nullable();
             $table->string('order_group_id')->nullable();

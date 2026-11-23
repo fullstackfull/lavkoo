@@ -206,6 +206,18 @@ return [
             ],
         ],
 
+        'refunds' => [
+            // Off by default: a refund gives back exactly what it gives back today — the stored amount of the refund converted at the rate of the day it
+            // is paid out. When it is on, a refund gives back its share of the payment the customer actually made, in the currency that payment was taken
+            // in, and the merchant account that took it is what the payout is worked out from (App\Services\Storefront\RefundPayout). The rate of the
+            // day is not an input while it is on.
+            //
+            // Which of the two a refund SHOULD give back after the rates or the settings have moved is the owner's decision and the finance review's, and
+            // it has not been taken; nor has whether credit notes exist, nor whether a refund may only ever return to the original merchant account. The
+            // mechanism is built and left off until it is. Read docs/gcc/ for D1-10 before turning it on.
+            'from_original_payment' => filter_var(env('GCC_REFUND_FROM_ORIGINAL_PAYMENT', false), FILTER_VALIDATE_BOOLEAN),
+        ],
+
         'legal' => [
             // Configuration, not a statement of what the law requires. A qualified reviewer confirms the list per country before release.
             'required_documents' => ['terms', 'privacy', 'refund', 'return', 'cancellation', 'shipping'],
