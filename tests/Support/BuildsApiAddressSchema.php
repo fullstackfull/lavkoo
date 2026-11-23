@@ -78,7 +78,11 @@ trait BuildsApiAddressSchema
         });
 
         $this->createTableOnce('orders', function (Blueprint $table) {
-            $table->unsignedBigInteger('id')->primary();
+            // Auto-increment, as production declares it. Without it a strict server refuses any insert that leaves the id out
+            // ("Field 'id' doesn't have a default value"), which is what it should do: an order writer that does not name an id
+            // relies on the column filling itself. A test that wants a particular id may still give one -- an auto-increment
+            // column takes an explicit value -- so every caller that inserts its own id is unaffected.
+            $table->id();
             $table->string('verification_code')->nullable();
             $table->unsignedBigInteger('customer_id')->nullable();
             $table->boolean('is_guest')->default(false);
