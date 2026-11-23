@@ -36,7 +36,6 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Modules\TaxModule\app\Models\OrderTax;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
-use App\Services\Customer\CustomerWalletWriter;
 use App\Utils\CustomerManager;
 
 trait OrderEditManager
@@ -852,24 +851,6 @@ trait OrderEditManager
         } catch (WalletDebitRefusedException) {
             return ['status' => false, 'message' => translate('Insufficient_Wallet_Balance')];
         }
-        CustomerWalletWriter::record(customerId: $customer['id'], amount: $order['edit_due_amount'], transactionType: 'due_payment_for_order', reference: 'reduce_wallet_amount', paymentData: ['payment_method' => 'wallet']);
-        AdminWallet::where(['admin_id' => 1])->increment('pending_amount', $order['edit_due_amount']);
-        OrderEditHistory::where('id', $order?->latestEditHistory?->id)->update([
-            'order_due_payment_status' => 'paid',
-            'order_due_payment_method' => 'wallet',
-        ]);
-
-        Order::where('id', $order['id'])->update([
-            'edit_due_amount' => 0,
-            'order_amount' => $order['order_amount'] + $order['edit_due_amount'],
-            'payment_status' => 'paid'
-        ]);
-
-
-        return [
-            'status' => true,
-            'message' => translate('Payment_Successful')
-        ];
     }
 
     public function payEditOrderDueByDigitalPayment(object|array $request, object|array $order, object|array|string $customer): array

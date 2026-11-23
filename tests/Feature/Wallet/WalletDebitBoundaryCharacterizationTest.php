@@ -198,12 +198,14 @@ class WalletDebitBoundaryCharacterizationTest extends TestCase
         DB::table('admins')->insert(['id' => 1, 'name' => 'Master Admin', 'email' => 'master@example.test', 'admin_role_id' => 1]);
     }
 
-    private function placePosWalletSale(User $customer, float $amount): TestResponse
+    private function placePosWalletSale(User $customer, float $amount, float $linePrice = 100): TestResponse
     {
         $this->createAdminTables();
         $cartId = 'saved-customer-' . $customer->id;
+        // `price` is a STORED amount: the till adds the sale up from its own cart and multiplies by the rate to reach the figure
+        // the sale is charged in, so this -- not the posted `amount` -- is what the balance is judged against.
         $cart = [[
-            'id' => 1, 'customerId' => $customer->id, 'customerOnHold' => false, 'quantity' => 1, 'price' => 100, 'name' => 'Paracetamol',
+            'id' => 1, 'customerId' => $customer->id, 'customerOnHold' => false, 'quantity' => 1, 'price' => $linePrice, 'name' => 'Paracetamol',
             'productType' => 'physical', 'image' => null, 'discount' => 0, 'variant' => '', 'variations' => [],
         ]];
 
@@ -279,7 +281,8 @@ class WalletDebitBoundaryCharacterizationTest extends TestCase
         $customer = $this->makeCustomer(overrides: ['wallet_balance' => 10]);
         $this->putPosProductOnTheShelf();
 
-        $this->placePosWalletSale(customer: $customer, amount: 37.5)->assertOk();
+        // 10 stored becomes 37.50 in the store's money at a rate of 3.75: the whole balance, exactly.
+        $this->placePosWalletSale(customer: $customer, amount: 37.5, linePrice: 10)->assertOk();
 
         $this->assertSame(['orders' => 1, 'order_details' => 1, 'wallet_transactions' => 1, 'wallet_balance' => 0.0], $this->ledgerOf(customerId: $customer->id));
         $this->assertEquals(10, DB::table('wallet_transactions')->value('debit'));

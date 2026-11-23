@@ -186,11 +186,17 @@ class WalletCurrencyConsistencyTest extends TestCase
         $refused = $this->makeCustomer(overrides: ['wallet_balance' => '10']);
         $paid = $this->makeCustomer(overrides: ['wallet_balance' => '10']);
 
-        $this->placePosWalletSale(customer: $refused, amount: $oneUnitOver)->assertOk()->assertExactJson([]);
+        // The till adds the sale up from its OWN cart (App\Services\Pos\PosSaleTotal), not from the posted `amount`, which decides
+        // none of the money any more. A cart line's price is a STORED amount, so the till multiplies it by the rate to reach the
+        // figure the sale is charged in and divides by the rate again to judge it against the wallet. The boundary therefore has
+        // to be set on the line, as the stored amount whose store-currency figure is the one this case is about.
+        $linePriceOf = static fn (string $storeAmount): float => (float) $storeAmount / (float) $rate;
+
+        $this->placePosWalletSale(customer: $refused, amount: $oneUnitOver, linePrice: $linePriceOf($oneUnitOver))->assertOk()->assertExactJson([]);
         $this->assertSame(['Need Sufficient Amount Balance'], $this->toastMessages());
         $this->assertSame(['orders' => 0, 'paid_orders' => 0, 'wallet_transactions' => 0, 'debited' => '0.000000', 'wallet_balance' => '10.000000'], $this->walletLedgerOf(customerId: $refused->id));
 
-        $this->placePosWalletSale(customer: $paid, amount: $exactAmount)->assertOk();
+        $this->placePosWalletSale(customer: $paid, amount: $exactAmount, linePrice: $linePriceOf($exactAmount))->assertOk();
         $this->assertSame(['orders' => 1, 'paid_orders' => 1, 'wallet_transactions' => 1, 'debited' => '10.000000', 'wallet_balance' => '0.000000'], $this->walletLedgerOf(customerId: $paid->id));
         $this->assertWalletIsNotNegative(customerId: $paid->id);
     }
@@ -243,11 +249,12 @@ class WalletCurrencyConsistencyTest extends TestCase
         DB::table('admins')->insert(['id' => 1, 'name' => 'Master Admin', 'email' => 'master@example.test', 'admin_role_id' => 1]);
     }
 
-    private function placePosWalletSale(User $customer, string $amount): TestResponse
+    private function placePosWalletSale(User $customer, string $amount, float $linePrice = 100): TestResponse
     {
         $cartId = 'saved-customer-' . $customer->id;
+        // `price` is a stored amount, which is what the till reads and converts; the posted `amount` is kept as the panel sends it.
         $cart = [[
-            'id' => 1, 'customerId' => $customer->id, 'customerOnHold' => false, 'quantity' => 1, 'price' => 100, 'name' => 'Paracetamol',
+            'id' => 1, 'customerId' => $customer->id, 'customerOnHold' => false, 'quantity' => 1, 'price' => $linePrice, 'name' => 'Paracetamol',
             'productType' => 'physical', 'image' => null, 'discount' => 0, 'variant' => '', 'variations' => [],
         ]];
 
