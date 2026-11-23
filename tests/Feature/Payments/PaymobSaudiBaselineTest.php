@@ -148,6 +148,28 @@ class PaymobSaudiBaselineTest extends TestCase
         return $payload;
     }
 
+    /**
+     * What the decision is FOR: the hook is a side effect on a customer's order, and this address is public.
+     *
+     * A stranger who guesses a payment id and posts an unsigned return must not be able to fire that payment's failure hook. The
+     * same payment's own, correctly signed return still runs its success hook, so the decision costs the genuine path nothing --
+     * which is the pair of facts worth holding together in one case.
+     */
+    public function test_a_stranger_cannot_fire_the_failure_hook_of_a_payment_but_its_real_return_still_settles_it(): void
+    {
+        $id = $this->makePaymentRequest();
+
+        $this->theReturnArrivesFor($id, ['id' => '987654', 'success' => 'true'])->assertRedirectContains('payment-fail');
+
+        $this->assertNotContains($id, $GLOBALS['myfatoorah_failure_calls'], 'an unsigned return fired the failure hook of a payment it cannot prove it owns');
+        $this->assertSame(0, (int) DB::table('payment_requests')->where('id', $id)->value('is_paid'), 'and it must not have settled it either');
+        $this->assertSame(0, myfatoorah_test_effect_count('order'));
+
+        $this->theReturnArrivesFor($id, $this->aSignedReturn())->assertRedirectContains('payment-success');
+
+        $this->assertSame(1, (int) DB::table('payment_requests')->where('id', $id)->value('is_paid'), 'the payment\'s own signed return still settles it');
+    }
+
     private function theReturnArrivesFor(string $paymentId, array $payload)
     {
         return $this->withSession(['payment_id' => $paymentId])->get('/payment/paymob/callback?' . http_build_query($payload));
@@ -242,7 +264,18 @@ class PaymobSaudiBaselineTest extends TestCase
         $this->assertSame([], $GLOBALS['myfatoorah_failure_calls'], 'the failure hook ran on a valid return');
     }
 
-    public function test_a_return_whose_signature_is_wrong_settles_nothing_and_runs_the_failure_hook(): void
+    /**
+     * Owner's decision: a return the shop cannot authenticate settles nothing AND runs no hook.
+     *
+     * The platform used to run the failure hook here, and this case was written for that. It is a change to Saudi behaviour, taken
+     * deliberately: this address is public, a payment id is guessable, and the hook is a side effect on somebody else's order. A
+     * request that cannot prove it is Paymob's decides NOTHING about a payment -- it does not settle it and it does not fail it
+     * either. The customer still gets the failure page, so nothing they see has changed.
+     *
+     * What this costs is that an order's hold is not released by an unauthentic return. It is released by the authentic one, by the
+     * server-to-server confirmation where that is on, and by the recovery that settles payments the return never reached.
+     */
+    public function test_a_return_whose_signature_is_wrong_settles_nothing_and_runs_no_hook(): void
     {
         foreach ([
             'a signature from another secret' => ['hmac' => hash_hmac('sha512', 'whatever', 'the-wrong-secret')],
@@ -265,7 +298,7 @@ class PaymobSaudiBaselineTest extends TestCase
 
             $response->assertRedirectContains('payment-fail');
             $this->assertSame(0, (int) DB::table('payment_requests')->where('id', $id)->value('is_paid'), "{$case} marked the payment paid");
-            $this->assertContains($id, $GLOBALS['myfatoorah_failure_calls'], "{$case} did not run the failure hook");
+            $this->assertNotContains($id, $GLOBALS['myfatoorah_failure_calls'], "{$case} ran the failure hook on a return the shop cannot authenticate");
         }
 
         $this->assertSame(0, myfatoorah_test_effect_count('order'), 'an unauthentic return created an order');
