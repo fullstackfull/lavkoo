@@ -141,7 +141,6 @@ if (!function_exists('digital_payment_place_orders')) {
             if ($orderIds === []) {
                 Log::critical('A paid payment was settled without building an order.', ['transaction_id' => $paymentData['transaction_id'], 'customer_id' => $customerId]);
             }
-
             foreach ($orderIds as $orderId) {
                 OrderManager::generateReferBonusForFirstOrder(orderId: $orderId);
             }
