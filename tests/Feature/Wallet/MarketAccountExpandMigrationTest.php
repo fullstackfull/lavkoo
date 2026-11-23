@@ -56,6 +56,29 @@ class MarketAccountExpandMigrationTest extends TestCase
         ];
     }
 
+    /** @return array<string, array<string, mixed>> every column of a table by name, with the facts a change of shape would alter */
+    private function columns(string $table): array
+    {
+        $facts = [];
+
+        foreach (Schema::getColumns($table) as $column) {
+            $facts[$column['name']] = [
+                'type' => $column['type'],
+                'nullable' => $column['nullable'],
+                'default' => $column['default'],
+                'auto_increment' => $column['auto_increment'] ?? false,
+            ];
+        }
+
+        return $facts;
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function rowsOf(string $table): array
+    {
+        return array_map(static fn (object $row): array => (array) $row, DB::table($table)->orderBy('id')->get()->all());
+    }
+
     private function seedTheStoreAsItIsToday(): void
     {
         $this->seedCustomer(1, walletBalance: 250.5, loyaltyPoints: 80);

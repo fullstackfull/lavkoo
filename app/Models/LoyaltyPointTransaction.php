@@ -64,6 +64,7 @@ class LoyaltyPointTransaction extends Model
         'legal_entity_id',
     ];
 
+
     protected $casts = [
         'id' => 'integer',
         'user_id' => 'integer',

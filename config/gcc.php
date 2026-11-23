@@ -132,7 +132,6 @@ return [
             // Read docs/gcc/F-01-STOREFRONT-THEME.md before turning it on.
             'enabled' => filter_var(env('GCC_STOREFRONT_THEMES', false), FILTER_VALIDATE_BOOLEAN),
         ],
-
         'market_accounts' => [
             // Off by default, and off means the platform of today: a customer has the one wallet balance and the one point balance the `users` row keeps
             // (`wallet_balance`, `loyalty_point`), every read answers from those two columns whatever market is asked for, and no account table is read —
@@ -217,7 +216,6 @@ return [
             // mechanism is built and left off until it is. Read docs/gcc/ for D1-10 before turning it on.
             'from_original_payment' => filter_var(env('GCC_REFUND_FROM_ORIGINAL_PAYMENT', false), FILTER_VALIDATE_BOOLEAN),
         ],
-
         'legal' => [
             // Configuration, not a statement of what the law requires. A qualified reviewer confirms the list per country before release.
             'required_documents' => ['terms', 'privacy', 'refund', 'return', 'cancellation', 'shipping'],

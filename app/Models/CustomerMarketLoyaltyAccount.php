@@ -28,7 +28,6 @@ class CustomerMarketLoyaltyAccount extends Model
 {
     /** This model embeds a customer, so it is serialized without that customer's wallet balance, loyalty points and referral code. */
     use HidesCustomerBalances;
-
     protected $fillable = [
         'customer_id',
         'market',
@@ -48,7 +47,6 @@ class CustomerMarketLoyaltyAccount extends Model
     protected $hidden = [
         'sharing_group',
     ];
-
     protected $casts = [
         'id' => 'integer',
         'customer_id' => 'integer',
