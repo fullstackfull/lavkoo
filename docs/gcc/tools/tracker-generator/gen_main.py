@@ -4876,6 +4876,119 @@ def load_all():
     return data
 
 
+# ---------------------------------------------------------------------------
+# GCC-21 Stage C, after its mandatory CI gate was satisfied.
+#
+# The lane moved the branch a97fecb1 -> 6d5a9bd3 (eleven more commits). Its own
+# rulings were against the OWNER'S three obligations, not against tracker ids, so
+# the mapping onto criteria is mine. Having done it, the honest answer is that
+# Stage C moves NO criterion's state. It strengthens two, and it closes the
+# reason one of them cannot be MET -- which is worth more to the record than a
+# raised letter would be.
+#
+# D2-07 c1 stays CODED, and now for a MEASURED reason rather than an assumed one:
+# the criterion says verification, settlement AND refund use the attempt's
+# account, and the gateway refund path still reads the one platform settings row.
+# Reviewer B verified that independently. A criterion with one of three verbs
+# unproved is not MET, however well the other two are measured.
+#
+# D2-09 c1 was already MET and is strengthened by a correction against the lane's
+# own earlier claim: the first round said the directory names an address exactly
+# where the route serves one, and that sentence was FALSE -- the route applies a
+# fourth condition (the token resolving an ACTIVE row) that the directory did not,
+# so an operator who deactivated an account was still shown its address. Fixed and
+# measured in both states of the covered list and both states of the active flag.
+#
+# What I checked myself, not taken from the lane:
+#   * CI run 45086154645 on 6d5a9bd3, COMPLETED: 23 jobs, 22 success, 1 failure,
+#     and the failure is 'Deployment overlay (artifact, deploys nothing)' at its
+#     step 4 -- red by design on every run and red identically on the baseline run
+#     45028967448 of the base branch. Both SQLite jobs, strict mode, storefront,
+#     address, fulfillment+security and all ten sales-channel/cost shards on both
+#     engines are green, so the calendar-dated TorodShipmentDiscoveryTest did not
+#     fire. The lane read this run while 16 of 23 jobs were still unfinished and
+#     said so plainly; the gate is satisfied by this read, not by that one.
+#   * The whole suite, read from the job log and not from the lane's prediction:
+#     Tests: 7325, Assertions: 796500, PHPUnit Deprecations: 9, Skipped: 101.
+#     That is exactly what the lane predicted, which is worth recording: the
+#     prediction was labelled as one, and it held.
+# ---------------------------------------------------------------------------
+
+_STAGEC_CI = (
+    ' // GCC-21 STAGE C, head gcc/p1-platform-address-stops-confirming-company-payments 6d5a9bd3afea669619490b'
+    '0804145c187c2f9a0d (PR 166, draft; NOT merged -- it is one of the five tips the backend integration left '
+    'outside gcc/integration, and the integrator\'s note says to land on THIS tip, the newer of the stack, and '
+    'pick up gcc/core-payment-accounts 457b14b7 after one resolver fix in two test fixtures). CI run 45086154645 '
+    'at that head, COMPLETED: 23 jobs, 22 SUCCESS, 1 failure, and the one failure is "Deployment overlay '
+    '(artifact, deploys nothing)" at its step 4 -- red by design on every run and red identically on the base '
+    'branch\'s own run 45028967448. Both whole-suite SQLite jobs, strict mode, storefront, address, '
+    'fulfillment+security and all ten sales-channel and cost shards on BOTH engines are green, so the '
+    'calendar-dated TorodShipmentDiscoveryTest did not fire. Whole suite read from the job log: Tests: 7325, '
+    'Assertions: 796500, PHPUnit Deprecations: 9, Skipped: 101. I read the run, its 23 job conclusions, the '
+    'failing job\'s step and that figure myself; the lane\'s own read was taken while 16 jobs were unfinished, '
+    'which it stated, and does not satisfy the gate.'
+)
+
+_D207C1 = (
+    'STILL CODED after GCC-21 Stage C, and the reason is now MEASURED rather than assumed. PROVED by Stage C for '
+    'VERIFICATION: a payment stamped with a live company gateway account, offered at this gateway\'s '
+    'platform-wide notification address with the rule on, is refused with a flat 401 while that recorded address '
+    'is live, and the refusal leaves every column of the attempt and of the payment row untouched; a company\'s '
+    'own address still confirms its own payment AFTER its token is retyped, measured on the delivery the gateway '
+    'was actually given and not only on an operator\'s replay; and a recorded address that is no longer live '
+    'does NOT strand its payment, in seven data sets, each a disturbance applied through the real model or the '
+    'real configuration key after the payment started. The refusal needs TWO positive facts, not one -- the '
+    'payment expects another address AND that address is still one it can be confirmed at -- which is the fix '
+    'both reviewers\' first finding forced. NOT PROVED, and this is why it is not MET: the criterion says '
+    'verification, settlement AND REFUND use that account, and THE GATEWAY REFUND PATH STILL READS THE ONE '
+    'PLATFORM SETTINGS ROW -- reviewer B verified that independently and the lane carried it forward unchanged '
+    'rather than claiming it. Nor is settlement proved by this stage. One FURTHER platform-wide path of the same '
+    'gateway is not covered by this stage either; it is measured and recorded OFF the public record, with the owner, '
+    'because naming an unclosed path in a public file is worth more to an attacker than to this tracker. An account whose '
+    'webhook_events scope excludes the settling event is measured as stranded with the rule on, not fixed, not '
+    'reachable through any supported path, and recorded with its measurement. Mutation battery re-run against '
+    'the new code: 19 of 20 red; the one green is declared logically equivalent (an early null return rewritten '
+    'as an && chain, which no input separates); and the battery caught the lane\'s OWN regression, a mutation '
+    'the first round had killed and the liveness condition brought back, fixed in the test rather than '
+    'declared. Named tests: ThePlatformAddressConfirmsWhatExpectsItTest and '
+    'TheOneAddressRuleIsDormantAsShippedTest on the head below.'
+)
+
+_D209C1 = (
+    'STRENGTHENED by GCC-21 Stage C, which also CORRECTED a false sentence the earlier round rested on. The '
+    'earlier claim was that the directory names an address exactly where the route serves one. It did not: the '
+    'route applies FOUR conditions and the directory applied three, the fourth being the webhook token '
+    'resolving an ACTIVE row -- so an operator who had DEACTIVATED a company gateway account was still shown '
+    'that account\'s notification address, an address the route would have refused to serve. '
+    'GatewayAccountDirectory::webhookUrlOf now applies the owner\'s covered list as well as the gateway on the '
+    'account and the active row, measured for the SAME account in both states of the covered list and in both '
+    'states of the active flag. NOT PROVED: every other column of that operator row (market, company, '
+    'environment, active, secrets_held, has_webhook_secret) is untouched here and rests on the base branch\'s '
+    'own tests, which were not re-derived. Named tests: '
+    'CompanyWebhookTakesOnlyItsOwnDeliveriesTest::test_the_directory_names_an_address_only_where_the_route_serves_one, '
+    '::test_the_directory_names_no_address_for_a_deactivated_account, '
+    '::test_the_operator_row_carries_no_address_for_a_deactivated_account.'
+)
+
+_load_all_before_stagec = load_all
+
+
+def load_all():
+    data = _load_all_before_stagec()
+    pending = {('D2-07', 1), ('D2-09', 1)}
+    for unit in data:
+        for requirement in data[unit]['reqs']:
+            if requirement['id'] == 'D2-07' and len(requirement['ac']) > 1:
+                requirement['ac'][1]['e'] = requirement['ac'][1]['e'] + ' // ' + _D207C1 + _STAGEC_CI
+                pending.discard(('D2-07', 1))
+            if requirement['id'] == 'D2-09' and len(requirement['ac']) > 1:
+                requirement['ac'][1]['e'] = requirement['ac'][1]['e'] + ' // ' + _D209C1 + _STAGEC_CI
+                pending.discard(('D2-09', 1))
+    if pending:
+        raise SystemExit('Stage C block: these criteria were not found: %s' % sorted(pending))
+    return data
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
