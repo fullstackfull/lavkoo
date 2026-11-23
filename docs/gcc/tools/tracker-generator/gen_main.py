@@ -4059,6 +4059,1408 @@ def load_all():
     return data
 
 
+# ---------------------------------------------------------------------------
+# A2-13 + I1-08, marketing consent and the signed unsubscribe link.
+# PR 163, branch gcc/p1-marketing-consent-and-unsubscribe, head
+# 1f1b80866b63d7f691e007f25252073c24596fed, base main c5c04b7b, DRAFT. Nine
+# commits: four built the feature, five answered two independent reviews.
+#
+# What I checked myself, at that head, rather than taking the lane's word:
+#   * run 45051782083 has head_sha 1f1b8086 and conclusion failure, 17 success
+#     / 6 failure of 23 jobs. BOTH new jobs are success: 'Marketing consent
+#     tests, MySQL 8' (job 137298271671) and '... MariaDB 11.4.2' (137298271641),
+#     every step of each one success.
+#   * the strict-mode job (137298271711) runs this directory -- I read its own
+#     command line in the log: `phpunit -c phpunit.mysql.xml
+#     tests/Feature/StrictModeTest.php tests/Feature/SalesChannels
+#     tests/Feature/OperationalCosts tests/Unit/Fulfillment
+#     tests/Feature/Fulfillment tests/Feature/Marketing` with DB_STRICT_TESTS=1
+#     on MariaDB 11.4.2 -- and finished 4135 tests / 35906 assertions with
+#     Failures: 1, Skipped: 2. The one failure, read by name out of that log, is
+#     main's own calendar-dated TorodShipmentDiscoveryTest at line 198
+#     (-'unlinked' +'needs_review'); the two skips are the pre-existing
+#     PilotServer engine skips. So the group is green on a real engine in strict
+#     mode as well, which is where this branch's char(2) column would have been
+#     caught.
+#   * .github/workflows/ci.yml at 1f1b8086 names tests/Feature/Marketing in the
+#     'Marketing consent tests' group, and the one-line diff from the reviewed
+#     head d577798f is adding that same directory to the strict-mode job.
+#   * I read tests/Feature/Marketing/NecessaryNotificationsTest.php at that head
+#     myself: setUp calls switchConsentOn() and then asserts
+#     DB::table('customer_marketing_consents')->count() === 0, and each of the
+#     five message tests fires a real event (PasswordResetEvent,
+#     DigitalProductOtpVerificationEvent, AddFundToWalletEvent, OrderStatusEvent,
+#     RefundEvent) and asserts the real send -- Mail::assertSent(SendMail::class,
+#     1) or an Http::assertSent on the FCM call. The two structural guards scan
+#     the whole application (asserting more than 500 files were read) and pin the
+#     exact caller list; that list went red in this very round when the
+#     unsubscribe controller joined it, which is the guard working rather than
+#     the guard asserted.
+# ---------------------------------------------------------------------------
+
+_CONSENT_HEAD = ('\n\nPR 163 (DRAFT) head 1f1b80866b63d7f691e007f25252073c24596fed, base main c5c04b7b. '
+                 'CI run 45051782083 on that head: both new jobs success -- Marketing consent tests, MySQL 8 '
+                 '(137298271671) and MariaDB 11.4.2 (137298271641), 114 tests / 438 assertions, 0 skipped. '
+                 'The same directory also runs inside the strict-mode job (137298271711, DB_STRICT_TESTS=1, '
+                 'MariaDB 11.4.2): 4135 / 35906 whose single failure is main\'s own calendar-dated Torod test. '
+                 'I read that job\'s own phpunit command line and its tail; I did not take the figures on trust.')
+
+_CONSENT_RAISES = [
+    ('A2-13', 0, 'CODED',
+     'CODED on PR 163. A row in customer_marketing_consents records the customer, the channel, the purpose, the text '
+     'version and the TIME THE PERSON ANSWERED (the clock is frozen and the stored instant compared, not merely '
+     'asserted non-null), and it is append-only: a withdrawal writes a new row carrying the grant\'s own text version '
+     'and hash. The row SHAPE is asserted rather than hand-read -- both named indexes and char(2)/char(64)/varchar(32)/'
+     'varchar(16) on MySQL 8 and MariaDB. NOT PROVED: "storefront" and "legal entity". Both columns exist and are '
+     'nullable and NOTHING FILLS EITHER -- main has no storefront layer and legal_entities has no migration in this '
+     'repository (see the migration-overlay handoff of 2026-11-22). "customer" is proved only for a subject who has an '
+     'account. And "never overwritten" is enforced at the Eloquent layer only: there is no trigger and no database '
+     'constraint, so a raw DB::table()->update() would write over a decision, and on a server with '
+     'explicit_defaults_for_timestamp=0 the database itself would rewrite recorded_at on any UPDATE. Named test: '
+     'tests/Feature/Marketing/MarketingConsentRecordTest.php, 20 tests / 77 assertions on SQLite, 82 on MariaDB.'),
+
+    ('A2-13', 1, 'CODED',
+     'CODED on PR 163. Withdrawing in one MARKET leaves the other markets\' consents untouched, now for the sender '
+     'that WRITES as well as the ones that read: a Kuwaiti customer\'s newsletter choice is filed under KW, and a '
+     'market the store does not sell in cannot reach the column at all. NOT PROVED: the word "storefront", in both '
+     'halves of the criterion -- there is no storefront layer on main to withdraw in, so market stands in for it. '
+     'Named tests: MarketingConsentRecordTest::test_withdrawing_in_one_market_leaves_the_other_markets_consents_'
+     'untouched and NewsletterConsentTest::test_a_kuwaiti_customers_newsletter_choice_is_filed_under_kuwait.'),
+
+    ('A2-13', 2, 'CODED',
+     'CODED on PR 163. The abandoned-cart reminder and the cart-marketing send both skip a customer with no consent '
+     'for that market, channel and purpose, driven through the real console command and the real controller, and the '
+     'reminder carries a signed unsubscribe link that WORKS: a withdrawal through that link stops the next send of the '
+     'same schedule for the PERSON, across the guest/customer boundary in both directions, and the person can agree '
+     'again afterwards. NOT PROVED: "that storefront"; "NEWSLETTERS ... skip a customer", because main has no '
+     'newsletter sender to skip anything -- what this branch does for the newsletter is record the choice, and for an '
+     'anonymous address that record is a claim, not a grant; and "carry an unsubscribe link" for the WhatsApp channel, '
+     'which has no footer to put one in. Named tests: tests/Feature/Marketing/AbandonedCartConsentTest.php (16 tests / '
+     '51 assertions) and CartMarketingConsentTest.php (7 / 23).'),
+
+    ('I1-08', 0, 'CODED',
+     'CODED on PR 163. A marketing send is skipped for a customer with no consent for that MARKET and channel, for the '
+     'e-mail channel and the WhatsApp channel, including that consent for the wrong market, the wrong channel or the '
+     'wrong purpose does not let a send through; the WhatsApp sender\'s dormancy is measured, not read. NOT PROVED: '
+     '"that STORE" (storefront). The PUSH channel is not gated at all -- a topic broadcast has no per-customer '
+     'recipient to ask about (tracker I1-05) -- and SMS has no marketing sender on main. Named tests: '
+     'AbandonedCartConsentTest::test_a_customer_without_consent_is_not_reminded and CartMarketingConsentTest::'
+     'test_a_customer_who_has_not_agreed_is_skipped_and_nothing_is_sent_to_them.'),
+
+    ('I1-08', 1, 'CODED',
+     'CODED on PR 163. Withdrawing consent stops the next send of the same schedule FOR A PERSON rather than for a '
+     'subject key: the withdrawal is recorded through the real signed link with no login, and the next run of the real '
+     'cart:remind-abandoned is stopped whether the next cart sits on the account side or the guest side of the login, '
+     'under the opt_out setting where the withdrawal is the only thing that can stop the send. NOT PROVED: the '
+     'storefront scoping, as everywhere; and "the same schedule" covers only the two schedules this application has -- '
+     'the push broadcast has no consent-aware schedule to withdraw from, so a marketing path remains whose next send a '
+     'withdrawal does not stop. The earlier round\'s claim that nothing in this wording was unproved WAS AN OVERCLAIM, '
+     'found by both reviewers and struck through in the PR body rather than deleted. Named tests: '
+     'AbandonedCartConsentTest::test_unsubscribing_as_a_customer_also_stops_the_guest_checkout_reminder, '
+     '::test_unsubscribing_as_a_guest_also_stops_the_account_reminder and '
+     '::test_withdrawing_consent_stops_the_next_send_of_the_same_schedule.'),
+
+    ('I1-08', 2, 'CODED',
+     'CODED on PR 163. The one marketing e-mail main sends carries a signed unsubscribe link -- signed in the mailable '
+     'and in the rendered HTML, opened over real HTTP with no login, recording a withdrawal idempotently and never '
+     'touching the grant -- and that withdrawal actually stops the mail (criterion 2). The route answers rather than '
+     'raises when its table is absent; the token\'s purpose guard, market guard and exact payload are proved; and the '
+     'deliberate no-expiry decision carries a test of its own. NOT PROVED: the word "EVERY", only in the sense that '
+     'main has exactly one marketing e-mail, so it is satisfied vacuously -- no second marketing e-mail is left '
+     'ungated, and the caller-list scan would turn red if one were added. Named test: '
+     'tests/Feature/Marketing/MarketingUnsubscribeLinkTest.php, 20 tests / 69 assertions.'),
+
+    ('I1-08', 3, 'MET',
+     'MET under the owner\'s definition of 2026-11-22, on PR 163 head 1f1b8086. With the gate ON, the strictest '
+     'shipped policy (opt-in in every market) and NOT ONE consent row -- the state in which a marketing send is '
+     'refused -- order status, refund, payment and BOTH one-time-code messages are each driven through their real '
+     'event and real listener to the real send, and each still goes out. I read the test myself at that head: setUp '
+     'calls switchConsentOn() and asserts the consent table is empty; the five tests fire PasswordResetEvent, '
+     'DigitalProductOtpVerificationEvent, AddFundToWalletEvent, OrderStatusEvent and RefundEvent, and assert '
+     'Mail::assertSent(SendMail::class, 1) or the FCM call itself. It discriminates against exactly what the criterion '
+     'forbids: gating any of those listeners on consent turns these tests red, and Review B measured that -- adding '
+     'the gate\'s name to PasswordResetListener turns two tests red. Two structural guards pin the complete list of '
+     'files that consult the gate and assert that no necessary-notification listener and neither shared notification '
+     'trait mentions consent at all; the caller list went red in this round when the unsubscribe controller joined it. '
+     'LIMITS, recorded not waved away: the FCM call is faked at the HTTP boundary; SMS and transactional WhatsApp are '
+     'not in the criterion\'s list; and the two structural guards are TEXT scans, so a listener that consulted the '
+     'gate indirectly through a service would pass them. Named test: '
+     'tests/Feature/Marketing/NecessaryNotificationsTest.php, 8 tests / 61 assertions.'),
+]
+
+_CONSENT_MISSING_NOTES = [
+    ('A2-13', 3,
+     ' // STILL MISSING after PR 163, and the lane said so itself. Of the four clauses only "STORE the choice in the '
+     'WEBSITE" has any code, through the newsletter box, where a customer can now also change their mind back; for an '
+     'anonymous visitor what is stored is an unverified claim rather than a grant, which is honest about what a public '
+     'form can know. Untouched: "Registration" (CustomerRegistrationRequest still has no consent field and this branch '
+     'adds none), "SHOW" (a field on either theme\'s form is a layout change the branch\'s scope forbids), "the account '
+     'page", and "the app" (two other repositories). Three of four clauses untouched, so the state does not move. '
+     'Covering test for the one clause that does exist: tests/Feature/Marketing/NewsletterConsentTest.php, 10 tests / '
+     '45 assertions.'),
+]
+
+_load_all_before_consent = load_all
+
+
+def load_all():
+    data = _load_all_before_consent()
+    pending = {(rid, idx) for rid, idx, _, _ in _CONSENT_RAISES}
+    pending_notes = {(rid, idx) for rid, idx, _ in _CONSENT_MISSING_NOTES}
+    for rid, idx, state, evidence in _CONSENT_RAISES:
+        for unit in data:
+            for requirement in data[unit]['reqs']:
+                if requirement['id'] == rid and idx < len(requirement['ac']):
+                    requirement['ac'][idx]['s'] = state
+                    requirement['ac'][idx]['e'] = requirement['ac'][idx]['e'] + ' // ' + evidence + _CONSENT_HEAD
+                    pending.discard((rid, idx))
+    for rid, idx, note in _CONSENT_MISSING_NOTES:
+        for unit in data:
+            for requirement in data[unit]['reqs']:
+                if requirement['id'] == rid and idx < len(requirement['ac']):
+                    requirement['ac'][idx]['e'] = requirement['ac'][idx]['e'] + note
+                    pending_notes.discard((rid, idx))
+    if pending or pending_notes:
+        raise SystemExit('consent block: these edits matched no criterion, so nothing was written: %s %s'
+                         % (sorted(pending), sorted(pending_notes)))
+    return data
+
+
+# ---------------------------------------------------------------------------
+# D1-02 criterion 4: a correction to MY OWN recorded reason, not a change of state.
+#
+# The published evidence says "legal_entity_id appears in ZERO files under
+# database/migrations/ and in exactly ONE non-test file in the whole tree, so
+# every test of that half creates the column with Schema::table() inside the
+# test", and it draws from that the conclusion that MET would take "a
+# legal_entity_id migration existing and having run".
+#
+# That measurement was taken on PR 144's head and is true THERE. It is NOT true
+# of the repository. Measured by me on 2026-11-22:
+#
+#   gcc/core-payment-accounts @ 457b14b78500003b04b9ff40cbf188e0417ec9c8 carries
+#   FOUR migrations for this, which I read in full:
+#     database/migrations/2026_11_27_100000_create_legal_entities_table.php
+#       -- creates the table, hasTable-guarded, char(2) country unique and
+#          ascii_bin on MySQL/MariaDB, and a down() that refuses while the table
+#          holds a company.
+#     database/migrations/2026_11_27_100100_add_legal_entity_to_orders_table.php
+#       -- adds legal_entity_id and entity_snapshot to orders, both nullable,
+#          both hasColumn-guarded, appended with no position so MySQL 8 and
+#          MariaDB 11.4 add them without rebuilding the table, and a down() that
+#          THROWS while any order carries a company.
+#     ..._100200_add_legal_entity_to_products_table.php
+#     ..._100300_add_legal_entity_to_vendor_ledger_entries_table.php
+#   and NINE service files that read the column, including
+#   app/Services/Storefront/StorefrontSellingGate.php.
+#
+# While PR 144's own line has the refusal and no migration at all:
+#   gcc/p1-pos-one-selling-company   @ 9cb0fd84 -- 0 migrations, 1 app file, 1 test
+#   gcc/p1-order-one-selling-company @ a7f58989 -- 0 migrations, 1 app file, 1 test
+#
+# So the two halves exist, on two disjoint branch lines, and what MET takes is
+# not a migration that someone still has to write -- it is ONE BRANCH THAT
+# CARRIES BOTH, with the refusal observed against the real migration object
+# rather than against a column a test created with Schema::table().
+#
+# The state does not move: nothing new is proved by my finding this out. What
+# moves is the reason, and the size of the remaining work.
+# ---------------------------------------------------------------------------
+
+_D102C4_CORRECTION = (
+    ' // CORRECTION OF MY OWN REASON, 2026-11-22, measured not inferred. The sentence above that '
+    '"legal_entity_id appears in ZERO files under database/migrations/" was measured on PR 144\'s head and is '
+    'true THERE; it is NOT true of the repository, and the conclusion I drew from it -- that MET waits on a '
+    'migration someone still has to write -- was wrong. gcc/core-payment-accounts @ '
+    '457b14b78500003b04b9ff40cbf188e0417ec9c8 carries FOUR migrations for this half, which I read in full: '
+    '2026_11_27_100000_create_legal_entities_table.php (creates the table, hasTable-guarded, char(2) country '
+    'unique and ascii_bin on MySQL/MariaDB, and a down() that refuses while the table holds a company); '
+    '2026_11_27_100100_add_legal_entity_to_orders_table.php (adds legal_entity_id and entity_snapshot to '
+    'orders, both nullable, both hasColumn-guarded, appended with no position so MySQL 8 and MariaDB 11.4 add '
+    'them without rebuilding the table, and a down() that THROWS while any order carries a company); and the '
+    'same for products and vendor_ledger_entries. Nine service files on that branch read the column, '
+    'StorefrontSellingGate among them. Meanwhile PR 144\'s own line has the refusal and no migration: '
+    'gcc/p1-pos-one-selling-company @ 9cb0fd84 and gcc/p1-order-one-selling-company @ a7f58989 each hold 0 '
+    'migrations naming legal_entity, 1 app file and 1 test. THE TWO HALVES ARE ON TWO DISJOINT BRANCH LINES. '
+    'So WHAT MET NOW TAKES is not a migration to write but ONE BRANCH CARRYING BOTH, with the refusal observed '
+    'against the real migration object rather than against a column a test created with Schema::table(), plus '
+    'the storefront_country half, which still has no writer in app/ or Modules/ and therefore still cannot be '
+    'observed on a running platform. THE STATE DOES NOT MOVE: finding this out proves no behaviour. What moves '
+    'is the reason and the size of the work left.'
+)
+
+_load_all_before_d102 = load_all
+
+
+def load_all():
+    data = _load_all_before_d102()
+    applied = False
+    for unit in data:
+        for requirement in data[unit]['reqs']:
+            if requirement['id'] == 'D1-02' and len(requirement['ac']) > 4:
+                requirement['ac'][4]['e'] = requirement['ac'][4]['e'] + _D102C4_CORRECTION
+                applied = True
+    if not applied:
+        raise SystemExit('D1-02 correction matched no criterion, so nothing was written')
+    return data
+
+
+# ---------------------------------------------------------------------------
+# I1-06, an order's notifications built from the order's own storefront.
+# PR 164, branch gcc/p1-order-notifications-per-storefront, head
+# 7509c94ced9aa9ba9e4fb1a796ef94b70fb639b9, DRAFT, base
+# gcc/p1-storefront-currency @ fd40399c (itself stacked on
+# gcc/p1-admin-product-country @ 216c2795). main untouched at c5c04b7b.
+# Four commits: a characterization pin, the binding, a round that fixed SIX
+# surviving mutations in the lane's OWN TESTS without touching an application
+# file, and a round that fixed three real defects both reviews found.
+#
+# THE ROUND LOWERED ONE OF ITS OWN RULINGS. Criterion 3 was proposed MET by the
+# implementer and the fix round downgraded it to CODED on reviewer A's
+# measurement, which it reproduced; and it withdrew a characterization pin from
+# carrying the criterion at all, on the ground that the pin "cannot fail if the
+# whole feature is deleted". That is the discipline this record is supposed to
+# have, so it is written down rather than smoothed over.
+#
+# What I checked myself at that head rather than taking the lane's word:
+#   * run 45054113738 has head_sha 7509c94c and 22 of 23 jobs success. The two
+#     jobs that run this directory are success -- 'Storefront tests, MySQL 8'
+#     (137305443243) and 'Storefront tests, MariaDB 11.4.2' (137305443119) --
+#     and so are both SQLite jobs, the strict-mode job, both Address jobs, both
+#     Fulfillment+security jobs and all TEN sales-channel/cost jobs on both
+#     engines. The single failure is 'Deployment overlay (artifact, deploys
+#     nothing)' (137305443128), which is red by design on every run and base.
+#     Note for the record: this branch line's sales-channel N-Z jobs are GREEN,
+#     unlike main's, so the Torod calendar red is not inherited here.
+#   * the storefront group moved 618 tests / 2062 assertions at the previous
+#     head to 634 / 2104 here, and the whole SQLite suite 6907 / 794832 to
+#     6923 / 794874 -- exactly +16 tests and +42 assertions in both, which is
+#     positive evidence this round's tests EXECUTED rather than were merely
+#     handed to phpunit.
+#   * I read three of the decisive tests myself at that head:
+#     - test_two_orders_of_different_storefronts_notified_by_one_worker_do_not_inherit_each_other
+#       queues two real order-placed notifications for a Kuwaiti and a Saudi
+#       order inside one process while the request itself is served from AE, and
+#       asserts the first push goes to 'kw-rider' with the money the order holds
+#       and an Arabic title, the second to 'sa-rider' with the platform
+#       conversion and an English title, and that AE is bound again afterwards.
+#       A second job that inherited the first market, or took the request's,
+#       fails it.
+#     - test_the_locale_does_not_walk_from_one_send_to_the_next_on_an_api_request
+#       sets the locale to 'sa' on an /api request and fires the same event FOUR
+#       times, asserting four pushes and that the locale is still 'sa'. This is
+#       the defect the fix round found (the locale walked sa -> ar -> es and
+#       modified a tracked language file), now pinned.
+#     - test_the_storefront_and_the_language_are_put_back_when_a_notification_fails
+#       throws out of the callback and asserts the AE storefront, the 'en'
+#       locale and a null session language are all restored.
+# ---------------------------------------------------------------------------
+
+_I106_HEAD = ('\n\nPR 164 (DRAFT) head 7509c94ced9aa9ba9e4fb1a796ef94b70fb639b9, base gcc/p1-storefront-currency '
+              '@ fd40399c, which is itself stacked on gcc/p1-admin-product-country @ 216c2795; main untouched. '
+              'CI run 45054113738 on that head: 22 of 23 jobs success, the only failure being the deployment '
+              'overlay that is red by design on every run and base. Both jobs that run this directory are '
+              'success -- Storefront tests MySQL 8 (137305443243) and MariaDB 11.4.2 (137305443119) -- as are '
+              'both SQLite jobs, strict mode, both Address jobs, both Fulfillment+security jobs and all ten '
+              'sales-channel/cost jobs on both engines. The storefront group moved 618/2062 to 634/2104 and the '
+              'whole SQLite suite 6907/794832 to 6923/794874: exactly +16 tests and +42 assertions in both, '
+              'which is evidence of execution and not merely of path handling. I read the job conclusions and '
+              'three of the decisive tests myself at that head.')
+
+_I106_RAISES = [
+    ('I1-06', 0, 'CODED',
+     'CODED on PR 164. Of the criterion\'s four words, LANGUAGE and CURRENCY are proved. Language for every '
+     'recipient the senders name and for the two they deliberately skip: the buyer (push title in Arabic, not '
+     '"Order"; e-mail template title in Arabic, not "Your order is placed"; and the same on an /api request, '
+     'where getDefaultLanguage answers from the locale), the delivery man, the seller against a buyer who reads '
+     'a DIFFERENT language, the vendor\'s own order-received e-mail, the till\'s buyer, and the promoter and '
+     'admin who deliberately read the platform\'s. Currency for the push AND the e-mail body: deliveryman_charge '
+     'moves from the platform conversion to the money the order holds, and every amount in the order-placed body '
+     'likewise, rendered by the REAL mailer inside the wrap rather than under Mail::fake(), which leaves the '
+     'view unrendered. NOT PROVED: "profile" and "template". A per-storefront mail/SMS/push profile is '
+     'requirement I1-01 and exists in NO branch (MailConfigServiceProvider still replaces the whole mail config '
+     'once at boot; there is no notification_channel_profiles table anywhere). Per-country notification '
+     'templates are I1-03 and exist in no branch (email_templates, notification_messages and '
+     'notification_template_mappings have no store column). This slice cannot meet criterion 1 however good it '
+     'is, and does not claim to. Also not proved within "currency", both added by the review round on its own '
+     'measurements: the amount is the order\'s money only while that market\'s currency row is ACTIVE (with the '
+     'row switched off the push shows the platform conversion, which is the base layer\'s contract, now pinned), '
+     'and the push carries no currency code or symbol beside the number, so the apps decide how to read it. '
+     'Named tests: nine in tests/Feature/Storefront/OrderNotificationStorefrontTest.php, seven for language and '
+     'two for currency; 32 tests / 108 assertions on SQLite and on MariaDB 10.11.14.'),
+
+    ('I1-06', 1, 'MET',
+     'MET under the owner\'s definition of 2026-11-22, on PR 164 head 7509c94c. Two orders of different '
+     'storefronts, each notified by a real CallQueuedListener executed by SyncJob in ONE PHP process one after '
+     'the other: job 1 goes to the Kuwaiti rider with the money the order holds and that rider\'s Arabic title, '
+     'job 2 to the Saudi rider with the platform conversion and the English title, NEITHER takes the AE '
+     'storefront of the request that queued them, and AE is bound again afterwards. I read that test myself: a '
+     'second job that inherited the first market, or took the request\'s, fails it. Reviewer A asked for this to '
+     'be CODED and named three reasons; the fix round closed all three, which is why it stands MET rather than '
+     'because anyone disagreed: the seventh queued listener (DigitalProductDownloadListener) is now wrapped and '
+     'driven and the enumeration shown complete; the language is now put back for EVERY recipient and not only '
+     'those who set app_language -- the defect where the locale walked sa -> ar -> es and modified a tracked '
+     'language file is pinned by a test that fires the same event four times on an /api request and asserts the '
+     'locale is unchanged; and the money is no longer defeasible by an enclosing StorefrontCurrency::within. '
+     'Killed by 9 of the round\'s 30 mutations. NOT PROVED, a scope limitation on the record rather than a gap '
+     'in the wording: "the same worker" is proved on QUEUE_CONNECTION=sync -- a real CallQueuedListener resolved '
+     'through the container and executed by SyncJob in one process -- not against a running `php artisan '
+     'queue:work` on a database or Redis queue, and no test serialises and restores a job. A reviewer who '
+     'requires an out-of-process worker would want one more test. Named tests: seven in '
+     'tests/Feature/Storefront/OrderNotificationStorefrontTest.php, including '
+     '::test_two_orders_of_different_storefronts_notified_by_one_worker_do_not_inherit_each_other, '
+     '::test_the_locale_does_not_walk_from_one_send_to_the_next_on_an_api_request and '
+     '::test_the_storefront_and_the_language_are_put_back_when_a_notification_fails, all three of which I read '
+     'at that head.'),
+
+    ('I1-06', 2, 'CODED',
+     'CODED on PR 164 — AND THE LANE LOWERED THIS ITSELF from the MET its implementer proposed, on reviewer A\'s '
+     'measurement, which the fix round reproduced. PROVED: "an order with no storefront record is notified as '
+     'the default Saudi storefront". An order whose storefront_country is NULL produces a push with the platform '
+     'conversion and the English title with both switches on, and does so even when the sending request is '
+     'served from Kuwait; a record that is not a country code (null, empty, "ZZZ", an array, an int) resolves to '
+     'SA as well; and a record that is a well-formed but unconfigured code binds that code with no currency in '
+     'force, so its amounts stay the platform\'s. NOT PROVED: the words "exactly as today". They hold while the '
+     'switches are off and in a queue, where nothing is bound, and are FALSE inside a process already narrowed '
+     'to another market: measured as the market\'s money on the base head fd40399c and as the platform\'s here, '
+     'for a recordless order notified inside a payment taken in another market. The difference is deliberate -- '
+     'a legacy order\'s amounts are in the platform\'s money -- but it IS a difference and the words were '
+     'covering it, so it is now pinned by a test of its own instead. ALSO WITHDRAWN from this ruling on reviewer '
+     'B\'s measurement: the characterization pin '
+     '::test_an_order_with_no_storefront_record_is_notified_as_the_default_storefront cannot fail if the whole '
+     'feature is deleted -- it is green on the base application code -- so it cannot carry a criterion, and it '
+     'no longer does. Named tests: four others in OrderNotificationStorefrontTest.php.'),
+
+    ('I1-06', 3, 'CODED',
+     'CODED on PR 164. PROVED: "amounts shown in a push are in the order\'s currency", for the one amount any '
+     'order push actually carries -- deliveryman_charge moves from the platform\'s conversion of the stored '
+     'figure to the money the order holds, whose recorded currency_code is that market\'s, and it now does so '
+     'even inside a process narrowed to another market\'s money, which it did not before the fix round. And, by '
+     'measurement on the real payloads rather than by reading the code, that "due payment" and "refund" pushes '
+     'carry NO amount of money at all, so there is nothing in them to put in the order\'s currency. NOT PROVED: '
+     '"cash collect". CashCollectEvent carries no order -- only a key, a type, a language, a float and an FCM '
+     'token -- and its two dispatchers hand over a rider\'s cash-in-hand across many orders; reviewer A verified '
+     'independently that DeliveryManCashCollectController already converts the amount in its own request before '
+     'dispatch, so a context would have nothing left to do, and cashCollectNotification is untouched. Also not '
+     'proved: that the number is LABELLED with the order\'s currency (the payload carries no code, symbol or '
+     'decimals field); that the amount is the order\'s money while that market\'s currency row is inactive '
+     '(measured: it is the platform\'s, now pinned); and that getCurrencyCode() would answer the order\'s '
+     'currency with a stale session(\'system_default_currency_info\') present, which it would not. Named tests: '
+     'four in OrderNotificationStorefrontTest.php plus '
+     'OrderNotificationTodayTest::test_with_the_switches_off_the_delivery_charge_in_a_push_is_the_platform_conversion_it_has_always_been '
+     'for the before figure.'),
+]
+
+_load_all_before_i106 = load_all
+
+
+def load_all():
+    data = _load_all_before_i106()
+    pending = {(rid, idx) for rid, idx, _, _ in _I106_RAISES}
+    for rid, idx, state, evidence in _I106_RAISES:
+        for unit in data:
+            for requirement in data[unit]['reqs']:
+                if requirement['id'] == rid and idx < len(requirement['ac']):
+                    requirement['ac'][idx]['s'] = state
+                    requirement['ac'][idx]['e'] = requirement['ac'][idx]['e'] + ' // ' + evidence + _I106_HEAD
+                    pending.discard((rid, idx))
+    if pending:
+        raise SystemExit('I1-06 block: these raises matched no criterion, so nothing was written: %s' % sorted(pending))
+    return data
+
+
+# ---------------------------------------------------------------------------
+# D2-V1 criterion 2, "No payment path falls back to USD or to the first active
+# currency". PR 167 (DRAFT), branch gcc/p1-payment-refuses-a-currency-it-cannot-take,
+# head df7d03ab9894594a42b5c82f7dab717ec2e68ae6, base
+# gcc/p1-payment-methods-only-where-confirmed @ 222fe1eb. main untouched.
+#
+# CODED, NOT MET, AND THE LANE DID NOT CLAIM OTHERWISE -- it said plainly that it
+# could not read the tracker's criterion ids, and it numbered its own findings
+# c2..c6, which do not map onto this requirement's four criteria. It proposed MET
+# for its own "c2" (a payment in a currency the gateway cannot take is refused),
+# which is a NARROWER claim than this criterion's words. Mapping its evidence onto
+# the criterion that actually exists is what settles it, and the criterion says
+# "NO payment path", while the lane's own not-proved section names TWO paths that
+# still fall back:
+#
+#   * a gateway with NO entry in the declared-currency map is allowed and still
+#     charged in whatever the legacy resolver picks -- measured, mercadopago_pix
+#     with a Saudi customer becomes USD 100;
+#   * a request that names no currency on a store whose system_default_currency
+#     points at no row is still left to the resolver -- measured, BDT 11,000 on a
+#     cart worth SAR 375.
+#
+# Both are deliberate, both are pinned by named tests so they cannot change by
+# accident, and both are recorded as open. But while either exists the criterion's
+# own word "no" is false, so this is CODED.
+#
+# What I checked myself: the branch head on the remote is df7d03ab; the tracker's
+# four D2-V1 criteria and their wording, read from load_all(), which is how the
+# mapping above was done; and the CI state. CI run 45071820951 at that head was
+# still status=queued when I read it -- the runner queue is saturated -- so NO
+# finished CI run exists for this head, and the lane said the same of its own read.
+# The real-engine evidence that does exist: run 45063554931 at the earlier head
+# 9dfe7c72 had both added payment jobs SUCCESS with 35 tests / 284 assertions on
+# MySQL 8.0.46 and on MariaDB 11.4.2, and the final head is 56 tests / 418
+# assertions green on SQLite and on MariaDB 10.11.14 locally.
+# ---------------------------------------------------------------------------
+
+_D2V1C2 = (
+    ' // CODED on PR 167 (DRAFT) head df7d03ab9894594a42b5c82f7dab717ec2e68ae6, base '
+    'gcc/p1-payment-methods-only-where-confirmed @ 222fe1eb, main untouched. WHAT IS BUILT: '
+    'app/Services/Payments/GatewayCurrencySupport.php answers, in one place, whether a gateway can take a '
+    'currency, and all three callers reach it through decideForRequest() -- the payment start at '
+    'Customer/PaymentController.php, the wallet top-up, and the order edit\'s due payment in '
+    'Traits/OrderEditManager.php. With the setting gateway_currency_refusal on, a payment in a currency the '
+    'chosen gateway does not declare is REFUSED before any payment row is written and before the customer is '
+    'sent to the gateway, in the answer shape each of the six entry points already uses (403 with errors for '
+    'the app checkout route, 403 with a message for both top-up routes, 403 for the order-edit app route, a '
+    'flashed message and a redirect for all three web routes), and the refusal fires whether the currency is '
+    'named, named in the wrong case, named under an older gateway spelling, or not named at all. After each '
+    'refusal there is no payment_requests row, no order, no order_details, no order_transactions, no stock '
+    'movement, no wallet movement, no order_status_history row and no write onto order_edit_histories. '
+    'DORMANT BY DEFAULT: the migration writes 0 and never overwrites an operator\'s value, a value that is '
+    'not a flag leaves it off, and with the switch off 192 measured cells (7 entry points x 4 gateways x 3 '
+    'money models x 3 ways of naming the currency) reproduce the base branch exactly on status, Location, '
+    'amount, currency and five write counters, with ZERO differences, run twice. '
+    'WHY THIS IS NOT MET, and it is this criterion\'s own word "no" that decides it: TWO PAYMENT PATHS STILL '
+    'FALL BACK. (1) A gateway with no entry in the declared-currency map is allowed and still charged whatever '
+    'the legacy resolver picks -- measured: mercadopago_pix with a Saudi customer becomes USD 100 -- because '
+    'the platform has no claim about such a gateway to contradict. (2) A request that names no currency on a '
+    'store whose system_default_currency points at no row is still left to the resolver -- measured: BDT '
+    '11,000 on a cart worth SAR 375 -- on the reasoning that a store which cannot say what it prices in is a '
+    'configuration fault and refusing every payment there is a worse answer. Both are deliberate and BOTH ARE '
+    'PINNED BY NAMED TESTS so neither can change by accident, but while either stands the criterion is not '
+    'satisfied. Also not proved: that any installation runs with the switch on (it ships off and no admin '
+    'screen turns it on), and that the whole application is unchanged with the switch off -- '
+    'tests/Feature/Payments, tests/Feature/Address (1,045 tests) and tests/Unit/Payments were measured, not '
+    'the whole suite. AND getPaymentGatewayCurrencyCode() IS STILL THERE, unchanged byte for byte, holding its '
+    'own copy of the "declares it and the row is active" test for the switch-off path: two copies of one '
+    'condition, which is why the lane kept its own "one place" finding lowered rather than claiming it. '
+    'EVIDENCE: tests/Feature/Payments/GatewayRefusesACurrencyItCannotTakeTest, 56 tests / 418 assertions green '
+    'on SQLite and on MariaDB 10.11.14 at the final head; and at the earlier head 9dfe7c72 CI run 45063554931 '
+    'had both added payment jobs SUCCESS, 35 tests / 284 assertions, on MySQL 8.0.46 and MariaDB 11.4.2. '
+    'NO FINISHED CI RUN EXISTS FOR THE FINAL HEAD: run 45071820951 at df7d03ab was still status=queued when I '
+    'read it, the runner queue being saturated, and the lane reported the same of its own read rather than '
+    'presenting a partial read as a whole one.'
+)
+
+_load_all_before_d2v1 = load_all
+
+
+def load_all():
+    data = _load_all_before_d2v1()
+    applied = False
+    for unit in data:
+        for requirement in data[unit]['reqs']:
+            if requirement['id'] == 'D2-V1' and len(requirement['ac']) > 2:
+                requirement['ac'][2]['s'] = 'CODED'
+                requirement['ac'][2]['e'] = requirement['ac'][2]['e'] + _D2V1C2
+                applied = True
+    if not applied:
+        raise SystemExit('D2-V1 c2 block matched no criterion, so nothing was written')
+    return data
+
+
+# ---------------------------------------------------------------------------
+# J-17, the customer app's version gate and update flow. Two things happen here,
+# and the FIRST ONE IS A CONSEQUENCE OF MY OWN MERGE.
+#
+# I merged the customer app's integration batch into its main (main is now
+# 9743e5ed0b68a64a36017bfb712b997681f8a636). Two of this requirement's evidence
+# triples were pinned to patterns in that repository's main, and the merged work
+# moved both: the generator's own evidence checker went from 0 failures to 2 and
+# named them. That is the checker doing its job, so the fix is to repoint the
+# triples at where the code now lives, not to silence them.
+#
+# I read the new code before touching the record, because a version gate that
+# stops being found is exactly the shape of a gate that has been bypassed. It has
+# NOT been bypassed. It was extracted:
+#
+#   lib/utill/update_gate.dart -- UpdateGate.isRequired(control, isIos,
+#   installedVersion), called by the splash screen at both of its entry points.
+#   Its own docblock records the defect the extraction closed: the shop stores a
+#   minimum version AND a switch beside it, and the switch was ignored, so "a
+#   merchant who turned forced updates off in Admin -> Business Settings -> App
+#   Settings watched the app go on forcing them, with no way from the panel to
+#   stop it." It now returns false when the platform row is absent or its status
+#   is not 1, false when the minimum is missing or blank, and otherwise compares.
+#   Tests: test/update_gate_test.dart.
+#
+#   lib/utill/update_target.dart -- UpdateTarget.candidates(control, isIos),
+#   which the update screen now tries in order. This is criterion 4's subject and
+#   the reason it moves below.
+#
+# SECOND: criterion 4 is MET, on main, which is the strongest evidence state this
+# record has. The criterion asks that the update screen offer a usable target when
+# the configured link is empty. UpdateTarget's docblock states the live fact it was
+# written for: "the live shop publishes a floor of 14.1 with link: "" for both
+# platforms, and the screen handed that empty string to the launcher, which refuses
+# it." Now a configured link comes first and is passed on exactly as given, and a
+# link that is missing, empty or only blank space is no target at all, so the store
+# is the whole list; the store also follows a configured link the device cannot
+# open. Android gets the Play app scheme then the Play web page, addressed by the id
+# the build carries; iOS gets an App Store search scoped to a storefront, and the
+# docblock says plainly that this is the store's search and not the app's own page
+# because no source in the repository carries the App Store id -- which is the one
+# part the sources cannot supply.
+#
+# The tests are both kinds: unit tests over the candidate list (an empty link, only
+# blank space, no link at all, no row for the platform, no setting at all, never
+# empty whatever the shop publishes, each platform reads its own link) and widget
+# tests driving the REAL screen (opens the Play page when the shop configures an
+# empty link; opens the Play web page when the device has no Play app; opens the
+# store page when the shop sent no config at all; opens the store page when the
+# configured link cannot be opened; and the two iOS equivalents).
+#
+# CI: run 45067118601 on 7361ec24, the integration head that became this main,
+# conclusion SUCCESS -- that repository's workflow triggers on pushes to gcc/**, so
+# pushing the branch ran the real thing. flutter test on that head: 787 passed with
+# storefronts off and 838 with them on, zero failures either way. flutter analyze:
+# 255 findings, 0 errors, exactly at the recorded baseline and not raised.
+# ---------------------------------------------------------------------------
+
+_J17_EVIDENCE_REPOINTS = [
+    ('return compareVersions(minimum, AppConstants.appVersion) == 1;',
+     'lib/utill/update_gate.dart', 'return compare(minimum, installedVersion) == 1;'),
+    ("String? appUrl = 'https://google.com';",
+     'lib/utill/update_target.dart', 'if (configured == null || configured.trim().isEmpty) {'),
+]
+
+_J17C4 = (
+    ' // MET on 2026-11-22, and on MAIN rather than on a draft branch: the customer app\'s integration batch '
+    'was merged and that repository\'s main is now 9743e5ed0b68a64a36017bfb712b997681f8a636. The decision left '
+    'the update button\'s own callback, where nothing could test it, and became '
+    'UpdateTarget.candidates(control, isIos) in lib/utill/update_target.dart. A link the shop configured comes '
+    'first and is passed on exactly as it was given, so a shop that fills the field keeps what it has; a link '
+    'that is missing, empty, or only blank space is no target at all and the store is then the whole list; and '
+    'the store also FOLLOWS a configured link the device cannot open, so a mistyped link no longer leaves the '
+    'customer with nowhere to go. Android is sent to the Play app scheme and then the Play web page, addressed '
+    'by the id the build itself carries; iOS to an App Store search scoped to a storefront. The code says '
+    'plainly why that last one is a search and not the app\'s own page: no source in the repository carries the '
+    'App Store id, and itms-apps:// is deliberately not tried because Info.plist does not declare the scheme '
+    'under LSApplicationQueriesSchemes, so a device would refuse it. That is the one part the sources cannot '
+    'supply and it is NOT PROVED here; closing it needs the App Store id from the owner. '
+    'NAMED TESTS, both kinds, in test/update_target_test.dart: unit tests over the candidate list (an empty '
+    'link, only blank space, no link at all, no row for the platform, no setting at all, never empty whatever '
+    'the shop publishes, each platform reads its own link, ends at the store even when a link is configured) '
+    'and WIDGET tests driving the real screen (opens the Play page when the shop configures an empty link; the '
+    'Play web page when the device has no Play app; the store page when the shop sent no config at all; the '
+    'store page when the configured link cannot be opened; and the two iOS equivalents). The docblock records '
+    'the live fact the work was written for: the shop publishes a floor of 14.1 with link: "" for BOTH '
+    'platforms, and the screen used to hand that empty string to the launcher, which refuses it. '
+    'CI: run 45067118601 on 7361ec24, the integration head that became this main, conclusion SUCCESS (that '
+    'repository\'s workflow triggers on pushes to gcc/**). flutter test on that head: 787 passed with '
+    'storefronts off, 838 with them on, zero failures either way. flutter analyze: 255 findings and 0 errors, '
+    'exactly at the baseline recorded in tool/analyze_baseline.txt and not raised to make room. '
+    'NOT PROVED: that a real device opens any of these targets -- no device run; and the iOS App Store id, '
+    'above.'
+)
+
+_load_all_before_j17 = load_all
+
+
+def load_all():
+    data = _load_all_before_j17()
+    repointed = 0
+    raised = False
+    for unit in data:
+        for requirement in data[unit]['reqs']:
+            if requirement['id'] != 'J-17':
+                continue
+            for spec in requirement.get('evidence', []):
+                for stale, new_path, new_pattern in _J17_EVIDENCE_REPOINTS:
+                    if spec.get('pattern') == stale:
+                        spec['path'] = new_path
+                        spec['pattern'] = new_pattern
+                        repointed += 1
+            # the checker ran before this wrapper, so recompute it with the repointed triples
+            requirement['evidence_failures'] = T.check_evidence(requirement)
+            if len(requirement['ac']) > 4:
+                requirement['ac'][4]['s'] = 'MET'
+                requirement['ac'][4]['e'] = requirement['ac'][4]['e'] + _J17C4
+                raised = True
+    if repointed != len(_J17_EVIDENCE_REPOINTS) or not raised:
+        raise SystemExit('J-17 block: repointed %d of %d evidence triples, raised=%s'
+                         % (repointed, len(_J17_EVIDENCE_REPOINTS), raised))
+    return data
+
+
+# ---------------------------------------------------------------------------
+# J-11, push topics and notifications per storefront, in the CUSTOMER app.
+# Branch gcc/j11-push-per-storefront, head b49c6bf178ff0305aa50dc55f0ad001451ce1f0e,
+# cut from that repository's newly merged main 9743e5ed. No pull request, by the
+# owner's instruction to stop accumulating them. FOUR criteria MISSING -> CODED,
+# none MET, and the reasons are measured.
+#
+# This was the first lane run on the two-agent protocol. What the review-and-fix
+# pass earned, in its own measurement: EIGHT mutations, and THREE OF THE FIRST FIVE
+# SURVIVED. The worst was a one-word change to the object the app actually builds
+# that survived 73 tests while silently stopping every marketing push on every
+# existing install -- because the flag-off set was proved only on a subscriber a
+# test had wired with enabled: false, never on the object the shipped app
+# constructs. That is now measured on StorefrontTopicSubscriber.forDevice over real
+# preferences.
+#
+# What I checked myself: the branch head on the remote is b49c6bf1; CI run
+# 45077323190 at that head, conclusion SUCCESS, all four jobs success, with the
+# analyzer at 255 findings and 0 errors (the recorded baseline, not raised) and the
+# whole suite 902 passed with storefronts off and 960 with them on.
+# ---------------------------------------------------------------------------
+
+_J11_HEAD = ('\n\nBranch gcc/j11-push-per-storefront head b49c6bf178ff0305aa50dc55f0ad001451ce1f0e, cut from '
+             'lavkooapp main 9743e5ed; no pull request, per the owner\'s instruction. CI run 45077323190 at that '
+             'head: conclusion SUCCESS, all four jobs success -- storefront-header (which carries the four named '
+             'J-11 steps), both whole-suite jobs (902 passed with storefronts off, 960 with them on) and '
+             'analyze-whole-project at 255 findings with 0 errors, the recorded baseline and not raised. I read '
+             'the run and its job conclusions myself.')
+
+_J11_RAISES = [
+    ('J-11', 0, 'CODED',
+     'CODED. PROVED: with the flag on, the set of marketing topics an install subscribes to is exactly the '
+     'current storefront\'s own; the six markets\' topics are six distinct strings; the global sixvalley topic is '
+     'in no storefront\'s set and is unsubscribed; a market the server lists that this build does not know still '
+     'gets its own topic; and no file in lib but the one subscriber names a marketing topic, asserted as a '
+     'COMPLETE inventory. With the flag OFF the set is exactly {sixvalley}, and that is measured on THE OBJECT '
+     'THE APP BUILDS (StorefrontTopicSubscriber.forDevice over real preferences), not only on one a test wired -- '
+     'the correction the review pass forced, after a one-word mutation of that object survived 73 tests while '
+     'silently stopping every marketing push on every existing install. NOT PROVED: that a push actually reaches '
+     'one country and not another. NO REAL FIREBASE CALL IS MADE ANYWHERE: every subscribe and unsubscribe is a '
+     'recorded stand-in, so what is proved is the set of topic calls this app WOULD make, not that Firebase '
+     'honoured them. The backend publishes every marketing broadcast to the one global topic (I1-05, nothing '
+     'built), so there is no per-market publisher to measure against, and the naming rule is not agreed with the '
+     'backend -- an open owner decision. The two restock call sites join server-named topics the app never notes '
+     'down, so they are in no set and cannot be left. Named tests: test/storefront_topic_subscriber_test.dart '
+     '(21 in each flag setting), test/storefront_topics_test.dart (14 in each), '
+     'test/push_topic_inventory_test.dart (8 in each).'),
+
+    ('J-11', 1, 'CODED',
+     'CODED. PROVED with the flag on: a storefront change from Saudi Arabia to Kuwait unsubscribes sixvalley_sa '
+     'and the global topic and subscribes sixvalley_kw; the storefront the CHANGE names as previous governs; the '
+     'unsubscribes happen BEFORE the subscribe, asserted on the recorded call order, so a device is never on two '
+     'markets at once; a market the server opened since the build is left too; and a sign-out unsubscribes every '
+     'marketing topic and subscribes none. With the flag off nothing is unsubscribed on a switch or a sign-out. '
+     'NOT PROVED, two things: (a) that the real chooser and the real sign-out REACH the subscriber at runtime -- '
+     'the three wirings are pinned by a TEXT SCAN of di_container.dart and auth_repository.dart, which the '
+     'inventory test says of itself, because di_container.init() needs the whole app and clearSharedData needs a '
+     'DioClient, so neither is executed; (b) THE LEAVE IS NOT AWAITED END TO END -- the pre-existing '
+     'StorefrontSwitcher calls unawaited(changeNotifier.storefrontChanged(...)), and on a sign-out clearSharedData '
+     'awaits leaveEverything() but no caller awaits clearSharedData (api_checker.dart:22 and three sheets call it '
+     'bare). The drops do happen in the same turn and apply() re-settles at every start, so the window is '
+     'bounded, but it is a window in which a killed app leaves a device on the market it left. Named tests: '
+     'test/storefront_topic_subscriber_test.dart and test/push_topic_inventory_test.dart.'),
+
+    ('J-11', 2, 'CODED',
+     'CODED. PROVED on the REAL routing -- NotificationHelper.initialize, the real local-notification tap, the '
+     'real Firebase opened-app message, the real StorefrontSwitcher over a real StorefrontController and '
+     'StorefrontChangeNotifier -- with the flag on: an order push naming Kuwait leaves the app on Kuwait with '
+     'StorefrontScope publishing KW and opens the order by its id; the same from a system notification; a wallet '
+     'push opens the wallet in that market; a browse-only market still opens there; the market\'s currency '
+     'follows; an unlisted or current market moves nothing and still opens the order; and A MOVE THAT FAILS STILL '
+     'OPENS THE ORDER (a self-review finding: both tap paths route inside a try/catch that swallowed everything, '
+     'so an exception escaping the move would have skipped the routing and the tap would have done nothing). In '
+     'BOTH flag settings a push naming no storefront, and one whose storefront is the empty string, moves nothing '
+     'and routes exactly as before. All seven kinds of message carry their storefront through convertNotification, '
+     'which had dropped it in every one of its seven branches. NOT PROVED: the words "a push CARRIES its '
+     'storefront". NO BACKEND SENDER WRITES THE KEY, verified on backend main -- PushNotificationTrait enumerates '
+     'every key it sends and storefront is not among them, and a grep across app/Traits and app/Utils returns '
+     'nothing. The field name is the app\'s choice and no real message has ever contained it; what is proved is '
+     'that the app reads such a message correctly IF one is ever sent. AND THE COLD-START CASE IS NOT COVERED, '
+     'and is worse than the lane first claimed: SplashScreen.widget.body IS ALWAYS NULL -- main.dart reads the '
+     'initial message and hands it to MyApp(body:) and nothing reads it again, and all three constructions of '
+     'SplashScreen pass no body -- so both routing blocks are UNREACHABLE and a push that starts the app is '
+     'routed nowhere at all. That is a gap this work did not make and does not close; the tracker already records '
+     'it against this requirement. Named tests: test/push_storefront_notification_test.dart (12 on, 5 off), '
+     'test/push_storefront_target_test.dart (29 in each), with test/order_push_routing_test.dart unchanged at 12.'),
+
+    ('J-11', 4, 'CODED',
+     'CODED. PROVED, CAPTURED on the real sheet: a switch per backend channel for the current market, all off for '
+     'a person who has answered nothing, and throwing one records a decision for THAT market, channel and purpose '
+     'and no other, asserted negatively against another market, channel and purpose. Append-only: changing one\'s '
+     'mind writes a second decision and keeps the first, and the newest governs. The record\'s keys ARE the '
+     'columns of the backend\'s customer_marketing_consents, so nothing was invented. RESPECTED for the push '
+     'channel, by the sheet\'s own action rather than by assertion -- the correction the review pass forced, after '
+     'deleting the sheet\'s apply() call left all 13 tests green: agreeing joins this market\'s topic and no '
+     'other, withdrawing leaves it again, agreeing to e-mail asks the topics nothing at all, and a fresh '
+     'subscriber built from the stored preferences asks for the same topic afterwards. NOT PROVED: "RESPECTED" '
+     'for e-mail, SMS and WhatsApp -- those senders are on the server, backend main publishes NO route for a '
+     'customer to record a decision through (verified: no match for consent anywhere in its routes) and its gate '
+     'exists only on an unmerged draft, so those three answers are captured and go nowhere. Nor "per scope" in '
+     'the backend\'s full sense: its row has storefront and legal_entity_id and nothing fills either, on its side '
+     'or the app\'s, and the app records a MARKET. And the consent is PER DEVICE, not per customer: the store has '
+     'no subject, so two people sharing a phone share the answers and signing out does not clear them. Named '
+     'tests: test/marketing_consent_sheet_test.dart (15 in each flag setting) and '
+     'test/marketing_consent_store_test.dart (23 in each).'),
+]
+
+_load_all_before_j11 = load_all
+
+
+def load_all():
+    data = _load_all_before_j11()
+    pending = {(rid, idx) for rid, idx, _, _ in _J11_RAISES}
+    for rid, idx, state, evidence in _J11_RAISES:
+        for unit in data:
+            for requirement in data[unit]['reqs']:
+                if requirement['id'] == rid and idx < len(requirement['ac']):
+                    requirement['ac'][idx]['s'] = state
+                    requirement['ac'][idx]['e'] = requirement['ac'][idx]['e'] + ' // ' + evidence + _J11_HEAD
+                    pending.discard((rid, idx))
+    if pending:
+        raise SystemExit('J-11 block: these raises matched no criterion: %s' % sorted(pending))
+    return data
+
+
+# ---------------------------------------------------------------------------
+# J-01 criterion 4, after the customer app's integration branch was merged into
+# its main. The criterion was MISSING and its evidence read "the fallback is the
+# const saudiArabia". That sentence was true of main as it then stood; it is not
+# true of main now. The merge of lavkooapp gcc/integration brought the real
+# fallback and a 24-test file for it, and the record had not caught up.
+#
+# I found this while surveying the app criteria against the merged main rather
+# than against the record, which is the only way a stale MISSING shows itself.
+# Thirteen criteria name a lavkooapp pull request and are not MET; this is the
+# first of them measured against main. The others are not ruled here: being on
+# main does not upgrade a criterion whose proof was a source scan.
+#
+# What I checked myself: the fallback code on origin/main; all 24 test names in
+# their five groups; CI run 45067118601, job storefront-header success, which
+# runs the J-01.4 step in both flag builds; and that the run's head tree
+# (gcc/integration 7361ec24) is byte-identical to main 9743e5ed, so the run is a
+# run on main's tree.
+# ---------------------------------------------------------------------------
+
+_J014_EVIDENCE = (
+    'MET, and the evidence above is STALE -- it describes lavkooapp main as it stood BEFORE the integration '
+    'branch was merged into it. On main 9743e5ed the fallback is not a const: StorefrontConfig._fallbackFor '
+    'calls StorefrontCountry.fallbackAmong(StoredStorefronts(preferences).read()), which answers the entry the '
+    'server\'s last list marked is_default and reaches defaultCountry only when the answer names none. PROVED by '
+    'test/storefront_server_default_test.dart, 24 behaviour tests in five groups driving the app\'s own '
+    'StorefrontChoice, StorefrontSwitcher, StorefrontController and StoredStorefronts: the default is read from '
+    'default_country, whatever its case and surrounding spaces; an entry\'s own is_default is read when the '
+    'answer carries no default_country, and default_country governs when the two disagree; a default that cannot '
+    'be read, or that the answer does not list, names nothing. A customer who has chosen none is on the server\'s '
+    'default, FOLLOWS IT WHEN A NEWER ANSWER MOVES IT, and what the storefront they were moved off had cached is '
+    'dropped; a customer whose stored choice the app cannot honour gets the server\'s default; a customer who '
+    'chose a storefront the answer still lists is left where they are. Saudi Arabia is the floor in three '
+    'measured ways: before the server has answered once, when the answer names no default (even when it does not '
+    'list Saudi Arabia) and when the default it names is one it does not list -- so no customer is left without a '
+    'storefront. DORMANCY, in the same file: with storefronts off the server\'s default is not read, the '
+    'storefront is Saudi Arabia, nothing is written, and a storefront the answer no longer lists is left alone '
+    'with the server not even asked. CI: run 45067118601, job storefront-header SUCCESS, which runs the step '
+    '"J-01.4 the fallback storefront is the default the server\'s list names" in BOTH builds, default and '
+    '--dart-define=GCC_STOREFRONTS_ENABLED=true. That run sits on gcc/integration 7361ec24, whose tree is '
+    'BYTE-IDENTICAL to main 9743e5ed (git diff --stat between the two is empty), so it is a run on main\'s tree. '
+    'I read the fallback code, the 24 test names, the run, its four job conclusions and the tree equality myself. '
+    'NOT PROVED: the X-Storefront write is exercised through a switcher the test builds to mirror what the Dio '
+    'interceptor does, not through the real interceptor; the server\'s answer is a stored map and never a live '
+    'HTTP response; nothing ran on a device.'
+)
+
+_load_all_before_j014 = load_all
+
+
+def load_all():
+    data = _load_all_before_j014()
+    found = False
+    for unit in data:
+        for requirement in data[unit]['reqs']:
+            if requirement['id'] == 'J-01' and len(requirement['ac']) > 4:
+                requirement['ac'][4]['s'] = 'MET'
+                requirement['ac'][4]['e'] = requirement['ac'][4]['e'] + ' // ' + _J014_EVIDENCE
+                found = True
+    if not found:
+        raise SystemExit('J-01.4 block: the criterion was not found')
+    return data
+
+
+# ---------------------------------------------------------------------------
+# GCC-21 Stage C, after its mandatory CI gate was satisfied.
+#
+# The lane moved the branch a97fecb1 -> 6d5a9bd3 (eleven more commits). Its own
+# rulings were against the OWNER'S three obligations, not against tracker ids, so
+# the mapping onto criteria is mine. Having done it, the honest answer is that
+# Stage C moves NO criterion's state. It strengthens two, and it closes the
+# reason one of them cannot be MET -- which is worth more to the record than a
+# raised letter would be.
+#
+# D2-07 c1 stays CODED, and now for a MEASURED reason rather than an assumed one:
+# the criterion says verification, settlement AND refund use the attempt's
+# account, and the gateway refund path still reads the one platform settings row.
+# Reviewer B verified that independently. A criterion with one of three verbs
+# unproved is not MET, however well the other two are measured.
+#
+# D2-09 c1 was already MET and is strengthened by a correction against the lane's
+# own earlier claim: the first round said the directory names an address exactly
+# where the route serves one, and that sentence was FALSE -- the route applies a
+# fourth condition (the token resolving an ACTIVE row) that the directory did not,
+# so an operator who deactivated an account was still shown its address. Fixed and
+# measured in both states of the covered list and both states of the active flag.
+#
+# What I checked myself, not taken from the lane:
+#   * CI run 45086154645 on 6d5a9bd3, COMPLETED: 23 jobs, 22 success, 1 failure,
+#     and the failure is 'Deployment overlay (artifact, deploys nothing)' at its
+#     step 4 -- red by design on every run and red identically on the baseline run
+#     45028967448 of the base branch. Both SQLite jobs, strict mode, storefront,
+#     address, fulfillment+security and all ten sales-channel/cost shards on both
+#     engines are green, so the calendar-dated TorodShipmentDiscoveryTest did not
+#     fire. The lane read this run while 16 of 23 jobs were still unfinished and
+#     said so plainly; the gate is satisfied by this read, not by that one.
+#   * The whole suite, read from the job log and not from the lane's prediction:
+#     Tests: 7325, Assertions: 796500, PHPUnit Deprecations: 9, Skipped: 101.
+#     That is exactly what the lane predicted, which is worth recording: the
+#     prediction was labelled as one, and it held.
+# ---------------------------------------------------------------------------
+
+_STAGEC_CI = (
+    ' // GCC-21 STAGE C, head gcc/p1-platform-address-stops-confirming-company-payments 6d5a9bd3afea669619490b'
+    '0804145c187c2f9a0d (PR 166, draft; NOT merged -- it is one of the five tips the backend integration left '
+    'outside gcc/integration, and the integrator\'s note says to land on THIS tip, the newer of the stack, and '
+    'pick up gcc/core-payment-accounts 457b14b7 after one resolver fix in two test fixtures). CI run 45086154645 '
+    'at that head, COMPLETED: 23 jobs, 22 SUCCESS, 1 failure, and the one failure is "Deployment overlay '
+    '(artifact, deploys nothing)" at its step 4 -- red by design on every run and red identically on the base '
+    'branch\'s own run 45028967448. Both whole-suite SQLite jobs, strict mode, storefront, address, '
+    'fulfillment+security and all ten sales-channel and cost shards on BOTH engines are green, so the '
+    'calendar-dated TorodShipmentDiscoveryTest did not fire. Whole suite read from the job log: Tests: 7325, '
+    'Assertions: 796500, PHPUnit Deprecations: 9, Skipped: 101. I read the run, its 23 job conclusions, the '
+    'failing job\'s step and that figure myself; the lane\'s own read was taken while 16 jobs were unfinished, '
+    'which it stated, and does not satisfy the gate.'
+)
+
+_D207C1 = (
+    'STILL CODED after GCC-21 Stage C, and the reason is now MEASURED rather than assumed. PROVED by Stage C for '
+    'VERIFICATION: a payment stamped with a live company gateway account, offered at this gateway\'s '
+    'platform-wide notification address with the rule on, is refused with a flat 401 while that recorded address '
+    'is live, and the refusal leaves every column of the attempt and of the payment row untouched; a company\'s '
+    'own address still confirms its own payment AFTER its token is retyped, measured on the delivery the gateway '
+    'was actually given and not only on an operator\'s replay; and a recorded address that is no longer live '
+    'does NOT strand its payment, in seven data sets, each a disturbance applied through the real model or the '
+    'real configuration key after the payment started. The refusal needs TWO positive facts, not one -- the '
+    'payment expects another address AND that address is still one it can be confirmed at -- which is the fix '
+    'both reviewers\' first finding forced. NOT PROVED, and this is why it is not MET: the criterion says '
+    'verification, settlement AND REFUND use that account, and THE GATEWAY REFUND PATH STILL READS THE ONE '
+    'PLATFORM SETTINGS ROW -- reviewer B verified that independently and the lane carried it forward unchanged '
+    'rather than claiming it. Nor is settlement proved by this stage. One FURTHER platform-wide path of the same '
+    'gateway is not covered by this stage either; it is measured and recorded OFF the public record, with the owner, '
+    'because naming an unclosed path in a public file is worth more to an attacker than to this tracker. An account whose '
+    'webhook_events scope excludes the settling event is measured as stranded with the rule on, not fixed, not '
+    'reachable through any supported path, and recorded with its measurement. Mutation battery re-run against '
+    'the new code: 19 of 20 red; the one green is declared logically equivalent (an early null return rewritten '
+    'as an && chain, which no input separates); and the battery caught the lane\'s OWN regression, a mutation '
+    'the first round had killed and the liveness condition brought back, fixed in the test rather than '
+    'declared. Named tests: ThePlatformAddressConfirmsWhatExpectsItTest and '
+    'TheOneAddressRuleIsDormantAsShippedTest on the head below.'
+)
+
+_D209C1 = (
+    'STRENGTHENED by GCC-21 Stage C, which also CORRECTED a false sentence the earlier round rested on. The '
+    'earlier claim was that the directory names an address exactly where the route serves one. It did not: the '
+    'route applies FOUR conditions and the directory applied three, the fourth being the webhook token '
+    'resolving an ACTIVE row -- so an operator who had DEACTIVATED a company gateway account was still shown '
+    'that account\'s notification address, an address the route would have refused to serve. '
+    'GatewayAccountDirectory::webhookUrlOf now applies the owner\'s covered list as well as the gateway on the '
+    'account and the active row, measured for the SAME account in both states of the covered list and in both '
+    'states of the active flag. NOT PROVED: every other column of that operator row (market, company, '
+    'environment, active, secrets_held, has_webhook_secret) is untouched here and rests on the base branch\'s '
+    'own tests, which were not re-derived. Named tests: '
+    'CompanyWebhookTakesOnlyItsOwnDeliveriesTest::test_the_directory_names_an_address_only_where_the_route_serves_one, '
+    '::test_the_directory_names_no_address_for_a_deactivated_account, '
+    '::test_the_operator_row_carries_no_address_for_a_deactivated_account.'
+)
+
+_load_all_before_stagec = load_all
+
+
+def load_all():
+    data = _load_all_before_stagec()
+    pending = {('D2-07', 1), ('D2-09', 1)}
+    for unit in data:
+        for requirement in data[unit]['reqs']:
+            if requirement['id'] == 'D2-07' and len(requirement['ac']) > 1:
+                requirement['ac'][1]['e'] = requirement['ac'][1]['e'] + ' // ' + _D207C1 + _STAGEC_CI
+                pending.discard(('D2-07', 1))
+            if requirement['id'] == 'D2-09' and len(requirement['ac']) > 1:
+                requirement['ac'][1]['e'] = requirement['ac'][1]['e'] + ' // ' + _D209C1 + _STAGEC_CI
+                pending.discard(('D2-09', 1))
+    if pending:
+        raise SystemExit('Stage C block: these criteria were not found: %s' % sorted(pending))
+    return data
+
+
+# ---------------------------------------------------------------------------
+# Seller app K axis, measured against the ONE TREE the integration created.
+#
+# Nine criteria were written when their halves sat on separate unmerged drafts.
+# The seller integration branch put them in one tree, so they became measurable
+# for the first time. Eight are MET on measurement; the ninth was MISSING and
+# stays MISSING, measured rather than assumed.
+#
+# The lane ran the two-agent protocol. Its review pass earned its keep twice:
+#
+#  1. IT CAUGHT A HOLE THE REORDER I ASKED FOR HAD OPENED. Moving the named
+#     steps ahead of the whole-suite step left `- name: Test` with no `if:`, so
+#     GitHub's default success() applied -- one red named step would have
+#     SKIPPED the whole run, and with it the only figures that say how many
+#     tests fail and which. That is hiding a failing test by accident, which is
+#     exactly what the owner forbade. Fixed with `if: always()` and then pinned
+#     by a test that reads the shipped workflow.
+#  2. It found that the statement's own currency refusal had NO test at all,
+#     while the record listed it among what this tree holds.
+#
+# It also corrected the record's own pessimism in two places, upward, and closed
+# a gap the build agent had admitted in writing it had not tested.
+#
+# 19 mutations, 19 caught, none survived. Eight METs attacked with sixteen
+# mutations chosen to kill them; all caught.
+#
+# What I checked myself rather than taking from the lane:
+#   * final head ca722974e0703264aca900881c32d5f5447ac6a0 on gcc/integration;
+#     origin/main still d556fb4f, untouched;
+#   * `git diff --name-only fe4b697c ca722974 -- lib/` is EMPTY: no application
+#     source changed. Five files in all, four of them tests;
+#   * the workflow by my own parse: 37 steps, `Test` at index 33 carrying
+#     `if: always()`, 29 named flutter-test steps ALL before it, and not one of
+#     them lacking a guard;
+#   * CI on that head: analyze "39 issues found", translations OK, and the whole
+#     suite `1759 tests passed, 1 failed, 2 skipped` with exactly one failing
+#     test, test/app_version_gate_test.dart -- the version gate, red on main too
+#     and reserved to the owner. build-android stays SKIPPED because it needs
+#     the test job, so no Android build is proved on this head.
+# ---------------------------------------------------------------------------
+
+_KAXIS_HEAD = (
+    ' // SELLER APP K AXIS, measured on the integration tree. Head gcc/integration '
+    'ca722974e0703264aca900881c32d5f5447ac6a0 (PR 21, draft, base main; NOT merged -- the suite cannot go green '
+    'without a version change, which is reserved). No application source changed: git diff --name-only '
+    'fe4b697c..ca722974 -- lib/ is empty, and the five changed files are .github/workflows/ci.yml plus four test '
+    'files. CI run 45095016124 on that head: every named feature step green, analyze 39 issues with 0 warnings '
+    'and 0 errors (the same 39 as main), translations OK at 2000 keys per language, whole suite 1759 passed / 1 '
+    'failed / 2 skipped with EXACTLY ONE failing test -- test/app_version_gate_test.dart, which is red on main '
+    'too and whose clearing needs release or minimum evidence only the owner can supply. build-android is '
+    'SKIPPED because it needs the test job, so no Android build is proved on this head. I read the head, the '
+    'lib/ diff, the workflow shape by my own parse and that CI run myself. 19 mutations were run across the '
+    'lane, 19 caught, none survived.'
+)
+
+_KAXIS = [
+    ('K-03', 0, 'MET',
+     'MET. PROVED on the real objects: the More screen offers a Market tile that opens the six GCC markets with '
+     'the one worked in marked, in English and in Arabic against the real language files, and a pick is written '
+     'by the real SellerMarketChoice to the real preferences. Attacked with three mutations the build agent had '
+     'not run: replacing the real preference write with a no-op failed 28 tests across four files, so "the pick '
+     'is saved" rests on the real write and not on a stand-in; shortening the label to the country alone failed '
+     '23. NOT PROVED: "visible on money screens" is still satisfied by two things measured in two places. No '
+     'test builds a money screen -- the wallet, the statement, a payout sheet -- and reads the market label and '
+     'a figure in that market\'s currency on it at once; the reviewer grepped every test naming MarketLabel for '
+     'any use of the price formatter and found none. The picker is only ever reached from the More screen in '
+     'these tests.'),
+
+    ('K-03', 3, 'MET',
+     'MET, and the record\'s own not-proved was too pessimistic -- corrected UPWARD by the reviewer. The two '
+     'halves are now proved by ONE switch through the handler the application itself wires '
+     '(storefront_dependencies hands the market controller reloadMarketScopedState, and the controller calls it '
+     'on a switch): a sale is rung up offline in Saudi Arabia with a cart in hand and a cart on hold, the seller '
+     'switches to Kuwait, and then the cart in hand, the carts on hold and the stored cart are all empty, the '
+     'lists, notifications and dashboard are reloaded, the queued sale still carries SA in the outbox AND in the '
+     'entry on the disk, and its replay goes out with the storefront header of SA while the seller works in KW. '
+     'The reload half is asserted on REAL controller state going from a value to null and back where the server '
+     'answers, on the real notification, analytics, seller-centre, action-centre, product and statement '
+     'controllers -- not on method calls on recording subclasses, as the record had said. A mutation that '
+     'removes the storefront from the stored entry, so the market survives in memory but never reaches the disk, '
+     'failed 8 tests. NOT PROVED: no WIDGET test builds the dashboard or the notification screen and reads '
+     'rendered text -- the drop and the reload are controller state, not pixels. The profile is deliberately not '
+     'dropped before being reloaded, so there is a window in which the profile of the market just left is on '
+     'show, and nothing measures it. Requests already in flight at the moment of the switch are out of scope by '
+     'design and untested. Nothing runs against a real server.'),
+
+    ('K-06', 2, 'MET',
+     'MET. The conjunction the criterion asks for holds on measurement: a queued sale is replayed only under the '
+     'seller and the market that took it, and is never deleted silently at sign-out. The market half survives a '
+     'disk round trip, not merely memory -- a mutation that stops the storefront being written to the stored '
+     'entry failed 8 tests across two files. The seller half is the id the real profile answers with: the '
+     'signed-in seller lists, counts, replays, retries, removes and clears the sales carrying their id and the '
+     'sales carrying none, and a sale carrying another seller\'s id stays on the disk unsent, uncounted and '
+     'unlisted. NOT PROVED: the conjunction rests on reading three test files together rather than on one test '
+     'holding the real profile, the real market and the real replay at once. The market is observed as an '
+     'outgoing storefront header and the seller as an authorization header, so "replayed under that seller and '
+     'that market" is proved at the APP\'s boundary, not against a row a backend actually wrote. "Never deleted '
+     'silently" is proved for a sign-out and for a 401-forced sign-out, not for an uninstall, a cleared data '
+     'directory, or a sign-out interleaved with a replay already in flight.'),
+
+    ('K-10', 1, 'MET',
+     'MET, measured on the object the app calls. The record\'s mutations were all at the market-money level; the '
+     'reviewer went at the real price formatter itself, one function at a time, and SEVEN of its eleven money '
+     'writers are now behaviourally pinned -- disabling the market branch of the main conversion failed 7 tests '
+     'including "the list shows the price of the product in dinars" and "the currency code stands beside the '
+     'amount, and the cash in hand is written in dinars"; the amount conversion 3; the discount calculation 2; '
+     'the currency mark 5. Every amount is written with the market\'s own decimals, three for KWD, BHD and OMR '
+     'and two for SAR, AED and QAR. NOT PROVED: the criterion says "on a market\'s screens", and the six-market '
+     'sweep reads the formatter\'s RETURN VALUES, not text read off a built screen; it injects the market '
+     'through a visible-for-testing seam rather than through the stored market, which is proved separately but '
+     'not for all six markets in one test. Four of the eleven formatter functions have no market branch and are '
+     'excluded by a hand-written reason.'),
+
+    ('K-10', 2, 'MET',
+     'MET, and the build agent\'s OWN stated gap is closed. It had written plainly that it did not mutate the '
+     'exchange-rate guard itself; the reviewer ran exactly that mutation, dropping the market term from the '
+     'reverse conversion\'s guard so that in a market the amount is divided by the exchange rate again, and it '
+     'was CAUGHT. So the criterion no longer rests on asserted outputs and a single-currency store. Measured on '
+     'the real formatter against a real splash controller holding a real multi-currency config whose shown '
+     'currency is worth 3.75 of the base. NOT PROVED: the ordering rule -- that every multiplying function asks '
+     'for the market BEFORE it reads the exchange rate -- is still enforced by a source scan that compares '
+     'string positions, not by behaviour. This is the seller app\'s own arithmetic only: nothing here says the '
+     'server did not convert before answering. Multiplication outside the formatter is covered only by the '
+     'scan\'s claim about which functions write money.'),
+
+    ('K-10', 3, 'MET',
+     'MET. Two mutations the build agent had not run each kill it, both on the line that carries the market\'s '
+     'decimals into the real widget: fixing the formatter to two decimals failed 16 tests, including "in Kuwait '
+     'a price to set is typed with three decimals and the fourth is refused" and "the price to set is sent as it '
+     'was typed, with three decimals"; flipping the withdraw formatter\'s truncation so a balance rounds up '
+     'rather than down also failed. One shared money-input formatter serves the payout request, the bulk price '
+     'change and the POS extra discount, and the POS discount gets a decimal keyboard. NOT PROVED: "send" is '
+     'observed at the service boundary or in the field\'s own controller text, not as a request a server '
+     'received -- the delivery-man cash field is the one exception. For the POS extra discount, the third of the '
+     'three fields the criterion names, nothing walks a whole sale: the reviewer grepped for that field\'s key '
+     'beside any place-order or request assertion and found nothing, so its "and send" half is inferred from '
+     'which formatter the field holds. Which widgets count as money fields is fixed by a hand-maintained list.'),
+
+    ('K-12', 3, 'MET',
+     'MET for the behaviour the criterion asks for, with one clause recorded as vacuous by construction. All '
+     'three keys are behaviourally load-bearing, not just the cart the build agent mutated: dropping the '
+     'currency key from the signed-in seller\'s key list failed 5 tests, including "a sign-out takes the market, '
+     'the cart and the currency the seller was working in" and "the second seller to sign in on the same phone '
+     'starts in no market, with no cart on hold and in the currency of the shop"; dropping the stored-market key '
+     'failed 8. The unsent sales stay queued for the seller who took them. NOT PROVED, and it matters: THE '
+     'CURRENCY HALF\'S WRITE IS MADE BY THE TEST, NOT BY THE APP -- the helper says so in its own words, '
+     'because the writer is the other half of a currency picker this build does not wire up. The READ path is '
+     'real, so the clearing is pinned against a value only the test puts there. The criterion is an ABSENCE ("a '
+     'second login inherits no stored currency"), and an absence is satisfied more strongly by there being no '
+     'writer at all, which is why this is MET rather than CODED; but the clause is vacuous in this build and the '
+     'record should say so. Nothing drives this through the real login screen or the real sign-out dialog.'),
+
+    ('K-15', 4, 'MET',
+     'MET, and it acquired enforcement it did not have. The criterion asks for each GCC feature\'s tests as a '
+     'NAMED CI step BEFORE the full run. On the integration tree twelve named steps ran AFTER the whole-suite '
+     'step; they are now ahead of it, verified as a pure reorder by comparing every step of the job on the base '
+     'with the new file by the tuple of name, condition, command, action and inputs -- nothing dropped, nothing '
+     'altered, only four steps added. Four files that had NO named step and were read only inside the red whole '
+     'run each got one, and a thirteen-file contract group got another, taking named coverage from 83 to 102 of '
+     '103 test files; the one exception is the reserved version-gate test. THE HOLE THE REORDER OPENED, found by '
+     'the review pass and fixed: the whole-suite step carried no condition, so the runner\'s default would have '
+     'SKIPPED it after any red named step -- hiding the only figures that say how many tests fail and which. It '
+     'now carries always(), as all 29 named test steps already did, and a new test reads the shipped workflow '
+     'and pins the shape: exactly one whole-suite step, every named feature step ahead of it, and no test step '
+     'without a guard. I verified that shape by my own parse of the file at the head. NOT PROVED: the '
+     'enforcement test reads the workflow FILE, not the runner, so it cannot prove the runner honours always() '
+     '-- that rests on the run itself, where the whole-suite step did execute last. Because all 29 named steps '
+     'were green on this head, always() changed nothing about today\'s outcome: its value is entirely on a '
+     'future red head, so it is asserted rather than exercised in anger. The format, analyze and translation '
+     'steps still carry no guard and the test does not cover them.'),
+]
+
+_K122 = (
+    'STILL MISSING, and now MEASURED rather than assumed. The CI log of this tree shows the platform secure '
+    'store being spoken to, so something was built and the question had to be asked properly. What that store '
+    'holds on this tree is the seller\'s stored PASSWORD (with a legacy plaintext value migrated out of '
+    'preferences on first prime and then erased) and the platform-admin token -- NOT the session token. The '
+    'session token is still kept in the ordinary preferences, as the earlier evidence said, so the reviewer '
+    'lowered nothing and confirmed the record was right. The lane deliberately wrote NO code for this: moving a '
+    'session token between stores touches sign-in, sign-out, the client that fills the authorization header and '
+    'the logged-in check, and it is a security boundary that deserves its own lane with its own review rather '
+    'than a line in a measurement pass. NOT PROVED: all of it. Nothing of this criterion is met.'
+)
+
+_load_all_before_kaxis = load_all
+
+
+def load_all():
+    data = _load_all_before_kaxis()
+    pending = {(rid, idx) for rid, idx, _, _ in _KAXIS} | {('K-12', 2)}
+    for unit in data:
+        for requirement in data[unit]['reqs']:
+            for rid, idx, state, evidence in _KAXIS:
+                if requirement['id'] == rid and idx < len(requirement['ac']):
+                    requirement['ac'][idx]['s'] = state
+                    requirement['ac'][idx]['e'] = requirement['ac'][idx]['e'] + ' // ' + evidence + _KAXIS_HEAD
+                    pending.discard((rid, idx))
+            if requirement['id'] == 'K-12' and len(requirement['ac']) > 2:
+                requirement['ac'][2]['e'] = requirement['ac'][2]['e'] + ' // ' + _K122 + _KAXIS_HEAD
+                pending.discard(('K-12', 2))
+    if pending:
+        raise SystemExit('K-axis block: these criteria were not found: %s' % sorted(pending))
+    return data
+
+
+# ---------------------------------------------------------------------------
+# E-11 criterion 6 of 6, the last one open on the requirement.
+#
+# The lane ran the OLD four-agent shape (it is a money lane and was already in
+# flight when the protocol changed). Its implementer proposed MET; BOTH reviewers
+# ruled CODED; and the fix round LOWERED its own branch to CODED and agreed with
+# them. It then said, unprompted, that a reviewer reading "charge" as the figure
+# taken and recorded at order level in single-currency mode could reasonably rule
+# MET on its measurements -- and refused to claim it. That is the ruling I am
+# recording, because the criterion says "in whole cents" and in multi-currency
+# mode the stored figure is not one.
+#
+# Two defects outside this criterion were found and fixed on the way, and both
+# are worth the record:
+#   * a wallet till sale costing zero or less was CREDITED rather than refused;
+#   * order_taxes.taxable_id / taxable_type were written as '' rather than null,
+#     so A TAXED SALE CANNOT BE WRITTEN AT ALL ON A STRICT SERVER. The lane found
+#     this by reading its own CI -- its head went red on the Strict-mode job where
+#     the base is green, six failures, all three VAT tests on both tills -- and
+#     fixed it in the shared order writer, which touches every order writer on the
+#     platform. The Strict-mode job is SUCCESS at the final head, 4154 tests and
+#     35979 assertions. No criterion is claimed for it here.
+#
+# What I checked myself:
+#   * CI run 45089049325 at the final head d94390f3: 23 jobs, 18 SUCCESS, 5
+#     FAILURE -- Address tests on MySQL 8 and on MariaDB 11.4.2, both SQLite
+#     whole-suite jobs, and the by-design deployment overlay;
+#   * the BASE branch's own run 45033640756 at 60f5a605: 23 jobs, 18 SUCCESS, 5
+#     FAILURE, and THE SAME FIVE JOB NAMES. So the head adds no red.
+#   * The four Address failures are ApiSellerAddressTest's and belong to the base
+#     branch line, not to this work. They were NOT in the known pre-existing red
+#     list, and they are now tracked as their own task: that base cannot land
+#     while they are red.
+# ---------------------------------------------------------------------------
+
+_E11C6 = (
+    'CODED, not MET. The implementer proposed MET, BOTH independent reviewers ruled CODED, and the fix round '
+    'LOWERED its own branch to CODED and agreed with them -- then added, unprompted, that a reviewer reading '
+    '"charge" as the figure taken and recorded at ORDER level in single-currency mode could reasonably rule MET '
+    'on its measurements, and refused to claim it. PROVED: the admin and the vendor till now charge the total '
+    'THE SERVER works out, not the figure the browser posted, and "charge" covers what the till COLLECTS as well '
+    'as what it records -- the order amount, the initial order amount, the wallet-balance comparison and the '
+    'wallet debit all come from one place (a new PosSaleTotal service over the server\'s own cart, priced by the '
+    'existing per-line calculation, in whole minor units with per-line AND per-cart magnitude bounds). A sale '
+    'posting LESS than it costs is not charged the lower figure; a sale posting MORE is not charged the higher '
+    'one; a float-error cart collects what it charges; and a wallet sale costing zero or less is REFUSED rather '
+    'than credited, which was a second money defect this lane found and fixed. Proved on FIVE readings over four '
+    'engines: SQLite in memory and MariaDB 10.11.14 locally, MySQL 8 and MariaDB 11.4.2 in CI\'s existing till '
+    'group, and MariaDB 11.4.2 in STRICT mode -- 74 tests / 266 assertions in the lane\'s own file, 133 / 505 in '
+    'the enclosing till group. NOT PROVED, and this is the whole reason for CODED: "IN WHOLE CENTS". In '
+    'multi-currency mode the figure that lands in the order amount, the paid amount, the wallet transaction and '
+    'the customer\'s balance is the BASE-CURRENCY EQUIVALENT -- 30.448 at a 3.75 rate -- which is not a whole '
+    'number of minor units; and the line-level money (the order line\'s tax and the order-tax rows) is not on '
+    'the same integer grid as the total. Closing it needs either an owner decision that removes the '
+    'base-currency round trip so the STORED figure is integral too, or a rewording that claims only '
+    'single-currency mode, plus the line-level money brought onto the same grid. All three are the owner\'s to '
+    'decide. SEPARATELY, and claimed for no criterion: the lane found by reading its OWN CI that its head went '
+    'red on the strict-mode job where the base is green -- six failures, all three VAT tests on both tills -- '
+    'because the order-tax rows were written with empty strings where a strict server requires null, so A TAXED '
+    'SALE COULD NOT BE WRITTEN AT ALL ON A STRICT SERVER. It fixed that in the shared order writer, which every '
+    'order writer on the platform goes through, and the strict-mode job is SUCCESS at the final head (4154 tests '
+    '/ 35979 assertions). Branch gcc/p1-till-charges-the-server-total head '
+    'd94390f3ad94d288448894836389b18f90d016ea, PR 168 (draft, based on gcc/p1-pos-refuses-over-quantity, NOT '
+    'main). CI run 45089049325 at that head, read AFTER it finished: 23 jobs, 18 SUCCESS and 5 FAILURE -- and '
+    'the BASE branch\'s own run 45033640756 at 60f5a605 has 18 SUCCESS and 5 FAILURE with THE SAME FIVE JOB '
+    'NAMES (address tests on both engines, both SQLite whole-suite jobs, and the by-design deployment overlay), '
+    'so this head adds no red. I read both runs and compared their failing job names myself. The four address '
+    'failures belong to the BASE branch line, were not in the known pre-existing red list, and are tracked '
+    'separately: that base cannot land while they are red.'
+)
+
+_load_all_before_e11c6 = load_all
+
+
+def load_all():
+    data = _load_all_before_e11c6()
+    found = False
+    for unit in data:
+        for requirement in data[unit]['reqs']:
+            if requirement['id'] == 'E-11' and len(requirement['ac']) > 5:
+                requirement['ac'][5]['s'] = 'CODED'
+                requirement['ac'][5]['e'] = requirement['ac'][5]['e'] + ' // ' + _E11C6
+                found = True
+    if not found:
+        raise SystemExit('E-11 c6 block: the criterion was not found')
+    return data
+
+
+# ---------------------------------------------------------------------------
+# Customer app: the four criteria whose only gap was that no test built a screen.
+#
+# Three are MET and one stays CODED -- and the one that stays CODED does so
+# because its sentence is measurably FALSE as worded, which is an owner decision
+# and not a missing test.
+#
+# The review pass committed NOTHING, on purpose: it found no defect in the batch
+# that a code change would fix (eleven mutations, including every survivor the
+# record names, all killed), the three claim defects it did find were in the
+# build agent's REPORT rather than in the repository, and leaving the head where
+# it was keeps the CI evidence attached to the head that was actually measured.
+# That is the right call and worth recording as such.
+#
+# IT ALSO CORRECTED AN ERROR OF MINE. My brief gave "902 passed with storefronts
+# off, 960 with them on" as the bar this head had to clear. Those are the J-11
+# BRANCH's figures, not main's: gcc/j11-push-per-storefront is not an ancestor of
+# main and has ten commits outside it, which I have now confirmed myself. Main
+# measures 787 off and 838 on, which the lane measured in a second worktree
+# rather than assuming. The batch takes it to 809 and 865.
+#
+# What I checked myself:
+#   * head gcc/integration aee6c98ac6643aa79fdcb86c1ef4bcbd1337dddd, main still
+#     9743e5ed;
+#   * the whole diff against main is NINE files -- the workflow, five new test
+#     files, two broadened test files, and ONE lib deletion of 62 lines
+#     (ordered_change_amount_widget.dart, dead code that wrote money by
+#     interpolation);
+#   * tool/analyze_baseline.txt is byte-identical to main's and still reads 255,
+#     so the gate was not widened to make room;
+#   * CI run 45095661044 on that head: conclusion SUCCESS, all four jobs --
+#     storefront-header with 26 named steps all green, analyze-whole-project at
+#     255 findings and 0 errors against a recorded 255, and both whole-suite jobs.
+# ---------------------------------------------------------------------------
+
+_APPSCREENS_HEAD = (
+    ' // CUSTOMER APP, THE SCREENS BUILT AND READ. Head gcc/integration '
+    'aee6c98ac6643aa79fdcb86c1ef4bcbd1337dddd (main still 9743e5ed; no pull request, per the owner\'s '
+    'instruction to use the unified branches). The whole diff against main is nine files: the workflow, five new '
+    'test files, two broadened test files, and one lib deletion of 62 lines -- a dead widget that wrote money by '
+    'interpolation and no screen used. tool/analyze_baseline.txt is byte-identical to main\'s and still reads '
+    '255, so the analyzer gate was not widened. CI run 45095661044 at that head: conclusion SUCCESS, all four '
+    'jobs -- storefront-header with 26 named steps every one green (four of them new and named for these '
+    'criteria), analyze-whole-project at 255 findings with 0 errors against a recorded 255, and both whole-suite '
+    'jobs, 809 passed with storefronts off and 865 with them on. Main itself measures 787 and 838, measured in a '
+    'second worktree: the figures 902/960 that an earlier brief of mine called the bar are the unmerged J-11 '
+    'BRANCH\'s, not main\'s, and the lane caught that error of mine. I read the head, the nine-file diff, the '
+    'baseline file and that CI run myself. The review pass committed nothing, having found no defect a code '
+    'change would fix: eleven mutations, including every survivor the record names, all killed.'
+)
+
+_APPSCREENS = [
+    ('J-05', 3, 'MET',
+     'MET. The three money survivors the record names now each fail, run one line at a time against the object '
+     'the application itself builds: the cart\'s line price rewritten as the number interpolated beside the '
+     'literal text of a currency -- 2 tests failed with the flag on and 2 with it off, WHILE THE SOURCE SCAN '
+     'STAYED GREEN, which is the whole point, because the built screen catches what no scan can; the more '
+     'screen\'s wallet balance rewritten the same way -- 1 failed in each build, scan green; and a coupon '
+     'minimum written with a number formatter in a directory the old scan did not cover -- 1 failed, so the '
+     'whole-lib group genuinely closes that blind spot. The app\'s own cart and checkout screens are BUILT '
+     'through the app\'s provider tree, and so are the wallet card as the wallet screen builds it, the more '
+     'screen\'s wallet tile and the checkout\'s coupon card, and the amounts are read off them as a customer '
+     'would read them. The inventory was also broadened from six directories to the whole of lib. NOT PROVED: '
+     'nothing ran on a device, and at one screen width and one text size. SEVEN files in these features write an '
+     'amount and are built by no test, so they rest on the scan alone -- three wallet widgets, two checkout '
+     'payment widgets and two refund widgets, plus a shop coupon item. The scan sees four shapes only, so an '
+     'amount written by interpolation on one of those unbuilt surfaces would still go unseen; the lane recorded '
+     'that rather than narrowing the scan to hide it.'),
+
+    ('I2-13', 1, 'MET',
+     'MET. Every lever the record named as a scan survivor now fails something, and the reviewer ran five '
+     'mutations itself rather than reading the build agent\'s figures. The two levers the screens have are a '
+     'gate that never shows the notice and a gate that never switches a button off, and the call sites were read '
+     'to be sure both are covered: the cart\'s tap gate moved into a comment failed the press test; a false '
+     'conjunct on the cart\'s notice condition failed three; the checkout\'s notice block commented out failed '
+     'two, in English and in Arabic; a notice that draws nothing failed five; and, for dormancy, the guard '
+     'removed from the choice\'s may-sell answer with the flag off failed two. NOT PROVED: nothing ran on a '
+     'device, at one width and one text size. The server\'s list of storefronts is written by the test, not '
+     'fetched. The screens are built over loose stand-ins for the services their controllers call, so what the '
+     'server would answer is not exercised -- only what the screens draw from the gate. The notice is proved to '
+     'be IN the built tree with the right words; it is NOT proved to be laid out at a non-zero size or inside '
+     'the viewport, so a notice present but drawn to zero height would still pass. "Blocks checkout" is proved '
+     'at the two places a customer presses and at the controller\'s own refusal, not for every route by which a '
+     'customer might arrive at the checkout screen.'),
+
+    ('B-16', 5, 'MET',
+     'MET. The coupon surface the checkout actually shows is BUILT -- the app\'s own coupon-apply widget and the '
+     'bottom sheet it opens -- and read, rather than the controller\'s fields being inspected; the coupon is '
+     'applied the way a customer applies one, through the real controller over a server that grants a discount. '
+     'The reviewer tested this itself because it was the one MET claim it had no independent evidence for, with '
+     'two one-line mutations: the storefront-change handler no longer clearing the discount failed "no longer '
+     'sees the coupon, nor its discount, on the card" -- which is exactly the right test, because the card\'s '
+     'applied state is driven by that very field, read in the widget\'s source; and the dormancy guard removed '
+     'failed its own test. NOT PROVED: nothing ran on a device. Nothing here says what the server does with a '
+     'coupon code belonging to another storefront -- the app simply no longer holds it. The move is made by '
+     'calling the app\'s own notifier directly; that the chooser reaches it rests on a separate switcher test '
+     'rather than end to end in one test. Two other coupon surfaces are built by no test. The HTTP and local '
+     'caches the notifier clears are recorded rather than cleared in this file, so it proves the coupon half '
+     'only; the cache half rests on the pre-existing storefront cache tests.'),
+]
+
+_I2105 = (
+    'STILL CODED, and the reason is now MEASURED: THE CRITERION\'S LAST CLAUSE IS FALSE AS WORDED. The screen '
+    'half is now behaviour on the real screens and it discriminates -- four one-line mutations each killed: the '
+    'cart\'s Checkout tap gate moved into a comment (a lever the build agent never mutated), a false conjunct '
+    'on the cart\'s notice condition, the checkout\'s notice block commented out, and a notice that draws '
+    'nothing. But the clause "no order, payment or wallet top-up request leaves the app" cannot be claimed: the '
+    'four due-payment paths of an order a customer already has, and ordering it again, are payment and order '
+    'requests, and ALL FIVE DO leave the app on a storefront the server has marked browse-only -- measured one '
+    'by one in a test written to MEASURE them, not to guard them, since a guard added to any of the five fails '
+    'it and the backend keeps due payments open by design. So this criterion waits on a wording decision: narrow '
+    'it to the paths that START a sale, or close the open owner question on "order again". It is not waiting on '
+    'a test. NOT PROVED beyond that: nothing ran on a device, at one width and one text size; the list of '
+    'storefronts is written by the test, not fetched; and the screens run over loose stand-ins, so nothing here '
+    'says what the server does with a request that does leave.'
+)
+
+_load_all_before_appscreens = load_all
+
+
+def load_all():
+    data = _load_all_before_appscreens()
+    pending = {(rid, idx) for rid, idx, _, _ in _APPSCREENS} | {('I2-10', 5)}
+    for unit in data:
+        for requirement in data[unit]['reqs']:
+            for rid, idx, state, evidence in _APPSCREENS:
+                if requirement['id'] == rid and idx < len(requirement['ac']):
+                    requirement['ac'][idx]['s'] = state
+                    requirement['ac'][idx]['e'] = requirement['ac'][idx]['e'] + ' // ' + evidence + _APPSCREENS_HEAD
+                    pending.discard((rid, idx))
+            if requirement['id'] == 'I2-10' and len(requirement['ac']) > 5:
+                requirement['ac'][5]['e'] = requirement['ac'][5]['e'] + ' // ' + _I2105 + _APPSCREENS_HEAD
+                pending.discard(('I2-10', 5))
+    if pending:
+        raise SystemExit('app-screens block: these criteria were not found: %s' % sorted(pending))
+    return data
+
+
+_load_all_before_baseline_anchors = load_all
+_BASELINE_ANCHORS = json.load(open(os.path.join(T.MASTER, 'evidence-baseline-anchors.json')))
+
+
+def load_all():
+    """Anchors the pre-integration evidence triples at the frozen main they describe.
+
+    A triple written against origin/main that pins what main did BEFORE the GCC integration reads as a
+    failure once the integration changes that line, though nothing regressed. Each such triple is listed in
+    data/evidence-baseline-anchors.json and is re-anchored here to its repository's frozen pre-integration
+    main. An entry that no longer matches a triple, or whose pattern is no longer at the baseline, stops the
+    run, so the list cannot rot silently and cannot excuse a real regression.
+    """
+    data = _load_all_before_baseline_anchors()
+    baselines = _BASELINE_ANCHORS['baselines']
+    wanted = {(a['req'], a['repo'], a['path'], a['pattern']): a for a in _BASELINE_ANCHORS['anchors']}
+    used = set()
+    for unit in data:
+        for requirement in data[unit]['reqs']:
+            for evidence in requirement.get('evidence', []):
+                if evidence['ref'] != 'origin/main':
+                    continue
+                key = (requirement['id'], evidence['repo'], evidence['path'], evidence['pattern'])
+                if key not in wanted:
+                    continue
+                baseline = baselines[evidence['repo']]
+                text = T.blob(evidence['repo'], baseline, evidence['path'])
+                if text is None or evidence['pattern'] not in text:
+                    raise SystemExit('baseline anchor no longer holds at %s: %s %s' % (baseline, requirement['id'], evidence['path']))
+                evidence['ref'] = baseline
+                used.add(key)
+    stale = sorted(key[:3] for key in wanted if key not in used)
+    if stale:
+        raise SystemExit('evidence-baseline-anchors.json has %d entry/entries that match no triple: %s' % (len(stale), stale))
+    for unit in data:
+        for requirement in data[unit]['reqs']:
+            if any(key[0] == requirement['id'] for key in used):
+                requirement['evidence_failures'] = T.check_evidence(requirement)
+    return data
+
+
 def main():
     out_dir = sys.argv[1]
     asof = sys.argv[2]
@@ -4068,6 +5470,9 @@ def main():
     fails = [(u, r['id'], f) for u, d in all_reqs.items() for r in d['reqs'] for f in r.get('evidence_failures', [])]
     print('requirements:', total['n'], 'criteria:', total['ac'], 'MET', total['met'], 'CODED', total['coded'], 'implemented %.1f%% proven %.1f%% release %.1f%%' % (total['implemented_pct'], total['proven_pct'], total['release_pct']))
     print('evidence failures:', len(fails))
+    if os.environ.get('GCC_LIST_EVIDENCE_FAILURES'):
+        for unit, req_id, failure in fails:
+            print('  %s %s %s' % (unit, req_id, failure))
 
 
 if __name__ == '__main__':

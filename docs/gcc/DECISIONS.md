@@ -101,3 +101,31 @@ After those defects close, continue every requirement of the six-country plan. T
 ### 5. Testing posture during development
 
 Focused tests during development; the heavy comprehensive verification campaigns belong to the final phase. **A security or financial defect is never deferred for that reason.**
+
+## 2026-11-23 — Owner decision: per-country wallets (GCC-15), and what it blocks
+
+Recorded from the owner's instruction of this date. It settles a question two merged lanes had
+answered differently, so read it before touching the wallet, the ledgers or storefront money.
+
+1. **Each country has its own wallet in its own currency.** Paying across countries' currencies is
+   forbidden, and so is converting a balance from one to another automatically. There is no single
+   balance that spends everywhere.
+2. **Wallet checkout stays closed in every country whose independent wallet is not implemented
+   yet**, and the refusal is to be tested as the behaviour it is. This is already how main behaves:
+   `EnsureWalletIsOpenInStorefront` answers 403 while a storefront trades in its own currency —
+   because the balance is one number in the platform's money — and
+   `tests/Feature/Storefront/StorefrontWalletClosedTest` pins it with nine tests, including that no
+   order is saved and not a coin is taken. Nothing was rebuilt for this decision; it was already
+   true and is now the written rule.
+3. **E-05 ledger attribution is NOT to be merged until it agrees with the above.** It does not
+   today: `WalletCheckoutLedgerTest` drives a wallet checkout in AE, KW, QA, BH and OM and expects
+   200, which is the path item 2 forbids, so seven of its cases fail against main on both engines.
+   Its migration also joins the list in `CustomerTablesAreNotRewrittenTest` of migrations that
+   change a customer table the guard cannot name by reading the source — a deliberate gate, not a
+   defect. Whoever resumes it should expect to replace those seven cases with the refusal, and to
+   let the migration name its tables, rather than to weaken either guard.
+4. Independent fixes merge once their required tests pass; **no production deployment.**
+
+The seller app's version gate is a separate matter and is not a reason to lower a security
+minimum: the shipped version is raised to meet the backend's published minimum, never the minimum
+lowered to clear the lock.
