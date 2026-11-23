@@ -358,7 +358,6 @@ class PaymobController extends Controller
             if ($payment_data === null) {
                 return $this->payment_response($waiting, 'fail');
             }
-
             if (function_exists($payment_data->success_hook)) {
                 call_user_func($payment_data->success_hook, $payment_data);
             }
