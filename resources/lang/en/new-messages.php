@@ -11346,4 +11346,10 @@ return [
 	'claimed_ledger_entries' => 'Claimed ledger entries',
 	'user_not_found' => 'User not found',
 	'Invalid_OTP' => 'Invalid OTP',
+	'Order_Edit_successfully' => 'Order Edit successfully',
+	'Minimum_Order_Amount_Requirement_Completed' => 'Minimum Order Amount Requirement Completed',
+	'Unit_is_required!' => 'Unit is required!',
+	'Shipping_cost_is_required!' => 'Shipping cost is required!',
+	'coupon_not_found' => 'Coupon not found',
+	'coupon_update_successfully' => 'Coupon update successfully',
 ];

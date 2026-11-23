@@ -557,6 +557,11 @@ class StaffSixCountryMatrixTest extends TestCase
             foreach ([...array_map(static fn (int $product): array => [$product], $products), [$products[0], $products[1]], [$products[2], $products[0]]] as $cart) {
                 $this->withSession(['current_user' => 'walk-in-customer-1', 'walk-in-customer-1' => [...array_map(static fn (int $id): array => ['id' => $id, 'customerId' => 0, 'customerOnHold' => false, 'quantity' => 1, 'price' => 10, 'name' => "P{$id}", 'productType' => 'physical', 'image' => [], 'discount' => 0, 'variant' => null, 'variations' => []], $cart), 'add_to_cart_time' => now()]]);
                 $inScope = array_reduce($cart, fn (bool $all, int $id): bool => $all && in_array($this->productCountry[$id], $scope, true), true);
+                // Two rules, and both have to hold. The SCOPE decides what this employee may touch at all, and a product outside it
+                // is hidden: the till answers 404. D1-02 decides what one order may invoice -- one country and one selling company --
+                // and that holds even when every product IS in scope, because no company may invoice another company's sale. The
+                // till's own answer shape for that is an empty 200 with a toast, which is how it refuses everything else.
+                $oneCountry = count(array_unique(array_map(fn (int $id): string => $this->productCountry[$id], $cart))) === 1;
                 $before = (int) DB::table('orders')->max('id');
                 // Read, not predicted: OrderManager numbers a till order from the highest id already in the 100000 series, so
                 // counting every order in the table named the wrong one once the fixture seeded low-numbered orders too.
@@ -564,15 +569,18 @@ class StaffSixCountryMatrixTest extends TestCase
 
                 $response = $this->postJson('/admin/pos/order-place', ['amount' => 10 * count($cart), 'type' => 'cash', 'paid_amount' => 10 * count($cart)]);
 
-                if ($inScope) {
+                if ($inScope && $oneCountry) {
                     $response->assertOk();
                     $this->assertGreaterThan($before, (int) DB::table('orders')->max('id'), $name . ': the order of ' . implode(',', $cart) . ' is placed');
                     $number = (int) collect(DB::table('orders')->pluck('id')->all())->diff($idsBefore)->first();
                     $this->assertSame($number, (int) DB::table('orders')->max('id'), $name . ': the order just placed is the newest');
                     $this->assertContains($number, $this->ordersListed('/admin/orders/list/all'), $name . ': it is theirs');
-                } else {
+                } elseif (!$inScope) {
                     $response->assertNotFound();
                     $this->assertSame($before, (int) DB::table('orders')->max('id'), $name . ': nothing is placed with ' . implode(',', $cart));
+                } else {
+                    $response->assertOk();
+                    $this->assertSame($before, (int) DB::table('orders')->max('id'), $name . ': a cart of two countries wrote an order with ' . implode(',', $cart));
                 }
             }
         }

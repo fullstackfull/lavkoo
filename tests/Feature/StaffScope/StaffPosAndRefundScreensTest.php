@@ -200,7 +200,17 @@ class StaffPosAndRefundScreensTest extends TestCase
         $this->assertSame(1, DB::table('orders')->where('id', 100003)->count());
     }
 
-    public function test_an_order_placed_by_the_master_admin_with_products_of_two_countries_stays_possible_and_is_hidden_from_each_single_country(): void
+    /**
+     * Owner's decision (D1-02): one order names one country and one selling company, so a till cart holding two countries is
+     * REFUSED -- even for the master admin, who is refused nothing else.
+     *
+     * This case was written for the earlier rule, where such an order went through and was then hidden from each single-country
+     * employee. Permission and invoicing are two different questions: the master admin may SEE and sell both countries' products,
+     * and still no single order may invoice both, because no company may invoice another company's sale. The refusal is the till's
+     * own answer shape -- an empty 200 with a toast, which is how every other till refusal answers -- not a 404, because nothing
+     * here is hidden from this admin.
+     */
+    public function test_a_till_cart_of_two_countries_is_refused_even_for_the_master_admin(): void
     {
         $this->switchStaffScopesOn();
         $this->giveCountries(adminId: 7, countries: ['KW']);
@@ -209,10 +219,32 @@ class StaffPosAndRefundScreensTest extends TestCase
         $idsBefore = DB::table('orders')->pluck('id')->all();
 
         $this->postJson('/admin/pos/order-place', ['amount' => 20, 'type' => 'cash', 'paid_amount' => 20])->assertOk();
-        $nextNumber = (int) collect(DB::table('orders')->pluck('id')->all())->diff($idsBefore)->first();
 
-        $this->assertSame(1, DB::table('orders')->where('id', $nextNumber)->count());
-        $this->assertNotContains($nextNumber, $this->idsPrinted($this->signInAsStaff(adminId: 7)->get('/admin/orders/list/all'), '/\[order:(\d+)\]/'));
+        $this->assertSame($idsBefore, DB::table('orders')->pluck('id')->all(), 'a cart of two countries wrote an order');
+        // Scoped to orders that did not exist before: the fixture seeds lines for products 1 and 2 on its own orders, so counting
+        // every line of those products counts those too.
+        $this->assertSame(0, DB::table('order_details')->whereNotIn('order_id', $idsBefore)->count(), 'and it wrote no lines either');
+    }
+
+    /**
+     * The other half of the same decision: each country's products still sell, one order at a time. Without this, "two countries
+     * are refused" could be satisfied by a till that refuses everything.
+     */
+    public function test_each_country_of_that_cart_sells_on_its_own(): void
+    {
+        $this->switchStaffScopesOn();
+        $this->signInAsStaff(adminId: 1);
+
+        foreach ([[2], [1]] as $cart) {
+            $this->putCart($cart);
+            $idsBefore = DB::table('orders')->pluck('id')->all();
+
+            $this->postJson('/admin/pos/order-place', ['amount' => 10, 'type' => 'cash', 'paid_amount' => 10])->assertOk();
+            $placed = (int) collect(DB::table('orders')->pluck('id')->all())->diff($idsBefore)->first();
+
+            $this->assertSame(1, DB::table('orders')->where('id', $placed)->count(), 'the cart of product ' . $cart[0] . ' is placed');
+            $this->assertSame([$cart[0]], DB::table('order_details')->where('order_id', $placed)->pluck('product_id')->map(static fn ($id): int => (int) $id)->all());
+        }
     }
 
     // ---- the refunds: lists and exports -----------------------------------------------------------------------------------------------

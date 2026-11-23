@@ -4932,4 +4932,6 @@ ____________________________________________________on_search_engines_and_see_th
 	'name_the_market_this_product_belongs_to_your_account_works_in_more_than_one' => 'حدّد السوق الذي ينتمي إليه هذا المنتج: حسابك يعمل في أكثر من سوق',
 	'this_action_covers_every_market_of_the_shop_and_your_account_does_not' => 'هذا الإجراء يشمل كل أسواق المتجر، وحسابك لا يشملها',
 	'totals_of_different_currencies_are_not_added' => 'لا تُجمع مبالغ بعملات مختلفة',
+	'probe_api_locale_one' => 'Probe api locale one',
+	'probe_api_locale_two' => 'Probe api locale two',
 ];
