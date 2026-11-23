@@ -106,15 +106,53 @@ class VendorLedgerLegalEntityTest extends TestCase
 
     // ---- the way back ----------------------------------------------------------------------------------------------------------
 
-    public function test_with_the_switch_off_the_column_is_not_written_even_when_a_caller_names_a_company(): void
+    /**
+     * Owner's decision: once the column is there, it is FILLED, switch or no switch.
+     *
+     * This case was written for the opposite -- that the column stays empty until the registry is turned on -- and
+     * Tests\Feature\Marketplace\LedgerChainTest wanted the reverse in the same breath: "the column is filled before the switch is
+     * thrown, or there would be no history to split". The owner settled it for the filling. The reason is that a chain cannot be
+     * split retroactively: an entry written without a company can never be told which company earned it, so the day the switch is
+     * thrown the ledger before it is unattributable for good. Writing it early costs nothing while nothing reads it --
+     * areKeptApart() is what decides whether chains are TOLD APART, and that is still off.
+     */
+    public function test_once_the_column_exists_the_company_a_caller_names_is_written_whatever_the_switch_says(): void
     {
         $this->runCompanyMigrations();
 
         $entry = $this->ledger()->record(sellerId: self::SELLER, entryType: VendorLedgerEntry::TYPE_BONUS, credit: 10, legalEntityId: self::COMPANY_SA);
 
         $this->assertSame(10.0, $entry->balance_after);
-        $this->assertSame([$entry->id => null], $this->companiesOnTheLedger(), 'the ledger is the one ledger it has always been');
+        $this->assertSame([$entry->id => self::COMPANY_SA], $this->companiesOnTheLedger(), 'the company is recorded so the history can be split later');
+        $this->assertTrue($this->ledger()->recordsCompanies(), 'the column is there, so an entry carries a company');
+    }
+
+    /** And with no column there is nothing to write into, which is every installation that has not run the migration. */
+    public function test_without_the_column_a_company_a_caller_names_is_simply_not_recorded(): void
+    {
+        $entry = $this->ledger()->record(sellerId: self::SELLER, entryType: VendorLedgerEntry::TYPE_BONUS, credit: 10, legalEntityId: self::COMPANY_SA);
+
+        $this->assertSame(10.0, $entry->balance_after, 'the entry is written as it always was');
         $this->assertFalse($this->ledger()->recordsCompanies());
+    }
+
+    /**
+     * The filling is not the telling apart. While `gcc.ledgers.keyed_by_entity_and_currency` is off, two companies' entries are
+     * ONE balance -- the balance the platform has always shown -- even though each entry now names its company. This is what makes
+     * the decision safe: nothing a seller is paid changes until that switch is thrown.
+     */
+    public function test_the_company_is_recorded_without_the_balances_being_split(): void
+    {
+        $this->runCompanyMigrations();
+        config(['gcc.ledgers.keyed_by_entity_and_currency' => false]);
+
+        // Distinct references, or the second is read as a repeat of the first: VendorLedger refuses the same EVENT twice, and an
+        // event with no reference is the same event as another with none.
+        $this->ledger()->record(sellerId: self::SELLER, entryType: VendorLedgerEntry::TYPE_BONUS, credit: 100, status: VendorLedgerEntry::STATUS_AVAILABLE, referenceType: 'bonus', referenceId: 'saudi-bonus', legalEntityId: self::COMPANY_SA);
+        $this->ledger()->record(sellerId: self::SELLER, entryType: VendorLedgerEntry::TYPE_BONUS, credit: 60, status: VendorLedgerEntry::STATUS_AVAILABLE, referenceType: 'bonus', referenceId: 'emirates-bonus', legalEntityId: self::COMPANY_AE);
+
+        $this->assertSame([self::COMPANY_SA, self::COMPANY_AE], array_values($this->companiesOnTheLedger()), 'both entries name their company');
+        $this->assertSame(160.0, round((float) $this->ledger()->balances(sellerId: self::SELLER)['available'], 2), 'and the seller still has one balance');
     }
 
     public function test_with_the_switch_on_but_no_column_nothing_is_written_and_no_write_fails(): void
@@ -250,7 +288,13 @@ class VendorLedgerLegalEntityTest extends TestCase
         );
     }
 
-    public function test_a_refund_with_the_switch_off_is_the_refund_it_is_today(): void
+    /**
+     * The figures of a refund do not change with the switch, but the company does get recorded (owner's decision).
+     *
+     * And it is the company of the EARNING, read off that entry -- not whatever the registry answers once the switch is off, which
+     * is nothing. A reversal belongs to the company that took the money or it is money leaving a company that never received it.
+     */
+    public function test_a_refund_with_the_switch_off_keeps_its_figures_and_names_the_earnings_company(): void
     {
         $this->runCompanyMigrations();
         $this->turnSellingCompaniesOn();
@@ -263,9 +307,9 @@ class VendorLedgerLegalEntityTest extends TestCase
 
         $this->assertSame(['refund_debit' => 100.0, 'commission_credit' => 10.0], $reversal);
         $this->assertSame(
-            [self::COMPANY_AE, self::COMPANY_AE, null, null],
+            [self::COMPANY_AE, self::COMPANY_AE, self::COMPANY_AE, self::COMPANY_AE],
             array_values($this->companiesOnTheLedger()),
-            'the reversal records no company while the switch is off, and the figures are unchanged',
+            'the reversal goes back into the company that holds the earning, switch or no switch, and the figures are unchanged',
         );
     }
 
@@ -328,7 +372,7 @@ class VendorLedgerLegalEntityTest extends TestCase
         $this->assertSame(300.0, $back->credit);
     }
 
-    public function test_the_writers_with_no_order_name_no_company_while_the_switch_is_off(): void
+    public function test_the_writers_take_the_company_of_the_ledger_they_draw_on_while_the_switch_is_off(): void
     {
         $this->runCompanyMigrations();
         $this->turnSellingCompaniesOn();
@@ -339,8 +383,11 @@ class VendorLedgerLegalEntityTest extends TestCase
         $request = app(PayoutService::class)->requestPayout(sellerId: self::SELLER, amount: 300)['request'];
         app(PayoutService::class)->releaseReservation($request);
 
-        $this->assertNull(DB::table('vendor_ledger_entries')->where('reference_type', 'payout_reserve')->value(LegalEntityRegistry::COLUMN));
-        $this->assertNull(DB::table('vendor_ledger_entries')->where('reference_type', 'payout_release')->value(LegalEntityRegistry::COLUMN));
+        // The payout writers take the company from the ledger they draw on, which here is one company's, so the reserve and its
+        // release name it too. They are not asked to resolve a company of their own, and with the switch off there is none to
+        // resolve: this is the earning's company travelling with the money, the same rule the refund follows.
+        $this->assertSame(self::COMPANY_AE, (int) DB::table('vendor_ledger_entries')->where('reference_type', 'payout_reserve')->value(LegalEntityRegistry::COLUMN));
+        $this->assertSame(self::COMPANY_AE, (int) DB::table('vendor_ledger_entries')->where('reference_type', 'payout_release')->value(LegalEntityRegistry::COLUMN));
     }
 
     public function test_the_legacy_withdraw_mirror_carries_the_company_of_the_rows_it_is_mirrored_against(): void
