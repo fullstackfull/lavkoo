@@ -80,7 +80,6 @@ final class ChannelAccountCountry
     {
         return $account->channel === SalesChannel::Amazon->value ? $this->amazonCountry($account) : $this->settingCountry($account);
     }
-
     private function settingCountry(SalesChannelAccount $account): string
     {
         $setting = self::SETTINGS[$account->channel] ?? null;

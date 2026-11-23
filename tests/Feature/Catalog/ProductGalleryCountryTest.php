@@ -143,7 +143,6 @@ class ProductGalleryCountryTest extends TestCase
 
         return $rendered;
     }
-
     // ---- G9: the copy -----------------------------------------------------------------------------------------------------------
 
     /** @return array<string, array{0: string}> the forms that open a gallery product as the base of a new one */

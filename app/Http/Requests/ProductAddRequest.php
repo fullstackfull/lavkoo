@@ -84,7 +84,6 @@ class ProductAddRequest extends Request
             country: $this->countryOfNewProduct(codeScope: app(ProductCodeScope::class)),
         );
     }
-
     /** The country the add action saves the product in: the admin's choice while countries are tracked, the default of the table for everything else. */
     private function countryOfNewProduct(ProductCodeScope $codeScope): string
     {

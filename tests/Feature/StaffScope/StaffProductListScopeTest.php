@@ -94,7 +94,6 @@ class StaffProductListScopeTest extends TestCase
 
         return $this->signInAsStaff(adminId: 70);
     }
-
     /**
      * @param TestResponse|string $page the answer of a page, which must have been a success (the page of an error holds no id, and would pass for an empty list), or the
      *                                  markup a JSON answer carried

@@ -14,6 +14,7 @@ use App\Events\DigitalProductDownloadEvent;
 use App\Exceptions\InsufficientStockException;
 use App\Exceptions\WalletDebitFailedException;
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Services\CartService;
 use App\Services\Marketplace\InventoryService;
 use App\Services\OrderDetailsService;
@@ -74,6 +75,7 @@ class POSOrderController extends BaseController
         private readonly InventoryService                           $inventoryService,
     )
     {
+        $this->middleware(ScopeOrdersToStaffCountries::class);
     }
 
     /**

@@ -343,7 +343,6 @@ class CustomerTablesAreNotRewrittenTest extends TestCase
         // orders.legal_entity_id and the frozen identity columns beside it: which registered company sold the order.
         'database/migrations/2026_11_27_100100_add_legal_entity_to_orders_table.php (orders)',
     ];
-
     /** @return list<string> the guarded tables this body names */
     private function guardedTablesIn(string $deployed): array
     {
@@ -506,7 +505,6 @@ class CustomerTablesAreNotRewrittenTest extends TestCase
 
         return array_values(array_unique([...$tables, ...self::GUARDED]));
     }
-
     public function test_a_column_this_chain_adds_to_a_customer_table_leaves_every_existing_row_as_it_was(): void
     {
         $offences = [];

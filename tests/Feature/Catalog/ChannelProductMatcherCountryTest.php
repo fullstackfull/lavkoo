@@ -190,7 +190,6 @@ class ChannelProductMatcherCountryTest extends TestCase
 
         $this->assertSame(SalesChannelProductMapping::CONFLICT, $this->row()->status, 'nothing about the country is read while the switch is off');
     }
-
     public function test_with_the_switch_on_an_account_is_not_proposed_a_country_that_has_no_such_product(): void
     {
         $this->scopeCodesByCountry();

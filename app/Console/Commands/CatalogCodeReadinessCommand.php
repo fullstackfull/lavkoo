@@ -42,7 +42,6 @@ class CatalogCodeReadinessCommand extends Command
         if ($this->option('apply') && !$this->applyIndexes(report: $report, scope: $scope)) {
             return self::FAILURE;
         }
-
         $this->line($report['ready'] ? 'Ready: nothing in the catalogue blocks the switch.' : 'Not ready: fix what is listed above, then run this again.');
 
         return $report['ready'] ? self::SUCCESS : self::FAILURE;
@@ -112,7 +111,6 @@ class CatalogCodeReadinessCommand extends Command
 
         return true;
     }
-
     /** @param array<string, mixed> $report */
     private function printCountries(array $report): void
     {
@@ -210,7 +208,6 @@ class CatalogCodeReadinessCommand extends Command
 
             return;
         }
-
         $this->line(count($sites) . ' site(s) still read a code as one product, wholly or in part, or wait for the owner:');
         foreach ($sites as $site) {
             $this->line(sprintf('  %-4s %-12s %s: %s', $site['id'], str_replace('_', ' ', $site['status']), $site['where'], $site['note']));

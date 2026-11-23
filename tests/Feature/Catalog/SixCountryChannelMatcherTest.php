@@ -168,7 +168,6 @@ class SixCountryChannelMatcherTest extends TestCase
 
         $this->assertMatrixHolds($failures);
     }
-
     public function test_with_the_switch_off_no_account_is_narrowed(): void
     {
         $accounts = [

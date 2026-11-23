@@ -82,7 +82,6 @@ final class ProductCodeReadiness
             'absent_values' => DB::table(self::TABLE)->where(static fn ($query) => $query->whereNull($kind)->orWhere($kind, ''))->count(),
         ];
     }
-
     /** @return Collection<int, string> the columns that hold a lookup value: the barcode column is part of the baseline schema, but two services guard it, so it is not assumed */
     private function kindsOfCode(): Collection
     {

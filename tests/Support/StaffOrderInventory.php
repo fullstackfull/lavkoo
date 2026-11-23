@@ -30,6 +30,7 @@ use App\Http\Controllers\Admin\Settings\InhouseShopController;
 use App\Http\Controllers\Admin\Settings\OrderSettingsController;
 use App\Http\Controllers\Admin\Telemetry\AnalyticsController;
 use App\Http\Controllers\Admin\TransactionReportController;
+use App\Http\Controllers\Admin\V2AdvancedSearchController;
 use App\Http\Controllers\Admin\Vendor\VendorController;
 use App\Http\Controllers\Admin\VendorProductSaleReportController;
 use Modules\TaxModule\app\Http\Controllers\Admin\Reports\AdminTaxReportController;
@@ -143,6 +144,10 @@ final class StaffOrderInventory
         VendorTaxReportController::class => [
             'class' => self::SCOPED, 'slice' => 'slice 3',
             'reason' => 'The vendor tax reports and their exports sum the orders and taxes of the employee\'s countries; the raw sum over the orders table is narrowed by the same rule. Every action has a rule in StaffOrderRoutes.',
+        ],
+        V2AdvancedSearchController::class => [
+            'class' => self::SCOPED, 'slice' => 'slice 3', 'by' => 'the search',
+            'reason' => 'The header search of the new layout finds an order or a refund request by its number only when it is the employee\'s, and a product only when it is one of their countries\'. It narrows what it hands back, with no middleware: it fills a cache every employee shares (App\Services\Staff\StaffSearchHits).',
         ],
         ProductController::class => [
             'class' => self::NOT_NEEDED, 'slice' => null,

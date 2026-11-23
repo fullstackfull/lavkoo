@@ -144,7 +144,6 @@ class SaudiRouteSurfaceTest extends TestCase
         // in DECLARED_ADDITIONS.
         'GET api/v1/customer/order/digital-product-download/{id} | (none)' => 'replaced by the named, privatised route with an optional file name',
     ];
-
     /** @return list<string> one line per route of this tree, as the fixture spells them */
     private function routesHere(): array
     {

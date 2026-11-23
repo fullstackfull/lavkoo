@@ -81,6 +81,7 @@ class ProductCodeReadinessTest extends TestCase
 
         $output = $this->run_command()[1];
 
+        $this->assertNotEmpty(ProductCodeSites::notCovered(), 'the registry keeps the open sites');
         foreach (ProductCodeSites::notCovered() as $site) {
             $this->assertStringContainsString($site['id'], $output);
             $this->assertStringContainsString($site['where'], $output);

@@ -182,7 +182,6 @@ final class PlatformWriteScanner
 
     /** How the SQL of this project wraps an identifier: MySQL backticks, ANSI double quotes, or nothing. */
     private const SQL_IDENTIFIER = '[`"]?';
-
     /** @param list<string> $platformModels the platform's models whose save, create, update or delete would write one of its tables */
     public function __construct(private readonly array $platformModels)
     {

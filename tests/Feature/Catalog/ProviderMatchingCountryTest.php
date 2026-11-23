@@ -130,7 +130,6 @@ class ProviderMatchingCountryTest extends FulfillmentTestCase
             ['enabled' => 1, 'settings' => json_encode($settings), 'created_at' => now(), 'updated_at' => now()],
         );
     }
-
     // ---- E2: the picker --------------------------------------------------------------------------------------------------------
 
     public function test_with_the_switch_off_the_picker_offers_every_country(): void

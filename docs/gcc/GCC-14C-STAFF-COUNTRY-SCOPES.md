@@ -750,6 +750,7 @@ in the file of each controller. The scoped controllers are exactly the ones that
 | `Admin\Telemetry\AnalyticsController` | `GET admin/analytics/export/{dimension}` |
 | `Modules\TaxModule\Admin\Reports\AdminTaxReportController` |  |
 | `Modules\TaxModule\Admin\Reports\VendorTaxReportController` | `GET admin/report/vendor-tax-report`<br>`GET admin/report/vendor-tax-export` |
+| `Admin\V2AdvancedSearchController` |  |
 
 ### Routes that read or name an order, of the controllers that are not needed
 

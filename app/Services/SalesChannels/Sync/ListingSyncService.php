@@ -97,7 +97,6 @@ class ListingSyncService
         if ($this->accountCountry->sellsWhereWeHaveNoCatalogue($account)) {
             return;
         }
-
         $candidates = $this->matcher->candidates($listing->sku, $listing->barcode, $this->accountCountry->of($account));
         if (count($candidates) > 1) {
             $row->forceFill(['status' => SalesChannelProductMapping::CONFLICT, 'match_method' => 'ambiguous', 'suggested_product_id' => null])->save();

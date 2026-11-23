@@ -341,7 +341,6 @@ class PosScanCodeScopeTest extends TestCase
     {
         return (string) json_encode([['type' => 'Red', 'price' => 10, 'sku' => $sku, 'qty' => 3]]);
     }
-
     public function test_the_messages_of_the_two_refusals_exist_in_every_language_file(): void
     {
         foreach (['en', 'sa', 'ae'] as $locale) {

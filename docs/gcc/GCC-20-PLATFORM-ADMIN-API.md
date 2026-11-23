@@ -16,6 +16,7 @@ same 401 as any other refusal. The rest is for the operator (section 3: the gran
 **With the staff country scopes (GCC-14c) of the admin panel (section 12).** An admin who is also a restricted employee reaches only the markets of their grant that the staff scope leaves
 them, while `GCC_STAFF_COUNTRY_SCOPES` is on. What changes for the seller app is a value, never a shape: `markets` is shorter, and `scope` is `restricted` for an employee whose grant names every
 market. While that switch is off, for the master admin and for an employee with no row, nothing changes at all.
+
 ## 1. What it is
 
 A small JSON API under `/api/platform-admin/v1` with which the platform owner, signed in to the seller app as an **admin**, watches all six markets: whether each market is
