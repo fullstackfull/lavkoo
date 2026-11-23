@@ -46,7 +46,6 @@ use App\Services\Referral\ReferralRewardService;
 use App\Traits\CustomerTrait;
 use App\Traits\OrderEditManager;
 use App\Traits\PdfGenerator;
-use App\Utils\CustomerManager;
 use App\Utils\Helpers;
 use App\Utils\OrderManager;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
@@ -661,11 +660,11 @@ class OrderController extends BaseController
             && $order['customer_id'] != 0
             && !$this->walletTransactionRepo->getFirstWhere(params: ['reference' => 'pos_order_cancel_' . $order['id'], 'transaction_type' => 'order_refund'])
         ) {
-            $this->createWalletTransaction(
-                user_id: $order['customer_id'],
+            CustomerWalletWriter::record(
+                customerId: $order['customer_id'],
                 amount: usdToDefaultCurrency(amount: $order['order_amount']),
-                transaction_type: 'order_refund',
-                reference: 'pos_order_cancel_' . $order['id']
+                transactionType: 'order_refund',
+                reference: 'pos_order_cancel_' . $order['id'],
             );
         }
         if ($request['order_status'] == 'delivered') {

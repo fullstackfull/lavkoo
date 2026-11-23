@@ -12,6 +12,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Validator;
+use App\Services\Customer\CustomerWalletWriter;
+use App\Services\Customer\WalletPosting;
 
 class UserLoyaltyController extends Controller
 {

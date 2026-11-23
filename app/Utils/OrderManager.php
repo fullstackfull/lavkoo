@@ -66,6 +66,7 @@ use App\Services\Storefront\OneSellingCompanyPerOrder;
 
 
 use App\Services\DeliverySyria\DeliverySyriaConfigService;
+use App\Services\Customer\CustomerWalletWriter;
 
 
 class OrderManager
@@ -2568,7 +2569,6 @@ Log::warning('Delivery Syria: parcel saved successfully', [
             return true;
         });
     }
-
     public static function generateOrderAgain($request): array
     {
         $orderProducts = OrderDetail::where('order_id', $request->order_id)->get();

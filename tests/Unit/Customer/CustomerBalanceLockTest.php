@@ -30,7 +30,6 @@ class CustomerBalanceLockTest extends TestCase
         WalletTables::create();
         WalletTables::seedCustomer(customerId: self::CUSTOMER_ID, walletBalance: self::OPENING_BALANCE);
     }
-
     public function test_successful_write_commits_and_returns_its_result(): void
     {
         $result = CustomerBalanceLock::apply(self::CUSTOMER_ID, function (User $customer): string {

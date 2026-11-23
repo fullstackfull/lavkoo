@@ -22,7 +22,6 @@ use App\Models\OrderEditHistory;
 use App\Models\Review;
 use App\Traits\CommonTrait;
 use App\Models\User;
-use App\Utils\CustomerManager;
 use App\Utils\Helpers;
 use App\Utils\ImageManager;
 use App\Utils\OrderManager;
@@ -33,6 +32,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Fluent;
+use App\Services\Customer\CustomerWalletWriter;
 
 class DeliveryManController extends Controller
 {

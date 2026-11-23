@@ -74,6 +74,7 @@ use Illuminate\Support\Facades\Session;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use App\Services\Marketplace\PaymentRoutingService;
 use function App\Utils\payment_gateways;
+use App\Services\Customer\CustomerWalletWriter;
 
 class WebController extends Controller
 {
@@ -911,6 +912,8 @@ class WebController extends Controller
             foreach ($order_ids as $order_id) {
                 OrderManager::generateReferBonusForFirstOrder(orderId: $order_id);
             }
+
+            CustomerWalletWriter::record(customerId: $user->id, amount: Convert::default($paymentAmount), transactionType: 'order_place', reference: 'order payment');
         }
 
         if (session()->has('payment_mode') && session('payment_mode') == 'app') {

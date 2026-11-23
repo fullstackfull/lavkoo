@@ -6,9 +6,6 @@ use App\Contracts\Repositories\CustomerRepositoryInterface;
 use App\Contracts\Repositories\LoyaltyPointTransactionRepositoryInterface;
 use App\Contracts\Repositories\OrderDetailRepositoryInterface;
 use App\Contracts\Repositories\PhoneOrEmailVerificationRepositoryInterface;
-use App\Models\BusinessSetting;
-use App\Models\User;
-use App\Models\WalletTransaction;
 use Carbon\CarbonInterval;
 use Illuminate\Support\Carbon;
 use App\Utils\Helpers;
@@ -88,7 +85,6 @@ trait CustomerTrait
             return true;
         });
     }
-
     public function checkCustomerOTPBlockTimeOrInvalid(object|array|null $verificationData, string|null $identity): array
     {
         $maxOTPHit = getWebConfig(name: 'maximum_otp_hit') ?? 5;

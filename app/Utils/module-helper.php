@@ -13,12 +13,12 @@ use App\Services\Payments\WalletTopUpRegister;
 use App\Services\Storefront\PaymentStorefront;
 use App\Services\Storefront\StorefrontTax;
 use App\Utils\Convert;
-use App\Utils\CustomerManager;
 use App\Utils\OrderManager;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\TaxModule\app\Models\SystemTaxSetup;
 use Modules\TaxModule\app\Models\Tax;
+use App\Services\Customer\CustomerWalletWriter;
 
 if (!function_exists('digital_payment_success')) {
     /** The gateway reports back in a request that names no storefront, so the order is built in the storefront the payment was started in. */

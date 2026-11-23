@@ -95,7 +95,6 @@ class CustomerManager
             return true;
         });
     }
-
     public static function create_loyalty_point_transaction($user_id, $reference, $amount, $transaction_type): bool
     {
         $settings = array_column(BusinessSetting::whereIn('type', ['loyalty_point_status', 'loyalty_point_exchange_rate', 'loyalty_point_item_purchase_point'])->get()->toArray(), 'value', 'type');

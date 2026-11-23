@@ -6,6 +6,7 @@ use App\Enums\LedgerActor;
 use App\Services\Storefront\LedgerOrigin;
 use App\Services\Storefront\RefundPayout;
 use App\Traits\CustomerTrait;
+use App\Services\Customer\CustomerWalletWriter;
 
 class RefundStatusService
 {

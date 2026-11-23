@@ -3,7 +3,6 @@
 namespace App\Repositories;
 
 use App\Contracts\Repositories\WalletTransactionRepositoryInterface;
-use App\Models\AddFundBonusCategories;
 use App\Models\WalletTransaction;
 use App\Models\BusinessSetting;
 use App\Models\User;
@@ -19,10 +18,7 @@ use Illuminate\Support\Str;
 class WalletTransactionRepository implements WalletTransactionRepositoryInterface
 {
     public function __construct(
-        private readonly WalletTransaction      $walletTransaction,
-        private readonly BusinessSetting        $businessSetting,
-        private readonly User                   $user,
-        private readonly AddFundBonusCategories $addFundBonusCategories,
+        private readonly WalletTransaction $walletTransaction,
     )
     {
     }

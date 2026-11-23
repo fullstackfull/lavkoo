@@ -37,6 +37,7 @@ use Illuminate\Support\Str;
 use InvalidArgumentException;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
 use Throwable;
+use App\Services\Customer\CustomerWalletWriter;
 
 class POSOrderController extends BaseController
 {

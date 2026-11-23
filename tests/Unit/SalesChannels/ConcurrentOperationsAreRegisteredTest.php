@@ -22,6 +22,19 @@ use RecursiveIteratorIterator;
  */
 class ConcurrentOperationsAreRegisteredTest extends TestCase
 {
+    /** Names the harness itself answers in `Operations::run()`'s match, so no registration file needs to name them. */
+    private const BUILT_IN = [
+        'probe_insert',
+        'dispatch_channel_order',
+        'mirror_managed_shipment',
+        'layers_from_purchase_orders',
+        'layer_purchase_order_tranche',
+        'stock.ingest_many',
+        'wallet.credit',
+        'wallet.hold_the_row',
+        'wallet.credit_once_locked',
+    ];
+
     /**
      * Names a test asks for ON PURPOSE without registering them.
      *
@@ -110,7 +123,15 @@ class ConcurrentOperationsAreRegisteredTest extends TestCase
         return array_values(array_unique($names));
     }
 
-    /** @return list<string> every name a concurrency test hands to ConcurrentRunner::run() or names as a worker's operation */
+    /**
+     * @return list<string> every name a concurrency test hands to ConcurrentRunner::run() or names as a worker's operation
+     *
+     * Three forms, because there are three. `ConcurrentRunner::run('x')` names the operation for every process; a test that
+     * builds its own list of workers writes `'operation' => 'x'` and maps it; and a single process is given a DIFFERENT
+     * operation from the rest with `'op' => 'x'` in its own arguments, which is the key ConcurrentRunner::run() itself reads.
+     * That third form was not scanned, so a name reaching the harness that way was invisible to this guard — exactly the
+     * thirty-seven-minutes-into-a-MariaDB-job case it exists to prevent.
+     */
     private function namesAskedForByTests(): array
     {
         $names = [];

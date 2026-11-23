@@ -513,6 +513,7 @@ class OrderController extends Controller
                 return response()->json(['message' => translate('The_following_items_in_your_cart_are_currently_out_of_stock')], 403);
             }
 
+            CustomerWalletWriter::record(customerId: $user->id, amount: Convert::default($paymentAmount), transactionType: 'order_place', reference: 'order payment');
             return response()->json([
                 'messages' => translate('order_placed_successfully'),
                 'order_ids' => $orderIds,
