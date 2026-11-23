@@ -19,11 +19,24 @@ class LedgerWritersAskForAttributionTest extends TestCase
     /** @var list<string> the names of the six writers of the two ledgers (OrderManager and CustomerTrait share one name): the generic `add()` of a repository is not a writer of a ledger, nothing calls it for one */
     private const WRITER_FUNCTIONS = ['create_wallet_transaction', 'createWalletTransaction', 'addWalletTransaction', 'create_loyalty_point_transaction', 'addLoyaltyPointTransaction'];
 
+    /**
+     * The writer whose method names are too common to match on their own: `record(` and `write(` would also catch
+     * VendorLedger::record, which is the seller ledger and nothing to do with this one. These are matched only when the call is
+     * qualified with the class, which is how every caller writes it.
+     *
+     * @var array<string, list<string>>
+     */
+    private const QUALIFIED_WRITER_FUNCTIONS = ['CustomerWalletWriter' => ['record', 'write']];
+
     /** @var array<string, int> the files that hold a writer, with the number of places in each that ask LedgerAttribution for the columns of the row */
     private const WRITERS = [
         'app/Utils/CustomerManager.php' => 2,
         'app/Utils/OrderManager.php' => 1,
         'app/Traits/CustomerTrait.php' => 1,
+        // CustomerWalletWriter arrived with the one-locked-writer work and three callers go through it, so it writes a wallet row
+        // like the rest and takes an origin like the rest. This census is the third to have been missing one of the writers --
+        // Tests\Unit\Wallet\OneWalletWriterTest was missing OrderManager and WalletBalanceWritersTest was missing this one.
+        'app/Services/Customer/CustomerWalletWriter.php' => 1,
         'app/Repositories/WalletTransactionRepository.php' => 1,
         'app/Repositories/LoyaltyPointTransactionRepository.php' => 1,
     ];
@@ -91,15 +104,16 @@ class LedgerWritersAskForAttributionTest extends TestCase
         $calls = [];
 
         foreach ($this->sources() as $file => $source) {
-            if (!preg_match('/' . implode('|', self::WRITER_FUNCTIONS) . '/', $source)) {
+            if (!preg_match('/' . implode('|', [...self::WRITER_FUNCTIONS, ...array_keys(self::QUALIFIED_WRITER_FUNCTIONS)]) . '/', $source)) {
                 continue;
             }
 
             $tokens = array_values(array_filter(PhpToken::tokenize($source), static fn (PhpToken $token): bool => !$token->isIgnorable()));
 
             foreach ($tokens as $index => $token) {
-                $isCall = $token->is(T_STRING) && in_array($token->text, self::WRITER_FUNCTIONS, true)
-                    && ($tokens[$index + 1]->text ?? '') === '(' && !($tokens[$index - 1] ?? null)?->is(T_FUNCTION);
+                $followedByCall = ($tokens[$index + 1]->text ?? '') === '(' && !($tokens[$index - 1] ?? null)?->is(T_FUNCTION);
+                $isCall = $token->is(T_STRING) && $followedByCall
+                    && (in_array($token->text, self::WRITER_FUNCTIONS, true) || $this->isQualifiedWriterCall(tokens: $tokens, index: $index));
 
                 if ($isCall) {
                     $calls[] = ['file' => $file, 'writer' => $token->text, 'arguments' => $this->argumentsAfter(tokens: $tokens, open: $index + 1)];
@@ -108,6 +122,22 @@ class LedgerWritersAskForAttributionTest extends TestCase
         }
 
         return $calls;
+    }
+
+    /**
+     * Whether the name at this index is one of the qualified writer's methods, called on that class: `Class :: method (`.
+     *
+     * @param list<PhpToken> $tokens
+     */
+    private function isQualifiedWriterCall(array $tokens, int $index): bool
+    {
+        if (($tokens[$index - 1]->text ?? '') !== '::') {
+            return false;
+        }
+
+        $class = $tokens[$index - 2]->text ?? '';
+
+        return in_array($tokens[$index]->text, self::QUALIFIED_WRITER_FUNCTIONS[$class] ?? [], true);
     }
 
     /** @param list<PhpToken> $tokens */

@@ -39,6 +39,18 @@ class WalletTransaction extends Model
         'payment_method',
         'created_at',
         'updated_at',
+        // The attribution of the movement (E-05). Every wallet writer records it the same way --
+        // $row->fill(app(LedgerAttribution::class)->of(...)) -- and fill() silently drops an attribute that is not
+        // listed here, so the five writers were asking for attribution and writing none of it. LoyaltyPointTransaction
+        // already listed these six; this model was left behind. They are set only by the writers, from
+        // LedgerAttribution, never from request input: the writers build the row themselves and pass no user data here.
+        'source_type',
+        'source_id',
+        'actor_type',
+        'actor_id',
+        'storefront_country',
+        'currency_code',
+        'legal_entity_id',
     ];
 
     /**
