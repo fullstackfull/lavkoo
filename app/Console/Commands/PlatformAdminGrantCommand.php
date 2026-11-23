@@ -88,7 +88,6 @@ class PlatformAdminGrantCommand extends Command
             $grant->countryList() === null ? 'every market' : implode(', ', $reach->granted),
         ));
     }
-
     /** What the grant does not give the admin: while the second factor is required they cannot sign in without a confirmed one; while it is not, nobody is asked for one. */
     private function adviseOnTheSecondFactor(int $adminId, PlatformAdminSettings $settings, PlatformAdminMfaFactors $factors): void
     {
