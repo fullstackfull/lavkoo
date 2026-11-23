@@ -15,8 +15,6 @@ use Illuminate\Support\Facades\Schema;
 #[Singleton]
 final class OrderLegalEntitySnapshot
 {
-    private const ENTITY_COLUMN = 'legal_entity_id';
-
     private const SNAPSHOT_COLUMN = 'entity_snapshot';
 
     /** How long a "no" is remembered, so a worker started before the migration notices it without a restart. A "yes" lasts for the process. */
@@ -43,10 +41,29 @@ final class OrderLegalEntitySnapshot
             return;
         }
 
-        DB::table('orders')->where('id', $orderId)->whereNull(self::ENTITY_COLUMN)->update([
-            self::ENTITY_COLUMN => $entity->id,
+        DB::table('orders')->where('id', $orderId)->whereNull(LegalEntityRegistry::COLUMN)->update([
+            LegalEntityRegistry::COLUMN => $entity->id,
             self::SNAPSHOT_COLUMN => json_encode($this->registry->identityOf($entity), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         ]);
+    }
+
+    /**
+     * The company an order was stamped with, for a writer whose money belongs to the same company as the order it came from: the seller's earning,
+     * the commission charged on it, and a correction of either.
+     *
+     * The order's own frozen stamp, never a fresh look at the registry: an order's company is decided once, when it is placed, and a later change of
+     * the registry must not reach money already recorded. Null while legal entities are off, before the migration has run, and for every order that
+     * carries no stamp, which is every order placed before the switch was thrown.
+     */
+    public function companyOf(int|string|null $orderId): ?int
+    {
+        if (!$orderId || !$this->recordsOrders()) {
+            return null;
+        }
+
+        $company = DB::table('orders')->where('id', $orderId)->value(LegalEntityRegistry::COLUMN);
+
+        return $company === null ? null : (int) $company;
     }
 
     private function columnsReady(): bool
@@ -57,7 +74,7 @@ final class OrderLegalEntitySnapshot
             return $answer['value'];
         }
 
-        $ready = Schema::hasColumn('orders', self::ENTITY_COLUMN) && Schema::hasColumn('orders', self::SNAPSHOT_COLUMN);
+        $ready = Schema::hasColumn('orders', LegalEntityRegistry::COLUMN) && Schema::hasColumn('orders', self::SNAPSHOT_COLUMN);
         $this->columnsAnswer = ['value' => $ready, 'at' => time()];
 
         return $ready;

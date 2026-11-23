@@ -106,6 +106,9 @@ final class StorefrontCurrency
 
         return match ($setting) {
             'system_default_currency', 'currency_model', 'decimal_point_settings' => $this->currencySettingOf(setting: $setting, currency: $storefront['currency']),
+            'system_default_currency' => (int) $storefront['currency']->id,
+            'currency_model' => self::SINGLE_CURRENCY_MODEL,
+            'decimal_point_settings' => $this->decimalsOf($storefront['currency']->code),
             'minimum_order_amount', 'free_delivery_over_amount' => $this->amountOf(country: $storefront['country'], setting: $setting, currencyCode: $storefront['currency']->code),
             default => self::NEUTRAL_AMOUNT,
         };
@@ -475,6 +478,7 @@ final class StorefrontCurrency
     private function currencyInForce(): ?Currency
     {
         return $this->orderCurrency ?? $this->inForce()['currency'] ?? null;
+        return $this->inForce()['currency'] ?? null;
     }
 
     /** @return array{country: string, currency: Currency}|null the storefront whose money is in force and its currency, or null while the platform's settings stand */
@@ -491,6 +495,7 @@ final class StorefrontCurrency
         }
 
         $currency = $this->activeCurrency(StorefrontResolver::fromConfig()->currencyOf($country));
+        $currency = $this->activeCurrency($resolver->currencyOf($country));
 
         return $currency === null ? null : ['country' => $country, 'currency' => $currency];
     }

@@ -128,6 +128,7 @@ class Product extends Model
         'is_shipping_cost_updated',
         'temp_shipping_cost',
         'storefront_country',
+        'legal_entity_id',
     ];
 
     /**
@@ -186,8 +187,8 @@ class Product extends Model
         'digital_file_ready_storage_type' => 'string',
     ];
 
-    /** The owning country is a storefront rule, not part of what the apps read: no payload changes when the column appears. */
-    protected $hidden = ['storefront_country'];
+    /** The owning country and the company that sells it are storefront rules, not part of what the apps read: no payload changes when the columns appear. */
+    protected $hidden = ['storefront_country', 'legal_entity_id'];
 
     protected $appends = ['scan_code', 'is_shop_temporary_close', 'thumbnail_full_url', 'preview_file_full_url', 'color_images_full_url', 'meta_image_full_url', 'images_full_url', 'digital_file_ready_full_url'];
 

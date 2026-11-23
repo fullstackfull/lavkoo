@@ -90,6 +90,7 @@ Left by slice 4: the bulk import (no country on the import form: it always lands
 ## Rollback
 
 Switch `GCC_STOREFRONT_CURRENCY` off (and clear the config cache). No data was written by slices 1 to 4, so nothing has to be repaired: every storefront reads the platform settings again at once. Slice 5 writes only what an operator chooses to give with `gcc:storefront:money` (`storefront_money_<country>` rows, ignored while the switch is off); removing them is `--unset`, or deleting the rows. Step 11 writes only what an operator chooses to give with `gcc:storefront:tax` (a setup row for a storefront, and the taxes it names, which no other storefront reads); `--unset` switches the row off, and with the switch off nothing reads it.
+Switch `GCC_STOREFRONT_CURRENCY` off (and clear the config cache). No data was written by slices 1 to 4, so nothing has to be repaired: every storefront reads the platform settings again at once. Slice 5 writes only what an operator chooses to give with `gcc:storefront:money` (`storefront_money_<country>` rows, ignored while the switch is off); removing them is `--unset`, or deleting the rows.
 
 ## Tests
 

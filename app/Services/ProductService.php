@@ -7,6 +7,7 @@ use App\Events\RestockProductNotificationEvent;
 use App\Models\Color;
 use App\Services\Staff\StaffCountryScope;
 use App\Services\Marketplace\SellerMarketScope;
+use App\Services\Storefront\LegalEntityRegistry;
 use App\Services\Storefront\ProductCountry;
 use App\Services\Storefront\StorefrontCatalog;
 use App\Traits\FileManagerTrait;
@@ -624,8 +625,12 @@ class ProductService
         $countryAttributes = $addedBy == 'admin'
             ? ProductCountry::newProductAttributes(requestedCountry: $request['storefront_country'])
             : $this->sellerMarkets->newProductAttributes();
+        $countryAttributes = $addedBy == 'admin' ? ProductCountry::newProductAttributes(requestedCountry: $request['storefront_country']) : [];
+        // The company that sells the product follows from its country, through the registry, so the admin chooses the country once and never types the
+        // company. Nothing while legal entities are off, before the products migration has run, or while the country has no registered company.
+        $entityAttributes = app(LegalEntityRegistry::class)->newProductAttributes(country: $countryAttributes[StorefrontCatalog::COLUMN] ?? null);
 
-        return $countryAttributes + [
+        return $countryAttributes + $entityAttributes + [
             'added_by' => $addedBy,
             'user_id' => $addedBy == 'admin' ? auth('admin')->id() : auth('seller')->id(),
             'shop_id' => $shopId,

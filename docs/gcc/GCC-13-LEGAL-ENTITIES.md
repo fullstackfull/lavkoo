@@ -32,6 +32,32 @@ The header of an invoice has a right-hand block: the address of the shop and, wh
 
 Not changed on purpose: the logo, the terms and conditions, the seller's GST line of a vendor order, and the POS receipts (a narrow receipt that prints the shop name and does not print a tax number today). No invoice number is generated: the invoice still carries the order id. A number for each company (the series key is already registered and frozen on the order) needs the owner's rule for the format, the reset and the gaps, and, in some countries, a tax authority's own sequence (see the open decisions).
 
+## Step 3: the registry reaches products and the seller ledger
+
+The registry of step 1 had two readers, the order stamp and the invoice. Step 3 gives it the two it was blocking, both behind the same switch.
+
+| Piece | What it is |
+|---|---|
+| `products.legal_entity_id` | The company that sells a product: the company half of a product's selling scope, which `StorefrontCatalog::sellingScopeOf()` already read with no migration anywhere for it. Additive migration `2026_11_27_100200_add_legal_entity_to_products_table.php`, nullable, no index (an index on the country column beside it was measured on 200,000 products and made the selective seller and category lists 5 to 15 times slower); its rollback is refused while a product names a company |
+| `LegalEntityRegistry::forProduct($row, $country)` | The company that sells a product in a storefront: the one the product names, the country's for a product that names none. It reads an Eloquent `Product` and the plain products row of the query builder the same way, and answers null rather than throwing while the switch is off, before the migrations, with an empty registry, for a country with no active company, and when the company a product names is no longer active. A product is never quietly sold by a company it does not name, and a missing company never stops a sale |
+| `LegalEntityRegistry::newProductAttributes($country)` | What a new product is saved with, read by `ProductService::getAddProductData` beside the country attributes, so the admin chooses the country once and the company follows. A company named in the request is ignored, and a seller product carries none because it carries no country |
+| `_storefront-country.blade.php` | The company shown read only beside the country picker of the admin product form, in the same partial and the same shape as the country field. Nothing of it is drawn while the switch is off or while the country has no company |
+| `vendor_ledger_entries.legal_entity_id` | The company a seller's money was earned, charged or paid under. Additive migration `2026_11_27_100300_add_legal_entity_to_vendor_ledger_entries_table.php`, nullable, no index, and it does **nothing at all while the table is absent**: `vendor_ledger_entries` has no migration in this repository (the live table came from the installation dump, which is not in the tree), so the migration makes no claim about the live shape and alters no existing column. An index on a large live money table is the owner's to approve. Its rollback is refused while an entry names a company |
+| `VendorLedger::record(..., $legalEntityId)` | The company of a ledger row, recorded only while legal entities are on and the ledger has the column. `VendorLedger::recordsCompanies()` is the single gate and it asks the config switch **before** it reads any schema, so the live order, refund and payout paths make no extra query |
+
+### Which company each writer of the ledger carries
+
+Every one of the eight callers of `VendorLedger::record()` passed no company, so `legal_entity_id` was null on every row the running system wrote (the stated blocker on E-17.2 of the master tracker). Each now carries one, by the rule it can honour:
+
+| Writer | What it carries |
+|---|---|
+| `OrderManager` the order earning, and the commission charged on it | the **order's own frozen stamp** (`orders.legal_entity_id`), read once for both, so a registry that changes later never reaches money already recorded and the pair can never land in two different companies. The stamp has to exist when it is read, and it did not: `generateOrder` stamped the order *after* `addOrderDetailsData` had already written the money, so until this was corrected every ledger row of a running system named no company whatever the registry held. `addOrderDetailsData` now saves every line, stamps the order once, and only then records the money |
+| `RefundReversalService` the refund, and the commission given back | the company of the **earning they reverse**, read off that entry, and **none** when the line has no earning on the ledger at all. An earning that names none is reversed by entries that name none, so a reversal can never take one company negative while leaving the earning's over-credited; a line with no earning to agree with names no company rather than the order's stamp, for the same reason |
+| `PayoutService` the payout reserve, and the legacy withdraw mirror of `VendorController` | the one company of the rows they draw on, and **none** unless every row of that seller's ledger names that same one: a debit drawn on a pool that is not all one company's would otherwise be labelled with one of them. A missing company never blocks the write |
+| `PayoutService` money back after a failed transfer, and a released reservation | the company of the reservation they reverse |
+
+Whether a payout should instead be **drawn per company**, rather than on the seller's balance as a whole, is an owner decision that is still open; until it is taken, a reserve drawn on a mixed pool names no company rather than guessing one.
+
 ## Before it is switched on (staging only)
 
 1. Run the two migrations (they add one table and two nullable columns; check `@@version` and rehearse on a copy).
@@ -45,11 +71,12 @@ Going back: switch it off and clear the config cache. Orders already stamped kee
 
 - **Invoice numbers per company and the invoice's currency.** The invoice prints the frozen company (see above) but is still numbered by the order id, and the currency it prints is the one it always printed. A series for each company and an e-invoicing hand-off (ZATCA for the Saudi company, the other countries' systems) are separate slices that need the owner's rules.
 - **POS receipts** still print the shop's name and address.
-- **No per-company accounts**: gateway accounts, bank accounts, the wallet and loyalty ledgers, settlements and the Odoo company are still global (GCC-15, GCC-17 and the accounting integration).
+- **No per-company accounts**: gateway accounts, bank accounts, the customer wallet and loyalty ledgers, settlements and the Odoo company are still global (GCC-15, GCC-17 and the accounting integration). The **seller** ledger is the exception since step 3: every row it writes names the company the money belongs to. The customer wallet cannot name one at all yet — `users.wallet_balance` and `wallet_transactions` are one pot with no market, company or currency column, so there is nowhere to record it without building a wallet system first.
 - **No staff or report scope by company**, and the Super Admin money view has nothing to group by yet.
-- **No screen.** The registry is filled by the command; an admin page, or an endpoint of the platform admin API, can follow.
+- **No screen for the registry.** It is filled by the command; an admin page, or an endpoint of the platform admin API, can follow. The admin **product** form does show the company that sells a product, read only, since step 3.
 - The label `gcc.storefronts.legal.legal_entity` recorded on legal acceptances is not replaced by the registry yet.
-- `entity_snapshot` is stamped by `OrderStorefrontSnapshot`, which runs after the order's lines are saved. A path that creates an order without going through it (none is known today) would carry no company.
+- **No backfill.** `products.legal_entity_id` and `vendor_ledger_entries.legal_entity_id` ship null on every row that exists, and every reader treats null as "names no company": a product that names none is sold by its country's company, and a ledger row that names none is part of the one ledger the platform has always kept.
+- `entity_snapshot` is stamped by `OrderStorefrontSnapshot`, which `addOrderDetailsData` runs once the order's lines are saved and before its money is recorded. A path that creates an order without going through it carries no company; the seller app's POS writes its own lines and calls the stamp itself, and it writes no seller-ledger row.
 
 ## Owner decisions open
 
@@ -60,5 +87,7 @@ Going back: switch it off and clear the config cache. Orders already stamped kee
 5. Whether the tax registration label should differ by country ("VAT", "TRN", "Tax ID"). The invoice prints one neutral label, `Tax registration number`, for every company.
 
 ## Tests
+
+`tests/Feature/Marketplace`: `VendorLedgerLegalEntityTest` (25) covers the ledger's two migrations, every writer with the switch off and on, the refund rules and the two ledger readers, each by calling the writer directly with the world already in the state it reads. `OrderCompanyOnTheLivePathTest` (6) places real orders through `OrderManager::generateOrder` and reads the ledger afterwards — the earning and its commission, a refund of that order, the company a payout would be drawn on, an order of two countries, an empty registry, and the switch off — because the **order** of the steps is what was wrong and no test that starts from a stamped order can see it. Both run on SQLite and on MySQL 8 and MariaDB 11.4 in CI.
 
 `tests/Feature/Storefront`: `LegalEntityRegistryTest` (20: each country finds its own company, inactive and missing ones, the switches, the unique country, the frozen identity, flush, the requirement, the report, both migrations and their refused rollbacks), `OrderLegalEntitySnapshotTest` (stamping for each of the six storefronts, non-ASCII names, written once, a later change never rewrites it, the switches, a country without a company, a mixed order, before either migration, with and without the currency switch), `LegalEntityCommandsTest` (registering, partial updates, clearing, deactivating, every refusal, the list and its exit codes) and `LegalEntitySellingGateTest`; `OrderInvoiceIssuerTest` (26: an order with no usable record, ten shapes of it; each of the six companies printed from the order's own copy; only the facts a company has; trimming; an order as an array, an object, a model-like object and an already decoded record; a later change of the registry never reaching a stamped order; both switches; the partial's markup with and without a record, escaping) and, in the Address directory that already renders the real templates, three end-to-end cases each for the admin and vendor invoice (`PanelInvoiceTest`) and the customer's invoice (`StorefrontOrderPagesTest`): no record keeps the old line, a frozen company replaces it, legal entities off restores it. They run on SQLite and, because they sit in the Storefront directory, on MySQL 8 and MariaDB 11.4 in CI.

@@ -153,6 +153,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'storefront.wallet' => \App\Http\Middleware\EnsureWalletIsOpenInStorefront::class,
             // Names the way to pay a route takes (storefront.method:cash_on_delivery) and refuses it in a storefront that has switched it off (D2-V2).
             'storefront.method' => \App\Http\Middleware\EnsureStorefrontOffersPaymentMethod::class,
+            'storefront.wallet' => \App\Http\Middleware\EnsureWalletIsOpenInStorefront::class,
             // Adopted by the admin screens that work on the products of one country, so their money is that country's (GCC-05).
             'money.market' => \App\Http\Middleware\ScopeMoneyToMarket::class,
         ]);
