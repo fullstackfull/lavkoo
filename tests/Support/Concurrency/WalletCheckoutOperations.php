@@ -65,7 +65,6 @@ final class WalletCheckoutOperations
 
         return ['status' => $response->getStatusCode(), 'body' => json_decode((string) $response->getContent(), true)];
     }
-
     /** The tax set-up the parent test put in its own cache, which a worker process does not share. */
     private static function useTaxIncludedPrices(): void
     {

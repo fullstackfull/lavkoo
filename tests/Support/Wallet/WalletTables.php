@@ -87,6 +87,7 @@ final class WalletTables
             $table->timestamps();
         });
     }
+
     public static function drop(): void
     {
         self::guardTestDatabase();
