@@ -67,8 +67,20 @@ class OrderNotificationTodayTest extends OrderNotificationTestCase
         $this->assertSame('Your order is placed', $this->titleOfTheEmailSent());
     }
 
-    /** The amounts in the body of the same e-mail today: the platform's conversion of every line, with the platform's symbol. */
-    public function test_with_the_switches_off_the_email_body_of_an_order_of_another_market_is_the_platform_conversion(): void
+    /**
+     * The amounts in the body of the same e-mail: the money the ORDER RECORDS, not the platform's conversion of it, and this is a deliberate
+     * change of what this test used to state.
+     *
+     * The switches being off is not the whole question here, because this order carries a record of its own: sellOrderIn() turns the markets
+     * on, places the order, and turns them off again, which is exactly a shop that sold in dinars and later switched the markets off. D1-06
+     * decided what a document does then, and StorefrontCurrency::currencyRecordedOn() says it in full: an order that names a currency AND a
+     * rate of one holds its amounts in that currency, so that is the only rate it is printed under, because re-scaling a hundred stored
+     * dinars by the riyal's rate prints 375.00SAR -- a figure nobody was charged, on the customer's own e-mail. It consults no switch on
+     * purpose, and it does not need one: with the markets off nothing records a currency in the first place
+     * (OrderStorefrontSnapshot::record asks StorefrontCurrency::isEnabled before it writes), so a shop that never turned them on sees no
+     * change at all. That is the dormancy, and it is the push test above that measures it -- the platform asks the database nothing extra.
+     */
+    public function test_the_email_body_of_an_order_of_another_market_is_the_money_the_order_records(): void
     {
         $this->captureTheEmailsTheMailerRenders();
         $this->seedOrderPlacedEmailTemplate(titleInEnglish: 'Your order is placed', titleInArabic: 'تم إنشاء طلبك', design: 'order-place');
@@ -79,7 +91,25 @@ class OrderNotificationTodayTest extends OrderNotificationTestCase
         $this->placeOrderMailFor($order);
 
         $body = $this->bodyOfTheEmailTheMailerSent();
-        $this->assertStringContainsString(self::LINE_CONVERTED_TO_THE_PLATFORM_CURRENCY, $body);
+        $this->assertStringContainsString(self::LINE_AS_THE_ORDER_HOLDS_IT, $body, 'the line is printed in the money the order records');
+        $this->assertStringNotContainsString(self::LINE_CONVERTED_TO_THE_PLATFORM_CURRENCY, $body, 'and never re-scaled by the platform rate, which would print a figure nobody was charged');
+        $this->assertSame('KWD', DB::table('orders')->where('id', self::KW_ORDER)->value('currency_code'), 'the order really does record that currency');
+    }
+
+    /** And an order that records NOTHING -- every order of a shop that never turned the markets on -- is still the platform's conversion. */
+    public function test_the_email_body_of_an_order_that_records_no_currency_is_the_platform_conversion(): void
+    {
+        $this->captureTheEmailsTheMailerRenders();
+        $this->seedOrderPlacedEmailTemplate(titleInEnglish: 'Your order is placed', titleInArabic: 'تم إنشاء طلبك', design: 'order-place');
+        $order = $this->sellOrderIn(country: 'KW', orderId: self::KW_ORDER, orderColumns: [
+            'customer_id' => $this->customerWhoReadsArabic()->id,
+        ]);
+        DB::table('orders')->where('id', self::KW_ORDER)->update(['currency_code' => null, 'currency_rate' => null]);
+
+        $this->placeOrderMailFor($order->refresh());
+
+        $body = $this->bodyOfTheEmailTheMailerSent();
+        $this->assertStringContainsString(self::LINE_CONVERTED_TO_THE_PLATFORM_CURRENCY, $body, 'with no record there is nothing to honour, so the platform converts as it always did');
         $this->assertStringNotContainsString(self::LINE_AS_THE_ORDER_HOLDS_IT, $body);
     }
 

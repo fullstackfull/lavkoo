@@ -641,6 +641,14 @@ class WebController extends Controller
             OrderManager::updateCustomerShippingAddressForOrder($guestID, $addCustomer['id'], session('billing_address_id'));
         }
 
+        // The visitor's pick counts only while the platform is in multi-currency mode, which is the same first condition the two v1 writers of
+        // this column apply (RestAPI/v1/OrderController and RestAPI/v1/OrderEditController both weigh their pick this way) and the same one
+        // CheckoutCurrency::forOrder() opens with. Without it a session value left over from before an operator switched the shop to one
+        // currency labels a cash order in money the shop does not trade in. What this route deliberately does NOT copy from those two is their
+        // fallback to the platform's default when there is no pick: on the website this column has always stayed empty then, which is the
+        // dormancy StorefrontCodOrderCurrencyTest::test_the_default_storefront_stores_exactly_what_it_stored_before pins.
+        $pickedByTheVisitor = getWebConfig(name: 'currency_model') == 'multi_currency' ? session('currency_code') : null;
+
         $orderIds = OrderManager::generateOrder(data: [
             'order_status' => 'pending',
             'payment_method' => 'cash_on_delivery',
@@ -655,7 +663,7 @@ class WebController extends Controller
             // always stored it -- INCLUDING when there is no pick and the column stays empty. Falling back to the platform
             // default here instead would answer for the default storefront too, which is the dormancy
             // StorefrontCodOrderCurrencyTest::test_the_default_storefront_stores_exactly_what_it_stored_before pins.
-            'bring_change_amount_currency' => $this->storefrontCurrency->purchaseCurrencyCode(picked: session('currency_code')),
+            'bring_change_amount_currency' => $this->storefrontCurrency->purchaseCurrencyCode(picked: $pickedByTheVisitor),
         ]);
 
         // generateOrder() returns an empty list when the order was refused inside its transaction —

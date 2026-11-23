@@ -96,6 +96,18 @@ class StorefrontMoneyAndSeoTest extends TestCase
 
     private const PICK_READ = "session('currency_code')";
 
+    /**
+     * The reads that are answered by the FUNCTION they are handed to rather than by an `if` around them, per file, with how many.
+     *
+     * CheckoutCurrency::forOrder() opens with `getWebConfig('currency_model') === 'multi_currency' && $shoppingIn !== ''` and otherwise
+     * answers the platform's own default, so a read handed straight to it meets the same condition the block applies, one call further in.
+     * The count is the assertion, as everywhere else here: a second such read in that file fails this test until somebody has looked at
+     * whether it really is handed to that function, and a read handed to anything else fails it as an unguarded one.
+     */
+    private const PICK_READS_ANSWERED_BY_THE_FUNCTION_THEY_FEED = [
+        'app/Http/Controllers/Customer/PaymentController.php' => ['CheckoutCurrency::forOrder(' => 1],
+    ];
+
     private const CHARGED_CURRENCY_CALL = '->chargedCurrencyCode(';
 
     protected function setUp(): void
@@ -408,9 +420,28 @@ class StorefrontMoneyAndSeoTest extends TestCase
             $this->assertTrue($found['balanced'], $relativePath . ': the brace walk did not balance, so this scan cannot be trusted');
             $this->assertSame($expectedReads, $found['reads'], $relativePath . ': a read of the visitor\'s pick was added or removed here');
 
-            if ($relativePath !== 'app/Services/Payments/GatewayCurrencySupport.php') {
-                $this->assertSame([], $found['unguarded'], $relativePath . ': these lines read the visitor\'s pick outside the currency-model guard');
+            if ($relativePath === 'app/Services/Payments/GatewayCurrencySupport.php') {
+                continue;
             }
+
+            $source = explode("\n", (string) file_get_contents(base_path($relativePath)));
+            $answeredByAFunction = [];
+
+            foreach (self::PICK_READS_ANSWERED_BY_THE_FUNCTION_THEY_FEED[$relativePath] ?? [] as $function => $expected) {
+                $fed = array_values(array_filter(
+                    $found['unguarded'],
+                    // The call opens on the line above or on the read's own line, which is how a call spread over three lines reads.
+                    static fn (int $line): bool => str_contains($source[$line - 1] ?? '', $function) || str_contains($source[$line - 2] ?? '', $function),
+                ));
+                $this->assertCount($expected, $fed, $relativePath . ': the reads handed to ' . $function . ' are not the ' . $expected . ' that were looked at');
+                $answeredByAFunction = [...$answeredByAFunction, ...$fed];
+            }
+
+            $this->assertSame(
+                [],
+                array_values(array_diff($found['unguarded'], $answeredByAFunction)),
+                $relativePath . ': these lines read the visitor\'s pick outside the currency-model guard, and are not handed to a function that applies it',
+            );
         }
 
         // The service's own read answers for itself through answers(); what has to be structural is that nobody asks it off a money path
@@ -1014,8 +1045,9 @@ class StorefrontMoneyAndSeoTest extends TestCase
         // A market may sell only once its whole preflight is met, and two lanes have added conditions to it since this world was written:
         // D1-07's tax decision, and a registered selling company where the owner requires one. The tax decision has to be recorded here or
         // these markets are not sellable and so not indexable, and the gate -- not the SEO this test is about -- is what would be measured.
-        // A company is not needed: an entity is only required when gcc.storefronts.legal_entities.required_to_sell is on, and it ships off.
-        $this->approveNoTaxFor('SA', 'AE', 'KW');
+        // A company is not needed: an entity is only required when gcc.storefronts.legal_entities.required_to_sell is on, and it ships off. The default
+        // storefront is not named: its tax is the platform's, set in the admin panel, and StorefrontTaxApproval refuses to be asked about it.
+        $this->approveNoTaxFor('AE', 'KW');
         Cache::flush();
     }
 

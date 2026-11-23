@@ -170,6 +170,25 @@ class StorefrontCodOrderCurrencyTest extends ApiAddressTestCase
     }
 
     /**
+     * The other side of the same question, which had no measurement at all until now: under the SINGLE-currency model a visitor cannot pick
+     * a currency, so a code in the session is one left over from before the operator switched the shop over -- or one somebody put there --
+     * and it must not label the order. The two v1 writers of this column already weigh their pick this way
+     * (`currency_model == 'multi_currency' ? $pick : null`), and CheckoutCurrency::forOrder() opens with the same condition; this route was
+     * passing the session value straight through, so it was the only one of the three that did not ask. The column stays empty, which is
+     * what it has always done when there is nothing to record, rather than naming money the shop does not trade in.
+     */
+    public function test_under_one_currency_a_pick_left_in_the_session_does_not_label_the_order(): void
+    {
+        $this->skipInStrictModeUntilTheCouponCountIsFixed();
+        $this->setSetting('currency_model', json_encode('single_currency'));
+
+        $order = $this->theOrderThatWasPlaced($this->placeCashOnDeliveryOrder('SA', $this->theVisitorsPickOf('AED')));
+
+        $this->assertNull($order['currency'], 'a shop that trades in one currency records no pick on the order');
+        $this->assertSame('SA', $order['country']);
+    }
+
+    /**
      * And nothing on the route normalises the session on the way: the pick a visitor arrived with is still in their session after the
      * order was placed. This is the measurement the manual `loadCurrency()` in an earlier version of this proof stood in for — if some
      * middleware or provider ever does warm the session on this path, this assertion is what notices, and the one above still holds.
