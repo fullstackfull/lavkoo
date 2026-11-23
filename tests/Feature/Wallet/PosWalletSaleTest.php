@@ -236,7 +236,6 @@ class PosWalletSaleTest extends ApiAddressTestCase
         $this->assertSame(422, $response->getStatusCode());
         $this->assertNothingWasPersisted();
     }
-
     public function test_a_seller_app_wallet_sale_debits_the_wallet_and_writes_the_order_once(): void
     {
         $response = $this->sellerSale([$this->sellerLine(1, 2, 30), $this->sellerLine(2, 1, 20)], 80);

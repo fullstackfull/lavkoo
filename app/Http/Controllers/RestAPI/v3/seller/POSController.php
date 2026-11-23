@@ -512,7 +512,6 @@ class POSController extends Controller
         } catch (PosSaleReplayedException $exception) {
             return response()->json(['order_id' => $exception->orderId], 200);
         }
-
         if ($isDigitalProduct) {
             $order = Order::with(['details.productAllStatus', 'customer'])->find($generateOrderID);
             $data = [
@@ -616,7 +615,6 @@ class POSController extends Controller
     {
         DB::table('pos_sale_idempotency_keys')->where(['seller_id' => $sellerId, 'idempotency_key' => $key])->update(['order_id' => $orderId, 'updated_at' => now()]);
     }
-
     private function walletBalanceNeededResponse(): JsonResponse
     {
         return response()->json([
