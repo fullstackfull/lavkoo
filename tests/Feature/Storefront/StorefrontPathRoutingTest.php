@@ -13,6 +13,7 @@ use App\Http\Middleware\NoIndexThemePreview;
 use App\Http\Middleware\RecordAnalytics;
 use App\Http\Middleware\RecordHttpTelemetry;
 use App\Services\Storefront\StorefrontContext;
+use App\Services\Storefront\StorefrontResolver;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
@@ -219,14 +220,23 @@ class StorefrontPathRoutingTest extends TestCase
         $this->assertSame('/contacts', route('contacts', absolute: false), 'and nothing outside a request is addressed in a market either');
     }
 
-    /** One route table: the switch adds no route, renames none and removes none. */
-    public function test_the_route_table_is_the_same_whether_the_switch_is_on_or_off(): void
+    /**
+     * One route table, and this is what keeps it one: not a single route is mounted under a market's path.
+     *
+     * The alternative design was to mount the web routes a second time under each of the six prefixes, which would have doubled the table,
+     * duplicated every route name and left two of everything to keep in step. This test fails the day somebody does that.
+     */
+    public function test_not_one_route_is_mounted_under_a_markets_path(): void
     {
-        $withPaths = $this->routeNames();
+        $prefixes = array_column(StorefrontResolver::fromConfig()->activeStorefronts(), 'path');
+        $this->assertNotSame([], $prefixes);
 
-        config(['gcc.storefronts.paths.enabled' => false]);
+        $mounted = array_values(array_filter(
+            $this->routeUris(),
+            static fn (string $uri): bool => in_array(strtok($uri, '/'), $prefixes, true),
+        ));
 
-        $this->assertSame($withPaths, $this->routeNames());
+        $this->assertSame([], $mounted, 'a market path is served by taking the segment off, never by a route of its own');
     }
 
     public function test_a_market_path_to_a_page_that_does_not_exist_is_a_not_found(): void
@@ -235,17 +245,15 @@ class StorefrontPathRoutingTest extends TestCase
     }
 
     /** @return list<string> */
-    private function routeNames(): array
+    private function routeUris(): array
     {
-        $names = [];
+        $uris = [];
 
         foreach (Route::getRoutes() as $route) {
-            $names[] = $route->methods()[0] . ' ' . $route->uri() . ' ' . (string) $route->getName();
+            $uris[] = $route->uri();
         }
 
-        sort($names);
-
-        return $names;
+        return $uris;
     }
 
     public function test_the_query_string_of_a_market_page_survives_the_strip(): void

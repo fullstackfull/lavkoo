@@ -85,7 +85,7 @@ because the real home page reads the installation database and what is under tes
 - a query string survives the strip;
 - a redirect written in a page keeps the market, and a redirect at the root keeps none;
 - a market's links do not reach the request after it;
-- the route table is identical with the switch on and off.
+- **not one route is mounted under a market's path** -- the test that fails the day somebody mounts the web routes a second time under six prefixes, which is the design this one replaces.
 
 Eight of the sixteen fail if the middleware is taken out of the global stack.
 
