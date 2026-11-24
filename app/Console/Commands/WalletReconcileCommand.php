@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Console\Commands\Concerns\PrintsInspectionReports;
+use App\Console\Commands\Concerns\ReadsExplainedUserIds;
 use App\Services\Fulfillment\Readiness\Compatibility\CompatibilityOptions;
 use App\Services\Fulfillment\Readiness\Compatibility\ReadOnlyProbe;
 use App\Services\Fulfillment\Readiness\Compatibility\ReadOnlyRunner;
@@ -20,6 +21,7 @@ use Illuminate\Console\Command;
 class WalletReconcileCommand extends Command
 {
     use PrintsInspectionReports;
+    use ReadsExplainedUserIds;
 
     private const LEDGERS = ['wallet', 'loyalty', 'both'];
 
@@ -101,33 +103,5 @@ class WalletReconcileCommand extends Command
             amountTolerance: (string) $this->option('match-tolerance'),
             windowSeconds: (int) $this->option('match-window'),
         );
-    }
-
-    /** @return list<int>|string the user ids the evidence file names, or what is wrong with the file */
-    private function explainedUserIds(): array|string
-    {
-        $path = (string) $this->option('explained');
-        if ($path === '') {
-            return [];
-        }
-        if (!is_file($path) || !is_readable($path)) {
-            return '--explained must name a file that can be read.';
-        }
-
-        $ids = [];
-        foreach (file($path, FILE_IGNORE_NEW_LINES) ?: [] as $number => $line) {
-            $line = trim(preg_replace('/\s*#.*$/', '', $line) ?? '');
-            if ($line === '') {
-                continue;
-            }
-            if (preg_match('/^\d{1,18}$/', $line) !== 1) {
-                return sprintf('Line %d of the evidence file is not a user id: one whole number per line, a # starts a comment.', $number + 1);
-            }
-            $ids[(int) $line] = (int) $line;
-        }
-
-        return count($ids) > ReconciliationOptions::MAX_EXPLAINED
-            ? sprintf('The evidence file names %d users; the most it may name is %d.', count($ids), ReconciliationOptions::MAX_EXPLAINED)
-            : array_values($ids);
     }
 }

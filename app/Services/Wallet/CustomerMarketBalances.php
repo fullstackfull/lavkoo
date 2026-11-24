@@ -84,6 +84,23 @@ final class CustomerMarketBalances
         return $this->accounts($kind)->amountOf(customerId: $customerId, market: $code) ?? 0.0;
     }
 
+    /**
+     * Whether the customer has an account in this market at all, which an amount of zero does not answer: an account opened and emptied
+     * holds zero, and so does a market the customer has never held anything in. A backfill has to tell them apart, because filling an
+     * account that is already open would add to a balance that may already carry it. False while the accounts are dormant, where there is
+     * no account to speak of.
+     */
+    public function hasAccount(MarketBalanceKind $kind, int|string $customerId, string $market): bool
+    {
+        if (!$this->answersFromAccounts($kind)) {
+            return false;
+        }
+
+        $code = $this->configuredMarket($market);
+
+        return $code !== null && $this->accounts($kind)->amountOf(customerId: $customerId, market: $code) !== null;
+    }
+
     public function credit(MarketBalanceKind $kind, int|string $customerId, string $market, float $amount): MarketBalanceChange
     {
         return $this->change(kind: $kind, customerId: $customerId, market: $market, amount: $amount, isDebit: false);
