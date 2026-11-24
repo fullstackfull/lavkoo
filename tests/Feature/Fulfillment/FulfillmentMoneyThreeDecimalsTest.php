@@ -172,7 +172,11 @@ class FulfillmentMoneyThreeDecimalsTest extends TestCase
         $widen = (string) file_get_contents(database_path(self::WIDEN_MIGRATION));
 
         foreach (['cod_amount', 'items_total', 'shipping_allocation', 'total_amount', 'provider_cost', 'line_total'] as $column) {
-            $this->assertStringContainsString("'{$column}' =>", $widen, "{$column} holds a shipment's money and has to make room for a third decimal");
+            $this->assertStringContainsString("'{$column}'", $widen, "{$column} holds a shipment's money and has to make room for a third decimal");
+        }
+
+        foreach (['provider_fulfillments', 'provider_fulfillment_items'] as $table) {
+            $this->assertStringContainsString("Schema::table('{$table}'", $widen, 'the table is named in full, so the guard on customer tables can read which tables this migration touches');
         }
 
         $create = (string) file_get_contents(database_path(self::CREATE_MIGRATION));

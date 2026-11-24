@@ -29,19 +29,8 @@ use Illuminate\Support\Facades\Schema;
  */
 return new class extends Migration
 {
-    /** The money columns of a provider shipment, and the line total they are summed from, with what each one's declaration says besides its scale. */
-    private const MONEY_COLUMNS = [
-        'provider_fulfillments' => [
-            'cod_amount' => 'zero',
-            'items_total' => 'zero',
-            'shipping_allocation' => 'zero',
-            'total_amount' => 'zero',
-            'provider_cost' => 'nullable',
-        ],
-        'provider_fulfillment_items' => [
-            'line_total' => 'zero',
-        ],
-    ];
+    /** The money columns of a provider shipment, and the line total they are summed from. */
+    private const SHIPMENT_MONEY = ['cod_amount', 'items_total', 'shipping_allocation', 'total_amount'];
 
     private const THOUSANDTHS = 3;
 
@@ -57,25 +46,30 @@ return new class extends Migration
         $this->setScaleTo(self::HUNDREDTHS);
     }
 
+    /**
+     * Both tables are named here in full, rather than taken from a constant or a loop, so that the guard which reads this directory for
+     * migrations that touch a customer table can see which tables this one touches (`CustomerTablesAreNotRewrittenTest`). A table a reader
+     * cannot name could be any table at all.
+     */
     private function setScaleTo(int $decimals): void
     {
-        foreach (self::MONEY_COLUMNS as $table => $columns) {
-            if (!Schema::hasTable($table)) {
-                continue;
-            }
-
-            Schema::table($table, function (Blueprint $blueprint) use ($table, $columns, $decimals): void {
-                foreach ($columns as $column => $declaration) {
-                    if (!Schema::hasColumn($table, $column)) {
-                        continue;
+        if (Schema::hasTable('provider_fulfillments')) {
+            Schema::table('provider_fulfillments', function (Blueprint $blueprint) use ($decimals): void {
+                foreach (self::SHIPMENT_MONEY as $column) {
+                    if (Schema::hasColumn('provider_fulfillments', $column)) {
+                        $blueprint->decimal($column, 14, $decimals)->default(0)->change();
                     }
-
-                    $changed = $blueprint->decimal($column, 14, $decimals);
-
-                    $declaration === 'nullable' ? $changed->nullable() : $changed->default(0);
-
-                    $changed->change();
                 }
+
+                if (Schema::hasColumn('provider_fulfillments', 'provider_cost')) {
+                    $blueprint->decimal('provider_cost', 14, $decimals)->nullable()->change();
+                }
+            });
+        }
+
+        if (Schema::hasTable('provider_fulfillment_items') && Schema::hasColumn('provider_fulfillment_items', 'line_total')) {
+            Schema::table('provider_fulfillment_items', function (Blueprint $blueprint) use ($decimals): void {
+                $blueprint->decimal('line_total', 14, $decimals)->default(0)->change();
             });
         }
     }
