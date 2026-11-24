@@ -325,7 +325,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 
 #### C-15. Country defaults of the fulfillment config and adapters (SAR and Saudi assumptions)
 
-- **State: NOT STARTED** | plan lines 22 | E11-F02, E11-F03, E11-F04; GCC-05 (open) | reviews: finance, owner-decision
+- **State: IN PROGRESS (characterized; no behaviour changed)** | plan lines 22 | E11-F02, E11-F03, E11-F04; GCC-05 (open) | reviews: finance, owner-decision
 - **(2) Functional requirement.** Nothing in fulfillment assumes Saudi Arabia: provider currency, decimals, country code, phone rules and city lists follow the order's storefront and the provider account, with today's Saudi values as the explicit default of the Saudi account.
 - **(3) Exists now in code (main).** main: config/fulfillment.php currency SAR (FULFILLMENT_CURRENCY), KSA-to-SAR alias, m5azn default_country SA; M5aznAdapter sends country_code SA; SaudiPhone::normalize accepts Saudi mobiles only (others hold hold_phone_invalid); Torod payload uses 00966; provider_fulfillments.currency defaults SAR; two decimals fixed. A single-currency store whose currency is not the riyal has its shipments held, not sent (PilotServerMoneyTest).
 - **(4) Done in the draft PRs.** Nothing. No draft touches config/fulfillment.php, the adapters or the fulfillment money classes; #58 and #62 extend SaudiPhone for password-reset phone matching only, and normalize() stays Saudi-only.
@@ -334,14 +334,15 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(7) Tests.**
   - `ci` PilotServerMoneyTest and RouterTest pin the Saudi riyal figures and the hold for an unconvertible amount (PR 1 d664ab4: Fulfillment + security MySQL 8/MariaDB 11.4.2 (Saudi baseline only))
   - `ci` TorodAdapterTest and M5aznAdapterTest: an invalid phone holds the order (PR 1 d664ab4: same jobs)
-  - `none` No test for KWD, BHD or OMR amounts or a non-Saudi destination (-)
+  - `local` What fulfilment does today with the three Gulf currencies that have a thousandth, written down before it is fixed: a 12.345 cash-on-delivery amount reaches the courier as 12.350 (the allocator works in cents), one fils between two collectors reaches neither, a half-halala amount is rounded up rather than held, a two-decimal amount is still split exactly and its odd cent still goes to the largest shipment, a shipment is stamped the configured currency whatever market the order was sold in, and the columns that hold a shipment's money declare two decimals (tests/Feature/Fulfillment/FulfillmentMoneyThreeDecimalsTest.php, 13 cases, SQLite and MariaDB 11.4). Each case asserts TODAY's answer, so the day the third decimal is carried they fail and say so
+  - `none` No test for a non-Saudi destination address or a non-Saudi phone (-)
 - **(8) Dependencies and blockers.** GCC-05 storefront currency (orchestrator task M3, slice 1 in progress) and the address unit (Saudi-only city mapping). Orders carry no currency of their own.
 - **(9) Acceptance criteria.**
   - [MISSING] The currency stamped on a provider fulfillment is the order's storefront currency (FulfillmentRouter::create stamps CurrencyCode::provider() from config)
-  - [MISSING] Amounts in three-decimal currencies are carried and a COD split is allocated without rounding to two decimals (CodAllocator works in cents, FulfillmentMoney rounds to 2 decimals and the columns are decimal(14,2); no test)
+  - [MISSING] Amounts in three-decimal currencies are carried and a COD split is allocated without rounding to two decimals -- and now measured rather than inferred: `CodAllocator` multiplies by 100 and rounds, so 12.345 becomes 12.35 and one fils between two collectors becomes nothing; the four money columns declare two decimals; `FulfillmentMoney` rounds to two. Pinned as it is by FulfillmentMoneyThreeDecimalsTest, which fails when it is fixed
   - [MISSING] The country and phone sent to a provider follow the destination address's country (SaudiPhone and country_code SA in the adapters)
   - [MISSING] The Saudi account keeps today's values as explicit per-account defaults and its provider output stays byte for byte the same (no per-account default exists)
-- **(10) Next coding task.** Test-only characterization on a branch from main: tests/Feature/Fulfillment/FulfillmentMoneyThreeDecimalsTest pins what a KWD 12.345 cash-on-delivery order does today (held, or rounded to two decimals) so the later fix flips it; add the same for BHD and OMR.
+- **(10) Next coding task.** The characterization is done and says what the answer is today: **rounded, not held** -- 12.345 reaches the courier as 12.350, and one fils between two collectors reaches neither. The fix needs the owner's answer first (which currency a provider is paid in for a non-Saudi order), because the figure to carry depends on it; after that it is one change with three parts: the allocator in the currency's own smallest unit rather than cents, the four `decimal(14,2)` columns widened, and the stamp taken from the order instead of the configuration.
 - **Open owner decisions.** Which currency a provider is paid in for a non-Saudi order (storefront currency or a provider-account currency); E11-F02 rates it P0 if a non-Saudi provider is enabled before this is done.
 
 #### C-16. Cross-country overlap, oversell and duplicate-reservation protection

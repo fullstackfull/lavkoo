@@ -49,6 +49,7 @@ use App\Services\SellerAutomation\Triggers\StaleStockTrigger;
 use App\Services\SellerIntelligence\SellerInsightEngine;
 use App\Services\SellerIntelligence\Severity\SellerBaselineProvider;
 use App\Services\SellerIntelligence\Severity\SeverityEngine;
+use App\Services\Storefront\StorefrontDefault;
 use App\Traits\UpdateClass;
 use App\Utils\Helpers;
 use App\Utils\ProductManager;
@@ -169,6 +170,16 @@ class AppServiceProvider extends ServiceProvider
 
         if (!in_array(request()->ip(), ['127.0.0.1', '::1']) && env('FORCE_HTTPS')) {
             \URL::forceScheme('https');
+        }
+
+        // Which market a visitor who names none is served, when a person has recorded one (GCC-19, A1-03). Read once, here, and applied to
+        // the configuration, so that the resolver stays a value object with no database behind it and the whole process -- a request, a
+        // console command, a queue worker -- agrees about the market it is serving. Outside the console check below for that reason. It does
+        // nothing while storefronts are off, and anything that stops the record being read or trusted leaves the configured default alone.
+        try {
+            app(StorefrontDefault::class)->applyToConfig();
+        } catch (\Throwable $theRecordCouldNotBeRead) {
+            report($theRecordCouldNotBeRead);
         }
         if (!App::runningInConsole()) {
             Paginator::useBootstrap();
