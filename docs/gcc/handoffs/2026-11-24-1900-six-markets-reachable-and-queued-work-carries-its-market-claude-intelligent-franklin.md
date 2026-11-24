@@ -14,7 +14,7 @@ that pays. The four races in `RefundConcurrencyTest` are un-skipped and green. A
 names, instead of the signed-in customer a seller's request never has, and what cannot be paid is left owed rather than cleared. Refund wallet
 credits name the refund they pay, so the reconciliation can see one paid twice at all.
 
-Verified on MariaDB 11.4 before the merge: **153 tests, 1369 assertions, 0 failures**.
+Verified on MariaDB 11.4 before the merge: **153 tests, 1369 assertions, 0 failures**. CI on `main` at the merge commit — [run 648](https://github.com/fullstackfull/lavkoo/actions/runs/45389178742) — finished **success**, so the whole suite on every engine the workflow runs holds it.
 
 Five of E-13's six criteria are met. The sixth is a behaviour the owner decides, not a defect: **should an admin-cancelled non-POS wallet-paid
 order refund itself automatically?** Today a POS cancel refunds and a non-POS cancel does not, and making it automatic moves money on a path

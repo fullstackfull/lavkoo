@@ -293,7 +293,8 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
   - `local` RefundConcurrencyTest: the four races run and pass, no longer skipped -- simultaneous refunded statuses, simultaneous return-amount submissions, simultaneous POS cancels and simultaneous delivered statuses each pay once (tests/Feature/Concurrency/RefundConcurrencyTest.php, MariaDB; the harness skips itself on SQLite, which has no second connection)
   - `local` VendorReturnAmountToWalletTest (5): the amount reaches the customer the order names and leaves the seller's earnings, a second submission pays nothing more, a guest order is refused and keeps what it owes, a manual return clears the amount once and credits no wallet, and another seller's order is not returnable (tests/Feature/Refund/VendorReturnAmountToWalletTest.php, MariaDB)
   - `local` The reconciliation sees a refund paid twice, by its reference (tests/Feature/Fulfillment/WalletReconcileCommandTest.php, two added cases)
-  - `local` 153 tests of tests/Feature/Concurrency, tests/Feature/Refund and the storefront refund pins, 1369 assertions, 0 failures (MariaDB 11.4, main @ 287ae061)
+  - `ci` The whole suite on every engine the workflow runs, at the merge commit: [CI run 648](https://github.com/fullstackfull/lavkoo/actions/runs/45389178742) on `main` @ `287ae061`, conclusion **success**
+  - `local` 153 tests of tests/Feature/Concurrency, tests/Feature/Refund and the storefront refund pins, 1369 assertions, 0 failures (MariaDB 11.4, before the merge)
 - **(8) Dependencies and blockers.** Owner decisions RF-01 to RF-11 and LO-04; PR 15 stacks on PR 10, PR 12 on PR 11; ownership fixes for who may trigger refunds (PR 20, 21, 22, 27) belong to the security unit.
 - **(9) Acceptance criteria.**
   - [MET] A second 'refunded' status after the first commit credits the wallet and debits points once (RefundSequentialGuardCharacterizationTest, PR 15 59133c3; Tests, SQLite (PHP 8.2/8.3) green)
