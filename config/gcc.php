@@ -142,6 +142,15 @@ return [
             // market balance yet, so turning it on moves no money on its own: the writers are wired market by market in a later slice (GCC-15, E-07).
             // Read docs/gcc/GCC-15-MARKET-ACCOUNTS.md before turning it on.
             'enabled' => filter_var(env('GCC_MARKET_ACCOUNTS', false), FILTER_VALIDATE_BOOLEAN),
+
+            // The shadow half of the move (E-07), off by default and needing the key above. While it is on, every movement written to the
+            // one balance a customer has is also written to their account in the market that movement names, in the same transaction, and
+            // the two are compared; a difference is written to the log and nothing else happens. It is a mirror and never an authority:
+            // the `users` row stays the only balance anything reads, and a mirror that cannot be made — a market nobody named, an account
+            // the backfill has not opened yet, a figure the account refuses — is written down and never allowed to fail the write it was
+            // following. Run wallet:backfill-market-accounts before turning this on: a mirror never opens an account, because opening one
+            // inside the writer's own transaction is what deadlocks (see MarketAccountRepository::open).
+            'shadow_writes' => filter_var(env('GCC_MARKET_WALLETS_SHADOW', false), FILTER_VALIDATE_BOOLEAN),
         ],
 
         'payment_methods' => [
