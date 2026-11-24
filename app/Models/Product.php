@@ -209,6 +209,15 @@ class Product extends Model
         return $this->hasMany(ProviderProductMapping::class, 'product_id');
     }
 
+    /**
+     * Where this product is permitted to go (H1-03). A destination with no row here is one the product may NOT reach: the absence is the
+     * refusal, which is why nothing reads this relation to decide a domestic sale -- {@see \App\Services\Shipping\ProductDestinationPermission}.
+     */
+    public function destinationPermissions(): HasMany
+    {
+        return $this->hasMany(ProductDestinationPermission::class, 'product_id');
+    }
+
     public function translations(): MorphMany
     {
         return $this->morphMany('App\Models\Translation', 'translationable');
