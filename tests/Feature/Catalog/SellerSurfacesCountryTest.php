@@ -109,12 +109,19 @@ class SellerSurfacesCountryTest extends TestCase
         $this->assertSame(ProductCodeScope::TABLE_DEFAULT_COUNTRY, $scope->countryOfNewProduct(addedBy: 'seller'));
     }
 
+    /**
+     * Who may turn a REQUEST into the country of a new product: only ProductCountry::newProductAttributes(), and only the two places that
+     * ask it. The call is matched with its class, not by the bare method name, because two other services answer to that name and neither
+     * reads a request -- SellerMarketScope::newProductAttributes() gives the market the signed-in seller was GRANTED, which the middleware
+     * checked before the controller ran (K-04), and LegalEntityRegistry::newProductAttributes() gives the company registered for a country
+     * somebody has already chosen. A file that calls the qualified one and is not listed here is a new way for a request to name a country.
+     */
     public function test_only_the_admin_add_and_the_check_that_mirrors_it_let_a_request_choose_the_country_of_a_product(): void
     {
         $callers = [];
         $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(base_path('app'), FilesystemIterator::SKIP_DOTS));
         foreach ([...iterator_to_array($files, false), ...iterator_to_array(new RecursiveIteratorIterator(new RecursiveDirectoryIterator(base_path('Modules'), FilesystemIterator::SKIP_DOTS)), false)] as $file) {
-            if ($file->isFile() && $file->getExtension() === 'php' && str_contains((string) file_get_contents($file->getPathname()), 'newProductAttributes(')) {
+            if ($file->isFile() && $file->getExtension() === 'php' && preg_match('/ProductCountry::newProductAttributes\(|public static function newProductAttributes\(/', (string) file_get_contents($file->getPathname())) === 1) {
                 $callers[] = substr($file->getPathname(), strlen(base_path()) + 1);
             }
         }
@@ -122,6 +129,26 @@ class SellerSurfacesCountryTest extends TestCase
         $callers = array_values(array_diff($callers, ['app/Rules/NewProductCountryInStaffScope.php']));
 
         $this->assertSame(['app/Services/Catalog/ProductCodeScope.php', 'app/Services/ProductService.php', 'app/Services/Storefront/ProductCountry.php'], $callers);
-        $this->assertStringContainsString("\$addedBy == 'admin' ? ProductCountry::newProductAttributes(", (string) file_get_contents(app_path('Services/ProductService.php')), 'only an admin add takes the country of the request');
+        $this->assertStringContainsString("\$addedBy == 'admin'\n            ? ProductCountry::newProductAttributes(", (string) file_get_contents(app_path('Services/ProductService.php')), 'only an admin add takes the country of the request');
+    }
+
+    /**
+     * The other half of that sentence, which a merge had thrown away: a seller's add is the market they were granted, and the panel and the
+     * seller app agree about it. ProductService held both lanes' version of the one assignment, the second overwriting the first, so the
+     * panel saved the table's default country for every seller while the seller app saved their market -- the same seller, the same product,
+     * two countries depending on which screen they used, and the company that follows from the country gone with it.
+     */
+    public function test_a_sellers_add_saves_the_market_they_were_granted_on_the_panel_as_it_does_in_the_seller_app(): void
+    {
+        $panel = (string) file_get_contents(app_path('Services/ProductService.php'));
+        $sellerApp = (string) file_get_contents(app_path('Http/Controllers/RestAPI/v3/seller/ProductController.php'));
+
+        $this->assertStringContainsString(': $this->sellerMarkets->newProductAttributes();', $panel, 'the panel saves the seller\'s granted market');
+        $this->assertStringContainsString('$this->sellerMarkets->newProductAttributes()', $sellerApp, 'and so does the seller app');
+        $this->assertSame(
+            1,
+            preg_match_all('/\$countryAttributes\s*=/', $panel),
+            'the country of a new product is worked out once: a second assignment of it is a merge that kept both lanes\' version',
+        );
     }
 }
