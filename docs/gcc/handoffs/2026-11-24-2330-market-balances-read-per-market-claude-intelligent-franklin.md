@@ -70,6 +70,16 @@ left. One test I started writing was deleted: everything it asserted was already
 Also waiting: the **wallet key** (per storefront, or per legal entity where two share one), the **backfill approval**, the **invoice number
 format per company**, **what a restricted employee may see** of customer wallet reports, and **whether a till may see an e-mail address**.
 
+## One thing found and not fixed
+
+**Several tests leave `resources/lang/en/new-messages.php` dirty.** `translate()` writes a key it cannot find, so a test that renders a
+refusal adds it to the tracked language file; `Tests\Support\RestoresLanguageFiles` exists for exactly this and most suites use it, but a
+handful under `tests/Feature/Security` do not. Measured on this branch: a run of that group added seven keys
+(`file_delete_fail`, `Code_is_required!`, `The_minimum_order_quantity_is_required!`, `module`, `OTP_is_not_matched!`,
+`reset_your_password`, `please_provide_verification_token_sent_in_your_email`) — the password-reset, coupon and file-manager tests by the
+look of them. Nothing in the plan requires a test to leave the tree clean, which is why nobody noticed; the keys were reverted here, and
+the market balance test was given the trait. Worth a criterion of its own in axis M rather than a patch per file.
+
 ## What is verified, and how
 
 Every slice above: its own tests on SQLite 8.3 **and** MariaDB 11.4, each with a teeth check (remove the production code, watch the named
