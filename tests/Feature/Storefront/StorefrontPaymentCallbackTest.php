@@ -85,11 +85,11 @@ class StorefrontPaymentCallbackTest extends ApiAddressTestCase
      * @param array<string, mixed> $stored what was stored when the payment started
      * @return list<int|string> the ids of the orders the callback created
      */
-    private function gatewayReportsBack(User $payer, array $stored): array
+    private function gatewayReportsBack(User $payer, array $stored, string $transactionId = 'TXN-1'): array
     {
         request()->replace([]);
         digital_payment_success([
-            'is_paid' => 1, 'payment_method' => 'ssl_commerz', 'transaction_id' => 'TXN-1',
+            'is_paid' => 1, 'payment_method' => 'ssl_commerz', 'transaction_id' => $transactionId,
             'additional_data' => json_encode($stored + [
                 'customer_id' => $payer->id, 'is_guest' => 0, 'is_guest_in_order' => 0, 'order_note' => null, 'coupon_code' => null,
                 'payment_mode' => 'web', 'payment_request_from' => 'web', 'new_customer_id' => 0,
@@ -103,6 +103,90 @@ class StorefrontPaymentCallbackTest extends ApiAddressTestCase
     private function storedPayment(): array
     {
         return json_decode((string) DB::table('payment_requests')->value('additional_data'), true);
+    }
+
+    /** A payer holding one row of each market, so that what the order takes says which market it was built in. */
+    private function payerHoldingBothMarkets(string $email, string $phone): User
+    {
+        $payer = $this->makeCustomer(['email' => $email, 'phone' => $phone]);
+
+        foreach ([1 => 'kw', 2 => 'ae'] as $productId => $group) {
+            DB::table('carts')->insert([
+                'customer_id' => $payer->id, 'is_guest' => 0, 'cart_group_id' => 'group-' . $payer->id . $group, 'product_id' => $productId,
+                'quantity' => 1, 'price' => 100, 'seller_id' => 1, 'seller_is' => 'admin', 'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
+        return $payer;
+    }
+
+    /**
+     * The two halves of the resolution that joined the security set and the GCC chain in `module-helper.php` (M1-03): a callback is settled
+     * in the storefront the payment was started in, and the settlement scope keeps one payment to one order.
+     *
+     * Two markets settled one after the other in ONE process is the case neither set could test alone, and it is the same leak class as a
+     * queue worker's (A1-14): the first callback binds a storefront, and a storefront left bound would build the second market's order in
+     * the first market -- from the wrong cart rows, invoiced by the wrong company, in the wrong money. Each payer here holds one row of each
+     * market, so what the order takes is what says which market it was built in.
+     */
+    public function test_two_payments_of_two_markets_settled_one_after_the_other_each_build_their_own(): void
+    {
+        $this->switchStorefrontsOn();
+        config(['gcc.storefronts.countries.AE.active' => true]);
+        $this->theTwoMarketsCatalogue();
+        $kuwaiti = $this->payerHoldingBothMarkets('kuwaiti@example.test', '+96550000000');
+        $emirati = $this->payerHoldingBothMarkets('emirati@example.test', '+971500000000');
+        $this->bindTheDefaultStorefront();
+
+        $this->gatewayReportsBack($kuwaiti, ['storefront' => 'KW']);
+        $this->gatewayReportsBack($emirati, ['storefront' => 'AE'], transactionId: 'TXN-2');
+
+        $this->assertSame(
+            [1, 2],
+            DB::table('order_details')->orderBy('order_id')->pluck('product_id')->map(fn ($id) => (int) $id)->all(),
+            'the Kuwaiti payment took the Kuwaiti row and the Emirati payment the Emirati one: neither callback took the other market with it',
+        );
+        $this->assertSame(
+            [2, 1],
+            DB::table('carts')->orderBy('customer_id')->pluck('product_id')->map(fn ($id) => (int) $id)->all(),
+            'and each payer keeps the row of the market they did not pay in',
+        );
+        $this->assertSame('SA', StorefrontContext::current()->country, 'the request keeps the storefront it was serving');
+    }
+
+    /**
+     * One payment is one order, however often the gateway reports it: the settlement half of the same resolution.
+     *
+     * The cart is cleared when the order is written, so a plain second report finds nothing to build and would look harmless with no guard at
+     * all. What the guard is for is the state where the cart is NOT empty -- a clearing that failed, a recovery sweep, a customer who put the
+     * same thing back -- so the cart is refilled here before the gateway reports again. Without the guard that builds a second order for one
+     * payment; with it the payment is recognised and nothing is built.
+     */
+    public function test_a_second_report_of_one_payment_builds_no_second_order_even_with_a_cart_to_build_from(): void
+    {
+        $this->switchStorefrontsOn();
+        $payer = $this->payerWithAKuwaitCart();
+        $this->bindTheDefaultStorefront();
+
+        $this->assertCount(1, $this->gatewayReportsBack($payer, ['storefront' => 'KW']));
+
+        $this->putOneProductInTheCart($payer->id);
+
+        $this->assertCount(1, $this->gatewayReportsBack($payer, ['storefront' => 'KW']), 'the payment is recognised, so nothing is built twice');
+        $this->assertSame(1, DB::table('carts')->where('customer_id', $payer->id)->count(), 'and the cart it did not take is left alone');
+    }
+
+    /** The product of each market, with the Kuwaiti one being the row the cart helper already made. */
+    private function theTwoMarketsCatalogue(): void
+    {
+        if (!DB::table('products')->where('id', 1)->exists()) {
+            DB::table('products')->insert(['id' => 1, 'name' => 'Paracetamol', 'added_by' => 'admin', 'user_id' => 1, 'unit_price' => 100, 'current_stock' => 10]);
+        }
+
+        DB::table('products')->where('id', 1)->update(['storefront_country' => 'KW']);
+        DB::table('products')->insert([
+            'id' => 2, 'name' => 'Ibuprofen', 'added_by' => 'admin', 'user_id' => 1, 'unit_price' => 100, 'current_stock' => 10, 'storefront_country' => 'AE',
+        ]);
     }
 
     #[DataProvider('callbackRequests')]

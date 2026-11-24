@@ -9,6 +9,8 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
+use PHPUnit\Framework\ExpectationFailedException;
+use Throwable;
 use Tests\Support\BuildsStorefrontCatalog;
 use Tests\TestCase;
 
@@ -24,6 +26,11 @@ use Tests\TestCase;
 class LegacyModeSafetyTest extends TestCase
 {
     use BuildsStorefrontCatalog;
+
+    /** What the connection was before a test pointed it somewhere it cannot open. */
+    private mixed $databaseBefore = null;
+
+    private mixed $portBefore = null;
 
     private const PERSON = 'The head of the Kuwait market';
 
@@ -144,6 +151,10 @@ class LegacyModeSafetyTest extends TestCase
     }
 
     /** Before the migrations, and on a database that cannot answer, there is nothing to read and nothing is claimed. */
+    /**
+     * A table or a column that is not there is a FACT about this installation: no market holds a row of it, which is true, and the answer is
+     * an all-clear.
+     */
     public function test_an_installation_that_has_not_migrated_is_not_told_it_is_unsafe(): void
     {
         $this->insertCatalogProduct(id: 2, name: 'Kuwaiti serum', country: 'KW');
@@ -151,8 +162,106 @@ class LegacyModeSafetyTest extends TestCase
         Schema::dropIfExists('orders');
 
         $this->assertSame([], $this->safety()->rowsOfOtherMarkets());
+        $this->assertSame([], $this->safety()->tablesThatCouldNotBeRead(), 'a table that is not there is not a table that could not be read');
         $this->assertNull($this->safety()->refusalOfAnActionThatOpensAMarket());
         $this->assertSame(0, $this->safetyCommand());
+    }
+
+    /**
+     * A database that cannot answer is NOT an all-clear, and it is not the same as a table that is not there.
+     *
+     * The platform cannot tell whether it is in the state it must not be operated in, so an action that would open a market is refused, the
+     * command exits 1, and the refusal says which table and why -- a different instruction from the one for rows actually found.
+     */
+    public function test_a_table_that_cannot_be_read_is_not_an_all_clear(): void
+    {
+        $this->makeTheDatabaseUnreachable();
+
+        $couldNotBeRead = $this->safety()->tablesThatCouldNotBeRead();
+
+        $this->assertSame(['orders', 'products'], array_keys($couldNotBeRead), 'both tables are reported, and neither as empty');
+        $this->assertNotSame('', $couldNotBeRead['products'], 'with what went wrong');
+        $this->assertSame([], $this->safety()->rowsOfOtherMarkets(), 'nothing was found, because nothing could be read');
+
+        $refusal = $this->safety()->refusalOfAnActionThatOpensAMarket();
+
+        $this->assertNotNull($refusal, 'silence is not a yes');
+        $this->assertStringContainsString('cannot be read right now', $refusal);
+        $this->assertStringContainsString('products (', $refusal, 'and names the table it could not read');
+        $this->assertStringNotContainsString('KW holds', $refusal, 'it does not claim to know what any market holds');
+        $this->assertSame(1, $this->safetyCommand(), 'a deploy gating on it stops');
+
+        $this->restoreTheDatabase();
+    }
+
+    /**
+     * And nothing opens a market while the database is unreachable -- by a different road, which is worth knowing.
+     *
+     * The lifecycle reads its own record before anything else, so it fails loudly on the database rather than reaching the safety check's
+     * refusal. Both ends are therefore covered: the check answers "unknown" to whoever asks it (above), and an action that would open a
+     * market cannot go through at all. What must never happen is that it succeeds, and that is what this asserts.
+     */
+    public function test_nothing_opens_a_market_while_the_database_is_unreachable(): void
+    {
+        $this->makeTheDatabaseUnreachable();
+
+        try {
+            app(StorefrontLifecycle::class)->markReady(country: 'KW', by: self::PERSON, reason: self::REASON);
+            $this->fail('A market was opened while the database could not be read.');
+        } catch (Throwable $refused) {
+            $this->assertNotInstanceOf(ExpectationFailedException::class, $refused, 'it was refused, rather than going through');
+        } finally {
+            $this->restoreTheDatabase();
+        }
+    }
+
+    /**
+     * With the switch on there is nothing to be unsure about: every market is served as itself whatever any table holds, so an unreadable
+     * table is said out loud and is not a reason for a deploy to stop.
+     */
+    public function test_a_table_that_cannot_be_read_is_not_a_refusal_while_the_switch_is_on(): void
+    {
+        config(['gcc.storefronts.enabled' => true]);
+        $this->makeTheDatabaseUnreachable();
+
+        $this->assertNull($this->safety()->refusalOfAnActionThatOpensAMarket());
+        $this->assertSame(0, $this->safetyCommand());
+        $this->assertStringContainsString('could not be read', Artisan::output());
+
+        $this->restoreTheDatabase();
+    }
+
+    /**
+     * A database that cannot answer, on whichever engine the suite runs on: the connection is pointed somewhere it cannot open and purged,
+     * which is the shape of a database that is down, a credential that was revoked or a host that is unreachable. Every table is then
+     * unreadable, which is the case this is about -- the platform cannot tell whether it is in the state it must not be operated in.
+     */
+    private function makeTheDatabaseUnreachable(): void
+    {
+        $this->insertCatalogProduct(id: 2, name: 'Kuwaiti serum', country: 'KW');
+
+        $connection = (string) config('database.default');
+        $this->databaseBefore = config("database.connections.{$connection}.database");
+        $this->portBefore = config("database.connections.{$connection}.port");
+
+        config(config("database.connections.{$connection}.driver") === 'sqlite'
+            ? ["database.connections.{$connection}.database" => '/a-directory-that-is-not-there/nothing.sqlite']
+            : ["database.connections.{$connection}.port" => 1]);
+
+        DB::purge($connection);
+    }
+
+    /** Puts the connection back, so what the test world built can still be taken down when the test ends. */
+    private function restoreTheDatabase(): void
+    {
+        $connection = (string) config('database.default');
+
+        config([
+            "database.connections.{$connection}.database" => $this->databaseBefore,
+            "database.connections.{$connection}.port" => $this->portBefore,
+        ]);
+
+        DB::purge($connection);
     }
 
     /**
