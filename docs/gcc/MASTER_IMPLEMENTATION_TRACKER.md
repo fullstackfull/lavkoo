@@ -1,5 +1,18 @@
 # LAVKOO GCC: master implementation tracker
 
+> **Correction of 2026-11-24.** The assessment below was made while every branch was an open draft. Since then all 185
+> branches were merged into `main`, the 121 draft pull requests of the three repositories were closed, the unified tree
+> was repaired and the whole suite runs green on it (19,346 tests; see
+> `handoffs/2026-11-24-0730-the-unified-main-repaired-and-the-whole-suite-green-claude-intelligent-franklin.md`). So
+> every sentence below of the form "nothing is merged", "draft PR N" or "on a branch from main" is stale: that code is
+> in `main` now, and a requirement is not to be treated as missing because a card here says a draft holds it.
+>
+> What has NOT been re-assessed is the per-requirement gate of all 359 requirements. Re-stating those numbers without
+> re-reading the code for each one would be inventing them, so the dashboard, the gate table and the percentages below
+> still describe the drafts as they stood on 2026-11-23 and are marked stale rather than edited. They are corrected
+> requirement by requirement as each is worked on, and the work since the merge is listed under "Work after the merge"
+> at the end of this file.
+
 As of 2026-11-23. Generated from the independent assessment of every requirement of the original multi-country plan (13 axes, A to M) against the state of GitHub, then checked by independent verifiers. It replaces any reading of the pull request list as progress: **a pull request that is open is not a requirement that is done.**
 
 ## 1. Read this first
@@ -11,6 +24,10 @@ As of 2026-11-23. Generated from the independent assessment of every requirement
 - Every one of the 19 units was read by an independent verifier that tried to refute its states, tests and evidence; the corrections are applied or shown on the card. Work done after the assessors read the trees (new pull requests, CI results) is added as "Update after the assessment" on the cards it touches.
 
 ## 2. Dashboard by axis
+
+**Stale as of 2026-11-24** (see the correction at the top): computed while nothing was merged. The two code figures are
+still a fair reading of what code existed; the release-readiness column is not, because it scores travel along the
+gates and the whole set has since passed the MERGED gate.
 
 | Axis | Requirements | Criteria | MET | CODED | MISSING | Code completion | Proven by tests | Release readiness | Verified |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---|
@@ -591,3 +608,13 @@ Coverage gaps (what no unit could inspect) are listed in [`tracker/coverage-gaps
 - The CI runs of the hotfix line were read per head: PR 78 (`fafa1a2e`): both SQLite suites, syntax checks and the secret scan green, the MySQL job cancelled by the baseline workflow's time limit, the overlay job red by design; PR 81 (`0f512114`, 45-minute limit): all test jobs green including MySQL 8; PR 86 (`49e170fe`): all test jobs green including MySQL 8 and MariaDB 11.4.2. In all three the overlay job refuses the release because 17 files lie outside the directories an overlay carries (`.htaccess`, three `Modules/*` areas and two public scripts); they are deployed by hand deliberately and listed in the release plan.
 - The all-in-one integration branch `gcc/release/all-integration-ci` was built after the assessment. Of its 35 first merges, 15 conflicted (32 file instances, 28 files), all resolved in the branch only; a set of tests and one guarded document pinned behaviour that a sibling pull request changes on purpose, and each is reconciled and listed in [`audits/2026-11-18-all-in-one-integration/README.md`](audits/2026-11-18-all-in-one-integration/README.md). It found one real defect of the security set (a private digital file row read without its id raised a TypeError when serialized; fixed on PR 69 in `4096f1be`, still to be taken into stage 4 of the hotfix line). Run 279 (`c30390d1`) was read per job and showed three more things, all now in drafts of their own: test classes that only ever ran on SQLite collide on a real server (PR 92), two statements an ONLY_FULL_GROUP_BY server refuses in the coupon use count and the checkout cart group (PR 89, a defect of `main` itself), and two characterization tests of unfixed behaviour. The reconciled head `515d5bfa` runs as run 288, which is not read yet, so the criteria that rest on "a tree contains both sets and is green" (M1-03, M2-15) stay MISSING.
 - Cards changed after the assessment (they show an "Update after the assessment"): E-01 (the wallet closed on a storefront with its own currency), E-03 (PR 95), E-06 (PR 88, `wallet:reconcile`, CI read in run 285), D1-03 and D1-04 (PR 90, the selling-company registry, the order stamp and the invoice), D1-05 and D1-06 (PR 87), I1-12 and I1-13 (the coupons of a storefront, PR 87), J-05 (lavkooapp #8 and #9, green in the app repository's own CI), M2-02 and M2-04 (PR 96), A2-15 (PR 93), M1-03, M1-07, M1-14 (the staging plan), M1-16 (PR 91) and M2-15.
+
+## 7. Work after the merge
+
+Each entry is code in `main` with the tests that hold it, written after the assessment above and correcting the cards it
+touches.
+
+| Date | Requirement | What was done | Commit |
+|---|---|---|---|
+| 2026-11-24 | E-13 (the delivery man's half) | A delivery man's withdrawal is decided once, under the wallet's row lock, by one settlement shared by the admin and vendor screens: the request's row is the gate, a repeat decides nothing, and a decision that is neither an approval nor a denial is refused. The same non-decision hole is closed on the seller approval. 16 tests on both engines, 4 of them racing on MariaDB. | `d3dd8143` |
+| 2026-11-24 | E-07 | `wallet:backfill-market-accounts` carries the balances a customer holds into one market's accounts, once, expand only, and refuses to write while the keys are off, before the migration, or while one balance does not equal its ledger. 15 tests on both engines. | `5694ae6b` |
