@@ -153,6 +153,42 @@ class StorefrontCatalogTest extends TestCase
         }
     }
 
+    /**
+     * A1-11: a webhook, a payment callback and the platform admin API are never narrowed to the default market.
+     *
+     * A provider or a gateway calls back about work of whichever market the work belongs to, and it names the record rather than the market.
+     * Narrowed to the default market, such a call would read the catalogue of Saudi Arabia while settling a Kuwaiti shipment -- it could fail
+     * to find the very rows it was called about. Each of these answered the default market's catalogue until the list of cross-country paths
+     * was given their addresses.
+     */
+    public function test_a_webhook_a_callback_and_the_platform_api_see_every_country(): void
+    {
+        $this->switchStorefrontsOn();
+
+        $addresses = [
+            '/api/fulfillment-webhooks/torod_point/secret-token/status',
+            '/api/myfatoorah/webhook',
+            '/api/payments/account/7/webhook',
+            '/api/delivery-syria/orders',
+            '/api/platform-admin/v1/countries',
+        ];
+
+        foreach ($addresses as $uri) {
+            $this->serveAsHttpRequest($uri);
+            $this->assertSame([1, 2, 3], $this->visibleProductIds(), $uri);
+        }
+    }
+
+    /** And the list must not have swallowed the storefront traffic it sits beside: `api/v1` is a market's own. */
+    public function test_a_storefront_api_request_is_still_narrowed_to_the_market_it_asks_for(): void
+    {
+        $this->switchStorefrontsOn();
+
+        $this->serveAsHttpRequest('/api/v1/products/latest?storefront=AE');
+
+        $this->assertSame([2], $this->visibleProductIds());
+    }
+
     public function test_the_bound_storefront_wins_over_what_the_address_says(): void
     {
         $this->switchStorefrontsOn();

@@ -155,7 +155,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [A1-08](tracker/axis-a-six-country-base-and-customer-identity.md) | IMPLEMENTED IN DRAFT | 5/0/0 | Old Saudi URLs and API contracts keep working unchanged |
 | [A1-09](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 1/2/2 | Nine concepts kept apart; shop_id and seller_id are never a storefront key |
 | [A1-10](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 3/1/2 | Data-ownership model: an owner scope for every table, no blanket country_id |
-| [A1-11](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 3/1/2 | Store context in HTTP: web, API v1, panels, seller APIs, headers |
+| [A1-11](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 4/1/1 | Store context in HTTP: web, API v1, panels, seller APIs, headers |
 | [A1-12](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 2/0/2 | Sessions, cookies and sign-in carry no storefront by accident |
 | [A1-13](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 4/0/2 | Checkout, payment callbacks and webhooks finish in the storefront they started in |
 | [A1-14](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 6/0/0 | Jobs, queue payloads, scheduled tasks and CLI: context carried, never leaked |
