@@ -11382,4 +11382,5 @@ return [
 	'download_your_product' => 'Download your product',
 	'invalid_file!' => 'Invalid file!',
 	'Minimum_Order_Amount' => 'Minimum Order Amount',
+	'Vendor_Payment_has_been_approved_successfully' => 'Vendor Payment has been approved successfully',
 ];

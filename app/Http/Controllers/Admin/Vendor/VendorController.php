@@ -9,7 +9,9 @@ use App\Contracts\Repositories\OrderEditHistoryRepositoryInterface;
 use App\Enums\GlobalConstant;
 use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Http\Requests\Admin\VendorAddRequest;
+use App\Models\VendorLedgerEntry;
 use App\Services\DeliveryCountryCodeService;
+use App\Services\Marketplace\VendorLedger;
 use App\Services\OrderEditService;
 use App\Services\OrderService;
 use App\Traits\OrderEditManager;
@@ -774,7 +776,8 @@ class VendorController extends BaseController
             return redirect()->route('admin.vendors.withdraw_list');
         }
 
-        $isDecided = DB::transaction(function () use ($withdraw, $id, $request, $withdrawData) {
+        $ledger = app(VendorLedger::class);
+        $isDecided = DB::transaction(function () use ($withdraw, $id, $request, $withdrawData, $ledger) {
             $wallet = SellerWallet::where('seller_id', $withdraw['seller_id'])->lockForUpdate()->first();
             $pendingRequest = WithdrawRequest::where(['id' => $id, 'seller_id' => $withdraw['seller_id'], 'approved' => 0])->lockForUpdate()->first();
             if (!$pendingRequest || WithdrawRequest::where(['id' => $id, 'approved' => 0])->update($withdrawData) !== 1) {
@@ -782,6 +785,11 @@ class VendorController extends BaseController
             }
 
             if ($request['approved'] == 1) {
+                // A legacy withdraw names no order, so it carries the company of the ledger rows it is mirrored against, and none
+                // while they name more than one. Read before the payout row is written, and inside this transaction, so the company
+                // the entry is filed under is the one the seller's own rows agreed on when the money moved.
+                $company = $ledger->companyOfSeller(sellerId: $withdraw['seller_id']);
+
                 $wallet->withdrawn += $pendingRequest['amount'];
                 $wallet->pending_withdraw -= $pendingRequest['amount'];
                 $wallet->save();
@@ -792,14 +800,15 @@ class VendorController extends BaseController
                 // amount is stored in USD; the ledger is in base currency, so convert. Idempotent on the
                 // withdraw-request id (VendorLedger::record dedupes on entry+reference). This can only lower
                 // ledger withdrawable, never raise it, so it can never enable an over-payment.
-                app(\App\Services\Marketplace\VendorLedger::class)->record(
+                $ledger->record(
                     sellerId: $withdraw['seller_id'],
-                    entryType: \App\Models\VendorLedgerEntry::TYPE_PAYOUT,
+                    entryType: VendorLedgerEntry::TYPE_PAYOUT,
                     debit: (float) usdToDefaultCurrency($pendingRequest['amount']),
-                    status: \App\Models\VendorLedgerEntry::STATUS_PAID,
+                    status: VendorLedgerEntry::STATUS_PAID,
                     referenceType: 'legacy_withdraw',
                     referenceId: $id,
                     description: 'Legacy withdraw request #' . $id . ' paid',
+                    legalEntityId: $company,
                 );
             } else {
                 $wallet->total_earning += $pendingRequest['amount'];
@@ -819,33 +828,6 @@ class VendorController extends BaseController
         }
 
         if ($request['approved'] == 1) {
-            // A legacy withdraw names no order either, so it carries the company of the ledger rows it is mirrored against, and none while
-            // they name more than one. Read BEFORE the wallet moves: the wallet and the ledger mirror below are not one transaction, so a
-            // read that threw between them would leave a wallet already debited and no record of the payout on the ledger.
-            $ledger = app(\App\Services\Marketplace\VendorLedger::class);
-            $company = $ledger->companyOfSeller(sellerId: $withdraw['seller_id']);
-
-            $this->vendorWalletRepo->getFirstWhere(params: ['seller_id' => $withdraw['seller_id']])->increment('withdrawn', $withdraw['amount']);
-            $this->vendorWalletRepo->getFirstWhere(params: ['seller_id' => $withdraw['seller_id']])->decrement('pending_withdraw', $withdraw['amount']);
-
-            // Consolidation bridge: mirror the legacy payout into the vendor ledger so the ledger is the
-            // single record of ALL money that has left, and its withdrawable() accounts for legacy
-            // withdrawals too — closing the double-withdraw gap between the two channels. The legacy
-            // amount is stored in USD; the ledger is in base currency, so convert. Idempotent on the
-            // withdraw-request id (VendorLedger::record dedupes on entry+reference). This can only lower
-            // ledger withdrawable, never raise it, so it can never enable an over-payment.
-            $ledger->record(
-                sellerId: $withdraw['seller_id'],
-                entryType: \App\Models\VendorLedgerEntry::TYPE_PAYOUT,
-                debit: (float) usdToDefaultCurrency($withdraw['amount']),
-                status: \App\Models\VendorLedgerEntry::STATUS_PAID,
-                referenceType: 'legacy_withdraw',
-                referenceId: $id,
-                description: 'Legacy withdraw request #' . $id . ' paid',
-                legalEntityId: $company,
-            );
-
-            $this->withdrawRequestRepo->update(id: $id, data: $withdrawData);
             ToastMagic::success(translate('Vendor_Payment_has_been_approved_successfully'));
             return redirect()->route('admin.vendors.withdraw_list');
         }
