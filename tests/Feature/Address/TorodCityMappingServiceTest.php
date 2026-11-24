@@ -514,4 +514,47 @@ class TorodCityMappingServiceTest extends TorodAddressTestCase
 
         Http::assertNothingSent();
     }
+
+    /**
+     * H1-02: a mapping says which country it is about.
+     *
+     * It is the country the PROVIDER serves, because its city directory is that country's: a mapping of one of its cities is a fact about
+     * that country and about no other. Until our own cities carry a country (H1-10) this is the only country either side of the pair knows,
+     * and writing it is what lets a second provider's mappings be told apart from the first's instead of pooling them.
+     */
+    public function test_a_proposed_mapping_records_the_country_the_provider_serves(): void
+    {
+        config(['fulfillment.providers.torod_point.default_country' => 'SA']);
+
+        $this->service()->proposeCandidates(self::PROVIDER, collect([$this->city('riyadh')]));
+
+        $this->assertSame(['SA'], \Illuminate\Support\Facades\DB::table('provider_city_mappings')->distinct()->pluck('country_code')->all());
+    }
+
+    /** A provider that names no country writes none, which is how every mapping on this platform exists today. */
+    public function test_a_provider_that_names_no_country_writes_none(): void
+    {
+        config(['fulfillment.providers.torod_point.default_country' => null]);
+
+        $this->service()->proposeCandidates(self::PROVIDER, collect([$this->city('riyadh')]));
+
+        $this->assertSame([null], \Illuminate\Support\Facades\DB::table('provider_city_mappings')->distinct()->pluck('country_code')->all());
+    }
+
+    /**
+     * And the filter the country is for: the mappings of one country are its own, plus -- for the provider's own country -- the ones
+     * written before countries were stated, because a mapping of a one-country platform is a mapping of that country.
+     */
+    public function test_the_mappings_of_a_country_are_its_own_and_the_ones_that_name_none(): void
+    {
+        config(['fulfillment.providers.torod_point.default_country' => 'SA']);
+        $this->service()->proposeCandidates(self::PROVIDER, collect([$this->city('riyadh')]));
+        \Illuminate\Support\Facades\DB::table('provider_city_mappings')->update(['country_code' => null]);
+
+        $saudi = \App\Services\Fulfillment\ProviderCityMappingService::ofCountry(\App\Models\ProviderCityMapping::query(), 'torod_point', 'SA')->count();
+        $kuwaiti = \App\Services\Fulfillment\ProviderCityMappingService::ofCountry(\App\Models\ProviderCityMapping::query(), 'torod_point', 'KW')->count();
+
+        $this->assertGreaterThan(0, $saudi, "the provider's own country takes the rows that name none");
+        $this->assertSame(0, $kuwaiti, 'another country takes none of them');
+    }
 }

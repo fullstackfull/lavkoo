@@ -465,6 +465,42 @@ class ProviderCityMappingService
      * @param list<string> $considered every candidate the city had when this one was proposed
      * @return array<string, mixed>
      */
+    /**
+     * The country a provider serves, as its own configuration states it, or null when it states none.
+     *
+     * A provider that names no country has its mappings written with none, which is how every mapping on this platform exists today: one
+     * country, never stated because there was no second one to tell it from.
+     */
+    public static function countryOf(string $provider): ?string
+    {
+        $country = strtoupper(trim((string) config("fulfillment.providers.{$provider}.default_country")));
+
+        return $country === '' ? null : $country;
+    }
+
+    /**
+     * The mappings of one provider that belong to a country: the ones that say so, and -- for the provider's own country -- the ones that
+     * say nothing, because a mapping written before countries were stated is a mapping of the country the provider serves.
+     *
+     * @param \Illuminate\Database\Eloquent\Builder<ProviderCityMapping> $mappings
+     */
+    public static function ofCountry(Builder $mappings, string $provider, ?string $country): Builder
+    {
+        $wanted = strtoupper(trim((string) $country));
+
+        if ($wanted === '') {
+            return $mappings;
+        }
+
+        return $mappings->where(function (Builder $inner) use ($provider, $wanted): void {
+            $inner->where('country_code', $wanted);
+
+            if (self::countryOf($provider) === $wanted) {
+                $inner->orWhereNull('country_code');
+            }
+        });
+    }
+
     private function pendingRow(string $provider, AddressCity $city, CityCandidate $candidate, string $method, array $considered): array
     {
         return [
@@ -472,6 +508,11 @@ class ProviderCityMappingService
             'address_city_id' => $city->id,
             'external_city_id' => (string) $candidate->city->external_id,
             'external_region_id' => $candidate->city->region_external_id,
+            // The country this mapping is about (H1-02). It is the country the PROVIDER serves: its city directory is that country's, so a
+            // mapping of one of its cities is a fact about that country and not about any other. Until our own cities carry a country of
+            // their own (H1-10, the address system going beyond one country) this is the only country either side of the pair knows, and
+            // writing it is what lets a second provider's mappings be told apart from the first's instead of pooling them.
+            'country_code' => self::countryOf($provider),
             'status' => MappingStatus::Pending->value,
             'method' => $method,
             'approved_slot' => null,

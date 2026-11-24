@@ -17,6 +17,7 @@ use App\Services\Fulfillment\Support\ProviderSyncRecorder;
 use App\Services\Fulfillment\Support\DestinationCountry;
 use App\Services\Fulfillment\Support\ProviderRouteSupport;
 use App\Services\Storefront\StorefrontResolver;
+use App\Services\Shipping\ShippingEligibility;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -227,6 +228,14 @@ class ProviderOrderDispatcher
         $destination = DestinationCountry::ofOrder($fulfillment->order_id) ?? $source;
         if (!ProviderRouteSupport::serves($fulfillment->provider, $source, $destination)) {
             return [HoldReason::ROUTE_UNSUPPORTED, "{$source} to {$destination} is not a route this provider declares it serves."];
+        }
+
+        // H1-06: the engine asked again, on the order's own facts, for a shipment that has been waiting. A permission withdrawn, or a
+        // carrier that stopped serving a route, must stop a parcel that has not left yet -- the decision the order was taken under is kept
+        // for the record, not used as a licence to send. Silent while the cross-border switch is off, which is how the platform ships.
+        $shipping = app(ShippingEligibility::class)->decideForOrder($fulfillment->order_id);
+        if (!$shipping->allowed) {
+            return [HoldReason::ROUTE_UNSUPPORTED, implode(' ', array_map(static fn (string $reason): string => translate($reason), $shipping->reasons))];
         }
 
         $readiness = $adapter->readiness();

@@ -140,6 +140,31 @@ class ProviderRouteSupportTest extends FulfillmentTestCase
         $this->assertSame([], $this->torod->submitted, 'nothing left for the carrier');
     }
 
+    /**
+     * H1-06 at dispatch: a shipment whose PRODUCT permission is missing is held even though its carrier serves the route. A permission
+     * withdrawn while a parcel waited must stop the parcel, which is why the decision kept on the order is a record and not a licence.
+     */
+    public function test_a_waiting_shipment_is_held_when_the_product_may_not_go_there(): void
+    {
+        config(['gcc.shipping.cross_border.enabled' => true]);
+        (require database_path('migrations/2026_12_20_100000_create_product_destination_permissions_table.php'))->up();
+        \App\Services\Shipping\ProductDestinationPermission::forget();
+        $this->declareRoutes(['SA:SA', 'SA:KW']);
+        $this->enableProvider(ProviderCode::TorodPoint);
+
+        $fulfillment = $this->routeSingleProviderOrder(ProviderCode::TorodPoint, orderOverrides: [
+            'storefront_country' => 'KW',
+            'shipping_address_data' => json_encode(['country' => 'KW', 'city' => 'Kuwait City', 'phone' => '51234567', 'address' => 'Salem St 1', 'contact_person_name' => 'Ali']),
+        ], orderId: 4104);
+        // The products of this world carry no market column, so their market reads as the default one -- which is the Saudi product this
+        // shipment is really made of, and the case that matters: it is going to Kuwait with no permission to.
+
+        app(ProviderOrderDispatcher::class)->dispatch($fulfillment->id);
+
+        $this->assertSame(HoldReason::ROUTE_UNSUPPORTED, ProviderFulfillment::findOrFail($fulfillment->id)->hold_reason);
+        $this->assertSame([], $this->torod->submitted, 'nothing left for the carrier');
+    }
+
     /** The control: the Saudi route every shipment takes today is dispatched exactly as before. */
     public function test_a_saudi_shipment_is_not_held_for_its_route(): void
     {
