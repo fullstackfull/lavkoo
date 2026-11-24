@@ -273,6 +273,15 @@ return [
             // mechanism is built and left off until it is. Read docs/gcc/ for D1-10 before turning it on.
             'from_original_payment' => filter_var(env('GCC_REFUND_FROM_ORIGINAL_PAYMENT', false), FILTER_VALIDATE_BOOLEAN),
         ],
+        // The language a market writes in to a recipient who has chosen none (A1-17). EMPTY as it ships, so every market answers nothing and a
+        // recipient with no language of their own is written to exactly as today -- which is what a single-market shop wants and what six
+        // markets do not: a Kuwaiti customer who has chosen no language should not be written to in the language of whichever order a queue
+        // worker handled before theirs. A market is listed here once somebody has decided what it writes in, e.g. 'KW' => 'ar'. A locale the
+        // platform has not installed is ignored rather than bound, because translate() would write language files for it.
+        'language' => [
+            'by_country' => [],
+        ],
+
         'legal' => [
             // Configuration, not a statement of what the law requires. A qualified reviewer confirms the list per country before release.
             'required_documents' => ['terms', 'privacy', 'refund', 'return', 'cancellation', 'shipping'],

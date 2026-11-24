@@ -41,7 +41,7 @@ final class OrderNotificationContext
         return $context->serve(callback: fn () => app(StorefrontCurrency::class)->within(
             country: $context->country,
             callback: fn () => self::inLanguage(
-                language: self::languageOf(order: $order, userType: $userType),
+                language: self::languageOf(order: $order, userType: $userType, country: $context->country),
                 callback: $callback,
             ),
         ));
@@ -70,7 +70,15 @@ final class OrderNotificationContext
      * behind the customer, through the referral record, and the customer's language is not the promoter's. An admin is platform staff, who
      * reads the platform's panel, not a market's.
      */
-    private static function languageOf(object|array $order, string $userType): ?string
+    /**
+     * The language this notification is written in: the recipient's own choice, and failing that the language the order's market writes in
+     * (A1-17, {@see MarketLanguage}). The market's answer is null for every market until somebody has decided what it writes in, so a
+     * recipient who has chosen no language is written to exactly as before.
+     *
+     * The country is the one storefrontOf has already resolved, so a legacy order that records no market reads the default market's
+     * language and not the language of whichever order the worker handled before it -- the same reasoning that binds its money.
+     */
+    private static function languageOf(object|array $order, string $userType, string $country): ?string
     {
         $language = match ($userType) {
             'customer' => data_get($order, 'customer.app_language'),
@@ -79,7 +87,7 @@ final class OrderNotificationContext
             default => null,
         };
 
-        return is_string($language) && trim($language) !== '' ? $language : null;
+        return is_string($language) && trim($language) !== '' ? $language : MarketLanguage::of($country);
     }
 
     /**
