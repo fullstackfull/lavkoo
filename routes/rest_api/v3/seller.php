@@ -207,6 +207,8 @@ Route::group(['namespace' => 'RestAPI\v3\seller', 'prefix' => 'v3/seller', 'midd
                     Route::get('{id}/invoice', 'invoice')->whereNumber('id');
                     // Declared before the catch-all `{id}` below, which would otherwise swallow it.
                     Route::get('{id}/breakdown', 'breakdown')->whereNumber('id');
+                    // Why a shipment of this order has not left (H1-04, H1-06). Also ahead of the catch-all.
+                    Route::get('{id}/shipment-holds', 'shipmentHolds')->whereNumber('id');
                     Route::get('/{id}', 'details');
                 });
 

@@ -123,6 +123,12 @@ class SaudiRouteSurfaceTest extends TestCase
         // has taken, and the address it reads has to be the caller's own.
         'GET api/v1/cart/customs-duty | (none)',
 
+        // Why a shipment of one of the seller's own orders has not left (H1-04, H1-06). The reason was written by the dispatcher and read
+        // only by the admin panel, so a seller watching an order that never moved could not find out why. Behind the same
+        // seller_can:orders.view,orders.manage as the order's own details, and an order that is not theirs answers 404 like every other
+        // order endpoint here. It exposes the reason and nothing else: not the carrier, not the provider's error text.
+        'GET api/v3/seller/orders/{id}/shipment-holds | (none)',
+
         // The seller app's own two additions: the barcode sheet its till prints, and the screen that tells a signed-in seller who they are.
         'GET api/v3/seller/products/barcode/sheet | seller-barcode-sheet',
         'GET api/v3/seller/seller-center/security/me | (none)',

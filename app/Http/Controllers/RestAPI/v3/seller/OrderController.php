@@ -6,6 +6,7 @@ use App\Enums\Address\AddressChannel;
 use App\Services\DigitalFileAddressService;
 use App\Services\DigitalProductFileService;
 use App\Services\OrderAddressUpdateService;
+use App\Services\Fulfillment\SellerHeldShipments;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
 use App\Services\Referral\ReferralRewardService;
 use App\Contracts\Repositories\OrderRepositoryInterface;
@@ -178,6 +179,38 @@ class OrderController extends Controller
         }
 
         return response()->json($invoices->bytes($order, $request->seller->id), 200);
+    }
+
+    #[ApiDoc(
+        summary: 'Why a shipment of this order has not left',
+        description: 'The held shipments of one of the seller\'s own orders, oldest first, each with the '
+            . 'reason it is held in the language the request asks for. A shipment can be held for '
+            . "something the seller can act on — a product with no permission to reach the order's "
+            . 'destination, a regulated product with no licence on file, an address no carrier serves — '
+            . 'and until this existed nothing told them: the reason was written by the dispatcher and '
+            . 'read only by the admin panel, so a seller watching an order that never moved could not '
+            . 'find out why. The reason and nothing else: not the carrier, which is the platform\'s '
+            . 'arrangement and not the seller\'s, and not the provider\'s own error text. An order that '
+            . "is not this seller's answers 404, and an order with nothing held answers an empty list.",
+        audience: ApiDoc::VENDOR_APP,
+        stability: ApiDoc::STABLE,
+        since: 'v3',
+        idempotent: true,
+        group: 'vendors',
+    )]
+    public function shipmentHolds(Request $request, $id, SellerHeldShipments $holds): JsonResponse
+    {
+        $isTheirs = $this->sellerMarkets->mayReadOrder($id)
+            && OrderDetail::ofSeller(sellerId: $request->seller->id)->where('order_id', $id)->exists();
+
+        if (!$isTheirs) {
+            // Either no such order, or one belonging to another seller. Both are the same answer from here.
+            return response()->json(['errors' => [
+                ['code' => 'order', 'message' => translate('order_not_found')],
+            ]], 404);
+        }
+
+        return response()->json(['holds' => $holds->ofOrder($id)], 200);
     }
 
     #[ApiDoc(
