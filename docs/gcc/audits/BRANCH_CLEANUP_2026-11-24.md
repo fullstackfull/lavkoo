@@ -1,0 +1,260 @@
+# Branches whose content is fully in main, and the draft pull requests that were closed
+
+Recorded 2026-11-24 06:09 UTC, against main at b91a2009 (lavkoo),
+7c28f19 (lavkooapp), def6b88 (lavkooappseller).
+
+Every branch below was checked with `git merge-base --is-ancestor <tip> origin/main`: its tip is an ancestor of its
+repository's main, so every commit it holds is already in main and reachable from it. None of them can be lost by
+deleting the branch ref. 121 draft pull requests were closed against these branches (92 in lavkoo, 20 in lavkooapp,
+9 in lavkooappseller) and no pull request remains open in any of the three repositories.
+
+The branch refs themselves could NOT be deleted from the session: this session's egress policy answers 403 to both
+`git push origin --delete` and the GitHub ref API ("Write access to this GitHub API path is not permitted through
+this proxy"). They are listed here so the deletion can be done where it is allowed.
+
+Kept deliberately: `main` in each repository, and the agent development branches under `claude/` — among them
+`claude/intelligent-franklin-jq3d4h` in lavkooappseller, which is this session's own development branch.
+
+## fullstackfull/lavkoo — 181 branches, all contained in main
+
+```
+35fc5b56fe3f8220fbfdd5ad7750e7194512ce58 gcc/batch-independent-fixes
+457b14b78500003b04b9ff40cbf188e0417ec9c8 gcc/core-payment-accounts
+9455f3272ffe304a793ee48727eb02453d969a36 gcc/final-integration
+93754fa0b1a77bb78946be3a94f2989a61984c1f gcc/fix-legal-text-order
+f2e6f2c7cc16519f2952527adca85faeb8f40195 gcc/fix-payment-hook-state-between-settlements
+cbd976a6267abde89337c68efcd24a0244a4109b gcc/fix-referral-first-order-notification
+3880a2c94b6a56025475f39548e4b9bcee62faf5 gcc/integration
+38301253b20ed4826a6efdc33bf019e84032a98b gcc/merge-pos-over-quantity
+1ca1c4d81d60adfd694b0999e7af39119a9b42e3 gcc/p0-admin-coupon-translation-key
+14c8567101e7cb530eb2ab540aea90405d950f30 gcc/p0-admin-signin-guards
+af862ff301658d0199d6a12449783f81e90ad653 gcc/p0-api-edit-order-due-payment-ownership
+2a17531173ef17840b0fca30c8dde7258a61f13b gcc/p0-branch-protection-draft
+de1270f85c18367b3b0f53df66645b300e75c5f2 gcc/p0-checkout-stock-tests
+a0289e75df1c77e5a3a9929b60fb59aa0dd2492b gcc/p0-ci-every-test-directory-on-a-real-engine
+1d000dfa995f75c85bfa5c9a466a86de38fe32f6 gcc/p0-coupon-minimum-boundary
+ea6827da67a959c2cae938dfc68db73e5174903a gcc/p0-coupon-use-count-strict-sql
+aa7ba270b2155f53ce36c6d6f9b065410fe868c8 gcc/p0-discovery-test-calendar-independent
+9908240c50e269ee11e6309c9bea8fd618ddc95d gcc/p0-embedded-customer-without-balances
+9b398748e81b31c5b7538c07f4f781c22cf9ed80 gcc/p0-loyalty-balance-lock
+59133c3523b5da08aa789a9e8a0381e6c6c319d2 gcc/p0-loyalty-refund-characterization
+cf7d3e283347a5524a09e895eae54e905823c036 gcc/p0-missing-message-keys
+65d2d0963aef626b609895eb790be4a950a5f1be gcc/p0-order-owner-is-guest-scope
+ad09d6c6402b7f44e12f058816445cdc3d21bf4b gcc/p0-paymera-callback-security
+516881c580c0a6d03ecef5e94c71b502431ed24d gcc/p0-pos-wallet-atomicity
+7c75b7f4f838e78d9c516f775919fed6963de9fd gcc/p0-pos-wallet-server-total
+bb0ec13243126ceaccc4863e43a10036f6a13517 gcc/p0-referral-characterization
+73708954825e14b66e36abe365cc97a6a71d77d8 gcc/p0-referral-reward-idempotency
+24cc1033a6cba33a375c4cc59e8052fb60aa54f2 gcc/p0-remove-duplicate-payment-routing
+dea94433d3e6acb0042a17ebfddb5b26f8080ab4 gcc/p0-report-pagination-stable-order
+5cbc384427621377d9bb1cbdc15be9c5c41dd3f9 gcc/p0-rma-receive-idempotency
+d664ab4b0a9a9f87137e7a739e091d50b9cc1802 gcc/p0-saudi-baseline-ci
+c1aac4f7a189e024b9bbd110a42905a6bf480cb1 gcc/p0-saudi-baseline-ci-job
+177d80bc6997f5942227b02c262fedfdafcda5ac gcc/p0-saudi-golden-responses
+5c4b3e6615ecf8357b26baa89ebcdf7a3f6dd1c5 gcc/p0-saudi-wallet-characterization
+d65a7f5d3e3a7c9f284379b1e9cb026196f6b6c6 gcc/p0-seller-admin-permission-characterization
+75afe858eecf7f2e57bc76a7dc537b6696c0d0c5 gcc/p0-seller-order-scoping
+df1c778a16f0332b3fca04c5be22b68563fc5120 gcc/p0-seller-v2-refund-approved-gate
+eebb58841ded87581743c06a626c8daf37489d50 gcc/p0-stock-holds-characterization
+a8069b1a6e58b4871be7cbe6d2cb8d8bb115d936 gcc/p0-stop-logging-one-time-codes
+cdf825b21e85762ca67415db8a5c7af42eac2839 gcc/p0-test-empty-real-database
+59aa97892c818ba3788b1c04b2e3c4bab4aa2576 gcc/p0-trusted-request-identity
+8af7d149519d6869ae0c43ba273cce4262b5964a gcc/p0-vendor-withdraw-close-post
+832377a3c987db74119d3ae7db8b52ed9375ccb8 gcc/p0-wallet-checkout-pos-boundary-tests
+f286684077aa0da6bc0ed4730f9156586558f4b2 gcc/p0-wallet-concurrency-lock
+8a4eca3b18c7b6ce19b6e857c8da11a46960b40d gcc/p0-wallet-currency-consistent-debit
+dd5f95e40c055d6615fa87d081ef3e5c86abf7fc gcc/p0-wallet-debit-result-handling
+2ae74598d599c62c88f0687831475048cd2091b6 gcc/p0-wallet-loyalty-ci-coverage
+095d537f8251575657dd046af87a0a1380b09666 gcc/p0-wallet-one-locked-writer
+7fc382c869df82dce43a4516b07d4b880892ef4e gcc/p0-wallet-overdraft-guard
+726e681e48d3f0c62959459d963f7a57a777179d gcc/p0-wallet-seller-withdraw-scoping
+4f66dce11f21691b136bab6e55a9f53c5644979d gcc/p0-wallet-v3-pos-paid-amount-guard
+00b9974091fcf9b0abecdb170841941c24fa268a gcc/p0-wallet-withdraw-boundary-tests
+9242fce780cbbf8569b9cabe61ee9d33c236a50f gcc/p0-wallet-withdraw-one-conversion
+20a99a5082070ac064a8b2c9cc357ecbd8629227 gcc/p0-web-due-payment-authorization
+cf0228b8f4dc17222288a85f1ba1e5427fdbfae1 gcc/p1-account-deletion-keeps-money
+216c2795d2ee845a2d076b06e366bc12b2028495 gcc/p1-admin-product-country
+3688f6a7cb1ce8ba47851606f0d5a3649a534e2c gcc/p1-catalogue-visible-per-storefront
+ccb490a1166161f0836005c46529041201cf42c1 gcc/p1-checkout-currency-context
+253495361293e4d7532dd3706148031865facbaa gcc/p1-checkout-legal-readiness
+60a4c14c41bc62f69a70bcc8129b3cf651b717ca gcc/p1-commission-and-ledger-per-line
+e0dd5dc206a77201f61df32a0ce43998971f90b8 gcc/p1-country-owned-products
+1c779d27b8cc5d2c8f689695c07bf1c1329cfe31 gcc/p1-country-scoped-codes
+0ad49d2a1ac92ea9b2885c7a60801dbf591c4321 gcc/p1-country-scoped-codes-2
+2ab62bb5836a27295b1c3ff5dd4f2ab6fa83e6a8 gcc/p1-coupon-behaviour-pins
+7ca87a9f0526823e1408da91440e9ed5fe3a5200 gcc/p1-coupon-form-money
+9510d42de0c2a9e644a53d40d83708fe5b83f243 gcc/p1-gateway-registry-consistency
+d45166141163820eb06bb5165b5acb9038985f44 gcc/p1-ledger-append-only-and-account-deletion
+f708d5f58df737e919bd2886d9854fbe4a3c820f gcc/p1-ledger-chain-per-entity
+ce8786b777a327336324a7f8e41b3eef15721f4e gcc/p1-legacy-behaviour-pins
+82b6dfa3c3cd195d7da7265e378efec93764a513 gcc/p1-legal-acceptance-receipts
+05c554a333961300fd663c7c17dbce744067d7d6 gcc/p1-legal-entity-registry
+af88f04560aa243157a8bc7e83c2cc28787804af gcc/p1-legal-store-pins
+c440a9f18d46a46c87a43a84c6a92e7ee5b70a29 gcc/p1-legal-text-publisher
+18bd311fcaa2f72c2a1b062b15edc7dc9aaac429 gcc/p1-legal-versus-operating-rules
+c53ac2c351ae241707625ae69534f9fd3df12ecd gcc/p1-market-account-sharing-key
+2629b9f151b373c15de472e6fea2b28e511770ca gcc/p1-market-wallet-loyalty-accounts
+1f1b80866b63d7f691e007f25252073c24596fed gcc/p1-marketing-consent-and-unsubscribe
+6b1bf942f8273622290548bb01f336572d960f56 gcc/p1-marketing-stop-registry
+53b1d22ff80ff909a4086c79397612d612c9e008 gcc/p1-notification-stop-pins
+331ee6712974c8299eaa64ad621175c31cb277f1 gcc/p1-order-answer-market
+b7ea97b618d5cbf5cab64384e7db8f8322af5ad1 gcc/p1-order-currency-on-every-surface
+7509c94ced9aa9ba9e4fb1a796ef94b70fb639b9 gcc/p1-order-notifications-per-storefront
+a7f58989fcfee8f7b3c0265919f3e7f74fd31483 gcc/p1-order-one-selling-company
+718edb99542cc3f07169bbf4a09fe03a0b270f2a gcc/p1-order-tax-characterization
+d2d130f8a59b3562eb1b2b26122884a6d5cf0c2f gcc/p1-order-tax-rows-per-line
+7a638ed1d4a44a4b7f872c5ff5c0ec7689f3a9cf gcc/p1-order-writers-gate-list
+7e32bba2d4df4853644b031eb1053b90b0530098 gcc/p1-payment-callback-storefront
+4504a41a7e0c58e13693f2537dfc2820a0d6a95e gcc/p1-payment-confirmation-address
+588a10b37beb031abdf87490e08c5b22f5db42b4 gcc/p1-payment-currency-never-usd-by-accident
+222fe1ebd0e1cb229f2383906ce3b56624c607b9 gcc/p1-payment-methods-only-where-confirmed
+df7d03ab9894594a42b5c82f7dab717ec2e68ae6 gcc/p1-payment-refuses-a-currency-it-cannot-take
+1b843fe40a645fc5d75b013baf3ec6970e3efa1e gcc/p1-paymob-saudi-baseline-pinned
+6d5a9bd3afea669619490b0804145c187c2f9a0d gcc/p1-platform-address-stops-confirming-company-payments
+b83a8151e18cf3b690736bc1b2634cb712a0a78a gcc/p1-platform-admin-api
+cb3db36359e9b4e86b2734645e1a21b640e34228 gcc/p1-platform-admin-grants-audit
+ebf59d2c75467350222bee43f43e70d18fd9e935 gcc/p1-platform-admin-mfa
+630d28e184ef25b1e0925691ba85fd8f52eaeba9 gcc/p1-platform-admin-staff-scope
+9cb0fd84fa7d3bda4c51db50206b3fdf45974706 gcc/p1-pos-one-selling-company
+60f5a605c6a2c12d9ce5ffd84fcef3d5e88e6068 gcc/p1-pos-refuses-over-quantity
+0b2c5e797b6a721a70c872ab3f626c70ac8dea05 gcc/p1-product-identity-per-country
+f2f482aca5dfb69303fdcdf961e2ae457e1359d9 gcc/p1-public-payment-endpoints-rate-limited
+d100dd01827347cb6734977ed8938542c48eb36d gcc/p1-refund-from-original-payment
+1447d43359808ad92eef8fbf032725527d91e4da gcc/p1-refund-records-order-money
+06fcfaf593f2e5a13dde62c0d0f7630a65d56f35 gcc/p1-refund-through-original-account
+5e128f062f020e51e77c113327be7e60fab2dd9a gcc/p1-remove-order-debug-file
+1b1df46725a0f3870323f6d3dec3312ea10e5a88 gcc/p1-restock-never-exceeds-what-left-the-shelf
+fe588e44497a39da307554e6feaed2cc7a19d743 gcc/p1-route-parity-guard
+3a23dadc1c2a8fb61fa8a2958ddf4a28ad8a3075 gcc/p1-saudi-literals-guard
+8ab3a4dd0cd2fe1440812c8f08c4e9dbdb0a3174 gcc/p1-security-coupon-ownership
+11a9707f8d76e4e300d401f07642b343da9b4058 gcc/p1-seller-market-contract
+431d0aebe1659908dae7383d5f0b23168947aa31 gcc/p1-seller-market-scopes
+ebbce05a5fa9203b16ba7d15cd59a6d96abfc22b gcc/p1-settlement-one-currency
+712509a10366308f709d74d06b29a71a47612f56 gcc/p1-staff-country-scopes
+81a28367522853acd6b8d0a07a081a29f60fbfe1 gcc/p1-staff-scope-orders-pos-refunds
+8a7e7bafd2bd8b95e3869ca28dea3c4f2a77a910 gcc/p1-staff-scope-reports
+71a05e62af27a1ca123b4d09362e5c614fd07d82 gcc/p1-stop-mode-pins
+d57558609e6040bf3fabecf90fd0e9e3cb172663 gcc/p1-storefront-admin-screens
+8c8d32a67f123ea11138ea4fade1d1de30bc4667 gcc/p1-storefront-api-header
+4a821d3ca29fa60afe07cf378c71c80304ae0e21 gcc/p1-storefront-cart-guard
+a8c6a42bad0a4e9cc2ca41cd113a65dc97cd0b80 gcc/p1-storefront-context
+2344fa303c3801a653b5ee58f066fb62e247d9d9 gcc/p1-storefront-country-context
+fd40399c1aed9d684868ef3edb7f4d11994742bf gcc/p1-storefront-currency
+13eda6f1a1d0da439e39e3076375782c9d8eecb9 gcc/p1-storefront-legal-pages
+122960e9dd91cfeb0db615e3369b1430ea2bb3ab gcc/p1-storefront-legal-readiness
+01cefbc1328a0e91286e61bd7b9b68c5d430d2db gcc/p1-storefront-legal-review
+7e19d28401b822126df03fd1db3c4b8c1d71353b gcc/p1-storefront-lifecycle
+74372ebf8c830b82fcc3142423039c6f316e335f gcc/p1-storefront-middleware-alias
+6f9fea5d3cc47cd8af492e885b69eba42721ee80 gcc/p1-storefront-money-and-seo
+d95ed39ba54781b9dae871126e2f2981ea092e33 gcc/p1-storefront-payment-methods
+98191fff196767cd0edc66d632480e32e741feff gcc/p1-storefront-product-caches
+8149090c54014903ef02ba1c98ca7920cab9216e gcc/p1-storefront-sellable-list
+e624e43e7039a2dad088d4c659cf5cc6d83737ed gcc/p1-storefront-six-country-isolation
+9a57012e6a63ad83e1f57a18e5955f5c496a8b4b gcc/p1-storefront-tax-setup
+62b8e4ad9c2cf5efed56167e9f95e9e076b73e93 gcc/p1-storefront-theme-isolation
+3f4b23e520e73db9b9338b743a4e6f7c7f7d2053 gcc/p1-suborders-and-commission-per-line
+2976ebb2a2cfa0e72974c55cca8855ed9165c23c gcc/p1-theme-banner-folder-and-identity
+71c01d0d8cbc26caf12397fdc9a0e296e1522b74 gcc/p1-theme-channel-delivery
+eaa04e2f66eed2f4d0c9373f254ae21f7b5e2a43 gcc/p1-theme-publish-per-storefront
+d94390f3ad94d288448894836389b18f90d016ea gcc/p1-till-charges-the-server-total
+61899f41d53241a8b35381cb7a9b9bd4aec0db95 gcc/p1-wallet-balance-writers-guard
+533e4cbf09acf15a827797f6dd1a5e5c5b1d0a85 gcc/p1-wallet-contract-tests
+bb55ab8350bdf1776be22876c7ea2095533877cf gcc/p1-wallet-ledger-attribution
+b5a3b5d15a24f9e2127eb3fd843a157afd3cec44 gcc/p1-wallet-reconcile-command
+b52d9b2a9050bd9c036df6a3657a65c5ee668ba6 gcc/p1-web-checkout-gate
+1c5ccfeb33cf803afe3894d0426c7dc6d9e821b2 gcc/pos-over-quantity-on-main
+772f1c36753541879fda5c55b29e083b8ba72a1a gcc/release/all-integration-ci
+8ff3410955fb14c6c27a66f7b74834bcfa216ff4 gcc/release/gcc-integration-ci
+f6fb03afe6aa4878708e159e6b84aa1fbbf37361 gcc/release/security-gcc-integration-ci
+fafa1a2e863579c0741a6f28e832025420fb458d gcc/release/security-hotfix
+698aa1e74afb43eedc37fe2a683c6aae6002b8bc gcc/release/security-hotfix-base
+0f512114f4b216551f858d5876df86994fa95d8e gcc/release/security-hotfix-ci
+49e170fecbc2680802508e54194f5bff97fbf1a4 gcc/release/security-hotfix-ci-mariadb
+0d3ab24deda4ef7f6caed7255f8b2bb928cbf156 gcc/release/security-hotfix-confirmations
+0969c157305e76bf56ba1353914f59c10d2b4f6d gcc/release/security-hotfix-package
+b83fd1895a885af8b618ce3ff8a3869c8186b731 gcc/release/security-hotfix-stage0
+47b78ab8952edaf72f36b27c38d56d3e53135518 gcc/release/security-integration
+7bdc7d9f66d252bf118e6b4e0c448cf4f1f7b10c gcc/security-admin-handler-allowlists
+417497291f7eb0add1de5b1b8eb4d4c1bb8e40e6 gcc/security-admin-module-any-of
+8e3479dc326b3e94d1fc4ff7314c77207f33c834 gcc/security-admin-module-gates
+822e16c669351926f6ce18f2fb76c9fb6eee383e gcc/security-admin-module-gates-part-2
+8858800aeccae82f58c70d4df590b1dab697a4cd gcc/security-admin-profile-idor
+8cd82250efb3d0ac9db7492e3de3f0ea593ce0f8 gcc/security-admin-search-module-filter
+9a1c850c18e5f423c3b9a69b4e7837aab5a1518c gcc/security-auction-ai-and-barcode-sheet
+f096f4bcc7d9f7a4bb2f534019d67e3bedcf865b gcc/security-blog-unpublished-posts
+8c6236dcd1a9a35b78ad5614ae7964068a376688 gcc/security-business-page-unpublished
+54a0be563ddd11aa62a5c3b72ef402e3a059751a gcc/security-cart-update-variation-owner
+f96cc6cdf2ec5e2f7449a7cf581151baf3bd37cd gcc/security-customer-password-reset
+edbb16754dc3944d57344a0e21c0988ab411b440 gcc/security-customer-web-account-takeover
+4096f1bedcb75bc67d81d5bdef91ab98b791535a gcc/security-digital-files-private-disk
+13bfc69e8c441385f16e5a2ba4c0f4154253e6c9 gcc/security-gateway-confirmations
+7551209451df1f587aacef7c45563f62a866498b gcc/security-rest-existing-account-check
+a4356eede9e40d1dda37d020e026fb3d26b9ab51 gcc/security-review-scope-segments
+c07cd3641be7d488ccd93e1848615aa7cc256744 gcc/security-search-fallback-visibility
+40020ae5f67eb5e503d78b95d98629b8edce01b6 gcc/security-seller-password-reset
+ead8e2a883fbab16be1a76a54dee33459fadaf34 gcc/security-seller-product-ownership
+61798e8592ff24934de67a41995f4fba967d03c8 gcc/security-seller-self-approval
+d78ef20356dd42d9643624004f9056bb4110fe97 gcc/security-social-login-confirmation
+de0a7d5ec401957528b1bfbe2c9912f0b47b5469 gcc/security-upload-extension
+c26ad9da295d3e6fbac75228cc0ac2bc92f2a63a gcc/security-vendor-shop-idor
+9455f3272ffe304a793ee48727eb02453d969a36 gcc/till-server-total-on-main
+c7785dd0e016daf41a1a95f81c63c08eb6d45008 gcc/wip-handover-land-the-twenty-five
+```
+
+## fullstackfull/lavkooapp — 26 branches, all contained in main
+
+```
+7c28f193b5c07aefc30705d224631a98cd63efc4 gcc/integration
+b49c6bf178ff0305aa50dc55f0ad001451ce1f0e gcc/j11-push-per-storefront
+9c276dd8ac3943f518d4f47cf2d304541d72a753 gcc/p1-customer-analyze-baseline
+45bfed30657af5e54a41bc94aae9f35f63f6f568 gcc/p1-customer-currency-code
+97399d4f8ba8ddab86675ff226fe565d0d412617 gcc/p1-customer-currency-format
+f96279e1f0cd52ec8e308d99a9e20c54744b57a9 gcc/p1-customer-full-suite
+7713cd8e1b1492953d53c1a257e82808720e363f gcc/p1-customer-maintenance-screen
+80069745064e502e669489ac7df8ad9e48747033 gcc/p1-customer-order-currency
+0ed2c8443f6b38056691cf14b70a77f4b1e9a450 gcc/p1-customer-pins
+eda781432da0a1a9060a787ff81b9ff76cea994d gcc/p1-customer-sellable-browse-only
+1708151525b610bee428b203db74947d7c0b107e gcc/p1-customer-server-default
+016fd713d9b3127374d35de8ec1516c83ff34efa gcc/p1-customer-stop-modes
+547c9d94dfc2cfb4f9367430ef5d5a2ced00e17a gcc/p1-customer-storefront-cache-key
+56deea720d665a3fcbee8deb7cf7dd08b4cba076 gcc/p1-customer-storefront-caches
+5526c4b0744333e356f9874e47d53d80188e4702 gcc/p1-customer-storefront-cansell
+6b7452408ce859e06b48dbe9c0be73967bf7478e gcc/p1-customer-storefront-choice
+2a8c84c9c7becdf61ae4a0f153081009f5564b88 gcc/p1-customer-storefront-header
+0ec24fd1bb66130f3c449259b48f48550ef6258a gcc/p1-customer-storefront-reconcile
+abf7ed9740ca1adbaf92da31d071971356c6896d gcc/p1-customer-storefront-switch-wait
+ba6f03b727767715e364a1d99c21eadf8cad5f38 gcc/p1-customer-storefront-uploads
+3b22f15e8ec548e8678de4d30e66535af95fd952 gcc/p1-customer-update-target
+49b63de915f589ace30d4fe55884598c35c80ead gcc/p1-customer-version-gate-test
+4e3a895c292b0d05d05ed0ac555ba3a14230f248 gcc/p1-customer-wallet-reload
+b84de443d486157e55aa5fa03f49bc00020a50c4 gcc/p1-customer-whole-suite
+08b9b9d03ac860d8cf96c10de56e21ad1684b4ce gcc/security-social-confirmation-token
+f73dd469b8dd410b8b5e3ace040d52762d229615 gcc/tmp-analyzer-gate-proof
+```
+
+## fullstackfull/lavkooappseller — 21 branches, all contained in main
+
+```
+ca722974e0703264aca900881c32d5f5447ac6a0 gcc/integration
+04a705a25e0d208338c2691ab4704248c3bf498f gcc/k09-statement-currency-refusal
+99927e8bc04b6c9f3c5b64a7f9884892f4d24a9f gcc/p1-seller-ci-every-pull-request
+5b2fd4079d1357d4979c1e2beae59388093f9d5a gcc/p1-seller-image-rules-from-table
+e5fd716407f78f324db6e8d7270c0471310a5993 gcc/p1-seller-market-choice
+1a96cb60ff6bfce38e03830322f57c4b9ab2f22a gcc/p1-seller-market-grant
+03821feff9998e750bb82304cdb47dda6fe731f0 gcc/p1-seller-market-money
+8b6f6793089c8c427c4012ff1925e93813f8bbfd gcc/p1-seller-market-selector
+3eba8696897195081e4accc662a456eefcfea55c gcc/p1-seller-no-theme-call
+c81627427d306aeb9fda01f1c6d1b359e8846738 gcc/p1-seller-outbox-market
+2c3082cb4b8f391782b83c31c84c40ff9c49f8e8 gcc/p1-seller-outbox-owner
+e4d7d029cdeda760670e85c4099582b0795be332 gcc/p1-seller-platform-admin-mfa
+716f84d96d8bebbecf48adddddba5696c1671629 gcc/p1-seller-platform-admin-shell
+7c207174ca9c994e42d4f3a63742b52e24a7a1a0 gcc/p1-seller-pos-walk-in-id
+673aa9cd1c6c67e1bbc008f9271e4e64214ed91b gcc/p1-seller-push-route-and-rating
+3a0347044e6246d54b50c53c0179cae1937df824 gcc/p1-seller-second-login
+6491b825d0e89ffd287fddca7381e98bcfef41e3 gcc/p1-seller-session-tests
+964557e88909f7003351b9abe9c46c64e4da58f0 gcc/p1-seller-storefront-header
+7e9f6747f69560ff2421700021a98bd5d7a92d0a gcc/seller-order-edit-refusal
+83893fa32c69e476532f0bbd1e0ce15e639596d3 gcc/seller-pos-ambiguous-code
+40178cb2368aba7ed286fc09eb94317e5e7120ef gcc/seller-version-meets-backend-minimum
+```
+
