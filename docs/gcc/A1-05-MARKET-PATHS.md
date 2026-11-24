@@ -94,7 +94,9 @@ Eight of the sixteen fail if the middleware is taken out of the global stack.
 - **The market switcher** a visitor uses to change market from a page (A1-06 covers the choice being kept; the control itself is a product
   decision about where it sits in the theme).
 - **A redirect written as a full absolute URL** would not keep the market: only paths go through the formatter. A redirect by route name or
-  by path does keep it, which a test pins. Nothing in the storefront writes an absolute one today; it is worth a scan before the switch is
-  turned on.
+  by path does keep it, which a test pins. The scan is done and clean: the default theme's web views hold no root-relative `href`, no
+  literal AJAX endpoint and no absolute link -- all 65 files that link build it with `url()` or `route()` -- and the only
+  `redirect()->away()` in the web controllers is the campaign redirect, which deliberately leaves the site. A view added later could still
+  write one, so it is worth re-running that grep before the switch is turned on.
 - **`/sa` and SEO**: `/sa/...` is reachable and generates `/sa` links for the visitor who entered there, so the same page has two addresses.
   The canonical link and the sitemap name the bare one, which is what keeps the indexed address the Saudi one.
