@@ -853,6 +853,13 @@ class WebController extends Controller
         $paymentAmount = collect($vendorWiseCartList)->sum('order_amount_with_tax');
 
         $user = Helpers::getCustomerInformation($request);
+        // As in the API path: an emptied cart is sent back to the cart rather than charged 0.00. A free product in the cart is not this.
+        if (empty($vendorWiseCartList)) {
+            Toastr::info(translate('cart_is_empty'));
+
+            return redirect()->route('shop-cart');
+        }
+
         $walletDebit = WalletOrderDebit::forOrderAmount($paymentAmount);
         if (!$walletDebit->isCoveredBy($user->wallet_balance)) {
             Toastr::warning(translate('Inefficient_balance_in_your_wallet_to_pay_for_this_order') . '!!');
