@@ -40,6 +40,7 @@ Two switches above it still hold: with `market_accounts.enabled` off, or the mas
 | the website's loyalty page, and the REST list (`total_loyalty_point`) | the points of the market being served |
 | both points-to-wallet conversions | judged against the points of the market the conversion is made in |
 | `CustomerWalletWriter`, inside the balance lock | a debit is judged against the balance of the market being served |
+| all four statement queries (web and REST, wallet and loyalty) | the movements the market being served records (E-04) |
 
 **Did not move — every write.** The one `users` column still takes every movement and the mirror still copies it into the market's
 account. Once a second market holds money the two legitimately part company, which is what the mirror's divergence line is for. This
@@ -58,7 +59,7 @@ slice decides which of the two a reader is *shown*, and nothing else.
 
 ## What is proved
 
-`tests/Feature/Wallet/MarketAnswersFromItsAccountTest.php` (10), on SQLite 8.3 and MariaDB 11.4:
+`tests/Feature/Wallet/MarketAnswersFromItsAccountTest.php` (14), on SQLite 8.3 and MariaDB 11.4:
 
 - with nothing listed, three markets all answer the column although two accounts hold other figures;
 - a listed market answers its account while the others still answer the column — which is what "one market at a time" means;
@@ -69,9 +70,12 @@ slice decides which of the two a reader is *shown*, and nothing else.
 - **a wallet payment of 100 in a switched-over market holding 5 is refused, and the column is untouched** — money in Riyadh is not money
   in Kuwait City;
 - the same payment is taken in a market that has not been switched over, and in a switched-over market that has the money, and in both
-  cases the write itself still goes to the column.
+  cases the write itself still goes to the column;
+- a statement under a switched-over market shows that market's rows and no others; a market reading the one column is shown every row, the
+  ones written before any market existed included; with nothing listed every statement shows every row; and a ledger whose attribution
+  migration has not run narrows nothing, so no query can fail on a column that is not there.
 
-**Teeth:** forcing the reader to always answer the column fails 4 of the 10. The wallet and loyalty suites (478) and the customer balance
+**Teeth:** forcing the reader to always answer the column fails 4 of the 14, and dropping the narrowing fails 1. The wallet and loyalty suites (478) and the customer balance
 contract (13) are green, so no surface that reads a balance moved while the list is empty.
 
 ## What is still open

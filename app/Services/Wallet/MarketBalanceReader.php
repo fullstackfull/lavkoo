@@ -4,8 +4,11 @@ namespace App\Services\Wallet;
 
 use App\Enums\Wallet\MarketBalanceKind;
 use App\Models\User;
+use App\Services\Storefront\LedgerAttribution;
 use App\Services\Storefront\StorefrontCatalog;
 use Illuminate\Container\Attributes\Singleton;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 
 /**
  * The balance a market answers: its own account's, for a market that has been switched over, and the one `users` column for every other
@@ -32,8 +35,10 @@ use Illuminate\Container\Attributes\Singleton;
 #[Singleton]
 final class MarketBalanceReader
 {
-    public function __construct(private readonly CustomerMarketBalances $accounts)
-    {
+    public function __construct(
+        private readonly CustomerMarketBalances $accounts,
+        private readonly LedgerAttribution $attribution,
+    ) {
     }
 
     /** Whether the market being served answers from its own account rather than from the one balance the `users` row holds. */
@@ -79,6 +84,30 @@ final class MarketBalanceReader
         $held = $this->accounts->amount(kind: $kind, customerId: $customer->id, market: $code);
 
         return $kind === MarketBalanceKind::Loyalty ? (int) round($held) : $held;
+    }
+
+    /**
+     * The rows of a statement, narrowed to the market being served for a market that answers from its own account (E-04).
+     *
+     * A statement is the trail behind a balance, so it follows the same switch: a market reading its own account is shown the movements
+     * that market records, and a market reading the one column is shown every movement, as every statement does today. A ledger whose
+     * attribution migration has not run records no market, so nothing is narrowed there either.
+     *
+     * The rows written before any market existed carry no market at all. They are not shown to a switched-over market, which is right --
+     * they are the default market's history -- and they are still every row of the statement the default market shows.
+     *
+     * @param Builder<covariant Model> $rows
+     * @return Builder<covariant Model>
+     */
+    public function onlyTheMarketsRows(Builder $rows, MarketBalanceKind $kind, ?string $market = null): Builder
+    {
+        $code = strtoupper(trim((string) ($market ?? StorefrontCatalog::country())));
+
+        if (!$this->answersFromItsAccount($code) || !$this->attribution->marketIsRecordedIn($kind->ledgerTable())) {
+            return $rows;
+        }
+
+        return $rows->where(MarketBalanceKind::MARKET_COLUMN, $code);
     }
 
     /** The wallet money of the market being served. */

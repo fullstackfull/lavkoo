@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Enums\Wallet\MarketBalanceKind;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Web\LoyaltyExchangeCurrencyRequest;
 use App\Mail\AddFundToWallet;
@@ -75,7 +76,11 @@ class UserLoyaltyController extends Controller
             $startDate = Carbon::createFromFormat('d/m/Y', $dates[0])->format('Y-m-d') . ' 00:00:00';
             $endDate = Carbon::createFromFormat('d/m/Y', $dates[1])->format('Y-m-d') . ' 23:59:59';
         }
-        return LoyaltyPointTransaction::where('user_id', auth('customer')->id())
+        // The same switch as the points above: a market reading its own account is shown its own movements (E-04).
+        return app(MarketBalanceReader::class)->onlyTheMarketsRows(
+            LoyaltyPointTransaction::where('user_id', auth('customer')->id()),
+            MarketBalanceKind::Loyalty,
+        )
             ->when($request->has('filter_by') && in_array($request['filter_by'], ['debit', 'credit']), function ($query) use ($request) {
                 $query->when($request['filter_by'] == 'debit', function ($query) {
                     $query->where('debit', '!=', 0);

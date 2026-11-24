@@ -4,6 +4,8 @@ namespace Tests\Feature\Wallet;
 
 use App\Enums\Wallet\MarketBalanceKind;
 use App\Models\User;
+use App\Models\WalletTransaction;
+use App\Services\Storefront\LedgerAttribution;
 use App\Services\Storefront\StorefrontResolver;
 use App\Services\Wallet\CustomerMarketBalances;
 use App\Services\Customer\CustomerWalletWriter;
@@ -173,6 +175,69 @@ class MarketAnswersFromItsAccountTest extends TestCase
         $this->assertFalse($this->reader->answersFromItsAccount(), 'nothing is being served in a console command, a queue or a panel');
         $this->assertSame(self::IN_THE_USERS_ROW, (float) $this->reader->wallet($this->customer()));
         $this->assertSame(self::POINTS_IN_THE_USERS_ROW, $this->reader->points($this->customer()));
+    }
+
+    // ---- the statement behind the balance ------------------------------------------------------------------------------------
+
+    /** The rows of each market, plus the rows written before any market existed, which carry none. */
+    private function threeKindsOfMovement(): void
+    {
+        $this->recordMovement(MarketBalanceKind::Wallet->ledgerTable(), customerId: self::CUSTOMER, market: 'KW', credit: 12.345);
+        $this->recordMovement(MarketBalanceKind::Wallet->ledgerTable(), customerId: self::CUSTOMER, market: 'SA', credit: 40);
+        $this->recordMovement(MarketBalanceKind::Wallet->ledgerTable(), customerId: self::CUSTOMER, market: null, credit: 7);
+    }
+
+    /** @return list<string> the markets of the rows a statement shows, as the four statement queries read them */
+    private function statementUnder(string $market): array
+    {
+        return $this->servedBy($market, fn (): array => $this->reader
+            ->onlyTheMarketsRows(WalletTransaction::where('user_id', self::CUSTOMER), MarketBalanceKind::Wallet)
+            ->pluck(MarketBalanceKind::MARKET_COLUMN)
+            ->map(static fn (mixed $market): string => (string) $market)
+            ->all());
+    }
+
+    public function test_a_statement_under_a_switched_over_market_shows_that_markets_rows_and_no_others(): void
+    {
+        $this->threeKindsOfMovement();
+        $this->marketsAnsweringFromTheirAccount('KW');
+
+        $this->assertSame(['KW'], $this->statementUnder('KW'), 'a market reading its own account is shown its own movements');
+    }
+
+    /** A market that has not been switched over is shown every movement, which is the statement every customer sees today. */
+    public function test_a_statement_under_a_market_that_reads_the_one_balance_shows_every_row(): void
+    {
+        $this->threeKindsOfMovement();
+        $this->marketsAnsweringFromTheirAccount('KW');
+
+        $this->assertSame(['KW', 'SA', ''], $this->statementUnder('SA'), 'including the rows written before any market existed');
+    }
+
+    public function test_with_no_market_listed_every_statement_shows_every_row(): void
+    {
+        $this->threeKindsOfMovement();
+
+        foreach (['SA', 'KW'] as $market) {
+            $this->assertSame(['KW', 'SA', ''], $this->statementUnder($market));
+        }
+    }
+
+    /** A ledger whose attribution migration has not run records no market, so nothing is narrowed and no query can fail on a column that is not there. */
+    public function test_a_ledger_that_records_no_market_narrows_nothing(): void
+    {
+        $this->threeKindsOfMovement();
+        $this->marketsAnsweringFromTheirAccount('KW');
+        Schema::table(MarketBalanceKind::Wallet->ledgerTable(), static function (Blueprint $table): void {
+            $table->dropColumn(MarketBalanceKind::MARKET_COLUMN);
+        });
+        app(LedgerAttribution::class)->flush();
+
+        $shown = $this->servedBy('KW', fn (): int => $this->reader
+            ->onlyTheMarketsRows(WalletTransaction::where('user_id', self::CUSTOMER), MarketBalanceKind::Wallet)
+            ->count());
+
+        $this->assertSame(3, $shown, 'every row, because there is no market on a row to narrow by');
     }
 
     // ---- what a debit is judged against --------------------------------------------------------------------------------------

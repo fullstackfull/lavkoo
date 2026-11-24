@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\RestAPI\v1;
 
+use App\Enums\Wallet\MarketBalanceKind;
 use App\Http\Controllers\Controller;
 use App\Models\LoyaltyPointTransaction;
 use App\Services\Loyalty\PointsToWalletConversion;
@@ -41,7 +42,11 @@ class UserLoyaltyController extends Controller
                 $startDate = '';
                 $endDate = '';
             }
-            $loyaltyPointList = LoyaltyPointTransaction::where('user_id', $user->id)
+            // The same switch as the points above (E-04).
+            $loyaltyPointList = app(MarketBalanceReader::class)->onlyTheMarketsRows(
+                LoyaltyPointTransaction::where('user_id', $user->id),
+                MarketBalanceKind::Loyalty,
+            )
                 ->when($request->has('filter_by') && in_array($request['filter_by'], ['debit', 'credit']), function ($query) use ($request) {
                     $query->when($request['filter_by'] == 'debit', function ($query) {
                         $query->where('debit', '!=', 0);

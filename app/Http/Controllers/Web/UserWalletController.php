@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Enums\Wallet\MarketBalanceKind;
 use App\Http\Controllers\Controller;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -82,7 +83,12 @@ class UserWalletController extends Controller
             $startDate = Carbon::createFromFormat('d/m/Y', $dates[0])->format('Y-m-d') . ' 00:00:00';
             $endDate = Carbon::createFromFormat('d/m/Y', $dates[1])->format('Y-m-d') . ' 23:59:59';
         }
-        return WalletTransaction::where('user_id', auth('customer')->id())
+        // The trail behind the balance above follows the same switch: a market reading its own account is shown its own movements, and
+        // every other market is shown every movement, as this statement always has (E-04).
+        return app(MarketBalanceReader::class)->onlyTheMarketsRows(
+            WalletTransaction::where('user_id', auth('customer')->id()),
+            MarketBalanceKind::Wallet,
+        )
             ->when($request->has('filter_by') && in_array($request['filter_by'], ['debit', 'credit']), function ($query) use ($request) {
                 $query->when($request['filter_by'] == 'debit', function ($query) {
                     $query->where('debit', '!=', 0);

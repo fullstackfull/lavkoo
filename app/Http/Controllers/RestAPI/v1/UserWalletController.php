@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\RestAPI\v1;
 
+use App\Enums\Wallet\MarketBalanceKind;
 use App\Http\Controllers\Controller;
 use App\Models\AddFundBonusCategories;
 use App\Models\WalletTransaction;
@@ -42,7 +43,11 @@ class UserWalletController extends Controller
                 $endDate = '';
             }
 
-            $walletTransactionList = WalletTransaction::where(['user_id' => $user->id])
+            // The same switch as the balance above (E-04).
+            $walletTransactionList = app(MarketBalanceReader::class)->onlyTheMarketsRows(
+                WalletTransaction::where(['user_id' => $user->id]),
+                MarketBalanceKind::Wallet,
+            )
                 ->when($request->has('filter_by') && in_array($request['filter_by'], ['debit', 'credit']), function ($query) use ($request) {
                     $query->when($request['filter_by'] == 'debit', function ($query) {
                         $query->where('debit', '!=', 0);
