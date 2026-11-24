@@ -159,7 +159,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [A1-12](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 2/0/2 | Sessions, cookies and sign-in carry no storefront by accident |
 | [A1-13](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 4/0/2 | Checkout, payment callbacks and webhooks finish in the storefront they started in |
 | [A1-14](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 6/0/0 | Jobs, queue payloads, scheduled tasks and CLI: context carried, never leaked |
-| [A1-15](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 3/1/1 | Cache keys that are not theme caches are market-scoped |
+| [A1-15](tracker/axis-a-six-country-base-and-customer-identity.md) | CODED | 4/1/0 | Cache keys that are not theme caches are market-scoped |
 | [A1-16](tracker/axis-a-six-country-base-and-customer-identity.md) | IMPLEMENTED IN DRAFT | 4/0/0 | App-local caches in the Flutter apps are market-scoped |
 | [A1-17](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 2/0/3 | Notifications are market-scoped (push topics, queued mail) |
 | [A1-18](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 4/0/1 | Inventory is market-scoped: no shared stock between countries |
