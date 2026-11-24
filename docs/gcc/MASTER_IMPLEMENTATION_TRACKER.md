@@ -303,7 +303,7 @@ Executable on an isolated branch without production access, ordered by the prior
 |---|---|---|---|
 | [E-01](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/0/3 | Customer wallet separate per market (storefront, company, currency) |
 | [E-02](tracker/axis-e-wallets-loyalty-and-financial-records.md) | NOT STARTED | 1/0/3 | Loyalty points independent per market, sharing structure off |
-| [E-03](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 0/1/3 | No automatic transfer or conversion of balances between markets |
+| [E-03](tracker/axis-e-wallets-loyalty-and-financial-records.md) | CODED | 3/1/0 | No automatic transfer or conversion of balances between markets |
 | [E-04](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 2/0/3 | Wallet and loyalty readers show one market's balance, API keys keep meaning |
 | [E-05](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 2/2/2 | Ledger rows reconcilable: attribution, reference, actor, idempotency |
 | [E-06](tracker/axis-e-wallets-loyalty-and-financial-records.md) | INTEGRATED AND TESTED | 5/0/0 | Historical balances reconciled against the ledgers (read-only proof) |

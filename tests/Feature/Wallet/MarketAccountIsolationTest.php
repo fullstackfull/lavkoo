@@ -158,6 +158,63 @@ class MarketAccountIsolationTest extends TestCase
         $this->assertSame(1, DB::table($kind->accountsTable())->where(['customer_id' => self::CUSTOMER, 'market' => 'KW'])->count());
     }
 
+    /**
+     * E-03: one operation moves one market's account, because only two places in the platform move an account at all and each is given one
+     * market.
+     *
+     * Read from the source rather than asserted about: the mirror of a ledger row ({@see \App\Services\Wallet\MarketShadowWrite}) moves the
+     * account of the market that row names, and the backfill command fills the one market it was asked for. A third caller, or a loop over
+     * markets inside either, fails this -- and that is what would make a transfer between two of a customer's accounts possible.
+     */
+    public function test_only_two_places_move_a_market_account_and_each_is_given_one_market(): void
+    {
+        $movers = [];
+
+        foreach ($this->platformSources() as $file => $code) {
+            foreach (['credit', 'debit', 'moveOpenAccount'] as $write) {
+                if (preg_match('/->' . $write . '\(\s*kind:/', $code) === 1) {
+                    $movers[$file][] = $write;
+                }
+            }
+        }
+
+        $this->assertSame([
+            'app/Console/Commands/WalletBackfillMarketAccountsCommand.php' => ['credit'],
+            'app/Services/Wallet/MarketShadowWrite.php' => ['moveOpenAccount'],
+        ], $movers, 'a third place moves a market account now: it has to be given one market, and never two in one operation');
+
+        // That each of the two is given ONE market is pinned where it can be driven rather than read: MarketShadowWriteTest takes the market
+        // from the ledger row and from nowhere else, and MarketAccountBackfillTest::test_it_fills_the_one_market_it_was_asked_for drives the
+        // command. What this case adds is that there is no THIRD place.
+    }
+
+    /** @return array<string, string> every PHP file of the platform's own code that mentions the account service, by path */
+    private function platformSources(): array
+    {
+        $sources = [];
+
+        foreach (['app', 'Modules'] as $root) {
+            $directory = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(base_path($root), \FilesystemIterator::SKIP_DOTS));
+
+            foreach ($directory as $file) {
+                if (!$file->isFile() || $file->getExtension() !== 'php') {
+                    continue;
+                }
+
+                $code = (string) file_get_contents($file->getPathname());
+
+                if (str_contains($code, 'CustomerMarketBalances')) {
+                    $sources[str_replace(base_path() . '/', '', $file->getPathname())] = $code;
+                }
+            }
+        }
+
+        ksort($sources);
+        $this->assertNotSame([], $sources, 'the scan found no file that mentions the account service, so it read nothing');
+
+        return $sources;
+    }
+
     #[DataProvider('balances')]
     public function test_the_one_global_balance_is_never_written_by_this_service(MarketBalanceKind $kind): void
     {
