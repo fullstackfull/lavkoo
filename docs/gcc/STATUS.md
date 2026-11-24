@@ -141,8 +141,8 @@ the last commit.
 
 **Where the live numbers are.** [`audits/2026-11-24-post-merge-assessment/README.md`](./audits/2026-11-24-post-merge-assessment/README.md),
 recomputed from the tracker files by the script quoted in it, and refreshed whenever a criterion moves. On 2026-11-24, of 359 requirements
-and 1,753 acceptance criteria: **925 met (53%)**, 374 coded but unproven (21%), 454 not implemented (26%) — **development 74%**, and
-**launch readiness 16 requirements of 359 (4%)**, which cannot rise past the owner's own G0 gate however much code lands.
+and 1,753 acceptance criteria: **928 met (53%)**, 374 coded but unproven (21%), 451 not implemented (26%) — **development 74%**, and
+**launch readiness 17 requirements of 359 (5%)**, which cannot rise past the owner's own G0 gate however much code lands.
 
 **The master storefront switch is not a kill switch** (owner decision of 2026-11-24, recorded in `DECISIONS.md`): with it off the platform
 is in legacy mode, a single market is closed through its own country settings and its lifecycle, and `LegacyModeSafety` refuses any action

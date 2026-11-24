@@ -14,9 +14,13 @@ or financial control. A pending owner decision stops its own task, never the pro
 
 | repository | branch | tip | merged to main |
 |---|---|---|---|
-| `fullstackfull/lavkoo` | `gcc/development` | see `git log -1` | up to `dabad3b1`; everything after it waits on a green run of the branch tip |
-| `fullstackfull/lavkooapp` | `gcc/development` | `fb4ebca` | not yet |
+| `fullstackfull/lavkoo` | `gcc/development` | see `git log -1` | up to `ca4f68e0`, whose tree is byte-identical to `bc39790` -- the SHA CI run 655 proved green. Everything after it waits on a green run of its own |
+| `fullstackfull/lavkooapp` | `gcc/development` | `c122c74` | not yet |
 | `fullstackfull/lavkooappseller` | `claude/intelligent-franklin-jq3d4h` | — | its GCC work is already on main |
+
+**How a stage is merged.** CI is dispatched on the branch tip; when it comes back green, THAT SHA is merged into `main`
+with `--no-ff` and nothing newer is swept in with it. The check is mechanical: `git diff <tested sha> HEAD --name-only`
+must print nothing after the merge. Run 655 / `bc39790` / `ca4f68e0` is the worked example.
 
 ## Progress, computed and not estimated
 
@@ -46,20 +50,29 @@ and the audit README. Never type a number that script can print.
   (`WhenACancellationRefundsTheWallet`), default is today's behaviour.
 - **Q-33** — which carrier serves which country, under which contract and company id. `ProviderRouteSupport` holds the
   answer; both carriers declare SA:SA until it is written down.
-- **Q-13** — who grants and maintains product destination permissions. The table and the deny-by-default rule are in;
-  `recorded_by` and `recorded_at` are there so whoever it is leaves a trace.
+- **Q-13** — who grants and maintains product destination permissions, which regulated classes may cross which border,
+  and who is entitled to approve that list. The table, the deny-by-default rule, the admin screen with its audit and
+  the regulated gate are all in; `recorded_by`, `recorded_at` and the clearance reference are there so whoever it is
+  leaves a trace, and `gcc.shipping.regulated.clearance_module` is a setting so naming the entitled role is not a code
+  change. `gcc.shipping.regulated.mode` ships `off`, so until the lists are written the gate refuses nothing.
 - **I2-09 (remainder)** — what happens to marketplace orders of a paused country.
 - **A1-17 (remainder)** — nothing: the topic decision is taken, above.
 
 ## Next, in dependency order
 
-1. **H1-02 remainder** — `provider_city_mappings.country_code` written and candidates filtered by it.
-2. **H1-03 remainder** — the admin screen that grants a permission, audited.
-3. **H1-06 remainder** — the dispatch side re-asking the engine for the product permission (the route half already
-   holds there).
-4. **H1-04** then **H1-09**, then the rest of axis H.
-5. Then the axes with the most missing, by dependency rather than by ease: L (GCC-20 super admin), K and J (the two
-   apps), B, F, G.
+Done since this file was written: H1-02, H1-03 (its admin screen and audit included), H1-06 (the engine, the three API
+paths, the website, the stored decision, the dispatch re-ask) and H1-04 (the regulated gate, its clearance, the whole
+refusal vocabulary in Arabic and English, and the customer app showing every reason).
+
+1. **H1-09** — duty and tax on a cross-border order, reading the customs facts H1-03 put on the product
+   (`products.hs_code`, `origin_country`, `weight_grams`). The engine already says whether an order crosses a border
+   and the order already stores that decision, so this computes and records, it does not re-decide.
+2. **H1-04 remainder** — the seller app has no screen at all that shows why a shipment is held. That is the only part
+   of H1-04 left, and it is a screen rather than a rule.
+3. **H1-02 remainder** — filtering candidate cities by the country of OUR city. Blocked on H1-10 / the address system
+   going multi-country; recorded as blocked rather than faked.
+4. The rest of axis H, then the axes with the most missing, by dependency rather than by ease: L (GCC-20 super admin),
+   K and J (the two apps), B, F, G.
 
 ## Rules this work follows, learned the hard way
 

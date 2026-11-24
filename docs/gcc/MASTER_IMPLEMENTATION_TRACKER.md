@@ -24,18 +24,18 @@ again** from the per-requirement records: `docs/gcc/audits/2026-11-24-post-merge
 |---|---:|
 | requirements | 359 |
 | acceptance criteria | 1,753 |
-| met (implemented, with a named test) | 925 — 53% |
-| coded (implemented, not proven) | 375 — 21% |
-| missing | 454 — 26% |
-| **development progress** (met + coded) | **73%** |
-| **proven progress** (met) | **52%** |
-| requirements proven end to end | 55 |
+| met (implemented, with a named test) | 928 — 53% |
+| coded (implemented, not proven) | 374 — 21% |
+| missing | 451 — 26% |
+| **development progress** (met + coded) | **74%** |
+| **proven progress** (met) | **53%** |
+| requirements proven end to end | 57 |
 | requirements with every criterion addressed but something unproven | 76 |
-| partially implemented | 211 |
-| not started | 17 |
+| partially implemented | 212 |
+| not started | 14 |
 | waiting on an owner decision | 260 |
 | waiting on a review (finance, security, legal, Arabic) | 267 |
-| **launch-ready** (all criteria met, no open decision, no outstanding review) | **16 of 359 — 4%** |
+| **launch-ready** (all criteria met, no open decision, no outstanding review) | **17 of 359 — 5%** |
 
 Every figure in this table is printed by `php docs/gcc/audits/2026-11-24-post-merge-assessment/count.php`, which reads the tracker files and
 nothing else. Run it to check them; run it to update them.
