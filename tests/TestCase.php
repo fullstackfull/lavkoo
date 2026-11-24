@@ -4,6 +4,10 @@ namespace Tests;
 
 use App\Services\Address\AddressSchema;
 use App\Services\Fulfillment\FulfillmentSchema;
+use App\Services\Shipping\OrderCustomsQuote;
+use App\Services\Shipping\OrderShippingDecision;
+use App\Services\Shipping\ProductDestinationPermission;
+use App\Services\Shipping\RegulatedShippingGate;
 use App\Services\Storefront\StorefrontCatalog;
 use App\Services\Storefront\StorefrontVisibility;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
@@ -22,6 +26,16 @@ abstract class TestCase extends BaseTestCase
         FulfillmentSchema::flush();
         AddressSchema::flush();
         StorefrontCatalog::flush();
+
+        // The shipping services remember what they read about the schema, because a cart of twenty lines must not ask the database twenty
+        // times whether a column exists. On SQLite each test starts from an empty database and the question is asked again; on a real
+        // server the process outlives the schema -- every test drops the tables and builds its own -- so an answer from the test before
+        // would have this test reading a column that is no longer there. Cleared here rather than in each test, because a test that builds
+        // an orders table should not have to know which services cached a fact about it.
+        OrderShippingDecision::forget();
+        OrderCustomsQuote::forget();
+        ProductDestinationPermission::forget();
+        RegulatedShippingGate::forget();
 
         $this->startFromAnEmptyRealDatabase();
         StorefrontVisibility::flush();

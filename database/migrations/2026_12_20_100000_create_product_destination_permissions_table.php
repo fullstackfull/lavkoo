@@ -40,7 +40,12 @@ return new class extends Migration {
             $table->timestamps();
 
             // One row per product and destination: a second grant for the same pair would make "may it go there" ambiguous.
-            $table->unique(['product_id', 'destination_country']);
+            //
+            // Named, and named short. Laravel's own name for this index would be
+            // `product_destination_permissions_product_id_destination_country_unique` -- 68 characters, where MySQL and MariaDB allow 64 --
+            // so the migration ran on SQLite and would have failed on every real server with "Identifier name is too long". CI on MariaDB
+            // is what caught it.
+            $table->unique(['product_id', 'destination_country'], 'product_destination_country_unique');
         });
     }
 
