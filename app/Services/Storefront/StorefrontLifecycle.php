@@ -120,7 +120,7 @@ final class StorefrontLifecycle
         $this->refuse(match (true) {
             $this->isDefault($code) => "{$code} is the default storefront: it is active already, so there is nothing to prepare.",
             $from !== self::DRAFT => "{$code} is {$from}: only a draft storefront can be marked ready.",
-            default => $this->refusalOfThePerson(code: $code, by: $by, reason: $reason) ?? $this->refusalOfThePreflight($code),
+            default => $this->refusalOfAnUnsafePlatform() ?? $this->refusalOfThePerson(code: $code, by: $by, reason: $reason) ?? $this->refusalOfThePreflight($code),
         });
 
         return $this->change(code: $code, from: $from, state: self::READY, by: $by, reason: $reason, action: 'storefront.lifecycle.ready');
@@ -141,7 +141,7 @@ final class StorefrontLifecycle
         $this->refuse(match (true) {
             $this->isDefault($code) => "{$code} is the default storefront: it is active already.",
             $from !== self::READY => "{$code} is {$from}: only a ready storefront can be activated" . ($from === self::PAUSED ? ' (resume a paused one).' : ' (mark it ready first).'),
-            default => $this->refusalOfThePerson(code: $code, by: $by, reason: $reason) ?? $this->refusalOfTheReference($reference) ?? $this->refusalOfThePreflight($code),
+            default => $this->refusalOfAnUnsafePlatform() ?? $this->refusalOfThePerson(code: $code, by: $by, reason: $reason) ?? $this->refusalOfTheReference($reference) ?? $this->refusalOfThePreflight($code),
         });
 
         return $this->change(code: $code, from: $from, state: self::ACTIVE, by: $by, reason: $reason, action: 'storefront.lifecycle.activated', reference: trim($reference));
@@ -253,6 +253,19 @@ final class StorefrontLifecycle
         $unmet = $this->preflight->unmet(country: $code, currencyCode: StorefrontResolver::fromConfig()->currencyOf($code));
 
         return $unmet === [] ? null : "{$code} does not meet what it needs to sell: " . implode(', ', $unmet) . ". The state of a storefront shows each one: php artisan gcc:storefront:state {$code}.";
+    }
+
+    /**
+     * The refusal of a change that would OPEN a market while the platform is in the one state it must not be operated in: the storefronts
+     * switch off while another market already holds rows (A1-02, and the owner's decision of 2026-11-24 in docs/gcc/DECISIONS.md).
+     *
+     * Only `markReady` and `activate` ask it. `pause` and `resume` never do, and that is the point: closing a market, and reopening the one
+     * that was closed, are the way out of that state, and a guard that blocked the way out would be worse than the state. Reading `status`
+     * is not a change and is never refused either, so an operator can always see where they are.
+     */
+    private function refusalOfAnUnsafePlatform(): ?string
+    {
+        return app(LegacyModeSafety::class)->refusalOfAnActionThatOpensAMarket();
     }
 
     private function refuse(?string $refusal): void

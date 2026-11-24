@@ -78,8 +78,13 @@ country is still finished there, also if its entry was deleted from the configur
 the entry). Deactivate rather than delete while the country has products, so that its path and currency stay on record and the products it
 owns can still be told from a typo (the query under "What to watch" lists the codes that are not configured).
 
-**Do not turn the flag off once another country has products.** Without the flag nothing is narrowed, so every country's products appear in
-every list, the cart accepts them and they are priced in the wrong currency. A payment started in another country and finished after the flag
+**Do not turn the flag off once another country has products — and after the owner's decision of 2026-11-24 that is a rule, not advice**
+(`docs/gcc/DECISIONS.md`). The flag off means legacy mode, so the Saudi behaviour stays exactly what it is and **nothing is narrowed**: the
+moment a second market holds rows, every country's products appear in every list, the cart accepts them and they are priced in the wrong
+currency. The flag is therefore **not a kill switch**. A market is closed by its own country setting and its lifecycle, which the section
+above describes, and `php artisan gcc:storefront:safety` says whether the platform is in that state at all — it exits 1 when it is, so a
+deploy step can gate on it, and the actions that would OPEN a market (`gcc:storefront:state <CC> ready|activate`, and the same two buttons in
+the panel) refuse while it holds. Pausing, resuming and switching a country off never refuse: they are the way out. A payment started in another country and finished after the flag
 is off is built from every checked cart row, so before the order-time rule its order could exceed what was paid (reproduced: paid 275, order
 375). It no longer can: an order whose checked rows belong to two countries is refused before anything is written (`OneSellingCompanyPerOrder`,
 always on), because no company may invoice another company's sale. The customer is then left paid with no order, which a refund settles and
