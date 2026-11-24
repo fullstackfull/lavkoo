@@ -7,6 +7,7 @@ use App\Traits\EmailTemplateTrait;
 use App\Traits\PushNotificationTrait;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use App\Listeners\Concerns\QueuedMailDelivery;
+use App\Listeners\Concerns\RunsInTheDispatchingStorefront;
 
 /**
  * Queued: this listener sends mail, and sending inline let an unreachable SMTP host
@@ -17,7 +18,7 @@ use App\Listeners\Concerns\QueuedMailDelivery;
  */
 class RequestProductRestockListener implements ShouldQueue
 {
-    use PushNotificationTrait, EmailTemplateTrait, QueuedMailDelivery;
+    use EmailTemplateTrait, PushNotificationTrait, QueuedMailDelivery, RunsInTheDispatchingStorefront;
 
     /**
      * Create the event listener.

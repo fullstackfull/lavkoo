@@ -28,8 +28,31 @@ final class StorefrontCatalog
 
     private const TABLE = 'products';
 
-    /** What the panels and the seller APIs answer. They work across every country. */
-    private const PANEL_PATHS = ['admin', 'admin/*', 'vendor', 'vendor/*', 'seller', 'seller/*', 'api/v2', 'api/v2/*', 'api/v3', 'api/v3/*'];
+    /**
+     * The paths that work across every country on purpose, and so are never narrowed to one (A1-11).
+     *
+     * Three kinds, and the second and the third were missing until a request to them was looked at:
+     *
+     *  - **The panels and the seller APIs.** An operator and a seller work on every country they are allowed to, in one screen.
+     *  - **Webhooks and payment callbacks.** A provider or a gateway calls back about work of whichever market the work belongs to, and it
+     *    names the record rather than the market: the fulfilment webhook names a provider and a shipment, the MyFatoorah and payment-account
+     *    webhooks name a payment. Narrowed to the default market, such a call would read the catalogue of Saudi Arabia while settling a
+     *    Kuwaiti shipment -- it could fail to find the very rows it was called about. The market of the work comes from the record
+     *    ({@see \App\Services\Storefront\PaymentStorefront}, {@see \App\Services\Storefront\OrderNotificationContext}), never from the
+     *    address the provider happened to call.
+     *  - **The platform admin API** (GCC-20), which is the owner's view of every market at once.
+     *
+     * Everything else under `api/` is storefront traffic and is narrowed to the market it asks for, which is what `api/v1` is.
+     */
+    private const CROSS_COUNTRY_PATHS = [
+        'admin', 'admin/*', 'vendor', 'vendor/*', 'seller', 'seller/*',
+        'api/v2', 'api/v2/*', 'api/v3', 'api/v3/*',
+        'api/fulfillment-webhooks', 'api/fulfillment-webhooks/*',
+        'api/myfatoorah', 'api/myfatoorah/*',
+        'api/payments/account/*',
+        'api/delivery-syria', 'api/delivery-syria/*',
+        'api/platform-admin', 'api/platform-admin/*',
+    ];
 
     /** How long a "no" is remembered, so a worker started before the migration notices it without a restart. A "yes" lasts for the process. */
     private const NEGATIVE_ANSWER_SECONDS = 30;
@@ -280,7 +303,7 @@ final class StorefrontCatalog
     private static function contextOfUnboundRequest(): ?StorefrontContext
     {
         $request = request();
-        if (app()->runningInConsole() || $request->is(...self::PANEL_PATHS)) {
+        if (app()->runningInConsole() || $request->is(...self::CROSS_COUNTRY_PATHS)) {
             return null;
         }
 

@@ -30,6 +30,7 @@ use App\Http\Controllers\Web\CartController;
 use App\Http\Controllers\Web\ChattingController;
 use App\Http\Controllers\Web\CouponController;
 use App\Http\Controllers\Web\CurrencyController;
+use App\Http\Controllers\Web\StorefrontChoiceController;
 use App\Http\Controllers\Web\DigitalProductDownloadController;
 use App\Http\Controllers\Web\HomeController;
 use App\Http\Controllers\Web\PageController;
@@ -273,6 +274,12 @@ Route::group(['namespace' => 'Web', 'middleware' => ['maintenance_mode', 'guestC
 
     Route::controller(CurrencyController::class)->group(function () {
         Route::post('/currency', 'changeCurrency')->name('currency.change');
+    });
+
+    // The visitor's choice of market (A1-06). POST, because it changes what the site serves them and a GET could be done to them by a link,
+    // an image or a prefetch. It answers 404 while storefronts are off or only one market is served, so nothing is reachable that is not offered.
+    Route::controller(StorefrontChoiceController::class)->group(function () {
+        Route::post('/storefront', 'choose')->name('storefront.choose');
     });
 
     Route::controller(UserProfileController::class)->group(function () {

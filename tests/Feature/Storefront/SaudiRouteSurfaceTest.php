@@ -121,6 +121,11 @@ class SaudiRouteSurfaceTest extends TestCase
         // The same address as main's, hardened from GET to POST: see DECLARED_DEPARTURES, where its GET is accounted for.
         'POST vendor/business-settings/withdraw/close/{id} | vendor.business-settings.withdraw.close',
 
+        // The visitor's choice of market (A1-06): the one address that writes it, and a POST because it changes what the site serves this
+        // visitor and a GET could be done to them by a link, an image or a prefetch. It answers 404 while storefronts are off or while the
+        // platform serves one market, so the Saudi platform of today serves nothing new at it.
+        'POST storefront | storefront.choose',
+
         // A company's own notification address (D2-09), beside the platform-wide one main already serves. The token in the path names one
         // gateway account of one company and the delivery is authenticated with that account's own secret, so the address answers nothing
         // until a company has an account with a token: while per-company accounts are off it resolves no account and refuses every

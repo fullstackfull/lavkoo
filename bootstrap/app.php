@@ -49,6 +49,11 @@ return Application::configure(basePath: dirname(__DIR__))
             TrimStrings::class,
             ConvertEmptyStringsToNull::class,
             DatabaseRefreshMiddleware::class,
+            // Before routing, because that is the only moment a path can still be changed: it serves `/kw/...` as the Kuwaiti storefront's
+            // own page by taking the market's segment off and letting the router match the rest against the one route table (A1-05). Before
+            // CORS and the monitor as well, so both see the path the route was matched on rather than the market in front of it. It does
+            // nothing at all while GCC_STOREFRONT_PATHS is off.
+            \App\Http\Middleware\ServeStorefrontPathPrefix::class,
             \Illuminate\Http\Middleware\HandleCors::class,
             // Global, not group-scoped: a request that matches no route never enters the web or api
             // group, so every 404 — a broken link, a scanner sweeping the site — was invisible to

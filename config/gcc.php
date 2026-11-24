@@ -100,6 +100,28 @@ return [
             'OM' => ['path' => 'om', 'currency' => 'OMR', 'active' => false],
         ],
 
+        'paths' => [
+            // Off by default: the web routes answer at the root only, as today, and a country path answers 404. When it is on, a request under an ACTIVE market's path
+            // (`/kw/shop-cart`) is served by the same route as `/shop-cart`, as that market: the segment is taken off before routing, so there is one route table and one
+            // set of route names, and the paths the application generates while serving such a request are given the market back, so a link on a Kuwaiti page stays
+            // Kuwaiti. The default storefront keeps its bare addresses -- `/sa/...` is served, nothing generates it -- and the panel, the API and the dev paths are never
+            // given a market (App\Services\Storefront\StorefrontPathPrefix). An inactive market's path answers 404, as it does now.
+            'enabled' => filter_var(env('GCC_STOREFRONT_PATHS', false), FILTER_VALIDATE_BOOLEAN),
+        ],
+
+        'queues' => [
+            // Off by default: every job and every queued listener waits on the queue it waits on today, whatever market it carries. When it is on, work
+            // that carries a market other than the default storefront's waits on that market's own queue (`storefront-kw` and so on), so an operator can
+            // work one market (`queue:work --queue=storefront-kw`), pace it, or stop reserving from it (`queue:pause storefront-kw`) without touching the
+            // rest. The default storefront keeps today's queue, so a worker that is already running never stops working the live market's jobs.
+            //
+            // Turning this on needs a worker for each market's queue; `php artisan gcc:storefront-queues` prints the names, what is waiting on each and
+            // the command to run. Without one, that market's jobs wait instead of running -- they are not lost, and switching this off again sends the
+            // next of them back to today's queue.
+            'per_market' => filter_var(env('GCC_STOREFRONT_QUEUES', false), FILTER_VALIDATE_BOOLEAN),
+            'prefix' => env('GCC_STOREFRONT_QUEUE_PREFIX', 'storefront-'),
+        ],
+
         'currency' => [
             // Off by default: every storefront reads the platform's own currency settings, as before. When it is on, a storefront other than the default
             // one trades in the currency of its `countries` entry: its prices are entered and shown in that currency, nothing is converted from another

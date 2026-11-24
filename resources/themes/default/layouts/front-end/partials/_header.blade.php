@@ -36,6 +36,32 @@
                 </div>
 
                 <div class="d-flex align-items-center gap-lg-4 gap-sm-3 gap-2">
+                    {{-- The market the visitor is shopping in (A1-06). Rendered only where more than one market is served, so an
+                         installation that serves one country sees exactly the top bar it sees today. Each choice is a form rather than a
+                         link because choosing is a change, and the server answers it by sending the visitor to the same page inside the
+                         market they chose. --}}
+                    @php($storefrontChoice = app(\App\Services\Storefront\StorefrontChoice::class))
+                    @if($storefrontChoice->isOffered())
+                        <div class="topbar-text dropdown disable-autohide mr-4">
+                            <a class="topbar-link dropdown-toggle border-0 fs-14 fw-normal bg-transparent" href="#" data-toggle="dropdown">
+                                <span>{{ translate('store') }}: {{ \App\Services\Storefront\StorefrontChoice::nameOf(\App\Services\Storefront\StorefrontContext::current()->country) }}</span>
+                            </a>
+                            <ul class="text-align-direction dropdown-menu dropdown-menu-{{Session::get('direction') === "rtl" ? 'right' : 'left'}} min-width-160px">
+                                @foreach($storefrontChoice->offered() as $storefront)
+                                    <li class="dropdown-item p-0">
+                                        <form action="{{ route('storefront.choose') }}" method="post" class="m-0">
+                                            @csrf
+                                            <input type="hidden" name="storefront" value="{{ $storefront['country'] }}">
+                                            <button type="submit" class="btn btn-link text-reset text-decoration-none w-100 text-start px-3 py-2 {{ $storefront['chosen'] ? 'fw-bold' : '' }}">
+                                                {{ $storefront['name'] }}
+                                            </button>
+                                        </form>
+                                    </li>
+                                @endforeach
+                            </ul>
+                        </div>
+                    @endif
+
                     @php($currency_model = getWebConfig(name: 'currency_model'))
                     @if($currency_model=='multi_currency')
                         <div class="topbar-text dropdown disable-autohide mr-4">
