@@ -42,7 +42,7 @@ final class OrderNotificationContext
             country: $context->country,
             callback: fn () => self::inLanguage(
                 language: self::languageOf(order: $order, userType: $userType, country: $context->country),
-                callback: $callback,
+                callback: fn () => self::asTheCompanyThatSold(order: $order, callback: $callback),
             ),
         ));
     }
@@ -88,6 +88,39 @@ final class OrderNotificationContext
         };
 
         return is_string($language) && trim($language) !== '' ? $language : MarketLanguage::of($country);
+    }
+
+    /**
+     * Sends the message as the company that sold the order, when the order records one (A1-17).
+     *
+     * The sender's NAME is the one thing a market can own here: `mail.from.name` is one setting for the platform, read once at boot out of
+     * `mail_config`, so a Kuwaiti customer's message said it came from the Saudi company. The frozen company on the order answers it the
+     * same way it answers the invoice ({@see OrderInvoiceIssuer::tradingNameOf}), which means it answers nothing -- and changes nothing --
+     * for every order that invoice prints the shop's settings for: legal entities off, an order placed before the registry, a record that
+     * cannot be read.
+     *
+     * Where the message is sent FROM does not move: the record holds no address, and inventing one would send mail from an address the
+     * domain does not accept.
+     *
+     * It is put back afterwards, even when the sending fails, for the same reason the language is: a worker sends one order's messages
+     * after another in one process, and the company of one order may not sign the next one's.
+     */
+    private static function asTheCompanyThatSold(object|array $order, Closure $callback): mixed
+    {
+        $company = OrderInvoiceIssuer::tradingNameOf($order);
+
+        if ($company === null) {
+            return $callback();
+        }
+
+        $previous = config('mail.from.name');
+        config(['mail.from.name' => $company]);
+
+        try {
+            return $callback();
+        } finally {
+            config(['mail.from.name' => $previous]);
+        }
     }
 
     /**

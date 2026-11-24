@@ -204,6 +204,16 @@ abstract class OrderNotificationTestCase extends ApiAddressTestCase
         return (string) $messages[0]->getOriginalMessage()->getHtmlBody();
     }
 
+    /** Who the one e-mail says it is from, as the mailer was given it: the name and the address of the sender. */
+    protected function senderOfTheEmailSent(): array
+    {
+        $messages = Mail::mailer(self::CAPTURING_MAILER)->getSymfonyTransport()->messages();
+        $this->assertCount(1, $messages, 'exactly one e-mail left the server');
+        $from = $messages[0]->getOriginalMessage()->getFrom()[0];
+
+        return ['name' => $from->getName(), 'address' => $from->getAddress()];
+    }
+
     /** The mailer that keeps what it was given, so the view is rendered where the send happens. */
     protected function captureTheEmailsTheMailerRenders(): void
     {

@@ -4,8 +4,8 @@ This is the count the owner asked for, taken from the per-requirement records in
 was merged into `main`, the whole suite was swept there, and `main`'s own CI went green. Nothing here is estimated: every number is counted
 from the criteria themselves, and the method is written out below so the same numbers can be recomputed.
 
-**Totals: 359 requirements, 1753 acceptance criteria.** 912 met (52%), 375 coded but not proven
-(21%), 466 not implemented (27%).
+**Totals: 359 requirements, 1753 acceptance criteria.** 913 met (52%), 375 coded but not proven
+(21%), 465 not implemented (27%).
 
 *Recounted on 2026-11-24 after E-03, C-15's three-decimal money and its per-market destination and phone rules landed, and after six
 criteria were read again from the code rather than from the pre-merge assessment: eleven criteria moved to met, one of them by writing the
@@ -30,7 +30,7 @@ A requirement is **proven** when no criterion is missing and none is merely code
 
 | axis | reqs | criteria | met | coded | missing | development | proven | proven reqs | coded reqs | partial | not started | open decision | open review | launch-ready |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| A — six-country base and customer identity | 37 | 173 | 110 | 25 | 38 | 78% | 64% | 12 | 4 | 21 | 0 | 24 | 25 | 2 |
+| A — six-country base and customer identity | 37 | 173 | 111 | 25 | 37 | 79% | 64% | 12 | 4 | 21 | 0 | 24 | 25 | 2 |
 | B — catalogue and products | 18 | 91 | 46 | 30 | 15 | 84% | 51% | 2 | 6 | 10 | 0 | 16 | 16 | 0 |
 | C — inventory and fulfilment | 18 | 94 | 68 | 9 | 17 | 82% | 72% | 7 | 2 | 9 | 0 | 11 | 9 | 5 |
 | D — orders, checkout and payments | 37 | 179 | 104 | 33 | 42 | 77% | 58% | 3 | 8 | 25 | 1 | 27 | 30 | 1 |
@@ -43,12 +43,12 @@ A requirement is **proven** when no criterion is missing and none is merely code
 | K — Flutter seller app | 23 | 104 | 48 | 25 | 31 | 70% | 46% | 4 | 4 | 14 | 1 | 16 | 16 | 0 |
 | L — GCC-20 super admin | 18 | 94 | 49 | 14 | 31 | 67% | 52% | 1 | 5 | 8 | 4 | 16 | 18 | 0 |
 | M — security, tests and deployment | 63 | 311 | 111 | 117 | 83 | 73% | 36% | 3 | 13 | 45 | 2 | 43 | 41 | 2 |
-| **the whole plan** | **359** | **1753** | **912** | **375** | **466** | **73%** | **52%** | **55** | **76** | **211** | **17** | **260** | **267** | **16** |
+| **the whole plan** | **359** | **1753** | **913** | **375** | **465** | **73%** | **52%** | **55** | **76** | **211** | **17** | **260** | **267** | **16** |
 
 ## Development against launch readiness, which are not the same number
 
 - **Development: 73%** of the acceptance criteria exist in code (1286 of 1753).
-- **Proven: 52%** carry a named acceptance test (912 of 1753).
+- **Proven: 52%** carry a named acceptance test (913 of 1753).
 - **Launch readiness: 16 requirements of 359 (4%)** are ready in the sense that matters for a
   release: every criterion met, no open owner decision, no outstanding review. Another 76 have every criterion addressed but carry a
   review or an unproven criterion.
@@ -67,9 +67,9 @@ criteria:
 |---|---:|
 | after the merge: naming `main`, a CI run of the 600s, this branch or a run URL | 213 |
 | on a draft head: naming a draft pull request or an integration run of the 200s or 300s | 609 |
-| naming neither — a test by name and no source | 465 |
+| naming neither — a test by name and no source | 466 |
 
-That is the honest state of the record: **609 of 1287 met-or-coded criteria were read on a head that no longer exists**, and another 465
+That is the honest state of the record: **609 of 1288 met-or-coded criteria were read on a head that no longer exists**, and another 466
 name no source at all. Two things make them stand up anyway, and one does not:
 
 1. **Every test file they cite exists.** All **114** distinct test files named by a met or coded criterion were checked against the three

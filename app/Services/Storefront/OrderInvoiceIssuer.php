@@ -52,6 +52,30 @@ final class OrderInvoiceIssuer
         return $lines === [] ? null : $lines;
     }
 
+    /**
+     * The name of the company that sold this order, for a message that says who it comes from (A1-17), or null when the platform's own
+     * settings are the answer -- which is every order the invoice above also prints the shop's settings for: legal entities off, an order
+     * placed before the registry, a record that cannot be read.
+     *
+     * The company's trade name is preferred over its legal name, because a message to a customer says who they bought from and an invoice
+     * says who is liable. Only the NAME can come from here: the record holds no address of its own, so where a message is sent from stays
+     * one setting for the platform until a market has one.
+     */
+    public static function tradingNameOf(mixed $order): ?string
+    {
+        if (!app(LegalEntityRegistry::class)->isEnabled()) {
+            return null;
+        }
+
+        $record = self::frozenRecord($order);
+
+        if ($record === null) {
+            return null;
+        }
+
+        return self::printable($record['trade_name'] ?? null) ?? self::printable($record['legal_name'] ?? null);
+    }
+
     /** @return array<string, mixed>|null */
     private static function frozenRecord(mixed $order): ?array
     {
