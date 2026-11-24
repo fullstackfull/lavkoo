@@ -187,7 +187,9 @@ final class StorefrontLifecycle
 
         $this->refuse(match (true) {
             $from !== self::PAUSED => "{$code} is {$from}: only a paused storefront can be resumed.",
-            default => $this->refusalOfThePerson(code: $code, by: $by, reason: $reason) ?? ($this->isDefault($code) ? null : $this->refusalOfThePreflight($code)),
+            default => $this->refusalOfAnUnsafePlatform()
+                ?? $this->refusalOfThePerson(code: $code, by: $by, reason: $reason)
+                ?? ($this->isDefault($code) ? null : $this->refusalOfThePreflight($code)),
         });
 
         return $this->change(code: $code, from: $from, state: self::ACTIVE, by: $by, reason: $reason, action: 'storefront.lifecycle.resumed');
@@ -259,9 +261,12 @@ final class StorefrontLifecycle
      * The refusal of a change that would OPEN a market while the platform is in the one state it must not be operated in: the storefronts
      * switch off while another market already holds rows (A1-02, and the owner's decision of 2026-11-24 in docs/gcc/DECISIONS.md).
      *
-     * Only `markReady` and `activate` ask it. `pause` and `resume` never do, and that is the point: closing a market, and reopening the one
-     * that was closed, are the way out of that state, and a guard that blocked the way out would be worse than the state. Reading `status`
-     * is not a change and is never refused either, so an operator can always see where they are.
+     * Every change that puts a market into a state where it SELLS asks it: `markReady`, `activate` and `resume`. Resume was left out at
+     * first, on the reasoning that pausing and resuming are both "the way out" -- they are not. Pausing is the way out; resuming is the
+     * way back in, and a market resumed in that state serves its rows as the default storefront's just as surely as one activated in it.
+     *
+     * `pause` never asks, and that is deliberate: closing a market is the way out of the state, and a guard that blocked the way out would
+     * be worse than the state. Reading `status` is not a change and is never refused either, so an operator can always see where they are.
      */
     private function refusalOfAnUnsafePlatform(): ?string
     {

@@ -40,6 +40,15 @@ For future implementation use small distinct workstream branches/PRs, e.g. `gcc/
 - One agent/workstream writes to its own report/handoff filename.
 - Fetch current remote state before making updates to shared `STATUS.md` or `DECISIONS.md`.
 - Avoid overwriting other agents' unmerged changes; do not use force flags.
+- **Never write to a path, or delete one, before reading what is already there, who wrote it and what it is for.** A shell redirect
+  (`cat > path`) and a file-writing tool both replace a file without asking, and a file created at a path that already exists is a
+  deletion with no record of itself. Before writing a new file: list the directory and, if anything is there, read it and
+  `git log --oneline -- <path>`. Before deleting one: read it, and read its history, because a file whose contents you recognise may
+  still not be the file you wrote. **Measured cost of ignoring this, 2026-11-24:** a 474-line `GatewayRegistryConsistencyTest` that read
+  six payment-gateway registries from their own sources was overwritten by a shorter test of the same subject at the same path, then
+  deleted as "mine", and reached `main` before it was noticed in a merge diff (restored in `487b0eac`). The directory listing that would
+  have prevented it was in the same command as the redirect that destroyed it.
+- Read `git diff` of what you are about to merge, and run the tests of every file it touches, before the merge rather than after.
 - Record any unavailable repository, unsupported tool and uncertainty honestly.
 - Record base SHA, affected branches/PRs, completed work, pending work, tests (executed/not executed), known risks, and exact next step.
 - Audit code only, do not paste credentials, PII, raw `.env` values, tokens, wallet/customer exports or production dumps into docs or handoffs.

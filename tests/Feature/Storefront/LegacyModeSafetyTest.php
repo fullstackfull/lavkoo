@@ -277,6 +277,27 @@ class LegacyModeSafetyTest extends TestCase
         $this->recordFor('KW', StorefrontLifecycle::READY);
 
         $this->assertRefusedBySafety(fn () => app(StorefrontLifecycle::class)->activate(country: 'KW', by: self::PERSON, reference: 'The minutes', reason: self::REASON));
+
+        // Resuming a paused market puts it back to selling, so it is an opening action and asks the same question.
+        $this->recordFor('KW', StorefrontLifecycle::PAUSED);
+
+        $this->assertRefusedBySafety(fn () => app(StorefrontLifecycle::class)->resume(country: 'KW', by: self::PERSON, reason: self::REASON));
+    }
+
+    /** And a market cannot be resumed while the question cannot be answered at all, for the same reason it cannot be activated then. */
+    public function test_nothing_resumes_a_market_while_the_database_is_unreachable(): void
+    {
+        $this->recordFor('KW', StorefrontLifecycle::PAUSED);
+        $this->makeTheDatabaseUnreachable();
+
+        try {
+            app(StorefrontLifecycle::class)->resume(country: 'KW', by: self::PERSON, reason: self::REASON);
+            $this->fail('A market was resumed while the database could not be read.');
+        } catch (Throwable $refused) {
+            $this->assertNotInstanceOf(ExpectationFailedException::class, $refused, 'it was refused, rather than going through');
+        } finally {
+            $this->restoreTheDatabase();
+        }
     }
 
     private function assertRefusedBySafety(callable $openingTheMarket): void
@@ -310,23 +331,22 @@ class LegacyModeSafetyTest extends TestCase
     }
 
     /**
-     * And the way out is never blocked: pausing and resuming do not ask the question at all, so a market can always be closed and the market
-     * that was closed can always be reopened. A pause of a draft is refused for being a draft, which is the answer it has always given.
+     * And the way OUT is never blocked: pausing does not ask the question at all, so a market can always be closed. A pause of a draft is
+     * refused for being a draft, which is the answer it has always given.
+     *
+     * Resuming is not the way out. It used to be waved through here, on the reasoning that pausing and resuming are a pair -- they are
+     * not: resuming puts a market back to selling, and in this state its rows are served as the default storefront's exactly as they
+     * would be after an activate. It is asserted with the other opening actions above.
      */
-    public function test_the_actions_that_close_a_market_are_not_refused_by_the_check(): void
+    public function test_closing_a_market_is_never_refused_by_the_check(): void
     {
         $this->insertCatalogProduct(id: 2, name: 'Kuwaiti serum', country: 'KW');
 
-        foreach ([
-            fn () => app(StorefrontLifecycle::class)->pause(country: 'KW', mode: StorefrontLifecycle::BROWSE_ONLY, by: self::PERSON, reason: self::REASON),
-            fn () => app(StorefrontLifecycle::class)->resume(country: 'KW', by: self::PERSON, reason: self::REASON),
-        ] as $closingOrReopening) {
-            try {
-                $closingOrReopening();
-            } catch (InvalidArgumentException $refused) {
-                $this->assertStringNotContainsString('The storefronts switch is off', $refused->getMessage());
-                $this->assertStringContainsString('draft', $refused->getMessage(), 'refused for the state it is in, as it always was');
-            }
+        try {
+            app(StorefrontLifecycle::class)->pause(country: 'KW', mode: StorefrontLifecycle::BROWSE_ONLY, by: self::PERSON, reason: self::REASON);
+        } catch (InvalidArgumentException $refused) {
+            $this->assertStringNotContainsString('The storefronts switch is off', $refused->getMessage());
+            $this->assertStringContainsString('draft', $refused->getMessage(), 'refused for the state it is in, as it always was');
         }
     }
 
