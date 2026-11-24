@@ -425,6 +425,17 @@ return [
         'refuse_while_balance_remains' => filter_var(env('GCC_REFUSE_ACCOUNT_DELETE_WITH_BALANCE', false), FILTER_VALIDATE_BOOLEAN),
     ],
 
+    'shipping' => [
+        // H1-06: the one engine that decides whether a basket may be shipped to a destination and whether that crosses a border. OFF as it
+        // ships, and with it off the engine answers "local, allowed" for everything, so every checkout surface behaves exactly as today --
+        // which is right for a platform serving one country: it has no cross-border question to answer. Turning it on is what says a second
+        // country is open, and it only ever REFUSES: a product with no permission row (H1-03) and a route no carrier declares (H1-02) are
+        // both read as no, so turning it on can never open a shipment that was closed.
+        'cross_border' => [
+            'enabled' => filter_var(env('GCC_CROSS_BORDER_SHIPPING', false), FILTER_VALIDATE_BOOLEAN),
+        ],
+    ],
+
     'refunds' => [
         // Whether cancelling an order pays the customer's wallet back (E-13, finding E04-F10). Today a POS sale paid with the wallet refunds
         // itself and any other wallet-paid order does not: the customer keeps waiting until somebody refunds it by hand. Each answer has a

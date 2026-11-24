@@ -8687,6 +8687,7 @@ return [
 	'hold_city_unmapped' => 'The delivery city has no matching provider city.',
 	'hold_route_unsupported' => 'The destination is outside the routes this carrier serves.',
 	'shipping_destination_unknown' => 'The destination country is not known.',
+	'shipping_no_carrier_serves_this_route' => 'No carrier serves the route to that country.',
 	'shipping_product_not_permitted_abroad' => 'This product is not permitted to be shipped to that country.',
 	'shipping_product_may_not_ship' => 'This product may not be shipped to that country.',
 	'shipping_product_may_not_be_exported' => 'This product may not be exported from the country it is sold in.',

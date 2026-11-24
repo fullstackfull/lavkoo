@@ -15272,6 +15272,7 @@ return [
 	'hold_city_unmapped' => 'لا توجد مدينة مطابقة لمدينة التسليم لدى المزوّد.',
 	'hold_route_unsupported' => 'الوجهة خارج الخطوط التي يخدمها هذا الناقل.',
 	'shipping_destination_unknown' => 'بلد الوجهة غير معروف.',
+	'shipping_no_carrier_serves_this_route' => 'لا يوجد ناقل يخدم الخط إلى ذلك البلد.',
 	'shipping_product_not_permitted_abroad' => 'هذا المنتج غير مصرَّح بشحنه إلى ذلك البلد.',
 	'shipping_product_may_not_ship' => 'هذا المنتج لا يجوز شحنه إلى ذلك البلد.',
 	'shipping_product_may_not_be_exported' => 'هذا المنتج لا يجوز تصديره من بلد البيع.',
