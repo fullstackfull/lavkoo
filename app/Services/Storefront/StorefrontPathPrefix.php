@@ -66,6 +66,17 @@ final class StorefrontPathPrefix
     }
 
     /**
+     * The path with whatever market's segment it begins with taken off, so that a path of one market can be addressed in another: the
+     * visitor switching from `/kw/contacts` to Emirates has to be sent to `/ae/contacts`, not to `/ae/kw/contacts`.
+     */
+    public function withoutAnyPrefix(string $path): string
+    {
+        $country = $this->countryOf($path);
+
+        return $country === null ? '/' . ltrim($path, '/') : $this->withoutPrefix(path: $path, country: $country);
+    }
+
+    /**
      * The path as it is addressed inside one market, which is what the application generates while a request is served there. A path that
      * already carries the market, one that is not a visitor page, and anything that is not a path of this installation are returned as they
      * are.

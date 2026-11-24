@@ -7,8 +7,9 @@ use InvalidArgumentException;
 
 /**
  * Chooses the storefront country for a request. The market whose path the request was served under wins over everything, because it is the
- * address the visitor is on (A1-05); then a choice the visitor made explicitly, then the header an app sends, then the path prefix of a
- * request that was not stripped, then the default. While storefronts are switched off, every request resolves to the default country, which is the
+ * address the visitor is on (A1-05); then a choice the visitor made explicitly, then the header an app sends, then the market the visitor
+ * chose on an earlier page and the site remembered (A1-06, {@see StorefrontChoice}), then the path prefix of a request that was not
+ * stripped, then the default. While storefronts are switched off, every request resolves to the default country, which is the
  * Saudi storefront the platform runs today. A country that is configured but not active is never chosen.
  */
 final class StorefrontResolver
@@ -76,7 +77,7 @@ final class StorefrontResolver
             && is_string($country['currency'] ?? null) && trim($country['currency']) !== '';
     }
 
-    public function resolve(?string $explicitChoice = null, ?string $path = null, ?string $headerChoice = null): string
+    public function resolve(?string $explicitChoice = null, ?string $path = null, ?string $headerChoice = null, ?string $rememberedChoice = null): string
     {
         if (!$this->enabled) {
             return $this->defaultCountry;
@@ -84,13 +85,14 @@ final class StorefrontResolver
 
         return $this->countryOfChoice($explicitChoice)
             ?? $this->countryOfChoice($headerChoice)
+            ?? $this->countryOfChoice($rememberedChoice)
             ?? $this->countryOfPath($path)
             ?? $this->defaultCountry;
     }
 
-    public function context(?string $explicitChoice = null, ?string $path = null, ?string $headerChoice = null): StorefrontContext
+    public function context(?string $explicitChoice = null, ?string $path = null, ?string $headerChoice = null, ?string $rememberedChoice = null): StorefrontContext
     {
-        $country = $this->resolve(explicitChoice: $explicitChoice, path: $path, headerChoice: $headerChoice);
+        $country = $this->resolve(explicitChoice: $explicitChoice, path: $path, headerChoice: $headerChoice, rememberedChoice: $rememberedChoice);
 
         return new StorefrontContext(country: $country, currency: $this->currencyOf($country), storefrontsEnabled: $this->enabled);
     }
@@ -113,6 +115,7 @@ final class StorefrontResolver
             explicitChoice: is_string($explicitChoice) ? $explicitChoice : null,
             path: $request->path(),
             headerChoice: count($headerValues) === 1 && is_string($headerValues[0]) ? $headerValues[0] : null,
+            rememberedChoice: app(StorefrontChoice::class)->remembered(),
         );
     }
 

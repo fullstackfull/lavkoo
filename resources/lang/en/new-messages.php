@@ -11416,4 +11416,5 @@ return [
 	'Return_amount_must_be_equal_to_return_amount' => 'Return amount must be equal to return amount',
 	'Amount_returned_successfully' => 'Amount returned successfully',
 	'Amount_returned_currently_not_possible_to_wallet' => 'Amount returned currently not possible to wallet',
+	'this_store_is_not_available' => 'This store is not available',
 ];
