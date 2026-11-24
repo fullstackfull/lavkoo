@@ -15270,6 +15270,7 @@ return [
 	'hold_address_incomplete' => 'عنوان التسليم غير مكتمل.',
 	'hold_before_go_live' => 'تم تقديم الطلب قبل تاريخ بدء التشغيل.',
 	'hold_city_unmapped' => 'لا توجد مدينة مطابقة لمدينة التسليم لدى المزوّد.',
+	'hold_route_unsupported' => 'الوجهة خارج الخطوط التي يخدمها هذا الناقل.',
 	'hold_currency_unconvertible' => 'تعذّر تحويل مبلغ الطلب إلى عملة المزوّد.',
 	'hold_manual' => 'معلّق بقرار من المشرف.',
 	'hold_external_writes_disabled' => 'الإرسال إلى المزوّد معطّل على هذا الخادم (FULFILLMENT_EXTERNAL_WRITES_ENABLED)، لذلك لم يُرسل شيء.',

@@ -14,6 +14,9 @@ use App\Services\Fulfillment\Exceptions\ProviderUnavailableException;
 use App\Services\Fulfillment\Support\PiiRedactor;
 use App\Services\Fulfillment\Support\ProviderConfig;
 use App\Services\Fulfillment\Support\ProviderSyncRecorder;
+use App\Services\Fulfillment\Support\DestinationCountry;
+use App\Services\Fulfillment\Support\ProviderRouteSupport;
+use App\Services\Storefront\StorefrontResolver;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -48,6 +51,7 @@ class ProviderOrderDispatcher
         HoldReason::MAPPING_NOT_APPROVED,
         HoldReason::STOCK_UNAVAILABLE,
         HoldReason::CITY_UNMAPPED,
+        HoldReason::ROUTE_UNSUPPORTED,
         HoldReason::ADDRESS_INCOMPLETE,
         HoldReason::PHONE_INVALID,
     ];
@@ -211,6 +215,18 @@ class ProviderOrderDispatcher
         // run needs no approval: nothing leaves the host.
         if (!$manual && !$config->bool('dry_run', true) && !$config->bool('auto_dispatch', false)) {
             return [HoldReason::AWAITING_APPROVAL, null];
+        }
+
+        // H1-02: the destination against the routes this provider declares it serves. A shipment to a country the carrier does not
+        // cover would be sent and refused by the carrier, after the customer paid, so it is held here instead -- before the adapter is
+        // asked to build anything. The destination is the market the order records (C-15's DestinationCountry), and a provider that
+        // declares nothing serves the platform's own market, which is every provider today.
+        $source = $config->get('default_country') ?? StorefrontResolver::fromConfig()->defaultCountry();
+        // An order that records no market is the platform's own, which is every order placed before markets existed: it ships the
+        // provider's domestic route, as it always has.
+        $destination = DestinationCountry::ofOrder($fulfillment->order_id) ?? $source;
+        if (!ProviderRouteSupport::serves($fulfillment->provider, $source, $destination)) {
+            return [HoldReason::ROUTE_UNSUPPORTED, "{$source} to {$destination} is not a route this provider declares it serves."];
         }
 
         $readiness = $adapter->readiness();

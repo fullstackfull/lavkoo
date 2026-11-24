@@ -8685,6 +8685,7 @@ return [
 	'hold_address_incomplete' => 'The delivery address is incomplete.',
 	'hold_before_go_live' => 'The order was placed before the go-live date.',
 	'hold_city_unmapped' => 'The delivery city has no matching provider city.',
+	'hold_route_unsupported' => 'The destination is outside the routes this carrier serves.',
 	'hold_currency_unconvertible' => 'The order amount could not be converted to the provider currency.',
 	'hold_manual' => 'Held by an administrator.',
 	'hold_external_writes_disabled' => 'Sending to the provider is switched off on this server (FULFILLMENT_EXTERNAL_WRITES_ENABLED), so nothing was sent.',
