@@ -745,7 +745,7 @@ class SellerController extends Controller
             groupBy: $type,
             whereBetweenFilters: [$from, $to],
         );
-        return $this->dashboardService->getDateWiseAmountInUSD(range: $range, type: $type, amountArray: $commissionGiven);;
+        return $this->dashboardService->getDateWiseAmountInUSD(range: $range, type: $type, amountArray: $commissionGiven);
     }
 
     public function getEarningStatics(Request $request): JsonResponse

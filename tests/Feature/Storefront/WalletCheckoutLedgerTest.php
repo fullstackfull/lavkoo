@@ -73,15 +73,36 @@ class WalletCheckoutLedgerTest extends ApiAddressTestCase
         ];
     }
 
-    private function everyMarketSwitchOn(): void
+    /**
+     * Every market switch on, and each storefront given leave to sell: being switched on in the configuration is not leave, because a
+     * storefront sells once its tax is decided and a person has made it active, both of which are recorded rather than configured
+     * (StorefrontSellingGate). Without that every request below is refused 422 before it reaches a wallet.
+     *
+     * `withTheirOwnMoney` is the storefront currency switch. While it is on, a storefront that trades in its own money has its wallet
+     * CLOSED (EnsureWalletIsOpenInStorefront, GCC-05 slice 5b): one balance kept in the platform's money cannot pay a dinar order, so the
+     * checkout answers 403 and nothing is written. Turning it off is how this test reaches the debit of a storefront other than the default
+     * one, which is where the attribution of E-05 is read.
+     */
+    private function everyMarketSwitchOn(bool $withTheirOwnMoney = true): void
     {
         $this->switchStorefrontsOn();
-        config(['gcc.storefronts.currency.enabled' => true, 'gcc.storefronts.legal_entities.enabled' => true]);
+        config(['gcc.storefronts.currency.enabled' => $withTheirOwnMoney, 'gcc.storefronts.legal_entities.enabled' => true]);
         foreach (['QA', 'BH', 'OM', 'KW'] as $storefront) {
             config(["gcc.storefronts.countries.{$storefront}.active" => true]);
         }
         config(['gcc.storefronts.legal.grandfathered' => ['SA', 'AE', 'KW', 'QA', 'BH', 'OM']]);
+        $this->approveNoTaxFor('KW', 'QA', 'BH', 'OM');
+        $this->activateStorefrontFor('KW', 'QA', 'BH', 'OM');
         StorefrontCatalog::flush();
+    }
+
+    /** @return array<string, array{0: string, 1: int, 2: string}> the five storefronts that trade in a money of their own */
+    public static function theStorefrontsWithTheirOwnMoney(): array
+    {
+        $storefronts = self::theSixStorefronts();
+        unset($storefronts['Saudi Arabia']);
+
+        return $storefronts;
     }
 
     /** Puts the one product of a storefront in a customer's cart and pays for it from the wallet; the header is left off for a platform with storefronts off. */
@@ -89,12 +110,20 @@ class WalletCheckoutLedgerTest extends ApiAddressTestCase
     {
         $header = $country === null ? [] : ['X-Storefront' => $country];
 
+        $this->fillTheCartFrom(customer: $customer, productId: $productId, country: $country);
+
+        $this->asCustomer($customer)->withHeaders($header)->getJson(self::WALLET)->assertOk()->assertJsonPath('messages', translate('order_placed_successfully'));
+    }
+
+    /** The cart the checkout pays for, with a shipping method chosen for each group it holds. */
+    private function fillTheCartFrom(User $customer, int $productId, ?string $country): void
+    {
+        $header = $country === null ? [] : ['X-Storefront' => $country];
+
         $this->asCustomer($customer)->withHeaders($header)->postJson('/api/v1/cart/add', ['id' => $productId, 'quantity' => 1])->assertOk()->assertJsonPath('status', 1);
         foreach (DB::table('carts')->pluck('cart_group_id') as $group) {
             DB::table('cart_shippings')->insert(['cart_group_id' => $group, 'shipping_method_id' => 1, 'shipping_cost' => 25]);
         }
-
-        $this->asCustomer($customer)->withHeaders($header)->getJson(self::WALLET)->assertOk()->assertJsonPath('messages', translate('order_placed_successfully'));
     }
 
     /** @return array<string, mixed> the ledger row the debit wrote */
@@ -122,11 +151,62 @@ class WalletCheckoutLedgerTest extends ApiAddressTestCase
         $this->assertSame([null, null, null, null, null], [$row['storefront_country'], $row['currency_code'], $row['legal_entity_id'], $row['actor_type'], $row['actor_id']]);
     }
 
-    #[DataProvider('theSixStorefronts')]
-    public function test_the_debit_of_each_storefront_carries_the_storefront_the_currency_and_the_company_its_order_recorded(string $country, int $productId, string $currencyCode): void
+    /**
+     * The default storefront with every switch on: its wallet stays open, because its money IS the platform's, so this is the one checkout
+     * that reaches a debit while the storefront currencies are on, and the debit carries everything the order recorded.
+     */
+    public function test_the_debit_of_the_default_storefront_carries_the_storefront_the_currency_and_the_company_its_order_recorded(): void
     {
         $this->ledgerMigration()->up();
         $this->everyMarketSwitchOn();
+        $entity = $this->registerEntity(country: 'SA');
+        $customer = $this->makeCustomer(['wallet_balance' => self::BALANCE]);
+
+        $this->payFromTheWallet(customer: $customer, productId: 1, country: 'SA');
+
+        $order = DB::table('orders')->first();
+        $row = $this->theDebit();
+        $this->assertSame(['SA', 'SAR', $entity->id], [$order->storefront_country, $order->currency_code, (int) $order->legal_entity_id], 'the order recorded its market');
+        $this->assertSame(['SA', 'SAR', $entity->id], [$row['storefront_country'], $row['currency_code'], $row['legal_entity_id']], 'and the debit copies it');
+        $this->assertSame(['order_group', $order->order_group_id], [$row['source_type'], $row['source_id']]);
+        $this->assertSame([null, null], [$row['actor_type'], $row['actor_id']], 'a customer is not a staff member');
+    }
+
+    /**
+     * The other five storefronts, with their money their own: the wallet is closed there, so the checkout is refused and there is no debit
+     * to attribute. This was written as a sixfold proof that the debit of every storefront carries its market, and five sixths of it is no
+     * longer reachable through this route -- one balance in the platform's money may not pay a dinar order, which is the rule
+     * EnsureWalletIsOpenInStorefront enforces and StorefrontWalletClosedTest pins. What is left to prove is that the refusal costs nothing,
+     * and the attribution is read below, where the checkout is open.
+     */
+    #[DataProvider('theStorefrontsWithTheirOwnMoney')]
+    public function test_a_storefront_that_trades_in_its_own_money_refuses_the_wallet_checkout_and_writes_no_debit(string $country, int $productId): void
+    {
+        $this->ledgerMigration()->up();
+        $this->everyMarketSwitchOn();
+        $this->registerEntity(country: $country);
+        $customer = $this->makeCustomer(['wallet_balance' => self::BALANCE]);
+
+        $this->fillTheCartFrom(customer: $customer, productId: $productId, country: $country);
+        $this->asCustomer($customer)->withHeaders(['X-Storefront' => $country])->getJson(self::WALLET)->assertForbidden();
+
+        $this->assertSame(0, DB::table('wallet_transactions')->count(), 'a refused checkout writes no ledger row');
+        $this->assertSame(0, DB::table('orders')->count(), 'and no order');
+        $this->assertEqualsWithDelta(self::BALANCE, (float) $customer->fresh()->wallet_balance, 0.0001, 'and takes nothing from the wallet');
+    }
+
+    /**
+     * The same five storefronts while their money is the platform's, which is the state the platform ships in and the one in which their
+     * wallets are open: the debit carries the selling company of the order it paid. Neither the order nor the row records a storefront or a
+     * currency, because an order is only recorded as sold in a storefront's money while that money is in force (OrderStorefrontSnapshot),
+     * and the company is recorded on its own switch. So what this proves of those five is the company half; the storefront and the currency
+     * are read above, on the one storefront whose wallet is open while the money is theirs.
+     */
+    #[DataProvider('theStorefrontsWithTheirOwnMoney')]
+    public function test_the_debit_of_each_storefront_carries_the_company_while_their_money_is_the_platforms(string $country, int $productId): void
+    {
+        $this->ledgerMigration()->up();
+        $this->everyMarketSwitchOn(withTheirOwnMoney: false);
         $entity = $this->registerEntity(country: $country);
         $customer = $this->makeCustomer(['wallet_balance' => self::BALANCE]);
 
@@ -134,27 +214,28 @@ class WalletCheckoutLedgerTest extends ApiAddressTestCase
 
         $order = DB::table('orders')->first();
         $row = $this->theDebit();
-        $this->assertSame([$country, $currencyCode, $entity->id], [$order->storefront_country, $order->currency_code, (int) $order->legal_entity_id], 'the order recorded its market');
-        $this->assertSame([$country, $currencyCode, $entity->id], [$row['storefront_country'], $row['currency_code'], $row['legal_entity_id']], 'and the debit copies it');
+        $this->assertSame([null, $entity->id], [$order->storefront_country, (int) $order->legal_entity_id], 'the order recorded the company that sold it and no money of its own');
+        $this->assertSame([null, null, $entity->id], [$row['storefront_country'], $row['currency_code'], $row['legal_entity_id']], 'and the debit copies it');
         $this->assertSame(['order_group', $order->order_group_id], [$row['source_type'], $row['source_id']]);
         $this->assertSame([null, null], [$row['actor_type'], $row['actor_id']], 'a customer is not a staff member');
     }
 
+    /** No company registered for the storefront the order was sold in: what it was sold in is still recorded, and the company is simply left empty. */
     public function test_a_storefront_without_a_company_still_records_its_storefront_and_currency(): void
     {
         $this->ledgerMigration()->up();
         $this->everyMarketSwitchOn();
         $customer = $this->makeCustomer(['wallet_balance' => self::BALANCE]);
 
-        $this->payFromTheWallet(customer: $customer, productId: 3, country: 'KW');
+        $this->payFromTheWallet(customer: $customer, productId: 1, country: 'SA');
 
         $row = $this->theDebit();
-        $this->assertSame(['KW', 'KWD', null], [$row['storefront_country'], $row['currency_code'], $row['legal_entity_id']]);
+        $this->assertSame(['SA', 'SAR', null], [$row['storefront_country'], $row['currency_code'], $row['legal_entity_id']]);
     }
 
     public function test_before_the_migration_the_checkout_debits_exactly_as_it_always_did(): void
     {
-        $this->everyMarketSwitchOn();
+        $this->everyMarketSwitchOn(withTheirOwnMoney: false);
         $this->registerEntity(country: 'KW');
         $customer = $this->makeCustomer(['wallet_balance' => self::BALANCE]);
 

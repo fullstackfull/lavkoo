@@ -478,7 +478,6 @@ final class StorefrontCurrency
     private function currencyInForce(): ?Currency
     {
         return $this->orderCurrency ?? $this->inForce()['currency'] ?? null;
-        return $this->inForce()['currency'] ?? null;
     }
 
     /** @return array{country: string, currency: Currency}|null the storefront whose money is in force and its currency, or null while the platform's settings stand */

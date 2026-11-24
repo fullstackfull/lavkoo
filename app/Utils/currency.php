@@ -146,15 +146,6 @@ if (!function_exists('usdToDefaultCurrencyForEditing')) {
         $factor = pow(10, $decimals);
 
         return floor(round(usdAmountInDefaultCurrency(amount: $amount) * $factor, 6)) / $factor;
-        $scaled = $value * $factor;
-
-        // In the money of a storefront (GCC-05) the amount was typed as it is shown, and 2.675 is 2.67499999999999982 in binary: its floor would show one fils
-        // less, and an edit form that shows it would save that. The platform's own readers keep the arithmetic they always had.
-        if (app(StorefrontCurrency::class)->currencyCodeInForce() !== null) {
-            $scaled = round($scaled, 6);
-        }
-
-        return floor($scaled) / $factor;
     }
 }
 
