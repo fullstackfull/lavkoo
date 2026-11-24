@@ -100,6 +100,19 @@ return [
             'OM' => ['path' => 'om', 'currency' => 'OMR', 'active' => false],
         ],
 
+        'queues' => [
+            // Off by default: every job and every queued listener waits on the queue it waits on today, whatever market it carries. When it is on, work
+            // that carries a market other than the default storefront's waits on that market's own queue (`storefront-kw` and so on), so an operator can
+            // work one market (`queue:work --queue=storefront-kw`), pace it, or stop reserving from it (`queue:pause storefront-kw`) without touching the
+            // rest. The default storefront keeps today's queue, so a worker that is already running never stops working the live market's jobs.
+            //
+            // Turning this on needs a worker for each market's queue; `php artisan gcc:storefront-queues` prints the names, what is waiting on each and
+            // the command to run. Without one, that market's jobs wait instead of running -- they are not lost, and switching this off again sends the
+            // next of them back to today's queue.
+            'per_market' => filter_var(env('GCC_STOREFRONT_QUEUES', false), FILTER_VALIDATE_BOOLEAN),
+            'prefix' => env('GCC_STOREFRONT_QUEUE_PREFIX', 'storefront-'),
+        ],
+
         'currency' => [
             // Off by default: every storefront reads the platform's own currency settings, as before. When it is on, a storefront other than the default
             // one trades in the currency of its `countries` entry: its prices are entered and shown in that currency, nothing is converted from another

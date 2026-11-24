@@ -3,6 +3,7 @@
 namespace App\Listeners\Concerns;
 
 use App\Jobs\Middleware\ServeInItsStorefront;
+use App\Services\Storefront\StorefrontQueues;
 
 /**
  * Makes a queued LISTENER run in the storefront the event was dispatched from (A1-14).
@@ -33,5 +34,16 @@ trait RunsInTheDispatchingStorefront
     public function middleware(mixed ...$event): array
     {
         return [new ServeInItsStorefront(country: ServeInItsStorefront::countryOfTheDispatchingProcess())];
+    }
+
+    /**
+     * The queue this listener's work waits on: its market's own while each market has one, and today's queue otherwise. Laravel asks the
+     * listener this at dispatch, in the request, which is the only moment the market is known.
+     *
+     * @param mixed ...$event the event, as the dispatcher passes it
+     */
+    public function viaQueue(mixed ...$event): ?string
+    {
+        return StorefrontQueues::forMarket(ServeInItsStorefront::countryOfTheDispatchingProcess());
     }
 }

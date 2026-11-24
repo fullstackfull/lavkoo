@@ -3,6 +3,7 @@
 namespace App\Jobs\Concerns;
 
 use App\Jobs\Middleware\ServeInItsStorefront;
+use App\Services\Storefront\StorefrontQueues;
 
 /**
  * Makes a queued JOB remember which storefront it was dispatched from, and run in that one (A1-14).
@@ -39,10 +40,18 @@ trait CarriesItsStorefront
     /** The storefront the job was dispatched from, or null when it was dispatched outside any. Public so that the queue serialises it. */
     public ?string $storefrontCountry = null;
 
-    /** Records the dispatching request's storefront. Call it from the job's constructor, which is what runs in that request. */
+    /**
+     * Records the dispatching request's storefront, and puts the job on that market's queue while each market has one. Call it from the
+     * job's constructor, which is what runs in that request.
+     */
     protected function carryTheCurrentStorefront(): void
     {
         $this->storefrontCountry = ServeInItsStorefront::countryOfTheDispatchingProcess();
+        $queue = StorefrontQueues::forMarket($this->storefrontCountry);
+
+        if ($queue !== null) {
+            $this->onQueue($queue);
+        }
     }
 
     /** @return array<int, object> the queue middleware Laravel runs `handle()` through */
