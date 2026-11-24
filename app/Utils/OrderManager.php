@@ -67,6 +67,8 @@ use App\Services\Storefront\OneSellingCompanyPerOrder;
 
 use App\Services\DeliverySyria\DeliverySyriaConfigService;
 use App\Services\Customer\CustomerWalletWriter;
+use App\Services\Shipping\OrderShippingDecision;
+use App\Services\Shipping\ShippingEligibility;
 
 
 class OrderManager
@@ -1560,6 +1562,12 @@ class OrderManager
         // ledger row of a running system named no company however the registry was set up. Stamping mid-loop would be worse than either: the first
         // line's country would be frozen and the lines after it ignored, because an order is stamped once and never restamped.
         app(OrderStorefrontSnapshot::class)->record(orderId: $orderId);
+
+        // What the shipping engine decided about this order, kept on the order (H1-06), from the order's own lines and the address copy it
+        // keeps -- the same question the checkout asked before payment, asked of what the order actually holds. A decision that is
+        // recomputed later is a decision that changes, so it is written once and never rewritten. Silent while the cross-border switch is
+        // off, which is how the platform ships.
+        OrderShippingDecision::record($orderId, app(ShippingEligibility::class)->decideForOrder($orderId));
 
         foreach ($savedLines as $savedLine) {
             // Freeze the commission for this line, here, inside the order transaction.

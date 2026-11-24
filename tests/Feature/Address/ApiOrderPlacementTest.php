@@ -97,6 +97,41 @@ class ApiOrderPlacementTest extends ApiAddressTestCase
         $this->assertSame(1, $this->ordersCount());
     }
 
+    /**
+     * H1-06's last criterion: the decision is stored on the order, so what was decided stays decided when the settings change later. A
+     * permission withdrawn next month must not make an order that was correctly accepted look as though it never should have been.
+     */
+    public function test_the_order_keeps_the_shipping_decision_it_was_taken_under(): void
+    {
+        $customer = $this->makeCustomer();
+        $address = $this->makeLegacyAddress($customer->id);
+        $this->putOneProductInTheCart($customer->id);
+        $this->openTheBorderTo('SA');
+        (require database_path('migrations/2026_12_20_100200_add_shipping_decision_to_orders_table.php'))->up();
+        \App\Services\Shipping\OrderShippingDecision::forget();
+
+        $this->asCustomer($customer)->getJson(self::COD . '?address_id=' . $address->id)->assertOk();
+
+        $this->assertSame(
+            ['kind' => 'local', 'allowed' => true, 'reasons' => []],
+            \App\Services\Shipping\OrderShippingDecision::of(100001),
+        );
+    }
+
+    /** And with the switch off nothing is written, because a platform serving one country has taken only local orders. */
+    public function test_no_decision_is_written_while_the_switch_is_off(): void
+    {
+        $customer = $this->makeCustomer();
+        $address = $this->makeLegacyAddress($customer->id);
+        $this->putOneProductInTheCart($customer->id);
+        (require database_path('migrations/2026_12_20_100200_add_shipping_decision_to_orders_table.php'))->up();
+        \App\Services\Shipping\OrderShippingDecision::forget();
+
+        $this->asCustomer($customer)->getJson(self::COD . '?address_id=' . $address->id)->assertOk();
+
+        $this->assertNull(\App\Services\Shipping\OrderShippingDecision::of(100001));
+    }
+
     private function assertRefusedBeforeAnythingWasCreated($response, string $expectedMessage): void
     {
         $response->assertStatus(403)->assertJsonPath('message', $expectedMessage);

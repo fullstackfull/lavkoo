@@ -346,6 +346,10 @@ class CustomerTablesAreNotRewrittenTest extends TestCase
         'database/migrations/2026_11_27_100000_add_order_currency_to_order_money_rows.php (order_details)',
         // orders.legal_entity_id and the frozen identity columns beside it: which registered company sold the order.
         'database/migrations/2026_11_27_100100_add_legal_entity_to_orders_table.php (orders)',
+        // orders.shipping_kind and .shipping_decision: whether the order crossed a border and what the engine considered when it said so
+        // (H1-06). Both nullable and empty for every order that exists, which is read as the local order it is. A decision that is
+        // recomputed is a decision that changes, so it is written down once as it was given.
+        'database/migrations/2026_12_20_100200_add_shipping_decision_to_orders_table.php (orders)',
     ];
     /** @return list<string> the guarded tables this body names */
     private function guardedTablesIn(string $deployed): array

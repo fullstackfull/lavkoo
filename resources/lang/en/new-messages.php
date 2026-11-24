@@ -11426,4 +11426,6 @@ return [
 	'this_store_is_not_available' => 'This store is not available',
 	'store' => 'Store',
 	'maintenance_Mode_On' => 'Maintenance Mode On',
+	'successfully_added!' => 'Successfully added!',
+	'update_successful' => 'Update successful',
 ];

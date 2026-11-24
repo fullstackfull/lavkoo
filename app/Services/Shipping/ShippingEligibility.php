@@ -46,13 +46,21 @@ final class ShippingEligibility
             return EligibilityDecision::local();
         }
 
+        return $this->decideFor(lines: $this->linesOf($cartGroupIds), destination: $destination);
+    }
+
+    /**
+     * The decision itself, from lines and a destination, whichever of the two entry points read them.
+     *
+     * @param list<object> $lines
+     */
+    private function decideFor(array $lines, ?string $destination): EligibilityDecision
+    {
         $to = self::country($destination);
 
         if ($to === null) {
             return EligibilityDecision::refused(kind: EligibilityDecision::LOCAL, reasons: ['shipping_destination_unknown']);
         }
-
-        $lines = $this->linesOf($cartGroupIds);
 
         if ($lines === []) {
             return EligibilityDecision::local();
@@ -83,6 +91,58 @@ final class ShippingEligibility
         $kind = $crossesABorder ? EligibilityDecision::CROSS_BORDER : EligibilityDecision::LOCAL;
 
         return $reasons === [] ? new EligibilityDecision(kind: $kind, allowed: true) : EligibilityDecision::refused(kind: $kind, reasons: $reasons);
+    }
+
+    /**
+     * The decision for an ORDER, from the order's own facts: the markets of the products on its lines, and the country of the address it
+     * carries.
+     *
+     * The same question the checkout asked, asked again of what the order actually holds. It is what records the decision on the order, and
+     * what the dispatch side asks when it re-checks a shipment that has been waiting: a permission withdrawn, or a carrier that stopped
+     * serving a route, must stop a parcel that has not left yet.
+     */
+    public function decideForOrder(int|string|null $orderId): EligibilityDecision
+    {
+        if (!self::isOn() || $orderId === null) {
+            return EligibilityDecision::local();
+        }
+
+        return $this->decideFor(lines: $this->orderLinesOf($orderId), destination: self::destinationOfOrder($orderId));
+    }
+
+    /**
+     * The lines of an order: the product, the market it belongs to, and the carrier that would take it. Read from the order's own rows,
+     * never from a cart, because a cart is gone by the time a shipment is dispatched.
+     *
+     * @return list<object>
+     */
+    private function orderLinesOf(int|string $orderId): array
+    {
+        if (!Schema::hasTable('order_details')) {
+            return [];
+        }
+
+        $hasMarket = Schema::hasColumn('products', StorefrontCatalog::COLUMN);
+        $hasProvider = Schema::hasColumn('products', 'fulfillment_provider');
+
+        $columns = ['order_details.product_id as product_id'];
+        $columns[] = $hasMarket ? 'products.' . StorefrontCatalog::COLUMN . ' as source' : DB::raw('NULL as source');
+        $columns[] = $hasProvider ? 'products.fulfillment_provider as provider' : DB::raw('NULL as provider');
+
+        return DB::table('order_details')
+            ->join('products', 'products.id', '=', 'order_details.product_id')
+            ->where('order_details.order_id', $orderId)
+            ->get($columns)
+            ->all();
+    }
+
+    /** The country the order is going to, out of the address copy the order keeps, which is the address as it was that day. */
+    private static function destinationOfOrder(int|string $orderId): ?string
+    {
+        $stored = DB::table('orders')->where('id', $orderId)->value('shipping_address_data');
+        $address = is_string($stored) ? json_decode($stored, associative: true) : null;
+
+        return is_array($address) ? self::country($address['country'] ?? null) : null;
     }
 
     /**
