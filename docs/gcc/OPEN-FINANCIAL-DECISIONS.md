@@ -67,6 +67,25 @@ function, was separable and is fixed.
 
 ---
 
+### Prepared, and waiting only on the answer — `4f349593`
+
+`App\Services\Loyalty\WhatAPointIsWorth` holds both formulas and hands each path its own. The setting
+`gcc.loyalty.point_value` (`GCC_LOYALTY_POINT_VALUE`) names the three answers, and an unrecognised value is read as today's
+behaviour, so a typo in an environment file cannot move money.
+
+- **Default, as it ships:** `as_each_path_does_today` — the apps keep the app formula, the website keeps the website's, to the digit.
+  `PointsToWalletFormulaCharacterizationTest` still measures the same two figures, which is the proof that nothing was adopted.
+- **To adopt option A:** set it to `one_dollar_per_rate`. Every path then credits `rate` points as one US dollar. On a Saudi store
+  the website starts paying 3.75× what it pays today for the same points.
+- **To adopt option B:** set it to `one_unit_in_force_per_rate`. Every path credits `rate` points as one unit of the currency in
+  force. The apps then pay a third of what they pay today.
+
+Either answer changes what a customer is paid for points they already hold, which is why nothing switches itself. **Not done, and
+part of adopting either option:** deciding what happens to points already earned, and flipping the two characterization figures on
+purpose in the same change.
+
+---
+
 ## 2. Which currency a courier is paid in for a non-Saudi order (C-15, finding E11-F02)
 
 ### What the platform does today
@@ -106,6 +125,26 @@ row's own currency has, and the reconciliation tolerance is one smallest coin ra
 
 ---
 
+### Prepared, and waiting only on the answer — `8614ca13`
+
+`App\Services\Fulfillment\Support\WhatACourierIsPaidIn` answers which currency a shipment is stamped with, for an order and a
+provider. The setting `fulfillment.settlement_currency` (`FULFILLMENT_SETTLEMENT_CURRENCY`) names the three answers; today's is the
+default, and an unrecognised value reads as the default.
+
+- **Default, as it ships:** `as_configured_today` — one currency for every provider, exactly as now.
+- **Option B:** `the_orders_market` — the currency the customer was charged in, from the order's own storefront snapshot. An order
+  that names none (every order placed before the snapshot existed) keeps the configured currency.
+- **Option C:** `the_provider_account` — each provider account states its currency in
+  `fulfillment.providers.<code>.settlement_currency`; an account told nothing keeps the configured one.
+
+**What is deliberately NOT done:** converting an order's money into a currency other than the configured one. So while option B or C
+is in force, a shipment whose stamp is not the currency its figures were converted into is **held**, not sent — the existing
+`hold_currency_unconvertible`, which an operator already knows and which releases itself. A right label over a wrong figure would be
+worse than no shipment, because that figure is the cash the courier collects. Adopting an option therefore means one more step:
+making `ProviderCurrency` convert per order, and giving each account the list of currencies it settles in.
+
+---
+
 ## 3. Whether an admin-cancelled wallet-paid order refunds itself (E-13, finding E04-F10)
 
 ### What the platform does today
@@ -133,6 +172,26 @@ E-13's last criterion, and nothing else: the refund machinery, its idempotency a
 
 The behaviour as it stands is pinned by a test, so whichever way it is answered the change is visible: the test says a POS cancel refunds
 and a non-POS cancel does not, and it fails the moment either one moves.
+
+### Prepared, and waiting only on the answer — `00f7670c`
+
+`App\Services\Refund\WhenACancellationRefundsTheWallet` holds the rule, the amount and the ledger reference, which the admin and
+vendor panels asked separately and identically before it existed, so the answer lands in both at once. The setting is
+`gcc.refunds.when_a_cancellation_refunds_the_wallet` (`GCC_CANCELLATION_REFUNDS_THE_WALLET`), and an unrecognised value reads as
+today's behaviour.
+
+- **Default, as it ships:** `manual_as_today` — only a POS sale paid with the wallet refunds itself.
+- **Option A:** `every_paid_cancellation` — any cancelled order with money on it pays the wallet back, whatever it was paid with.
+- **Option C:** `wallet_payments_only` — automatic where the money came from the wallet, by hand where it has to go back the way it
+  came in.
+
+Three things make an option safe to hold ready. A POS wallet sale keeps the figure cancelling it has always credited, and every
+order an option newly covers is credited **what was actually paid**, capped at what it cost. The reference is keyed on what the
+order is and never on the rule, so changing the rule cannot make one cancellation look like two. And paying once per cancellation is
+the status claim's doing (RF-04), not the setting's, which the test proves under an option as well as under today's rule.
+
+**Not done, and part of adopting an option:** the audit line naming the operator who cancelled, a race test alongside the POS one,
+and deciding what happens to orders already cancelled and never refunded.
 
 ---
 
