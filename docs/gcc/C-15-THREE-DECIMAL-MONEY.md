@@ -128,7 +128,7 @@ worth avoiding here: a number that is refused is a shipment that does not go out
 - `tests/Feature/Fulfillment/M5aznAdapterTest.php`: a Kuwaiti order sent `Kuwait`, `KW` and `51234567`; a Kuwaiti phone not held; a Saudi
   phone on a Kuwaiti order held.
 - `tests/Feature/Fulfillment/TorodAdapterTest.php`: a Kuwaiti order sent `0096551234567` and its mapped Kuwaiti city; a Saudi order still
-  sent `00966551234567`.
+  sent its number in the Kingdom's international form, digits unchanged.
 
 **Teeth.** Making every market write a trunk zero fails 7 tests; sending the account's country instead of the order's fails the M5AZN
 destination case. The assertion that catches it names the orders request itself, because a condition that answers true for the login
