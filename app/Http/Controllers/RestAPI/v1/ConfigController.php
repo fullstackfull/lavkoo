@@ -212,6 +212,10 @@ $metaAppTracking = MetaAppIntegration::where('app_type', 'customer')
             'loyalty_point_status' => (int)getWebConfig(name: 'loyalty_point_status'),
             'loyalty_point_exchange_rate' => (int)getWebConfig(name: 'loyalty_point_exchange_rate'),
             'loyalty_point_minimum_point' => (int)getWebConfig(name: 'loyalty_point_minimum_point'),
+            // What an order earns, as a percentage of its value (E-02, J-V2). The apps were told the status, the exchange rate and the
+            // minimum but never the earn rate, so neither could say what an order is about to earn -- the one loyalty number a customer
+            // sees before they buy. Through getWebConfig it is the MARKET's rate wherever a market has its own programme.
+            'loyalty_point_item_purchase_point' => (float)getWebConfig(name: 'loyalty_point_item_purchase_point'),
             'payment_methods' => $paymentMethods,
             'offline_payment' => $offlinePayment,
             'payment_method_image_path' => dynamicStorage(path: 'storage/app/public/payment_modules/gateway_image'),
