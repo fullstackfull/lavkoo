@@ -403,11 +403,25 @@ class VendorLedgerLegalEntityTest extends TestCase
         );
         $source = (string) file_get_contents((new \ReflectionClass(VendorController::class))->getFileName());
         $this->assertStringContainsString('$company = $ledger->companyOfSeller(sellerId: $withdraw[\'seller_id\'])', $source, 'the legacy withdraw mirror is wired to it');
+
+        // The company is still read before the wallet moves, for the reason this test was written with: an entry must name the company the
+        // seller's own rows agreed on when the money moved. What has changed is that there is no longer a window to protect -- the wallet's
+        // move and the payout entry are inside ONE transaction now, so neither can land without the other. The approval used to do the whole
+        // movement twice, once inside that transaction and once after it through `increment('withdrawn')`, which paid the seller's `withdrawn`
+        // twice and drove `pending_withdraw` negative; the second copy is gone, so the position is measured against the move that remains and
+        // the absence of the other one is pinned here too.
         $this->assertLessThan(
-            strpos($source, "->increment('withdrawn'"),
+            strpos($source, "\$wallet->withdrawn += \$pendingRequest['amount']"),
             strpos($source, '$company = $ledger->companyOfSeller('),
-            'the company is read before the wallet moves: the two are not one transaction, so a read that threw between them would debit a wallet and record no payout',
+            'the company is read before the wallet moves',
         );
+        $this->assertLessThan(
+            strpos($source, '$company = $ledger->companyOfSeller('),
+            strpos($source, '$isDecided = DB::transaction('),
+            'and inside the transaction that moves the wallet and writes the payout together',
+        );
+        $this->assertSame(1, preg_match_all('/\$wallet->withdrawn \+=/', $source), 'the wallet is moved once');
+        $this->assertSame(0, preg_match_all("/->increment\\('withdrawn'/", $source), 'and never a second time outside the lock');
     }
 
     // ---- the ledger readers ----------------------------------------------------------------------------------------------------
