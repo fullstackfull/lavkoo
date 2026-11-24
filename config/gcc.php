@@ -416,4 +416,20 @@ return [
         'refuse_while_balance_remains' => filter_var(env('GCC_REFUSE_ACCOUNT_DELETE_WITH_BALANCE', false), FILTER_VALIDATE_BOOLEAN),
     ],
 
+    'loyalty' => [
+        // What a loyalty point is worth in wallet money (E-14, finding LF-1), and the one setting that settles a disagreement older than
+        // this work: the mobile apps credit `rate` points as ONE DOLLAR and the website credits them as ONE UNIT OF THE CURRENCY IN FORCE,
+        // so on a Saudi store the app pays 3.75 times what the website pays for the same points. Both formulas are kept and reachable, and
+        // the default is the platform exactly as it runs today -- each path with its own formula, to the digit, so no customer's credit
+        // moves while the question is open.
+        //
+        //   'as_each_path_does_today'      the default: the app's formula in the app, the website's on the website
+        //   'one_dollar_per_rate'          option A: `rate` points buy one US dollar's worth, which is what the admin field's label says
+        //   'one_unit_in_force_per_rate'   option B: `rate` points buy one unit of the currency in force, which is what the website pays
+        //
+        // Changing it changes what a customer is paid for points they already hold, in one direction or the other, so it is the owner's
+        // decision and nobody else's: docs/gcc/OPEN-FINANCIAL-DECISIONS.md section 1. An unrecognised value is read as the default.
+        'point_value' => env('GCC_LOYALTY_POINT_VALUE', App\Services\Loyalty\WhatAPointIsWorth::AS_EACH_PATH_DOES_TODAY),
+    ],
+
 ];

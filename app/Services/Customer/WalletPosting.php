@@ -2,7 +2,7 @@
 
 namespace App\Services\Customer;
 
-use App\Models\BusinessSetting;
+use App\Services\Loyalty\WhatAPointIsWorth;
 use App\Utils\Convert;
 use App\Utils\Helpers;
 
@@ -79,13 +79,17 @@ final readonly class WalletPosting
      * once more by session('currency_exchange_rate') and the API path does not. That disagreement is older than this class and
      * is not settled here: settling it would change what one of the two paths credits.
      *
+     * Both formulas now live in {@see WhatAPointIsWorth}, which keeps them and hands each path its own, so that the day the owner
+     * answers LF-1 the answer is one setting rather than a hunt through the call sites. Nothing about what either path credits today
+     * is changed by that move: the figures are asserted unchanged in PointsToWalletFormulaCharacterizationTest.
+     *
      * @param array<string, mixed> $paymentData
      */
     public static function loyaltyPointsConvertedOnTheWeb(float $points, ?string $reference = null, array $paymentData = []): self
     {
         return self::converted(
             transactionType: 'loyalty_point',
-            credit: (float) localToDefaultCurrency(amount: (float) loyaltyPointToLocalCurrency(amount: $points)),
+            credit: WhatAPointIsWorth::creditFor($points, WhatAPointIsWorth::WEB),
             debit: 0.0,
             bonus: 0.0,
             reference: $reference,
@@ -101,11 +105,9 @@ final readonly class WalletPosting
      */
     public static function loyaltyPointsConvertedInTheApi(float $points, ?string $reference = null, array $paymentData = []): self
     {
-        $exchangeRate = BusinessSetting::where('type', 'loyalty_point_exchange_rate')->first()->value;
-
         return self::converted(
             transactionType: 'loyalty_point',
-            credit: ($points / $exchangeRate) * Convert::default(1),
+            credit: WhatAPointIsWorth::creditFor($points, WhatAPointIsWorth::API),
             debit: 0.0,
             bonus: 0.0,
             reference: $reference,
