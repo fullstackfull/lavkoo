@@ -116,7 +116,7 @@ class MarketAnswersFromItsAccountTest extends TestCase
 
         foreach (['SA', 'KW', 'AE'] as $market) {
             $this->assertSame(self::IN_THE_USERS_ROW, (float) $this->servedBy($market, fn (): float|int => $this->reader->wallet($this->customer())));
-            $this->assertSame(self::POINTS_IN_THE_USERS_ROW, $this->servedBy($market, fn (): int => $this->reader->points($this->customer())));
+            $this->assertSame((float) self::POINTS_IN_THE_USERS_ROW, (float) $this->servedBy($market, fn (): float|int => $this->reader->points($this->customer())));
         }
 
         $this->assertSame([], $this->reader->marketsAnsweringFromTheirAccount());
@@ -131,10 +131,10 @@ class MarketAnswersFromItsAccountTest extends TestCase
         $this->marketsAnsweringFromTheirAccount('KW');
 
         $this->assertSame(12.345, (float) $this->servedBy('KW', fn (): float|int => $this->reader->wallet($this->customer())));
-        $this->assertSame(7, $this->servedBy('KW', fn (): int => $this->reader->points($this->customer())));
+        $this->assertSame(7, $this->servedBy('KW', fn (): float|int => $this->reader->points($this->customer())), 'a switched-over market answers whole points');
 
         $this->assertSame(self::IN_THE_USERS_ROW, (float) $this->servedBy('SA', fn (): float|int => $this->reader->wallet($this->customer())));
-        $this->assertSame(self::POINTS_IN_THE_USERS_ROW, $this->servedBy('AE', fn (): int => $this->reader->points($this->customer())));
+        $this->assertSame((float) self::POINTS_IN_THE_USERS_ROW, (float) $this->servedBy('AE', fn (): float|int => $this->reader->points($this->customer())));
     }
 
     /** A market switched over before its accounts were filled reads as a customer with nothing, which is why the list waits for the backfill. */
@@ -143,7 +143,7 @@ class MarketAnswersFromItsAccountTest extends TestCase
         $this->marketsAnsweringFromTheirAccount('KW');
 
         $this->assertSame(0.0, (float) $this->servedBy('KW', fn (): float|int => $this->reader->wallet($this->customer())));
-        $this->assertSame(0, $this->servedBy('KW', fn (): int => $this->reader->points($this->customer())));
+        $this->assertSame(0, $this->servedBy('KW', fn (): float|int => $this->reader->points($this->customer())));
     }
 
     public function test_the_list_is_read_whatever_case_and_spacing_it_is_written_in(): void
@@ -186,7 +186,7 @@ class MarketAnswersFromItsAccountTest extends TestCase
 
         $this->assertFalse($this->reader->answersFromItsAccount(), 'nothing is being served in a console command, a queue or a panel');
         $this->assertSame(self::IN_THE_USERS_ROW, (float) $this->reader->wallet($this->customer()));
-        $this->assertSame(self::POINTS_IN_THE_USERS_ROW, $this->reader->points($this->customer()));
+        $this->assertSame((float) self::POINTS_IN_THE_USERS_ROW, (float) $this->reader->points($this->customer()));
     }
 
     /**

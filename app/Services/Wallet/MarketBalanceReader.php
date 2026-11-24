@@ -116,9 +116,15 @@ final class MarketBalanceReader
         return $this->balance(kind: MarketBalanceKind::Wallet, customer: $customer, market: $market);
     }
 
-    /** The loyalty points of the market being served, which are whole numbers wherever they are read from. */
-    public function points(User $customer, ?string $market = null): int
+    /**
+     * The loyalty points of the market being served.
+     *
+     * Not cast: a market that is not switched over answers the attribute exactly as it stands, which is what every reader of it had before
+     * this switch existed -- casting it would quietly floor a fractional balance that the column can hold. The account path rounds to a
+     * whole point, because an account column holds decimals and a point has never had any.
+     */
+    public function points(User $customer, ?string $market = null): float|int
     {
-        return (int) $this->balance(kind: MarketBalanceKind::Loyalty, customer: $customer, market: $market);
+        return $this->balance(kind: MarketBalanceKind::Loyalty, customer: $customer, market: $market);
     }
 }
