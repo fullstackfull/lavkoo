@@ -139,6 +139,11 @@ class RefundGivesBackTheOriginalPaymentTest extends ApiAddressTestCase
      *
      *   - the request route, on both engines: the ownership check now asks for `is_guest` as well (`Order::ownedByCustomer`), so a guest's order can no
      *     longer be refunded by whoever quotes its line;
+     * The payout route gained ONE statement after that, on both engines, and both its digests were recorded again with it: the conditional
+     * UPDATE that claims the refund before anything is paid (RF-01). A read of the status is not a claim -- two requests that arrive
+     * together both passed it and both paid -- so this route does one more write than the base did, on purpose, and the rest of its
+     * statements are the base's in the base's order.
+     *
      *   - the payout route, on MariaDB only: the customer's row is read `for update`, under the lock every wallet write now takes
      *     (App\Services\Customer\CustomerBalanceLock), so two refunds of one customer can no longer read the same balance and each write it back.
      *     SQLite compiles that lock to nothing, which is why the SQLite payout digest is still the base's, byte for byte, and is left as it was.
@@ -149,14 +154,14 @@ class RefundGivesBackTheOriginalPaymentTest extends ApiAddressTestCase
         'sqlite' => [
             'ask' => 21,
             'ask_digest' => 'af2926e03efb701f955f82466088c21a2d7ae079ac51bf247c483c7f921e37f6',
-            'pay' => 30,
-            'pay_digest' => '896195f05bc4233749f1b01739a419b5e6e506d8b8c7aeed51ffa45abc896afe',
+            'pay' => 31,
+            'pay_digest' => 'b48dd2ce28b15638daab511f9c211e85737b5da12b208409770f8deae961254c',
         ],
         'mysql' => [
             'ask' => 21,
             'ask_digest' => 'db43a9cb1b24259716fe9fe8cbbacb5360b60b36f1f4a8e30c243cecac4ebc7d',
-            'pay' => 30,
-            'pay_digest' => '60f7c5fa2704659afd3f7b85eae1267370fa531513e22e64b6516a046f87deb7',
+            'pay' => 31,
+            'pay_digest' => '71d7ae9f8119566aa5c3e739dc0f2e965d8f2fa2404075bdb4fb7f19fba87d0c',
         ],
     ];
 

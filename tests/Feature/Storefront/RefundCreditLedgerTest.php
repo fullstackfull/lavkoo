@@ -56,7 +56,8 @@ class RefundCreditLedgerTest extends TestCase
 
         $row = $this->newestLedgerRow();
         $this->assertSame(['refund', '3', 'admin', 4, 'KW', 'KWD', 3], [$row['source_type'], $row['source_id'], $row['actor_type'], $row['actor_id'], $row['storefront_country'], $row['currency_code'], $row['legal_entity_id']]);
-        $this->assertSame(['order_refund', 'order_refund', 30.0, 0.0, 180.0], [$row['transaction_type'], $row['reference'], $row['credit'], $row['debit'], $row['balance']]);
+        // The reference names the refund since RF-02; it used to be the literal `order_refund`, which the transaction type already says.
+        $this->assertSame(['order_refund', 'refund_request_3', 30.0, 0.0, 180.0], [$row['transaction_type'], $row['reference'], $row['credit'], $row['debit'], $row['balance']]);
         $this->assertSame(180.0, (float) DB::table('users')->where('id', 1)->value('wallet_balance'));
     }
 
@@ -93,8 +94,10 @@ class RefundCreditLedgerTest extends TestCase
         $this->payRefundBack();
 
         $this->assertSame([], array_intersect(self::LEDGER_COLUMNS, Schema::getColumnListing('wallet_transactions')), 'the migration has not run');
+        // Every column but the reference is what it always was: the attribution is dormant without its migration, and RF-02's reference
+        // is written by the refund path itself and needs no column that is not there.
         $this->assertSame(
-            ['user_id' => 1, 'transaction_id' => '<uuid>', 'credit' => 30.0, 'debit' => 0.0, 'admin_bonus' => 0.0, 'balance' => 180.0, 'transaction_type' => 'order_refund', 'payment_method' => null, 'reference' => 'order_refund', 'created_at' => '2026-12-05 10:00:00', 'updated_at' => '2026-12-05 10:00:00'],
+            ['user_id' => 1, 'transaction_id' => '<uuid>', 'credit' => 30.0, 'debit' => 0.0, 'admin_bonus' => 0.0, 'balance' => 180.0, 'transaction_type' => 'order_refund', 'payment_method' => null, 'reference' => 'refund_request_3', 'created_at' => '2026-12-05 10:00:00', 'updated_at' => '2026-12-05 10:00:00'],
             $this->newestLedgerRow(),
         );
     }

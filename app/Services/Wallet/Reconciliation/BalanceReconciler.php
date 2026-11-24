@@ -211,27 +211,36 @@ final class BalanceReconciler
         return $checks;
     }
 
-    /** A cancelled POS order is refunded once. Two refund rows with the same reference mean the customer was paid twice. */
+    /**
+     * One thing refunded is refunded once. Two refund rows with the same reference mean the customer was paid twice for it.
+     *
+     * It covers a cancelled point-of-sale order, referenced `pos_order_cancel_<order>`, and a refund request, referenced
+     * `refund_request_<refund>` since RF-02. Before RF-02 every refund credit carried the same literal, so a repeat was
+     * indistinguishable from the next refund and this check could not see it; those older rows share one reference and are left out
+     * rather than reported as thousands of duplicates of it.
+     */
     private function duplicatePosRefunds(ReadOnlyProbe $probe, LedgerSpec $ledger, int $snapshotId): CompatibilityCheck
     {
         $columns = $probe->columns($ledger->table);
         if (!isset($columns['transaction_type'], $columns['reference'])) {
-            return new CompatibilityCheck($ledger->label, 'POS cancellations refunded more than once', CompatibilityCheck::WARN, "{$ledger->table} has no transaction_type or no reference column: the refunds cannot be compared", []);
+            return new CompatibilityCheck($ledger->label, 'refunds paid more than once', CompatibilityCheck::WARN, "{$ledger->table} has no transaction_type or no reference column: the refunds cannot be compared", []);
         }
 
         $duplicates = $probe->select(
             "SELECT COUNT(*) AS references_repeated, COALESCE(SUM(c - 1), 0) AS extra_rows FROM (
                 SELECT reference, COUNT(*) AS c FROM {$ledger->table}
-                WHERE transaction_type = 'order_refund' AND reference LIKE 'pos_order_cancel_%' AND id <= ? GROUP BY reference HAVING COUNT(*) > 1) x",
+                WHERE transaction_type = 'order_refund'
+                  AND (reference LIKE 'pos_order_cancel_%' OR reference LIKE 'refund_request_%')
+                  AND id <= ? GROUP BY reference HAVING COUNT(*) > 1) x",
             [$snapshotId],
         )[0];
 
         return new CompatibilityCheck(
             $ledger->label,
-            'POS cancellations refunded more than once',
+            'refunds paid more than once',
             (int) $duplicates['references_repeated'] === 0 ? CompatibilityCheck::PASS : CompatibilityCheck::WARN,
-            sprintf('%d cancellations have more than one refund row (%d extra rows)', (int) $duplicates['references_repeated'], (int) $duplicates['extra_rows']),
-            ['cancellations' => (int) $duplicates['references_repeated'], 'extra_rows' => (int) $duplicates['extra_rows']],
+            sprintf('%d refunds have more than one credit row (%d extra rows)', (int) $duplicates['references_repeated'], (int) $duplicates['extra_rows']),
+            ['refunds' => (int) $duplicates['references_repeated'], 'extra_rows' => (int) $duplicates['extra_rows']],
         );
     }
 

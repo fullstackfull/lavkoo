@@ -19,6 +19,7 @@ use App\Exports\RefundRequestExport;
 use App\Http\Controllers\BaseController;
 use App\Http\Requests\Admin\RefundStatusRequest;
 use App\Http\Middleware\ScopeOrdersToStaffCountries;
+use App\Services\Refund\RefundClaims;
 use App\Services\RefundStatusService;
 use App\Services\RefundTransactionService;
 use App\Services\Storefront\LedgerOrigin;
@@ -27,6 +28,7 @@ use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -111,7 +113,7 @@ class RefundController extends BaseController
         );
     }
 
-    public function updateRefundStatus(RefundStatusRequest $request, RefundStatusService $refundStatusService, RefundTransactionService $refundTransactionService): JsonResponse
+    public function updateRefundStatus(RefundStatusRequest $request, RefundStatusService $refundStatusService, RefundTransactionService $refundTransactionService, RefundClaims $claims): JsonResponse
     {
         $refund = $this->refundRequestRepo->getFirstWhere(params: ['id' => $request['id']]);
         if ($refund['status'] == 'refunded') {
@@ -135,6 +137,52 @@ class RefundController extends BaseController
         }
 
         $order = $this->orderRepo->getFirstWhere(params: ['id' => $refund['order_id']]);
+
+        // RF-01 and RF-11: one transaction, and the claim inside it decides who pays. The read of the status above is not a claim -- two
+        // requests that arrive together both pass it and both pay -- so the move to `refunded` is made here, conditionally, and everything
+        // the refund does happens only if that update took the row. A payment that then fails gives the claim back with it.
+        $orderDetails = $this->orderDetailRepo->getFirstWhere(params: ['id' => $refund['order_details_id']]);
+
+        $paid = DB::transaction(function () use ($request, $refund, $order, $orderDetails, $loyaltyPoint, $refundStatusService, $refundTransactionService, $claims): bool {
+            if ($request['refund_status'] == 'refunded' && !$claims->claimRefunded($refund['id'])) {
+                return false;
+            }
+
+            return $this->settleRefund(
+                request: $request,
+                refund: $refund,
+                order: $order,
+                orderDetails: $orderDetails,
+                loyaltyPoint: $loyaltyPoint,
+                refundStatusService: $refundStatusService,
+                refundTransactionService: $refundTransactionService,
+            );
+        });
+
+        if (!$paid) {
+            return response()->json(['error' => translate('refunded_status_can_not_be_changed') . '.']);
+        }
+
+        event(new RefundEvent(status: $request['refund_status'], order: $order, refund: $refund, orderDetails: $orderDetails));
+
+        return response()->json(['message' => translate('refund_status_updated') . '.']);
+    }
+
+    /**
+     * Everything one refund decision does, inside the transaction that claimed it: the seller's earnings, the refund transaction, the
+     * marketplace reversal, the customer's wallet and points, and the rows that record the new status.
+     *
+     * @return bool false when there was nothing to settle, which only a status that is already `refunded` can be
+     */
+    private function settleRefund(
+        RefundStatusRequest $request,
+        object $refund,
+        object|array|null $order,
+        object $orderDetails,
+        string|float|int $loyaltyPoint,
+        RefundStatusService $refundStatusService,
+        RefundTransactionService $refundTransactionService,
+    ): bool {
         if ($request['refund_status'] == 'refunded' && $refund['status'] != 'refunded') {
             if ($order['seller_is'] == 'admin') {
                 $adminWallet = $this->adminWalletRepo->getFirstWhere(params: ['admin_id' => $order['seller_id']]);
@@ -159,24 +207,22 @@ class RefundController extends BaseController
             );
         }
 
-        if ($refund['status'] != 'refunded') {
-            $orderDetails = $this->orderDetailRepo->getFirstWhere(params: ['id' => $refund['order_details_id']]);
-            $dataArray = $refundStatusService->getRefundStatusProcessData(request: $request, orderDetails: $orderDetails, refund: $refund, loyaltyPoint: $loyaltyPoint, order: $order);
-
-            if ($request['refund_status'] == 'refunded' && $loyaltyPoint > 0 && getWebConfig(name: 'loyalty_point_status') == 1) {
-                $this->loyaltyPointTransactionRepo->addLoyaltyPointTransaction(userId: $refund['customer_id'], reference: $refund['order_id'], amount: $loyaltyPoint, transactionType: 'refund_order', origin: LedgerOrigin::refund(id: $refund['id'], by: LedgerActor::Admin));
-            }
-            $this->orderDetailRepo->update(id: $refund['order_details_id'], data: ['refund_request' => $dataArray['orderDetails']['refund_request']]);
-            $this->refundRequestRepo->update(id: $request['id'], data: $dataArray['refund']);
-            foreach ($dataArray['refundStatus'] as $status) {
-                $this->refundStatusRepos->add(data: $status);
-            }
-
-            event(new RefundEvent(status: $request['refund_status'], order: $order, refund: $refund, orderDetails: $orderDetails));
-            return response()->json(['message' => translate('refund_status_updated') . '.']);
-        } else {
-            return response()->json(['error' => translate('refunded_status_can_not_be_changed') . '.']);
+        if ($refund['status'] == 'refunded') {
+            return false;
         }
+
+        $dataArray = $refundStatusService->getRefundStatusProcessData(request: $request, orderDetails: $orderDetails, refund: $refund, loyaltyPoint: $loyaltyPoint, order: $order);
+
+        if ($request['refund_status'] == 'refunded' && $loyaltyPoint > 0 && getWebConfig(name: 'loyalty_point_status') == 1) {
+            $this->loyaltyPointTransactionRepo->addLoyaltyPointTransaction(userId: $refund['customer_id'], reference: $refund['order_id'], amount: $loyaltyPoint, transactionType: 'refund_order', origin: LedgerOrigin::refund(id: $refund['id'], by: LedgerActor::Admin));
+        }
+        $this->orderDetailRepo->update(id: $refund['order_details_id'], data: ['refund_request' => $dataArray['orderDetails']['refund_request']]);
+        $this->refundRequestRepo->update(id: $request['id'], data: $dataArray['refund']);
+        foreach ($dataArray['refundStatus'] as $status) {
+            $this->refundStatusRepos->add(data: $status);
+        }
+
+        return true;
     }
 
     public function exportList(Request $request, $status): BinaryFileResponse

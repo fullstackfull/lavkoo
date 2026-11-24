@@ -19,6 +19,7 @@ use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Models\OrderEditHistory;
 use App\Services\CustomerWalletService;
 use App\Services\DigitalProductFileService;
+use App\Services\Refund\RefundClaims;
 use App\Services\Storefront\LedgerOrigin;
 use App\Services\Wallet\WalletCreditRefused;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
@@ -246,7 +247,7 @@ class OrderController extends BaseController
         ));
     }
 
-    public function orderReturnAmountToCustomer(Request $request, CustomerWalletService $customerWalletService, OrderEditReturnAmountService $orderEditReturnAmountService): RedirectResponse
+    public function orderReturnAmountToCustomer(Request $request, CustomerWalletService $customerWalletService, OrderEditReturnAmountService $orderEditReturnAmountService, RefundClaims $claims): RedirectResponse
     {
         $validated = $request->validate([
             'order_id' => 'required|exists:orders,id',
@@ -261,6 +262,17 @@ class OrderController extends BaseController
                 return redirect()->back();
             }
             DB::beginTransaction();
+
+            // RF-03: the amount is claimed by zeroing it, which is what paying it does anyway, BEFORE the money moves. The comparison
+            // above is a read: two submissions of the same screen both passed it and both credited the customer, and the zeroing at the
+            // end of the handler came too late to stop the second. The claim is in this transaction, so a credit that fails gives the
+            // amount back and the operator can try again.
+            if (!$claims->claimReturnAmount(orderId: $validated['order_id'], amount: $order['edit_return_amount'])) {
+                DB::rollBack();
+                ToastMagic::error(translate('Return amount must be equal to return amount'));
+                return redirect()->back();
+            }
+
             if ($validated['order_return_payment_method'] == "wallet" && $order['is_guest'] != 1) {
                 if (getWebConfig(name: 'wallet_status') != 1) {
                     ToastMagic::error(translate('Amount_returned_currently_not_possible_to_wallet'));
@@ -286,9 +298,10 @@ class OrderController extends BaseController
             ];
 
             $this->orderEditHistoryRepo->updateWhere(params: ['id' => $order?->latestEditHistory['id']], data: $data);
+            // `edit_return_amount` is not written again here: the claim above has already zeroed it, and writing it a second time would
+            // clear an amount an operator had added in the meantime.
             $this->orderRepo->updateWhere(params: ['id' => $validated['order_id']], data: [
                 'order_amount' => ($order['order_amount'] - $order['edit_return_amount']),
-                'edit_return_amount' => 0
             ]);
             DB::commit();
 
@@ -633,6 +646,7 @@ class OrderController extends BaseController
         DeliveryManTransactionService $deliveryManTransactionService,
         DeliveryManWalletService      $deliveryManWalletService,
         OrderStatusHistoryService     $orderStatusHistoryService,
+        RefundClaims                  $claims,
     ): JsonResponse
     {
         $order = $this->orderRepo->getFirstWhere(params: ['id' => $request['id']], relations: ['customer', 'seller.shop', 'deliveryMan', 'latestEditHistory']);
@@ -696,16 +710,22 @@ class OrderController extends BaseController
             ]);
         }
         $this->orderRepo->updateStockOnOrderStatusChange($request['id'], $request['order_status']);
-        $this->orderRepo->update(id: $request['id'], data: ['order_status' => $request['order_status']]);
-        // A wallet-paid POS sale was debited at the counter; cancelling the order is
-        // the only path that returns that money. Reference-keyed so a repeated cancel
-        // can never credit twice.
-        if ($request['order_status'] == 'canceled'
+
+        // RF-04: the move to the status IS the claim on whatever that move pays for. A wallet-paid POS sale was debited at the counter and
+        // cancelling it is the only path that returns the money; the duplicate check used to be a READ of the ledger for the reference,
+        // which two cancels arriving together both pass before either writes, so both refunded. One conditional UPDATE decides it instead,
+        // and the refund is in the transaction that claimed: a refund that fails gives the cancellation back, so the operator's retry
+        // claims again and pays once, and nothing is left cancelled-but-unrefunded.
+        $refundsThisCancel = $request['order_status'] == 'canceled'
             && $order['order_type'] == 'POS'
             && $order['payment_method'] == 'wallet'
-            && $order['customer_id'] != 0
-            && !$this->walletTransactionRepo->getFirstWhere(params: ['reference' => 'pos_order_cancel_' . $order['id'], 'transaction_type' => 'order_refund'])
-        ) {
+            && $order['customer_id'] != 0;
+
+        DB::transaction(function () use ($request, $order, $claims, $refundsThisCancel): void {
+            if (!$claims->claimOrderStatus(orderId: $request['id'], status: $request['order_status']) || !$refundsThisCancel) {
+                return;
+            }
+
             CustomerWalletWriter::record(
                 customerId: $order['customer_id'],
                 amount: usdToDefaultCurrency(amount: $order['order_amount']),
@@ -713,7 +733,7 @@ class OrderController extends BaseController
                 reference: 'pos_order_cancel_' . $order['id'],
                 origin: LedgerOrigin::order(id: $order['id'], by: LedgerActor::Admin),
             );
-        }
+        });
         if ($request['order_status'] == 'delivered') {
             $this->orderRepo->update(id: $request['id'], data: ['payment_status' => 'paid', 'is_pause' => 0]);
             $this->orderDetailRepo->updateWhere(params: ['order_id' => $order['id']], data: ['delivery_status' => $request['order_status'], 'payment_status' => 'paid']);
@@ -736,9 +756,17 @@ class OrderController extends BaseController
         $loyaltyPointEachOrder = !is_null($loyaltyPointEachOrder) ? $loyaltyPointEachOrder : $loyaltyPointStatus;
         $orderDetailsRewards = $this->orderDetailsRewardsRepo->getFirstWhere(params: ['order_id' => $order['id'], 'reward_type' => 'loyalty_point']);
 
+        // IDEM-08: the reward is claimed before its points are credited, not marked delivered after. Two deliveries of one order both
+        // read `reward_delivered != 1` and both credited; the conditional UPDATE lets one of them through, and it is in the same
+        // transaction as the credit so a credit that fails gives the claim back.
         if ($orderDetailsRewards && $orderDetailsRewards['reward_delivered'] != 1 && $orderDetailsRewards['reward_amount'] > 0 && $loyaltyPointStatus == 1 && $loyaltyPointEachOrder == 1 && !$order['is_guest'] && $request['order_status'] == 'delivered') {
-            $this->loyaltyPointTransactionRepo->addLoyaltyPointTransaction(userId: $order['customer_id'], reference: $order['id'], amount: usdToDefaultCurrency(amount: $order['order_amount'] - $order['shipping_cost']), transactionType: 'order_place', origin: LedgerOrigin::order(id: $order['id']));
-            $this->orderDetailsRewardsRepo->update(id: $orderDetailsRewards['id'], data: ['reward_delivered' => 1]);
+            DB::transaction(function () use ($order, $orderDetailsRewards, $claims): void {
+                if (!$claims->claimRewardDelivered($orderDetailsRewards['id'])) {
+                    return;
+                }
+
+                $this->loyaltyPointTransactionRepo->addLoyaltyPointTransaction(userId: $order['customer_id'], reference: $order['id'], amount: usdToDefaultCurrency(amount: $order['order_amount'] - $order['shipping_cost']), transactionType: 'order_place', origin: LedgerOrigin::order(id: $order['id']));
+            });
         }
 
         OrderManager::generateReferBonusForFirstOrder(orderId: $order['id']);
