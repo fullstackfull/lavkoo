@@ -26,6 +26,13 @@ enum MarketBalanceRefusal: string
     /** The debit would take the account below zero. The floor is applied with the row locked, so two overlapping debits cannot both pass. */
     case Overdraft = 'overdraft';
 
+    /**
+     * The customer has no account in this market and the caller asked for one not to be opened. Only a shadow write asks that: it mirrors
+     * a movement into accounts the backfill has already opened, and opening one from inside the caller's own transaction is what
+     * `MarketAccountRepository::open` says must not be done.
+     */
+    case NoAccount = 'no_account';
+
     public function because(): string
     {
         return match ($this) {
@@ -35,6 +42,7 @@ enum MarketBalanceRefusal: string
             self::CurrencyUnknown => 'the currency this market sells in cannot be told',
             self::NotAnAmount => 'the amount is not a positive number',
             self::Overdraft => 'the debit would take the account below zero',
+            self::NoAccount => 'the customer has no account in this market and this caller may not open one',
         };
     }
 }

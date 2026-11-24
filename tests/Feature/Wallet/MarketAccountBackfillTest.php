@@ -249,6 +249,24 @@ class MarketAccountBackfillTest extends TestCase
         }
     }
 
+    /**
+     * The second half of the criterion: after a backfill the reconciliation still reports nothing unexplained, the per-market half of it
+     * included. The accounts now hold what the ledgers of that market net to, and what no market claims is counted rather than blamed on
+     * an account.
+     */
+    public function test_the_reconciliation_is_clean_after_a_backfill(): void
+    {
+        $this->withMarketAccountsOn();
+        $this->runMarketAccountMigration();
+        $this->aReconcilingCustomer(self::CUSTOMER, wallet: 150.5, points: 300);
+        DB::table('wallet_transactions')->update(['storefront_country' => 'SA']);
+        DB::table('loyalty_point_transactions')->update(['storefront_country' => 'SA']);
+
+        $this->assertSame(0, $this->backfill(['--write' => true]));
+
+        $this->assertSame(0, $this->artisan('wallet:reconcile', ['--skip-order-match' => true])->run(), 'the report has nothing unexplained');
+    }
+
     public function test_it_fills_only_the_ledger_it_was_asked_for(): void
     {
         $this->withMarketAccountsOn();

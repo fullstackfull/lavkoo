@@ -15,11 +15,14 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\RefundRequest;
 use App\Models\StockClearanceSetup;
+use App\Models\LoyaltyPointTransaction;
 use App\Models\StorefrontLegalDocument;
 use App\Models\VendorPayoutRequest;
+use App\Models\WalletTransaction;
 use App\Models\WithdrawalMethod;
 use App\Observers\AuditTrailObserver;
 use App\Observers\AutomationClaimObserver;
+use App\Observers\MarketShadowWriteObserver;
 use App\Observers\ProductPriceObserver;
 use App\Observers\ProductSearchIndexObserver;
 use App\Observers\SellerWebhookEventObserver;
@@ -66,6 +69,12 @@ class ObserverServiceProvider extends ServiceProvider
 
         // The business-page lists of the storefronts are built from their legal texts, so a text saved or deleted through the model clears them.
         StorefrontLegalDocument::observe(StorefrontLegalDocumentObserver::class);
+
+        // Mirrors every movement of a customer's balance into the account of the market it names, while the shadow key is on (E-07). It
+        // sits on the two ledgers rather than on the five wallet writers and the two points writers: the row carries the market and the
+        // amounts already, and a mirror at each writer would be seven copies of one rule. It cannot fail the write it follows.
+        WalletTransaction::observe(MarketShadowWriteObserver::class);
+        LoyaltyPointTransaction::observe(MarketShadowWriteObserver::class);
 
         // Who changed what a customer pays, which gateway takes the money, and who may sign in to
         // the panel. Same argument as the two above: a coupon is edited from the admin panel and

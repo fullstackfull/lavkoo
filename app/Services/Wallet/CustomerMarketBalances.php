@@ -112,6 +112,26 @@ final class CustomerMarketBalances
     }
 
     /**
+     * Moves an account that is already open by a signed amount, and never opens one: a credit of what is positive, a debit of what is
+     * negative, and `NoAccount` for a customer who has no account in that market.
+     *
+     * It exists for the shadow write (E-07), which runs inside the transaction of the writer it mirrors. Opening an account from inside
+     * that transaction is the one thing `MarketAccountRepository::open` says must not be done — both of InnoDB's orders deadlock — so a
+     * mirror writes only where the backfill has already been, and says so where it has not.
+     */
+    public function moveOpenAccount(MarketBalanceKind $kind, int|string $customerId, string $market, float $delta): MarketBalanceChange
+    {
+        return $this->change(
+            kind: $kind,
+            customerId: $customerId,
+            market: $market,
+            amount: abs($delta),
+            isDebit: $delta < 0,
+            openWhenMissing: false,
+        );
+    }
+
+    /**
      * The account row is locked from the moment its amount is read until the write commits, so two overlapping credits cannot both read the
      * same amount and the later one replace the earlier. The lock is on the account, not on the customer: two markets of one customer are
      * two independent accounts and never wait for each other.
@@ -128,7 +148,7 @@ final class CustomerMarketBalances
      * stamping the market's code on it would label the balance with a currency it is not in. There is no account to open then, so the write
      * is refused rather than guessed at.
      */
-    private function change(MarketBalanceKind $kind, int|string $customerId, string $market, float $amount, bool $isDebit): MarketBalanceChange
+    private function change(MarketBalanceKind $kind, int|string $customerId, string $market, float $amount, bool $isDebit, bool $openWhenMissing = true): MarketBalanceChange
     {
         $code = strtoupper(trim($market));
 
@@ -152,16 +172,25 @@ final class CustomerMarketBalances
 
         $accounts = $this->accounts($kind);
 
-        if (!$isDebit) {
+        if (!$openWhenMissing && $accounts->amountOf(customerId: $customerId, market: $code) === null) {
+            return MarketBalanceChange::refused(refusal: MarketBalanceRefusal::NoAccount, market: $code, currencyCode: $currencyCode);
+        }
+
+        if (!$isDebit && $openWhenMissing) {
             $accounts->open(customerId: $customerId, market: $code, currencyCode: $currencyCode, legalEntity: $this->legalEntity());
         }
 
-        return DB::transaction(function () use ($accounts, $customerId, $code, $currencyCode, $amount, $isDebit): MarketBalanceChange {
+        return DB::transaction(function () use ($accounts, $customerId, $code, $currencyCode, $amount, $isDebit, $openWhenMissing): MarketBalanceChange {
             $account = $accounts->locked(customerId: $customerId, market: $code);
 
-            // Only a debit arrives here with nothing to take: a credit has just opened the account, and nothing ever deletes one.
+            // A debit arrives here with nothing to take, and so does a caller that may not open one: a credit that may has just opened the
+            // account, and nothing ever deletes one.
             if ($account === null) {
-                return MarketBalanceChange::refused(refusal: MarketBalanceRefusal::Overdraft, market: $code, currencyCode: $currencyCode);
+                return MarketBalanceChange::refused(
+                    refusal: $openWhenMissing ? MarketBalanceRefusal::Overdraft : MarketBalanceRefusal::NoAccount,
+                    market: $code,
+                    currencyCode: $currencyCode,
+                );
             }
 
             if (strcasecmp($account->currencyCode, $currencyCode) !== 0) {

@@ -9,6 +9,7 @@ use App\Services\Fulfillment\Readiness\Compatibility\ReadOnlyProbe;
 use App\Services\Fulfillment\Readiness\Compatibility\ReadOnlyRunner;
 use App\Services\Wallet\Reconciliation\BalanceReconciler;
 use App\Services\Wallet\Reconciliation\LedgerSpec;
+use App\Services\Wallet\Reconciliation\MarketAccountReconciler;
 use App\Services\Wallet\Reconciliation\ReconciliationOptions;
 use Illuminate\Console\Command;
 
@@ -40,7 +41,7 @@ class WalletReconcileCommand extends Command
 
     protected $description = 'Read-only proof that wallet balances and loyalty points equal their ledgers, with every difference classed (A to F)';
 
-    public function handle(ReadOnlyRunner $runner, BalanceReconciler $reconciler): int
+    public function handle(ReadOnlyRunner $runner, BalanceReconciler $reconciler, MarketAccountReconciler $marketAccounts): int
     {
         $options = $this->reconciliationOptions();
         if (is_string($options)) {
@@ -56,7 +57,13 @@ class WalletReconcileCommand extends Command
                 expectDatabase: $this->option('expect-database') ?: null,
                 scope: 'Stored balances against the ledger rows behind them, by class, and wallet debits against the orders they paid. Counts and sums only. The comparison is made up to the highest ledger row that existed when the run began; it proves nothing about traffic that arrives later, and it does not say which side of a difference is right.',
             ),
-            static fn (ReadOnlyProbe $probe): array => $reconciler->checks(probe: $probe, options: $options),
+            static fn (ReadOnlyProbe $probe): array => [
+                ...$reconciler->checks(probe: $probe, options: $options),
+                // The per-market half of the same report (E-06, E-07): what each market's accounts hold against the ledger rows that name
+                // that market, and how much of each ledger names no market at all. It answers nothing while the market accounts are off,
+                // so the report says exactly what it said before them.
+                ...$marketAccounts->checks(probe: $probe, tolerance: (float) $options->tolerance),
+            ],
         );
 
         $this->option('json')
