@@ -92,12 +92,12 @@ return [
         'default_country' => env('GCC_DEFAULT_COUNTRY', 'SA'),
 
         'countries' => [
-            'SA' => ['path' => 'sa', 'currency' => 'SAR', 'active' => true],
-            'AE' => ['path' => 'ae', 'currency' => 'AED', 'active' => false],
-            'KW' => ['path' => 'kw', 'currency' => 'KWD', 'active' => false],
-            'QA' => ['path' => 'qa', 'currency' => 'QAR', 'active' => false],
-            'BH' => ['path' => 'bh', 'currency' => 'BHD', 'active' => false],
-            'OM' => ['path' => 'om', 'currency' => 'OMR', 'active' => false],
+            'SA' => ['path' => 'sa', 'currency' => 'SAR', 'active' => true, 'name' => 'Saudi Arabia'],
+            'AE' => ['path' => 'ae', 'currency' => 'AED', 'active' => false, 'name' => 'United Arab Emirates'],
+            'KW' => ['path' => 'kw', 'currency' => 'KWD', 'active' => false, 'name' => 'Kuwait'],
+            'QA' => ['path' => 'qa', 'currency' => 'QAR', 'active' => false, 'name' => 'Qatar'],
+            'BH' => ['path' => 'bh', 'currency' => 'BHD', 'active' => false, 'name' => 'Bahrain'],
+            'OM' => ['path' => 'om', 'currency' => 'OMR', 'active' => false, 'name' => 'Oman'],
         ],
 
         'paths' => [
@@ -134,6 +134,21 @@ return [
             // (App\Traits\PaymentGatewayTrait) and has two decimals. A currency with three (KWD, BHD, OMR) goes only to a gateway listed here, after
             // somebody has read what that gateway does with a third decimal. Empty until then: a payment in such a currency is refused before it starts.
             'verified_three_decimal_gateways' => [],
+        ],
+
+        // The mobile number a courier is given, per market (C-15). Fulfilment holds a shipment whose phone it cannot read rather than send a
+        // courier a number they cannot call, and the one rule it knew was the Saudi one -- which would hold every order of the other five
+        // markets, where a mobile is eight digits with no trunk zero. The dialling code and the national length are facts that do not move;
+        // WHICH prefixes inside that length are mobile does, and number portability means a prefix no longer names an operator, so a
+        // `pattern` is left empty until somebody reads the market's current numbering plan and fills it in. Saudi Arabia keeps the pattern
+        // that already shipped, so nothing about a Saudi shipment changes. An empty pattern accepts any number of the right length.
+        'phone' => [
+            'SA' => ['country_code' => '966', 'national_length' => 9, 'trunk_zero' => true, 'pattern' => '/^5\d{8}$/'],
+            'AE' => ['country_code' => '971', 'national_length' => 9, 'trunk_zero' => true, 'pattern' => null],
+            'KW' => ['country_code' => '965', 'national_length' => 8, 'trunk_zero' => false, 'pattern' => null],
+            'QA' => ['country_code' => '974', 'national_length' => 8, 'trunk_zero' => false, 'pattern' => null],
+            'BH' => ['country_code' => '973', 'national_length' => 8, 'trunk_zero' => false, 'pattern' => null],
+            'OM' => ['country_code' => '968', 'national_length' => 8, 'trunk_zero' => false, 'pattern' => null],
         ],
 
         'legal_entities' => [

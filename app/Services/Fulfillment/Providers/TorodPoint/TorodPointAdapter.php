@@ -37,7 +37,8 @@ use App\Services\Fulfillment\Support\ProviderConfig;
 use App\Services\Fulfillment\Support\ProviderCurrency;
 use App\Services\Fulfillment\Support\ProviderSyncRecorder;
 use App\Services\Fulfillment\Support\RequestFingerprint;
-use App\Services\Fulfillment\Support\SaudiPhone;
+use App\Services\Fulfillment\Support\DestinationCountry;
+use App\Services\Fulfillment\Support\MarketPhone;
 use App\Services\Fulfillment\Support\PiiRedactor;
 use App\Services\Fulfillment\Support\SecretRedactor;
 use Illuminate\Support\Arr;
@@ -230,7 +231,7 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
         if (AddressSnapshot::plain($address, 'address') === '') {
             return PreflightResult::hold(HoldReason::ADDRESS_INCOMPLETE);
         }
-        if (SaudiPhone::normalize(AddressSnapshot::plain($address, 'phone')) === null) {
+        if (MarketPhone::nationalNumberFor(DestinationCountry::ofOrder($fulfillment->order_id), AddressSnapshot::plain($address, 'phone')) === null) {
             return PreflightResult::hold(HoldReason::PHONE_INVALID);
         }
         $resolution = $this->cities->resolveForAddress($address);

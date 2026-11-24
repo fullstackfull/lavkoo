@@ -8,7 +8,8 @@ use App\Models\ProviderFulfillment;
 use App\Models\ProviderFulfillmentItem;
 use App\Services\Address\AddressSnapshot;
 use App\Services\Fulfillment\Support\ProviderConfig;
-use App\Services\Fulfillment\Support\SaudiPhone;
+use App\Services\Fulfillment\Support\DestinationCountry;
+use App\Services\Fulfillment\Support\MarketPhone;
 
 /**
  * Builds the body of POST /api/v1/orders exactly as M5AZN documents it:
@@ -31,6 +32,7 @@ class M5aznPayloadBuilder
     {
         $address = $this->address($order);
         $isCod = $fulfillment->payment_mode === PaymentMode::CashOnDelivery;
+        $country = DestinationCountry::ofOrder($order->id);
         [$first, $last] = $this->splitName(AddressSnapshot::plain($address, 'contact_person_name'));
 
         return [
@@ -42,15 +44,15 @@ class M5aznPayloadBuilder
             'platform_name' => $this->platformName($config),
             'shipping_info' => [
                 'address' => AddressSnapshot::streetLine($address),
-                'country' => $config->string('country_name', 'Saudi Arabia'),
-                'country_code' => $config->string('country_code', 'SA'),
+                'country' => DestinationCountry::nameOf($country) ?? $config->string('country_name', 'Saudi Arabia'),
+                'country_code' => $country ?? $config->string('country_code', 'SA'),
                 'city' => trim((string) AddressSnapshot::cityName($address, 'ar')),
             ],
             'customer_info' => [
                 'first_name' => $first,
                 'last_name' => $last,
                 'email' => AddressSnapshot::plain($address, 'email'),
-                'phone' => SaudiPhone::normalize(AddressSnapshot::plain($address, 'phone')) ?? '',
+                'phone' => MarketPhone::nationalNumberFor($country, AddressSnapshot::plain($address, 'phone')) ?? '',
             ],
             'items' => $fulfillment->items->map(fn (ProviderFulfillmentItem $item): array => [
                 'id' => (int) $item->order_detail_id,

@@ -1,4 +1,4 @@
-# C-15: the third decimal of the dinar and the rial, carried end to end
+# C-15: the third decimal of the dinar and the rial, and the country a parcel is going to
 
 **Status:** on `gcc/development`. Saudi behaviour is unchanged, pinned by tests in the same file as the fix. It does **not** answer which
 currency a provider is paid in for a non-Saudi order — that is the owner's, and it is written up with the impact of each option in
@@ -75,3 +75,61 @@ the middle of opening a market.
 
 **Teeth.** Putting the hundredths back in the allocator fails 5 of the 12; putting `decimal:2` back on one column fails 1. The whole
 fulfilment suite (1,826 tests) is green on SQLite and the fulfilment, payments and operational-cost suites on MariaDB 11.4.
+
+
+---
+
+# The country and the phone a provider is sent
+
+**Status:** on `gcc/development`, in the commit that follows the money one. Saudi behaviour unchanged, pinned in the two adapter test files
+beside the Saudi cases.
+
+## The gap
+
+Fulfilment holds a shipment whose phone number it cannot read — the right answer to a number a courier could not call. It knew **one** rule,
+a Saudi mobile (`SaudiPhone::normalize`: strip 966, expect `5` and nine digits, write `05XXXXXXXX`), and the M5AZN payload sent the
+**account's** country as the destination. So the first Kuwaiti order would have been held for an invalid phone — an eight-digit Kuwaiti
+mobile cannot match a Saudi pattern — and had it gone out, it would have gone out labelled Saudi Arabia.
+
+## How it works
+
+| | Before | Now |
+|---|---|---|
+| the destination | the account's `country_code`, or `SA` | the market the order records (`DestinationCountry::ofOrder`), falling back to the account's setting |
+| the phone | `SaudiPhone::normalize` | `MarketPhone::nationalNumberFor($country, …)`, the rule of that market |
+| the international form | `'00966' . substr($local, 1)` | `MarketPhone::internationalForm`, the market's dialling code and its own trunk-zero rule |
+| the country in words | the account's `country_name` | the market's name from `gcc.storefronts.countries`, falling back to the account's |
+
+**The destination is the order's market, not the address's `country` field.** That field is free text a customer or an importer filled in;
+the market is a code the platform stamped on the order inside the checkout transaction (`OrderStorefrontSnapshot`). For six markets each
+serving its own country they are the same thing, and only one of them is reliable.
+
+**What is checked in a number, and what is not.** The dialling code and the length of the national number are facts that do not move:
+eight digits in Kuwait, Bahrain, Qatar and Oman, nine beginning with a five in Saudi Arabia and the Emirates. Which **prefixes** inside that
+length are mobile does move — regulators allocate new ranges, and number portability means a prefix no longer names an operator — so the
+prefix pattern is **configuration an operator can correct** (`gcc.storefronts.phone.<CC>.pattern`), empty for the five new markets and
+filled for Saudi Arabia with the pattern that already shipped. A guessed prefix list would hold real orders, which is the one failure mode
+worth avoiding here: a number that is refused is a shipment that does not go out.
+
+## What it does not change
+
+- **Saudi Arabia.** `MarketPhone::nationalNumberFor('SA', …)` and `SaudiPhone::normalize(…)` are asserted to answer the same thing for
+  eighteen spellings, including every form the old class was ever given. Torod's Saudi local and international forms, and M5AZN's Saudi
+  country, name and phone, are pinned in their own adapter tests.
+- **Which city a parcel goes to.** A market whose cities are not mapped to the provider's is held for that reason, which is the address
+  unit's work and a separate criterion. The Kuwaiti test maps a Kuwaiti city so that the phone is what is being measured.
+- **The currency.** Still the configuration's, still the owner's decision.
+
+## What is proved
+
+- `tests/Unit/Fulfillment/MarketPhoneTest.php` (40): a number of each of the six markets in its own national form; numbers that are not of
+  their market refused; a market the configuration does not know refused; no country named read as the default market; the eighteen Saudi
+  spellings identical to the class that shipped; the dialling codes; and an operator's configured pattern enforced.
+- `tests/Feature/Fulfillment/M5aznAdapterTest.php`: a Kuwaiti order sent `Kuwait`, `KW` and `51234567`; a Kuwaiti phone not held; a Saudi
+  phone on a Kuwaiti order held.
+- `tests/Feature/Fulfillment/TorodAdapterTest.php`: a Kuwaiti order sent `0096551234567` and its mapped Kuwaiti city; a Saudi order still
+  sent `00966551234567`.
+
+**Teeth.** Making every market write a trunk zero fails 7 tests; sending the account's country instead of the order's fails the M5AZN
+destination case. The assertion that catches it names the orders request itself, because a condition that answers true for the login
+request would pass whatever the payload said.

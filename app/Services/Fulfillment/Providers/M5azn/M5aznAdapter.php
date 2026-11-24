@@ -30,7 +30,8 @@ use App\Services\Fulfillment\Support\HttpResult;
 use App\Services\Fulfillment\Support\ProviderConfig;
 use App\Services\Fulfillment\Support\ProviderSyncRecorder;
 use App\Services\Fulfillment\Support\RequestFingerprint;
-use App\Services\Fulfillment\Support\SaudiPhone;
+use App\Services\Fulfillment\Support\DestinationCountry;
+use App\Services\Fulfillment\Support\MarketPhone;
 use App\Services\Fulfillment\Support\PiiRedactor;
 use App\Services\Fulfillment\Support\SecretRedactor;
 use App\Services\Fulfillment\Support\StoredFieldMap;
@@ -189,7 +190,7 @@ class M5aznAdapter implements ProviderAdapter, ReconcilesSubmissions
         if (trim((string) ($address['address'] ?? '')) === '' || trim((string) ($address['city'] ?? '')) === '') {
             return PreflightResult::hold(HoldReason::ADDRESS_INCOMPLETE);
         }
-        if (SaudiPhone::normalize((string) ($address['phone'] ?? '')) === null) {
+        if (MarketPhone::nationalNumberFor(DestinationCountry::ofOrder($fulfillment->order_id), (string) ($address['phone'] ?? '')) === null) {
             return PreflightResult::hold(HoldReason::PHONE_INVALID);
         }
 

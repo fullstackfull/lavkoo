@@ -171,6 +171,66 @@ class M5aznAdapterTest extends M5aznTestCase
         $this->assertSame('Bearer', explode(' ', (string) Http::recorded()->last()[0]->header('Authorization')[0])[0]);
     }
 
+    /**
+     * C-15: the country and the phone a provider is sent follow the market the order was sold in, not the account's own country.
+     *
+     * The Saudi case right above is what must not move; this is the same assertion for a Kuwaiti order. Before this, a Kuwaiti order
+     * would have been sent the account's `country_code` -- Saudi Arabia -- and its phone would have been dropped entirely, because an
+     * eight-digit Kuwaiti mobile cannot match a Saudi pattern and the preflight would have held the shipment first.
+     */
+    public function test_a_kuwaiti_order_is_sent_its_own_country_and_its_phone_in_the_kuwaiti_form(): void
+    {
+        $this->ordersCanRecordTheirMarket();
+        $fulfillment = $this->fulfillment($this->kuwaitiOrder());
+        Http::fake([
+            self::BASE . '/api/v1/auth/login' => $this->loginResponse(),
+            self::BASE . '/api/v1/orders' => Http::response(['status' => 200, 'success' => true, 'data' => ['id' => 777001]]),
+        ]);
+
+        $this->submitAsClaimed($this->adapter(), $fulfillment);
+
+        // The condition names the orders request itself rather than letting any other request satisfy it: an assertion that answers true
+        // for the login request would pass however the payload was built.
+        Http::assertSent(function (Request $request): bool {
+            $body = $request->data();
+
+            return $request->url() === self::BASE . '/api/v1/orders'
+                && $body['shipping_info']['country'] === 'Kuwait'
+                && $body['shipping_info']['country_code'] === 'KW'
+                && $body['customer_info']['phone'] === '51234567';
+        });
+    }
+
+    /** And the shipment is not held: an eight-digit Kuwaiti mobile is a valid number of its own country. */
+    public function test_a_kuwaiti_phone_is_not_held_as_an_invalid_saudi_one(): void
+    {
+        $this->ordersCanRecordTheirMarket();
+
+        $this->assertNull($this->adapter()->preflight($this->fulfillment($this->kuwaitiOrder()))->holdReason);
+    }
+
+    /** A Saudi phone on a Kuwaiti order is held, which is the same rule read the other way round. */
+    public function test_a_saudi_phone_on_a_kuwaiti_order_is_held(): void
+    {
+        $this->ordersCanRecordTheirMarket();
+        $order = $this->kuwaitiOrder();
+        $order['shipping_address_data'] = json_encode(['contact_person_name' => 'Ali Al-Sabah', 'phone' => '0551234567', 'address' => 'Salem Al Mubarak St 4', 'city' => 'الكويت', 'country' => 'KW', 'email' => 'ali@example.test']);
+
+        $this->assertSame(HoldReason::PHONE_INVALID, $this->adapter()->preflight($this->fulfillment($order))->holdReason);
+    }
+
+    /** @return array<string, mixed> an order of the Kuwaiti market, with a Kuwaiti mobile */
+    private function kuwaitiOrder(): array
+    {
+        return [
+            'storefront_country' => 'KW',
+            'shipping_address_data' => json_encode([
+                'contact_person_name' => 'Ali Al-Sabah', 'phone' => '+965 5123 4567', 'address' => 'Salem Al Mubarak St 4',
+                'city' => 'الكويت', 'country' => 'KW', 'email' => 'ali@example.test',
+            ]),
+        ];
+    }
+
     public function test_a_cod_order_sends_only_the_amount_this_provider_collects(): void
     {
         $fulfillment = $this->fulfillment(['payment_method' => 'cash_on_delivery', 'payment_status' => 'unpaid', 'order_amount' => 60]);
