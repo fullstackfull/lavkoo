@@ -5,6 +5,7 @@ namespace App\Http\Controllers\RestAPI\v1;
 use App\Http\Controllers\Controller;
 use App\Models\AddFundBonusCategories;
 use App\Models\WalletTransaction;
+use App\Services\Wallet\MarketBalanceReader;
 use App\Utils\Helpers;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -28,7 +29,9 @@ class UserWalletController extends Controller
 
         if ($walletStatus == 1) {
             $user = $request->user();
-            $totalWalletBalance = $user->wallet_balance;
+            // The balance of the market being served, which the app names with its storefront header; the one balance the customer's row
+            // holds for a market that has not been switched over, and for a request that names none (E-01).
+            $totalWalletBalance = app(MarketBalanceReader::class)->wallet($user);
             $types = json_decode($request->get('transaction_types', ''), true) ?? [];
             $transactionTypes = $this->getSelectTransactionTypes(types: $types);
             if (request()->has('start_date') && request()->has('end_date') && !checkDateFormatInMDY($request['start_date']) && !checkDateFormatInMDY($request['end_date'])) {

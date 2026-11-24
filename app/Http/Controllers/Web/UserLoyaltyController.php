@@ -18,6 +18,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
 use App\Services\Customer\CustomerWalletWriter;
 use App\Services\Customer\WalletPosting;
+use App\Services\Wallet\MarketBalanceReader;
 
 class UserLoyaltyController extends Controller
 {
@@ -32,7 +33,9 @@ class UserLoyaltyController extends Controller
         $loyaltyPointStatus = getWebConfig(name: 'loyalty_point_status');
         if ($loyaltyPointStatus == 1) {
             $walletStatus = getWebConfig(name: 'wallet_status');
-            $totalLoyaltyPoint = auth('customer')->user()->loyalty_point;
+            // The points of the market being served: its own account's once that market has been switched over, and the one balance the
+            // customer's row holds for every other market and for every request no storefront serves (E-01).
+            $totalLoyaltyPoint = app(MarketBalanceReader::class)->points(auth('customer')->user());
             $loyaltyPointMinimumPoint = getWebConfig(name: 'loyalty_point_minimum_point');
             $loyaltyPointExchangeRate = getWebConfig(name: 'loyalty_point_exchange_rate');
             $transactionTypes = $this->getSelectTransactionTypes(types: $request->get('types', []));
@@ -117,7 +120,9 @@ class UserLoyaltyController extends Controller
         }
 
         $user = auth('customer')->user();
-        if ( $request['point'] > $user['loyalty_point'] ) {
+        // Judged against the points of the market this conversion is being made in, so a customer cannot convert points they hold in
+        // another market (E-01).
+        if ( $request['point'] > app(MarketBalanceReader::class)->points($user) ) {
             Toastr::warning(translate('conversion_is_limited_to_current_points_only'));
             return back();
         }

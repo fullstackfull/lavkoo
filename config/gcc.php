@@ -188,6 +188,17 @@ return [
             // following. Run wallet:backfill-market-accounts before turning this on: a mirror never opens an account, because opening one
             // inside the writer's own transaction is what deadlocks (see MarketAccountRepository::open).
             'shadow_writes' => filter_var(env('GCC_MARKET_WALLETS_SHADOW', false), FILTER_VALIDATE_BOOLEAN),
+
+            // The third stage (E-01, GCC-15 slice 3), and the first one that changes an answer: the markets whose OWN ACCOUNT is the
+            // balance they read. Empty by default, which is the platform of today -- every market reads the one `users` column, whatever
+            // the two switches above are set to. A market listed here answers its account's balance where a customer is shown their
+            // wallet or their points, and a debit of that market is judged against it, so a customer with money in Riyadh and none in
+            // Kuwait City cannot pay with a Kuwaiti wallet. Nothing is listed until the backfill has been rehearsed on a disposable copy
+            // of the real database and the owner has approved it (charter section 4): a market whose account was never filled would read
+            // as a customer with nothing. The writes are unchanged -- every movement still goes to the `users` column and is mirrored
+            // into its market's account, and the two legitimately part company once a second market holds money, which is what the
+            // mirror's divergence line is for. Country codes, for example ['KW'].
+            'answers_for' => [],
         ],
 
         'payment_methods' => [

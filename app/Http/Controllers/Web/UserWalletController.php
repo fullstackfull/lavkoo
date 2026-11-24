@@ -9,9 +9,9 @@ use Illuminate\Http\Request;
 use App\Models\WalletTransaction;
 use App\Utils\Helpers;
 use App\Models\AddFundBonusCategories;
+use App\Services\Wallet\MarketBalanceReader;
 use Brian2694\Toastr\Facades\Toastr;
 use Carbon\Carbon;
-
 use function App\Utils\payment_gateways;
 
 class UserWalletController extends Controller
@@ -22,7 +22,9 @@ class UserWalletController extends Controller
         $walletStatus = getWebConfig(name: 'wallet_status');
         if ($walletStatus == 1) {
             $transactionTypes = $this->getSelectTransactionTypes(types: $request->get('types', []));
-            $totalWalletBalance = auth('customer')->user()->wallet_balance;
+            // The balance of the market being served: its own account's once that market has been switched over, and the one balance the
+            // customer's row holds for every other market and for every request no storefront serves (E-01).
+            $totalWalletBalance = app(MarketBalanceReader::class)->wallet(auth('customer')->user());
 
             $walletTransactionList = $this->getWalletTransactionList(request: $request, types: $transactionTypes);
             $paymentGatewayList = payment_gateways();
