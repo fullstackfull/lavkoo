@@ -41,6 +41,7 @@ Two switches above it still hold: with `market_accounts.enabled` off, or the mas
 | both points-to-wallet conversions | judged against the points of the market the conversion is made in |
 | `CustomerWalletWriter`, inside the balance lock | a debit is judged against the balance of the market being served |
 | all four statement queries (web and REST, wallet and loyalty) | the movements the market being served records (E-04) |
+| the seller app's till, through `PosCustomerResource` | the customer's wallet in the market the seller works in, and seven named fields instead of every column (E-04) |
 
 **Did not move — every write.** The one `users` column still takes every movement and the mirror still copies it into the market's
 account. Once a second market holds money the two legitimately part company, which is what the mirror's divergence line is for. This
@@ -84,4 +85,5 @@ contract (13) are green, so no surface that reads a balance moved while the list
   storefront, or per legal entity where two storefronts share one). The `sharing_key` column is already there for it.
 - **The writes.** They stay as they are until a market has been read from its account long enough to trust, and the reconciler reports
   zero unexplained for it.
-- **The seller app's POS customer lookup**, which still reads the one balance (E-04).
+- **What a till may be told about a customer.** It now sends the seven fields the app reads, which is strictly less than the every-column
+  answer it sent before; whether a seller should be told a customer's e-mail address at all is the owner's decision (E-04).

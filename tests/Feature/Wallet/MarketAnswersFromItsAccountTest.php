@@ -3,6 +3,7 @@
 namespace Tests\Feature\Wallet;
 
 use App\Enums\Wallet\MarketBalanceKind;
+use App\Http\Resources\Seller\PosCustomerResource;
 use App\Models\User;
 use App\Models\WalletTransaction;
 use App\Services\Storefront\LedgerAttribution;
@@ -15,6 +16,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsMarketAccountSchema;
+use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
 
 /**
@@ -37,6 +39,7 @@ use Tests\TestCase;
 class MarketAnswersFromItsAccountTest extends TestCase
 {
     use BuildsMarketAccountSchema;
+    use RestoresLanguageFiles;
 
     private const CUSTOMER = 1;
 
@@ -51,6 +54,8 @@ class MarketAnswersFromItsAccountTest extends TestCase
     {
         parent::setUp();
 
+        // translate() writes a missing key into resources/lang, which a test must never leave behind.
+        $this->rememberLanguageFiles();
         $this->buildMarketAccountSchema();
         $this->runMarketAccountMigration();
         $this->withMarketAccountsOn();
@@ -63,6 +68,13 @@ class MarketAnswersFromItsAccountTest extends TestCase
             $table->string('payment_method', 191)->nullable();
         });
         $this->reader = app(MarketBalanceReader::class);
+    }
+
+    protected function tearDown(): void
+    {
+        $this->restoreLanguageFiles();
+
+        parent::tearDown();
     }
 
     private function customer(): User
@@ -175,6 +187,30 @@ class MarketAnswersFromItsAccountTest extends TestCase
         $this->assertFalse($this->reader->answersFromItsAccount(), 'nothing is being served in a console command, a queue or a panel');
         $this->assertSame(self::IN_THE_USERS_ROW, (float) $this->reader->wallet($this->customer()));
         $this->assertSame(self::POINTS_IN_THE_USERS_ROW, $this->reader->points($this->customer()));
+    }
+
+    /**
+     * The seller app's till reads the same switch: a customer's wallet in the market the seller is working in (E-04).
+     *
+     * The resource is asked here rather than the endpoint, because the endpoint's own world is the seller API's and this one is the market
+     * accounts'. What the endpoint answers -- seven named fields and nothing of the customer's own business -- is pinned where it lives,
+     * in SellerApiPosCustomerFieldsTest.
+     */
+    public function test_the_tills_customer_lookup_answers_the_wallet_of_the_market_being_served(): void
+    {
+        $this->theAccountOf('KW', wallet: 12.345);
+        $this->marketsAnsweringFromTheirAccount('KW');
+
+        $inKuwait = $this->servedBy('KW', fn (): array => PosCustomerResource::make($this->customer())->resolve());
+        $inSaudiArabia = $this->servedBy('SA', fn (): array => PosCustomerResource::make($this->customer())->resolve());
+
+        $this->assertSame(12.345, (float) $inKuwait['wallet_balance']);
+        $this->assertSame(self::IN_THE_USERS_ROW, (float) $inSaudiArabia['wallet_balance']);
+        $this->assertSame(
+            ['id', 'f_name', 'l_name', 'phone', 'image', 'email', 'wallet_balance'],
+            array_keys($inKuwait),
+            'and only the fields the app reads, whichever market it is',
+        );
     }
 
     // ---- the statement behind the balance ------------------------------------------------------------------------------------

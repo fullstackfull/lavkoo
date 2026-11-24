@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\RestAPI\v3\seller;
 
+use App\Http\Resources\Seller\PosCustomerResource;
 use App\Contracts\Repositories\CustomerRepositoryInterface;
 use App\Contracts\Repositories\DigitalProductVariationRepositoryInterface;
 use App\Contracts\Repositories\PasswordResetRepositoryInterface;
@@ -186,14 +187,16 @@ class POSController extends Controller
             })
             ->whereNotNull(['f_name', 'l_name', 'phone'])
             ->take(10)
-            ->get()
-            ->toArray();
+            ->get();
 
         if ($request->type != 'all') {
-            array_shift($customers);
+            $customers->shift();
         }
+
+        // Seven named fields instead of every column of a customer the model does not hide, and the wallet of the market the seller works
+        // in (E-04). The app reads exactly these seven, so nothing it uses is taken away.
         $data = array(
-            'customers' => $customers
+            'customers' => PosCustomerResource::collection($customers)->resolve()
         );
 
         return response()->json($data, 200);
