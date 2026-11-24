@@ -9,6 +9,7 @@ use App\Models\Order;
 use App\Models\ProviderFulfillmentItem;
 use App\Services\Fulfillment\Data\MoneyAssessment;
 use App\Services\Fulfillment\Support\ProviderCurrency;
+use App\Services\Fulfillment\Support\WhatACourierIsPaidIn;
 use Illuminate\Support\Collection;
 
 /**
@@ -34,7 +35,9 @@ class FulfillmentMoney
     public function assess(Order $order, ProviderCode $provider, Collection $shipmentItems, Collection $allItems): MoneyAssessment
     {
         $plan = $this->codPolicy->plan($order, $allItems);
-        $blockedReason = $plan->blockedReason ?? ($this->hasUnconvertedLine($shipmentItems) ? HoldReason::CURRENCY_UNCONVERTIBLE : null);
+        $blockedReason = $plan->blockedReason
+            ?? ($this->hasUnconvertedLine($shipmentItems) ? HoldReason::CURRENCY_UNCONVERTIBLE : null)
+            ?? $this->holdIfTheStampWouldLie($order, $provider);
         $cod = $plan->codByProvider[$provider->value] ?? 0.0;
         $decimals = $this->currency->decimals();
         $itemsTotal = round((float) $shipmentItems->sum('line_total'), $decimals);
@@ -49,6 +52,22 @@ class FulfillmentMoney
             totalAmount: $total ?? $itemsTotal,
             decimals: $decimals,
         );
+    }
+
+    /**
+     * Every figure in this assessment is in the currency {@see ProviderCurrency} converted into, which is the configured one. If the
+     * shipment would be STAMPED with another currency -- because the owner has chosen one of the open options in
+     * {@see WhatACourierIsPaidIn} and the converter does not follow it yet -- then the label and the figures disagree, and the figure
+     * is the cash a courier collects from a customer. Hold it. Choosing an option therefore stops a shipment it would mislabel rather
+     * than sending it mispriced, and the hold releases itself the day the converter answers in the same currency.
+     *
+     * With the default rule in force the two can never differ and this never fires.
+     */
+    private function holdIfTheStampWouldLie(Order $order, ProviderCode $provider): ?string
+    {
+        return WhatACourierIsPaidIn::forOrder($order, $provider->value) === $this->currency->code()
+            ? null
+            : HoldReason::CURRENCY_UNCONVERTIBLE;
     }
 
     /**

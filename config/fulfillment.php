@@ -59,6 +59,23 @@ return [
     'currency' => env('FULFILLMENT_CURRENCY', 'SAR'),
 
     /*
+    | WHICH currency a courier is paid in for an order (C-15, finding E11-F02), which is not the same question as how many decimals
+    | that currency has -- that part is finished and carried end to end. Today every shipment is stamped with the currency
+    | `currency` above names, whatever market the order was sold in, so a Kuwaiti order would be sent a riyal figure and the dinars
+    | the courier collected would be reconciled against riyals. The cost of each answer falls on a courier invoice, so it is the
+    | owner's decision: docs/gcc/OPEN-FINANCIAL-DECISIONS.md section 2.
+    |
+    |   'as_configured_today'    the default: one currency for every provider, exactly as the platform runs now
+    |   'the_orders_market'      option B: the currency the customer was charged in, from the order's storefront snapshot
+    |   'the_provider_account'   option C: the currency the provider account settles in, named per provider below
+    |
+    | Converting into the chosen currency is a separate step that is NOT done yet, so while anything but the default is in force a
+    | shipment whose stamp differs from the currency its figures were converted into is held, not sent: see WhatACourierIsPaidIn.
+    | An unrecognised value is read as the default.
+    */
+    'settlement_currency' => env('FULFILLMENT_SETTLEMENT_CURRENCY', App\Services\Fulfillment\Support\WhatACourierIsPaidIn::AS_CONFIGURED_TODAY),
+
+    /*
     | Codes the store's own currency table may use for a currency that providers know by its ISO code. This store's riyal is
     | stored as "KSA" (the country, not the currency): it is the same money as SAR, so an amount in it needs no conversion, and a
     | provider is always sent the ISO code. The map is read in one direction only (store spelling => ISO code); it never changes a

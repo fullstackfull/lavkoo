@@ -8,7 +8,7 @@ use App\Enums\Fulfillment\ProviderCode;
 use App\Models\Order;
 use App\Models\ProviderFulfillment;
 use App\Models\ProviderFulfillmentItem;
-use App\Services\Fulfillment\Support\CurrencyCode;
+use App\Services\Fulfillment\Support\WhatACourierIsPaidIn;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -150,7 +150,7 @@ class FulfillmentRouter
                     'idempotency_key' => hash('sha256', implode('|', ['v1', $order->id, $provider->value, $generation, implode(',', $itemIds)])),
                     'status' => $money->blockedReason === null ? FulfillmentStatus::Pending : FulfillmentStatus::Held,
                     'hold_reason' => $money->blockedReason,
-                    'currency' => CurrencyCode::provider(),
+                    'currency' => WhatACourierIsPaidIn::forOrder($order, $provider->value),
                     'created_by_type' => 'system',
                 ] + $money->columns());
             });
