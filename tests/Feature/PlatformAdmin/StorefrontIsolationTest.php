@@ -69,11 +69,24 @@ class StorefrontIsolationTest extends PlatformAdminTestCase
         }
     }
 
-    public function test_the_choice_of_a_storefront_would_narrow_a_product_query_on_this_path_so_the_answers_do_not_use_one(): void
+    /**
+     * The premise of this suite, now true twice over.
+     *
+     * It used to read the other way round: a storefront choice DID narrow a product query on this path, and the suite's point was that the
+     * API's answers never use one. That hazard is gone -- `api/platform-admin` is one of the cross-country paths, so nothing narrows it
+     * whatever a header, a cookie or a session says (A1-11). The control is kept and inverted, with the storefront path beside it, so the
+     * assertion is about the PATH and not about the switches being off: the same header that narrows nothing here narrows a storefront's own
+     * API.
+     */
+    public function test_a_storefront_choice_narrows_nothing_on_this_path_and_still_narrows_a_storefronts_own(): void
     {
         $this->serveAsHttpRequest('/api/platform-admin/v1/overview', ['X-Storefront' => 'AE']);
 
-        $this->assertSame('AE', StorefrontCatalog::country(), 'the control: a query through the product model would be narrowed to Emirati products on this very path');
+        $this->assertNull(StorefrontCatalog::country(), 'the platform admin sees every market: a query through the product model is narrowed to none');
+
+        $this->serveAsHttpRequest('/api/v1/products/latest', ['X-Storefront' => 'AE']);
+
+        $this->assertSame('AE', StorefrontCatalog::country(), 'the control: the same header still narrows a storefront\'s own API, so the path is what decides');
     }
 
     public function test_two_principals_with_different_scopes_never_see_each_others_data(): void

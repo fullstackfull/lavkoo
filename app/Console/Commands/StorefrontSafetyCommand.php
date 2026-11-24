@@ -14,7 +14,10 @@ use Illuminate\Console\Command;
  * the default storefront's own. The switch is therefore not a way to close a market once a second one is live; the country's own settings and
  * its lifecycle are.
  *
- * Read-only, and it exits 1 while the platform is in that state, so a deploy step can gate on it.
+ * Read-only, and it exits 1 while the platform is in that state, so a deploy step can gate on it. It exits 1 as well when the question
+ * cannot be answered -- a table that cannot be read is not an all-clear -- and says which table and why, because the two call for different
+ * things: rows of another market mean "turn the switch back on and close the country instead", an unreadable table means "find out why
+ * before you open anything".
  */
 class StorefrontSafetyCommand extends Command
 {
@@ -28,6 +31,7 @@ class StorefrontSafetyCommand extends Command
             'legacy_mode' => $safety->isLegacyMode(),
             'default_market' => StorefrontResolver::fromConfig()->defaultCountry(),
             'other_markets_hold' => $safety->rowsOfOtherMarkets(),
+            'tables_that_could_not_be_read' => $safety->tablesThatCouldNotBeRead(),
             'refusal' => $safety->refusalOfAnActionThatOpensAMarket(),
         ];
 
@@ -43,6 +47,19 @@ class StorefrontSafetyCommand extends Command
     /** @param array<string, mixed> $report */
     private function print(array $report): int
     {
+        if ($report['legacy_mode'] && $report['tables_that_could_not_be_read'] !== []) {
+            $this->error('The question could not be answered, so this is not an all-clear.');
+            $this->line((string) $report['refusal']);
+            $this->newLine();
+            $this->table(['table', 'why it could not be read'], array_map(
+                static fn (string $table, string $because): array => [$table, $because],
+                array_keys($report['tables_that_could_not_be_read']),
+                array_values($report['tables_that_could_not_be_read']),
+            ));
+
+            return self::FAILURE;
+        }
+
         if ($report['refusal'] !== null) {
             $this->error('The platform is in a state it must not be operated in.');
             $this->line($report['refusal']);
@@ -50,6 +67,17 @@ class StorefrontSafetyCommand extends Command
             $this->table(['market', 'table', 'rows'], $this->rows($report['other_markets_hold']));
 
             return self::FAILURE;
+        }
+
+        if ($report['tables_that_could_not_be_read'] !== []) {
+            // Worth saying, and not a reason to stop: with the switch on there is no state to be unsure about, because every market is
+            // served as itself whatever any table holds.
+            $this->warn('Some tables could not be read. The switch is on, so there is no state to be unsure about, but this is worth looking at:');
+            $this->table(['table', 'why it could not be read'], array_map(
+                static fn (string $table, string $because): array => [$table, $because],
+                array_keys($report['tables_that_could_not_be_read']),
+                array_values($report['tables_that_could_not_be_read']),
+            ));
         }
 
         $this->info('Nothing to report: the platform is not in a state it must not be operated in.');
