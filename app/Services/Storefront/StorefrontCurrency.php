@@ -106,9 +106,6 @@ final class StorefrontCurrency
 
         return match ($setting) {
             'system_default_currency', 'currency_model', 'decimal_point_settings' => $this->currencySettingOf(setting: $setting, currency: $storefront['currency']),
-            'system_default_currency' => (int) $storefront['currency']->id,
-            'currency_model' => self::SINGLE_CURRENCY_MODEL,
-            'decimal_point_settings' => $this->decimalsOf($storefront['currency']->code),
             'minimum_order_amount', 'free_delivery_over_amount' => $this->amountOf(country: $storefront['country'], setting: $setting, currencyCode: $storefront['currency']->code),
             default => self::NEUTRAL_AMOUNT,
         };
