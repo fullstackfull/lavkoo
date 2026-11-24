@@ -57,6 +57,14 @@ of the label, the website path is the one that does not do what the setting says
 The divergence is pinned by tests, so whichever answer is given, the change is one line in each formula and the tests fail loudly if a
 third formula appears. `App\Services\Loyalty\PointsToWalletConversion` is the one place both paths already go through for the debit side.
 
+### One more thing this decision holds up
+
+`Convert::default()` rounds every amount it converts to **two** decimals, in both currency models. Both loyalty formulas read it
+(`($points / $rate) * Convert::default(1)`), so correcting that rounding to the decimals of the currency would change what points are worth
+— which is this decision. On today's platform the default currency is the riyal and the rounding loses nothing; on an installation whose
+default currency has three decimals it loses a tenth of a fils per unit. The commission, which read the same two decimals from a different
+function, was separable and is fixed.
+
 ---
 
 ## 2. Which currency a courier is paid in for a non-Saudi order (C-15, finding E11-F02)
