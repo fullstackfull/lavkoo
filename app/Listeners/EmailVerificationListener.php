@@ -6,6 +6,7 @@ use App\Events\EmailVerificationEvent;
 use App\Traits\EmailTemplateTrait;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use App\Listeners\Concerns\QueuedMailDelivery;
+use App\Listeners\Concerns\RunsInTheDispatchingStorefront;
 
 
 /**
@@ -17,7 +18,7 @@ use App\Listeners\Concerns\QueuedMailDelivery;
  */
 class EmailVerificationListener implements ShouldQueue
 {
-    use EmailTemplateTrait, QueuedMailDelivery;
+    use EmailTemplateTrait, QueuedMailDelivery, RunsInTheDispatchingStorefront;
     /**
      * Create the event listener.
      */

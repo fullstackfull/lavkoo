@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Jobs\Concerns\CarriesItsStorefront;
 use App\Models\SellerBulkJob;
 use App\Services\Marketplace\Bulk\SellerBulkJobService;
 use Illuminate\Bus\Queueable;
@@ -24,7 +25,7 @@ use Throwable;
  */
 class RunSellerBulkJob implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use CarriesItsStorefront, Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 1;
 
@@ -32,6 +33,7 @@ class RunSellerBulkJob implements ShouldQueue
 
     public function __construct(private readonly int $bulkJobId)
     {
+        $this->carryTheCurrentStorefront();
     }
 
     public function handle(SellerBulkJobService $service): void
