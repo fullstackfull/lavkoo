@@ -1,6 +1,8 @@
 # A1-03 / GCC-19: the default storefront is a decision, not a deploy
 
-**Status:** on `gcc/development`. No migration, no new table — one business setting, like every other storefront decision. Dormant while
+**Status:** on `gcc/development`, in commit [`998257be`](https://github.com/fullstackfull/lavkoo/commit/998257be) — whose message describes
+only the fulfilment characterization it also carries (C-15). The two were staged together by mistake; the history is not rewritten for it,
+so this line is where a reader finds the commit. No migration, no new table — one business setting, like every other storefront decision. Dormant while
 `GCC_STOREFRONTS_ENABLED` is off: nothing is read, nothing can be changed, and the platform's default is the one the configuration ships.
 
 ## The gap
