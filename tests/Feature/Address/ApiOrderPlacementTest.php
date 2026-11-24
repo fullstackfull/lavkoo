@@ -51,6 +51,52 @@ class ApiOrderPlacementTest extends ApiAddressTestCase
         return json_decode((string) DB::table('orders')->where('id', $orderId)->value($column), true);
     }
 
+    /**
+     * H1-06: the cross-border engine refuses this basket for this address BEFORE payment.
+     *
+     * A refusal discovered after the money is taken is a refund and an apology, so the engine is asked beside the other pre-payment guards.
+     * The switch ships off, which is why every other test in this file is unaffected by it.
+     */
+    private function openTheBorderTo(string $destination): void
+    {
+        config(['gcc.shipping.cross_border.enabled' => true]);
+        (require database_path('migrations/2026_12_20_100000_create_product_destination_permissions_table.php'))->up();
+        \App\Services\Shipping\ProductDestinationPermission::forget();
+
+        if (!Schema::hasColumn('products', \App\Services\Storefront\StorefrontCatalog::COLUMN)) {
+            Schema::table('products', fn (Blueprint $table) => $table->string(\App\Services\Storefront\StorefrontCatalog::COLUMN, 2)->nullable());
+        }
+        DB::table('products')->update([\App\Services\Storefront\StorefrontCatalog::COLUMN => 'SA']);
+        DB::table('shipping_addresses')->update(['country' => $destination]);
+    }
+
+    public function test_a_basket_the_cross_border_engine_refuses_is_refused_before_payment(): void
+    {
+        $customer = $this->makeCustomer();
+        $address = $this->makeLegacyAddress($customer->id);
+        $this->putOneProductInTheCart($customer->id);
+        $this->openTheBorderTo('KW');
+
+        $response = $this->asCustomer($customer)->getJson(self::COD . '?address_id=' . $address->id);
+
+        $response->assertStatus(403)->assertJsonPath('message', translate('shipping_product_not_permitted_abroad'));
+        $this->assertSame(0, $this->ordersCount(), 'no order');
+        $this->assertSame(10, $this->stock(), 'no stock taken');
+    }
+
+    /** And the same basket to an address in its own country is placed, which is every order this platform takes today. */
+    public function test_a_basket_delivered_in_its_own_country_is_placed_with_the_engine_on(): void
+    {
+        $customer = $this->makeCustomer();
+        $address = $this->makeLegacyAddress($customer->id);
+        $this->putOneProductInTheCart($customer->id);
+        $this->openTheBorderTo('SA');
+
+        $this->asCustomer($customer)->getJson(self::COD . '?address_id=' . $address->id)->assertOk();
+
+        $this->assertSame(1, $this->ordersCount());
+    }
+
     private function assertRefusedBeforeAnythingWasCreated($response, string $expectedMessage): void
     {
         $response->assertStatus(403)->assertJsonPath('message', $expectedMessage);
