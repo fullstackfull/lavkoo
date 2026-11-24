@@ -416,6 +416,24 @@ return [
         'refuse_while_balance_remains' => filter_var(env('GCC_REFUSE_ACCOUNT_DELETE_WITH_BALANCE', false), FILTER_VALIDATE_BOOLEAN),
     ],
 
+    'refunds' => [
+        // Whether cancelling an order pays the customer's wallet back (E-13, finding E04-F10). Today a POS sale paid with the wallet refunds
+        // itself and any other wallet-paid order does not: the customer keeps waiting until somebody refunds it by hand. Each answer has a
+        // cost -- automatic means an operator's click moves money, manual means a forgotten refund stays with the platform -- so it is the
+        // owner's decision: docs/gcc/OPEN-FINANCIAL-DECISIONS.md section 3.
+        //
+        //   'manual_as_today'          the default: only a POS wallet sale refunds itself, exactly as the platform runs now
+        //   'every_paid_cancellation'  option A: any cancelled order with money on it pays the wallet back, whatever it was paid with
+        //   'wallet_payments_only'     option C: automatic for a wallet payment, by hand where the money must return the way it came in
+        //
+        // Paying once per cancellation holds under every value: the status claim decides it (RF-04), not the setting. An unrecognised value
+        // is read as the default.
+        'when_a_cancellation_refunds_the_wallet' => env(
+            'GCC_CANCELLATION_REFUNDS_THE_WALLET',
+            App\Services\Refund\WhenACancellationRefundsTheWallet::MANUAL_AS_TODAY,
+        ),
+    ],
+
     'loyalty' => [
         // What a loyalty point is worth in wallet money (E-14, finding LF-1), and the one setting that settles a disagreement older than
         // this work: the mobile apps credit `rate` points as ONE DOLLAR and the website credits them as ONE UNIT OF THE CURRENCY IN FORCE,

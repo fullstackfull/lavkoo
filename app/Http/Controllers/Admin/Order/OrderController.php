@@ -77,6 +77,7 @@ use App\Contracts\Repositories\OrderExpectedDeliveryHistoryRepositoryInterface;
 use App\Services\Storefront\StorefrontCurrency;
 use App\Utils\CustomerManager;
 use App\Services\Customer\CustomerWalletWriter;
+use App\Services\Refund\WhenACancellationRefundsTheWallet;
 
 class OrderController extends BaseController
 {
@@ -716,10 +717,9 @@ class OrderController extends BaseController
         // which two cancels arriving together both pass before either writes, so both refunded. One conditional UPDATE decides it instead,
         // and the refund is in the transaction that claimed: a refund that fails gives the cancellation back, so the operator's retry
         // claims again and pays once, and nothing is left cancelled-but-unrefunded.
-        $refundsThisCancel = $request['order_status'] == 'canceled'
-            && $order['order_type'] == 'POS'
-            && $order['payment_method'] == 'wallet'
-            && $order['customer_id'] != 0;
+        // Which cancellations pay the wallet back is one rule in one place, WhenACancellationRefundsTheWallet, because both panels asked
+        // it separately and identically and the owner's answer to E04-F10 has to land in both at once.
+        $refundsThisCancel = WhenACancellationRefundsTheWallet::refunds($order, (string) $request['order_status']);
 
         DB::transaction(function () use ($request, $order, $claims, $refundsThisCancel): void {
             if (!$claims->claimOrderStatus(orderId: $request['id'], status: $request['order_status']) || !$refundsThisCancel) {
@@ -728,9 +728,9 @@ class OrderController extends BaseController
 
             CustomerWalletWriter::record(
                 customerId: $order['customer_id'],
-                amount: usdToDefaultCurrency(amount: $order['order_amount']),
+                amount: WhenACancellationRefundsTheWallet::amountFor($order),
                 transactionType: 'order_refund',
-                reference: 'pos_order_cancel_' . $order['id'],
+                reference: WhenACancellationRefundsTheWallet::referenceFor($order),
                 origin: LedgerOrigin::order(id: $order['id'], by: LedgerActor::Admin),
             );
         });
