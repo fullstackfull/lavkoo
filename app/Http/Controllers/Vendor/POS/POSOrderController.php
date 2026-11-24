@@ -40,6 +40,7 @@ use Illuminate\Support\Str;
 use InvalidArgumentException;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
 use App\Services\Customer\CustomerWalletWriter;
+use App\Services\Storefront\OrderStorefrontSnapshot;
 
 class POSOrderController extends BaseController
 {
@@ -352,6 +353,13 @@ class POSOrderController extends BaseController
                     fulfillment: $fulfillment
                 );
                 $this->orderRepo->add(data: $order);
+
+                // The market this sale belongs to, taken from the one country of its own lines and never from the request (I2-09, GCC-05).
+                // A till sale recorded nothing at all, so a Kuwaiti sale was read everywhere as the default market's: its money, the
+                // notifications about it, the company on its invoice and the wallet its refund would reach. The lines are saved above, which
+                // is what this reads. It is silent while storefronts are off or before the order column exists, so a Saudi till is unchanged,
+                // and it never rewrites a record an order already has.
+                app(OrderStorefrontSnapshot::class)->record(orderId: $orderId);
 
                 return $orderId;
             });
