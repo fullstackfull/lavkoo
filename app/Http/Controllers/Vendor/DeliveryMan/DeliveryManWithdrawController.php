@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Vendor\DeliveryMan;
 
-use App\Contracts\Repositories\DeliveryManWalletRepositoryInterface;
 use App\Contracts\Repositories\WithdrawRequestRepositoryInterface;
 use App\Enums\ViewPaths\Vendor\Dashboard;
 use App\Enums\ViewPaths\Vendor\DeliveryManWithdraw;
@@ -10,7 +9,6 @@ use App\Events\WithdrawStatusUpdateEvent;
 use App\Http\Controllers\BaseController;
 use App\Http\Requests\Vendor\DeliveryManWithdrawRequest;
 use App\Services\DeliveryManService;
-use App\Services\DeliveryManWalletService;
 use App\Services\DeliveryManWithdrawService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
@@ -30,17 +28,13 @@ class DeliveryManWithdrawController extends BaseController
     /**
      * @param WithdrawRequestRepositoryInterface $withdrawRequestRepo
      * @param DeliveryManWithdrawService $deliveryManWithdrawService
-     * @param DeliveryManWalletRepositoryInterface $deliveryManWalletRepo
      * @param DeliveryManService $deliveryManService
-     * @param DeliveryManWalletService $deliveryManWalletService
      */
     public function __construct
     (
         private readonly WithdrawRequestRepositoryInterface   $withdrawRequestRepo,
         private readonly DeliveryManWithdrawService           $deliveryManWithdrawService,
-        private readonly DeliveryManWalletRepositoryInterface $deliveryManWalletRepo,
         private readonly DeliveryManService                   $deliveryManService,
-        private readonly DeliveryManWalletService             $deliveryManWalletService,
     )
     {
     }
@@ -118,17 +112,10 @@ class DeliveryManWithdrawController extends BaseController
         if (!$withdraw) {
             return response()->json(['error' => translate('Invalid_withdraw')]);
         }
-        $wallet = $this->deliveryManWalletRepo->getFirstWhere(params: ['delivery_man_id' => $withdraw['delivery_man_id']]);
-        $updateWalletData = $this->deliveryManWalletService->getDeliveryManWalletData(
-            request: $request, wallet: $wallet, withdraw: $withdraw
-        );
-        $this->withdrawRequestRepo->update(
-            id: $withdraw['id'],
-            data: $this->deliveryManWithdrawService->getDeliveryManWithdrawData(request: $request)
-        );
-        $this->deliveryManWalletRepo->update(
-            id: $wallet['id'], data: $updateWalletData
-        );
+        if (!$this->deliveryManWithdrawService->settle(request: $request, withdraw: $withdraw)) {
+            return response()->json(['error' => translate('this_withdraw_request_has_already_been_processed')]);
+        }
+
         if (!empty($withdraw->deliveryMan?->fcm_token)) {
             WithdrawStatusUpdateEvent::dispatch('withdraw_request_status_message', 'delivery_man', $withdraw->delivery_men?->app_language ?? getDefaultLanguage(), $request['approved'], $withdraw->deliveryMan?->fcm_token);
         }

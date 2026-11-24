@@ -26,8 +26,12 @@ class DeliveryManWithdrawRequest extends FormRequest
      */
     public function rules():array
     {
+        // 1 approves and 2 denies, which is what the two screens post and what the request's own column means (0 is still pending).
+        // Without the bound, a posted 0 was written back as 0 -- the row stayed pending, so the same decision could be made again and
+        // again, and each time released the reservation afresh: `pending_withdraw` went negative and the withdrawable balance, which is
+        // the balance less the reservation, grew by the amount on every repeat.
         return [
-            'approved' => 'required',
+            'approved' => 'required|in:1,2',
             'note' => 'required',
         ];
     }

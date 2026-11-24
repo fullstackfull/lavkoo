@@ -81,17 +81,20 @@ class DeliverymanWithdrawController extends Controller
         if (!$withdraw) {
             return response()->json(['error' => translate('Invalid_withdraw')]);
         }
-        $wallet = $this->deliveryManWalletRepo->getFirstWhere(params: ['delivery_man_id' => $withdraw['delivery_man_id']]);
-        if (!$wallet) {
-            $deliverymanWalletData = $deliveryManWalletService->getDeliveryManData(id: $withdraw['delivery_man_id'], deliverymanCharge: 0, cashInHand: 0);
-            $this->deliveryManWalletRepo->add(data: $deliverymanWalletData);
-            $wallet = $this->deliveryManWalletRepo->getFirstWhere(params: ['delivery_man_id' => $withdraw['delivery_man_id']]);
+        // A delivery man who has never been paid has no wallet row yet, and the decision moves one: it is made here so that the
+        // settlement below finds a row to lock. The settlement re-reads it under that lock, which is the only read its totals come from.
+        if (!$this->deliveryManWalletRepo->getFirstWhere(params: ['delivery_man_id' => $withdraw['delivery_man_id']])) {
+            $this->deliveryManWalletRepo->add(data: $deliveryManWalletService->getDeliveryManData(
+                id: $withdraw['delivery_man_id'],
+                deliverymanCharge: 0,
+                cashInHand: 0,
+            ));
         }
-        $formatData = $deliveryManWithdrawService->getUpdateData(request: $request, wallet: $wallet, withdraw: $withdraw);
-        $walletData = $formatData['wallet'];
-        $withdrawData = $formatData['withdraw'];
-        $this->deliveryManWalletRepo->update(id: $wallet->id, data: $walletData);
-        $this->withdrawRequestRepo->update(id: $withdrawId, data: $withdrawData);
+
+        if (!$deliveryManWithdrawService->settle(request: $request, withdraw: $withdraw)) {
+            return response()->json(['error' => translate('this_withdraw_request_has_already_been_processed')]);
+        }
+
         if (!empty($withdraw->deliveryMan?->fcm_token)) {
             WithdrawStatusUpdateEvent::dispatch('withdraw_request_status_message', 'delivery_man', $withdraw->deliveryMan?->app_language ?? getDefaultLanguage(), $request['approved'], $withdraw->deliveryMan?->fcm_token);
         }

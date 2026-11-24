@@ -776,6 +776,14 @@ class VendorController extends BaseController
             return redirect()->route('admin.vendors.withdraw_list');
         }
 
+        // The screen's own select posts 1 to approve and 2 to deny, and the column's 0 is "still pending". A posted 0 passed the guard
+        // above, was written back as 0 and left the row claimable, so the denial's movement — the amount back into `total_earning`, the
+        // reservation released — could be made again and again, each repeat raising the seller's earnings by the amount.
+        if (!in_array((int) $request['approved'], [1, 2], true)) {
+            ToastMagic::warning(translate('this_withdraw_request_has_already_been_processed'));
+            return redirect()->route('admin.vendors.withdraw_list');
+        }
+
         $ledger = app(VendorLedger::class);
         $isDecided = DB::transaction(function () use ($withdraw, $id, $request, $withdrawData, $ledger) {
             $wallet = SellerWallet::where('seller_id', $withdraw['seller_id'])->lockForUpdate()->first();

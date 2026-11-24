@@ -11410,4 +11410,7 @@ return [
 	'Withdraw_request_update_successfully!' => 'Withdraw request update successfully!',
 	'successfully_deleted' => 'Successfully deleted',
 	'Ready_product_upload_is_required!' => 'Ready product upload is required!',
+	'Delivery_man_payment_has_been_approved_successfully' => 'Delivery man payment has been approved successfully',
+	'this_withdraw_request_has_already_been_processed' => 'This withdraw request has already been processed',
+	'Delivery_man_payment_request_has_been_Denied_successfully' => 'Delivery man payment request has been Denied successfully',
 ];
