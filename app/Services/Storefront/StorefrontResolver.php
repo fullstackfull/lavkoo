@@ -6,8 +6,9 @@ use Illuminate\Http\Request;
 use InvalidArgumentException;
 
 /**
- * Chooses the storefront country for a request. A choice the visitor made explicitly wins over the header an app sends, the
- * header wins over the path prefix, and the path prefix wins over the default. While storefronts are switched off, every request resolves to the default country, which is the
+ * Chooses the storefront country for a request. The market whose path the request was served under wins over everything, because it is the
+ * address the visitor is on (A1-05); then a choice the visitor made explicitly, then the header an app sends, then the path prefix of a
+ * request that was not stripped, then the default. While storefronts are switched off, every request resolves to the default country, which is the
  * Saudi storefront the platform runs today. A country that is configured but not active is never chosen.
  */
 final class StorefrontResolver
@@ -94,10 +95,18 @@ final class StorefrontResolver
         return new StorefrontContext(country: $country, currency: $this->currencyOf($country), storefrontsEnabled: $this->enabled);
     }
 
-    /** The storefront a request asks for: its explicit choice, then its header, then its path, then the default. */
+    /**
+     * The storefront a request asks for: the market whose path it was served under, then its explicit choice, then its header, then its
+     * path, then the default.
+     *
+     * The served market comes first because it is the address the visitor is actually on (A1-05): the path prefix was taken off before
+     * routing, so the path no longer carries it, and a `?storefront=` on a `/kw/` URL contradicts the page it is on rather than choosing
+     * a market. Nothing sets that attribute while the path switch is off, so every other request resolves exactly as it did.
+     */
     public function contextForRequest(Request $request): StorefrontContext
     {
-        $explicitChoice = $request->query('storefront');
+        $servedCountry = $request->attributes->get(StorefrontPathPrefix::SERVED_COUNTRY);
+        $explicitChoice = is_string($servedCountry) ? $servedCountry : $request->query('storefront');
         $headerValues = $request->headers->all(self::HEADER);
 
         return $this->context(
@@ -105,6 +114,12 @@ final class StorefrontResolver
             path: $request->path(),
             headerChoice: count($headerValues) === 1 && is_string($headerValues[0]) ? $headerValues[0] : null,
         );
+    }
+
+    /** The market whose configured path this path begins with, when that market is active: the reader the path routing strips by (A1-05). */
+    public function countryOfPathPrefix(?string $path): ?string
+    {
+        return $this->countryOfPath($path);
     }
 
     /**

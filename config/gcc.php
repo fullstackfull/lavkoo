@@ -100,6 +100,15 @@ return [
             'OM' => ['path' => 'om', 'currency' => 'OMR', 'active' => false],
         ],
 
+        'paths' => [
+            // Off by default: the web routes answer at the root only, as today, and a country path answers 404. When it is on, a request under an ACTIVE market's path
+            // (`/kw/shop-cart`) is served by the same route as `/shop-cart`, as that market: the segment is taken off before routing, so there is one route table and one
+            // set of route names, and the paths the application generates while serving such a request are given the market back, so a link on a Kuwaiti page stays
+            // Kuwaiti. The default storefront keeps its bare addresses -- `/sa/...` is served, nothing generates it -- and the panel, the API and the dev paths are never
+            // given a market (App\Services\Storefront\StorefrontPathPrefix). An inactive market's path answers 404, as it does now.
+            'enabled' => filter_var(env('GCC_STOREFRONT_PATHS', false), FILTER_VALIDATE_BOOLEAN),
+        ],
+
         'queues' => [
             // Off by default: every job and every queued listener waits on the queue it waits on today, whatever market it carries. When it is on, work
             // that carries a market other than the default storefront's waits on that market's own queue (`storefront-kw` and so on), so an operator can
