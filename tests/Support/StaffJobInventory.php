@@ -145,6 +145,19 @@ final class StaffJobInventory
         ],
     ];
 
+    /**
+     * The schedule, classified as one thing rather than entry by entry, because one sentence is true of all of it: a scheduled run has no
+     * employee and no request, so there is no scope to carry and none to leak. `schedule:run` is a console process; what it starts runs for
+     * the platform, every country at once, which is what a settlement sweep or a stock drain is for.
+     *
+     * What has to stay true for that sentence to hold is asserted rather than asserted-of: the schedule binds no staff scope, and its one
+     * non-command entry is a named heartbeat that writes a single setting. A closure added to the schedule could close over anything,
+     * including a scope, so a second one fails the test and has to be read by a person.
+     */
+    public const SCHEDULE_ENTRIES = 45;
+
+    public const SCHEDULE_CLOSURE = 'call: scheduler-heartbeat';
+
     /** @var array<string, array{class: string, reason: string}> "POST uri" => its classification */
     public const BULK_ROUTES = [
         'POST admin/coupon/bulk-status' => [

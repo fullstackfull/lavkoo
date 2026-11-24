@@ -104,6 +104,23 @@ class StaffJobInventoryTest extends TestCase
         ], $open, 'the bulk routes that narrow nothing changed: scope one and change its entry, or say why a new one may narrow nothing');
     }
 
+    /**
+     * The schedule: no employee, no request, nothing to narrow. The count is pinned so a new entry is read by a person, and the one
+     * non-command entry stays the named heartbeat -- a closure can close over anything a command cannot, a staff scope included.
+     */
+    public function test_the_schedule_has_no_actor_and_binds_no_scope(): void
+    {
+        $entries = $this->scanner->scheduledEntries();
+
+        $this->assertCount(StaffJobInventory::SCHEDULE_ENTRIES, $entries, "the schedule changed. Classify the new entry: a scheduled run has no employee, so it runs for every country:\n - " . implode("\n - ", $entries));
+        $this->assertSame(
+            [StaffJobInventory::SCHEDULE_CLOSURE],
+            array_values(array_filter($entries, static fn (string $entry): bool => !str_starts_with($entry, 'command: '))),
+            'a scheduled closure other than the heartbeat: read what it closes over before listing it',
+        );
+        $this->assertDoesNotMatchRegularExpression('/StaffCountryScope|staffScope/', $this->scanner->scheduleSource(), 'the schedule must bind no employee scope: there is no employee behind a scheduled run');
+    }
+
     /** And no queued work reads a list across countries today, which is why G-11's staff job context has no first caller yet. */
     public function test_no_queued_job_is_classified_as_needing_a_scope_it_does_not_carry(): void
     {

@@ -18,6 +18,9 @@ final class StaffJobScanner
 {
     private const ROOTS = ['app/Jobs', 'app/Listeners'];
 
+    /** Where the platform's schedule is defined; bootstrap/app.php hands this class to withSchedule(). */
+    private const SCHEDULE = 'app/Console/ScheduleDefinition.php';
+
     /** A trait or an interface is not a job: only a class that is itself queued. */
     private const QUEUED_CLASS = '/^\s*(?:final\s+)?class\s+(\w+)[^{]*\bimplements\b[^{]*\bShouldQueue\b/m';
 
@@ -82,6 +85,40 @@ final class StaffJobScanner
         ksort($found);
 
         return $found;
+    }
+
+    /**
+     * Every entry of the platform's schedule, as the schedule itself names it: a command by its signature, a closure by the name the
+     * schedule gives it. A commented-out line is not an entry.
+     *
+     * @return list<string> sorted
+     */
+    public function scheduledEntries(): array
+    {
+        $source = (string) file_get_contents(self::root() . '/' . self::SCHEDULE);
+        $entries = [];
+
+        foreach (explode("\n", $source) as $line) {
+            if (preg_match('/^\s*(?:\/\/|\*|#)/', $line) === 1) {
+                continue;
+            }
+            if (preg_match('/\$schedule->command\(\s*[\'"]([^\'"]+)[\'"]/', $line, $command) === 1) {
+                $entries[] = 'command: ' . $command[1];
+            }
+            if (preg_match('/\$schedule->(call|job|exec)\(/', $line, $other) === 1) {
+                $entries[] = $other[1] . ': ' . (preg_match('/->name\(\s*[\'"]([^\'"]+)[\'"]/', $source, $name) === 1 ? $name[1] : 'unnamed');
+            }
+        }
+
+        sort($entries);
+
+        return $entries;
+    }
+
+    /** The source of the schedule, so a guard can read what it does as well as what it holds. */
+    public function scheduleSource(): string
+    {
+        return (string) file_get_contents(self::root() . '/' . self::SCHEDULE);
     }
 
     private function isAdminWrite(RoutingRoute $route): bool
