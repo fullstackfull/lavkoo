@@ -4,8 +4,8 @@ This is the count the owner asked for, taken from the per-requirement records in
 was merged into `main`, the whole suite was swept there, and `main`'s own CI went green. Nothing here is estimated: every number is counted
 from the criteria themselves, and the method is written out below so the same numbers can be recomputed.
 
-**Totals: 359 requirements, 1753 acceptance criteria.** 916 met (52%), 374 coded but not proven
-(21%), 463 not implemented (27%).
+**Totals: 359 requirements, 1753 acceptance criteria.** 925 met (53%), 374 coded but not proven
+(21%), 454 not implemented (26%).
 
 *Recounted on 2026-11-24 after E-03, C-15's three-decimal money and its per-market destination and phone rules landed, and after six
 criteria were read again from the code rather than from the pre-merge assessment: eleven criteria moved to met, one of them by writing the
@@ -37,18 +37,18 @@ A requirement is **proven** when no criterion is missing and none is merely code
 | E — wallets, loyalty and financial records | 18 | 88 | 59 | 7 | 22 | 75% | 67% | 5 | 3 | 10 | 0 | 16 | 17 | 0 |
 | F — themes and brand | 16 | 77 | 43 | 13 | 21 | 73% | 56% | 2 | 3 | 10 | 1 | 9 | 9 | 0 |
 | G — admin panel and staff permissions | 20 | 102 | 60 | 13 | 29 | 72% | 59% | 6 | 3 | 10 | 1 | 16 | 17 | 1 |
-| H — shipping and integrations | 34 | 157 | 79 | 13 | 65 | 59% | 50% | 6 | 2 | 22 | 4 | 24 | 24 | 3 |
+| H — shipping and integrations | 34 | 157 | 88 | 13 | 56 | 64% | 56% | 6 | 2 | 25 | 1 | 24 | 24 | 3 |
 | I — marketing, policies and operations | 37 | 185 | 88 | 45 | 52 | 72% | 48% | 2 | 13 | 20 | 2 | 32 | 32 | 0 |
 | J — Flutter customer app | 20 | 98 | 49 | 30 | 19 | 81% | 50% | 2 | 10 | 7 | 1 | 10 | 13 | 2 |
 | K — Flutter seller app | 23 | 104 | 48 | 25 | 31 | 70% | 46% | 4 | 4 | 14 | 1 | 16 | 16 | 0 |
 | L — GCC-20 super admin | 18 | 94 | 49 | 14 | 31 | 67% | 52% | 1 | 5 | 8 | 4 | 16 | 18 | 0 |
 | M — security, tests and deployment | 63 | 311 | 111 | 117 | 83 | 73% | 36% | 3 | 13 | 45 | 2 | 43 | 41 | 2 |
-| **the whole plan** | **359** | **1753** | **916** | **374** | **463** | **74%** | **52%** | **56** | **76** | **210** | **17** | **260** | **267** | **17** |
+| **the whole plan** | **359** | **1753** | **925** | **374** | **454** | **74%** | **53%** | **56** | **76** | **213** | **14** | **260** | **267** | **17** |
 
 ## Development against launch readiness, which are not the same number
 
 - **Development: 73%** of the acceptance criteria exist in code (1286 of 1753).
-- **Proven: 52%** carry a named acceptance test (916 of 1753).
+- **Proven: 53%** carry a named acceptance test (925 of 1753).
 - **Launch readiness: 16 requirements of 359 (4%)** are ready in the sense that matters for a
   release: every criterion met, no open owner decision, no outstanding review. Another 76 have every criterion addressed but carry a
   review or an unproven criterion.

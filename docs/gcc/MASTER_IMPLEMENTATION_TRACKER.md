@@ -24,9 +24,9 @@ again** from the per-requirement records: `docs/gcc/audits/2026-11-24-post-merge
 |---|---:|
 | requirements | 359 |
 | acceptance criteria | 1,753 |
-| met (implemented, with a named test) | 916 — 52% |
+| met (implemented, with a named test) | 925 — 53% |
 | coded (implemented, not proven) | 375 — 21% |
-| missing | 463 — 26% |
+| missing | 454 — 26% |
 | **development progress** (met + coded) | **73%** |
 | **proven progress** (met) | **52%** |
 | requirements proven end to end | 55 |
