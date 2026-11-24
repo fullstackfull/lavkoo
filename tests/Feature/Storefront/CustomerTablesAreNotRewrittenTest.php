@@ -322,6 +322,10 @@ class CustomerTablesAreNotRewrittenTest extends TestCase
         'database/migrations/2026_12_05_120000_create_customer_market_balance_accounts.php' => ['customer_market_wallet_accounts', 'customer_market_loyalty_accounts', 'wallet_transactions', 'loyalty_point_transactions'],
         // E-02.3: the sharing key on those two account tables. Neither is a customer table.
         'database/migrations/2026_12_05_140000_add_sharing_key_to_market_balance_accounts.php' => ['customer_market_wallet_accounts', 'customer_market_loyalty_accounts'],
+        // GCC-19: the merchant account and the company that took the payment, on the two refund tables. Neither is a customer table.
+        'database/migrations/2026_12_04_100000_add_payment_account_to_refund_tables.php' => ['refund_requests', 'refund_transactions'],
+        // E-05: what stands behind a movement, on the two ledgers. Neither is a customer table.
+        'database/migrations/2026_12_05_100000_add_attribution_to_wallet_and_loyalty_ledgers.php' => ['wallet_transactions', 'loyalty_point_transactions'],
     ];
 
     /**
@@ -459,12 +463,12 @@ class CustomerTablesAreNotRewrittenTest extends TestCase
             $offences,
             'a migration of this chain takes something away from a customer table, or writes its rows, on a deploy; the body of down() is not read, unless a deploy reaches it, because a rollback is supposed to undo. '
             . 'If the reason is that the guard cannot name the table: write the name instead of taking it from a variable, a method or the configuration, so that a migration of this chain says which table it changes. '
-            . 'The four that hand the name on through an argument are written down in NAMES_ITS_TABLES_IN_A_CONSTANT with every table each really changes, and that is checked against their own constants.',
+            . 'The six that hand the name on through an argument are written down in NAMES_ITS_TABLES_IN_A_CONSTANT with every table each really changes, and that is checked against their own constants.',
         );
     }
 
     /**
-     * What the four migrations of NAMES_ITS_TABLES_IN_A_CONSTANT name is read out of them rather than believed: every table name their own
+     * What the migrations of NAMES_ITS_TABLES_IN_A_CONSTANT name is read out of them rather than believed: every table name their own
      * constants hold is compared with the list written down there, so a fifth table added to one of those constants fails this test and has to
      * be looked at. Without this the accounting above would be a note, and a note is not a guard.
      */

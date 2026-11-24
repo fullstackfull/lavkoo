@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Vendor\Order;
 
+use App\Enums\LedgerActor;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
 use App\Contracts\Repositories\AdminWalletRepositoryInterface;
 use App\Contracts\Repositories\BusinessSettingRepositoryInterface;
@@ -241,7 +242,7 @@ class OrderController extends BaseController
                     $sellerWallet = $this->vendorWalletRepo->getFirstWhere(params: ['seller_id' => $order['seller_id']]);
                     $this->vendorWalletRepo->updateWhere(params: ['seller_id' => $order['seller_id']], data: ['total_earning' => $sellerWallet['total_earning'] - $order['edit_return_amount']]);
                 }
-                $walletCredit = CustomerManager::create_wallet_transaction($customer['id'], $order['edit_return_amount'], 'return_order_amount_by_admin', 'add_wallet_amount', ['payment_method' => 'wallet']);
+                $walletCredit = CustomerManager::create_wallet_transaction($customer['id'], $order['edit_return_amount'], 'return_order_amount_by_admin', 'add_wallet_amount', ['payment_method' => 'wallet'], origin: LedgerOrigin::order(id: $order['id'], by: LedgerActor::Seller));
                 if ($walletCredit === false) {
                     throw new WalletCreditRefused(customerId: $customer['id'], amount: (float) $order['edit_return_amount']);
                 }
@@ -668,6 +669,7 @@ class OrderController extends BaseController
                 amount: usdToDefaultCurrency(amount: $order['order_amount']),
                 transactionType: 'order_refund',
                 reference: 'pos_order_cancel_' . $order['id'],
+                origin: LedgerOrigin::order(id: $order['id'], by: LedgerActor::Seller),
             );
         }
         if ($request['order_status'] == 'delivered') {
@@ -687,7 +689,7 @@ class OrderController extends BaseController
         $orderDetailsRewards = $this->orderDetailsRewardsRepo->getFirstWhere(params: ['order_id' => $order['id'], 'reward_type' => 'loyalty_point']);
 
         if ($orderDetailsRewards && $orderDetailsRewards['reward_delivered'] != 1 && $orderDetailsRewards['reward_amount'] > 0 && $walletStatus == 1 && $loyaltyPointStatus == 1 && $loyaltyPointEachOrder == 1 && !$order['is_guest'] && $request['order_status'] == 'delivered' && $order['seller_id'] != null) {
-            $this->loyaltyPointTransactionRepo->addLoyaltyPointTransaction(userId: $order['customer_id'], reference: $order['id'], amount: usdToDefaultCurrency(amount: $order['order_amount'] - $order['shipping_cost']), transactionType: 'order_place');
+            $this->loyaltyPointTransactionRepo->addLoyaltyPointTransaction(userId: $order['customer_id'], reference: $order['id'], amount: usdToDefaultCurrency(amount: $order['order_amount'] - $order['shipping_cost']), transactionType: 'order_place', origin: LedgerOrigin::order(id: $order['id']));
             $this->orderDetailsRewardsRepo->update(id: $orderDetailsRewards['id'], data: ['reward_delivered' => 1]);
         }
 

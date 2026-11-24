@@ -50,6 +50,13 @@ trait BuildsStorefrontRefundWorld
         foreach (['QA', 'BH', 'OM', 'KW'] as $storefront) {
             config(["gcc.storefronts.countries.{$storefront}.active" => true]);
         }
+        // Being switched on in the configuration is not leave to sell: a storefront sells once its tax is decided and a person has made it
+        // active, both of which are recorded rather than configured (StorefrontSellingGate). switchStorefrontsOn() does this for the Emirates
+        // and the Saudi storefront is active without a record, so these are the other four; without them every order and every refund of
+        // those storefronts is refused with 422 by the sale gate, which is not what any test using this world is about. The same two lines,
+        // for the same reason, are in BuildsSixStorefrontCheckoutWorld.
+        $this->approveNoTaxFor('KW', 'QA', 'BH', 'OM');
+        $this->activateStorefrontFor('KW', 'QA', 'BH', 'OM');
         StorefrontCatalog::flush();
     }
 

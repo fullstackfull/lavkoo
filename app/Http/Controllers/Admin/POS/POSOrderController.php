@@ -9,6 +9,7 @@ use App\Contracts\Repositories\OrderRepositoryInterface;
 use App\Contracts\Repositories\ProductRepositoryInterface;
 use App\Contracts\Repositories\StorageRepositoryInterface;
 use App\Contracts\Repositories\VendorRepositoryInterface;
+use App\Enums\LedgerActor;
 use App\Enums\SessionKey;
 use App\Events\DigitalProductDownloadEvent;
 use App\Exceptions\InsufficientStockException;
@@ -20,6 +21,7 @@ use App\Services\Marketplace\InventoryService;
 use App\Services\OrderDetailsService;
 use App\Services\OrderService;
 use App\Services\POSService;
+use App\Services\Storefront\LedgerOrigin;
 use App\Services\Storefront\OneSellingCompanyPerOrder;
 use App\Traits\CalculatorTrait;
 use App\Traits\CustomerTrait;
@@ -236,7 +238,7 @@ class POSOrderController extends BaseController
                     // measured at this branch's base and at its head alike (reviewer A, F6). Throwing here rolls the
                     // whole sale back the way an InsufficientStockException already does, which is the only honest
                     // answer: a wallet sale that took nothing is not a sale.
-                    if (!$this->createWalletTransaction(user_id: $userId, amount: $saleAmount, transaction_type: 'order_place', reference: 'order_place_in_pos')) {
+                    if (!$this->createWalletTransaction(user_id: $userId, amount: $saleAmount, transaction_type: 'order_place', reference: 'order_place_in_pos', origin: LedgerOrigin::by(actor: LedgerActor::Admin))) {
                         throw new WalletDebitFailedException(userId: $userId, amount: $saleAmount);
                     }
                 }
