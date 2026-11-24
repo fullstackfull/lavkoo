@@ -68,3 +68,5 @@ and the audit README. Never type a number that script can print.
 - A guard that fails open is reported, not relaxed; a guard that asks to be recorded is recorded.
 - A test that proves a problem exists is not a fix for it.
 - Teeth-check every feature: break it deliberately, see the test fail, restore.
+- Never trust a long test run that was in flight while files were edited: it reports failures that a clean re-run does
+  not. It has happened twice. Re-run on an untouched tree before believing a regression.
