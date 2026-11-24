@@ -129,3 +129,32 @@ answered differently, so read it before touching the wallet, the ledgers or stor
 The seller app's version gate is a separate matter and is not a reason to lower a security
 minimum: the shipped version is raised to meet the backend's published minimum, never the minimum
 lowered to clear the lock.
+
+## 2026-11-24 — Owner decision: the master storefront switch is not a kill switch (A1-02)
+
+Asked which promise wins when `GCC_STOREFRONTS_ENABLED` is off — dormancy (the platform of today, nothing
+narrowed anywhere) or a kill switch (the default market only) — the owner decided:
+
+1. **The master switch off means legacy / dormancy**, to keep the Saudi behaviour compatible. The catalogue
+   is not narrowed in that state, which is what every Saudi-compatibility test asserts today.
+2. **A single market is closed through its own country settings and its storefront lifecycle**, never by
+   turning the master switch off.
+3. **Once more than one market is live, the master switch is not to be used as a kill switch.** That
+   constraint is to be documented, and a check is to refuse operating actions that could expose another
+   market's data.
+4. **Orders, payments and refunds that already exist are still completed** even when a market stops taking
+   new orders.
+5. **No Saudi-compatibility test is to be changed to hide a conflict.**
+
+What this settles, and what it costs: the state the switch creates once a second market holds rows — every
+market's rows read as the default market's — is accepted as a state the platform must not be **operated**
+in, rather than one the code silently corrects. So the remedy is procedural and guarded, not a change of
+what the switch does: turn the switch back on, then close the country itself (`active` false in
+`config/gcc.php`, or `php artisan gcc:storefront:state <CC> pause`). An attempt to make the switch narrow
+the catalogue was written and backed out before this decision (handoff `2026-11-24-1900`); it is not to be
+revived.
+
+One finding from that attempt stands whatever the decision, and is recorded so nobody repeats it: the
+narrowing must never be extended to `StorefrontCatalog::offers`, the cart's own gate. It compares a column
+on a row the caller already holds in memory, so a row loaded without that column would be refused — which
+would stop a Saudi installation selling its own products.
