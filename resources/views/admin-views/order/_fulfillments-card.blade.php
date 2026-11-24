@@ -56,7 +56,7 @@
                                 </div>
                             @endif
                             @if ($providerFulfillment->payment_mode === \App\Enums\Fulfillment\PaymentMode::CashOnDelivery)
-                                <div class="fs-12 mt-1">{{ translate('cash_to_collect') }}: {{ number_format((float) $providerFulfillment->cod_amount, 2) }} {{ $providerFulfillment->currency }}</div>
+                                <div class="fs-12 mt-1">{{ translate('cash_to_collect') }}: {{ number_format((float) $providerFulfillment->cod_amount, $providerFulfillment->money_decimals) }} {{ $providerFulfillment->currency }}</div>
                             @endif
                             @if ($canManageFulfillments)
                                 <a class="fs-12 d-inline-block mt-2" href="{{ route('admin.fulfillment-providers.fulfillments.show', $providerFulfillment->id) }}">{{ translate('view_shipment_details') }}</a>

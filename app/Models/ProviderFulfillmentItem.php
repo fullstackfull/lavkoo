@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Casts\MoneyInItsCurrency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use LogicException;
@@ -50,7 +51,7 @@ class ProviderFulfillmentItem extends Model
         'unit_price' => 'decimal:6',
         'line_discount' => 'decimal:6',
         'line_tax' => 'decimal:6',
-        'line_total' => 'decimal:2',
+        'line_total' => MoneyInItsCurrency::class,
         'unit_cost' => 'decimal:4',
         'weight_kg' => 'decimal:3',
         'snapshot' => 'array',

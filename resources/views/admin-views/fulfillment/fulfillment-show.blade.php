@@ -62,11 +62,11 @@
 
                         <dt class="col-sm-4">{{ translate('payment') }}</dt>
                         <dd class="col-sm-8">{{ translate('payment_mode_' . $fulfillment->payment_mode->value) }}
-                            @if ($fulfillment->payment_mode === \App\Enums\Fulfillment\PaymentMode::CashOnDelivery)· {{ translate('cash_to_collect') }}: <strong>{{ number_format((float) $fulfillment->cod_amount, 2) }} {{ $fulfillment->currency }}</strong>@endif</dd>
+                            @if ($fulfillment->payment_mode === \App\Enums\Fulfillment\PaymentMode::CashOnDelivery)· {{ translate('cash_to_collect') }}: <strong>{{ number_format((float) $fulfillment->cod_amount, $fulfillment->money_decimals) }} {{ $fulfillment->currency }}</strong>@endif</dd>
 
                         <dt class="col-sm-4">{{ translate('items_total') }}</dt>
                         <dd class="col-sm-8">{{ number_format((float) $fulfillment->items_total, 2) }} {{ $fulfillment->currency }}
-                            · {{ translate('shipping') }} {{ number_format((float) $fulfillment->shipping_allocation, 2) }}
+                            · {{ translate('shipping') }} {{ number_format((float) $fulfillment->shipping_allocation, $fulfillment->money_decimals) }}
                             · {{ translate('total') }} {{ number_format((float) $fulfillment->total_amount, 2) }}</dd>
 
                         @if ($fulfillment->provider_cost !== null)

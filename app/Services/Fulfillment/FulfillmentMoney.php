@@ -8,6 +8,7 @@ use App\Enums\Fulfillment\ProviderCode;
 use App\Models\Order;
 use App\Models\ProviderFulfillmentItem;
 use App\Services\Fulfillment\Data\MoneyAssessment;
+use App\Services\Fulfillment\Support\ProviderCurrency;
 use Illuminate\Support\Collection;
 
 /**
@@ -22,6 +23,7 @@ class FulfillmentMoney
     public function __construct(
         private readonly CodPolicy $codPolicy,
         private readonly ProviderOrderShare $shares,
+        private readonly ProviderCurrency $currency,
     ) {
     }
 
@@ -34,7 +36,8 @@ class FulfillmentMoney
         $plan = $this->codPolicy->plan($order, $allItems);
         $blockedReason = $plan->blockedReason ?? ($this->hasUnconvertedLine($shipmentItems) ? HoldReason::CURRENCY_UNCONVERTIBLE : null);
         $cod = $plan->codByProvider[$provider->value] ?? 0.0;
-        $itemsTotal = round((float) $shipmentItems->sum('line_total'), 2);
+        $decimals = $this->currency->decimals();
+        $itemsTotal = round((float) $shipmentItems->sum('line_total'), $decimals);
         $total = $this->shares->totalFor($plan->orderTotal, $order->id, $shipmentItems, $allItems);
 
         return new MoneyAssessment(
@@ -42,8 +45,9 @@ class FulfillmentMoney
             paymentMode: $plan->isCod && $cod > 0 ? PaymentMode::CashOnDelivery : PaymentMode::Prepaid,
             codAmount: $plan->isCod ? $cod : 0.0,
             itemsTotal: $itemsTotal,
-            shippingAllocation: $total === null ? 0.0 : round($total - $itemsTotal, 2),
+            shippingAllocation: $total === null ? 0.0 : round($total - $itemsTotal, $decimals),
             totalAmount: $total ?? $itemsTotal,
+            decimals: $decimals,
         );
     }
 

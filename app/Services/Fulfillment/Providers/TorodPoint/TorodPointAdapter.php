@@ -648,7 +648,9 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
             return true;
         }
 
-        return abs((float) $reported - (float) $fulfillment->cod_amount) <= 0.01;
+        // One smallest coin of tolerance: a halala for a riyal shipment, which is what this has always allowed, and a fils for a
+        // shipment in a currency that has thousandths (C-15).
+        return abs((float) $reported - (float) $fulfillment->cod_amount) <= 10 ** -$fulfillment->money_decimals;
     }
 
     // ---- catalog, stock, cities, product push --------------------------------------------------------

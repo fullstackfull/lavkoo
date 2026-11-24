@@ -40,9 +40,13 @@ class ProviderOrderShare
 
         if (!$inHouseExists) {
             $byProvider = $allItems->groupBy('provider')->map(static fn (Collection $lines): float => (float) $lines->sum('line_total'))->all();
-            $shares = $this->allocator->allocate($orderTotal, $byProvider);
+            $shares = $this->allocator->allocate(
+                amountOwed: $orderTotal,
+                valueByCollector: $byProvider,
+                decimals: $this->currency->decimals(),
+            );
 
-            return $shares[(string) $items->first()->provider] ?? round($itemsValue, 2);
+            return $shares[(string) $items->first()->provider] ?? round($itemsValue, $this->currency->decimals());
         }
 
         $allLines = $this->allLinesValue($orderId);
@@ -52,9 +56,11 @@ class ProviderOrderShare
 
         $denominator = max($allLines, $providerValue);
 
+        $decimals = $this->currency->decimals();
+
         return $denominator > 0
-            ? round($itemsValue + ($orderTotal - $denominator) * ($itemsValue / $denominator), 2)
-            : round($itemsValue, 2);
+            ? round($itemsValue + ($orderTotal - $denominator) * ($itemsValue / $denominator), $decimals)
+            : round($itemsValue, $decimals);
     }
 
     /** Every line of the order, in-house ones included, as the customer was charged for it, in the provider currency. */
