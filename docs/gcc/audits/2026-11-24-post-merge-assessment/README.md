@@ -4,8 +4,12 @@ This is the count the owner asked for, taken from the per-requirement records in
 was merged into `main`, the whole suite was swept there, and `main`'s own CI went green. Nothing here is estimated: every number is counted
 from the criteria themselves, and the method is written out below so the same numbers can be recomputed.
 
-**Totals: 359 requirements, 1753 acceptance criteria.** 893 met (51%), 378 coded but not proven
-(22%), 482 not implemented (27%).
+**Totals: 359 requirements, 1753 acceptance criteria.** 897 met (51%), 378 coded but not proven
+(22%), 478 not implemented (27%).
+
+*Recounted on 2026-11-24 after E-03 (no path moves a balance between markets) and C-15's three-decimal money landed: four criteria moved
+from missing to met, and C-15 from not started to partial. Every figure in this file is produced by the script quoted at the end, from the
+tracker files, and the three totals balance to 1753 exactly.*
 
 ## What each number means
 
@@ -25,11 +29,11 @@ A requirement is **proven** when no criterion is missing and none is merely code
 
 | axis | reqs | criteria | met | coded | missing | development | proven | proven reqs | coded reqs | partial | not started | open decision | open review | launch-ready |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| A — six-country base and customer identity | 37 | 173 | 108 | 26 | 39 | 77% | 62% | 12 | 3 | 22 | 0 | 23 | 23 | 4 |
+| A — six-country base and customer identity | 37 | 173 | 108 | 26 | 39 | 77% | 62% | 12 | 3 | 22 | 0 | 25 | 25 | 4 |
 | B — catalogue and products | 18 | 91 | 46 | 30 | 15 | 84% | 51% | 2 | 6 | 10 | 0 | 16 | 16 | 0 |
-| C — inventory and fulfilment | 18 | 94 | 66 | 9 | 19 | 80% | 70% | 7 | 2 | 8 | 1 | 11 | 9 | 5 |
+| C — inventory and fulfilment | 18 | 94 | 67 | 9 | 18 | 81% | 71% | 7 | 2 | 9 | 0 | 11 | 9 | 5 |
 | D — orders, checkout and payments | 37 | 179 | 101 | 34 | 44 | 75% | 56% | 2 | 8 | 26 | 1 | 27 | 30 | 1 |
-| E — wallets, loyalty and financial records | 18 | 88 | 51 | 7 | 30 | 66% | 58% | 5 | 2 | 11 | 0 | 16 | 17 | 0 |
+| E — wallets, loyalty and financial records | 18 | 88 | 54 | 7 | 27 | 69% | 61% | 5 | 3 | 10 | 0 | 16 | 17 | 0 |
 | F — themes and brand | 16 | 77 | 42 | 13 | 22 | 71% | 55% | 1 | 3 | 11 | 1 | 9 | 9 | 0 |
 | G — admin panel and staff permissions | 20 | 102 | 59 | 13 | 30 | 71% | 58% | 6 | 3 | 10 | 1 | 16 | 17 | 1 |
 | H — shipping and integrations | 34 | 157 | 79 | 13 | 65 | 59% | 50% | 6 | 2 | 22 | 4 | 24 | 24 | 3 |
@@ -38,12 +42,12 @@ A requirement is **proven** when no criterion is missing and none is merely code
 | K — Flutter seller app | 23 | 104 | 48 | 25 | 31 | 70% | 46% | 4 | 4 | 14 | 1 | 16 | 16 | 0 |
 | L — GCC-20 super admin | 18 | 94 | 49 | 14 | 31 | 67% | 52% | 1 | 5 | 8 | 4 | 16 | 18 | 0 |
 | M — security, tests and deployment | 63 | 311 | 108 | 118 | 85 | 73% | 35% | 3 | 13 | 45 | 2 | 43 | 41 | 2 |
-| **the whole plan** | **359** | **1753** | **893** | **378** | **482** | **73%** | **51%** | **53** | **74** | **214** | **18** | **259** | **265** | **18** |
+| **the whole plan** | **359** | **1753** | **897** | **378** | **478** | **73%** | **51%** | **53** | **75** | **214** | **17** | **261** | **267** | **18** |
 
 ## Development against launch readiness, which are not the same number
 
-- **Development: 73%** of the acceptance criteria exist in code (1271 of 1753).
-- **Proven: 51%** carry a named acceptance test (893 of 1753).
+- **Development: 73%** of the acceptance criteria exist in code (1275 of 1753).
+- **Proven: 51%** carry a named acceptance test (897 of 1753).
 - **Launch readiness: 18 requirements of 359 (5%)** are ready in the sense that matters for a
   release: every criterion met, no open owner decision, no outstanding review. Another 74 have every criterion addressed but carry a
   review or an unproven criterion.

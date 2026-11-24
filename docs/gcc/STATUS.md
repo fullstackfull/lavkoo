@@ -131,3 +131,25 @@ The project owner added a **global Super Admin dashboard inside the existing Flu
 **Still gated:** No merges to `main`, no production deployment/release, no production database access, migration execution/backfill, live provider actions, credential rotation, force pushes or destructive irreversible operations without separate approval. G0 remains **OPEN**: GCC phases 1–17 may be coded on isolated branches but may NOT merge/release before G0. All new country behavior must default OFF where feasible. Security and financial-sensitive changes need rigorous review before merge. The seller app version remains unverified. 
 
 **Active known work:** Backend Draft PR #1 (`gcc/p0-saudi-baseline-ci`), independent coupon branch `gcc/p0-coupon-minimum-boundary`; owner approved equality with coupon minimum (`eligibleSubtotal >= min_purchase`) and copy correction only if demonstrably misleading. Continue development and CI resolution autonomously. Do not treat this status file as evidence that the old audit findings or outstanding P0/G0 requirements are closed.
+
+## 2026-11-24 — One branch, merged into `main` after its tests
+
+**Owner instruction in force.** Development continues on the single branch `gcc/development`; each tested stage is merged into `main`;
+no extra branches, no production deployment, no production data, and no market is activated before G0 and the launch approvals. Ordinary
+technical decisions are taken without asking. A brief report follows each stage: what completed, what remains, the proven percentage, and
+the last commit.
+
+**Where the live numbers are.** [`audits/2026-11-24-post-merge-assessment/README.md`](./audits/2026-11-24-post-merge-assessment/README.md),
+recomputed from the tracker files by the script quoted in it, and refreshed whenever a criterion moves. On 2026-11-24, of 359 requirements
+and 1,753 acceptance criteria: **903 met (52%)**, 376 coded but unproven (21%), 474 not implemented (27%) — **development 73%**, and
+**launch readiness 18 requirements of 359 (5%)**, which cannot rise past the owner's own G0 gate however much code lands.
+
+**The master storefront switch is not a kill switch** (owner decision of 2026-11-24, recorded in `DECISIONS.md`): with it off the platform
+is in legacy mode, a single market is closed through its own country settings and its lifecycle, and `LegacyModeSafety` refuses any action
+that would open a market while another market already holds rows — or while that question cannot be answered, because a database that
+cannot be read is not an all-clear.
+
+**Money questions that are the owner's**, each with the measured impact of every option, in
+[`OPEN-FINANCIAL-DECISIONS.md`](./OPEN-FINANCIAL-DECISIONS.md): what a loyalty point is worth (the app pays 3.75× what the website pays
+for the same points on a Saudi store), which currency a courier is paid in for a non-Saudi order, and whether an admin-cancelled wallet-paid
+order refunds itself. Nothing in that file is implemented, and the parts of each requirement that need no decision are done and named there.

@@ -657,7 +657,7 @@ Every card gives the ten fields of the directive: (1) id and name, (2) functiona
 - **(8) Dependencies and blockers.** A2-09 for labels. Display of each order's currency belongs to the GCC-05 currency work.
 - **(9) Acceptance criteria.**
   - [CODED] The API and website order lists return the signed-in customer's registered orders from every storefront and no one else's (CustomerController::get_order_list and UserProfileController::account_order on main (customer_id and is_guest = 0); no test of the list endpoints)
-  - [CODED] A signed-in customer cannot read, cancel, refund or download another customer's or a guest's order by id (ApiCustomerOrderOwnershipTest and WebCustomerOrderOwnershipTest, PR 16 65d2d09; in no integration tree)
+  - [MET] A signed-in customer cannot read, cancel, refund or download another customer's or a guest's order by id ("in no integration tree" was true of PR 16 before the merge; both files are in main and in the CI security group -- ApiCustomerOrderOwnershipTest and WebCustomerOrderOwnershipTest, 15 tests, green on SQLite 8.3 on 2026-11-24 and in the 'Fulfillment + security' jobs of run 648)
   - [MET] Cancel, refund request and due payment of a placed order stay open on a storefront that may not sell (StorefrontSalesRoutesTest, PR 83 8ff3410, Storefront tests MySQL 8 and MariaDB 11.4.2; PR 42 2534953, Tests SQLite)
   - [MISSING] Each listed order names its market, currency and selling company (no such key in any answer)
   - [MISSING] The website and the app can show or filter the history by market (no filter or label in any tree)
