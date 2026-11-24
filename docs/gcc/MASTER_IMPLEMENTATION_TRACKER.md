@@ -162,7 +162,7 @@ Executable on an isolated branch without production access, ordered by the prior
 | [A1-15](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 3/1/1 | Cache keys that are not theme caches are market-scoped |
 | [A1-16](tracker/axis-a-six-country-base-and-customer-identity.md) | IMPLEMENTED IN DRAFT | 4/0/0 | App-local caches in the Flutter apps are market-scoped |
 | [A1-17](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 2/0/3 | Notifications are market-scoped (push topics, queued mail) |
-| [A1-18](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 2/1/2 | Inventory is market-scoped: no shared stock between countries |
+| [A1-18](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 4/0/1 | Inventory is market-scoped: no shared stock between countries |
 | [A1-V1](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 0/3/1 | One platform: one website, one customer Flutter app and one central control panel serve all six mark... |
 | [A1-V2](tracker/axis-a-six-country-base-and-customer-identity.md) | NOT STARTED | 0/1/3 | SEO surfaces (canonical URL, hreflang, sitemap, robots, SEO redirects) are market-scoped. |
 | [A2-01](tracker/axis-a-six-country-base-and-customer-identity.md) | IN PROGRESS | 2/1/2 | One customer record serves all six markets |
