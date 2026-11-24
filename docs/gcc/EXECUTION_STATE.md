@@ -15,8 +15,12 @@ or financial control. A pending owner decision stops its own task, never the pro
 | repository | branch | tip | merged to main |
 |---|---|---|---|
 | `fullstackfull/lavkoo` | `gcc/development` | see `git log -1` | up to `ca4f68e0`, whose tree is byte-identical to `bc39790` -- the SHA CI run 655 proved green. Everything after it waits on a green run of its own |
-| `fullstackfull/lavkooapp` | `gcc/development` | `c122c74` | not yet |
+| `fullstackfull/lavkooapp` | `gcc/development` | see `git log -1` | up to `78fa518`, whose tree is byte-identical to `9a4e1c2` -- the SHA CI run 51 proved green |
 | `fullstackfull/lavkooappseller` | `claude/intelligent-franklin-jq3d4h` | — | its GCC work is already on main |
+
+The customer app's CI has no `workflow_dispatch`: it runs on a push to `gcc/**`, so every push to that branch is its own
+run and no dispatch is needed. The backend's runs ONLY on dispatch for a branch, so a push there has to be followed by
+one.
 
 **How a stage is merged.** CI is dispatched on the branch tip; when it comes back green, THAT SHA is merged into `main`
 with `--no-ff` and nothing newer is swept in with it. The check is mechanical: `git diff <tested sha> HEAD --name-only`
@@ -64,15 +68,18 @@ Done since this file was written: H1-02, H1-03 (its admin screen and audit inclu
 paths, the website, the stored decision, the dispatch re-ask) and H1-04 (the regulated gate, its clearance, the whole
 refusal vocabulary in Arabic and English, and the customer app showing every reason).
 
-1. **H1-09** — duty and tax on a cross-border order, reading the customs facts H1-03 put on the product
-   (`products.hs_code`, `origin_country`, `weight_grams`). The engine already says whether an order crosses a border
-   and the order already stores that decision, so this computes and records, it does not re-decide.
-2. **H1-04 remainder** — the seller app has no screen at all that shows why a shipment is held. That is the only part
-   of H1-04 left, and it is a screen rather than a rule.
-3. **H1-02 remainder** — filtering candidate cities by the country of OUR city. Blocked on H1-10 / the address system
+H1-09 is done but for one criterion, and that one is BLOCKED rather than unwritten: naming which tax regime a
+cross-border sale falls under needs the owner's Q-11 answered. H1-03 and H1-06 are complete in code.
+
+1. **The seller app has no screen that shows why a shipment is held**, and nothing in the seller API exposes
+   `provider_fulfillments.hold_reason` -- it is read by services and the admin side only. So this is a backend endpoint
+   (the seller's own held shipments, with the reasons translated) and then a screen. It is the last part of both H1-04
+   and H1-06, and the only reason either is not complete.
+2. **H1-02 remainder** — filtering candidate cities by the country of OUR city. Blocked on H1-10 / the address system
    going multi-country; recorded as blocked rather than faked.
-4. The rest of axis H, then the axes with the most missing, by dependency rather than by ease: L (GCC-20 super admin),
-   K and J (the two apps), B, F, G.
+3. **H1-08** (shipping cost per destination and route) and **H1-05** (country-aware address rules), then the rest of
+   axis H, then the axes with the most missing, by dependency rather than by ease: L (GCC-20 super admin), K and J (the
+   two apps), B, F, G.
 
 ## Rules this work follows, learned the hard way
 
@@ -89,3 +96,11 @@ refusal vocabulary in Arabic and English, and the customer app showing every rea
   included.
 - A gate that prints a count and withholds the lines costs a round trip every time it fires. When one does that, make it
   print what it found before fixing what it found (the app's `analyze` job, now fixed).
+- `resources/lang` is test-managed: `translate()` writes into it and `RestoresLanguageFiles` puts it back. An edit made
+  there while a suite is running is silently reverted, which looks exactly like the edit never happening.
+- SQLite does not enforce what MySQL does. An index name Laravel builds from a long table and two columns passed the
+  whole SQLite suite and failed on MariaDB at 69 characters against a limit of 64; `MigrationIdentifierLengthTest` now
+  catches that from the source. Run a new migration against the container's MariaDB (`-c phpunit.mysql.xml`) before
+  believing it.
+- A static schema cache in a service outlives the schema on a real server, where every test drops the tables. Such a
+  cache belongs in the base `TestCase`'s flush list, not in each test that happens to trip over it.
