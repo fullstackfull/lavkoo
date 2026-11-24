@@ -2,7 +2,6 @@
 
 namespace App\Services\Loyalty;
 
-use App\Models\BusinessSetting;
 use App\Utils\Convert;
 
 /**
@@ -78,7 +77,8 @@ final class WhatAPointIsWorth
      */
     private static function oneDollarPerRate(float $points): float
     {
-        $rate = BusinessSetting::where('type', 'loyalty_point_exchange_rate')->first()->value;
+        // getWebConfig, so a market with its own exchange rate converts at ITS rate (E-02), and everything else reads the platform's.
+        $rate = getWebConfig(name: 'loyalty_point_exchange_rate');
 
         return ($points / $rate) * Convert::default(1);
     }

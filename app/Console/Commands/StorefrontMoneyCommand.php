@@ -11,13 +11,16 @@ use Illuminate\Support\Facades\Schema;
 
 class StorefrontMoneyCommand extends Command
 {
+    /** A loyalty setting is a flag, a percentage, a rate or a count of points -- never an amount of the market's money, so its currency's decimals do not apply. */
+    private const LOYALTY_DECIMALS = 4;
+
     protected $signature = 'gcc:storefront:money
         {country : the storefront, for example KW}
-        {setting : minimum_order_amount or free_delivery_over_amount}
-        {amount? : the amount in the currency of that storefront, as its customers read it, for example 5.000 for five dinars}
-        {--unset : remove the amount, so that the storefront has no minimum (or no free delivery) again}';
+        {setting : minimum_order_amount, free_delivery_over_amount, or one of the loyalty settings (loyalty_point_status, loyalty_point_item_purchase_point, loyalty_point_exchange_rate, loyalty_point_minimum_point)}
+        {amount? : an amount in the currency of that storefront, as its customers read it (5.000 for five dinars); a loyalty setting takes a plain number instead -- 1 or 0 for the status, a percentage for the earn rate, points per one unit of money for the exchange rate, a count of points for the minimum}
+        {--unset : remove the value, so that the storefront has no minimum (or no free delivery) again, or runs the platform\'s loyalty programme again}';
 
-    protected $description = 'Gives a storefront that trades in its own currency its minimum order or its free-delivery threshold, in that currency. The platform\'s own amounts are typed in the platform\'s money and are never read by such a storefront. Works while the switches are off, and then nothing reads the value yet';
+    protected $description = 'Gives a storefront that trades in its own currency its own money settings: its minimum order and free-delivery threshold in that currency, and its own loyalty programme (status, earn rate, exchange rate, minimum points). The platform\'s own values are typed in the platform\'s money and are never read by such a storefront, and a loyalty setting the storefront has not been given leaves the platform\'s programme in force. Works while the switches are off, and then nothing reads the value yet';
 
     public function handle(StorefrontCurrency $storefrontCurrency): int
     {
@@ -26,14 +29,15 @@ class StorefrontMoneyCommand extends Command
         $amount = $this->argument('amount');
         $resolver = StorefrontResolver::fromConfig();
         $currencyCode = in_array($country, $resolver->configuredCountries(), true) ? $resolver->currencyOf($country) : '';
-        $normalised = is_string($amount) ? $this->normalised(amount: trim($amount), decimals: $storefrontCurrency->decimalsOf($currencyCode)) : null;
+        $decimals = $this->isLoyalty($setting) ? self::LOYALTY_DECIMALS : $storefrontCurrency->decimalsOf($currencyCode);
+        $normalised = is_string($amount) ? $this->normalised(amount: trim($amount), decimals: $decimals) : null;
 
         $refusal = $this->refusal(
             country: $country,
             setting: $setting,
             amountGiven: $amount !== null,
             amountValid: $normalised !== null,
-            decimals: $storefrontCurrency->decimalsOf($currencyCode),
+            decimals: $decimals,
             currencyCode: $currencyCode,
             defaultCountry: $resolver->defaultCountry(),
         );
@@ -47,9 +51,12 @@ class StorefrontMoneyCommand extends Command
         [$before, $after] = $this->write(country: $country, setting: $setting, currencyCode: $currencyCode, amount: $normalised);
 
         $this->info(sprintf('%s %s: %s -> %s (%s).', $country, $setting, $before ?? 'not set', $after ?? 'not set', $currencyCode));
-        $this->line($storefrontCurrency->isEnabled()
-            ? 'The storefront reads this value now: it is the amount in its own currency, with no conversion.'
-            : 'The storefront currency switches are off, so nothing reads this value yet.');
+        $this->line(match (true) {
+            !$storefrontCurrency->isEnabled() => 'The storefront currency switches are off, so nothing reads this value yet.',
+            $this->isLoyalty($setting) && $after === null => "The storefront runs the platform's loyalty programme again for this setting.",
+            $this->isLoyalty($setting) => 'The storefront reads this value now: its own loyalty programme, read by the website, the API and both apps through getWebConfig.',
+            default => 'The storefront reads this value now: it is the amount in its own currency, with no conversion.',
+        });
 
         return self::SUCCESS;
     }
@@ -60,13 +67,25 @@ class StorefrontMoneyCommand extends Command
             $country === $defaultCountry => "{$country} is the default storefront: its amounts are the platform's, set in the admin panel.",
             $currencyCode === '' => "{$country} is not a configured storefront.",
             in_array($setting, StorefrontCurrency::AMOUNT_SETTINGS, true) && !in_array($setting, StorefrontCurrency::STOREFRONT_AMOUNTS, true) => "{$setting} is not set per storefront: the wallet limits belong to the per-market wallets (GCC-15), and the seller threshold is the Saudi sellers'.",
-            !in_array($setting, StorefrontCurrency::STOREFRONT_AMOUNTS, true) => "{$setting} is not an amount a storefront can be given. Use " . implode(' or ', StorefrontCurrency::STOREFRONT_AMOUNTS) . '.',
-            $this->option('unset') && $amountGiven => 'Give an amount or --unset, not both.',
-            !$this->option('unset') && !$amountGiven => 'Give the amount in ' . $currencyCode . ', or --unset to remove it.',
+            !$this->isSettable($setting) => "{$setting} is not something a storefront can be given. Use " . implode(' or ', [...StorefrontCurrency::STOREFRONT_AMOUNTS, ...StorefrontCurrency::LOYALTY_SETTINGS]) . '.',
+            $this->option('unset') && $amountGiven => 'Give a value or --unset, not both.',
+            !$this->option('unset') && !$amountGiven => $this->isLoyalty($setting) ? 'Give the value as a plain number, or --unset to run the platform\'s loyalty programme again.' : 'Give the amount in ' . $currencyCode . ', or --unset to remove it.',
+            $setting === 'loyalty_point_status' && $amountGiven && !in_array($this->argument('amount'), ['0', '1'], true) => 'The loyalty status is 1 (the market runs its own programme) or 0 (the market earns no points).',
+            $amountGiven && !$amountValid && $this->isLoyalty($setting) => "The value must be a plain number that is not negative, with at most {$decimals} decimals.",
             $amountGiven && !$amountValid => "The amount must be a plain number that is not negative, with at most {$decimals} decimals ({$currencyCode}).",
             !Schema::hasTable('business_settings') => 'There is no business_settings table.',
             default => null,
         };
+    }
+
+    private function isLoyalty(string $setting): bool
+    {
+        return in_array($setting, StorefrontCurrency::LOYALTY_SETTINGS, true);
+    }
+
+    private function isSettable(string $setting): bool
+    {
+        return in_array($setting, StorefrontCurrency::STOREFRONT_AMOUNTS, true) || $this->isLoyalty($setting);
     }
 
     /** The amount with exactly the decimals of the currency, or null when it is not a plain non-negative number that fits them. */

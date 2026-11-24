@@ -40,8 +40,18 @@ final class StorefrontCurrency
      */
     public const CLOSED_SETTINGS = ['wallet_status', 'add_funds_to_wallet'];
 
+    /**
+     * The loyalty programme of one market (E-02): whether it runs, what an order earns, how many points buy one unit of money, and how few
+     * may be converted. A market that names none of them runs the platform's programme, which is what every market does until an operator
+     * gives it its own with `gcc:storefront:money`.
+     */
+    public const LOYALTY_SETTINGS = ['loyalty_point_status', 'loyalty_point_item_purchase_point', 'loyalty_point_exchange_rate', 'loyalty_point_minimum_point'];
+
+    /** Points per one unit of the market's money: a rate typed against another currency is the wrong rate, so it is guarded like an amount. */
+    private const POINTS_PER_UNIT = 'loyalty_point_exchange_rate';
+
     /** The business settings a storefront answers for itself while it trades in its own currency. */
-    public const OVERRIDDEN_SETTINGS = [...self::CURRENCY_SETTINGS, ...self::AMOUNT_SETTINGS, ...self::CLOSED_SETTINGS];
+    public const OVERRIDDEN_SETTINGS = [...self::CURRENCY_SETTINGS, ...self::AMOUNT_SETTINGS, ...self::CLOSED_SETTINGS, ...self::LOYALTY_SETTINGS];
 
     /**
      * The settings an order's own record answers while that order's figures are printed. The platform's default currency is deliberately not one
@@ -107,6 +117,7 @@ final class StorefrontCurrency
         return match ($setting) {
             'system_default_currency', 'currency_model', 'decimal_point_settings' => $this->currencySettingOf(setting: $setting, currency: $storefront['currency']),
             'minimum_order_amount', 'free_delivery_over_amount' => $this->amountOf(country: $storefront['country'], setting: $setting, currencyCode: $storefront['currency']->code),
+            'loyalty_point_status', 'loyalty_point_item_purchase_point', 'loyalty_point_exchange_rate', 'loyalty_point_minimum_point' => $this->loyaltySettingOf(country: $storefront['country'], setting: $setting, currencyCode: $storefront['currency']->code),
             default => self::NEUTRAL_AMOUNT,
         };
     }
@@ -508,6 +519,31 @@ final class StorefrontCurrency
         return is_array($row) && strcasecmp((string) ($row['currency'] ?? ''), $currencyCode) === 0
             ? $this->plainAmount($row[$setting] ?? null) ?? self::NEUTRAL_AMOUNT
             : self::NEUTRAL_AMOUNT;
+    }
+
+    /**
+     * What one market's loyalty programme says, or null when it says nothing and the platform's programme stands (E-02).
+     *
+     * Null rather than zero, which is the opposite of an amount: a market with no minimum order has NO minimum, while a market that has not
+     * been given a loyalty programme runs the one every market runs today. Answering zero here would switch loyalty off in five markets the
+     * moment the storefront switches went on, which nobody asked for.
+     *
+     * The exchange rate is points per one unit of the market's money, so a row typed against another currency holds the wrong rate and is
+     * read as nothing; the status, the earn rate and the minimum are a flag, a percentage and a count of points, none of them money.
+     */
+    private function loyaltySettingOf(string $country, string $setting, string $currencyCode): string|int|null
+    {
+        $row = getWebConfig(self::amountRowName($country));
+
+        if (!is_array($row) || !array_key_exists($setting, $row)) {
+            return null;
+        }
+
+        if ($setting === self::POINTS_PER_UNIT && strcasecmp((string) ($row['currency'] ?? ''), $currencyCode) !== 0) {
+            return null;
+        }
+
+        return $this->plainAmount($row[$setting] ?? null);
     }
 
     /** The amount as text when it is a plain number that is not negative, else null. */

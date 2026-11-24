@@ -1642,8 +1642,12 @@ class OrderManager
 
     public static function addOrderDetailsRewardData($orderId, $productId, $orderDetailsId, $price, $totalPrice, $couponCode, $couponDiscount): void
     {
-        $loyaltyPointKeys = self::getLoyaltyPointKeys();
-        $businessSettings = BusinessSetting::whereIn('type', $loyaltyPointKeys)->pluck('value', 'type')->toArray();
+        // Through getWebConfig, so a market with its own loyalty programme records its own points on its own lines (E-02); the platform's
+        // market, and anything serving no market, read the platform's values exactly as before.
+        $businessSettings = [];
+        foreach (self::getLoyaltyPointKeys() as $loyaltyPointKey) {
+            $businessSettings[$loyaltyPointKey] = getWebConfig(name: $loyaltyPointKey);
+        }
         $loyaltyPointStatus = (int)($businessSettings['loyalty_point_status'] ?? 0);
         $loyaltyPointForEachOrder = (int)($businessSettings['loyalty_point_for_each_order'] ?? 0);
 

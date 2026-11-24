@@ -97,7 +97,13 @@ class CustomerManager
     }
     public static function create_loyalty_point_transaction($user_id, $reference, $amount, $transaction_type, ?LedgerOrigin $origin = null): bool
     {
-        $settings = array_column(BusinessSetting::whereIn('type', ['loyalty_point_status', 'loyalty_point_exchange_rate', 'loyalty_point_item_purchase_point'])->get()->toArray(), 'value', 'type');
+        // Read through getWebConfig, not off the row, so that a market with its own loyalty programme earns at ITS rate and not the
+        // platform's (E-02). getWebConfig asks StorefrontCurrency::override() first, which answers for the market the request is in and
+        // answers nothing for the platform's own market and for a panel, a queue or a console command -- so Saudi earns what it always has.
+        $settings = [];
+        foreach (['loyalty_point_status', 'loyalty_point_exchange_rate', 'loyalty_point_item_purchase_point'] as $key) {
+            $settings[$key] = getWebConfig(name: $key);
+        }
         if ($settings['loyalty_point_status'] != 1) {
             return true;
         }

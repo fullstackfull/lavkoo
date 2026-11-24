@@ -155,7 +155,9 @@ class StorefrontMoneyCommandTest extends TestCase
             'the wallet limit' => [['country' => 'KW', 'setting' => 'maximum_add_fund_amount', 'amount' => '5'], 'not set per storefront'],
             'the other wallet limit' => [['country' => 'KW', 'setting' => 'minimum_add_fund_amount', 'amount' => '5'], 'not set per storefront'],
             'the seller threshold' => [['country' => 'KW', 'setting' => 'free_delivery_over_amount_seller', 'amount' => '5'], 'not set per storefront'],
-            'a setting that is not an amount' => [['country' => 'KW', 'setting' => 'currency_model', 'amount' => '5'], 'is not an amount a storefront can be given'],
+            // The wording changed with E-02, because the command now also takes a market's loyalty settings, which are not amounts.
+            'a setting a storefront cannot be given' => [['country' => 'KW', 'setting' => 'currency_model', 'amount' => '5'], 'is not something a storefront can be given'],
+            'a loyalty status that is neither on nor off' => [['country' => 'KW', 'setting' => 'loyalty_point_status', 'amount' => '2'], 'The loyalty status is 1'],
             'no amount' => [['country' => 'KW', 'setting' => 'minimum_order_amount'], 'Give the amount in KWD, or --unset'],
             'an amount and --unset' => [['country' => 'KW', 'setting' => 'minimum_order_amount', 'amount' => '5', '--unset' => true], 'not both'],
             'a negative amount' => [['country' => 'KW', 'setting' => 'minimum_order_amount', 'amount' => '-5'], 'plain number that is not negative'],
