@@ -32,7 +32,15 @@ final class StorefrontCurrency
     public const AMOUNT_SETTINGS = ['minimum_order_amount', 'free_delivery_over_amount', 'free_delivery_over_amount_seller', 'minimum_add_fund_amount', 'maximum_add_fund_amount'];
 
     /** The amounts an operator may give a storefront (gcc:storefront:money). The others answer the neutral value while its money is in force. */
-    public const STOREFRONT_AMOUNTS = ['minimum_order_amount', 'free_delivery_over_amount'];
+    /**
+     * The amounts an operator can give one market, in that market's own currency.
+     *
+     * The two top-up limits joined them once E-01 gave a market a wallet of its own (D2-V2): before that they answered a flat 0 in every
+     * market but the default one, which closed top-ups there rather than limiting them, because there was no wallet to limit. A market that
+     * has not been given its own limits still answers 0, so nothing changes until an operator sets them -- and whether a market's wallet is
+     * OPEN at all is still `wallet_status` and `add_funds_to_wallet`, which are not settable here: a limit on a closed wallet is never read.
+     */
+    public const STOREFRONT_AMOUNTS = ['minimum_order_amount', 'free_delivery_over_amount', 'minimum_add_fund_amount', 'maximum_add_fund_amount'];
 
     /**
      * The settings that open the wallet. A customer has one balance, kept in the platform's money, until the balances are per market (GCC-15), so nothing may be
@@ -116,7 +124,7 @@ final class StorefrontCurrency
 
         return match ($setting) {
             'system_default_currency', 'currency_model', 'decimal_point_settings' => $this->currencySettingOf(setting: $setting, currency: $storefront['currency']),
-            'minimum_order_amount', 'free_delivery_over_amount' => $this->amountOf(country: $storefront['country'], setting: $setting, currencyCode: $storefront['currency']->code),
+            'minimum_order_amount', 'free_delivery_over_amount', 'minimum_add_fund_amount', 'maximum_add_fund_amount' => $this->amountOf(country: $storefront['country'], setting: $setting, currencyCode: $storefront['currency']->code),
             'loyalty_point_status', 'loyalty_point_item_purchase_point', 'loyalty_point_exchange_rate', 'loyalty_point_minimum_point' => $this->loyaltySettingOf(country: $storefront['country'], setting: $setting, currencyCode: $storefront['currency']->code),
             default => self::NEUTRAL_AMOUNT,
         };

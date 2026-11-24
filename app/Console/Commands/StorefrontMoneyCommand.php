@@ -66,7 +66,7 @@ class StorefrontMoneyCommand extends Command
         return match (true) {
             $country === $defaultCountry => "{$country} is the default storefront: its amounts are the platform's, set in the admin panel.",
             $currencyCode === '' => "{$country} is not a configured storefront.",
-            in_array($setting, StorefrontCurrency::AMOUNT_SETTINGS, true) && !in_array($setting, StorefrontCurrency::STOREFRONT_AMOUNTS, true) => "{$setting} is not set per storefront: the wallet limits belong to the per-market wallets (GCC-15), and the seller threshold is the Saudi sellers'.",
+            in_array($setting, StorefrontCurrency::AMOUNT_SETTINGS, true) && !in_array($setting, StorefrontCurrency::STOREFRONT_AMOUNTS, true) => "{$setting} is not set per storefront: the seller threshold is the Saudi sellers'.",
             !$this->isSettable($setting) => "{$setting} is not something a storefront can be given. Use " . implode(' or ', [...StorefrontCurrency::STOREFRONT_AMOUNTS, ...StorefrontCurrency::LOYALTY_SETTINGS]) . '.',
             $this->option('unset') && $amountGiven => 'Give a value or --unset, not both.',
             !$this->option('unset') && !$amountGiven => $this->isLoyalty($setting) ? 'Give the value as a plain number, or --unset to run the platform\'s loyalty programme again.' : 'Give the amount in ' . $currencyCode . ', or --unset to remove it.',
