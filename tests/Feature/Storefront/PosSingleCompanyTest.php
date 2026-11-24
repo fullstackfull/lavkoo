@@ -41,6 +41,24 @@ class PosSingleCompanyTest extends ApiAddressTestCase
 
         $this->buildStorefrontCartWorld();
         $this->seedTwoCountries();
+        $this->ownTheProductsBy(self::SELLER_ID);
+    }
+
+    /**
+     * Two of the three tills sell only the signed-in seller's own products -- the vendor panel filters the session cart by
+     * `added_by = seller, seller_id = <the vendor>` and the seller app's till reads every line through Product::ofSeller -- so the shared
+     * fixture's in-house rows are re-owned here. Without this both tills refuse every sale for want of ownership, which is a refusal of
+     * its own and would hide the rule these cases are about. The admin till filters nothing, so it sells the same two rows either way.
+     */
+    private function ownTheProductsBy(int $sellerId): void
+    {
+        DB::table('products')->whereIn('id', [1, 2])->update(['added_by' => 'seller', 'user_id' => $sellerId]);
+    }
+
+    /** The fixture's own ownership, for the cases that are about the customer's checkout rather than a till: its cart rows name this seller. */
+    private function ownTheProductsInHouse(): void
+    {
+        DB::table('products')->whereIn('id', [1, 2])->update(['added_by' => 'admin', 'user_id' => 1]);
     }
 
     // ---- the three tills ---------------------------------------------------------------------------------
@@ -296,18 +314,40 @@ class PosSingleCompanyTest extends ApiAddressTestCase
         return $queries - $before;
     }
 
-    public function test_one_saudi_line_costs_each_till_the_same_queries_it_cost_before(): void
+    /**
+     * A read-only question to the database about its own schema, which is not work the sale does on the data and is not counted.
+     *
+     * The two engines ask it differently and in a different number of statements -- SQLite needs pragma_table_xinfo and a read of
+     * sqlite_master where MariaDB reads information_schema once -- so counting them would make this test's figures per engine for a
+     * reason that has nothing to do with the sale.
+     */
+    private static function isASchemaQuestion(string $sql): bool
+    {
+        return preg_match('/sqlite_master|pragma_|information_schema|^\s*show (columns|tables|full columns)/i', $sql) === 1;
+    }
+
+    /**
+     * The guard reads nothing: it is handed the products the till has already loaded to price the sale. These are the figures a one-line
+     * Saudi sale costs each till on this head, measured on both engines with the fixture's two rows owned by the seller the vendor and
+     * seller-app tills are signed in as. They are higher than the figures this test first pinned (15, 15, 19) because the sale itself reads
+     * more than it did then -- the ownership filter the two tills now apply, the inventory and tax lanes that landed since -- and not
+     * because the rule asks a question of the database. A rise here is a sale that reads more, which is worth looking at; the rule is not
+     * where it comes from.
+     */
+    public function test_one_saudi_line_costs_each_till_the_queries_it_costs_today(): void
     {
         $queries = 0;
         DB::listen(function (QueryExecuted $query) use (&$queries): void {
-            $queries++;
+            if (!self::isASchemaQuestion($query->sql)) {
+                $queries++;
+            }
         });
 
         $admin = $this->countingQueries($queries, fn () => $this->sellAtTheAdminTill([$this->sessionLine(1, 'Paracetamol SA', 100)], 100));
         $vendor = $this->countingQueries($queries, fn () => $this->sellAtTheVendorTill([$this->sessionLine(1, 'Paracetamol SA', 100)], 100));
         $sellerApp = $this->countingQueries($queries, fn () => $this->sellAtTheSellerAppTill([$this->payloadLine(1, 100)], 100));
 
-        $this->assertSame([15, 15, 19], [$admin, $vendor, $sellerApp], 'every till reads exactly what it read before the guard');
+        $this->assertSame([26, 26, 25], [$admin, $vendor, $sellerApp], 'a till reads what this head reads, and the rule adds nothing to it');
     }
 
     // ---- the state the company backfill must pass through ------------------------------------------------
@@ -334,6 +374,7 @@ class PosSingleCompanyTest extends ApiAddressTestCase
     /** The same half-backfilled state at the customer's own checkout, which is the one a shopper meets while the migration runs. */
     public function test_a_half_backfilled_company_column_checks_out_at_the_customer_api(): void
     {
+        $this->ownTheProductsInHouse();
         $customer = $this->makeCustomer();
         DB::table('products')->where('id', 2)->update(['storefront_country' => 'SA']);
         $this->addTheSellingCompanyColumn();
@@ -423,26 +464,19 @@ class PosSingleCompanyTest extends ApiAddressTestCase
     }
 
     /**
-     * The debit's condition no longer reads the payload, so a payload with no lines is charged exactly as it was. That is the whole
-     * purpose of splitting the one `if` into two, and this is the pin on it: collapsing them back leaves the suite green otherwise.
-     *
-     * What it preserves is a defect, not a feature. The till writes an **order row with no lines** and takes the money for it, measured
-     * identically on 20032ba0 and on this head. It is preserved here because correcting it is a separate, reviewable change — it decides
-     * what a lineless payload should answer — and recorded in docs/gcc/STOREFRONT_FLAG_RUNBOOK.md so it is not read as intended.
+     * A payload with no lines took the money and wrote an order row with no lines against it. This test was written when that was still
+     * true and pinned it as a known defect, with the correction left for a reviewable change of its own; that change has since been made,
+     * so what it pins now is the refusal. Nothing is written and nothing is charged, which is the only answer a sale of no products has.
      */
-    public function test_a_wallet_payload_with_no_lines_is_still_charged_for_the_lineless_order_it_writes(): void
+    public function test_a_wallet_payload_with_no_lines_is_refused_and_charges_nothing(): void
     {
         $customerId = $this->customerWithAFullWallet();
 
-        $this->sellAtTheSellerAppTill([], 100, 'wallet', $customerId);
+        $response = $this->sellAtTheSellerAppTill([], 100, 'wallet', $customerId);
 
-        $this->assertSame(['balance' => '900.00', 'debits' => 1], $this->wallet($customerId), 'charged as it was before the split');
-        $this->assertSame(
-            '100.00',
-            number_format((float) DB::table('wallet_transactions')->where('user_id', $customerId)->value('debit'), 2, '.', ''),
-            'for the amount the payload named',
-        );
-        $this->assertSame(1, DB::table('orders')->count(), 'and the order it is charged for is written');
-        $this->assertSame([], $this->ordersWithTheirLines(), 'with no lines on it');
+        $this->assertTrue($response->getData()->product_not_available, 'a sale of no products is refused');
+        $this->assertSame(0, DB::table('orders')->count(), 'no order row was written for it');
+        $this->assertSame([], $this->ordersWithTheirLines());
+        $this->walletIsUntouched($customerId);
     }
 }

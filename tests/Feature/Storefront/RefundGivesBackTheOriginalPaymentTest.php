@@ -134,20 +134,29 @@ class RefundGivesBackTheOriginalPaymentTest extends ApiAddressTestCase
      *
      * Per engine, because MariaDB qualifies the column of an update with its table where SQLite does not; both were measured on the base.
      *
+     * Three of the four digests were re-recorded when the lanes were unified, and none of the three counts was: each route still issues exactly the
+     * base's number of statements. Two text changes account for all three, and both are a lane's own fix rather than this route doing more work:
+     *
+     *   - the request route, on both engines: the ownership check now asks for `is_guest` as well (`Order::ownedByCustomer`), so a guest's order can no
+     *     longer be refunded by whoever quotes its line;
+     *   - the payout route, on MariaDB only: the customer's row is read `for update`, under the lock every wallet write now takes
+     *     (App\Services\Customer\CustomerBalanceLock), so two refunds of one customer can no longer read the same balance and each write it back.
+     *     SQLite compiles that lock to nothing, which is why the SQLite payout digest is still the base's, byte for byte, and is left as it was.
+     *
      * @var array<string, array{ask: int, ask_digest: string, pay: int, pay_digest: string}>
      */
     private const BASE = [
         'sqlite' => [
             'ask' => 21,
-            'ask_digest' => '7952ca17c1dc0de60c41b75a4239c982efdada3e444e5d23b1c3fc1242146f26',
+            'ask_digest' => 'af2926e03efb701f955f82466088c21a2d7ae079ac51bf247c483c7f921e37f6',
             'pay' => 30,
             'pay_digest' => '896195f05bc4233749f1b01739a419b5e6e506d8b8c7aeed51ffa45abc896afe',
         ],
         'mysql' => [
             'ask' => 21,
-            'ask_digest' => '23e0b0857cb449e6df10e8fd572137d147b18002675b73f94cfc4b0dff61f09b',
+            'ask_digest' => 'db43a9cb1b24259716fe9fe8cbbacb5360b60b36f1f4a8e30c243cecac4ebc7d',
             'pay' => 30,
-            'pay_digest' => '35633164c8dee1d90a6c34b629e200b033204d2a636b5a5f245f0bc334e3d9ff',
+            'pay_digest' => '60f7c5fa2704659afd3f7b85eae1267370fa531513e22e64b6516a046f87deb7',
         ],
     ];
 

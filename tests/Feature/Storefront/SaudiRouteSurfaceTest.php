@@ -120,6 +120,12 @@ class SaudiRouteSurfaceTest extends TestCase
 
         // The same address as main's, hardened from GET to POST: see DECLARED_DEPARTURES, where its GET is accounted for.
         'POST vendor/business-settings/withdraw/close/{id} | vendor.business-settings.withdraw.close',
+
+        // A company's own notification address (D2-09), beside the platform-wide one main already serves. The token in the path names one
+        // gateway account of one company and the delivery is authenticated with that account's own secret, so the address answers nothing
+        // until a company has an account with a token: while per-company accounts are off it resolves no account and refuses every
+        // request, and the Saudi platform keeps taking every notification at the address it takes them at today.
+        'POST api/payments/account/{account}/webhook | payments.account.webhook',
     ];
 
     /**

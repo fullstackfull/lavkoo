@@ -31,10 +31,11 @@ use Tests\TestCase;
  * GCC-05, slice 5: the admin coupon form shows the amount that is stored, and the coupon list prints each coupon in its own money.
  *
  * An editable field is not a read-out. The form posts back the figure it shows, so a field filled one unit of the smallest denomination
- * below the stored amount saves that lower amount the next time an administrator presses Update, and the amount drops again on the edit
- * after that: 4.35 is 4.34999999999999964 in binary and the platform's display helper floors it to 4.34 at two decimals. These cases hold
- * the whole matrix the plan asks for (I1-12.1, I1-12.2): the single-currency model and the model that converts from a base currency, two
- * decimals and the three of the dinar, the platform's own money and the money of a storefront that trades in its own.
+ * below the stored amount saved that lower amount the next time an administrator pressed Update, and the amount dropped again on the edit
+ * after that: 4.35 is 4.34999999999999964 in binary, and the platform's display helper used to floor it to 4.34 at two decimals. E-11
+ * closed that loss in both helpers, so a read-out and a field now show the figure the amount is, and these cases hold the whole matrix
+ * the plan asks for (I1-12.1, I1-12.2): the single-currency model and the model that converts from a base currency, two decimals and the
+ * three of the dinar, the platform's own money and the money of a storefront that trades in its own.
  */
 class StorefrontCouponFormMoneyTest extends TestCase
 {
@@ -323,22 +324,31 @@ class StorefrontCouponFormMoneyTest extends TestCase
      *
      * @return array<string, array{0: string, 1: int, 2: float, 3: float, 4: float}>
      */
-    public static function amountsTheDisplayHelperFloors(): array
+    /**
+     * These four were written when the display helper still lost a minor unit on an exact figure, and they pinned the loss: 4.35
+     * shown as 4.34. E-11 closed it, and the loss was a money defect in its own right -- `floor()` of a binary double is not
+     * idempotent, so 4.35 * 100 is 434.99999999999994 and the floor took a fils that the amount really had. Measured over the
+     * first 100,000 exact minor-unit figures, 4,586 of them came back one unit low at two decimals and 741 at three.
+     *
+     * So both helpers now answer the figure the amount actually is, and the expectation moved to it. A genuinely fractional
+     * figure still floors DOWN, which the case below this one holds: 2.675 stored is 2.67 in the field, never 2.68.
+     */
+    public static function amountsTheDisplayHelperShows(): array
     {
         return [
-            '4.35 at two decimals, one currency' => ['single_currency', 2, 4.35, 4.34, 4.35],
-            '4.35 at two decimals, a base currency' => ['multi_currency', 2, 4.35 / 3.75, 4.34, 4.35],
-            '1.005 at three decimals, one currency' => ['single_currency', 3, 1.005, 1.004, 1.005],
-            '10.505 at three decimals, a base currency' => ['multi_currency', 3, 10.505 / 0.307, 10.504, 10.505],
+            '4.35 at two decimals, one currency' => ['single_currency', 2, 4.35, 4.35, 4.35],
+            '4.35 at two decimals, a base currency' => ['multi_currency', 2, 4.35 / 3.75, 4.35, 4.35],
+            '1.005 at three decimals, one currency' => ['single_currency', 3, 1.005, 1.005, 1.005],
+            '10.505 at three decimals, a base currency' => ['multi_currency', 3, 10.505 / 0.307, 10.505, 10.505],
         ];
     }
 
-    #[DataProvider('amountsTheDisplayHelperFloors')]
-    public function test_the_display_helper_still_truncates_and_only_the_editable_field_is_repaired(string $currencyModel, int $decimals, float $stored, float $displayed, float $inTheField): void
+    #[DataProvider('amountsTheDisplayHelperShows')]
+    public function test_the_display_helper_and_the_editable_field_both_show_the_figure_the_amount_is(string $currencyModel, int $decimals, float $stored, float $displayed, float $inTheField): void
     {
         $this->usePlatform(currencyModel: $currencyModel, decimals: $decimals);
 
-        $this->assertSame($displayed, usdToDefaultCurrency(amount: $stored), 'the arithmetic every read-out of the platform has always shown');
+        $this->assertSame($displayed, usdToDefaultCurrency(amount: $stored), 'a read-out must not show a fils less than the amount holds');
         $this->assertSame($inTheField, usdToDefaultCurrencyForEditing(amount: $stored));
     }
 
@@ -367,19 +377,20 @@ class StorefrontCouponFormMoneyTest extends TestCase
         }
     }
 
-    public function test_the_quick_view_of_a_saudi_coupon_prints_the_figure_it_always_printed(): void
+    /** The read-out of a coupon converted back from the base currency: every figure it prints is the figure the amount holds. */
+    public function test_the_quick_view_of_a_saudi_coupon_prints_the_figure_the_amount_is(): void
     {
         $this->usePlatform(currencyModel: 'multi_currency', decimals: 2);
         $id = $this->giveCoupon(code: 'RIYAL', country: null, attributes: ['min_purchase' => 4.35 / 3.75, 'discount' => 1.13 / 3.75, 'discount_type' => 'amount']);
 
         $view = $this->getJson(route('admin.coupon.quick-view-details', ['id' => $id]))->assertOk()->json('view');
 
-        $this->assertStringContainsString('4.34SAR', $view, 'the read-out keeps the platform arithmetic');
-        $this->assertStringContainsString('1.12SAR', $view);
+        $this->assertStringContainsString('4.35SAR', $view, 'the read-out must not show a fils less than the amount holds');
+        $this->assertStringContainsString('1.13SAR', $view);
     }
 
     /** The same screen on the live Saudi panel, where no storefront switch is on: the quick view is a read-out either way. */
-    public function test_the_quick_view_prints_that_figure_while_the_switch_is_off_as_well(): void
+    public function test_the_quick_view_prints_those_figures_while_the_switch_is_off_as_well(): void
     {
         config(['gcc.storefronts.currency.enabled' => false]);
         $this->usePlatform(currencyModel: 'multi_currency', decimals: 2);
@@ -387,8 +398,8 @@ class StorefrontCouponFormMoneyTest extends TestCase
 
         $view = $this->getJson(route('admin.coupon.quick-view-details', ['id' => $id]))->assertOk()->json('view');
 
-        $this->assertStringContainsString('4.34SAR', $view);
-        $this->assertStringContainsString('1.12SAR', $view);
+        $this->assertStringContainsString('4.35SAR', $view);
+        $this->assertStringContainsString('1.13SAR', $view);
     }
 
     // ---- the coupon list ---------------------------------------------------------------------------------------------------------
@@ -608,8 +619,8 @@ class StorefrontCouponFormMoneyTest extends TestCase
         $rows = $this->listRows($this->listPage());
         $quickView = $this->getJson(route('admin.coupon.quick-view-details', ['id' => $id]))->assertOk()->json('view');
 
-        foreach (['1.12SAR', '4.34SAR'] as $figure) {
-            $this->assertStringContainsString($figure, $rows, 'the row keeps the arithmetic every read-out of the panel has');
+        foreach (['1.13SAR', '4.35SAR'] as $figure) {
+            $this->assertStringContainsString($figure, $rows, 'the row shows the figure the amount is, as every read-out of the panel does');
             $this->assertStringContainsString($figure, $quickView, 'and the quick view the row opens prints the same figure');
         }
     }

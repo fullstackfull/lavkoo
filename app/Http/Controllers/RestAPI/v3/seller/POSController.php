@@ -10,6 +10,7 @@ use App\Contracts\Repositories\StorageRepositoryInterface;
 use App\Enums\Address\AddressChannel;
 use App\Events\CustomerRegistrationEvent;
 use App\Events\DigitalProductDownloadEvent;
+use App\Exceptions\OrderMixesSellingCompaniesException;
 use App\Exceptions\PosSaleReplayedException;
 use App\Exceptions\WalletDebitRefusedException;
 use App\Http\Controllers\Controller;
@@ -532,6 +533,13 @@ class POSController extends Controller
      * The refusal this payload earns before anything is written, or null when the sale may go ahead. One pass over the lines answers
      * both questions, because both are asked of the same product rows: whether each line can be sold at all, and whether the lines may
      * be sold together on one receipt.
+     *
+     * The second question answers by throwing, not by returning: OrderMixesSellingCompaniesException is the one refusal every order
+     * writer gives for a mixed receipt, and its own render() answers an `api/*` request with 422 {"code":"order_mixes_selling_companies"}
+     * -- the same body the customer API already answers, so the app reads one shape from every surface. Answering it as
+     * `product_not_available` instead would have told the till a product was out of stock, which is not what happened.
+     *
+     * @throws OrderMixesSellingCompaniesException
      */
     private function cartRefusalResponse(mixed $modifiedCart, int|string $sellerId): ?JsonResponse
     {
@@ -555,12 +563,7 @@ class POSController extends Controller
         // read are judged here, so nothing new is queried, and the answer comes before the stock is taken and before the order and its
         // lines are written. It is above the wallet block for the same reason the two panels are: nothing has been charged yet, so a
         // refused receipt leaves the balance where it was.
-        if (OneSellingCompanyPerOrder::productsSpanMoreThanOne(products: $products)) {
-            return response()->json([
-                'product_not_available' => true,
-                'message' => translate('not_available_for_order_place'),
-            ]);
-        }
+        OneSellingCompanyPerOrder::assertProductsBelongToOne(products: $products);
 
         return null;
     }

@@ -52,7 +52,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Modules\Auction\app\Services\AuctionAccountDeletionGuardService;
 use function App\Utils\payment_gateways;
-use App\Services\Storefront\OrderStorefrontSnapshot;
 use App\Services\Storefront\StorefrontCurrency;
 
 class UserProfileController extends Controller
@@ -941,7 +940,6 @@ class UserProfileController extends Controller
             $refundRequest->images = $images;
         }
         $refundRequest->save();
-        app(OrderStorefrontSnapshot::class)->stampMoneyRows(table: 'refund_requests', orderId: $orderDetails->order_id);
 
         $orderDetails->refund_request = 1;
         $orderDetails->save();

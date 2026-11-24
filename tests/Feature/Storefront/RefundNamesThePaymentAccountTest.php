@@ -42,6 +42,12 @@ class RefundNamesThePaymentAccountTest extends ApiAddressTestCase
      * only statements this change may add are read-only questions to the database about its own schema -- whether the two new columns are there -- and
      * those are left out of the comparison.
      *
+     * The two digests were re-recorded when the lanes were unified, and the work, the writes and the values the row is made of were not: the route still
+     * issues twenty statements and still writes exactly the insert and the one update. One statement's TEXT changed, on both engines, and it is the
+     * ownership check -- `Order::where(id)->ownedByCustomer($user)` in place of `->where('customer_id', $user->id)`, which asks for `is_guest` as well,
+     * so a guest's order can no longer be refunded by whoever quotes its line. `refund_request` differs from the base of this branch by that one line
+     * and nothing else. Anything beyond it reddens these digests again, which is what they are for.
+     *
      * The figures are per engine because the two write the same work differently: MariaDB qualifies the column of an update with its table and gives a
      * decimal(20,8) back as 1.00000000 where SQLite gives 1. Both were measured on the base, and both are what the base did.
      *
@@ -49,7 +55,7 @@ class RefundNamesThePaymentAccountTest extends ApiAddressTestCase
      */
     private const BASE_ON_SQLITE = [
         'work' => 20,
-        'digest' => '81a0cbb94f130341a1712e41e0f3a2b720defaeda6e6ef047ba872dd62e84b2a',
+        'digest' => '11c1054c0ae8eef40b36318c17ed990d78ba0a2f8f66b4d713c9b8332e040ec1',
         'writes' => [
             'insert into refund_requests (order_details_id, customer_id, status, amount, product_id, order_id, refund_reason, storefront_country, currency_code, currency_rate, updated_at, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             'update order_details set refund_request = ?, updated_at = ? where id = ?',
@@ -60,7 +66,7 @@ class RefundNamesThePaymentAccountTest extends ApiAddressTestCase
     /** @var array{work: int, digest: string, writes: list<string>, insert: string} */
     private const BASE_ON_MYSQL = [
         'work' => 20,
-        'digest' => '00c9eaabab2d1d189ea0fa6b1d0d4d9205e0b3dc6f12dd36919074be19bd4415',
+        'digest' => 'd5b858941e0b13e3f63ed462f9e3d0fff70f6ad8576f85ba12b16676537e90e7',
         'writes' => [
             'insert into refund_requests (order_details_id, customer_id, status, amount, product_id, order_id, refund_reason, storefront_country, currency_code, currency_rate, updated_at, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             'update order_details set refund_request = ?, order_details.updated_at = ? where id = ?',
