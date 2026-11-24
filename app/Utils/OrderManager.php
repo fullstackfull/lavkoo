@@ -67,6 +67,7 @@ use App\Services\Storefront\OneSellingCompanyPerOrder;
 
 use App\Services\DeliverySyria\DeliverySyriaConfigService;
 use App\Services\Customer\CustomerWalletWriter;
+use App\Services\Shipping\OrderCustomsQuote;
 use App\Services\Shipping\OrderShippingDecision;
 use App\Services\Shipping\ShippingEligibility;
 
@@ -1568,6 +1569,10 @@ class OrderManager
         // recomputed later is a decision that changes, so it is written once and never rewritten. Silent while the cross-border switch is
         // off, which is how the platform ships.
         OrderShippingDecision::record($orderId, app(ShippingEligibility::class)->decideForOrder($orderId));
+
+        // And what was quoted for customs duty (H1-09), beside it and for the same reason: a tariff changes, a rule is written or
+        // withdrawn, and an order recomputed a year later would show a figure nobody ever charged. Silent while duty is off.
+        OrderCustomsQuote::record($orderId);
 
         foreach ($savedLines as $savedLine) {
             // Freeze the commission for this line, here, inside the order transaction.

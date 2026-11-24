@@ -22,7 +22,7 @@ class ShippingRefusalTextTest extends TestCase
     /** Arabic for the Gulf (`ae`) and for Saudi Arabia (`sa`) are separate files on this platform, and a refusal has to exist in both. */
     private const LANGUAGES = ['en', 'sa', 'ae'];
 
-    private const HOW_MANY_REASONS = 9;
+    private const HOW_MANY_REASONS = 10;
 
     /** @return list<string> */
     private function reasonKeys(): array

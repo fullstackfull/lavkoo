@@ -350,6 +350,10 @@ class CustomerTablesAreNotRewrittenTest extends TestCase
         // (H1-06). Both nullable and empty for every order that exists, which is read as the local order it is. A decision that is
         // recomputed is a decision that changes, so it is written down once as it was given.
         'database/migrations/2026_12_20_100200_add_shipping_decision_to_orders_table.php (orders)',
+        // orders.customs_quote: what was quoted for customs duty, as a whole (H1-09). "Not quoted" is a value and the important one -- a
+        // route nobody has written a rule for says so rather than recording a zero, which would read as "these goods cross free".
+        // Nullable, empty for every order that exists, and nothing writes it while duty is off.
+        'database/migrations/2026_12_20_100400_add_customs_quote_to_orders_table.php (orders)',
     ];
     /** @return list<string> the guarded tables this body names */
     private function guardedTablesIn(string $deployed): array

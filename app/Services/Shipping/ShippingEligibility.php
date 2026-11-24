@@ -21,6 +21,8 @@ use Illuminate\Support\Facades\Schema;
  *  - {@see ProviderRouteSupport} -- does the carrier of this line serve that route. An undeclared route is not served.
  *  - {@see RegulatedShippingGate} -- is this a regulated or unclassified product crossing a border without a recorded clearance. A
  *    carrier that covers the route never overrides it, which is why it is asked separately and not behind the carrier check.
+ *  - {@see CustomsDuty} -- can the duty on this route be determined at all. Only while duty is `strict`: a route nobody has written a
+ *    rule for is refused rather than charged zero, because a zero is an answer and nobody may give it without a rule.
  *
  * **With the switch off it answers `local` and allowed, always**, so every surface behaves exactly as it does today and the Saudi platform
  * is untouched. That is not a shortcut: a platform serving one country has no cross-border question to answer, and the switch is what says
@@ -93,6 +95,13 @@ final class ShippingEligibility
 
             if ($line->provider !== null && !ProviderRouteSupport::serves((string) $line->provider, $source, $to)) {
                 $reasons[] = ShippingRefusal::NO_CARRIER_SERVES_THIS_ROUTE;
+            }
+
+            // H1-09's own rule, asked before payment: a route whose duty cannot be determined refuses the order and never charges zero.
+            // It is a question about the ROUTE and not about the basket's total, which is why it can be asked here at all -- the amount is
+            // computed where the order's value is known. Only `strict` refuses; `declare` records the quote and lets the order through.
+            if (CustomsDuty::mode() === CustomsDuty::MODE_STRICT && !CustomsDuty::canQuote($source, $to)) {
+                $reasons[] = ShippingRefusal::DUTY_NOT_QUOTED;
             }
         }
 

@@ -4,8 +4,10 @@ namespace Tests\Feature\Storefront;
 
 use App\Models\ProductDestinationPermission as PermissionRow;
 use App\Services\Shipping\EligibilityDecision;
+use App\Services\Shipping\CustomsDuty;
 use App\Services\Shipping\ProductDestinationPermission;
 use App\Services\Shipping\RegulatedShippingGate;
+use App\Services\Shipping\ShippingRefusal;
 use App\Services\Shipping\ShippingEligibility;
 use App\Services\Storefront\StorefrontCatalog;
 use Illuminate\Database\Schema\Blueprint;
@@ -269,5 +271,70 @@ class ShippingEligibilityTest extends TestCase
         $this->permit(self::ABROAD);
 
         $this->assertTrue($this->decide(self::ABROAD)->allowed);
+    }
+
+    /**
+     * H1-09's own sentence, asked by the same engine before payment: a route whose duty cannot be determined refuses the order and never
+     * charges zero.
+     *
+     * Everything else about this shipment is in order -- the permission granted, the carrier declaring the route -- and it is refused
+     * because nobody has written what the duty on this border is. The alternative is a customer charged nothing at checkout and handed a
+     * bill at the door, which is the platform promising something it has no authority to promise.
+     */
+    public function test_a_route_whose_duty_cannot_be_determined_is_refused_rather_than_charged_nothing(): void
+    {
+        $this->crossBorderIsOpen();
+        config([
+            'gcc.shipping.duty.mode' => CustomsDuty::MODE_STRICT,
+            'gcc.shipping.duty.routes' => [],
+            'fulfillment.providers.courier_abroad.routes' => [self::HOME . ':' . self::ABROAD],
+        ]);
+        $this->aLineOf(market: self::HOME, provider: 'courier_abroad');
+        $this->permit(self::ABROAD);
+
+        $decision = $this->decide(self::ABROAD);
+
+        $this->assertFalse($decision->allowed);
+        $this->assertSame([ShippingRefusal::DUTY_NOT_QUOTED], $decision->reasons);
+    }
+
+    /** A route somebody HAS written a rule for passes, which is what makes the refusal above a rule rather than a wall. */
+    public function test_a_route_with_a_duty_rule_is_allowed(): void
+    {
+        $this->crossBorderIsOpen();
+        config([
+            'gcc.shipping.duty.mode' => CustomsDuty::MODE_STRICT,
+            'gcc.shipping.duty.routes' => [self::HOME . ':' . self::ABROAD => ['percentage' => 5, 'payer' => 'buyer_on_delivery']],
+            'fulfillment.providers.courier_abroad.routes' => [self::HOME . ':' . self::ABROAD],
+        ]);
+        $this->aLineOf(market: self::HOME, provider: 'courier_abroad');
+        $this->permit(self::ABROAD);
+
+        $this->assertTrue($this->decide(self::ABROAD)->allowed);
+    }
+
+    /** `declare` records what it can and refuses nothing: only `strict` stops an order, and `off` is how the platform ships. */
+    public function test_neither_declare_nor_off_refuses_an_unquotable_route(): void
+    {
+        $this->crossBorderIsOpen();
+        config(['fulfillment.providers.courier_abroad.routes' => [self::HOME . ':' . self::ABROAD]]);
+        $this->aLineOf(market: self::HOME, provider: 'courier_abroad');
+        $this->permit(self::ABROAD);
+
+        foreach ([CustomsDuty::MODE_OFF, CustomsDuty::MODE_DECLARE] as $mode) {
+            config(['gcc.shipping.duty.mode' => $mode, 'gcc.shipping.duty.routes' => []]);
+
+            $this->assertTrue($this->decide(self::ABROAD)->allowed, "{$mode} refuses nothing");
+        }
+    }
+
+    /** A domestic order is never asked about duty, however strict the mode: nothing crosses a border, so nothing is due. */
+    public function test_a_domestic_order_is_not_refused_by_the_duty_rule(): void
+    {
+        $this->crossBorderIsOpen();
+        config(['gcc.shipping.duty.mode' => CustomsDuty::MODE_STRICT, 'gcc.shipping.duty.routes' => []]);
+        $this->aLineOf(market: self::HOME);
+
+        $this->assertTrue($this->decide(self::HOME)->allowed);
     }
 }

@@ -118,6 +118,55 @@ class ApiOrderPlacementTest extends ApiAddressTestCase
         );
     }
 
+    /**
+     * H1-09's storage: the order keeps what was quoted for customs duty, beside what was decided about shipping it.
+     *
+     * A tariff changes and a rule is written or withdrawn, so an order recomputed a year later would show a figure nobody ever charged.
+     * The quote here is `none` because the order is domestic -- nothing crosses a border, so nothing is due -- and that is itself worth
+     * recording: it says the question was asked and answered, which "no row" does not.
+     */
+    public function test_the_order_keeps_the_customs_quote_it_was_taken_under(): void
+    {
+        $customer = $this->makeCustomer();
+        $address = $this->makeLegacyAddress($customer->id);
+        $this->putOneProductInTheCart($customer->id);
+        $this->openTheBorderTo('SA');
+        $this->openTheDutyRules(['SA:KW' => ['percentage' => 5, 'payer' => 'buyer_on_delivery']]);
+
+        $this->asCustomer($customer)->getJson(self::COD . '?address_id=' . $address->id)->assertOk();
+
+        $quote = \App\Services\Shipping\OrderCustomsQuote::of(100001);
+
+        $this->assertNotNull($quote, 'the question was asked and answered');
+        $this->assertSame(\App\Services\Shipping\CustomsDutyQuote::NONE, $quote->kind);
+        $this->assertSame(0.0, $quote->amount);
+    }
+
+    /** And with duty off nothing is written at all, which is how the platform ships. */
+    public function test_no_customs_quote_is_written_while_duty_is_off(): void
+    {
+        $customer = $this->makeCustomer();
+        $address = $this->makeLegacyAddress($customer->id);
+        $this->putOneProductInTheCart($customer->id);
+        $this->openTheBorderTo('SA');
+        (require database_path('migrations/2026_12_20_100400_add_customs_quote_to_orders_table.php'))->up();
+        \App\Services\Shipping\OrderCustomsQuote::forget();
+
+        $this->asCustomer($customer)->getJson(self::COD . '?address_id=' . $address->id)->assertOk();
+
+        $this->assertNull(\App\Services\Shipping\OrderCustomsQuote::of(100001));
+    }
+
+    private function openTheDutyRules(array $routes): void
+    {
+        config([
+            'gcc.shipping.duty.mode' => \App\Services\Shipping\CustomsDuty::MODE_DECLARE,
+            'gcc.shipping.duty.routes' => $routes,
+        ]);
+        (require database_path('migrations/2026_12_20_100400_add_customs_quote_to_orders_table.php'))->up();
+        \App\Services\Shipping\OrderCustomsQuote::forget();
+    }
+
     /** And with the switch off nothing is written, because a platform serving one country has taken only local orders. */
     public function test_no_decision_is_written_while_the_switch_is_off(): void
     {

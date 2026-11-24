@@ -457,6 +457,33 @@ return [
             //   'AE' => ['mode' => 'strict', 'category_ids' => ['12'], 'name_patterns' => [], 'brand_ids' => []],
             'destinations' => [],
         ],
+
+        // H1-09: customs duty on a cross-border order. A duty rate is not a thing a shop may invent -- it belongs to the destination's
+        // tariff, it turns on what the goods are and where they were made, and it is the owner's to give per route with a competent source
+        // behind it (Q-11). So the routes below ship EMPTY, and every cross-border route therefore answers "not quoted", which is the
+        // honest answer: App\Services\Shipping\CustomsDutyQuote tells "not quoted" from "nothing payable" because a zero is an ANSWER --
+        // it says the goods cross free -- and a platform that records zero where it means "we do not know" charges the customer nothing and
+        // then has them handed a bill at the door.
+        //
+        //   'off'      the default: there is no duty on this platform, which is the truth for a shop selling inside one country
+        //   'declare'  a cross-border order carries its quote, and an unquotable route says so; nothing is refused
+        //   'strict'   a cross-border order on a route nobody has written a rule for is REFUSED before payment (the requirement's own rule)
+        //
+        // An unrecognised value is read as `off`, so a typo never starts refusing orders.
+        'duty' => [
+            'mode' => env('GCC_CUSTOMS_DUTY_MODE', App\Services\Shipping\CustomsDuty::MODE_OFF),
+
+            // One entry per route, keyed `SOURCE:DESTINATION`; `*` on either side means any country, and the exact route wins over a
+            // wildcard. Each needs BOTH a rate and a payer to be a quote at all, because who pays is a commercial term and not a rounding:
+            // the buyer settling with the carrier at the door and the seller paying up front are different prices and different promises.
+            //
+            //   'SA:KW' => ['percentage' => 5, 'payer' => 'buyer_on_delivery', 'de_minimis' => 100],
+            //
+            // `percentage` 0 is a real answer where somebody wrote it down (these goods cross free); a missing one is not. `de_minimis` is
+            // the destination's threshold, under which a parcel enters free, read in the order's own currency -- converting it here would
+            // invent a rate. `payer` is `buyer_on_delivery` or `seller`.
+            'routes' => [],
+        ],
     ],
 
     'refunds' => [

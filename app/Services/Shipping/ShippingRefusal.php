@@ -41,6 +41,9 @@ final class ShippingRefusal
     /** H1-04: a reference is on file, recorded by somebody who was not entitled to record it. */
     public const CLEARANCE_NOT_PERMITTED = 'shipping_clearance_was_not_recorded_by_an_authorised_person';
 
+    /** H1-09: nobody has written a duty rule for this route, and a duty that cannot be determined is not a duty of zero. */
+    public const DUTY_NOT_QUOTED = 'shipping_duty_could_not_be_determined';
+
     /**
      * The whole vocabulary, read from the constants above so the list cannot fall behind them.
      *

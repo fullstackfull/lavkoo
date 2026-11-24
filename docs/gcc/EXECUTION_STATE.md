@@ -83,3 +83,9 @@ refusal vocabulary in Arabic and English, and the customer app showing every rea
 - Teeth-check every feature: break it deliberately, see the test fail, restore.
 - Never trust a long test run that was in flight while files were edited: it reports failures that a clean re-run does
   not. It has happened twice. Re-run on an untouched tree before believing a regression.
+- A text replace whose needle is a statement rather than a whole LINE will match inside a commented-out line, and
+  inserting a newline there uncomments whatever followed the needle. That is how a dead `import` at the foot of the
+  customer app's checkout controller became live code and failed the analyzer. Match the whole line, comment marker
+  included.
+- A gate that prints a count and withholds the lines costs a round trip every time it fires. When one does that, make it
+  print what it found before fixing what it found (the app's `analyze` job, now fixed).
