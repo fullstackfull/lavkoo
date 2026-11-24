@@ -73,6 +73,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Session;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use App\Services\Marketplace\PaymentRoutingService;
+use App\Services\Shipping\CheckoutCustomsQuote;
 use App\Services\Shipping\ShippingEligibility;
 use function App\Utils\payment_gateways;
 
@@ -102,6 +103,33 @@ class WebController extends Controller
         $decision = app(ShippingEligibility::class)->decide(CartManager::get_cart_group_ids(request: $request, type: 'checked'), $destination);
 
         return $decision->allowed ? null : translate($decision->reasons[0]);
+    }
+
+    /**
+     * What this basket is told about customs duty before payment (H1-09): the amount, who pays it, and the sentence that says so.
+     *
+     * Null while duty is off and for a basket that crosses no border, and a view reading null draws no line -- a line about duty on an
+     * order that never approaches a border is noise. The same service answers the app, so a customer is shown one figure in one place.
+     *
+     * @return array{quote: \App\Services\Shipping\CustomsDutyQuote, notice: ?string}|null
+     */
+    private function customsDutyQuote(Request $request): ?array
+    {
+        $addressId = $request['address_id'] ?? session('address_id');
+        $destination = $addressId === null ? null : ShippingAddress::query()->whereKey($addressId)->value('country');
+
+        $quote = app(CheckoutCustomsQuote::class)->forCart(
+            CartManager::get_cart_group_ids(request: $request, type: 'checked'),
+            $destination,
+        );
+
+        if ($quote === null) {
+            return null;
+        }
+
+        $notice = $quote->noticeKey();
+
+        return ['quote' => $quote, 'notice' => $notice === null ? null : translate($notice)];
     }
 
     public function __construct(
@@ -522,6 +550,8 @@ class WebController extends Controller
                 'payment_gateways_list' => $paymentGatewaysList,
                 'offline_payment_methods' => $offlinePaymentMethods,
                 'activeMinimumMethods' => count($availablePaymentMethod) > 0,
+                // What the customer is told about customs duty before they pay (H1-09). Null on every order that crosses no border.
+                'customsDuty' => $this->customsDutyQuote($request),
             ]);
         }
 

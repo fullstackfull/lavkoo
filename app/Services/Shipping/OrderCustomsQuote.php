@@ -29,7 +29,7 @@ final class OrderCustomsQuote
             return null;
         }
 
-        $order = DB::table('orders')->where('id', $orderId)->first(['id', self::COLUMN, 'order_amount']);
+        $order = DB::table('orders')->where('id', $orderId)->first(['id', self::COLUMN]);
 
         // Written once. An order that already carries a quote keeps the one it was taken under.
         if ($order === null || $order->{self::COLUMN} !== null) {
@@ -39,7 +39,7 @@ final class OrderCustomsQuote
         $quote = CustomsDuty::quoteFor(
             source: self::sellingMarketOf($orderId),
             destination: self::deliveredToOf($orderId),
-            value: (float) ($order->order_amount ?? 0),
+            value: self::goodsValueOf($orderId),
         );
 
         DB::table('orders')->where('id', $orderId)->update([
@@ -76,6 +76,31 @@ final class OrderCustomsQuote
     public static function forget(): void
     {
         self::$columnReady = null;
+    }
+
+    /**
+     * What the goods on this order are worth, which is what a customs officer charges duty on.
+     *
+     * Not `orders.order_amount`: that carries the shipping and the tax as well, and neither is dutiable -- duty is charged on the thing
+     * crossing the border, not on what it cost to get it there or on another country's VAT. So the lines are read and the discount comes
+     * off, because what was actually paid for the goods is their value.
+     *
+     * The checkout quotes the same figure over the basket before payment, so the two agree.
+     */
+    private static function goodsValueOf(int|string $orderId): float
+    {
+        if (!Schema::hasTable('order_details')) {
+            return 0.0;
+        }
+
+        $lines = DB::table('order_details')->where('order_id', $orderId)->get(['price', 'discount', 'qty']);
+        $value = 0.0;
+
+        foreach ($lines as $line) {
+            $value += ((float) $line->price - (float) $line->discount) * (int) $line->qty;
+        }
+
+        return round(max($value, 0.0), 3);
     }
 
     /**

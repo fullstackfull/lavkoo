@@ -188,6 +188,9 @@ Route::get('/cash', function () {
         });
         // Additive: tells the app whether to show the "may arrive in separate shipments" notice.
         Route::get('fulfillment-notice', [FulfillmentController::class, 'cartNotice']);
+        // Additive: what the app tells the customer about customs duty before payment (H1-09). Answers null on every order that crosses
+        // no border, which is every order a one-country platform takes.
+        Route::get('customs-duty', [FulfillmentController::class, 'customsDuty']);
     });
 
     Route::group(['prefix' => 'customer/order', 'middleware' => 'apiGuestCheck'], function () {

@@ -157,6 +157,120 @@ class ApiOrderPlacementTest extends ApiAddressTestCase
         $this->assertNull(\App\Services\Shipping\OrderCustomsQuote::of(100001));
     }
 
+    /**
+     * H1-09's second criterion through the app's own endpoint: the customer is told the duty before they pay.
+     *
+     * The address has to be the caller's own, which is why the endpoint reads it scoped to the caller: the country of somebody else's
+     * address is not theirs to read, and the id arrives from a request.
+     */
+    public function test_the_app_is_told_the_duty_before_payment(): void
+    {
+        $customer = $this->makeCustomer();
+        $address = $this->makeLegacyAddress($customer->id);
+        $this->putOneProductInTheCart($customer->id);
+        $this->openTheBorderTo('KW');
+        $this->openTheDutyRules(['SA:KW' => ['percentage' => 5, 'payer' => 'buyer_on_delivery']]);
+
+        $response = $this->asCustomer($customer)->getJson('/api/v1/cart/customs-duty?address_id=' . $address->id)->assertOk();
+
+        $this->assertSame('payable', $response->json('customs_duty.kind'));
+        // Compared numerically rather than by type: PHP's json_encode writes a whole float without its decimal point, so 5.0 goes out as
+        // `5` and a client has to read these as numbers rather than assume a decimal.
+        $this->assertEquals(5, $response->json('customs_duty.amount'), 'five per cent of the one hundred the basket holds');
+        $this->assertEquals(100, $response->json('customs_duty.basis'));
+        $this->assertSame('buyer_on_delivery', $response->json('customs_duty.payer'));
+        $this->assertSame(
+            'Customs duty is paid by you when the parcel is delivered.',
+            $response->json('customs_duty.notice'),
+        );
+    }
+
+    /** A route nobody has a rule for says so rather than claiming nothing is owed. */
+    public function test_the_app_is_told_when_the_duty_could_not_be_quoted(): void
+    {
+        $customer = $this->makeCustomer();
+        $address = $this->makeLegacyAddress($customer->id);
+        $this->putOneProductInTheCart($customer->id);
+        $this->openTheBorderTo('KW');
+        $this->openTheDutyRules([]);
+
+        $response = $this->asCustomer($customer)->getJson('/api/v1/cart/customs-duty?address_id=' . $address->id)->assertOk();
+
+        $this->assertSame('not_quoted', $response->json('customs_duty.kind'));
+        $this->assertEquals(0, $response->json('customs_duty.amount'));
+        $this->assertSame('Customs duty has not been quoted for this country.', $response->json('customs_duty.notice'));
+    }
+
+    /** And with duty off the app is told nothing, so it draws no line: the platform as it runs today. */
+    public function test_the_app_is_told_nothing_while_duty_is_off(): void
+    {
+        $customer = $this->makeCustomer();
+        $address = $this->makeLegacyAddress($customer->id);
+        $this->putOneProductInTheCart($customer->id);
+        $this->openTheBorderTo('KW');
+
+        $response = $this->asCustomer($customer)->getJson('/api/v1/cart/customs-duty?address_id=' . $address->id)->assertOk();
+
+        $this->assertNull($response->json('customs_duty'));
+    }
+
+    /**
+     * Another customer's address is not a country this caller may read, so no destination is read and there is nothing to say.
+     *
+     * Nothing to say, rather than a refusal: this endpoint only tells a customer what they are about to owe. Refusing an order whose
+     * destination is unknown is the engine's job and it already does it, with `shipping_destination_unknown`.
+     */
+    public function test_the_endpoint_reads_only_the_callers_own_address(): void
+    {
+        $customer = $this->makeCustomer();
+        $stranger = $this->makeCustomer(['id' => 777, 'email' => 'stranger@example.test', 'phone' => '0500000777']);
+        $strangersAddress = $this->makeLegacyAddress($stranger->id);
+        $this->putOneProductInTheCart($customer->id);
+        $this->openTheBorderTo('KW');
+        $this->openTheDutyRules(['SA:KW' => ['percentage' => 5, 'payer' => 'buyer_on_delivery']]);
+
+        $response = $this->asCustomer($customer)->getJson('/api/v1/cart/customs-duty?address_id=' . $strangersAddress->id)->assertOk();
+
+        $this->assertNull($response->json('customs_duty'), 'no destination was read from a stranger\'s address, so there is nothing to say');
+    }
+
+    /**
+     * The claim both quoters make about each other, pinned: what the customer is shown before payment is what the order keeps.
+     *
+     * They read different places -- the basket before, the order's own lines after -- so nothing but a test keeps them in step, and a
+     * figure shown and then not kept is the one failure a customer would actually notice.
+     */
+    public function test_what_the_customer_is_shown_is_what_the_order_keeps(): void
+    {
+        $customer = $this->makeCustomer();
+        $address = $this->makeLegacyAddress($customer->id);
+        $this->putOneProductInTheCart($customer->id);
+        $this->openTheBorderTo('KW');
+        $this->permitTheProductAbroad('KW');
+        $this->openTheDutyRules(['SA:KW' => ['percentage' => 5, 'payer' => 'buyer_on_delivery']]);
+
+        $shown = $this->asCustomer($customer)->getJson('/api/v1/cart/customs-duty?address_id=' . $address->id)->assertOk();
+        $this->asCustomer($customer)->getJson(self::COD . '?address_id=' . $address->id)->assertOk();
+
+        $kept = \App\Services\Shipping\OrderCustomsQuote::of(100001);
+
+        $this->assertNotNull($kept);
+        $this->assertSame($shown->json('customs_duty.kind'), $kept->kind);
+        $this->assertEquals($shown->json('customs_duty.basis'), $kept->basis, 'the same value is quoted on');
+        $this->assertEquals($shown->json('customs_duty.amount'), $kept->amount, 'and the same amount comes of it');
+        $this->assertSame($shown->json('customs_duty.payer'), $kept->payer);
+    }
+
+    /** H1-03's permission, granted so that the order can actually be placed: without it the engine refuses it, as it should. */
+    private function permitTheProductAbroad(string $destination, int $productId = 1): void
+    {
+        \App\Models\ProductDestinationPermission::create([
+            'product_id' => $productId, 'destination_country' => $destination,
+            'may_ship' => true, 'may_export' => true, 'may_import' => true,
+        ]);
+        \App\Services\Shipping\ProductDestinationPermission::forget();
+    }
+
     private function openTheDutyRules(array $routes): void
     {
         config([

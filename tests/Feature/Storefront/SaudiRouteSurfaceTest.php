@@ -118,6 +118,11 @@ class SaudiRouteSurfaceTest extends TestCase
         'GET admin/shipping/destination-permissions | admin.shipping.destination-permissions.index',
         'POST admin/shipping/destination-permissions | admin.shipping.destination-permissions.record',
 
+        // What the app tells a customer about customs duty before they pay (H1-09), beside the fulfillment notice main already serves in
+        // this group and read the same way. It answers null for every order that crosses no border, which is every order this platform
+        // has taken, and the address it reads has to be the caller's own.
+        'GET api/v1/cart/customs-duty | (none)',
+
         // The seller app's own two additions: the barcode sheet its till prints, and the screen that tells a signed-in seller who they are.
         'GET api/v3/seller/products/barcode/sheet | seller-barcode-sheet',
         'GET api/v3/seller/seller-center/security/me | (none)',

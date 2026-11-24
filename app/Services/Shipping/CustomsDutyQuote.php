@@ -64,6 +64,23 @@ final readonly class CustomsDutyQuote
         return $this->kind === self::PAYABLE;
     }
 
+    /**
+     * The sentence a customer is shown about this quote, as a translation key, or null when there is nothing to say.
+     *
+     * A key rather than a sentence, like every other answer the shipping engine gives, so the website, the apps and an invoice all read
+     * the same decision in the customer's own language. `none` says nothing at all: an order that owes no duty should not carry a line
+     * about duty, and a shop selling inside one country should see no trace of this.
+     */
+    public function noticeKey(): ?string
+    {
+        return match (true) {
+            $this->kind === self::NOT_QUOTED => 'customs_duty_has_not_been_quoted_for_this_country',
+            $this->kind !== self::PAYABLE => null,
+            $this->payer === self::SELLER => 'customs_duty_is_paid_by_the_seller',
+            default => 'customs_duty_is_paid_by_you_on_delivery',
+        };
+    }
+
     /** As it is stored on an order, so that what was quoted stays quoted when the rules change later. */
     public function toArray(): array
     {
