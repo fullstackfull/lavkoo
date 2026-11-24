@@ -4,6 +4,7 @@ namespace Tests\Feature\Storefront;
 
 use App\Models\ProductDestinationPermission as PermissionRow;
 use App\Services\Shipping\ProductDestinationPermission;
+use App\Services\Shipping\RegulatedShippingGate;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
@@ -30,6 +31,9 @@ class ProductDestinationPermissionScreenTest extends TestCase
 
     private const PRODUCT = 4;
 
+    /** Holds `catalog`, so the route lets them in; the clearance module is a separate question. */
+    private const CATALOGUE_EMPLOYEE = 2;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -38,9 +42,11 @@ class ProductDestinationPermissionScreenTest extends TestCase
         $this->buildStaffAdminTables();
         $this->buildProductsTable();
         (require database_path('migrations/2026_12_20_100000_create_product_destination_permissions_table.php'))->up();
+        (require database_path('migrations/2026_12_20_100300_add_clearance_reference_to_product_destination_permissions.php'))->up();
         $this->buildAuditTable();
         $this->buildSettingsTable();
         ProductDestinationPermission::forget();
+        RegulatedShippingGate::forget();
         config(['gcc.storefronts.countries.KW.active' => true]);
     }
 
@@ -149,9 +155,9 @@ class ProductDestinationPermissionScreenTest extends TestCase
         $this->assertCount(2, $entries);
         $this->assertNull(json_decode((string) $entries[0]->before, true), 'the first grant had nothing before it');
         $this->assertSame(
-            ['may_ship' => true, 'may_export' => false, 'may_import' => false],
+            ['may_ship' => true, 'may_export' => false, 'may_import' => false, 'clearance_reference' => null],
             json_decode((string) $entries[1]->before, true),
-            'the second says what it replaced',
+            'the second says what it replaced, the licence it rested on included',
         );
         $this->assertSame('KW', json_decode((string) $entries[1]->context, true)['destination_country']);
     }
@@ -206,6 +212,70 @@ class ProductDestinationPermissionScreenTest extends TestCase
         $this->assertSame(['KW'], $data['permissions']->pluck('destination_country')->all());
         $this->assertContains('KW', $data['countries'], 'the destinations a permission may name are the markets the platform serves');
         $this->assertTrue($data['ready']);
+    }
+
+    /**
+     * H1-04 on this screen: the licence a regulated product's permission rests on is recorded with it, and audited with it.
+     *
+     * Admin 1 is the master account, which holds every module by being what it is.
+     */
+    public function test_a_clearance_reference_is_recorded_and_audited(): void
+    {
+        $this->grant(['may_ship' => 1, 'may_export' => 1, 'may_import' => 1, 'clearance_reference' => ' SFDA-EXP-2026-114 ']);
+
+        $row = PermissionRow::query()->where('product_id', self::PRODUCT)->firstOrFail();
+        $this->assertSame('SFDA-EXP-2026-114', $row->clearance_reference, 'stored without the spaces somebody pasted with it');
+
+        $audited = json_decode((string) DB::table('audit_logs')->where('action', 'shipping.destination_permission_recorded')->value('after'), true);
+        $this->assertSame('SFDA-EXP-2026-114', $audited['clearance_reference']);
+    }
+
+    /**
+     * Recording a regulatory clearance is not an ordinary catalogue edit: the module that governs it is the owner's Q-13, so it is a
+     * setting. Here it names a module this employee does not hold, while the route still lets them in on `catalog`.
+     */
+    public function test_a_reference_from_somebody_not_entitled_is_refused(): void
+    {
+        config(['gcc.shipping.regulated.clearance_module' => 'marketing']);
+        RegulatedShippingGate::forget();
+
+        $this->signInAsStaff(self::CATALOGUE_EMPLOYEE)
+            ->post(route('admin.shipping.destination-permissions.record'), [
+                'product_id' => self::PRODUCT, 'destination_country' => 'KW', 'may_ship' => 1,
+                'clearance_reference' => 'INVENTED-2026',
+            ])
+            ->assertSessionHasErrors('clearance_reference');
+
+        $this->assertSame(0, PermissionRow::query()->count(), 'and nothing at all is written');
+    }
+
+    /**
+     * The other direction, which is the one that is easy to miss: their form disables the field, so their ordinary save of the three
+     * permissions arrives with an empty reference. That must not withdraw a licence somebody else put on file.
+     */
+    public function test_an_ordinary_save_by_somebody_not_entitled_does_not_wipe_a_clearance(): void
+    {
+        $this->grant(['may_ship' => 1, 'may_export' => 1, 'may_import' => 1, 'clearance_reference' => 'SFDA-EXP-2026-114']);
+
+        config(['gcc.shipping.regulated.clearance_module' => 'marketing']);
+        RegulatedShippingGate::forget();
+
+        $this->signInAsStaff(self::CATALOGUE_EMPLOYEE)->post(route('admin.shipping.destination-permissions.record'), [
+            'product_id' => self::PRODUCT, 'destination_country' => 'KW', 'may_ship' => 1, 'may_export' => 1, 'may_import' => 0,
+        ]);
+
+        $row = PermissionRow::query()->where('product_id', self::PRODUCT)->firstOrFail();
+        $this->assertSame('SFDA-EXP-2026-114', $row->clearance_reference, 'the licence is still on file');
+        $this->assertFalse($row->may_import, 'while the permission they were entitled to change did change');
+    }
+
+    /** And somebody entitled may withdraw it deliberately, by saving an empty field. */
+    public function test_somebody_entitled_may_withdraw_a_clearance(): void
+    {
+        $this->grant(['may_ship' => 1, 'may_export' => 1, 'may_import' => 1, 'clearance_reference' => 'SFDA-EXP-2026-114']);
+        $this->grant(['may_ship' => 1, 'may_export' => 1, 'may_import' => 1, 'clearance_reference' => '']);
+
+        $this->assertNull(PermissionRow::query()->where('product_id', self::PRODUCT)->value('clearance_reference'));
     }
 
     /** A product that may reach nothing hands an empty list, which is what the platform's default is. */

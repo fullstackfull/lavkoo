@@ -8,6 +8,7 @@ use App\Models\ProductDestinationPermission;
 use Illuminate\Support\Facades\DB;
 use App\Services\AuditLogger;
 use App\Services\Shipping\ProductDestinationPermission as PermissionReader;
+use App\Services\Shipping\RegulatedShippingGate;
 use App\Services\Storefront\StorefrontResolver;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -27,7 +28,7 @@ use Illuminate\View\View;
  */
 class ProductDestinationPermissionController extends Controller
 {
-    public function __construct(private readonly AuditLogger $audit)
+    public function __construct(private readonly AuditLogger $audit, private readonly RegulatedShippingGate $regulated)
     {
     }
 
@@ -42,6 +43,8 @@ class ProductDestinationPermissionController extends Controller
                 : ProductDestinationPermission::query()->where('product_id', $product->id)->orderBy('destination_country')->get(),
             'countries' => $this->destinations(),
             'ready' => $this->tableReady(),
+            'clearanceNeededFor' => $product === null ? [] : $this->clearanceNeededFor((int) $product->id),
+            'mayRecordClearance' => $this->regulated->mayRecordClearance((int) auth('admin')->id()),
         ]);
     }
 
@@ -60,6 +63,7 @@ class ProductDestinationPermissionController extends Controller
             'may_export' => ['nullable', 'boolean'],
             'may_import' => ['nullable', 'boolean'],
             'withdraw' => ['nullable', 'boolean'],
+            'clearance_reference' => ['nullable', 'string', 'max:191'],
         ]);
 
         if (!$this->tableReady()) {
@@ -78,11 +82,18 @@ class ProductDestinationPermissionController extends Controller
             return back()->withErrors(['product_id' => translate('product_not_found')]);
         }
 
+        $reference = trim((string) ($validated['clearance_reference'] ?? ''));
+        $mayClear = $this->regulated->mayRecordClearance((int) auth('admin')->id());
+
+        if ($reference !== '' && !$mayClear) {
+            return back()->withErrors(['clearance_reference' => translate('you_are_not_authorised_to_record_a_regulatory_clearance')]);
+        }
+
         $existing = ProductDestinationPermission::query()
             ->where('product_id', $product->id)
             ->where('destination_country', $destination)
             ->first();
-        $before = $existing?->only(['may_ship', 'may_export', 'may_import']);
+        $before = $existing?->only(['may_ship', 'may_export', 'may_import', 'clearance_reference']);
 
         if ($request->boolean('withdraw')) {
             $existing?->delete();
@@ -94,6 +105,7 @@ class ProductDestinationPermissionController extends Controller
                 context: ['destination_country' => $destination],
             );
             PermissionReader::forget();
+            RegulatedShippingGate::forget();
 
             return back()->with('success', translate('the_permission_was_withdrawn_and_that_destination_is_refused_again'));
         }
@@ -102,6 +114,10 @@ class ProductDestinationPermissionController extends Controller
             'may_ship' => $request->boolean('may_ship'),
             'may_export' => $request->boolean('may_export'),
             'may_import' => $request->boolean('may_import'),
+            // Only somebody entitled to record a clearance may change one, in either direction. Their form disables the field, so an
+            // ordinary save by somebody else arrives empty -- and an empty field must not quietly withdraw a licence reference that is
+            // on file, which would both destroy a record and be a regulatory act by somebody who may not perform it.
+            'clearance_reference' => $mayClear ? ($reference === '' ? null : $reference) : $existing?->clearance_reference,
         ];
 
         ProductDestinationPermission::query()->updateOrCreate(
@@ -117,6 +133,7 @@ class ProductDestinationPermissionController extends Controller
             context: ['destination_country' => $destination],
         );
         PermissionReader::forget();
+        RegulatedShippingGate::forget();
 
         return back()->with('success', translate('the_permission_was_recorded'));
     }
@@ -130,6 +147,22 @@ class ProductDestinationPermissionController extends Controller
     private function productNamed(int $productId): ?object
     {
         return DB::table('products')->where('id', $productId)->first(['id', 'name']);
+    }
+
+    /**
+     * The destinations this product needs a clearance for (H1-04), so the screen asks for the reference while a person is granting the
+     * permission rather than leaving a refused customer to discover it.
+     *
+     * @return list<string>
+     */
+    private function clearanceNeededFor(int $productId): array
+    {
+        $source = StorefrontResolver::fromConfig()->defaultCountry();
+
+        return array_values(array_filter(
+            $this->destinations(),
+            fn (string $destination): bool => $this->regulated->needsClearance(productId: $productId, source: $source, destination: $destination),
+        ));
     }
 
     /** The countries this platform serves, which are the only destinations a permission may name. */

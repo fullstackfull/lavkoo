@@ -42,7 +42,7 @@ final class ProductDestinationPermission
         $to = self::country($destination);
 
         if ($from === null || $to === null) {
-            return 'shipping_destination_unknown';
+            return ShippingRefusal::DESTINATION_UNKNOWN;
         }
 
         if ($from === $to) {
@@ -50,16 +50,16 @@ final class ProductDestinationPermission
         }
 
         if ($productId === null || !self::tableReady()) {
-            return 'shipping_product_not_permitted_abroad';
+            return ShippingRefusal::NOT_PERMITTED_ABROAD;
         }
 
         $row = PermissionRow::query()->where('product_id', $productId)->where('destination_country', $to)->first();
 
         return match (true) {
-            $row === null => 'shipping_product_not_permitted_abroad',
-            !$row->may_ship => 'shipping_product_may_not_ship',
-            !$row->may_export => 'shipping_product_may_not_be_exported',
-            !$row->may_import => 'shipping_product_may_not_be_imported',
+            $row === null => ShippingRefusal::NOT_PERMITTED_ABROAD,
+            !$row->may_ship => ShippingRefusal::MAY_NOT_SHIP,
+            !$row->may_export => ShippingRefusal::MAY_NOT_BE_EXPORTED,
+            !$row->may_import => ShippingRefusal::MAY_NOT_BE_IMPORTED,
             default => null,
         };
     }

@@ -434,6 +434,29 @@ return [
         'cross_border' => [
             'enabled' => filter_var(env('GCC_CROSS_BORDER_SHIPPING', false), FILTER_VALIDATE_BOOLEAN),
         ],
+
+        // H1-04: regulated health and pharmaceutical goods, which do not cross a border because a courier flies there. OFF as it ships,
+        // and `off` is a position rather than an empty list: a platform selling inside one country holds no export licence and needs none.
+        // In `strict` mode App\Services\Shipping\RegulatedShippingGate refuses a FOREIGN destination for a product nobody classified --
+        // no category means refused -- and, for a product these lists name, asks for a recorded clearance: a reference on the product's
+        // destination permission row (H1-03) plus a person whose role carries `clearance_module`. A carrier covering the route changes
+        // none of it. Which classes may cross which border, and who may approve the list, is the owner's Q-13; the lists ship empty, so
+        // turning the mode on without them refuses only what nobody has classified.
+        'regulated' => [
+            'mode' => env('GCC_REGULATED_SHIPPING_MODE', App\Services\Shipping\RegulatedShippingGate::MODE_OFF),
+
+            // The admin module a person must hold before a clearance they recorded counts. Role 1 always may.
+            'clearance_module' => env('GCC_REGULATED_SHIPPING_CLEARANCE_MODULE', 'catalog'),
+
+            // The owner's lists. A product is regulated when one of them names it: its category, a word in its name, or its brand.
+            'category_ids' => [],
+            'name_patterns' => [],
+            'brand_ids' => [],
+
+            // Per destination, merged with the lists above so a global rule is never lost by naming a country:
+            //   'AE' => ['mode' => 'strict', 'category_ids' => ['12'], 'name_patterns' => [], 'brand_ids' => []],
+            'destinations' => [],
+        ],
     ],
 
     'refunds' => [

@@ -5,6 +5,7 @@ namespace Tests\Feature\Storefront;
 use App\Models\ProductDestinationPermission as PermissionRow;
 use App\Services\Shipping\EligibilityDecision;
 use App\Services\Shipping\ProductDestinationPermission;
+use App\Services\Shipping\RegulatedShippingGate;
 use App\Services\Shipping\ShippingEligibility;
 use App\Services\Storefront\StorefrontCatalog;
 use Illuminate\Database\Schema\Blueprint;
@@ -40,7 +41,9 @@ class ShippingEligibilityTest extends TestCase
 
         $this->buildCartWorld();
         (require database_path('migrations/2026_12_20_100000_create_product_destination_permissions_table.php'))->up();
+        (require database_path('migrations/2026_12_20_100300_add_clearance_reference_to_product_destination_permissions.php'))->up();
         ProductDestinationPermission::forget();
+        RegulatedShippingGate::forget();
         StorefrontCatalog::flush();
     }
 
@@ -50,6 +53,7 @@ class ShippingEligibilityTest extends TestCase
             Schema::dropIfExists($table);
         }
         ProductDestinationPermission::forget();
+        RegulatedShippingGate::forget();
 
         parent::tearDown();
     }
@@ -62,6 +66,8 @@ class ShippingEligibilityTest extends TestCase
         Schema::create('products', function (Blueprint $table): void {
             $table->id();
             $table->string('name')->nullable();
+            $table->string('brand_id')->nullable();
+            $table->text('category_ids')->nullable();
             $table->string(StorefrontCatalog::COLUMN, 2)->nullable();
             $table->string('fulfillment_provider')->nullable();
             $table->timestamps();
@@ -75,9 +81,12 @@ class ShippingEligibilityTest extends TestCase
         });
     }
 
-    private function aLineOf(string $market, ?string $provider = null, int $productId = 1): void
+    private function aLineOf(string $market, ?string $provider = null, int $productId = 1, ?string $categoryIds = null): void
     {
-        DB::table('products')->insert(['id' => $productId, 'name' => 'Product ' . $productId, StorefrontCatalog::COLUMN => $market, 'fulfillment_provider' => $provider]);
+        DB::table('products')->insert([
+            'id' => $productId, 'name' => 'Product ' . $productId, 'category_ids' => $categoryIds,
+            StorefrontCatalog::COLUMN => $market, 'fulfillment_provider' => $provider,
+        ]);
         DB::table('carts')->insert(['cart_group_id' => self::GROUP, 'product_id' => $productId, 'is_checked' => 1]);
     }
 
@@ -222,5 +231,43 @@ class ShippingEligibilityTest extends TestCase
             ['kind' => 'cross_border', 'allowed' => false, 'reasons' => ['shipping_product_not_permitted_abroad']],
             $this->decide(self::ABROAD)->toArray(),
         );
+    }
+
+    /**
+     * H1-04 through the engine, which is the form the requirement is written in: a carrier that covers the route never overrides a
+     * regulated product.
+     *
+     * Everything else about this shipment is in order. The product has all three destination permissions, so H1-03 is satisfied; the
+     * carrier declares the route, so H1-02 is satisfied. It is refused anyway, and refused by the engine every surface asks -- the
+     * website, the three API paths, the recorded decision and the dispatch re-ask -- rather than by a check one of them remembered to
+     * make.
+     */
+    public function test_a_regulated_product_is_refused_even_when_the_carrier_covers_the_route(): void
+    {
+        $this->crossBorderIsOpen();
+        config([
+            'gcc.shipping.regulated.mode' => RegulatedShippingGate::MODE_STRICT,
+            'gcc.shipping.regulated.category_ids' => ['7'],
+            'fulfillment.providers.courier_abroad.routes' => [self::HOME . ':' . self::ABROAD],
+        ]);
+        $this->aLineOf(market: self::HOME, provider: 'courier_abroad', categoryIds: json_encode([['id' => '7', 'position' => 1]]));
+        $this->permit(self::ABROAD);
+
+        $decision = $this->decide(self::ABROAD);
+
+        $this->assertFalse($decision->allowed);
+        $this->assertSame([RegulatedShippingGate::NEEDS_CLEARANCE], $decision->reasons, 'the carrier and the permissions are both in order');
+        $this->assertTrue($decision->isCrossBorder());
+    }
+
+    /** And with the regulated mode off, the same shipment goes: the gate is a refusal and never a permission. */
+    public function test_with_the_regulated_mode_off_the_same_shipment_is_allowed(): void
+    {
+        $this->crossBorderIsOpen();
+        config(['fulfillment.providers.courier_abroad.routes' => [self::HOME . ':' . self::ABROAD]]);
+        $this->aLineOf(market: self::HOME, provider: 'courier_abroad', categoryIds: json_encode([['id' => '7', 'position' => 1]]));
+        $this->permit(self::ABROAD);
+
+        $this->assertTrue($this->decide(self::ABROAD)->allowed);
     }
 }

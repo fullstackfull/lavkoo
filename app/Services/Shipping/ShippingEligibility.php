@@ -19,6 +19,8 @@ use Illuminate\Support\Facades\Schema;
  *
  *  - {@see ProductDestinationPermission} -- may this product go there at all. No record means no.
  *  - {@see ProviderRouteSupport} -- does the carrier of this line serve that route. An undeclared route is not served.
+ *  - {@see RegulatedShippingGate} -- is this a regulated or unclassified product crossing a border without a recorded clearance. A
+ *    carrier that covers the route never overrides it, which is why it is asked separately and not behind the carrier check.
  *
  * **With the switch off it answers `local` and allowed, always**, so every surface behaves exactly as it does today and the Saudi platform
  * is untouched. That is not a shortcut: a platform serving one country has no cross-border question to answer, and the switch is what says
@@ -59,7 +61,7 @@ final class ShippingEligibility
         $to = self::country($destination);
 
         if ($to === null) {
-            return EligibilityDecision::refused(kind: EligibilityDecision::LOCAL, reasons: ['shipping_destination_unknown']);
+            return EligibilityDecision::refused(kind: EligibilityDecision::LOCAL, reasons: [ShippingRefusal::DESTINATION_UNKNOWN]);
         }
 
         if ($lines === []) {
@@ -68,6 +70,7 @@ final class ShippingEligibility
 
         $reasons = [];
         $crossesABorder = false;
+        $gate = new RegulatedShippingGate();
 
         foreach ($lines as $line) {
             $source = self::country($line->source) ?? StorefrontResolver::fromConfig()->defaultCountry();
@@ -83,8 +86,13 @@ final class ShippingEligibility
                 $reasons[] = $refusal;
             }
 
+            $regulated = $gate->refusalFor(productId: $line->product_id, source: $source, destination: $to);
+            if ($regulated !== null) {
+                $reasons[] = $regulated;
+            }
+
             if ($line->provider !== null && !ProviderRouteSupport::serves((string) $line->provider, $source, $to)) {
-                $reasons[] = 'shipping_no_carrier_serves_this_route';
+                $reasons[] = ShippingRefusal::NO_CARRIER_SERVES_THIS_ROUTE;
             }
         }
 

@@ -19,7 +19,7 @@ class ProductDestinationPermission extends Model
 {
     protected $table = 'product_destination_permissions';
 
-    protected $fillable = ['product_id', 'destination_country', 'may_ship', 'may_export', 'may_import', 'recorded_by', 'recorded_at'];
+    protected $fillable = ['product_id', 'destination_country', 'may_ship', 'may_export', 'may_import', 'recorded_by', 'recorded_at', 'clearance_reference'];
 
     protected $casts = [
         'may_ship' => 'boolean',
