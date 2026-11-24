@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Vendor\Order;
 
 use App\Enums\LedgerActor;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
-use App\Contracts\Repositories\AdminWalletRepositoryInterface;
 use App\Contracts\Repositories\BusinessSettingRepositoryInterface;
 use App\Contracts\Repositories\CustomerRepositoryInterface;
 use App\Contracts\Repositories\DeliveryCountryCodeRepositoryInterface;
@@ -47,7 +46,6 @@ use App\Services\Referral\ReferralRewardService;
 use App\Traits\CustomerTrait;
 use App\Traits\OrderEditManager;
 use App\Traits\PdfGenerator;
-use App\Utils\Helpers;
 use App\Utils\OrderManager;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Carbon\Carbon;
@@ -70,6 +68,7 @@ use App\Services\Marketplace\SellerOrderTimelineService;
 use App\Services\Storefront\StorefrontCurrency;
 use App\Utils\CustomerManager;
 use App\Services\Customer\CustomerWalletWriter;
+use App\Services\Refund\RefundClaims;
 use App\Services\Storefront\LedgerOrigin;
 
 class OrderController extends BaseController
@@ -98,7 +97,6 @@ class OrderController extends BaseController
         private readonly ProductRepositoryInterface                 $productRepo,
         private readonly VendorWalletRepositoryInterface            $vendorWalletRepo,
         private readonly OrderEditHistoryRepositoryInterface        $orderEditHistoryRepo,
-        private readonly AdminWalletRepositoryInterface             $adminWalletRepo,
         private readonly DigitalProductFileService                  $digitalFiles,
         private readonly ReferralRewardService                      $referralRewards,
     )
@@ -212,7 +210,7 @@ class OrderController extends BaseController
         ));
     }
 
-    public function orderReturnAmountToCustomer(Request $request, CustomerWalletService $customerWalletService, OrderEditReturnAmountService $orderEditReturnAmountService): RedirectResponse
+    public function orderReturnAmountToCustomer(Request $request, CustomerWalletService $customerWalletService, OrderEditReturnAmountService $orderEditReturnAmountService, RefundClaims $claims): RedirectResponse
     {
         $validated = $request->validate([
             'order_id' => 'required|exists:orders,id',
@@ -228,23 +226,37 @@ class OrderController extends BaseController
                 ToastMagic::error(translate('Order_not_found'));
                 return redirect()->back();
             }
-            $customer = Helpers::getCustomerInformation($request);
             if ($validated['amount'] !== $order['edit_return_amount']) {
                 ToastMagic::error(translate('Return amount must be equal to return amount'));
                 return redirect()->back();
             }
             DB::beginTransaction();
-            if ($validated['order_return_payment_method'] == "wallet" && $customer != 'offline') {
-                if ($order['seller_is'] == 'admin') {
-                    $adminWallet = $this->adminWalletRepo->getFirstWhere(params: ['admin_id' => $order['seller_id']]);
-                    $this->adminWalletRepo->updateWhere(params: ['admin_id' => $order['seller_id']], data: ['inhouse_earning' => $adminWallet['inhouse_earning'] - $order['edit_return_amount']]);
-                } else {
-                    $sellerWallet = $this->vendorWalletRepo->getFirstWhere(params: ['seller_id' => $order['seller_id']]);
-                    $this->vendorWalletRepo->updateWhere(params: ['seller_id' => $order['seller_id']], data: ['total_earning' => $sellerWallet['total_earning'] - $order['edit_return_amount']]);
+
+            // RF-03, the vendor panel's half: the amount is claimed by zeroing it before the money moves. See the admin handler.
+            if (!$claims->claimReturnAmount(orderId: $validated['order_id'], amount: $order['edit_return_amount'])) {
+                DB::rollBack();
+                ToastMagic::error(translate('Return amount must be equal to return amount'));
+                return redirect()->back();
+            }
+
+            if ($validated['order_return_payment_method'] == "wallet") {
+                // The customer is the one the ORDER names, as the admin handler has always read it. This screen read
+                // `Helpers::getCustomerInformation($request)` instead, which answers the signed-in CUSTOMER of the request — a seller's
+                // request never has one, so it answered 'offline', the wallet branch never ran and the seller's earnings were never
+                // reduced, while the amount owed was cleared and the order total lowered all the same. The customer's money was erased
+                // without being paid, every time a vendor returned an amount to a wallet.
+                if ($order['is_guest'] || empty($order['customer_id'])) {
+                    DB::rollBack();
+                    ToastMagic::error(translate('Amount_returned_currently_not_possible_to_wallet'));
+                    return redirect()->back();
                 }
-                $walletCredit = CustomerManager::create_wallet_transaction($customer['id'], $order['edit_return_amount'], 'return_order_amount_by_admin', 'add_wallet_amount', ['payment_method' => 'wallet'], origin: LedgerOrigin::order(id: $order['id'], by: LedgerActor::Seller));
+
+                $sellerWallet = $this->vendorWalletRepo->getFirstWhere(params: ['seller_id' => $order['seller_id']]);
+                $this->vendorWalletRepo->updateWhere(params: ['seller_id' => $order['seller_id']], data: ['total_earning' => $sellerWallet['total_earning'] - $order['edit_return_amount']]);
+
+                $walletCredit = CustomerManager::create_wallet_transaction($order['customer_id'], $order['edit_return_amount'], 'return_order_amount_by_admin', 'add_wallet_amount', ['payment_method' => 'wallet'], origin: LedgerOrigin::order(id: $order['id'], by: LedgerActor::Seller));
                 if ($walletCredit === false) {
-                    throw new WalletCreditRefused(customerId: $customer['id'], amount: (float) $order['edit_return_amount']);
+                    throw new WalletCreditRefused(customerId: $order['customer_id'], amount: (float) $order['edit_return_amount']);
                 }
             }
 
@@ -256,9 +268,9 @@ class OrderController extends BaseController
             ];
 
             $this->orderEditHistoryRepo->updateWhere(params: ['id' => $order?->latestEditHistory['id']], data: $data);
+            // `edit_return_amount` is not written again: the claim above has already zeroed it.
             $this->orderRepo->updateWhere(params: ['id' => $validated['order_id']], data: [
                 'order_amount' => ($order['order_amount'] - $order['edit_return_amount']),
-                'edit_return_amount' => 0
             ]);
 
             DB::commit();
@@ -576,6 +588,7 @@ class OrderController extends BaseController
         DeliveryManTransactionService $deliveryManTransactionService,
         DeliveryManWalletService      $deliveryManWalletService,
         OrderStatusHistoryService     $orderStatusHistoryService,
+        RefundClaims                  $claims,
     ): JsonResponse
     {
         // Scope to the signed-in seller's own order — an unscoped lookup let a seller force another
@@ -654,16 +667,20 @@ class OrderController extends BaseController
         }
 
         $this->orderRepo->updateStockOnOrderStatusChange($request['id'], $request['order_status']);
-        $this->orderRepo->update(id: $request['id'], data: ['order_status' => $request['order_status']]);
-        // A wallet-paid POS sale was debited at the counter; cancelling the order is
-        // the only path that returns that money. Reference-keyed so a repeated cancel
-        // can never credit twice.
-        if ($request['order_status'] == 'canceled'
+
+        // RF-04, the vendor panel's half: the move to the status IS the claim on the refund that move owes. The duplicate check was a READ
+        // of the ledger, which two cancels arriving together both pass before either writes. The refund is in the transaction that
+        // claimed, so a refund that fails gives the cancellation back rather than leaving it cancelled and unrefunded.
+        $refundsThisCancel = $request['order_status'] == 'canceled'
             && $order['order_type'] == 'POS'
             && $order['payment_method'] == 'wallet'
-            && $order['customer_id'] != 0
-            && !$this->walletTransactionRepo->getFirstWhere(params: ['reference' => 'pos_order_cancel_' . $order['id'], 'transaction_type' => 'order_refund'])
-        ) {
+            && $order['customer_id'] != 0;
+
+        DB::transaction(function () use ($request, $order, $claims, $refundsThisCancel): void {
+            if (!$claims->claimOrderStatus(orderId: $request['id'], status: $request['order_status']) || !$refundsThisCancel) {
+                return;
+            }
+
             CustomerWalletWriter::record(
                 customerId: $order['customer_id'],
                 amount: usdToDefaultCurrency(amount: $order['order_amount']),
@@ -671,7 +688,7 @@ class OrderController extends BaseController
                 reference: 'pos_order_cancel_' . $order['id'],
                 origin: LedgerOrigin::order(id: $order['id'], by: LedgerActor::Seller),
             );
-        }
+        });
         if ($request['order_status'] == 'delivered') {
             $this->orderRepo->update(id: $request['id'], data: ['payment_status' => 'paid', 'is_pause' => 0]);
             $this->orderDetailRepo->updateWhere(params: ['order_id' => $order['id']], data: ['delivery_status' => $request['order_status'], 'payment_status' => 'paid']);
@@ -688,9 +705,15 @@ class OrderController extends BaseController
         $loyaltyPointEachOrder = !is_null($loyaltyPointEachOrder) ? $loyaltyPointEachOrder : $loyaltyPointStatus;
         $orderDetailsRewards = $this->orderDetailsRewardsRepo->getFirstWhere(params: ['order_id' => $order['id'], 'reward_type' => 'loyalty_point']);
 
+        // IDEM-08, the vendor panel's half: the reward is claimed before its points are credited, in the same transaction as the credit.
         if ($orderDetailsRewards && $orderDetailsRewards['reward_delivered'] != 1 && $orderDetailsRewards['reward_amount'] > 0 && $walletStatus == 1 && $loyaltyPointStatus == 1 && $loyaltyPointEachOrder == 1 && !$order['is_guest'] && $request['order_status'] == 'delivered' && $order['seller_id'] != null) {
-            $this->loyaltyPointTransactionRepo->addLoyaltyPointTransaction(userId: $order['customer_id'], reference: $order['id'], amount: usdToDefaultCurrency(amount: $order['order_amount'] - $order['shipping_cost']), transactionType: 'order_place', origin: LedgerOrigin::order(id: $order['id']));
-            $this->orderDetailsRewardsRepo->update(id: $orderDetailsRewards['id'], data: ['reward_delivered' => 1]);
+            DB::transaction(function () use ($order, $orderDetailsRewards, $claims): void {
+                if (!$claims->claimRewardDelivered($orderDetailsRewards['id'])) {
+                    return;
+                }
+
+                $this->loyaltyPointTransactionRepo->addLoyaltyPointTransaction(userId: $order['customer_id'], reference: $order['id'], amount: usdToDefaultCurrency(amount: $order['order_amount'] - $order['shipping_cost']), transactionType: 'order_place', origin: LedgerOrigin::order(id: $order['id']));
+            });
         }
 
         $refEarningStatus = getWebConfig(name: 'ref_earning_status') ?? 0;

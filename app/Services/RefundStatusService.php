@@ -12,6 +12,9 @@ class RefundStatusService
 {
     use CustomerTrait;
 
+    /** What a wallet credit of a refund is referenced by, with the refund's own id after it (RF-02). */
+    public const REFUND_REFERENCE_PREFIX = 'refund_request_';
+
     public function __construct(private readonly RefundPayout $payout)
     {
     }
@@ -89,13 +92,16 @@ class RefundStatusService
         $orderDetails['refund_request'] = 4;
         $refundData['payment_info'] = $request['payment_info'];
 
+        // RF-02: the credit names the refund it pays. It used to carry the literal `order_refund`, which is also its transaction type, so
+        // nothing in the ledger said which refund a credit belonged to and two credits for one refund were indistinguishable from two
+        // refunds. The reconciliation looks for a repeated reference, so naming the refund is what lets it see one paid twice at all.
         $walletAddRefund = getWebConfig(name: 'wallet_add_refund');
         if ($walletAddRefund == 1 && $request['payment_method'] == 'customer_wallet') {
             $this->createWalletTransaction(
                 user_id: $refund['customer_id'],
                 amount: $this->whatTheRefundGivesBack(order: $order, refund: $refund),
                 transaction_type: 'order_refund',
-                reference: 'order_refund',
+                reference: self::REFUND_REFERENCE_PREFIX . $refund['id'],
                 origin: LedgerOrigin::refund(id: $refund['id'], by: LedgerActor::Admin)
             );
         }

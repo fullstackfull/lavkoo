@@ -459,9 +459,40 @@ class WalletReconcileCommandTest extends FulfillmentTestCase
         [$exit, $report] = $this->reconcile();
 
         $this->assertSame(0, $exit, $this->failedChecks($report));
-        $check = $this->check($report, 'wallet', 'POS cancellations refunded more than once');
+        $check = $this->check($report, 'wallet', 'refunds paid more than once');
         $this->assertSame('warn', $check['status']);
-        $this->assertSame(['cancellations' => 1, 'extra_rows' => 1], $check['facts']);
+        $this->assertSame(['refunds' => 1, 'extra_rows' => 1], $check['facts']);
+    }
+
+    /**
+     * The same check now sees a refund request paid twice, which it could not while every refund credit carried one literal (RF-02).
+     */
+    public function test_a_refund_request_credited_twice_is_reported(): void
+    {
+        $this->user(1, '75', 0);
+        $this->walletRow(1, credit: '25', type: 'order_refund', reference: 'refund_request_4');
+        $this->walletRow(1, credit: '25', type: 'order_refund', reference: 'refund_request_4');
+        $this->walletRow(1, credit: '25', type: 'order_refund', reference: 'refund_request_5');
+
+        [$exit, $report] = $this->reconcile();
+
+        $this->assertSame(0, $exit, $this->failedChecks($report));
+        $check = $this->check($report, 'wallet', 'refunds paid more than once');
+        $this->assertSame('warn', $check['status']);
+        $this->assertSame(['refunds' => 1, 'extra_rows' => 1], $check['facts']);
+    }
+
+    /** The literal every refund credit carried before RF-02 is left out: thousands of rows share it and none of them is a repeat of one refund. */
+    public function test_the_old_shared_literal_is_not_reported_as_a_repeat(): void
+    {
+        $this->user(1, '75', 0);
+        $this->walletRow(1, credit: '25', type: 'order_refund', reference: 'order_refund');
+        $this->walletRow(1, credit: '25', type: 'order_refund', reference: 'order_refund');
+        $this->walletRow(1, credit: '25', type: 'order_refund', reference: 'order_refund');
+
+        [, $report] = $this->reconcile();
+
+        $this->assertSame('pass', $this->check($report, 'wallet', 'refunds paid more than once')['status']);
     }
 
     public function test_the_legacy_reward_point_tables_are_reported_when_they_hold_rows(): void

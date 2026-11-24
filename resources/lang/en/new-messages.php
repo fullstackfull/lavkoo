@@ -11413,4 +11413,7 @@ return [
 	'Delivery_man_payment_has_been_approved_successfully' => 'Delivery man payment has been approved successfully',
 	'this_withdraw_request_has_already_been_processed' => 'This withdraw request has already been processed',
 	'Delivery_man_payment_request_has_been_Denied_successfully' => 'Delivery man payment request has been Denied successfully',
+	'Return_amount_must_be_equal_to_return_amount' => 'Return amount must be equal to return amount',
+	'Amount_returned_successfully' => 'Amount returned successfully',
+	'Amount_returned_currently_not_possible_to_wallet' => 'Amount returned currently not possible to wallet',
 ];

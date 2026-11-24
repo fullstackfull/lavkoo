@@ -39,9 +39,9 @@ class RefundConcurrencyTest extends TestCase
         parent::tearDown();
     }
 
+    /** RF-01: the refund is claimed by one conditional UPDATE before anything is paid, so only one of four requests pays it. */
     public function test_simultaneous_refunded_statuses_credit_the_wallet_and_debit_the_points_once(): void
     {
-        $this->skipUntilOwnerDecision(finding: 'RF-01', proposal: 'claim the refund with a conditional UPDATE before paying it');
         RefundFlows::seedOrderLine(orderStatus: 'delivered', sellerId: 1);
         RefundFlows::seedRefundRequest();
 
@@ -53,9 +53,9 @@ class RefundConcurrencyTest extends TestCase
         $this->assertSame(1, count(array_filter($reports, fn (array $report): bool => $report['result'] === true)));
     }
 
+    /** RF-03: the return amount is claimed by zeroing it before the credit, so of four submissions one pays. */
     public function test_simultaneous_return_amount_submissions_credit_the_wallet_once(): void
     {
-        $this->skipUntilOwnerDecision(finding: 'RF-03', proposal: 'claim edit_return_amount with a conditional UPDATE before crediting it');
         RefundFlows::seedOrderLine(orderStatus: 'confirmed', editReturnAmount: RefundFlows::RETURN_AMOUNT);
 
         $this->race('refunds.return_amount_to_wallet', ['amount' => RefundFlows::storedReturnAmount()]);
@@ -64,9 +64,9 @@ class RefundConcurrencyTest extends TestCase
         $this->assertEqualsWithDelta(RefundFlows::RETURN_AMOUNT, (float) DB::table('users')->where('id', RefundFlows::CUSTOMER_ID)->value('wallet_balance'), 0.0001);
     }
 
+    /** RF-04: the move to `canceled` is the claim, so of four cancels arriving together one refunds and the others find nothing to claim. */
     public function test_simultaneous_pos_cancels_credit_the_wallet_once(): void
     {
-        $this->skipUntilOwnerDecision(finding: 'RF-04', proposal: 'make pos_order_cancel_{id} a claimed key rather than a looked-up one');
         RefundFlows::seedOrderLine(orderStatus: 'confirmed', orderType: 'POS', paymentMethod: 'wallet');
 
         $this->race('refunds.change_order_status', ['status' => 'canceled']);
@@ -74,9 +74,9 @@ class RefundConcurrencyTest extends TestCase
         $this->assertSame(1, DB::table('wallet_transactions')->where('reference', 'pos_order_cancel_' . RefundFlows::ORDER_ID)->count());
     }
 
+    /** IDEM-08: the reward is claimed before its points are credited, so four deliveries of one order credit them once. */
     public function test_simultaneous_delivered_statuses_credit_the_order_points_once(): void
     {
-        $this->skipUntilOwnerDecision(finding: 'IDEM-08', proposal: 'claim reward_delivered with a conditional UPDATE before crediting');
         RefundFlows::seedOrderLine(orderStatus: 'confirmed');
 
         $this->race('refunds.change_order_status', ['status' => 'delivered']);
@@ -84,10 +84,6 @@ class RefundConcurrencyTest extends TestCase
         $this->assertSame(1, DB::table('loyalty_point_transactions')->where('transaction_type', 'order_place')->count());
     }
 
-    private function skipUntilOwnerDecision(string $finding, string $proposal): void
-    {
-        $this->markTestSkipped("{$finding}: owner decision pending ({$proposal}). See docs/wallet/refund-loyalty-idempotency-proposals.md.");
-    }
 
     /** @return list<array<string, mixed>> */
     private function race(string $operation, array $args): array

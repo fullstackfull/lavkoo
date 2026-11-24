@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Refund;
 
+use App\Services\RefundStatusService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use PDO;
@@ -61,15 +62,21 @@ class RefundSequentialGuardCharacterizationTest extends TestCase
         $this->assertSame(1, DB::table('refund_transactions')->count());
     }
 
-    /** RF-02 as it stands: neither ledger row names the refund. See docs/wallet/refund-loyalty-idempotency-proposals.md#rf-02. */
-    public function test_current_behaviour_the_refund_credit_is_referenced_by_a_literal_and_the_points_debit_by_the_order_id(): void
+    /**
+     * RF-02, now closed for the wallet credit: it names the refund it pays. The points debit still carries the order id, which is what the
+     * loyalty ledger has always been keyed by and is a separate decision (the refund is reachable from the order).
+     */
+    public function test_the_refund_credit_names_its_refund_and_the_points_debit_the_order(): void
     {
         RefundFlows::seedOrderLine(orderStatus: 'delivered', sellerId: 1);
         RefundFlows::seedRefundRequest();
 
         RefundFlows::markRefunded();
 
-        $this->assertSame('order_refund', DB::table('wallet_transactions')->where('transaction_type', 'order_refund')->value('reference'));
+        $this->assertSame(
+            RefundStatusService::REFUND_REFERENCE_PREFIX . RefundFlows::REFUND_ID,
+            DB::table('wallet_transactions')->where('transaction_type', 'order_refund')->value('reference'),
+        );
         $this->assertSame((string) RefundFlows::ORDER_ID, (string) DB::table('loyalty_point_transactions')->where('transaction_type', 'refund_order')->value('reference'));
     }
 

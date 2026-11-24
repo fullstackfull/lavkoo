@@ -12,6 +12,7 @@ use App\Repositories\WalletTransactionRepository;
 use App\Services\DeliveryManTransactionService;
 use App\Services\DeliveryManWalletService;
 use App\Services\OrderStatusHistoryService;
+use App\Services\Refund\RefundClaims;
 use App\Utils\CustomerManager;
 use App\Utils\OrderManager;
 use Illuminate\Database\Schema\Blueprint;
@@ -439,6 +440,7 @@ class ReferralRewardCharacterizationTest extends TestCase
             app(DeliveryManTransactionService::class),
             app(DeliveryManWalletService::class),
             app(OrderStatusHistoryService::class),
+            app(RefundClaims::class),
         );
     }
 
@@ -454,6 +456,7 @@ class ReferralRewardCharacterizationTest extends TestCase
             app(DeliveryManTransactionService::class),
             app(DeliveryManWalletService::class),
             app(OrderStatusHistoryService::class),
+            app(RefundClaims::class),
         );
     }
 

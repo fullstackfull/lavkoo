@@ -10,6 +10,7 @@ use App\Services\DeliveryManTransactionService;
 use App\Services\DeliveryManWalletService;
 use App\Services\OrderEditReturnAmountService;
 use App\Services\OrderStatusHistoryService;
+use App\Services\Refund\RefundClaims;
 use App\Services\RefundStatusService;
 use App\Services\RefundTransactionService;
 use Illuminate\Http\Request;
@@ -66,6 +67,7 @@ final class RefundFlows
         string $orderType = 'default_type',
         string $paymentMethod = 'cash_on_delivery',
         ?int $sellerId = null,
+        string $sellerIs = 'admin',
     ): void {
         DB::table('orders')->insert([
             'id' => self::ORDER_ID,
@@ -76,7 +78,7 @@ final class RefundFlows
             'order_amount' => self::ORDER_AMOUNT,
             'edit_return_amount' => $editReturnAmount,
             'order_type' => $orderType,
-            'seller_is' => 'admin',
+            'seller_is' => $sellerIs,
             'seller_id' => $sellerId,
             'created_at' => now(),
             'updated_at' => now(),
@@ -123,7 +125,7 @@ final class RefundFlows
         ]);
 
         return app(RefundController::class)
-            ->updateRefundStatus($request, app(RefundStatusService::class), app(RefundTransactionService::class))
+            ->updateRefundStatus($request, app(RefundStatusService::class), app(RefundTransactionService::class), app(RefundClaims::class))
             ->getData(true);
     }
 
@@ -136,7 +138,7 @@ final class RefundFlows
             'order_return_payment_note' => 'returned',
         ]);
 
-        app(OrderController::class)->orderReturnAmountToCustomer($request, app(CustomerWalletService::class), app(OrderEditReturnAmountService::class));
+        app(OrderController::class)->orderReturnAmountToCustomer($request, app(CustomerWalletService::class), app(OrderEditReturnAmountService::class), app(RefundClaims::class));
     }
 
     public static function changeOrderStatus(string $status): void
@@ -148,6 +150,7 @@ final class RefundFlows
             app(DeliveryManTransactionService::class),
             app(DeliveryManWalletService::class),
             app(OrderStatusHistoryService::class),
+            app(RefundClaims::class),
         );
     }
 

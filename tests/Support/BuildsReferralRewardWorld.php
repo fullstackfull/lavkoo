@@ -12,6 +12,7 @@ use App\Models\Seller;
 use App\Services\DeliveryManTransactionService;
 use App\Services\DeliveryManWalletService;
 use App\Services\OrderStatusHistoryService;
+use App\Services\Refund\RefundClaims;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -104,6 +105,7 @@ trait BuildsReferralRewardWorld
             app(DeliveryManTransactionService::class),
             app(DeliveryManWalletService::class),
             app(OrderStatusHistoryService::class),
+            app(RefundClaims::class),
         );
     }
 
@@ -119,6 +121,7 @@ trait BuildsReferralRewardWorld
             app(DeliveryManTransactionService::class),
             app(DeliveryManWalletService::class),
             app(OrderStatusHistoryService::class),
+            app(RefundClaims::class),
         );
     }
 
