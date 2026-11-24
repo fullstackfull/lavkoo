@@ -125,6 +125,30 @@
             "path": "app/Contracts/Repositories/AppendOnlyRepositoryInterface.php",
             "line": 43,
             "reason": "Two placeholder addresses in a documentation example of the filters array, carried verbatim into a new file when RepositoryInterface was split, in commit 9bc6a5ad. The same line sits at RepositoryInterface.php:37 on main and at OrderRepositoryInterface.php:13 on this branch, both untouched and both older than this guard, so the guard is reading a move as an addition. The next commit (e7b71e6b) writes the example without any address at all. Neither was ever anyone's address."
+        },
+        {
+            "rule": "saudi-mobile-number",
+            "path": "docs/gcc/C-15-THREE-DECIMAL-MONEY.md",
+            "line": 131,
+            "reason": "A made-up Saudi mobile number in a documentation line describing what the Torod adapter sends for a Saudi order: the international form of the number the test fixtures have always used. The next commit rewrites the line without the digits. It is a fixture, not anyone's number, and nothing to rotate."
+        },
+        {
+            "rule": "saudi-mobile-number",
+            "path": "docs/gcc/tracker/axis-c-inventory-and-fulfillment.md",
+            "line": 343,
+            "reason": "A made-up Saudi mobile number in a documentation line describing what the Torod adapter sends for a Saudi order: the international form of the number the test fixtures have always used. The next commit rewrites the line without the digits. It is a fixture, not anyone's number, and nothing to rotate."
+        },
+        {
+            "rule": "saudi-mobile-number",
+            "path": "scripts/ci/leak-guard-allow.json",
+            "line": 133,
+            "reason": "This file's own line. The entry recorded above quoted the fixture number inside the sentence explaining it, so the guard -- which reads every line a commit adds, this file included -- reported the explanation as the thing it was explaining. The sentence no longer quotes it, but the commit that added it is in the history, so it is recorded here rather than rewritten. A fixture, not anyone's number, and nothing to rotate."
+        },
+        {
+            "rule": "saudi-mobile-number",
+            "path": "scripts/ci/leak-guard-allow.json",
+            "line": 139,
+            "reason": "This file's own line. The entry recorded above quoted the fixture number inside the sentence explaining it, so the guard -- which reads every line a commit adds, this file included -- reported the explanation as the thing it was explaining. The sentence no longer quotes it, but the commit that added it is in the history, so it is recorded here rather than rewritten. A fixture, not anyone's number, and nothing to rotate."
         }
     ]
 }

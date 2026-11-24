@@ -273,6 +273,15 @@ return [
             // mechanism is built and left off until it is. Read docs/gcc/ for D1-10 before turning it on.
             'from_original_payment' => filter_var(env('GCC_REFUND_FROM_ORIGINAL_PAYMENT', false), FILTER_VALIDATE_BOOLEAN),
         ],
+        // The language a market writes in to a recipient who has chosen none (A1-17). EMPTY as it ships, so every market answers nothing and a
+        // recipient with no language of their own is written to exactly as today -- which is what a single-market shop wants and what six
+        // markets do not: a Kuwaiti customer who has chosen no language should not be written to in the language of whichever order a queue
+        // worker handled before theirs. A market is listed here once somebody has decided what it writes in, e.g. 'KW' => 'ar'. A locale the
+        // platform has not installed is ignored rather than bound, because translate() would write language files for it.
+        'language' => [
+            'by_country' => [],
+        ],
+
         'legal' => [
             // Configuration, not a statement of what the law requires. A qualified reviewer confirms the list per country before release.
             'required_documents' => ['terms', 'privacy', 'refund', 'return', 'cancellation', 'shipping'],
@@ -414,6 +423,40 @@ return [
         // conversion minimum cannot be converted, and the only admin wallet action adds funds. So a refusal stands until somebody can zero the holding,
         // which is why the administrator's own deletion route is left unguarded, and why anonymising rather than refusing is the question for the owner.
         'refuse_while_balance_remains' => filter_var(env('GCC_REFUSE_ACCOUNT_DELETE_WITH_BALANCE', false), FILTER_VALIDATE_BOOLEAN),
+    ],
+
+    'refunds' => [
+        // Whether cancelling an order pays the customer's wallet back (E-13, finding E04-F10). Today a POS sale paid with the wallet refunds
+        // itself and any other wallet-paid order does not: the customer keeps waiting until somebody refunds it by hand. Each answer has a
+        // cost -- automatic means an operator's click moves money, manual means a forgotten refund stays with the platform -- so it is the
+        // owner's decision: docs/gcc/OPEN-FINANCIAL-DECISIONS.md section 3.
+        //
+        //   'manual_as_today'          the default: only a POS wallet sale refunds itself, exactly as the platform runs now
+        //   'every_paid_cancellation'  option A: any cancelled order with money on it pays the wallet back, whatever it was paid with
+        //   'wallet_payments_only'     option C: automatic for a wallet payment, by hand where the money must return the way it came in
+        //
+        // Paying once per cancellation holds under every value: the status claim decides it (RF-04), not the setting. An unrecognised value
+        // is read as the default.
+        'when_a_cancellation_refunds_the_wallet' => env(
+            'GCC_CANCELLATION_REFUNDS_THE_WALLET',
+            App\Services\Refund\WhenACancellationRefundsTheWallet::MANUAL_AS_TODAY,
+        ),
+    ],
+
+    'loyalty' => [
+        // What a loyalty point is worth in wallet money (E-14, finding LF-1), and the one setting that settles a disagreement older than
+        // this work: the mobile apps credit `rate` points as ONE DOLLAR and the website credits them as ONE UNIT OF THE CURRENCY IN FORCE,
+        // so on a Saudi store the app pays 3.75 times what the website pays for the same points. Both formulas are kept and reachable, and
+        // the default is the platform exactly as it runs today -- each path with its own formula, to the digit, so no customer's credit
+        // moves while the question is open.
+        //
+        //   'as_each_path_does_today'      the default: the app's formula in the app, the website's on the website
+        //   'one_dollar_per_rate'          option A: `rate` points buy one US dollar's worth, which is what the admin field's label says
+        //   'one_unit_in_force_per_rate'   option B: `rate` points buy one unit of the currency in force, which is what the website pays
+        //
+        // Changing it changes what a customer is paid for points they already hold, in one direction or the other, so it is the owner's
+        // decision and nobody else's: docs/gcc/OPEN-FINANCIAL-DECISIONS.md section 1. An unrecognised value is read as the default.
+        'point_value' => env('GCC_LOYALTY_POINT_VALUE', App\Services\Loyalty\WhatAPointIsWorth::AS_EACH_PATH_DOES_TODAY),
     ],
 
 ];

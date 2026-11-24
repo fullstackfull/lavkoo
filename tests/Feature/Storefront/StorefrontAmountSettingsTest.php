@@ -101,8 +101,33 @@ class StorefrontAmountSettingsTest extends TestCase
         $this->assertSame(
             ['0', '0', '0'],
             [$read['free_delivery_over_amount_seller'], $read['minimum_add_fund_amount'], $read['maximum_add_fund_amount']],
-            'a maximum top-up of zero refuses every top-up until the per-market wallets exist',
+            'a market given no top-up limits of its own still reads zero, which refuses every top-up: that is the closure, unchanged',
         );
+    }
+
+    /**
+     * D2-V2: a market can now be GIVEN its own top-up limits, in its own currency, which is what E-01's wallet per market made meaningful.
+     * Before that they answered a flat zero everywhere but the default market -- a closure rather than a limit, because there was no wallet
+     * to limit. A market that is given none still answers zero, which the test above holds.
+     */
+    #[DataProvider('storefrontsWithTheirOwnCurrency')]
+    public function test_a_storefront_can_be_given_its_own_top_up_limits(string $country, string $currency): void
+    {
+        $this->giveStorefrontAmounts(country: $country, currency: $currency, amounts: ['minimum_add_fund_amount' => '2', 'maximum_add_fund_amount' => '500']);
+
+        $read = $this->inStorefront($country, fn (): array => $this->amountsRead());
+
+        $this->assertSame(['2', '500'], [$read['minimum_add_fund_amount'], $read['maximum_add_fund_amount']]);
+        $this->assertSame('0', $read['free_delivery_over_amount_seller'], "the seller threshold is still the Saudi sellers' and is not a market's to set");
+    }
+
+    /** And the limits of one market reach no other: each reads its own, or zero. */
+    public function test_one_markets_top_up_limits_reach_no_other_market(): void
+    {
+        $this->giveStorefrontAmounts(country: 'KW', currency: 'KWD', amounts: ['maximum_add_fund_amount' => '500']);
+
+        $this->assertSame('500', $this->inStorefront('KW', fn (): array => $this->amountsRead())['maximum_add_fund_amount']);
+        $this->assertSame('0', $this->inStorefront('AE', fn (): array => $this->amountsRead())['maximum_add_fund_amount']);
     }
 
     #[DataProvider('storefrontsWithTheirOwnCurrency')]

@@ -147,15 +147,32 @@ class StorefrontMoneyCommandTest extends TestCase
     }
 
     /** @return array<string, array{0: array<string, mixed>, 1: string}> */
+    /**
+     * D2-V2: an operator can give a market its own top-up limits, which is what the criterion asked for and what E-01's wallet per market
+     * made meaningful. They were refused here until then, because a limit on a wallet that does not exist is not a limit.
+     */
+    public function test_it_gives_a_storefront_its_own_top_up_limits(): void
+    {
+        $this->artisan('gcc:storefront:money', ['country' => 'KW', 'setting' => 'minimum_add_fund_amount', 'amount' => '2'])->assertExitCode(0);
+        $this->artisan('gcc:storefront:money', ['country' => 'KW', 'setting' => 'maximum_add_fund_amount', 'amount' => '500'])->assertExitCode(0);
+
+        $row = json_decode((string) DB::table('business_settings')->where('type', 'storefront_money_kw')->value('value'), true);
+
+        $this->assertSame(['currency' => 'KWD', 'minimum_add_fund_amount' => '2.000', 'maximum_add_fund_amount' => '500.000'], $row, 'both limits in the dinar, to its three decimals, in the market\'s own row');
+    }
+
     public static function refusals(): array
     {
         return [
             'the default storefront' => [['country' => 'SA', 'setting' => 'minimum_order_amount', 'amount' => '5'], "SA is the default storefront: its amounts are the platform's, set in the admin panel."],
             'a country that is not a storefront' => [['country' => 'XX', 'setting' => 'minimum_order_amount', 'amount' => '5'], 'XX is not a configured storefront.'],
-            'the wallet limit' => [['country' => 'KW', 'setting' => 'maximum_add_fund_amount', 'amount' => '5'], 'not set per storefront'],
-            'the other wallet limit' => [['country' => 'KW', 'setting' => 'minimum_add_fund_amount', 'amount' => '5'], 'not set per storefront'],
+            // The two wallet top-up limits were refused here until E-01 gave a market a wallet of its own; they are settable now (D2-V2),
+            // and what is still refused is the seller threshold, which is the Saudi sellers'.
             'the seller threshold' => [['country' => 'KW', 'setting' => 'free_delivery_over_amount_seller', 'amount' => '5'], 'not set per storefront'],
-            'a setting that is not an amount' => [['country' => 'KW', 'setting' => 'currency_model', 'amount' => '5'], 'is not an amount a storefront can be given'],
+            'the seller threshold' => [['country' => 'KW', 'setting' => 'free_delivery_over_amount_seller', 'amount' => '5'], 'not set per storefront'],
+            // The wording changed with E-02, because the command now also takes a market's loyalty settings, which are not amounts.
+            'a setting a storefront cannot be given' => [['country' => 'KW', 'setting' => 'currency_model', 'amount' => '5'], 'is not something a storefront can be given'],
+            'a loyalty status that is neither on nor off' => [['country' => 'KW', 'setting' => 'loyalty_point_status', 'amount' => '2'], 'The loyalty status is 1'],
             'no amount' => [['country' => 'KW', 'setting' => 'minimum_order_amount'], 'Give the amount in KWD, or --unset'],
             'an amount and --unset' => [['country' => 'KW', 'setting' => 'minimum_order_amount', 'amount' => '5', '--unset' => true], 'not both'],
             'a negative amount' => [['country' => 'KW', 'setting' => 'minimum_order_amount', 'amount' => '-5'], 'plain number that is not negative'],

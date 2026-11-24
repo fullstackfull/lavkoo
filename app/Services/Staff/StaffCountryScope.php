@@ -3,6 +3,7 @@
 namespace App\Services\Staff;
 
 use App\Models\Admin;
+use App\Services\Storefront\CouponCountry;
 use App\Services\Storefront\StorefrontCatalog;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Http\Request;
@@ -300,6 +301,26 @@ final class StaffCountryScope
         }
 
         return DB::table('products')->whereIn('id', $ids)->whereIn(StorefrontCatalog::COLUMN, $bound)->count() === count($ids);
+    }
+
+    /**
+     * Whether every one of these coupons belongs to a country the current request may work with. A request that is not narrowed may work
+     * with every coupon, existing or not: the screens answer for an unknown one as they always did.
+     *
+     * The rule of which country a coupon belongs to is CouponCountry's and stays there -- a coupon with none is the default storefront's.
+     *
+     * @param list<int|string> $couponIds
+     */
+    public function coversEveryCoupon(array $couponIds): bool
+    {
+        $bound = $this->boundCountries();
+        $ids = array_values(array_unique($couponIds));
+
+        if ($bound === null || $ids === []) {
+            return true;
+        }
+
+        return CouponCountry::allBelongTo(couponIds: $ids, countries: $bound);
     }
 
     /**

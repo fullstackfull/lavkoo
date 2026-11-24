@@ -41,8 +41,8 @@ final class OrderNotificationContext
         return $context->serve(callback: fn () => app(StorefrontCurrency::class)->within(
             country: $context->country,
             callback: fn () => self::inLanguage(
-                language: self::languageOf(order: $order, userType: $userType),
-                callback: $callback,
+                language: self::languageOf(order: $order, userType: $userType, country: $context->country),
+                callback: fn () => self::asTheCompanyThatSold(order: $order, callback: $callback),
             ),
         ));
     }
@@ -70,7 +70,15 @@ final class OrderNotificationContext
      * behind the customer, through the referral record, and the customer's language is not the promoter's. An admin is platform staff, who
      * reads the platform's panel, not a market's.
      */
-    private static function languageOf(object|array $order, string $userType): ?string
+    /**
+     * The language this notification is written in: the recipient's own choice, and failing that the language the order's market writes in
+     * (A1-17, {@see MarketLanguage}). The market's answer is null for every market until somebody has decided what it writes in, so a
+     * recipient who has chosen no language is written to exactly as before.
+     *
+     * The country is the one storefrontOf has already resolved, so a legacy order that records no market reads the default market's
+     * language and not the language of whichever order the worker handled before it -- the same reasoning that binds its money.
+     */
+    private static function languageOf(object|array $order, string $userType, string $country): ?string
     {
         $language = match ($userType) {
             'customer' => data_get($order, 'customer.app_language'),
@@ -79,7 +87,40 @@ final class OrderNotificationContext
             default => null,
         };
 
-        return is_string($language) && trim($language) !== '' ? $language : null;
+        return is_string($language) && trim($language) !== '' ? $language : MarketLanguage::of($country);
+    }
+
+    /**
+     * Sends the message as the company that sold the order, when the order records one (A1-17).
+     *
+     * The sender's NAME is the one thing a market can own here: `mail.from.name` is one setting for the platform, read once at boot out of
+     * `mail_config`, so a Kuwaiti customer's message said it came from the Saudi company. The frozen company on the order answers it the
+     * same way it answers the invoice ({@see OrderInvoiceIssuer::tradingNameOf}), which means it answers nothing -- and changes nothing --
+     * for every order that invoice prints the shop's settings for: legal entities off, an order placed before the registry, a record that
+     * cannot be read.
+     *
+     * Where the message is sent FROM does not move: the record holds no address, and inventing one would send mail from an address the
+     * domain does not accept.
+     *
+     * It is put back afterwards, even when the sending fails, for the same reason the language is: a worker sends one order's messages
+     * after another in one process, and the company of one order may not sign the next one's.
+     */
+    private static function asTheCompanyThatSold(object|array $order, Closure $callback): mixed
+    {
+        $company = OrderInvoiceIssuer::tradingNameOf($order);
+
+        if ($company === null) {
+            return $callback();
+        }
+
+        $previous = config('mail.from.name');
+        config(['mail.from.name' => $company]);
+
+        try {
+            return $callback();
+        } finally {
+            config(['mail.from.name' => $previous]);
+        }
     }
 
     /**

@@ -7,6 +7,7 @@ use App\Contracts\Repositories\CustomerRepositoryInterface;
 use App\Contracts\Repositories\VendorRepositoryInterface;
 use App\Exports\CouponListExport;
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopeCouponsToStaffCountries;
 use App\Http\Requests\Admin\CouponAddRequest;
 use App\Http\Requests\Admin\CouponUpdateRequest;
 use App\Services\CouponService;
@@ -35,6 +36,9 @@ class CouponController extends BaseController
         private readonly VendorRepositoryInterface   $vendorRepo,
     )
     {
+        // A coupon belongs to a market, so acting on one is an act in that market: an employee restricted to some countries may act only on
+        // their own coupons, and a bulk list holding one of anybody else's is refused whole (G-11, StaffCouponRoutes).
+        $this->middleware(ScopeCouponsToStaffCountries::class);
     }
 
     /**

@@ -133,11 +133,11 @@ class SaudiLiteralsAllowListTest extends TestCase
         'app/Services/Fulfillment/Providers/M5azn/M5aznPayloadBuilder.php' => [
             'SA' => ['count' => 1, 'category' => self::PROVIDER_DEFAULT, 'owner' => 'H1 couriers; M2-09', 'why' => 'the payload reads country_code from the account config, falling back to Saudi'],
         ],
+        'app/Services/Fulfillment/Support/MarketPhone.php' => [
+            'SA' => ['count' => 1, 'category' => self::PLATFORM_DEFAULT, 'owner' => 'GCC-02/GCC-03 (storefronts); C-15', 'why' => 'the market a shipment is read as when the order records none, which is what every order placed before markets existed is'],
+        ],
         'app/Services/Fulfillment/Support/SaudiPhone.php' => [
             '966' => ['count' => 3, 'category' => self::SAUDI_ONLY_RULE, 'owner' => 'M2-19; H1 couriers', 'why' => 'the normaliser that turns every spelling of a Saudi number into one form; a non-Saudi number must not be given to it. Three occurrences: the Saudi row of the trunk-zero dialling-code list, the prefix the normaliser reads, and the prefix the two-spellings comparison refuses to answer for'],
-        ],
-        'app/Services/Fulfillment/Providers/TorodPoint/TorodOrderPayloadBuilder.php' => [
-            '966' => ['count' => 1, 'category' => self::SAUDI_ONLY_RULE, 'owner' => 'M2-19; H1 couriers', 'why' => 'Torod ships inside the Kingdom, so the payload writes a Saudi number; another market must not reach this courier'],
         ],
         'app/Services/MyFatoorah/PaymentInitiationService.php' => [
             '966' => ['count' => 3, 'category' => self::SAUDI_ONLY_RULE, 'owner' => 'M2-19; D2 payment gateways', 'why' => 'splitting a Saudi number into its dialling code and local part, longest prefix first'],
@@ -181,7 +181,8 @@ class SaudiLiteralsAllowListTest extends TestCase
             'SA' => ['count' => 2, 'category' => self::PLATFORM_DEFAULT, 'owner' => 'A2-13/I1-08 (marketing consent per market); M2-19', 'why' => 'two occurrences: the SA row of the per-market consent-policy map, which reads its own environment variable like the other five, and the home market a configuration naming none falls back to'],
         ],
         'config/gcc.php' => [
-            'SA' => ['count' => 3, 'category' => self::PLATFORM_DEFAULT, 'owner' => 'GCC-02/GCC-03 (storefronts); M2-19', 'why' => 'three occurrences: the default of GCC_DEFAULT_COUNTRY, the SA row of the storefront list beside the other five, and the one entry of `grandfathered` -- the market whose behaviour must not change when the switches go on'],
+            'SA' => ['count' => 4, 'category' => self::PLATFORM_DEFAULT, 'owner' => 'GCC-02/GCC-03 (storefronts); M2-19', 'why' => 'four occurrences: the default of GCC_DEFAULT_COUNTRY, the SA row of the storefront list beside the other five, the SA row of the phone rules beside the other five (C-15), and the one entry of `grandfathered` -- the market whose behaviour must not change when the switches go on'],
+            '966' => ['count' => 1, 'category' => self::PLATFORM_DEFAULT, 'owner' => 'GCC-02/GCC-03 (storefronts); C-15', 'why' => "the Kingdom's dialling code in the SA row of the phone rules, beside the dialling codes of the other five markets; it moved here out of the Torod payload builder, which no longer carries one"],
             'sa' => ['count' => 1, 'category' => self::PLATFORM_DEFAULT, 'owner' => 'GCC-02/GCC-03 (storefronts); M2-19', 'why' => 'the url path of the SA storefront, beside the paths of the other five'],
             'SAR' => ['count' => 1, 'category' => self::PLATFORM_DEFAULT, 'owner' => 'GCC-05 (storefront currency); M2-19', 'why' => 'the currency of the SA storefront, beside the currencies of the other five'],
         ],
@@ -275,7 +276,13 @@ class SaudiLiteralsAllowListTest extends TestCase
         // MarketingMarket's home market; the Amazon SA marketplace id in ChannelAccountCountry; config/marketing.php's policy row and
         // home market; and config/gcc.php's default country, SA storefront path and currency. The number rises deliberately and in the
         // open: this list is the inventory the behaviour tests of M2-19 and M2-09 have to work through, and it is now thirteen longer.
-        $this->assertCount(30, $toMove, "the number of Saudi defaults the plan still has to move changed. If a default moved to a setting, delete its entry and lower this number; if one was added, that is a regression:\n - " . implode("\n - ", $toMove));
+        //
+        // Then 32, with C-15's per-market phone rules: MarketPhone's COUNTRY_OF_LAST_RESORT, the market a shipment is read as when the
+        // order records none, and the Kingdom's dialling code in the SA row of config/gcc.php's phone rules, beside the other five
+        // markets' -- which is where it moved to out of the Torod payload builder, whose entry is gone from ALLOWED because the builder
+        // no longer carries one. That move is the shape every line of this inventory is meant to take, and it took one off the Saudi-only
+        // list rather than off this one, because a row of the six-market table is still a Saudi value written in code.
+        $this->assertCount(32, $toMove, "the number of Saudi defaults the plan still has to move changed. If a default moved to a setting, delete its entry and lower this number; if one was added, that is a regression:\n - " . implode("\n - ", $toMove));
     }
 
     public function test_the_scanner_reads_literals_and_not_prose(): void

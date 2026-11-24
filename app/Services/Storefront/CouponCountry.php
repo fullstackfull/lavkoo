@@ -4,6 +4,7 @@ namespace App\Services\Storefront;
 
 use Closure;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
@@ -56,6 +57,44 @@ final class CouponCountry
         return $country === $default
             ? $query->where(fn (Builder $inner): Builder => $inner->whereNull($column)->orWhere($column, $default))
             : $query->where($column, $country);
+    }
+
+    /**
+     * Whether every one of these coupons exists and belongs to one of these countries (GCC-14c, G-11).
+     *
+     * A coupon with no country of its own is the DEFAULT storefront's, which is the rule narrow() already applies, and until the column
+     * exists every coupon is: a shop that has not run the migration has one market's coupons, so holding the default country is holding all
+     * of them. A coupon that does not exist is not covered, so an employee cannot learn which ids are coupons by asking.
+     *
+     * @param list<int|string> $couponIds
+     * @param list<string> $countries
+     */
+    public static function allBelongTo(array $couponIds, array $countries): bool
+    {
+        $ids = array_values(array_unique($couponIds));
+
+        if ($ids === [] || $countries === []) {
+            return $ids === [];
+        }
+
+        $default = StorefrontResolver::fromConfig()->defaultCountry();
+        $holdsTheDefault = in_array($default, $countries, true);
+
+        if (!self::columnReady()) {
+            return $holdsTheDefault && DB::table(self::TABLE)->whereIn('id', $ids)->count() === count($ids);
+        }
+
+        $coupons = DB::table(self::TABLE)->whereIn('id', $ids)->where(
+            function (QueryBuilder $inner) use ($countries, $holdsTheDefault): void {
+                $inner->whereIn(self::COLUMN, $countries);
+
+                if ($holdsTheDefault) {
+                    $inner->orWhereNull(self::COLUMN);
+                }
+            },
+        );
+
+        return $coupons->count() === count($ids);
     }
 
     /** The country a coupon belongs to, or null when it has none (or none is tracked). */

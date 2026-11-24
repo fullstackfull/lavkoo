@@ -32,6 +32,8 @@ final class RefundTables
             $table->string('payment_status')->default('unpaid');
             $table->string('payment_method')->nullable();
             $table->decimal('order_amount', 40, 2)->default(0);
+            // What the customer has actually handed over, which is the cap on what cancelling the order can pay back (E04-F10).
+            $table->decimal('paid_amount', 40, 2)->default(0);
             $table->decimal('shipping_cost', 40, 2)->default(0);
             $table->decimal('edit_due_amount', 40, 2)->default(0);
             $table->decimal('edit_return_amount', 40, 2)->default(0);

@@ -24,22 +24,26 @@ again** from the per-requirement records: `docs/gcc/audits/2026-11-24-post-merge
 |---|---:|
 | requirements | 359 |
 | acceptance criteria | 1,753 |
-| met (implemented, with a named test) | 893 — 51% |
-| coded (implemented, not proven) | 378 — 22% |
-| missing | 482 — 27% |
+| met (implemented, with a named test) | 913 — 52% |
+| coded (implemented, not proven) | 375 — 21% |
+| missing | 465 — 27% |
 | **development progress** (met + coded) | **73%** |
-| **proven progress** (met) | **51%** |
-| requirements proven end to end | 53 |
-| requirements with every criterion addressed but something unproven | 74 |
-| partially implemented | 214 |
-| not started | 18 |
-| waiting on an owner decision | 259 |
-| waiting on a review (finance, security, legal, Arabic) | 265 |
-| **launch-ready** (all criteria met, no open decision, no outstanding review) | **18 of 359 — 5%** |
+| **proven progress** (met) | **52%** |
+| requirements proven end to end | 55 |
+| requirements with every criterion addressed but something unproven | 76 |
+| partially implemented | 211 |
+| not started | 17 |
+| waiting on an owner decision | 260 |
+| waiting on a review (finance, security, legal, Arabic) | 267 |
+| **launch-ready** (all criteria met, no open decision, no outstanding review) | **16 of 359 — 4%** |
 
-Development progress and launch readiness are different numbers and the gap is not code: 259 requirements wait on a decision and 265 on a
-review, and **G0 is open**, which the charter puts before any release. The audit says how each number is counted, which of the 893 met criteria
-were read before the merge (568 of them), that all 112 test files they cite exist, and that they run in `main`'s own green CI.
+Every figure in this table is printed by `php docs/gcc/audits/2026-11-24-post-merge-assessment/count.php`, which reads the tracker files and
+nothing else. Run it to check them; run it to update them.
+
+Development progress and launch readiness are different numbers and the gap is not code: 260 requirements wait on a decision and 267 on a
+review, and **G0 is open**, which the charter puts before any release. The audit says how each number is counted, where the evidence of each
+met or coded criterion was read (213 after the merge, 609 on a head that no longer exists, 464 naming no source), that all 114 test files
+they cite exist, and that they run in `main`'s own green CI.
 
 ## 1. Read this first
 

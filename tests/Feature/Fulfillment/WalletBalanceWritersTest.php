@@ -48,6 +48,21 @@ class WalletBalanceWritersTest extends TestCase
         'app/Utils/OrderManager.php' => ['assignment'],
     ];
 
+    /**
+     * Files the scanner reports that write NOTHING: a balance read whose value is an amount, which is the one shape the scanner refuses to
+     * clear and is right to refuse -- it cannot follow where an array goes once a file hands it on, and failing open there is what caught
+     * six real money writes (see PlatformWriteScanner::arrayKeyWrites()). They are kept off the writers list above because that list is
+     * also the list of the places that take the row lock and write the ledger row, and a file here does neither: it answers a seller's
+     * screen with a balance it read. A new one is read by a person before it is read by the scanner, exactly like a writer, and the test
+     * still fails for any file on neither list.
+     *
+     * @var array<string, list<string>> file => the kind of each write-shaped form reported in it
+     */
+    private const WALLET_READS_THE_SCANNER_REPORTS = [
+        // The POS customer lookup (E-04): 'wallet_balance' => the market balance MarketBalanceReader answered. A payload key, not a column.
+        'app/Http/Resources/Seller/PosCustomerResource.php' => ['array key given a value'],
+    ];
+
     /** @var array<string, list<string>> file => the kind of each write of users.loyalty_point it makes */
     private const LOYALTY_WRITERS = [
         'app/Repositories/LoyaltyPointTransactionRepository.php' => ['assignment'],
@@ -179,6 +194,8 @@ class WalletBalanceWritersTest extends TestCase
     /** @param array<string, list<string>> $allowed */
     private function assertOnlyTheseWrite(string $column, array $allowed): void
     {
+        ksort($allowed);
+
         $this->assertSame(
             $allowed,
             $this->writersOf($column),
@@ -196,7 +213,17 @@ class WalletBalanceWritersTest extends TestCase
      */
     public function test_the_wallet_balance_is_written_by_its_five_writers_and_nothing_else(): void
     {
-        $this->assertOnlyTheseWrite(column: 'wallet_balance', allowed: self::WALLET_WRITERS);
+        $this->assertOnlyTheseWrite(column: 'wallet_balance', allowed: self::WALLET_WRITERS + self::WALLET_READS_THE_SCANNER_REPORTS);
+    }
+
+    /** And the files the scanner reports are the five writers plus the reads named above: a sixth writer cannot hide among the reads. */
+    public function test_nothing_but_a_named_read_is_reported_without_being_a_writer(): void
+    {
+        $this->assertSame(
+            array_keys(self::WALLET_READS_THE_SCANNER_REPORTS),
+            array_values(array_diff(array_keys($this->writersOf('wallet_balance')), array_keys(self::WALLET_WRITERS))),
+            'a file reporting a wallet write is either one of the five writers or a read named on the reads list, and nothing else',
+        );
     }
 
     public function test_the_loyalty_points_are_written_by_their_two_writers_and_nothing_else(): void

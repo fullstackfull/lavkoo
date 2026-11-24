@@ -456,6 +456,13 @@ class OrderController extends Controller
             return $refusal;
         }
 
+        // An empty cart is nothing to order, and an order of nothing must not reach the wallet: it would be charged 0.00 and leave a
+        // committed ledger row saying an order was paid for, with no order behind it. The CART is what decides this and not the amount --
+        // a cart holding a free product is a real order worth 0.00, which WalletDebitBoundaryCharacterizationTest pins as it is.
+        if (empty($vendorWiseCartList)) {
+            return response()->json(['message' => translate('cart_is_empty')], 403);
+        }
+
         $walletDebit = WalletOrderDebit::forOrderAmount($paymentAmount);
         if (!$walletDebit->isCoveredBy($user->wallet_balance)) {
             return $this->insufficientWalletBalance();
