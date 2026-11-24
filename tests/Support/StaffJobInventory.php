@@ -161,8 +161,8 @@ final class StaffJobInventory
     /** @var array<string, array{class: string, reason: string}> "POST uri" => its classification */
     public const BULK_ROUTES = [
         'POST admin/coupon/bulk-status' => [
-            'class' => self::NOT_YET_SCOPED,
-            'reason' => 'Switches any list of coupon ids on or off. Coupons carry a storefront (GCC-05, Coupon::storefront_country), so a restricted employee can change another country\'s coupon; nothing narrows the ids and no inventory claims it is narrowed. Scoping it takes the shape products and orders use -- a route-rule table beside StaffProductRoutes and a middleware the controller registers, not a check in the action -- plus a coversEveryCoupon on the scope that reads a NULL country as the default storefront\'s, which is what CouponCountry::narrow already does. Its loop also applies id by id and reports a count, so a list with one id it may not touch half-applies; refusing the whole list is the rule the product and order bulk actions already follow.',
+            'class' => self::SCOPED_ELSEWHERE,
+            'reason' => 'StaffCouponRoutes rates CouponController::bulkStatus `inputs:ids`, and ScopeCouponsToStaffCountries refuses the whole list before the action runs when one id is a coupon of a country the employee does not work with, or not a coupon at all (StaffCouponRoutesTest). It was this list\'s first finding and it is the first one closed.',
         ],
         'POST admin/customer/bulk-status' => [
             'class' => self::NOT_YET_SCOPED,

@@ -84,10 +84,11 @@ class StaffJobInventoryTest extends TestCase
     }
 
     /**
-     * The finding, counted so that it cannot grow quietly: four bulk routes an employee can run across countries with nothing narrowing
-     * them. Scoping one takes it off this list by changing its entry, which is a deliberate act; adding a fifth fails this test.
+     * The finding, counted so that it cannot grow quietly: the bulk routes an employee can run across countries with nothing narrowing
+     * them. It began as four; coupon bulk-status is scoped now, so three are left. Scoping one takes it off this list by changing its
+     * entry, which is a deliberate act; adding one fails this test.
      */
-    public function test_the_bulk_routes_that_narrow_nothing_are_the_four_already_known(): void
+    public function test_the_bulk_routes_that_narrow_nothing_are_the_three_still_known(): void
     {
         $open = [];
         foreach (StaffJobInventory::BULK_ROUTES as $route => $entry) {
@@ -97,7 +98,6 @@ class StaffJobInventoryTest extends TestCase
         }
 
         $this->assertSame([
-            'POST admin/coupon/bulk-status',
             'POST admin/customer/bulk-status',
             'POST admin/marketplace/exchange-rates/bulk-update',
             'POST admin/vendors/bulk-status',
