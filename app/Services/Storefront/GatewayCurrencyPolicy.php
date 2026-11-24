@@ -3,6 +3,7 @@
 namespace App\Services\Storefront;
 
 use App\Exceptions\StorefrontPaymentNotSupportedException;
+use App\Services\Payments\PaymentGatewayCatalog;
 use App\Traits\PaymentGatewayTrait;
 use Illuminate\Container\Attributes\Singleton;
 
@@ -20,9 +21,6 @@ final class GatewayCurrencyPolicy
 {
     use PaymentGatewayTrait;
 
-    /** The names the same gateway is stored under. */
-    private const GATEWAY_ALIASES = ['my_fatoorah' => 'fatoorah'];
-
     public function __construct(private readonly StorefrontCurrency $storefrontCurrency)
     {
     }
@@ -35,7 +33,9 @@ final class GatewayCurrencyPolicy
             return;
         }
 
-        $gateway = self::GATEWAY_ALIASES[$gateway] ?? $gateway;
+        // The spellings of one gateway are declared in one place, so a check here and a route there can never disagree about which
+        // gateway a key names (PaymentGatewayCatalog).
+        $gateway = PaymentGatewayCatalog::canonicalKey($gateway);
         $currency = strtoupper($currencyCode);
 
         if ($currency === $storefrontCurrency && $this->isSupported(gateway: $gateway, currency: $currency) && $this->hasUsableDecimals(gateway: $gateway, currency: $currency)) {
