@@ -141,7 +141,9 @@ class RefundController extends BaseController
         // RF-01 and RF-11: one transaction, and the claim inside it decides who pays. The read of the status above is not a claim -- two
         // requests that arrive together both pass it and both pay -- so the move to `refunded` is made here, conditionally, and everything
         // the refund does happens only if that update took the row. A payment that then fails gives the claim back with it.
-        $paid = DB::transaction(function () use ($request, $refund, $order, $user, $loyaltyPoint, $refundStatusService, $refundTransactionService, $claims): bool {
+        $orderDetails = $this->orderDetailRepo->getFirstWhere(params: ['id' => $refund['order_details_id']]);
+
+        $paid = DB::transaction(function () use ($request, $refund, $order, $orderDetails, $loyaltyPoint, $refundStatusService, $refundTransactionService, $claims): bool {
             if ($request['refund_status'] == 'refunded' && !$claims->claimRefunded($refund['id'])) {
                 return false;
             }
@@ -150,6 +152,7 @@ class RefundController extends BaseController
                 request: $request,
                 refund: $refund,
                 order: $order,
+                orderDetails: $orderDetails,
                 loyaltyPoint: $loyaltyPoint,
                 refundStatusService: $refundStatusService,
                 refundTransactionService: $refundTransactionService,
@@ -160,7 +163,6 @@ class RefundController extends BaseController
             return response()->json(['error' => translate('refunded_status_can_not_be_changed') . '.']);
         }
 
-        $orderDetails = $this->orderDetailRepo->getFirstWhere(params: ['id' => $refund['order_details_id']]);
         event(new RefundEvent(status: $request['refund_status'], order: $order, refund: $refund, orderDetails: $orderDetails));
 
         return response()->json(['message' => translate('refund_status_updated') . '.']);
@@ -176,6 +178,7 @@ class RefundController extends BaseController
         RefundStatusRequest $request,
         object $refund,
         object|array|null $order,
+        object $orderDetails,
         string|float|int $loyaltyPoint,
         RefundStatusService $refundStatusService,
         RefundTransactionService $refundTransactionService,
@@ -208,7 +211,6 @@ class RefundController extends BaseController
             return false;
         }
 
-        $orderDetails = $this->orderDetailRepo->getFirstWhere(params: ['id' => $refund['order_details_id']]);
         $dataArray = $refundStatusService->getRefundStatusProcessData(request: $request, orderDetails: $orderDetails, refund: $refund, loyaltyPoint: $loyaltyPoint, order: $order);
 
         if ($request['refund_status'] == 'refunded' && $loyaltyPoint > 0 && getWebConfig(name: 'loyalty_point_status') == 1) {
