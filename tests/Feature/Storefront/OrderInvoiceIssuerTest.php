@@ -223,6 +223,34 @@ class OrderInvoiceIssuerTest extends TestCase
         $this->assertStringNotContainsString('<script>', $html);
     }
 
+    /**
+     * F-14: the visible brand and the legal company are two fields, so renaming the brand cannot rename the company on an invoice already
+     * issued.
+     *
+     * The control in the same test is what makes the comparison mean something: the very same change DOES move the block of an order that
+     * carries no company, which is the block every invoice printed before the registry existed.
+     */
+    public function test_renaming_the_shops_brand_does_not_change_the_legal_name_on_an_invoice_already_issued(): void
+    {
+        $order = $this->orderCarrying('KW');
+        $withACompany = $this->collapsed($this->issuerBlock($order, $this->businessIdentity(shown: true)));
+        $withNoCompany = $this->collapsed($this->issuerBlock(['id' => 2, 'entity_snapshot' => null], $this->businessIdentity(shown: true)));
+
+        foreach (['company_name' => 'A Brand New Name', 'company_web_logo' => 'new-logo.png', 'shop_address' => 'Another address entirely'] as $setting => $value) {
+            DB::table('business_settings')->updateOrInsert(['type' => $setting], ['value' => $value]);
+        }
+        clearWebConfigCacheKeys();
+
+        $this->assertSame($withACompany, $this->collapsed($this->issuerBlock($order, $this->businessIdentity(shown: true))), 'the company on the invoice is the one the order was placed with');
+        $this->assertStringNotContainsString('A Brand New Name', $withACompany, 'and the brand never stands in for it');
+
+        $this->assertNotSame(
+            $withNoCompany,
+            $this->collapsed($this->issuerBlock(['id' => 2, 'entity_snapshot' => null], $this->businessIdentity(shown: true))),
+            'the same change moves the block of an order with no company, so the sameness above is the separation and not an inert test',
+        );
+    }
+
     public function test_the_block_is_the_shops_again_when_legal_entities_are_switched_off(): void
     {
         $order = $this->orderCarrying('KW');

@@ -14,10 +14,12 @@ use App\Services\Fulfillment\FulfillmentRouter;
 use App\Services\Fulfillment\FulfillmentSchema;
 use App\Services\Fulfillment\ProviderConnectionManager;
 use App\Services\Fulfillment\Support\CurrencyRateSource;
+use App\Services\Storefront\OrderStorefrontSnapshot;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
 use Tests\Support\BuildsFulfillmentSchema;
 use Tests\Support\FakeM5aznAdapter;
 use Tests\Support\FakeTorodAdapter;
@@ -101,6 +103,21 @@ abstract class FulfillmentTestCase extends TestCase
             ['type' => 'system_default_currency', 'value' => json_encode(2)],
         ]);
         Cache::flush();
+    }
+
+    /**
+     * Builds the column an order keeps its market in, so a shipment can be given a destination other than Saudi Arabia (C-15).
+     *
+     * The fulfilment world has no markets in it: its orders table is the one every other fulfilment test uses, where an order records no
+     * market and every shipment is read as the default storefront's -- which is the point, because that is what a Saudi installation is.
+     */
+    protected function ordersCanRecordTheirMarket(): void
+    {
+        if (!Schema::hasColumn('orders', OrderStorefrontSnapshot::COLUMN)) {
+            (require database_path('migrations/2026_11_26_100000_add_storefront_snapshot_to_orders_table.php'))->up();
+        }
+
+        app()->forgetInstance(OrderStorefrontSnapshot::class);
     }
 
     /** Enable a provider with the given non-secret settings. */

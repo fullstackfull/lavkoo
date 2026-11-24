@@ -147,8 +147,7 @@ final class OrderStorefrontSnapshot
         return $countries->count() === 1 ? strtoupper((string) $countries->first()) : null;
     }
 
-    /** Whether the orders migration has run, that is whether an order can hold a record at all. The question OrderStorefront asks. */
-    /** Whether the orders migration has run, that is whether an order can hold a record at all. */
+    /** Whether the orders migration has run, that is whether an order can hold a record at all. The question the rest of the application asks. */
     public function columnReady(): bool
     {
         return $this->columnExists(table: 'orders', column: self::COLUMN);

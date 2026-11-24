@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\RestAPI\v1;
 
+use App\Enums\Wallet\MarketBalanceKind;
 use App\Http\Controllers\Controller;
 use App\Models\LoyaltyPointTransaction;
 use App\Services\Loyalty\PointsToWalletConversion;
@@ -14,6 +15,7 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Validator;
 use App\Services\Customer\CustomerWalletWriter;
 use App\Services\Customer\WalletPosting;
+use App\Services\Wallet\MarketBalanceReader;
 
 class UserLoyaltyController extends Controller
 {
@@ -40,7 +42,11 @@ class UserLoyaltyController extends Controller
                 $startDate = '';
                 $endDate = '';
             }
-            $loyaltyPointList = LoyaltyPointTransaction::where('user_id', $user->id)
+            // The same switch as the points above (E-04).
+            $loyaltyPointList = app(MarketBalanceReader::class)->onlyTheMarketsRows(
+                LoyaltyPointTransaction::where('user_id', $user->id),
+                MarketBalanceKind::Loyalty,
+            )
                 ->when($request->has('filter_by') && in_array($request['filter_by'], ['debit', 'credit']), function ($query) use ($request) {
                     $query->when($request['filter_by'] == 'debit', function ($query) {
                         $query->where('debit', '!=', 0);
@@ -60,7 +66,9 @@ class UserLoyaltyController extends Controller
             return response()->json([
                 'limit' => (integer)$request['limit'],
                 'offset' => (integer)$request['offset'],
-                'total_loyalty_point' => $user->loyalty_point,
+                // The points of the market the app names with its storefront header; the one balance the customer's row holds for a
+                // market that has not been switched over, and for a request that names none (E-01).
+                'total_loyalty_point' => app(MarketBalanceReader::class)->points($user),
                 'total_size' => $loyaltyPointList->total(),
                 'loyalty_point_list' => $loyaltyPointList->items(),
                 'filter_by' => $request['filter_by'],
@@ -93,7 +101,8 @@ class UserLoyaltyController extends Controller
         }
 
         $user = $request->user();
-        if ($request['point'] < (int)getWebConfig(name: 'loyalty_point_minimum_point') || $request['point'] > $user->loyalty_point) {
+        // The second half is judged against the points of the market this conversion is being made in (E-01).
+        if ($request['point'] < (int)getWebConfig(name: 'loyalty_point_minimum_point') || $request['point'] > app(MarketBalanceReader::class)->points($user)) {
             return response()->json([
                 'message' => translate('insufficient_point!')
             ], 422);

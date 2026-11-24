@@ -67,7 +67,11 @@ class CodPolicy
             $valueByProvider[$provider] = (float) $providerItems->where('provider', $provider)->sum('line_total');
         }
 
-        $allocation = $this->allocator->allocate($owed, $valueByProvider);
+        $allocation = $this->allocator->allocate(
+            amountOwed: $owed,
+            valueByCollector: $valueByProvider,
+            decimals: $this->currency->decimals(),
+        );
 
         return $allocation === null
             ? new CollectionPlan(true, HoldReason::MIXED_COD_BLOCKED, $zero, $orderTotal)

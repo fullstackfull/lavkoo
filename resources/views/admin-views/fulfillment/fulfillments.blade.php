@@ -72,7 +72,7 @@
                             </td>
                             <td>{{ $fulfillment->items->sum('quantity') }}</td>
                             <td>{{ translate('payment_mode_' . $fulfillment->payment_mode->value) }}
-                                @if ($fulfillment->payment_mode === \App\Enums\Fulfillment\PaymentMode::CashOnDelivery)<div class="fs-10 text-muted">{{ number_format((float) $fulfillment->cod_amount, 2) }} {{ $fulfillment->currency }}</div>@endif</td>
+                                @if ($fulfillment->payment_mode === \App\Enums\Fulfillment\PaymentMode::CashOnDelivery)<div class="fs-10 text-muted">{{ number_format((float) $fulfillment->cod_amount, $fulfillment->money_decimals) }} {{ $fulfillment->currency }}</div>@endif</td>
                             <td>{{ $fulfillment->tracking_number ?? '—' }}</td>
                             <td class="fs-12">{{ $fulfillment->updated_at?->format('Y-m-d H:i') }}</td>
                             <td><a class="btn btn-outline-primary btn-sm" href="{{ route('admin.fulfillment-providers.fulfillments.show', $fulfillment->id) }}">{{ translate('view') }}</a></td>

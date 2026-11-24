@@ -83,6 +83,58 @@ class MarketShadowWriteTest extends TestCase
         });
     }
 
+    /**
+     * E-03: points of one market cannot become the wallet of another.
+     *
+     * A conversion is two movements in one transaction -- a loyalty debit and a wallet credit -- and both name the market of the request
+     * that made it ({@see \App\Services\Loyalty\PointsToWalletConversion}). So what moves is that market's two accounts, and the other
+     * five markets' accounts are not part of the operation at all.
+     */
+    public function test_a_conversion_of_points_into_the_wallet_moves_one_markets_two_accounts_and_no_other(): void
+    {
+        $this->withShadowOn();
+        $this->runMarketAccountMigration();
+        $this->aCustomerWithAnOpenAccount(market: 'KW', wallet: 100.0, points: 50.0);
+        app(CustomerMarketBalances::class)->credit(kind: MarketBalanceKind::Wallet, customerId: self::CUSTOMER, market: 'SA', amount: 70.0);
+        app(CustomerMarketBalances::class)->credit(kind: MarketBalanceKind::Loyalty, customerId: self::CUSTOMER, market: 'SA', amount: 20.0);
+
+        DB::transaction(function (): void {
+            $this->recordMovementAsAWriterWould('loyalty_point_transactions', 'KW', debit: 30);
+            $this->recordMovementAsAWriterWould('wallet_transactions', 'KW', credit: 8);
+        });
+
+        $this->assertSame(20.0, $this->marketLoyaltyPoints(self::CUSTOMER, 'KW'), 'the points left the market they were held in');
+        $this->assertSame(108.0, $this->marketWalletBalance(self::CUSTOMER, 'KW'), 'and the money arrived in the same market');
+        $this->assertSame(70.0, $this->marketWalletBalance(self::CUSTOMER, 'SA'), 'Saudi Arabia was not part of it');
+        $this->assertSame(20.0, $this->marketLoyaltyPoints(self::CUSTOMER, 'SA'));
+        $this->assertNull($this->marketWalletBalance(self::CUSTOMER, 'AE'), 'and no account was opened anywhere else');
+    }
+
+    /**
+     * And the mirror cannot be made to move money BETWEEN markets, even by a pair of rows that name two.
+     *
+     * The application writes no such pair -- both rows of a conversion are written in one request, in one market -- but the mirror must not
+     * invent a transfer if it ever met one: each row moves the account of the market it names and nothing else, so the points leave one
+     * market and the money appears in the other without any path between the two accounts.
+     */
+    public function test_two_rows_naming_two_markets_each_move_their_own_account_and_nothing_crosses(): void
+    {
+        $this->withShadowOn();
+        $this->runMarketAccountMigration();
+        $this->aCustomerWithAnOpenAccount(market: 'KW', wallet: 100.0, points: 50.0);
+        app(CustomerMarketBalances::class)->credit(kind: MarketBalanceKind::Wallet, customerId: self::CUSTOMER, market: 'AE', amount: 10.0);
+
+        DB::transaction(function (): void {
+            $this->recordMovementAsAWriterWould('loyalty_point_transactions', 'KW', debit: 30);
+            $this->recordMovementAsAWriterWould('wallet_transactions', 'AE', credit: 8);
+        });
+
+        $this->assertSame(20.0, $this->marketLoyaltyPoints(self::CUSTOMER, 'KW'));
+        $this->assertSame(100.0, $this->marketWalletBalance(self::CUSTOMER, 'KW'), 'the Kuwaiti wallet is where it was');
+        $this->assertSame(18.0, $this->marketWalletBalance(self::CUSTOMER, 'AE'));
+        $this->assertNull($this->marketLoyaltyPoints(self::CUSTOMER, 'AE'), 'and nothing opened a Emirati points account to take the Kuwaiti points');
+    }
+
     public function test_a_credit_of_the_wallet_reaches_the_account_of_its_market(): void
     {
         $this->withShadowOn();

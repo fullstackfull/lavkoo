@@ -9,6 +9,7 @@ use App\Services\Wallet\WalletOverdraft;
 use Illuminate\Support\Str;
 use App\Services\Storefront\LedgerAttribution;
 use App\Services\Storefront\LedgerOrigin;
+use App\Services\Wallet\MarketBalanceReader;
 
 /**
  * The single place a customer's `wallet_balance` is read and written, and the only writer of `wallet_transactions`.
@@ -68,7 +69,11 @@ final class CustomerWalletWriter
             // judges the figure the write is about to be made from, not one another writer has since moved. Every other wallet
             // writer on the platform asks the same question in the same place (WalletTransactionRepository, CustomerManager,
             // CustomerTrait), and this one answers the six callers that now come through here.
-            if (WalletOverdraft::refuses($customer->wallet_balance, $posting->debit)) {
+            // The balance a debit is judged against is the one of the market being served: its own account's once that market has been
+            // switched over, and this same column for every other market and for every write no storefront serves -- a queue worker, a
+            // panel, a console command (E-01). What is WRITTEN is unchanged either way: the column below, mirrored into the account of the
+            // market the row names.
+            if (WalletOverdraft::refuses(app(MarketBalanceReader::class)->wallet($customer), $posting->debit)) {
                 return false;
             }
 

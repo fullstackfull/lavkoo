@@ -6,6 +6,8 @@ use App\Enums\GlobalConstant;
 use App\Services\Payments\PaymentGatewayCatalog;
 use App\Utils\Helpers;
 use PHPUnit\Framework\TestCase;
+use RecursiveDirectoryIterator;
+use RecursiveIteratorIterator;
 
 /**
  * The three hand-maintained gateway lists agree with each other (D2-04).
@@ -95,6 +97,41 @@ class PaymentGatewayCatalogTest extends TestCase
         // and neither serves a GCC market -- but a THIRD one appearing is drift that wants reading.
         $this->assertSame(['mercadopago_pix'], $routedWithNoCurrency, 'a gateway that can be reached declares no currency');
         $this->assertSame(['cinetpay'], $currencyWithNoRoute, 'a gateway declares currencies but cannot be reached');
+    }
+
+    /**
+     * The spellings of a gateway are declared in ONE place.
+     *
+     * `GatewayCurrencyPolicy` kept its own copy of the same pair, which is how the currency check and the start-route map could have
+     * come to disagree about which gateway a key names -- the drift this class exists to prevent, inside the very check that refuses a
+     * payment. Read from the source rather than from the classes, because what is asserted is that no second copy exists, and a second
+     * copy cannot be asked whether it exists.
+     */
+    public function test_only_one_file_declares_what_a_gateway_is_called(): void
+    {
+        // This test has no application behind it, so the root is found from this file rather than from base_path().
+        $root = dirname(__DIR__, 3);
+        $declaring = [];
+
+        foreach (['app', 'Modules'] as $tree) {
+            foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root . '/' . $tree)) as $file) {
+                if (!$file->isFile() || $file->getExtension() !== 'php') {
+                    continue;
+                }
+
+                if (preg_match('/[\'"]my_fatoorah[\'"]\s*=>\s*[\'"]fatoorah[\'"]/', (string) file_get_contents($file->getPathname())) === 1) {
+                    $declaring[] = str_replace($root . '/', '', $file->getPathname());
+                }
+            }
+        }
+
+        sort($declaring);
+
+        $this->assertSame(
+            ['app/Services/Payments/PaymentGatewayCatalog.php'],
+            $declaring,
+            'the alias map has one home, and every comparison goes through PaymentGatewayCatalog::canonicalKey()',
+        );
     }
 
     public function test_which_offered_gateways_declare_each_of_the_six_gulf_currencies(): void

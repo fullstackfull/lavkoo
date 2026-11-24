@@ -20,6 +20,7 @@ use App\Models\Setting;
 use App\Traits\CommonTrait;
 use App\Models\User;
 use App\Services\Payments\PaymentSettlementScope;
+use App\Services\Storefront\StorefrontCurrency;
 use App\Utils\CartManager;
 use App\Utils\OrderManager;
 use Carbon\Carbon;
@@ -28,6 +29,7 @@ use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Throwable;
 
 class Helpers
 {
@@ -608,9 +610,34 @@ class Helpers
             } else {
                 $commission = getWebConfig(name: 'sales_commission');
             }
-            $commissionAmount = number_format(($order_total / 100) * $commission, 2);
+            $commissionAmount = number_format(($order_total / 100) * $commission, self::commissionDecimals());
         }
         return $commissionAmount;
+    }
+
+    /**
+     * How many decimals a commission figure keeps: the decimals of the currency the order is priced in, and never fewer than the two this
+     * has always kept (C-15, E09-F10).
+     *
+     * A commission is a share of an amount of money, so it is an amount of money: a tenth of a Kuwaiti dinar order of 12.345 is 1.2345, and
+     * rounding that to two decimals throws away four fils of every dinar the platform is owed. `CommissionEngine`, which prices each line
+     * when rules are configured, already keeps four decimals, and the column holds twenty -- this one function was the only place that cut
+     * the figure to two.
+     *
+     * The decimals come from the CURRENCY, not from `decimal_point_settings`: that setting is an operator's display preference, and an
+     * operator who chose to print no decimals must not thereby change what a seller is charged. The floor of two is what keeps every Saudi
+     * figure the figure it is today.
+     */
+    private static function commissionDecimals(): int
+    {
+        try {
+            $currency = app(StorefrontCurrency::class);
+
+            // A request that no storefront serves answers no code, and the platform's own two decimals stand.
+            return max(2, $currency->decimalsOf((string) $currency->currencyCodeInForce()));
+        } catch (Throwable) {
+            return 2;
+        }
     }
 
     public static function set_symbol($amount): string

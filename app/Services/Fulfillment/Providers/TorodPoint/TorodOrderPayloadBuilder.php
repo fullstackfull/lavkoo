@@ -9,7 +9,8 @@ use App\Models\ProviderFulfillment;
 use App\Models\ProviderFulfillmentItem;
 use App\Services\Address\AddressSnapshot;
 use App\Services\Fulfillment\Support\ProviderConfig;
-use App\Services\Fulfillment\Support\SaudiPhone;
+use App\Services\Fulfillment\Support\DestinationCountry;
+use App\Services\Fulfillment\Support\MarketPhone;
 
 /**
  * Builds the body of POST /public/fulfillment/order from the Fulfillment API v5 document's sample:
@@ -35,11 +36,12 @@ class TorodOrderPayloadBuilder
     {
         $address = $this->address($order);
         $isCod = $fulfillment->payment_mode === PaymentMode::CashOnDelivery;
-        $local = (string) SaudiPhone::normalize(AddressSnapshot::plain($address, 'phone'));
+        $country = DestinationCountry::ofOrder($order->id);
+        $local = (string) MarketPhone::nationalNumberFor($country, AddressSnapshot::plain($address, 'phone'));
 
         $payload = [
             'receiverName' => AddressSnapshot::plain($address, 'contact_person_name'),
-            'receiverPhone' => $this->formatPhone($local, $config),
+            'receiverPhone' => $this->formatPhone($local, $config, $country),
             'receiverPhone2' => '',
             'receiverAddress' => array_filter([
                 'cityId' => (string) $city->external_id,
@@ -78,11 +80,12 @@ class TorodOrderPayloadBuilder
         return is_object($raw) ? (array) $raw : (is_array($raw) ? $raw : []);
     }
 
-    private function formatPhone(string $local, ProviderConfig $config): string
+    /** The number as this account wants it: the national form, or the international one of the market the parcel is going to. */
+    private function formatPhone(string $local, ProviderConfig $config, ?string $country): string
     {
         return $config->string('phone_format', 'international_00') === 'local' || $local === ''
             ? $local
-            : '00966' . substr($local, 1);
+            : MarketPhone::internationalForm($country, $local);
     }
 
     private function weight(ProviderFulfillment $fulfillment, ProviderConfig $config): int

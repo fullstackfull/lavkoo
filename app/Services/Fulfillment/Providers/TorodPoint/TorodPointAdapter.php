@@ -37,7 +37,8 @@ use App\Services\Fulfillment\Support\ProviderConfig;
 use App\Services\Fulfillment\Support\ProviderCurrency;
 use App\Services\Fulfillment\Support\ProviderSyncRecorder;
 use App\Services\Fulfillment\Support\RequestFingerprint;
-use App\Services\Fulfillment\Support\SaudiPhone;
+use App\Services\Fulfillment\Support\DestinationCountry;
+use App\Services\Fulfillment\Support\MarketPhone;
 use App\Services\Fulfillment\Support\PiiRedactor;
 use App\Services\Fulfillment\Support\SecretRedactor;
 use Illuminate\Support\Arr;
@@ -230,7 +231,7 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
         if (AddressSnapshot::plain($address, 'address') === '') {
             return PreflightResult::hold(HoldReason::ADDRESS_INCOMPLETE);
         }
-        if (SaudiPhone::normalize(AddressSnapshot::plain($address, 'phone')) === null) {
+        if (MarketPhone::nationalNumberFor(DestinationCountry::ofOrder($fulfillment->order_id), AddressSnapshot::plain($address, 'phone')) === null) {
             return PreflightResult::hold(HoldReason::PHONE_INVALID);
         }
         $resolution = $this->cities->resolveForAddress($address);
@@ -648,7 +649,9 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
             return true;
         }
 
-        return abs((float) $reported - (float) $fulfillment->cod_amount) <= 0.01;
+        // One smallest coin of tolerance: a halala for a riyal shipment, which is what this has always allowed, and a fils for a
+        // shipment in a currency that has thousandths (C-15).
+        return abs((float) $reported - (float) $fulfillment->cod_amount) <= 10 ** -$fulfillment->money_decimals;
     }
 
     // ---- catalog, stock, cities, product push --------------------------------------------------------

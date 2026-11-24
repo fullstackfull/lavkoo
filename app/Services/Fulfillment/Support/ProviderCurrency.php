@@ -2,6 +2,8 @@
 
 namespace App\Services\Fulfillment\Support;
 
+use App\Services\Storefront\StorefrontCurrency;
+
 /**
  * Converts an amount as the platform STORES it into the currency a provider is paid and collects in.
  *
@@ -13,11 +15,25 @@ namespace App\Services\Fulfillment\Support;
  *
  * A single-currency store whose default currency is the provider currency under another spelling (this store's riyal is "KSA")
  * needs no conversion: see CurrencyCode.
+ *
+ * **It rounds to the decimals the currency actually has** (C-15). The riyal has two and every amount this class has ever carried was a
+ * riyal amount, so rounding to two was rounding to the riyal's smallest coin. The Kuwaiti and Bahraini dinar and the Omani rial have
+ * three: rounding one of those to two decimals asks a courier for up to five fils that the order does not owe, and that figure is the one
+ * the customer pays in cash. The decimals come from the one place that holds them, `gcc.storefronts.currency.decimals`, read through
+ * {@see StorefrontCurrency::decimalsOf()} -- which answers two for every currency it is not told about, the riyal included.
  */
 final class ProviderCurrency
 {
-    public function __construct(private readonly CurrencyRateSource $rates)
+    public function __construct(
+        private readonly CurrencyRateSource $rates,
+        private readonly StorefrontCurrency $currencies,
+    ) {
+    }
+
+    /** How many decimals the currency a provider is paid in has: two for the riyal, three for the dinar and the rial. */
+    public function decimals(): int
     {
+        return $this->currencies->decimalsOf($this->code());
     }
 
     /** The ISO code a provider is paid in. Never the store's own spelling of it ("KSA" for this store's riyal). */
@@ -42,7 +58,7 @@ final class ProviderCurrency
             return null;
         }
 
-        return round($amount, 2, PHP_ROUND_HALF_UP);
+        return round($amount, $this->decimals(), PHP_ROUND_HALF_UP);
     }
 
     /**

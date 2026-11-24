@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Enums\Wallet\MarketBalanceKind;
 use App\Http\Controllers\Controller;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -9,9 +10,9 @@ use Illuminate\Http\Request;
 use App\Models\WalletTransaction;
 use App\Utils\Helpers;
 use App\Models\AddFundBonusCategories;
+use App\Services\Wallet\MarketBalanceReader;
 use Brian2694\Toastr\Facades\Toastr;
 use Carbon\Carbon;
-
 use function App\Utils\payment_gateways;
 
 class UserWalletController extends Controller
@@ -22,7 +23,9 @@ class UserWalletController extends Controller
         $walletStatus = getWebConfig(name: 'wallet_status');
         if ($walletStatus == 1) {
             $transactionTypes = $this->getSelectTransactionTypes(types: $request->get('types', []));
-            $totalWalletBalance = auth('customer')->user()->wallet_balance;
+            // The balance of the market being served: its own account's once that market has been switched over, and the one balance the
+            // customer's row holds for every other market and for every request no storefront serves (E-01).
+            $totalWalletBalance = app(MarketBalanceReader::class)->wallet(auth('customer')->user());
 
             $walletTransactionList = $this->getWalletTransactionList(request: $request, types: $transactionTypes);
             $paymentGatewayList = payment_gateways();
@@ -80,7 +83,12 @@ class UserWalletController extends Controller
             $startDate = Carbon::createFromFormat('d/m/Y', $dates[0])->format('Y-m-d') . ' 00:00:00';
             $endDate = Carbon::createFromFormat('d/m/Y', $dates[1])->format('Y-m-d') . ' 23:59:59';
         }
-        return WalletTransaction::where('user_id', auth('customer')->id())
+        // The trail behind the balance above follows the same switch: a market reading its own account is shown its own movements, and
+        // every other market is shown every movement, as this statement always has (E-04).
+        return app(MarketBalanceReader::class)->onlyTheMarketsRows(
+            WalletTransaction::where('user_id', auth('customer')->id()),
+            MarketBalanceKind::Wallet,
+        )
             ->when($request->has('filter_by') && in_array($request['filter_by'], ['debit', 'credit']), function ($query) use ($request) {
                 $query->when($request['filter_by'] == 'debit', function ($query) {
                     $query->where('debit', '!=', 0);

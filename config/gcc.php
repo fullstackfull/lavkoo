@@ -92,12 +92,12 @@ return [
         'default_country' => env('GCC_DEFAULT_COUNTRY', 'SA'),
 
         'countries' => [
-            'SA' => ['path' => 'sa', 'currency' => 'SAR', 'active' => true],
-            'AE' => ['path' => 'ae', 'currency' => 'AED', 'active' => false],
-            'KW' => ['path' => 'kw', 'currency' => 'KWD', 'active' => false],
-            'QA' => ['path' => 'qa', 'currency' => 'QAR', 'active' => false],
-            'BH' => ['path' => 'bh', 'currency' => 'BHD', 'active' => false],
-            'OM' => ['path' => 'om', 'currency' => 'OMR', 'active' => false],
+            'SA' => ['path' => 'sa', 'currency' => 'SAR', 'active' => true, 'name' => 'Saudi Arabia'],
+            'AE' => ['path' => 'ae', 'currency' => 'AED', 'active' => false, 'name' => 'United Arab Emirates'],
+            'KW' => ['path' => 'kw', 'currency' => 'KWD', 'active' => false, 'name' => 'Kuwait'],
+            'QA' => ['path' => 'qa', 'currency' => 'QAR', 'active' => false, 'name' => 'Qatar'],
+            'BH' => ['path' => 'bh', 'currency' => 'BHD', 'active' => false, 'name' => 'Bahrain'],
+            'OM' => ['path' => 'om', 'currency' => 'OMR', 'active' => false, 'name' => 'Oman'],
         ],
 
         'paths' => [
@@ -134,6 +134,21 @@ return [
             // (App\Traits\PaymentGatewayTrait) and has two decimals. A currency with three (KWD, BHD, OMR) goes only to a gateway listed here, after
             // somebody has read what that gateway does with a third decimal. Empty until then: a payment in such a currency is refused before it starts.
             'verified_three_decimal_gateways' => [],
+        ],
+
+        // The mobile number a courier is given, per market (C-15). Fulfilment holds a shipment whose phone it cannot read rather than send a
+        // courier a number they cannot call, and the one rule it knew was the Saudi one -- which would hold every order of the other five
+        // markets, where a mobile is eight digits with no trunk zero. The dialling code and the national length are facts that do not move;
+        // WHICH prefixes inside that length are mobile does, and number portability means a prefix no longer names an operator, so a
+        // `pattern` is left empty until somebody reads the market's current numbering plan and fills it in. Saudi Arabia keeps the pattern
+        // that already shipped, so nothing about a Saudi shipment changes. An empty pattern accepts any number of the right length.
+        'phone' => [
+            'SA' => ['country_code' => '966', 'national_length' => 9, 'trunk_zero' => true, 'pattern' => '/^5\d{8}$/'],
+            'AE' => ['country_code' => '971', 'national_length' => 9, 'trunk_zero' => true, 'pattern' => null],
+            'KW' => ['country_code' => '965', 'national_length' => 8, 'trunk_zero' => false, 'pattern' => null],
+            'QA' => ['country_code' => '974', 'national_length' => 8, 'trunk_zero' => false, 'pattern' => null],
+            'BH' => ['country_code' => '973', 'national_length' => 8, 'trunk_zero' => false, 'pattern' => null],
+            'OM' => ['country_code' => '968', 'national_length' => 8, 'trunk_zero' => false, 'pattern' => null],
         ],
 
         'legal_entities' => [
@@ -173,6 +188,17 @@ return [
             // following. Run wallet:backfill-market-accounts before turning this on: a mirror never opens an account, because opening one
             // inside the writer's own transaction is what deadlocks (see MarketAccountRepository::open).
             'shadow_writes' => filter_var(env('GCC_MARKET_WALLETS_SHADOW', false), FILTER_VALIDATE_BOOLEAN),
+
+            // The third stage (E-01, GCC-15 slice 3), and the first one that changes an answer: the markets whose OWN ACCOUNT is the
+            // balance they read. Empty by default, which is the platform of today -- every market reads the one `users` column, whatever
+            // the two switches above are set to. A market listed here answers its account's balance where a customer is shown their
+            // wallet or their points, and a debit of that market is judged against it, so a customer with money in Riyadh and none in
+            // Kuwait City cannot pay with a Kuwaiti wallet. Nothing is listed until the backfill has been rehearsed on a disposable copy
+            // of the real database and the owner has approved it (charter section 4): a market whose account was never filled would read
+            // as a customer with nothing. The writes are unchanged -- every movement still goes to the `users` column and is mirrored
+            // into its market's account, and the two legitimately part company once a second market holds money, which is what the
+            // mirror's divergence line is for. Country codes, for example ['KW'].
+            'answers_for' => [],
         ],
 
         'payment_methods' => [

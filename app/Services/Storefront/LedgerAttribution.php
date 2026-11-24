@@ -27,6 +27,9 @@ final class LedgerAttribution
 
     private const MARKET_COLUMNS = ['storefront_country', 'currency_code', 'legal_entity_id'];
 
+    /** The one of those three that says which market a movement belongs to. */
+    private const MARKET_COLUMN = 'storefront_country';
+
     private const NEGATIVE_ANSWER_SECONDS = 30;
 
     /** @var array<string, array{columns: list<string>, at: int}> */
@@ -60,6 +63,17 @@ final class LedgerAttribution
     }
 
     /** Forgets what was remembered about the tables, after a migration ran or was rolled back in this process. */
+    /**
+     * Whether this ledger records the market a movement belongs to, which is the column a per-market statement is narrowed by (E-04).
+     *
+     * The same cached listing the attribution itself reads, so a reader that asks this costs nothing the writer has not already paid, and
+     * a ledger whose migration has not run answers false -- a statement is then not narrowed at all, which is the platform of today.
+     */
+    public function marketIsRecordedIn(string $table): bool
+    {
+        return in_array(self::MARKET_COLUMN, $this->columnsOf($table, self::MARKET_COLUMNS), true);
+    }
+
     public function flush(): void
     {
         $this->listings = [];

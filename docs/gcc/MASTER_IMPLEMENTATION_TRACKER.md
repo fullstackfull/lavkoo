@@ -15,6 +15,32 @@
 
 As of 2026-11-23. Generated from the independent assessment of every requirement of the original multi-country plan (13 axes, A to M) against the state of GitHub, then checked by independent verifiers. It replaces any reading of the pull request list as progress: **a pull request that is open is not a requirement that is done.**
 
+## The counted assessment of 2026-11-24 (read this before the dashboard below)
+
+Every number below was written while each branch was an open draft. The branches are all in `main` now, and the plan has been **counted
+again** from the per-requirement records: `docs/gcc/audits/2026-11-24-post-merge-assessment/README.md`.
+
+| | |
+|---|---:|
+| requirements | 359 |
+| acceptance criteria | 1,753 |
+| met (implemented, with a named test) | 893 — 51% |
+| coded (implemented, not proven) | 378 — 22% |
+| missing | 482 — 27% |
+| **development progress** (met + coded) | **73%** |
+| **proven progress** (met) | **51%** |
+| requirements proven end to end | 53 |
+| requirements with every criterion addressed but something unproven | 74 |
+| partially implemented | 214 |
+| not started | 18 |
+| waiting on an owner decision | 259 |
+| waiting on a review (finance, security, legal, Arabic) | 265 |
+| **launch-ready** (all criteria met, no open decision, no outstanding review) | **18 of 359 — 5%** |
+
+Development progress and launch readiness are different numbers and the gap is not code: 259 requirements wait on a decision and 265 on a
+review, and **G0 is open**, which the charter puts before any release. The audit says how each number is counted, which of the 893 met criteria
+were read before the merge (568 of them), that all 112 test files they cite exist, and that they run in `main`'s own green CI.
+
 ## 1. Read this first
 
 - **Nothing here is merged, deployed or verified in production.** All 134 draft pull requests of `lavkoo`, 20 of `lavkooapp` and 17 of `lavkooappseller` are open; `main` has none of the GCC work. The live server is described by the release documents as running an older baseline (`698aa1e`), which no document proves from outside. No state in this document claims production.
@@ -277,7 +303,7 @@ Executable on an isolated branch without production access, ordered by the prior
 |---|---|---|---|
 | [E-01](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 1/0/3 | Customer wallet separate per market (storefront, company, currency) |
 | [E-02](tracker/axis-e-wallets-loyalty-and-financial-records.md) | NOT STARTED | 1/0/3 | Loyalty points independent per market, sharing structure off |
-| [E-03](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 0/1/3 | No automatic transfer or conversion of balances between markets |
+| [E-03](tracker/axis-e-wallets-loyalty-and-financial-records.md) | CODED | 3/1/0 | No automatic transfer or conversion of balances between markets |
 | [E-04](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 2/0/3 | Wallet and loyalty readers show one market's balance, API keys keep meaning |
 | [E-05](tracker/axis-e-wallets-loyalty-and-financial-records.md) | IN PROGRESS | 2/2/2 | Ledger rows reconcilable: attribution, reference, actor, idempotency |
 | [E-06](tracker/axis-e-wallets-loyalty-and-financial-records.md) | INTEGRATED AND TESTED | 5/0/0 | Historical balances reconciled against the ledgers (read-only proof) |

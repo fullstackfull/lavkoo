@@ -6,12 +6,14 @@ use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\HoldReason;
 use App\Enums\Fulfillment\MappingStatus;
 use App\Enums\Fulfillment\ProviderCode;
+use App\Models\ProviderCity;
 use App\Models\ProviderProductMapping;
 use App\Services\Fulfillment\Data\CapabilityState;
 use App\Services\Fulfillment\Data\SubmissionResult;
 use App\Services\Fulfillment\Exceptions\ProviderUnavailableException;
 use App\Services\Fulfillment\ProviderOrderDispatcher;
 use App\Services\Fulfillment\Providers\TorodPoint\TorodCityResolver;
+use App\Services\Fulfillment\Support\ArabicText;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
@@ -100,6 +102,45 @@ class TorodAdapterTest extends TorodTestCase
         $this->submitAsClaimed($this->adapter(), $fulfillment);
 
         Http::assertSent(fn (Request $request): bool => $request->data()['receiverPhone'] === '0551234567');
+    }
+
+    /**
+     * C-15: the international form a courier is sent is the market's, not Saudi Arabia's.
+     *
+     * The test above pins the Saudi local form and the one below the Saudi international form; a Kuwaiti number has no trunk zero, so
+     * the code that cut the first digit off and prefixed 00966 would have sent seven digits of an eight-digit number under the wrong code.
+     */
+    public function test_a_kuwaiti_order_is_sent_its_phone_in_the_kuwaiti_international_form(): void
+    {
+        $this->ordersCanRecordTheirMarket();
+        ProviderCity::create([
+            'provider' => 'torod_point', 'external_id' => '50001', 'name_ar' => 'الكويت', 'name_en' => 'Kuwait City', 'region_external_id' => '5000',
+            'normalized_ar' => ArabicText::normalize('الكويت'), 'normalized_en' => ArabicText::normalize('Kuwait City'),
+        ]);
+        $fulfillment = $this->torodFulfillment([
+            'storefront_country' => 'KW',
+            'shipping_address_data' => json_encode([
+                'contact_person_name' => 'Ali Al-Sabah', 'phone' => '+965 5123 4567', 'address' => 'Salem Al Mubarak St 4',
+                'city' => 'الكويت', 'country' => 'KW', 'email' => 'ali@example.test',
+            ]),
+        ]);
+        $this->fakeOrderAccepted();
+
+        $this->submitAsClaimed($this->adapter(), $fulfillment);
+
+        Http::assertSent(fn (Request $request): bool => $request->data()['receiverPhone'] === '0096551234567'
+            && $request->data()['receiverAddress']['cityId'] === '50001');
+    }
+
+    /** The Saudi international form is the one that already shipped: the trunk zero dropped and 00966 in front of it. */
+    public function test_a_saudi_order_keeps_the_international_form_it_always_had(): void
+    {
+        $fulfillment = $this->torodFulfillment();
+        $this->fakeOrderAccepted();
+
+        $this->submitAsClaimed($this->adapter(), $fulfillment);
+
+        Http::assertSent(fn (Request $request): bool => $request->data()['receiverPhone'] === '00966551234567');
     }
 
     public function test_the_cost_field_is_sent_only_when_an_operator_chose_what_it_carries(): void

@@ -2,9 +2,11 @@
 
 namespace App\Models;
 
+use App\Casts\MoneyInItsCurrency;
 use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\PaymentMode;
 use App\Enums\Fulfillment\ProviderCode;
+use App\Services\Storefront\StorefrontCurrency;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
@@ -41,11 +43,11 @@ class ProviderFulfillment extends Model
         'generation' => 'integer',
         'status' => FulfillmentStatus::class,
         'payment_mode' => PaymentMode::class,
-        'cod_amount' => 'decimal:2',
-        'items_total' => 'decimal:2',
-        'shipping_allocation' => 'decimal:2',
-        'total_amount' => 'decimal:2',
-        'provider_cost' => 'decimal:2',
+        'cod_amount' => MoneyInItsCurrency::class,
+        'items_total' => MoneyInItsCurrency::class,
+        'shipping_allocation' => MoneyInItsCurrency::class,
+        'total_amount' => MoneyInItsCurrency::class,
+        'provider_cost' => MoneyInItsCurrency::class,
         'attempts' => 'integer',
         'reconcile_attempts' => 'integer',
         'claimed_at' => 'datetime',
@@ -80,6 +82,17 @@ class ProviderFulfillment extends Model
     protected function lastEventAt(): Attribute
     {
         return Attribute::make(set: static fn (mixed $value): ?string => $value === null ? null : Carbon::parse($value)->format('Y-m-d H:i:s.v'));
+    }
+
+    /**
+     * How many decimals this shipment's money is printed with: the decimals of the currency it is stamped with.
+     *
+     * A riyal shipment prints two, as every shipment always has; a Kuwaiti, Bahraini or Omani one prints three, because the smallest coin
+     * its courier can collect is a thousandth and a figure printed to two decimals is not the figure that will be collected (C-15).
+     */
+    protected function moneyDecimals(): Attribute
+    {
+        return Attribute::make(get: fn (): int => app(StorefrontCurrency::class)->decimalsOf((string) $this->currency));
     }
 
     public function items(): HasMany

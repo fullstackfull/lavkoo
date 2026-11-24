@@ -20,6 +20,7 @@ final readonly class MoneyAssessment
         public float $itemsTotal,
         public float $shippingAllocation,
         public float $totalAmount,
+        public int $decimals,
     ) {
     }
 
@@ -60,8 +61,15 @@ final readonly class MoneyAssessment
         return $changes;
     }
 
+    /**
+     * Two figures are the same figure when they are closer than half the smallest coin of the currency.
+     *
+     * Half a halala for a riyal, which is what this has always compared; half a fils for the dinar and the rial, because a tolerance of
+     * half a halala would call a shipment that owes four fils more than the record says unchanged, and the provider would keep collecting
+     * the old figure (C-15).
+     */
     private function sameAmount(mixed $stored, float $assessed): bool
     {
-        return abs((float) $stored - $assessed) < 0.005;
+        return abs((float) $stored - $assessed) < 0.5 / (10 ** max(0, $this->decimals));
     }
 }

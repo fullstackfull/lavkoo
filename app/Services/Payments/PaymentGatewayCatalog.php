@@ -68,7 +68,7 @@ class PaymentGatewayCatalog
             'bkash' => 'payment/bkash/make-payment',
             'paystack' => 'payment/paystack/pay',
             'paymera' => 'payment/paymera/pay',
-'mtn_cash' => 'payment/mtn-cash/pay',
+            'mtn_cash' => 'payment/mtn-cash/pay',
             // MyFatoorah. Both `payment/myfatoorah/pay` and `payment/fatoorah/pay` are registered and
             // reach the same controller; the canonical one is used for new links.
             'fatoorah' => 'payment/myfatoorah/pay',
