@@ -50,7 +50,8 @@ while storefronts are off, so no payload changes until the owner switches them o
 | `RestockProductNotificationListener` | raised by a seller's restock, read by customers of whichever markets asked |
 | `DrainStockEvents`, `RebuildProductSearchIndex`, `fulfillment:*`, `channels:*` | work that sweeps many markets at once belongs to no one market; binding the dispatcher's would narrow what it exists to sweep |
 | `OrderPlacedListener`, `OrderStatusListener`, `OrderEdit*`, `RefundListener`, `DigitalProductDownloadListener` | already derive the market from the order's own `storefront_country` (`OrderNotificationContext`, I1-06). The record is the truth; the request that queued the job is a guess |
-| `DeliverSellerWebhook`, `Fulfillment/*` jobs | each carries a record id and should **derive** from it (`storefrontToServe()`), which is the next slice; the fulfilment provider connection already scopes its own catalogue country (B-05) |
+| `DeliverSellerWebhook` | nothing is rendered at delivery: the body it POSTs is the payload stored when the event happened (`SellerWebhookDispatcher::attempt`) |
+| `Fulfillment/*` jobs | the provider connection carries its own catalogue country (`ProviderStorefrontCountry`, B-05), and the shipment's money is read from the order's own lines rather than converted at dispatch (`FulfillmentMoney`), so there is no reader to bind for -- and binding one would narrow the product lookups these jobs make |
 
 A job that works many markets must not use the trait, and a job that knows its market from the record it carries should override
 `storefrontToServe()` rather than trust the dispatcher's market.
@@ -113,6 +114,8 @@ which one is paused and printing the commands to work and to pause it.
 
 ## Still open in A1-14
 
-- The jobs that should **derive** their market from the record they carry (`DeliverSellerWebhook`, the five fulfilment jobs) still run unbound.
-- No **scheduled task** runs per market: `ScheduleDefinition` has one entry per task for the whole platform. The queue half of the criterion is
-  met; a per-market schedule needs the commands themselves to take a country first.
+No **scheduled task** runs per market: `App\Console\ScheduleDefinition` has one entry per task for the whole platform, and splitting it needs the
+commands themselves to take a country first. The queue half of that criterion is met.
+
+Everything else queued was examined, and what is left unbound is left unbound on purpose, for the reasons in the second table above. A job that
+later turns out to need its own record's market overrides `storefrontToServe()`; that is what the seam is for.
