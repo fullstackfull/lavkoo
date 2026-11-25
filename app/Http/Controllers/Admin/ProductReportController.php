@@ -187,8 +187,8 @@ class ProductReportController extends Controller
 
         $products = self::all_product_date_common_query($request, $start_date, $end_date)
             ->selectRaw('count(*) as total_product, YEAR(created_at) year, MONTH(created_at) month')
-            ->groupBy(DB::raw("DATE_FORMAT(created_at, '%M')"))
-            ->latest('created_at')->get();
+            ->groupBy(DB::raw('YEAR(created_at), MONTH(created_at)'))
+            ->orderByRaw('YEAR(created_at) DESC, MONTH(created_at) DESC')->get();
 
         for ($inc = $default_inc; $inc <= $number; $inc++) {
             $month = date("F", strtotime("2023-$inc-01"));
@@ -294,8 +294,8 @@ class ProductReportController extends Controller
 
         $products = self::all_product_date_common_query($request, $start_date, $end_date)
             ->selectRaw('count(*) as total_product, YEAR(created_at) year')
-            ->groupBy(DB::raw("DATE_FORMAT(created_at, '%Y')"))
-            ->latest('created_at')->get();
+            ->groupBy(DB::raw('YEAR(created_at)'))
+            ->orderByRaw('YEAR(created_at) DESC')->get();
 
         for ($inc = $from_year; $inc <= $to_year; $inc++) {
             $total_product[$inc] = 0;

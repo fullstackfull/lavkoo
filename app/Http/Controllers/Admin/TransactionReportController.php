@@ -507,8 +507,8 @@ class TransactionReportController extends Controller
 
         $orders = self::order_transaction_date_common_query($request, $start_date, $end_date)
             ->selectRaw('sum(CASE WHEN delivery_type="self_delivery" AND shipping_responsibility="inhouse_shipping" THEN (order_amount - deliveryman_charge) ELSE order_amount END) as order_amount, YEAR(created_at) year, MONTH(created_at) month')
-            ->groupBy(DB::raw("DATE_FORMAT(created_at, '%M')"))
-            ->latest('created_at')->get();
+            ->groupBy(DB::raw('YEAR(created_at), MONTH(created_at)'))
+            ->orderByRaw('YEAR(created_at) DESC, MONTH(created_at) DESC')->get();
 
         for ($inc = $default_inc; $inc <= $number; $inc++) {
             $month = substr(date("F", strtotime("2023-$inc-01")), 0, 3);
@@ -530,8 +530,8 @@ class TransactionReportController extends Controller
 
         $orders = self::order_transaction_date_common_query($request, $start_date, $end_date)
             ->selectRaw('sum(CASE WHEN delivery_type="self_delivery" AND shipping_responsibility="inhouse_shipping" THEN (order_amount - deliveryman_charge) ELSE order_amount END) as order_amount, YEAR(created_at) year')
-            ->groupBy(DB::raw("DATE_FORMAT(created_at, '%Y')"))
-            ->latest('created_at')->get();
+            ->groupBy(DB::raw('YEAR(created_at)'))
+            ->orderByRaw('YEAR(created_at) DESC')->get();
 
         for ($inc = $from_year; $inc <= $to_year; $inc++) {
             $order_amount[$inc] = 0;
