@@ -11,9 +11,17 @@ declare(strict_types=1);
  *   php scripts/deploy/build-overlay.php --base=<baseline> --head=<release> --out=build/overlay [--repo=.] [--archive] [--exclude=<path>]...
  *
  * It refuses, rather than guesses, whenever the release does something an overlay cannot do: a deleted file, a changed
- * dependency list, or a changed file outside the application directories (public/, Modules/, composer.*, the web server
- * entry point), a symbolic link or submodule, or a change of file mode alone. Those need a person's decision and are named in
- * the error. Documentation, tests and CI files are not part of what runs, and are left out.
+ * dependency list, a symbolic link or submodule, or a change of file mode alone. Those need a person's decision and are named
+ * in the error. Documentation, tests and CI files are not part of what runs, and are left out.
+ *
+ * A change under `Modules/` or `public/` is OUTSIDE the application directories and needs the person building the package to
+ * say so: `--outside=Modules` (or `--outside=public/css/theme.css` for one file) makes it part of the package, with its
+ * baseline checksum like everything else, and the manifest records it so a reader can see at a glance what the package carries
+ * beyond app/, config/ and the rest. Without the flag such a change is still refused and the error names the flag -- a release
+ * that quietly starts changing the web server's document root must not install itself because nobody looked. These are the
+ * files the runbook used to move with a shell loop and two sha256 lists (17 of them in the security release), which is the one
+ * step of a deployment that had no verify and no rollback: a mistyped path in that loop was undetectable and unrecoverable,
+ * and the tool now checks, applies and takes back these files exactly as it does the rest.
  *
  * Beside files/ (what is installed) the package holds base/ (the baseline version of every file the release modifies, so a person
  * can see exactly what a hotfix on the server changed) and tools/ (the backup scripts, which must run BEFORE anything is
@@ -27,6 +35,12 @@ declare(strict_types=1);
 
 const FORMAT = 1;
 const SHIPPED_TOP_LEVEL = ['app', 'bootstrap', 'config', 'database', 'resources', 'routes'];
+/**
+ * Directories a package may carry only when `--outside` names them. They hold code and assets that RUN (`Modules/` is loaded by
+ * nwidart/laravel-modules exactly as `app/` is; `public/` is the document root), so an overlay can install them faithfully --
+ * what it cannot do is decide on its own that a release meant to change the document root.
+ */
+const OUTSIDE_TOP_LEVEL = ['Modules', 'public'];
 const DEV_ONLY = ['tests/', 'docs/', '.github/', 'scripts/', '.claude/', 'CLAUDE.md', '.gitignore', '.env.example', 'phpunit.xml', 'phpunit.mysql.xml', 'README.md'];
 const LANGUAGE_FILE = '#^resources/lang/[a-z_]+/new-messages\.php$#';
 const TOOLS = ['backup.sh', 'verify-backup.sh', 'mysql-defaults.php'];
@@ -40,10 +54,16 @@ function build(array $argv): int
 {
     $options = [];
     $excluded = [];
+    $outside = [];
     foreach (array_slice($argv, 1) as $argument) {
         if (preg_match('/^--([a-z-]+)(?:=(.*))?$/', $argument, $match) === 1) {
             if ($match[1] === 'exclude') {
                 $excluded[] = ltrim((string) ($match[2] ?? ''), '/');
+
+                continue;
+            }
+            if ($match[1] === 'outside') {
+                $outside[] = ltrim((string) ($match[2] ?? ''), '/');
 
                 continue;
             }
@@ -53,7 +73,7 @@ function build(array $argv): int
 
     foreach (['base', 'head', 'out'] as $required) {
         if (!isset($options[$required]) || $options[$required] === true) {
-            fwrite(STDERR, "Usage: php build-overlay.php --base=REV --head=REV --out=DIR [--repo=.] [--archive] [--exclude=PATH]...\n");
+            fwrite(STDERR, "Usage: php build-overlay.php --base=REV --head=REV --out=DIR [--repo=.] [--archive] [--exclude=PATH]... [--outside=PATH]...\n");
 
             return 2;
         }
@@ -63,7 +83,8 @@ function build(array $argv): int
         $repo = realpath((string) ($options['repo'] ?? '.')) ?: throw new RuntimeException('--repo is not a directory.');
         $base = git($repo, ['rev-parse', '--verify', $options['base'] . '^{commit}']);
         $head = git($repo, ['rev-parse', '--verify', $options['head'] . '^{commit}']);
-        $changes = changes($repo, $base, $head);
+        $outside = array_values(array_unique($outside));
+        $changes = changes($repo, $base, $head, $outside);
         [$changes, $excluded] = withoutExcluded($changes, array_values(array_unique($excluded)));
         assertScriptsAreTheOnesInTheRelease($repo, $head);
         $out = rtrim((string) $options['out'], '/');
@@ -74,6 +95,11 @@ function build(array $argv): int
         $manifest = ['format' => FORMAT, 'base' => $base, 'head' => $head, 'built_at' => gmdate('c'), 'files' => [], 'migrations' => []];
         if ($excluded !== []) {
             $manifest['excluded'] = $excluded;
+        }
+        $carried = array_values(array_filter(array_column($changes, 1), static fn (string $path): bool => isOutside($path)));
+        assertEveryOutsideFlagIsUsed($outside, $carried);
+        if ($carried !== []) {
+            $manifest['outside'] = $carried;
         }
         foreach ($changes as [$status, $path]) {
             $content = git($repo, ['show', "{$head}:{$path}"], trim: false);
@@ -91,6 +117,7 @@ function build(array $argv): int
             $manifest['files'][] = array_filter([
                 'path' => $path,
                 'status' => $status,
+                'outside' => isOutside($path) ?: null,
                 'strategy' => preg_match(LANGUAGE_FILE, $path) === 1 ? 'merge_language_keys' : 'replace',
                 'mode' => fileMode($repo, $head, $path),
                 'base_sha256' => $baseline === null ? null : hash('sha256', $baseline),
@@ -116,6 +143,9 @@ function build(array $argv): int
     }
 
     echo count($manifest['files']) . " file(s) in {$out} (" . count(array_filter($manifest['files'], static fn (array $file): bool => $file['status'] === 'M')) . ' modified, ' . count(array_filter($manifest['files'], static fn (array $file): bool => $file['status'] === 'A')) . " added), built from {$base} to {$head}.\n";
+    if (($manifest['outside'] ?? []) !== []) {
+        echo 'Outside the application directories, because --outside said so: ' . implode(', ', $manifest['outside']) . ".\n";
+    }
 
     return 0;
 }
@@ -139,8 +169,11 @@ function withoutExcluded(array $changes, array $excluded): array
     return [array_values(array_filter($changes, static fn (array $change): bool => !in_array($change[1], $left, true))), $left];
 }
 
-/** @return list<array{0: string, 1: string}> [status, path] of what the overlay ships; throws on what it cannot */
-function changes(string $repo, string $base, string $head): array
+/**
+ * @param list<string> $outside the top-level directories, or exact paths, `--outside` named
+ * @return list<array{0: string, 1: string}> [status, path] of what the overlay ships; throws on what it cannot
+ */
+function changes(string $repo, string $base, string $head, array $outside = []): array
 {
     $shipped = [];
     $problems = [];
@@ -157,8 +190,10 @@ function changes(string $repo, string $base, string $head): array
             $problems[] = json_encode($path, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE) . ' has a control character or a backslash in its name, which neither a checksum list nor a shell command can carry safely. Rename it.';
         } elseif (in_array($path, ['composer.json', 'composer.lock', 'package.json', 'package-lock.json'], true)) {
             $problems[] = "{$path} changes: the dependency list differs, so the release needs `composer install` (or an npm build) that an overlay does not do.";
-        } elseif (!in_array($top, SHIPPED_TOP_LEVEL, true)) {
-            $problems[] = "{$path} changes, and an overlay does not deploy anything outside " . implode(', ', SHIPPED_TOP_LEVEL) . '. Deploy it by hand, deliberately.';
+        } elseif (!in_array($top, SHIPPED_TOP_LEVEL, true) && !isOutside($path)) {
+            $problems[] = "{$path} changes, and an overlay does not deploy anything outside " . implode(', ', SHIPPED_TOP_LEVEL) . ' or, with --outside, ' . implode(', ', OUTSIDE_TOP_LEVEL) . '. Deploy it by hand, deliberately.';
+        } elseif (isOutside($path) && !namedByAnOutsideFlag($path, $outside)) {
+            $problems[] = "{$path} is outside the application directories. Add --outside={$top} (or --outside={$path}) if the release means to install it, after reading what it changes: a release that silently starts writing to {$top} must not install itself because nobody looked.";
         } elseif ($status === 'D') {
             $problems[] = "{$path} is deleted by the release: an overlay adds and modifies files, it never deletes one. Remove it by hand after the deployment, once you are sure nothing needs it.";
         } elseif (in_array($change['mode'], ['120000', '160000'], true)) {
@@ -230,6 +265,40 @@ function assertScriptsAreTheOnesInTheRelease(string $repo, string $head): void
     }
     if ($different !== []) {
         throw new RuntimeException('the package would carry ' . implode(', ', $different) . ' from the checkout this builder runs from (' . __DIR__ . "), and the release {$head} has a different version of " . (count($different) === 1 ? 'it' : 'them') . ". Check out {$head} and build again.");
+    }
+}
+
+/** Whether this path is in a directory a package carries only when `--outside` names it. */
+function isOutside(string $path): bool
+{
+    return in_array(explode('/', $path)[0], OUTSIDE_TOP_LEVEL, true);
+}
+
+/**
+ * Whether an `--outside` value covers this path: the top-level directory it is in, or the path itself. A value that is neither is a
+ * value the build refuses, so a typed directory name cannot widen a package by accident.
+ *
+ * @param list<string> $outside
+ */
+function namedByAnOutsideFlag(string $path, array $outside): bool
+{
+    return in_array($path, $outside, true) || in_array(explode('/', $path)[0], $outside, true);
+}
+
+/**
+ * An `--outside` that covers nothing the release ships refuses the build, for the reason `--exclude` does: the flag is a person saying
+ * they looked at a particular change, and one that names nothing means they looked at something else.
+ *
+ * @param list<string> $outside
+ * @param list<string> $carried every outside path the package holds
+ */
+function assertEveryOutsideFlagIsUsed(array $outside, array $carried): void
+{
+    $unused = array_values(array_filter($outside, static fn (string $flag): bool => !in_array($flag, $carried, true)
+        && array_filter($carried, static fn (string $path): bool => explode('/', $path)[0] === $flag) === []));
+
+    if ($unused !== []) {
+        throw new RuntimeException('--outside names something the release does not change outside the application directories: ' . implode(', ', $unused) . '. Nothing was built, so that a mistake cannot read as a file having been looked at.');
     }
 }
 

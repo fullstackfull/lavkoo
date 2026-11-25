@@ -11,6 +11,7 @@ use App\Http\Controllers\Admin\SalesChannels\Support\ReadsFilters;
 use App\Http\Controllers\Admin\SalesChannels\Support\RoutingRuleForm;
 use App\Http\Controllers\Admin\SalesChannels\Support\RuleSummary;
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\ScopeIntegrationsToStaffCountries;
 use App\Models\FulfillmentRoutingDecision;
 use App\Models\FulfillmentRoutingRule;
 use App\Models\InventoryLocation;
@@ -44,6 +45,10 @@ class ChannelRoutingController extends Controller
         private readonly AuditLogger $audit,
         private readonly ChannelLabels $labels,
     ) {
+        // Slice 6 of the staff country scopes (GCC-14c): a channel listing and a channel order belong to the market their ACCOUNT
+        // sells in, a draft and a cost layer to their product, a warehouse to its own market. A restricted employee reaches only theirs,
+        // and the screens that cannot be told apart by market answer them like something that does not exist. Inert while the switch is off.
+        $this->middleware(ScopeIntegrationsToStaffCountries::class);
     }
 
     public function index(Request $request): View

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\StoresLocalTime;
+use App\Models\Scopes\StaffCountryProductRowScope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -129,5 +130,16 @@ class ChannelListingDraft extends Model
     public function scopeWaitingForTheChannel(Builder $query): Builder
     {
         return $query->where('state', self::SUBMITTED);
+    }
+
+    /**
+     * A listing draft is one of OUR products going out to a channel, so it follows that product (GCC-14c, slice 6). Inert for every request that
+     * binds no country.
+     */
+    protected static function boot(): void
+    {
+        parent::boot();
+
+        static::addGlobalScope(new StaffCountryProductRowScope());
     }
 }

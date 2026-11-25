@@ -97,6 +97,15 @@ class GccMigrationsContractTest extends TestCase
     /** A migration with no `down()`, and why nothing can be taken back. */
     private const WITHOUT_A_ROLLBACK = [];
 
+    /**
+     * Columns added to a table that already exists WITHOUT being nullable and without a default, with the reason each is safe anyway. A
+     * column like that is additive -- it drops nothing -- and still stops a half-deployed application dead: the code that ran a second
+     * before the migration writes a row without it and the engine refuses the insert. Empty, and meant to stay empty.
+     *
+     * @var array<string, string>
+     */
+    private const NOT_NULL_WITHOUT_A_DEFAULT = [];
+
     /** Methods a `Schema::table` callback may call without adding a column: an index or a key needs no `hasColumn`. */
     private const NOT_A_COLUMN = [
         'index', 'unique', 'primary', 'spatialIndex', 'fullText', 'foreign', 'rawIndex',
@@ -190,6 +199,34 @@ class GccMigrationsContractTest extends TestCase
         );
     }
 
+    /**
+     * The gap M2-16's first criterion named: `test_no_migration_...drops_renames_or_changes` catches a column taken AWAY, and a column
+     * ADDED to an existing table as NOT NULL with no default takes nothing away and breaks the running application just as surely -- the
+     * code of the version that is still serving requests writes a row without it, and the engine refuses the insert. A create is not read
+     * here: a table nothing has written to yet may have any column it likes.
+     */
+    public function test_no_column_this_programme_adds_to_an_existing_table_is_not_null_without_a_default(): void
+    {
+        $refused = [];
+        foreach ($this->migrationsOfThisProgramme() as $file => $source) {
+            if (array_key_exists($file, self::NOT_NULL_WITHOUT_A_DEFAULT)) {
+                continue;
+            }
+
+            foreach ($this->columnsAddedWithoutANullOrADefault($source) as $column) {
+                $refused[] = "{$file}: {$column}";
+            }
+        }
+
+        $this->assertSame(
+            [],
+            $refused,
+            "These columns are added to a table that already exists, are NOT NULL and have no default, so every insert the running version "
+            . "makes between the migration and the deploy is refused:\n  " . implode("\n  ", $refused)
+            . "\n\nAdd `->nullable()` or `->default(...)` and fill the column afterwards, or list the file in NOT_NULL_WITHOUT_A_DEFAULT with the reason.",
+        );
+    }
+
     public function test_every_raw_statement_on_the_way_up_is_listed_with_what_makes_it_re_runnable(): void
     {
         $unread = [];
@@ -244,6 +281,7 @@ class GccMigrationsContractTest extends TestCase
             'NOT_EXPAND_ONLY' => [self::NOT_EXPAND_ONLY, fn (string $source): bool => $this->narrowingStatements($source) !== []],
             'RAW_DDL' => [self::RAW_DDL, fn (string $source): bool => $this->rawStatements($source) !== []],
             'WITHOUT_A_ROLLBACK' => [self::WITHOUT_A_ROLLBACK, static fn (string $source): bool => preg_match('/function\s+down\s*\(/', $source) !== 1],
+            'NOT_NULL_WITHOUT_A_DEFAULT' => [self::NOT_NULL_WITHOUT_A_DEFAULT, fn (string $source): bool => $this->columnsAddedWithoutANullOrADefault($source) !== []],
         ];
 
         foreach ($lists as $name => [$entries, $stillBreaksTheRule]) {
@@ -296,6 +334,54 @@ class GccMigrationsContractTest extends TestCase
         }
 
         return array_values(array_unique($unguarded));
+    }
+
+    /**
+     * @return list<string> every column a `Schema::table` callback adds on the way up that is neither nullable nor given a default, as the
+     *                      statement that adds it
+     */
+    private function columnsAddedWithoutANullOrADefault(string $source): array
+    {
+        $refused = [];
+        foreach ($this->schemaCalls($this->reachableFromUp($source), 'table') as [$table, $body]) {
+            $blueprint = $this->blueprintVariableOf($body);
+            if ($blueprint === null) {
+                continue;
+            }
+
+            foreach (explode(';', $body) as $statement) {
+                $statement = trim(preg_replace('/\s+/', ' ', $statement) ?? '');
+                // Only a statement that asks the BLUEPRINT for something defines a column. The migrations of this programme keep the
+                // column they just defined in a variable and go on with it -- `$column->charset('ascii')->collation('ascii_bin')` for
+                // every market column -- and reading that continuation as a definition of its own reported seventeen false alarms the
+                // first time this rule was run.
+                if (!str_contains($statement, $blueprint . '->') && !str_contains($statement, $blueprint . ' ->')) {
+                    continue;
+                }
+                if (!$this->addsAColumn($statement)) {
+                    continue;
+                }
+                // `timestamps()`, `softDeletes()` and `rememberToken()` are nullable by construction.
+                if (preg_match('/->\s*(timestamps|softDeletes|nullableTimestamps|rememberToken)\s*\(/', $statement) === 1) {
+                    continue;
+                }
+                if (preg_match('/->\s*(nullable|default|useCurrent|useCurrentOnUpdate|generatedAs|storedAs|virtualAs)\s*\(/', $statement) !== 1) {
+                    $refused[] = $table . ': ' . $statement;
+                }
+            }
+        }
+
+        return array_values(array_unique($refused));
+    }
+
+    /**
+     * The name of the blueprint the callback of a `Schema::table` is given (`function (Blueprint $table)`, `fn (Blueprint $t)`), which is
+     * the only receiver that defines a column. Null when the callback does not name one, in which case this rule reads nothing of it --
+     * the same limit the rest of this guard has, and for the same reason: it reads source, not a running migration.
+     */
+    private function blueprintVariableOf(string $body): ?string
+    {
+        return preg_match('/(?:function|fn)\s*\(\s*(?:[A-Za-z_\\\\][A-Za-z0-9_\\\\]*\s+)?(\$[A-Za-z_][A-Za-z0-9_]*)/', $body, $match) === 1 ? $match[1] : null;
     }
 
     /** @return list<string> every statement on the way up that takes something away or alters it in place */

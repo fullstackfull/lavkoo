@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin\SalesChannels;
 
 use App\Http\Controllers\Admin\SalesChannels\Support\ProductDirectory;
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\ScopeIntegrationsToStaffCountries;
 use App\Models\InventoryLocation;
 use App\Models\SalesChannelAccount;
 use App\Services\AuditLogger;
@@ -37,6 +38,10 @@ class ChannelInventoryController extends Controller
         private readonly ProductDirectory $products,
         private readonly AuditLogger $audit,
     ) {
+        // Slice 6 of the staff country scopes (GCC-14c): a channel listing and a channel order belong to the market their ACCOUNT
+        // sells in, a draft and a cost layer to their product, a warehouse to its own market. A restricted employee reaches only theirs,
+        // and the screens that cannot be told apart by market answer them like something that does not exist. Inert while the switch is off.
+        $this->middleware(ScopeIntegrationsToStaffCountries::class);
     }
 
     /**

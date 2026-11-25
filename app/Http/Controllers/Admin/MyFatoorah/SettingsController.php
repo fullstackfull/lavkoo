@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin\MyFatoorah;
 
 use App\Enums\MyFatoorah\AttemptStatus;
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\ScopeIntegrationsToStaffCountries;
 use App\Models\MyFatoorahPaymentAttempt;
 use App\Models\MyFatoorahRefund;
 use App\Models\MyFatoorahWebhookEvent;
@@ -52,6 +53,10 @@ class SettingsController extends Controller
         private readonly PaymentSettlementService $settlement,
         private readonly GatewayAccountDirectory $accounts,
     ) {
+        // Slice 6 of the staff country scopes (GCC-14c): a payment ATTEMPT names a payment request and not an order, so no row of this
+        // monitor can be told apart by market, while its actions refund money and re-run webhooks. A restricted employee is answered like
+        // for a page that does not exist rather than being shown -- or given -- another market's payments. Inert while the switch is off.
+        $this->middleware(ScopeIntegrationsToStaffCountries::class);
     }
 
     public function index(Request $request): View

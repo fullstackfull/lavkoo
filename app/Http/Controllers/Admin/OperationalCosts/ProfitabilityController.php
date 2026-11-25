@@ -7,6 +7,7 @@ use App\Enums\SalesChannels\SalesChannel;
 use App\Http\Controllers\Admin\OperationalCosts\Filters\ProfitInput;
 use App\Http\Controllers\Admin\OperationalCosts\Filters\SellerScope;
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\ScopeIntegrationsToStaffCountries;
 use App\Models\ExternalOrderMapping;
 use App\Models\SalesChannelAccount;
 use App\Services\OperationalCosts\Profit\ProfitabilityService;
@@ -42,6 +43,10 @@ class ProfitabilityController extends Controller
         private readonly FxConverter $fx,
         private readonly ReturnPanel $returns,
     ) {
+        // Slice 6 of the staff country scopes (GCC-14c): a cost layer is what one product cost us and a return decision is about a line
+        // of a channel order, so each follows the thing that has a market; the rollups, which have no market dimension at all, are refused
+        // rather than shown to an employee of one market as though they were theirs. Inert while the switch is off.
+        $this->middleware(ScopeIntegrationsToStaffCountries::class);
     }
 
     public function index(Request $request): View

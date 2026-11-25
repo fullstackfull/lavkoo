@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin\Fulfillment;
 
+use App\Http\Middleware\ScopeIntegrationsToStaffCountries;
 use App\Services\Fulfillment\Support\SafeToast;
 use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\HoldReason;
@@ -54,6 +55,9 @@ class TorodMatchingController extends Controller
         private readonly ProviderCityMappingService $cityMappings,
         private readonly ProviderCityReview $cityReview,
     ) {
+        // Slice 6 of the staff country scopes (GCC-14c): a provider shipment follows the order it carries, and a provider's own
+        // catalogue -- which imports into the default storefront -- belongs to that market and to no other. Inert while the switch is off.
+        $this->middleware(ScopeIntegrationsToStaffCountries::class);
     }
 
     public function index(Request $request): View
