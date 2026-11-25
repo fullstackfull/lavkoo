@@ -5,7 +5,7 @@
 | repository | branch | base | head |
 |---|---|---|---|
 | `lavkoo` (backend) | `wt/bfi` | `30a2283e` | **`d48365fc`** |
-| `lavkooapp` (customer) | `gcc/development` | `acf422b9` | **`511e5a32`** |
+| `lavkooapp` (customer) | `gcc/development` | `acf422b9` | **`511e5a32`** (this track's commit; the branch head moved on — see the co-ordination note) |
 | `lavkooappseller` (seller) | `gcc/development` | `0dd9023e` | **`68a5d596`** |
 
 Backend database `pharmacy_testing_bfi`. Three criteria of axis M: **M-456 and M-457 closed, M-328 closed.**
@@ -346,3 +346,14 @@ returns nothing. The track working in `lib/main.dart` and `test/` of that reposi
 the new `formatting` job will now read its changed Dart files and the new `leak-guard` job its added lines — and that
 `test/` is a fixtures path, so an invented address or number in a test is excused there, while a **private-key
 header**, a prefixed token, a JWT or credentials in a URL are not excused anywhere.
+
+**That branch has since moved past this track's commit, and the gates were re-run against it.** `gcc/development` of
+`lavkooapp` is now `2db372af` — `86c66ad` (`dart format lib/main.dart`) and `2db372af` (the TLS verification fix,
+SEC-E16-01) sit on top of `511e5a32`, which is still an ancestor and whose two files are byte-identical to what this
+track committed (`git diff 511e5a32 HEAD -- .github/` is empty). The new `formatting` job had its effect before it
+ever ran in CI: `86c66ad` exists because that track formatted `lib/main.dart` rather than let the gate find it.
+`php .github/scripts/leak-guard.php --base=origin/main` on `2db372af` is **exit 0**, so the scan is green on the
+branch as it now stands, the new `test/https_certificates_are_verified_test.dart` included — a TLS test is the one
+most likely to carry key material, and this one carries none. The thirteen Dart files that branch changes are what
+the `formatting` job will read on the next run; `dart format` still could not be executed here to say whether all
+thirteen are clean.
