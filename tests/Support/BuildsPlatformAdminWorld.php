@@ -33,9 +33,10 @@ trait BuildsPlatformAdminWorld
         '2026_11_30_100200_create_platform_admin_audit_chain_tables.php',
     ];
 
-    /** Phase 3, additive like the rest: what a session gained so that an action can ask for the second factor again (L-15). */
+    /** Phase 3, additive like the rest: what a session gained so that an action can ask for the second factor again (L-15), and the devices it may be alerted on (L-16). */
     private const PLATFORM_ADMIN_PHASE_THREE_MIGRATIONS = [
         '2026_12_31_100000_add_step_up_to_platform_admin_tokens_table.php',
+        '2026_12_31_100100_create_platform_admin_devices_table.php',
     ];
 
     /** The store tables and the admin sign-in columns, without the tables of the platform admin API. */

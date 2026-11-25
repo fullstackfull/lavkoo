@@ -35,6 +35,9 @@ class RoutesTest extends PlatformAdminTestCase
         'platform_admin.auth.logout' => 'POST',
         'platform_admin.sessions.end_others' => 'DELETE',
         'platform_admin.session.revoke' => 'DELETE',
+        // A device of this session, and never business data: the row says which phone the admin is alerted on (L-16).
+        'platform_admin.devices.register' => 'POST',
+        'platform_admin.device.forget' => 'DELETE',
     ];
 
     /** The two steps of the sign-in: the only routes that are not behind a token, because they are how one is got. */

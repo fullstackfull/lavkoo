@@ -19,6 +19,10 @@ class CapabilitiesTest extends PlatformAdminTestCase
         'platform_admin.overview.view' => 'overview',
         'platform_admin.markets.view' => 'markets',
         'platform_admin.alerts.view' => 'alerts',
+        // The devices alerts are sent to are part of the alerts: an operator who may not see them has no use for a phone that receives them.
+        'platform_admin.devices.list' => 'alerts',
+        'platform_admin.devices.register' => 'alerts',
+        'platform_admin.device.forget' => 'alerts',
         'platform_admin.audit_logs.view' => 'audit',
         'platform_admin.health.view' => 'health',
         'platform_admin.reports.view' => 'reports',

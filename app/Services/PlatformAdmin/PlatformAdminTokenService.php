@@ -35,8 +35,12 @@ final class PlatformAdminTokenService
 
     private const LISTING_LIMIT = 100;
 
-    public function __construct(private readonly PlatformAdminSettings $settings, private readonly PlatformEffectiveMarkets $effectiveMarkets, private readonly PlatformAdminAudit $audit)
-    {
+    public function __construct(
+        private readonly PlatformAdminSettings $settings,
+        private readonly PlatformEffectiveMarkets $effectiveMarkets,
+        private readonly PlatformAdminAudit $audit,
+        private readonly PlatformAdminDevices $devices,
+    ) {
     }
 
     /**
@@ -62,6 +66,8 @@ final class PlatformAdminTokenService
                 'mfa_method' => $mfaMethod?->value,
                 'expires_at' => now()->addMinutes($this->settings->tokenTtlMinutes()),
             ]);
+
+            $this->devices->forgetSessions(array_map('intval', $evicted));
 
             foreach ($evicted as $evictedId) {
                 $this->audit->record(
@@ -145,12 +151,17 @@ final class PlatformAdminTokenService
     public function revoke(PlatformAdminToken $token): void
     {
         $token->forceFill(['revoked_at' => now()])->save();
+        $this->devices->forgetSessions([(int) $token->getKey()]);
     }
 
     /** Ends every session of an admin that is not already ended, and returns how many it ended. Rows revoked earlier keep their own time. */
     public function revokeAllFor(int $adminId): int
     {
-        return PlatformAdminToken::query()->where('admin_id', $adminId)->whereNull('revoked_at')->update(['revoked_at' => now()]);
+        $ending = PlatformAdminToken::query()->where('admin_id', $adminId)->whereNull('revoked_at')->pluck('id')->all();
+        $ended = PlatformAdminToken::query()->where('admin_id', $adminId)->whereNull('revoked_at')->update(['revoked_at' => now()]);
+        $this->devices->forgetSessions(array_map('intval', $ending));
+
+        return $ended;
     }
 
     /**
@@ -159,7 +170,11 @@ final class PlatformAdminTokenService
      */
     public function endAllExcept(int $adminId, int $keptTokenId): int
     {
-        return $this->openSessionsQuery(adminId: $adminId)->where('id', '!=', $keptTokenId)->update(['revoked_at' => now()]);
+        $ending = $this->openSessionsQuery(adminId: $adminId)->where('id', '!=', $keptTokenId)->pluck('id')->all();
+        $ended = $this->openSessionsQuery(adminId: $adminId)->where('id', '!=', $keptTokenId)->update(['revoked_at' => now()]);
+        $this->devices->forgetSessions(array_map('intval', $ending));
+
+        return $ended;
     }
 
     /** @return Collection<int, PlatformAdminToken> the sessions of an admin that are still open, newest first */

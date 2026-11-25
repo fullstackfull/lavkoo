@@ -459,6 +459,10 @@
             "scope": "global",
             "why": "as above"
         },
+        "platform_admin_devices": {
+            "scope": "global",
+            "why": "as the grants and sessions above: a device belongs to a platform admin's session, not to a market. The topics it is subscribed to name markets, and the grant decides which, but the row itself is platform-wide"
+        },
         "platform_admin_grants": {
             "scope": "global",
             "why": "the platform administrator is not a market actor: a grant is platform-wide by design"

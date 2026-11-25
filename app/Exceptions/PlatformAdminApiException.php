@@ -2,6 +2,7 @@
 
 namespace App\Exceptions;
 
+use App\Models\PlatformAdminDevice;
 use App\Services\PlatformAdmin\PlatformAdminResponses;
 use Illuminate\Contracts\Debug\ShouldntReport;
 use Illuminate\Http\JsonResponse;
@@ -71,6 +72,26 @@ class PlatformAdminApiException extends RuntimeException implements ShouldntRepo
     public static function oneMarketOnly(): self
     {
         return new self(errorCode: 'one_market_only', message: 'An export is of one market. Name it with the market parameter.', status: 422);
+    }
+
+    public static function invalidDevicePlatform(): self
+    {
+        return new self(
+            errorCode: 'invalid_device_platform',
+            message: 'The platform must be android or ios.',
+            status: 422,
+            extra: ['valid' => PlatformAdminDevice::PLATFORMS],
+        );
+    }
+
+    public static function invalidPushToken(): self
+    {
+        return new self(errorCode: 'invalid_push_token', message: 'The push token is missing or is not one.', status: 422);
+    }
+
+    public static function deviceNotFound(): self
+    {
+        return new self(errorCode: 'device_not_found', message: 'No such device of this session.', status: 404);
     }
 
     public static function invalidWindow(string $message): self
