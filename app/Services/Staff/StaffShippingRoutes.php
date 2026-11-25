@@ -3,6 +3,7 @@
 namespace App\Services\Staff;
 
 use App\Http\Controllers\Admin\CategoryShippingCostController;
+use App\Http\Controllers\Admin\Shipping\CrossBorderPairController;
 use App\Http\Controllers\Admin\Marketplace\ShippingZoneController;
 use App\Http\Controllers\Admin\Shipping\ShippingMethodController;
 use App\Http\Controllers\Admin\Shipping\ShippingTypeController;
@@ -27,6 +28,8 @@ use Illuminate\Http\Request;
  *   market_not_recorded     the rows it acts on carry no market yet, so no scope can judge them
  *   list                    it returns shipping ROWS and they ARE narrowed, by the global scope on the models
  *   new_in_one_market       it creates a row, stamped with the employee's market when they hold exactly one and refused when they do not
+ *   acts_in_the_source_market  it names a SOURCE MARKET rather than a row, and the service that writes it refuses a market the employee
+ *                              does not hold (H1-01)
  *
  * The last four are named rather than enforced, and each is named for its own reason rather than lumped together:
  *
@@ -42,6 +45,12 @@ use Illuminate\Http\Request;
  *     `CategoryShippingCost` narrows every list, counter, picker and lookup of those screens at once, so the screen no longer shows a
  *     restricted employee the rows it will not let them touch. It is named here all the same, because a rule that says nothing about a
  *     listing cannot be told from one that forgot it.
+ *   - `acts_in_the_source_market` is the cross-border pair screen. What it changes is not a row anybody has an id for: it is the answer to
+ *     "may this market sell into that country", keyed by two country codes. So there is no id to read before the action runs, and the check
+ *     belongs where the answer is written -- `App\Services\Shipping\CrossBorderPairs` refuses a source market the employee does not hold,
+ *     and refuses to audit nothing. The middleware is still registered on that controller, because what it does there is BIND the countries:
+ *     a rule that reads `boundCountries()` proves nothing on a route where nothing bound them, which is how the audit centre shipped a guard
+ *     that looked narrowed and read every market's trail.
  *   - `new_in_one_market` creates rather than reads, so there is no id to judge before the action runs: an employee restricted to ONE
  *     country has the row stamped with it, and an employee of several or of none is refused by the action itself and told to say which. It is
  *     named rather than enforced here because the check belongs where the row is written, not where an id would be read.
@@ -72,6 +81,10 @@ final class StaffShippingRoutes
         ],
         ShippingTypeController::class => [
             'addOrUpdate' => 'platform_setting',
+        ],
+        CrossBorderPairController::class => [
+            'index' => 'acts_in_the_source_market',
+            'record' => 'acts_in_the_source_market',
         ],
         ShippingZoneController::class => [
             'index' => 'market_not_recorded',
@@ -115,7 +128,14 @@ final class StaffShippingRoutes
         $name = rtrim($name, '?');
 
         return match ($kind) {
-            'platform_setting', 'market_not_recorded', 'list_not_narrowed', 'new_not_checked' => [],
+            // Every rule that names no row to judge. `list_not_narrowed` and `new_not_checked` are the names two of these rules had
+            // before they were renamed to `list` and `new_in_one_market` in the table above, and the rename did not reach here: the
+            // match fell through to `default => null`, which the middleware reads as "an id that cannot be an id" and answers 404. So a
+            // restricted employee was refused the shipping-method LIST and the add form -- the two screens that the table says, in
+            // writing, are narrowed somewhere else. The old names are kept beside the new ones rather than dropped, because a rule
+            // spelt either way names no row either way.
+            'platform_setting', 'market_not_recorded', 'list', 'list_not_narrowed', 'new_in_one_market', 'new_not_checked',
+            'acts_in_the_source_market' => [],
             'route' => StaffRouteIds::one(value: $request->route($name)),
             'input' => $optional && StaffRouteIds::blank(value: $request->input($name)) ? [] : StaffRouteIds::one(value: $request->input($name)),
             'inputs', 'costs' => StaffRouteIds::many(value: $request->input($name)),

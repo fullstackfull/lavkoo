@@ -628,6 +628,11 @@
         "storages": {
             "scope": "inherited"
         },
+        "storefront_destination_pairs": {
+            "scope": "storefront",
+            "by": "source_country",
+            "why": "H1-01: the row says whether the SOURCE storefront may sell into destination_country, so it belongs to the source and only staff of that market may change it. The destination is a fact about the row, not its owner."
+        },
         "storefront_entity_visibility": {
             "scope": "storefront",
             "by": "storefront_country"

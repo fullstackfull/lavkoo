@@ -362,6 +362,26 @@ class StaffShippingRoutesTest extends TestCase
         }
     }
 
+    /**
+     * The two rules that name no row still let a restricted employee through, which they did not.
+     *
+     * `list` and `new_in_one_market` were called `list_not_narrowed` and `new_not_checked` when `idsOf()` was written, and the rename did
+     * not reach it: the match fell through to `default => null`, the middleware reads a null id list as "an id that cannot be an id", and
+     * a restricted employee was answered 404 for the shipping-method LIST and the add form -- the two screens the registry says, in
+     * writing, are narrowed somewhere else. It is pinned per rule name rather than through the screens, because the next rename will be
+     * made in the table above and this is what has to notice it.
+     */
+    public function test_a_rule_that_names_no_row_asks_the_middleware_for_no_id(): void
+    {
+        foreach (['list', 'new_in_one_market', 'platform_setting', 'market_not_recorded', 'acts_in_the_source_market'] as $rule) {
+            $this->assertSame(
+                [],
+                StaffShippingRoutes::idsOf(request: Request::create('/', 'GET'), rule: $rule),
+                "'{$rule}' names no row, so it must ask for no id: a null answer is a 404 for a screen that is narrowed elsewhere",
+            );
+        }
+    }
+
     public function test_no_rule_names_an_action_the_controller_no_longer_answers(): void
     {
         foreach ($this->routedActions() as $controller => $byAction) {
@@ -392,6 +412,11 @@ class StaffShippingRoutesTest extends TestCase
             'ShippingMethodController::add' => 'new_in_one_market',
             'ShippingMethodController::updateShippingResponsibility' => 'platform_setting',
             'ShippingTypeController::addOrUpdate' => 'platform_setting',
+            // H1-01: a cross-border pair has no row id -- it is keyed by two country codes -- so there is nothing for this middleware to
+            // look up, and the check lives where the answer is written (CrossBorderPairs refuses a source market the employee does not
+            // hold, and the screen lists only the markets they do). The middleware is registered on that controller for what it BINDS.
+            'CrossBorderPairController::index' => 'acts_in_the_source_market',
+            'CrossBorderPairController::record' => 'acts_in_the_source_market',
             'ShippingZoneController::index' => 'market_not_recorded',
             'ShippingZoneController::store' => 'market_not_recorded',
             'ShippingZoneController::toggle' => 'market_not_recorded',

@@ -59,7 +59,11 @@ class ApiOrderPlacementTest extends ApiAddressTestCase
      */
     private function openTheBorderTo(string $destination): void
     {
-        config(['gcc.shipping.cross_border.enabled' => true]);
+        config([
+            'gcc.shipping.cross_border.enabled' => true,
+            // H1-01: opening the border means the owner's pair list says so, which is what this helper's name has always claimed.
+            'gcc.shipping.cross_border.pairs' => ['SA' => [$destination]],
+        ]);
         (require database_path('migrations/2026_12_20_100000_create_product_destination_permissions_table.php'))->up();
         \App\Services\Shipping\ProductDestinationPermission::forget();
 

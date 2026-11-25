@@ -6,6 +6,7 @@ use App\Services\Address\AddressSchema;
 use App\Services\AuditLogger;
 use App\Services\Staff\StaffCountryScope;
 use App\Services\Fulfillment\FulfillmentSchema;
+use App\Services\Shipping\CrossBorderPolicy;
 use App\Services\Shipping\OrderCustomsQuote;
 use App\Services\Shipping\OrderShippingDecision;
 use App\Services\Shipping\ProductDestinationPermission;
@@ -47,6 +48,7 @@ abstract class TestCase extends BaseTestCase
         OrderCustomsQuote::forget();
         ProductDestinationPermission::forget();
         RegulatedShippingGate::forget();
+        CrossBorderPolicy::forget();
 
         $this->startFromAnEmptyRealDatabase();
         StorefrontVisibility::flush();

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\Fulfillment\IntegrationCenterController;
+use App\Http\Controllers\Admin\Shipping\CrossBorderPairController;
 use App\Http\Controllers\Admin\Shipping\ProductDestinationPermissionController;
 use App\Http\Controllers\Admin\Fulfillment\LiveVerificationController;
 use App\Http\Controllers\Admin\Fulfillment\M5aznProductsController;
@@ -78,4 +79,9 @@ Route::group([
 ], function () {
     Route::get('destination-permissions', [ProductDestinationPermissionController::class, 'index'])->name('destination-permissions.index');
     Route::post('destination-permissions', [ProductDestinationPermissionController::class, 'record'])->name('destination-permissions.record');
+
+    // Which market may sell into which country at all (H1-01), which is the question before a product's permission: it is about the SHOP's
+    // right to trade there rather than about the goods. Only staff of the source market may change a pair, and every change is audited.
+    Route::get('cross-border-pairs', [CrossBorderPairController::class, 'index'])->name('cross-border-pairs.index');
+    Route::post('cross-border-pairs', [CrossBorderPairController::class, 'record'])->name('cross-border-pairs.record');
 });

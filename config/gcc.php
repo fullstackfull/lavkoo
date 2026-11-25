@@ -523,6 +523,24 @@ return [
         // both read as no, so turning it on can never open a shipment that was closed.
         'cross_border' => [
             'enabled' => filter_var(env('GCC_CROSS_BORDER_SHIPPING', false), FILTER_VALIDATE_BOOLEAN),
+
+            // H1-01: WHICH source market may sell into which destination. The engine above says whether the platform asks the question at
+            // all; this says which answers are yes, and it ships EMPTY -- so with the engine on, every storefront sells inside its own
+            // country and nothing else, which is the requirement's own default. One entry per SOURCE market, listing the destinations it
+            // may sell into; `*` means every destination this platform serves, and is a deliberate decision rather than a shortcut:
+            //
+            //   'SA' => ['KW', 'BH'],
+            //
+            // A source market selling into its own country is always open and needs no entry: that is not a cross-border sale. The list is
+            // what the owner writes down before a release; a pair opened or closed by a person afterwards is a row in
+            // `storefront_destination_pairs`, which wins over this list for that pair alone and records who changed it.
+            'pairs' => [],
+
+            // The kill switch, and it fails CLOSED rather than open. True refuses every cross-border destination whatever the list and
+            // whatever anybody has opened, so cross-border selling can be stopped in one environment variable without editing six lists
+            // and without turning the whole engine off -- which would stop the REFUSALS too, since the engine answers "local, allowed" when
+            // it is off. It is the switch to reach for when a border closes overnight.
+            'closed' => filter_var(env('GCC_CROSS_BORDER_CLOSED', false), FILTER_VALIDATE_BOOLEAN),
         ],
 
         // H1-04: regulated health and pharmaceutical goods, which do not cross a border because a courier flies there. OFF as it ships,

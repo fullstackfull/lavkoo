@@ -190,7 +190,11 @@ class ProviderRouteSupportTest extends FulfillmentTestCase
      */
     public function test_a_waiting_shipment_is_held_when_the_product_may_not_go_there(): void
     {
-        config(['gcc.shipping.cross_border.enabled' => true]);
+        config([
+            'gcc.shipping.cross_border.enabled' => true,
+            // H1-01's gate is not what this test is about: the pair is open, so the refusal it asserts is the product permission's.
+            'gcc.shipping.cross_border.pairs' => ['SA' => [\App\Services\Shipping\CrossBorderPolicy::EVERY_DESTINATION]],
+        ]);
         (require database_path('migrations/2026_12_20_100000_create_product_destination_permissions_table.php'))->up();
         \App\Services\Shipping\ProductDestinationPermission::forget();
         $this->declareRoutes(['SA:SA', 'SA:KW']);

@@ -68,7 +68,15 @@ class ShippingScenarioMatrixTest extends FulfillmentTestCase
         OrderCustomsQuote::forget();
         StorefrontCatalog::flush();
 
-        config(['gcc.shipping.cross_border.enabled' => true]);
+        // H1-01: the engine being on is not permission to sell abroad -- the owner's pair list is, and it ships empty. Every scenario
+        // below is about one of the OTHER rules, so every market's pairs are opened here; the gate has its own file.
+        config([
+            'gcc.shipping.cross_border.enabled' => true,
+            'gcc.shipping.cross_border.pairs' => array_fill_keys(
+                \App\Services\Storefront\StorefrontResolver::fromConfig()->configuredCountries(),
+                [\App\Services\Shipping\CrossBorderPolicy::EVERY_DESTINATION],
+            ),
+        ]);
         $this->enableProvider(ProviderCode::TorodPoint);
     }
 
