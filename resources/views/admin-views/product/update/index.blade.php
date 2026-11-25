@@ -76,7 +76,10 @@
     <span id="message-click-to-upload" data-text="{{ translate('click_to_upload') }}"></span>
     <span id="message-drag-and-drop" data-text="{{ translate('Or_drag_and_drop') }}"></span>
 
-    <span id="route-admin-products-sku-combination" data-url="{{ route('admin.products.sku-combination') }}"></span>
+    {{-- The gallery flag travels with the variation request too (B-02): that endpoint re-renders the price and quantity of every variant, so
+         without it an admin who touches the variation controls on a gallery-add form would be handed the SOURCE product's variant figures
+         back. `ProductFormPrefill` reads the same flag there as it does here. --}}
+    <span id="route-admin-products-sku-combination" data-url="{{ route('admin.products.sku-combination', request()->boolean('product-gallery') ? ['product-gallery' => 1] : []) }}"></span>
     <span id="route-admin-products-digital-variation-combination" data-url="{{ route('admin.products.digital-variation-combination') }}"></span>
     <span id="route-admin-products-digital-variation-file-delete" data-url="{{ route('admin.products.digital-variation-file-delete') }}"></span>
     <span id="image-path-of-product-upload-icon" data-path="{{ dynamicAsset(path: 'public/assets/back-end/img/icons/product-upload-icon.svg') }}"></span>
