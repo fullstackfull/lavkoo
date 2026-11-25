@@ -7,10 +7,8 @@ use App\Models\SalesChannelAccount;
 use App\Models\SalesChannelProductMapping;
 use App\Services\SalesChannels\Inventory\InventoryLocationMarket;
 use App\Services\SalesChannels\Support\ChannelAccountCountry;
-use App\Services\Storefront\StorefrontCatalog;
 use App\Services\Storefront\StorefrontMarketRows;
 use Illuminate\Container\Attributes\Singleton;
-use Illuminate\Support\Facades\DB;
 
 /**
  * Whether a marketplace listing, the product it points at and the shelf its stock comes from are all of ONE market (E11-F19; C2-05, C2-12).
@@ -28,7 +26,9 @@ use Illuminate\Support\Facades\DB;
  *    this is said out loud and tested rather than left as a silence. An account that sells where this platform has no catalogue at all is
  *    refused outright, because nothing of ours can be its listing.
  *  - the PRODUCT's and the LOCATION's are `StorefrontMarketRows`' -- an unmarked row is the DEFAULT storefront's, compared byte for byte --
- *    so no second copy of that rule lives here.
+ *    so no second copy of that rule lives here, and the product's market is READ through `marketKeyOf()` rather than with a `DB::table()`
+ *    of this module's own: `StockNeverWritesPlatformTablesTest` refuses a file of this module that names a platform table or picks one at
+ *    run time, and it is right to -- a module that may not WRITE the platform's stock has no business naming its tables either.
  *
  * It is dormant: with `gcc.storefronts.enabled` off, or before the market columns exist, every answer is null and nothing is refused, which
  * is the platform exactly as it is today. The first test of it asserts that.
@@ -67,7 +67,9 @@ final class ChannelMarketMatch
             return null;
         }
 
-        if (!$this->rows->rowIsServedIn(self::PRODUCTS, $this->marketOfProduct(productId: $listing->product_id), $market)) {
+        $product = $this->rows->marketKeyOf(self::PRODUCTS, $listing->product_id);
+
+        if (!$this->rows->rowIsServedIn(self::PRODUCTS, $product[StorefrontMarketRows::COLUMN] ?? null, $market)) {
             return self::PRODUCT_OF_ANOTHER_MARKET;
         }
 
@@ -82,17 +84,5 @@ final class ChannelMarketMatch
     public function marketOf(SalesChannelAccount $account): ?string
     {
         return $this->rows->applies(self::PRODUCTS) ? $this->accountCountry->of($account) : null;
-    }
-
-    /** @return string|null the market the product belongs to, or null when the product is gone or names none */
-    private function marketOfProduct(int|string|null $productId): ?string
-    {
-        if ($productId === null) {
-            return null;
-        }
-
-        $market = DB::table(self::PRODUCTS)->where('id', $productId)->value(StorefrontCatalog::COLUMN);
-
-        return $market === null ? null : (string) $market;
     }
 }
