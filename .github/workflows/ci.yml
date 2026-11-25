@@ -173,7 +173,11 @@ jobs:
           - group: Report pagination tests
             paths: tests/Feature/Reports
           - group: Notification and localization tests
-            paths: tests/Feature/Notifications tests/Feature/Retention tests/Feature/Localization
+            # tests/Feature/Queue is where every queued class gets its market from. It belongs on a real engine because what it reads is
+            # `orders.storefront_country` and `products.storefront_country` as their own migrations create them -- char(2) ascii_bin, where
+            # 'kw' is not 'KW'. SQLite keeps both as text and compares them case-insensitively, so a market asserted byte for byte there is
+            # asserted on nothing: that exact difference turned a green SQLite run red on MariaDB once already (EXECUTION_STATE, run 664).
+            paths: tests/Feature/Notifications tests/Feature/Retention tests/Feature/Localization tests/Feature/Queue
           # The wallet money paths build their schema by hand, so SQLite in memory (a fresh database per test)
           # cannot tell whether they hold on an engine that keeps the previous test's tables, and decimal
           # columns, collation and row order are decided by the engine the live platform runs on.
