@@ -98,6 +98,28 @@
     </div>
 @endif
 
+@if(isset($filterSection) && in_array('fulfillment_source', $filterSection))
+    <div class="p-12 p-sm-20 bg-section rounded mb-3 mb-sm-20 overflow-wrap-anywhere">
+        <label for="" class="form-label">{{ translate('fulfillment_source') }}</label>
+        <div class="bg-white rounded p-3">
+            <div class="row gx-3 gy-4" style="--bs-gutter-y: 2rem;">
+                @foreach (\App\Services\Fulfillment\ProductSource::options() as $fulfillmentSource)
+                    <div class="col-sm-6">
+                        <div class="d-flex gap-2">
+                            <input class="form-check-input checkbox--input mt-0" type="checkbox" name="filter_fulfillment_sources[]"
+                                   id="fulfillmentSource{{ $fulfillmentSource }}" value="{{ $fulfillmentSource }}"
+                                   {{ in_array($fulfillmentSource, \Illuminate\Support\Arr::wrap(request('filter_fulfillment_sources')), true) ? 'checked' : '' }}>
+                            <label class="form-check-label fs-12" for="fulfillmentSource{{ $fulfillmentSource }}">
+                                {{ \App\Services\Fulfillment\ProductSource::label(source: $fulfillmentSource) }}
+                            </label>
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+        </div>
+    </div>
+@endif
+
 @if(isset($filterSection) && in_array('product_status', $filterSection))
     <div class="p-12 p-sm-20 bg-section rounded mb-3 mb-sm-20 overflow-wrap-anywhere">
         <label for="" class="form-label">{{ translate('Status') }}</label>

@@ -4,11 +4,13 @@
 
 @section('content')
     @php
+        use App\Services\Fulfillment\ProductSource;
         use App\Services\Storefront\ProductCountry;
         use Illuminate\Support\Str;
 
         $isInHouse = $type == 'in_house';
         $tracksCountry = ProductCountry::isTracked();
+        $tracksSource = ProductSource::isTracked();
         $title = $isInHouse ? translate('in_House_Product_List') : translate('vendor_Product_List');
 
         $currentFilters = [
@@ -20,11 +22,13 @@
             'product_status'       => request('product_status'),
             'filter_brand_ids'     => request('filter_brand_ids'),
             'filter_category_ids'  => request('filter_category_ids'),
-        ] + ($tracksCountry ? ['filter_storefront_countries' => request('filter_storefront_countries')] : []);
+        ] + ($tracksCountry ? ['filter_storefront_countries' => request('filter_storefront_countries')] : [])
+          + ($tracksSource ? ['filter_fulfillment_sources' => request('filter_fulfillment_sources')] : []);
         $hasFilters = collect([
             request('filter_sort_by'), request('filter_product_types'), request('product_status'),
             request('filter_shop_ids'), request('filter_brand_ids'), request('filter_category_ids'),
             $tracksCountry ? request('filter_storefront_countries') : null,
+            $tracksSource ? request('filter_fulfillment_sources') : null,
         ])->filter(fn ($value) => !empty($value))->isNotEmpty();
 
         // A vendor product awaiting approval, or denied, cannot be published or
@@ -91,6 +95,9 @@
                     @if ($tracksCountry)
                         <th>{{ translate('product_country') }}</th>
                     @endif
+                    @if ($tracksSource)
+                        <th>{{ translate('fulfillment_source') }}</th>
+                    @endif
                     <th class="k-table__num">{{ translate('unit_price') }}</th>
                     <th class="k-table__num">{{ translate('stock') }}</th>
                     @if ($productWiseTax)
@@ -145,6 +152,19 @@
 
                         @if ($tracksCountry)
                             <td class="k-text-muted k-num">{{ $product['storefront_country'] }}</td>
+                        @endif
+
+                        @if ($tracksSource)
+                            {{-- A source this installation does not know is shown AS unknown, never as in-house:
+                                 the panel is where an operator would find out, and "in house" would hide it. --}}
+                            @php($source = ProductSource::of($product['fulfillment_provider'] ?? null))
+                            <td class="k-text-muted">
+                                @if ($source === ProductSource::UNKNOWN)
+                                    <x-k.badge tone="danger">{{ ProductSource::label($source) }}</x-k.badge>
+                                @else
+                                    {{ ProductSource::label($source) }}
+                                @endif
+                            </td>
                         @endif
 
                         <td class="k-table__num k-num">

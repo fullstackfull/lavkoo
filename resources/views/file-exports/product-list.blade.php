@@ -61,6 +61,9 @@
                 @if ($data['countryColumn'] ?? false)
                     <td> {{translate('product_country')}}</td>
                 @endif
+                @if ($data['sourceColumn'] ?? false)
+                    <td> {{translate('fulfillment_source')}}</td>
+                @endif
             </tr>
             @foreach ($data['products'] as $key=>$item)
                 <tr>
@@ -111,6 +114,9 @@
                     @endif
                     @if ($data['countryColumn'] ?? false)
                         <td>{{ $item->storefront_country }}</td>
+                    @endif
+                    @if ($data['sourceColumn'] ?? false)
+                        <td>{{ \App\Services\Fulfillment\ProductSource::label(source: \App\Services\Fulfillment\ProductSource::of($item->fulfillment_provider ?? null)) }}</td>
                     @endif
                 </tr>
             @endforeach

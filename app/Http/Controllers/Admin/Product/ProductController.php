@@ -41,6 +41,7 @@ use App\Services\DigitalProductFileService;
 use App\Services\Fulfillment\ProductFormProviderSelection;
 use App\Services\Fulfillment\ProviderStockOwnership;
 use App\Services\ProductService;
+use App\Services\Fulfillment\ProductSource;
 use App\Services\Storefront\ProductCountry;
 use App\Traits\FileManagerTrait;
 use App\Traits\ProductTrait;
@@ -128,6 +129,8 @@ class ProductController extends BaseController
             'filter_category_ids' => $request['filter_category_ids'] ?? [],
             'filter_sub_category_ids' => $request['filter_sub_category_ids'] ?? [],
             'filter_sub_sub_category_ids' => $request['filter_sub_sub_category_ids'] ?? [],
+            // The execution source, beside the country (C-01). Empty while the column has not been added, so nothing is narrowed then.
+            'fulfillment_sources' => ProductSource::filterOf($request['filter_fulfillment_sources'] ?? null),
         ];
 
         $taxData = $this->getTaxSystemType();
@@ -771,6 +774,8 @@ class ProductController extends BaseController
             'filter_category_ids' => $request['filter_category_ids'] ?? [],
             'filter_sub_category_ids' => $request['filter_sub_category_ids'] ?? [],
             'filter_sub_sub_category_ids' => $request['filter_sub_sub_category_ids'] ?? [],
+            // The export carries the same filter as the screen it comes from (G1-06), the source included.
+            'fulfillment_sources' => ProductSource::filterOf($request['filter_fulfillment_sources'] ?? null),
         ];
 
         $taxData = $this->getTaxSystemType();
@@ -811,6 +816,7 @@ class ProductController extends BaseController
             'seller' => $seller,
             'status' => $request->status ?? '',
             'countryColumn' => app(ProductCodeScope::class)->enabled(),
+            'sourceColumn' => ProductSource::isTracked(),
             'productWiseTax' => $productWiseTax
         ];
         return Excel::download(new ProductListExport($data), ucwords($this->stringOr($request['type'], $type)) . '-' . 'product-list.xlsx');

@@ -34,6 +34,9 @@
                 if (\App\Services\Storefront\ProductCountry::isTracked()) {
                     $filterSections[] = 'storefront_country';
                 }
+                if (\App\Services\Fulfillment\ProductSource::isTracked()) {
+                    $filterSections[] = 'fulfillment_source';
+                }
             @endphp
 
             @if(request()->has('request_status'))

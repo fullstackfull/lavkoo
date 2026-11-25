@@ -19,6 +19,7 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use App\Services\Catalog\ProductCodeScope;
+use App\Services\Fulfillment\ProductSource;
 
 class ProductRepository implements ProductRepositoryInterface
 {
@@ -390,7 +391,14 @@ class ProductRepository implements ProductRepositoryInterface
                 });
             })->when(isset($filters['seller_id']), function ($query) use ($filters) {
                 return $query->where('user_id', $filters['seller_id']);
-            })->when(isset($filters['brand_id']), function ($query) use ($filters) {
+            })
+            // The execution source each product is fulfilled from (C-01), which the admin product LIST and its EXPORT both run through
+            // here. Not a plain whereIn: in-house is an EMPTY value and "a carrier we do not know" is the negation of the ones we do, so
+            // the rule lives in ProductSource rather than being spelt out at every caller.
+            ->when(!empty($filters['fulfillment_sources']), function ($query) use ($filters) {
+                return ProductSource::narrow(query: $query, sources: $filters['fulfillment_sources']);
+            })
+            ->when(isset($filters['brand_id']), function ($query) use ($filters) {
                 return $query->where(['brand_id' => $filters['brand_id']]);
             })->when(isset($filters['category_id']), function ($query) use ($filters) {
                 return $query->where(['category_id' => $filters['category_id']]);
