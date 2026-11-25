@@ -72,6 +72,7 @@ final readonly class OdooPreflight
      * @param array<string, mixed> $company what was read of the company, where it could be read
      * @param array<string, int> $currencies Odoo's own `res.currency` ids, by the code the instance calls each one
      * @param list<string> $currencyNotes why the currency list is not usable, where it is not
+     * @param array<string, int> $currencyDecimals the decimal places the instance reports for a currency, by code, where it reports any
      */
     public function __construct(
         public OdooInstance $instance,
@@ -86,6 +87,7 @@ final readonly class OdooPreflight
         public int $currenciesRead = 0,
         public array $currencies = [],
         public array $currencyNotes = [],
+        public array $currencyDecimals = [],
     ) {
     }
 
@@ -103,6 +105,20 @@ final readonly class OdooPreflight
         $wanted = mb_strtoupper(trim($code));
 
         return $wanted === '' ? null : ($this->currencies[$wanted] ?? null);
+    }
+
+    /**
+     * How many decimal places this instance says a currency has, or null when it says nothing about it (H2-11).
+     *
+     * Read and never derived, for the same reason the id is: Odoo's reference has no `res.currency` page, so neither the field's presence
+     * nor its meaning is documented, and a rounding rule taken from a field that turns out to be something else would post a figure
+     * nobody chose. Null is a real answer here -- {@see OdooCurrencyDecimals} does something different with it than with a number.
+     */
+    public function decimalsFor(string $code): ?int
+    {
+        $wanted = mb_strtoupper(trim($code));
+
+        return $wanted === '' ? null : ($this->currencyDecimals[$wanted] ?? null);
     }
 
     /**

@@ -138,7 +138,8 @@ trait BuildsOdooWorld
      * @param array<string, mixed>|null $company
      * @param array<string, int>|null $currencies Odoo's own currency ids by code; `[]` is an instance whose list was not usable
      */
-    protected function odooPreflight(?array $moveFields = null, ?array $lineFields = null, ?array $company = null, ?array $currencies = null): OdooPreflight
+    /** @param array<string, int>|null $currencyDecimals what the instance reports under `res.currency.decimal_places` (H2-11); null is "it reports nothing" */
+    protected function odooPreflight(?array $moveFields = null, ?array $lineFields = null, ?array $company = null, ?array $currencies = null, ?array $currencyDecimals = null): OdooPreflight
     {
         $move = $moveFields ?? [...OdooPreflight::REQUIRED_FIELDS['account.move'], ...OdooPreflight::OPTIONAL_FIELDS['account.move']];
         $line = $lineFields ?? [...OdooPreflight::REQUIRED_FIELDS['account.move.line'], 'tax_ids', 'currency_id', 'amount_currency', 'analytic_distribution'];
@@ -152,6 +153,7 @@ trait BuildsOdooWorld
             ],
             company: $company ?? ['id' => self::ODOO_COMPANY, 'currency_id' => self::ODOO_CURRENCY_ID, 'currency_name' => self::ODOO_CURRENCY_CODE],
             currencies: $currencies ?? [self::ODOO_CURRENCY_CODE => self::ODOO_CURRENCY_ID, 'USD' => self::ODOO_FOREIGN_CURRENCY_ID],
+            currencyDecimals: $currencyDecimals ?? [],
         );
     }
 

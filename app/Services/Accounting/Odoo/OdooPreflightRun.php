@@ -68,7 +68,7 @@ class OdooPreflightRun
         }
 
         [$company, $problems] = $this->company($connection);
-        [$currencies, $currencyNotes] = $this->currencies($connection, $company);
+        [$currencies, $currencyNotes, $currencyDecimals] = $this->currencies($connection, $company);
 
         return new OdooPreflight(
             instance: $instance,
@@ -83,6 +83,7 @@ class OdooPreflightRun
             currenciesRead: $this->countOf($connection, 'res.currency'),
             currencies: $currencies,
             currencyNotes: $currencyNotes,
+            currencyDecimals: $currencyDecimals,
         );
     }
 
@@ -209,17 +210,22 @@ class OdooPreflightRun
      * the one the label comes from, and the whole list is dropped — the builder then refuses foreign figures by name, exactly as
      * it did before any list was read.
      *
+     * `decimal_places` is read in the same call and kept beside the id (H2-11). Odoo's reference has no `res.currency` page, so the
+     * field may not be there at all: a row that does not carry it, or carries something that is not a count of places, contributes
+     * nothing, and `OdooCurrencyDecimals` treats "the instance said nothing" as its own case rather than as two.
+     *
      * @param array<string, mixed> $company
-     * @return array{0: array<string, int>, 1: list<string>}
+     * @return array{0: array<string, int>, 1: list<string>, 2: array<string, int>}
      */
     private function currencies(SalesChannelAccount $connection, array $company): array
     {
-        $answer = $this->client->searchRead($connection, 'res.currency', [], ['id', 'name'], limit: self::CURRENCY_CEILING);
+        $answer = $this->client->searchRead($connection, 'res.currency', [], ['id', 'name', 'decimal_places'], limit: self::CURRENCY_CEILING);
         if (!$answer->ok()) {
-            return [[], ['odoo_currencies_could_not_be_read']];
+            return [[], ['odoo_currencies_could_not_be_read'], []];
         }
 
         $map = [];
+        $decimals = [];
         foreach ($answer->records() as $record) {
             $code = mb_strtoupper(trim((string) ($record['name'] ?? '')));
             $id = (int) ($record['id'] ?? 0);
@@ -229,9 +235,14 @@ class OdooPreflightRun
             // First row wins for a repeated code, and a repeat is itself a reason not to trust the list: two ids for one code
             // means this field is not the identifier it looks like.
             if (isset($map[$code]) && $map[$code] !== $id) {
-                return [[], ['odoo_currency_codes_are_not_unique']];
+                return [[], ['odoo_currency_codes_are_not_unique'], []];
             }
             $map[$code] = $id;
+
+            $places = $record['decimal_places'] ?? null;
+            if (is_numeric($places) && (int) $places >= 0 && (int) $places <= 6) {
+                $decimals[$code] = (int) $places;
+            }
         }
 
         $companyCurrencyId = (int) ($company['currency_id'] ?? 0);
@@ -239,13 +250,15 @@ class OdooPreflightRun
         if ($companyCurrencyId < 1 || $companyCurrencyCode === '') {
             // Nothing to prove the list against. It may be perfectly good; it is simply unverified, and this integration does
             // not post money on an unverified identifier.
-            return [[], ['odoo_currency_list_could_not_be_checked']];
+            return [[], ['odoo_currency_list_could_not_be_checked'], []];
         }
         if (($map[$companyCurrencyCode] ?? null) !== $companyCurrencyId) {
-            return [[], ['odoo_currency_list_does_not_match_the_company_currency']];
+            return [[], ['odoo_currency_list_does_not_match_the_company_currency'], []];
         }
 
-        return [$map, []];
+        // The decimals ride with the list and are dropped with it: a list that could not be proved is not a list to read a rounding
+        // rule out of either.
+        return [$map, [], $decimals];
     }
 
     /** How many of something the instance holds, for a person deciding whether they are looking at the right database. */
