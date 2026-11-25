@@ -24,6 +24,7 @@ use App\Models\ShippingMethod;
 use App\Models\ShippingType;
 use App\Models\User;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
+use App\Services\Marketplace\RestockBudget;
 use App\Services\OrderEditService;
 use App\Services\Payments\GatewayCurrencySupport;
 use App\Services\Storefront\LedgerOrigin;
@@ -197,16 +198,7 @@ trait OrderEditManager
             return;
         }
         foreach (collect($order->details ?? []) as $detail) {
-            // Give back only what this order actually has OFF the shelf. is_stock_decreased 0 means the
-            // line's units are on the shelf already -- a received return, a cancellation -- and giving them
-            // back a second time put units there that never left. Measured through this method: a line of 3
-            // whose return had already come back went 53 -> 56 on the shelf when the edit dropped the line,
-            // and when the edit kept it the pair netted zero while the line's claim went back to 1, so the
-            // same three units were counted as both on the shelf and promised to the customer.
-            if ((int)($detail['is_stock_decreased'] ?? 1) !== 1) {
-                continue;
-            }
-            $this->adjustProductStock($detail['product_id'] ?? null, $detail['variant'] ?? null, (int)($detail['qty'] ?? 0), 'increment');
+            $this->adjustProductStock($detail['product_id'] ?? null, $detail['variant'] ?? null, $this->unitsThisEditMayGiveBack($detail), 'increment');
         }
         // A line without a product is kept as it is, with its rewards: it is never written, and it counts in the total the rewards are shared over.
         $linesWithoutProduct = collect($order->details ?? [])->filter(fn ($detail) => empty($detail['product_id']));
@@ -300,6 +292,33 @@ trait OrderEditManager
                 );
             }
         }
+    }
+
+    /**
+     * How many of a line's units this edit may put back on the shelf.
+     *
+     * The fourth writer of an order line's stock, reached from the order edit screen by eight controllers.
+     * It gave every current line's units back unconditionally before rebuilding the lines, so a line whose
+     * goods had already come back was given back a second time; then it asked a question of its own, "is the
+     * line's claim still taken?", which a PARTIAL return answers 1 -- only the receipt that completes a line
+     * takes the claim -- so all three units of a line with one unit already back were put on the shelf.
+     *
+     * Two questions, and each writer of this shelf asks both the same way: `is_stock_decreased` is the CLAIM
+     * (0 means the line's units are on the shelf already -- a received return, a cancellation, a restore by
+     * the order status writer -- and giving them back again puts units there that never left), and
+     * RestockBudget is how many of the claimed units are still off it. Re-taking, below, is unbounded on
+     * purpose: an edited line is live for all of its units again, which is OrderManager's rule too.
+     */
+    private function unitsThisEditMayGiveBack(object|array $detail): int
+    {
+        if ((int)($detail['is_stock_decreased'] ?? 1) !== 1) {
+            return 0;
+        }
+
+        return app(RestockBudget::class)->unspentUnitsOf(
+            orderDetailsId: $detail['id'] ?? null,
+            lineQuantity: $detail['qty'] ?? 0,
+        );
     }
 
     private function adjustProductStock(?int $productId, ?string $variant, int $qty, string $mode): void

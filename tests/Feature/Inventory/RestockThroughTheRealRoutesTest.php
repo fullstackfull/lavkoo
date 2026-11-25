@@ -865,6 +865,70 @@ class RestockThroughTheRealRoutesTest extends AdminPagesTestCase
         $this->assertSame(4, (int) DB::table('products')->where('id', 71)->value('current_stock'), 'and the product the edit bought instead is taken from');
     }
 
+    public function test_an_edit_that_drops_a_line_the_status_writer_already_restored_puts_no_units_on_the_shelf(): void
+    {
+        // The claim is the only record of this restore. Marking the order returned puts the line back with no
+        // return_shipments row behind it, so the budget -- which reads those rows -- still answers "three
+        // unspent"; what says the units are already on the shelf is `is_stock_decreased` 0. An edit that
+        // asked the budget alone would give the same three units back a second time.
+        $writer = $this->orderEditWriter();
+        $lineId = $this->soldLine(3, variant: 'Red', variations: [['type' => 'Red', 'price' => 10, 'sku' => 'R', 'qty' => 20]]);
+        $this->changeStatusThroughThePanel('returned');
+        $this->assertSame([53, 0], $this->shelfAndClaim($lineId), 'the status writer put the whole line back and released its claim');
+        DB::table('products')->insert([
+            'id' => 71, 'name' => 'Other', 'added_by' => 'admin', 'product_type' => 'physical', 'current_stock' => 5,
+            'variation' => json_encode([]), 'status' => 1, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $writer->addAndUpdateProductsInOrderDetails(Order::with('details')->findOrFail(self::ORDER), $this->editedLine(1, null, 71), ['applied_tax_cart_list' => []]);
+
+        $this->assertSame(
+            ['current_stock' => 53, 'variant_qty' => 23, 'movements' => []],
+            $this->reading('Red'),
+            'the three units are on the shelf already: dropping the line must not put them there twice',
+        );
+    }
+
+    public function test_the_order_edit_writer_does_not_give_back_units_a_partial_return_already_put_on_the_shelf(): void
+    {
+        // The fourth writer asked a question of its own -- "is the line's claim still taken?" -- instead of
+        // asking how many of the line's units are still off the shelf. A PARTIAL return leaves the claim with
+        // the line (only the receipt that completes it takes the claim), so the guard saw 1, read it as "the
+        // whole line is still with the customer" and gave back all three units when only two were.
+        $writer = $this->orderEditWriter();
+        $lineId = $this->soldLine(3, variant: 'Red', variations: [['type' => 'Red', 'price' => 10, 'sku' => 'R', 'qty' => 20]]);
+        $this->receiveThroughThePanel($this->authorizedReturn(1, $lineId));
+        $this->assertSame([51, 1], $this->shelfAndClaim($lineId), 'one of the three units came back and the claim stays with the line');
+        DB::table('products')->insert([
+            'id' => 71, 'name' => 'Other', 'added_by' => 'admin', 'product_type' => 'physical', 'current_stock' => 5,
+            'variation' => json_encode([]), 'status' => 1, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $writer->addAndUpdateProductsInOrderDetails(Order::with('details')->findOrFail(self::ORDER), $this->editedLine(1, null, 71), ['applied_tax_cart_list' => []]);
+
+        $this->assertSame(
+            ['current_stock' => 53, 'variant_qty' => 23, 'movements' => [[StockMovement::TYPE_RETURN, 1, 51, null]]],
+            $this->reading('Red'),
+            'two of the three units are still with the customer: dropping the line puts back those two and not the one already back',
+        );
+    }
+
+    public function test_an_edit_that_shrinks_a_partly_returned_line_gives_back_only_what_is_still_off_the_shelf(): void
+    {
+        $writer = $this->orderEditWriter();
+        $lineId = $this->soldLine(3, variant: 'Red', variations: [['type' => 'Red', 'price' => 10, 'sku' => 'R', 'qty' => 20]]);
+        $this->receiveThroughThePanel($this->authorizedReturn(1, $lineId));
+
+        $writer->addAndUpdateProductsInOrderDetails(Order::with('details')->findOrFail(self::ORDER), $this->editedLine(1, 'Red'), ['applied_tax_cart_list' => []]);
+
+        $this->assertSame(
+            ['current_stock' => 52, 'variant_qty' => 22, 'movements' => [[StockMovement::TYPE_RETURN, 1, 51, null]]],
+            $this->reading('Red'),
+            'the two units still off the shelf come back and the edited line of one goes off it again: 51 + 2 - 1',
+        );
+        $this->assertSame(1, (int) DB::table('order_details')->where('id', $lineId)->value('is_stock_decreased'));
+    }
+
     public function test_the_order_edit_writer_floors_the_variant_at_zero(): void
     {
         // The same defect as (a), in the third copy of it: current_stock was floored and the variant's
