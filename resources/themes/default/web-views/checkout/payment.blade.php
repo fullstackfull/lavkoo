@@ -13,6 +13,7 @@
                 <div class="checkout_details">
                     <div class="px-3 px-md-0">
                         @include('web-views.partials._checkout-steps', ['step' => 3])
+                        @include('web-views.partials._customs-duty-notice')
                     </div>
                     <div class="card mt-3">
                         <div class="card-body p-0">

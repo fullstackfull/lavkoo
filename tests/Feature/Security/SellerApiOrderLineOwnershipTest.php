@@ -282,6 +282,115 @@ class SellerApiOrderLineOwnershipTest extends TestCase
 
     // ---- helpers ----
 
+    // ---- why a shipment has not left (H1-04, H1-06) ----
+
+    /**
+     * A shipment can be held for something the seller can act on -- a product with no permission to reach the destination, a regulated
+     * product with no licence on file -- and the reason was written by the dispatcher and read only by the admin panel. Now the seller
+     * reads it, in their own language, and reads nothing else: not the carrier, which is the platform's arrangement, and not the
+     * provider's own error text, which can carry a carrier's API message.
+     */
+    public function test_the_seller_reads_why_their_own_shipment_is_held_and_nothing_else(): void
+    {
+        $this->createProviderFulfillmentsTable();
+        $this->aHeldShipment(orderId: self::OWN_ORDER, reason: 'hold_route_unsupported', detail: 'Torod said: ERR_UNSUPPORTED_ROUTE');
+
+        $response = $this->sellerApi('GET', 'orders/' . self::OWN_ORDER . '/shipment-holds');
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertCount(1, $response->json('holds'));
+        $this->assertSame('hold_route_unsupported', $response->json('holds.0.reason_code'));
+        $this->assertSame(translate('hold_route_unsupported'), $response->json('holds.0.reason'));
+        $this->assertNotSame('hold_route_unsupported', $response->json('holds.0.reason'), 'the key itself is not an answer');
+
+        $body = (string) $response->getContent();
+        $this->assertStringNotContainsString('ERR_UNSUPPORTED_ROUTE', $body, "the carrier's own error text is not the seller's to read");
+        $this->assertStringNotContainsString('torod', strtolower($body), 'nor is which carrier the platform uses');
+    }
+
+    public function test_an_order_with_nothing_held_answers_an_empty_list(): void
+    {
+        $this->createProviderFulfillmentsTable();
+
+        $response = $this->sellerApi('GET', 'orders/' . self::OWN_ORDER . '/shipment-holds');
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame([], $response->json('holds'));
+    }
+
+    public function test_the_holds_of_another_sellers_order_are_not_found(): void
+    {
+        $this->createProviderFulfillmentsTable();
+        $this->aHeldShipment(orderId: self::OTHER_SELLERS_ORDER, reason: 'hold_route_unsupported');
+
+        $response = $this->sellerApi('GET', 'orders/' . self::OTHER_SELLERS_ORDER . '/shipment-holds');
+
+        $this->assertNull($response->json('holds'));
+        $this->assertNotFound($response, code: 'order');
+    }
+
+    /** The in-house shop's lines carry id 1 as well, so a seller whose id is 1 must still not read its order. */
+    public function test_the_holds_of_the_in_house_order_sharing_the_sellers_id_are_not_found(): void
+    {
+        $this->createProviderFulfillmentsTable();
+        $this->aHeldShipment(orderId: self::IN_HOUSE_ORDER, reason: 'hold_route_unsupported');
+
+        $response = $this->sellerApi('GET', 'orders/' . self::IN_HOUSE_ORDER . '/shipment-holds');
+
+        $this->assertNull($response->json('holds'));
+        $this->assertNotFound($response, code: 'order');
+    }
+
+    /** A shipment that is not held is not a reason to show the seller anything. */
+    public function test_only_held_shipments_are_listed(): void
+    {
+        $this->createProviderFulfillmentsTable();
+        $this->aHeldShipment(orderId: self::OWN_ORDER, reason: 'hold_route_unsupported');
+        $this->aHeldShipment(orderId: self::OWN_ORDER, reason: null, status: 'dispatched');
+
+        $this->assertCount(1, $this->sellerApi('GET', 'orders/' . self::OWN_ORDER . '/shipment-holds')->json('holds'));
+    }
+
+    /** A shop whose fulfilment tables have never been created answers an empty list rather than failing. */
+    public function test_a_shop_without_the_fulfillment_table_answers_an_empty_list(): void
+    {
+        Schema::dropIfExists('provider_fulfillments');
+
+        $response = $this->sellerApi('GET', 'orders/' . self::OWN_ORDER . '/shipment-holds');
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame([], $response->json('holds'));
+    }
+
+    private function createProviderFulfillmentsTable(): void
+    {
+        Schema::dropIfExists('provider_fulfillments');
+        Schema::create('provider_fulfillments', function (Blueprint $table): void {
+            $table->id();
+            $table->string('reference')->nullable();
+            $table->unsignedBigInteger('order_id');
+            $table->string('provider')->nullable();
+            $table->string('status')->default('pending');
+            $table->string('hold_reason')->nullable();
+            $table->text('last_error_message')->nullable();
+            $table->timestamps();
+        });
+    }
+
+    private function aHeldShipment(int $orderId, ?string $reason, ?string $detail = null, string $status = 'held'): void
+    {
+        DB::table('provider_fulfillments')->insert([
+            'reference' => 'PF-' . $orderId . '-' . $status . '-' . ($reason ?? 'none'),
+            'order_id' => $orderId,
+            'provider' => 'torod_point',
+            'status' => $status,
+            'hold_reason' => $reason,
+            'last_error_message' => $detail,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
     private function assertNotFound(TestResponse $response, string $code): void
     {
         $this->assertSame(404, $response->getStatusCode());

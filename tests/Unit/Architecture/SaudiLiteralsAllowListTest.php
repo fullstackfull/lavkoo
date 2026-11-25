@@ -154,6 +154,9 @@ class SaudiLiteralsAllowListTest extends TestCase
         'app/Services/Storefront/StorefrontContext.php' => [
             'SA' => ['count' => 1, 'category' => self::PLATFORM_DEFAULT, 'owner' => 'GCC-02/GCC-03 (storefronts); M2-19', 'why' => 'UNSCOPED_COUNTRY: the country a request belonging to no storefront is read as, which is what the whole platform was before storefronts existed. A storefront request never reads it'],
         ],
+        'app/Services/Storefront/StorefrontMarketRows.php' => [
+            'SA' => ['count' => 1, 'category' => self::PLATFORM_DEFAULT, 'owner' => 'H1-14 (local shipping rules per market); M2-19', 'why' => 'UNMARKED_ROWS_BELONG_TO: the market a shipping row that names none belongs to, which is the only market this platform has ever had rows for. Read while the configuration names no default'],
+        ],
         'app/Services/Storefront/StorefrontResolver.php' => [
             'SA' => ['count' => 1, 'category' => self::PLATFORM_DEFAULT, 'owner' => 'GCC-02/GCC-03 (storefronts); M2-19', 'why' => 'BUILT_IN_COUNTRY: the one storefront the platform resolves to while none is configured'],
             'sa' => ['count' => 1, 'category' => self::PLATFORM_DEFAULT, 'owner' => 'GCC-02/GCC-03 (storefronts); M2-19', 'why' => 'the url path of that built-in storefront'],
@@ -282,7 +285,11 @@ class SaudiLiteralsAllowListTest extends TestCase
         // markets' -- which is where it moved to out of the Torod payload builder, whose entry is gone from ALLOWED because the builder
         // no longer carries one. That move is the shape every line of this inventory is meant to take, and it took one off the Saudi-only
         // list rather than off this one, because a row of the six-market table is still a Saudi value written in code.
-        $this->assertCount(32, $toMove, "the number of Saudi defaults the plan still has to move changed. If a default moved to a setting, delete its entry and lower this number; if one was added, that is a regression:\n - " . implode("\n - ", $toMove));
+        // Then 33, with H1-14's local shipping rules per market: StorefrontMarketRows' UNMARKED_ROWS_BELONG_TO, the market a shipping method
+        // or category cost that names none belongs to. It is the same shape as the two TABLE_DEFAULT_COUNTRY entries -- rows written before
+        // there was a market column are the only market this platform has ever had rows for -- and it leaves this list the day those rows
+        // are stamped and the column stops being nullable.
+        $this->assertCount(33, $toMove, "the number of Saudi defaults the plan still has to move changed. If a default moved to a setting, delete its entry and lower this number; if one was added, that is a regression:\n - " . implode("\n - ", $toMove));
     }
 
     public function test_the_scanner_reads_literals_and_not_prose(): void

@@ -23,7 +23,29 @@ class ConfigDefaultsTest extends TestCase
         $this->assertSame(30, config('gcc.platform_admin.window_days_default'));
         $this->assertSame(92, config('gcc.platform_admin.window_days_max'));
         $this->assertSame(
-            ['zero_stock_warning_count' => 10, 'zero_stock_critical_count' => 50, 'pending_age_hours' => 24, 'pending_warning_count' => 5, 'pending_critical_count' => 20],
+            [
+                'zero_stock_warning_count' => 10,
+                'zero_stock_critical_count' => 50,
+                'pending_age_hours' => 24,
+                'pending_warning_count' => 5,
+                'pending_critical_count' => 20,
+                // One pair per health signal (L-09). The owner's ruling on any threshold changes a line of configuration, which is the
+                // whole reason each signal has its own key rather than sharing one number.
+                'health' => [
+                    'payments_stuck_warning_count' => 5,
+                    'payments_stuck_critical_count' => 20,
+                    'payments_unreconciled_warning_count' => 5,
+                    'payments_unreconciled_critical_count' => 20,
+                    'channels_failing_warning_count' => 5,
+                    'channels_failing_critical_count' => 20,
+                    'carriers_failing_warning_count' => 5,
+                    'carriers_failing_critical_count' => 20,
+                    'shop_issues_open_warning_count' => 5,
+                    'shop_issues_open_critical_count' => 20,
+                    'approvals_pending_warning_count' => 5,
+                    'approvals_pending_critical_count' => 20,
+                ],
+            ],
             config('gcc.platform_admin.alerts'),
         );
     }

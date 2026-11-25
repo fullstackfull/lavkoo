@@ -3,6 +3,7 @@
 namespace App\Services\Staff;
 
 use App\Http\Controllers\Admin\Marketplace\ProductModerationController;
+use App\Http\Controllers\Admin\Shipping\ProductDestinationPermissionController;
 use App\Http\Controllers\Admin\Product\ProductController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -80,6 +81,13 @@ final class StaffProductRoutes
             'history' => 'route:productId',
             'moderate' => 'input:product_id',
             'bulk' => 'inputs:product_ids',
+        ],
+        ProductDestinationPermissionController::class => [
+            // Which countries a product may be shipped to, and on whose authority (H1-03, H1-04). An employee restricted to some
+            // countries has no business granting another country's product permission to be exported: the id arrives in the request on
+            // both actions, so both are judged by it. The screen with no product chosen names none, which is the empty form.
+            'index' => 'input:product_id?',
+            'record' => 'input:product_id',
         ],
     ];
 

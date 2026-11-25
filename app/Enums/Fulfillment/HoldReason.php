@@ -20,6 +20,8 @@ final class HoldReason
     public const MIXED_COD_BLOCKED = 'hold_mixed_cod_blocked';
     public const CURRENCY_UNCONVERTIBLE = 'hold_currency_unconvertible';
     public const CITY_UNMAPPED = 'hold_city_unmapped';
+    /** The destination is outside the routes this provider declares it serves (H1-02). */
+    public const ROUTE_UNSUPPORTED = 'hold_route_unsupported';
     public const ADDRESS_INCOMPLETE = 'hold_address_incomplete';
     public const PHONE_INVALID = 'hold_phone_invalid';
     public const ACKNOWLEDGEMENT_REQUIRED = 'hold_acknowledgement_required';

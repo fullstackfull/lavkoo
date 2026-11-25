@@ -2,7 +2,8 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Enums\Fulfillment\ProviderCode;
+use App\Services\Fulfillment\Contracts\ProviderIdentity;
+use App\Services\Fulfillment\ProviderRegistry;
 use App\Http\Controllers\Controller;
 use App\Services\Fulfillment\ProviderConnectionManager;
 use App\Services\Fulfillment\WebhookEventProcessor;
@@ -31,12 +32,13 @@ class FulfillmentWebhookController extends Controller
     public function __construct(
         private readonly ProviderConnectionManager $connections,
         private readonly WebhookEventProcessor $processor,
+        private readonly ProviderRegistry $registry,
     ) {
     }
 
     public function receive(Request $request, string $provider, string $secret, string $type): JsonResponse
     {
-        $code = ProviderCode::tryFrom(str_replace('-', '_', $provider));
+        $code = $this->registry->fromSlug($provider);
         if ($code === null) {
             return response()->json(['success' => false], 404);
         }
@@ -63,7 +65,7 @@ class FulfillmentWebhookController extends Controller
         };
     }
 
-    private function authorised(Request $request, ProviderCode $code, string $pathSecret): bool
+    private function authorised(Request $request, ProviderIdentity $code, string $pathSecret): bool
     {
         $config = $this->connections->config($code);
         $expected = $config->secret('webhook_secret');

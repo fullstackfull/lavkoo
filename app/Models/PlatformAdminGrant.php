@@ -13,10 +13,24 @@ class PlatformAdminGrant extends Model
     public const LEVEL_MONITOR = 1;
 
     /**
-     * The parts of the API a grant may include, in the order the API reports them. A grant that names none (SQL NULL) has every one of these, so adding one is
-     * giving it to every such grant, and is a decision to make then.
+     * The parts of the API a grant may include, in the order the API reports them. A grant that names none (SQL NULL) has every one of these EXCEPT the ones
+     * listed as not given by default: adding a capability to this list would otherwise give it to every such grant, retroactively, the moment the code
+     * shipped -- an operator trusted with yesterday's API acquiring tomorrow's without anybody deciding.
      */
-    public const CAPABILITIES = ['overview', 'markets', 'alerts', 'audit', 'sessions'];
+    public const CAPABILITIES = ['overview', 'markets', 'alerts', 'audit', 'sessions', self::CAPABILITY_HEALTH];
+
+    /** Operational health: payment attempts that never came back, and integrations that have stopped syncing (L-09). */
+    public const CAPABILITY_HEALTH = 'health';
+
+    /**
+     * Capabilities a grant has only when it NAMES them.
+     *
+     * The rule for everything above is that naming none means all, which is right for a list that was fixed when the first grant was made and wrong for a
+     * list that grows. A capability added later goes in here, so that an existing grant keeps exactly what it was given and an operator who should have
+     * the new part is given it on purpose. Health is the first: it reads payment and integration failures, and whether a particular operator should see
+     * those is a decision, not an inheritance.
+     */
+    public const NOT_GIVEN_BY_DEFAULT = [self::CAPABILITY_HEALTH];
 
     protected $fillable = ['admin_id', 'admin_fingerprint', 'level', 'countries', 'capabilities', 'granted_by', 'granted_at', 'revoked_at', 'expires_at'];
 
@@ -76,7 +90,7 @@ class PlatformAdminGrant extends Model
         $stored = $this->getAttributes()['capabilities'] ?? null;
 
         if ($stored === null) {
-            return self::CAPABILITIES;
+            return array_values(array_diff(self::CAPABILITIES, self::NOT_GIVEN_BY_DEFAULT));
         }
 
         $decoded = is_string($stored) ? json_decode($stored, true) : $stored;

@@ -37,6 +37,7 @@ use App\Utils\CustomerManager;
 use App\Utils\Helpers;
 use App\Utils\ImageManager;
 use App\Services\Storefront\RefundOrderMoney;
+use App\Services\Shipping\ShippingEligibility;
 use App\Utils\OrderManager;
 use App\Utils\PlainFileName;
 use App\Utils\SMSModule;
@@ -73,6 +74,40 @@ class OrderController extends Controller
      * Refuses an order before anything is created, registered or charged when the address it names is not the caller's, is gone, or
      * is an old Saudi address that has to be completed first. The answer keeps the {message} shape these endpoints already use.
      */
+    /**
+     * Why this basket may not be shipped to the address it names, as the one engine answers it (H1-06), or null when it may.
+     *
+     * Asked BEFORE payment, beside the other pre-payment guards, because a cross-border refusal discovered after the money is taken is a
+     * refund and an apology. With the cross-border switch off the engine answers allowed for everything, so this returns null and the three
+     * checkout paths are exactly what they were.
+     *
+     * @param list<int|string> $cartGroupIds
+     */
+    private function shippingRefusal(array $cartGroupIds, mixed $user, Request $request): ?JsonResponse
+    {
+        if (!ShippingEligibility::isOn()) {
+            return null;
+        }
+
+        $address = ShippingAddress::query()
+            ->where('customer_id', $user === 'offline' ? $request['guest_id'] : $user->id)
+            ->where('is_guest', $user === 'offline' ? 1 : 0)
+            ->whereKey($request['address_id'])
+            ->first();
+
+        $decision = app(ShippingEligibility::class)->decide($cartGroupIds, $address?->country, $address?->city_id);
+
+        if ($decision->allowed) {
+            return null;
+        }
+
+        return response()->json([
+            'message' => translate($decision->reasons[0]),
+            // Every reason, so an app can show them all rather than one at a time.
+            'reasons' => array_map(static fn (string $reason): string => translate($reason), $decision->reasons),
+        ], 403);
+    }
+
     private function addressRefusal(Request $request, mixed $user): ?JsonResponse
     {
         try {
@@ -211,6 +246,10 @@ class OrderController extends Controller
             return $refusal;
         }
 
+        if ($refusal = $this->shippingRefusal(cartGroupIds: $cartGroupIds, user: $user, request: $request)) {
+            return $refusal;
+        }
+
         if ($user == 'offline' && $request->has('address_id') && $request['address_id']) {
             $shippingAddress = ShippingAddress::where(['customer_id' => $request['guest_id'], 'is_guest' => 1, 'id' => $request->input('address_id')])->first();
             if ($request['is_check_create_account'] && $shippingAddress) {
@@ -334,6 +373,10 @@ class OrderController extends Controller
             return $refusal;
         }
 
+        if ($refusal = $this->shippingRefusal(cartGroupIds: $cartGroupIds, user: $user, request: $request)) {
+            return $refusal;
+        }
+
         if ($user == 'offline' && $request->has('address_id') && $request['address_id']) {
             $shippingAddress = ShippingAddress::where(['customer_id' => $request['guest_id'], 'is_guest' => 1, 'id' => $request->input('address_id')])->first();
             if ($request['is_check_create_account'] && $shippingAddress) {
@@ -453,6 +496,10 @@ class OrderController extends Controller
 
         $user = Helpers::getCustomerInformation($request);
         if ($refusal = $this->addressRefusal(request: $request, user: $user)) {
+            return $refusal;
+        }
+
+        if ($refusal = $this->shippingRefusal(cartGroupIds: $cartGroupIds, user: $user, request: $request)) {
             return $refusal;
         }
 

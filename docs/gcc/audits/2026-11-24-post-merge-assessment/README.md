@@ -4,8 +4,8 @@ This is the count the owner asked for, taken from the per-requirement records in
 was merged into `main`, the whole suite was swept there, and `main`'s own CI went green. Nothing here is estimated: every number is counted
 from the criteria themselves, and the method is written out below so the same numbers can be recomputed.
 
-**Totals: 359 requirements, 1753 acceptance criteria.** 913 met (52%), 375 coded but not proven
-(21%), 465 not implemented (27%).
+**Totals: 359 requirements, 1753 acceptance criteria.** 943 met (54%), 372 coded but not proven
+(21%), 438 not implemented (25%).
 
 *Recounted on 2026-11-24 after E-03, C-15's three-decimal money and its per-market destination and phone rules landed, and after six
 criteria were read again from the code rather than from the pre-merge assessment: eleven criteria moved to met, one of them by writing the
@@ -33,22 +33,22 @@ A requirement is **proven** when no criterion is missing and none is merely code
 | A — six-country base and customer identity | 37 | 173 | 111 | 25 | 37 | 79% | 64% | 12 | 4 | 21 | 0 | 24 | 25 | 2 |
 | B — catalogue and products | 18 | 91 | 46 | 30 | 15 | 84% | 51% | 2 | 6 | 10 | 0 | 16 | 16 | 0 |
 | C — inventory and fulfilment | 18 | 94 | 68 | 9 | 17 | 82% | 72% | 7 | 2 | 9 | 0 | 11 | 9 | 5 |
-| D — orders, checkout and payments | 37 | 179 | 104 | 33 | 42 | 77% | 58% | 3 | 8 | 25 | 1 | 27 | 30 | 1 |
-| E — wallets, loyalty and financial records | 18 | 88 | 58 | 7 | 23 | 74% | 66% | 5 | 3 | 10 | 0 | 16 | 17 | 0 |
+| D — orders, checkout and payments | 37 | 179 | 105 | 33 | 41 | 77% | 59% | 4 | 8 | 24 | 1 | 27 | 30 | 2 |
+| E — wallets, loyalty and financial records | 18 | 88 | 59 | 7 | 22 | 75% | 67% | 5 | 3 | 10 | 0 | 16 | 17 | 0 |
 | F — themes and brand | 16 | 77 | 43 | 13 | 21 | 73% | 56% | 2 | 3 | 10 | 1 | 9 | 9 | 0 |
 | G — admin panel and staff permissions | 20 | 102 | 60 | 13 | 29 | 72% | 59% | 6 | 3 | 10 | 1 | 16 | 17 | 1 |
-| H — shipping and integrations | 34 | 157 | 79 | 13 | 65 | 59% | 50% | 6 | 2 | 22 | 4 | 24 | 24 | 3 |
-| I — marketing, policies and operations | 37 | 185 | 87 | 46 | 52 | 72% | 47% | 2 | 13 | 20 | 2 | 32 | 32 | 0 |
+| H — shipping and integrations | 34 | 157 | 106 | 11 | 40 | 75% | 68% | 10 | 2 | 22 | 0 | 24 | 24 | 3 |
+| I — marketing, policies and operations | 37 | 185 | 88 | 45 | 52 | 72% | 48% | 2 | 13 | 20 | 2 | 32 | 32 | 0 |
 | J — Flutter customer app | 20 | 98 | 49 | 30 | 19 | 81% | 50% | 2 | 10 | 7 | 1 | 10 | 13 | 2 |
 | K — Flutter seller app | 23 | 104 | 48 | 25 | 31 | 70% | 46% | 4 | 4 | 14 | 1 | 16 | 16 | 0 |
 | L — GCC-20 super admin | 18 | 94 | 49 | 14 | 31 | 67% | 52% | 1 | 5 | 8 | 4 | 16 | 18 | 0 |
 | M — security, tests and deployment | 63 | 311 | 111 | 117 | 83 | 73% | 36% | 3 | 13 | 45 | 2 | 43 | 41 | 2 |
-| **the whole plan** | **359** | **1753** | **913** | **375** | **465** | **73%** | **52%** | **55** | **76** | **211** | **17** | **260** | **267** | **16** |
+| **the whole plan** | **359** | **1753** | **943** | **372** | **438** | **75%** | **54%** | **60** | **76** | **210** | **13** | **260** | **267** | **17** |
 
 ## Development against launch readiness, which are not the same number
 
-- **Development: 73%** of the acceptance criteria exist in code (1286 of 1753).
-- **Proven: 52%** carry a named acceptance test (913 of 1753).
+- **Development: 75%** of the acceptance criteria exist in code (1315 of 1753).
+- **Proven: 54%** carry a named acceptance test (943 of 1753).
 - **Launch readiness: 16 requirements of 359 (4%)** are ready in the sense that matters for a
   release: every criterion met, no open owner decision, no outstanding review. Another 76 have every criterion addressed but carry a
   review or an unproven criterion.
@@ -60,14 +60,14 @@ A requirement is **proven** when no criterion is missing and none is merely code
 
 ## How much of the "met" evidence predates the merge
 
-Every criterion that cites evidence names where it was read, so the split is counted rather than estimated. Of the **1286** met and coded
+Every criterion that cites evidence names where it was read, so the split is counted rather than estimated. Of the **1310** met and coded
 criteria:
 
 | where the evidence was read | criteria |
 |---|---:|
-| after the merge: naming `main`, a CI run of the 600s, this branch or a run URL | 213 |
+| after the merge: naming `main`, a CI run of the 600s, this branch or a run URL | 212 |
 | on a draft head: naming a draft pull request or an integration run of the 200s or 300s | 609 |
-| naming neither — a test by name and no source | 466 |
+| naming neither — a test by name and no source | 489 |
 
 That is the honest state of the record: **609 of 1288 met-or-coded criteria were read on a head that no longer exists**, and another 466
 name no source at all. Two things make them stand up anyway, and one does not:

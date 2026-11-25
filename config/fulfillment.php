@@ -147,6 +147,16 @@ return [
             // Official docs list three regional servers; this store trades in KSA only.
             'default_base_url' => 'https://m5azn.com',
             'default_country' => 'SA',
+            // The source-to-destination country routes this carrier serves, and the routes it can collect cash on (H1-02). A route
+            // nobody declares is NOT served: a shipment to a country the carrier does not cover would be sent, refused by the carrier and
+            // paid for by the customer first, so the dispatcher holds it (hold_route_unsupported) instead. The pairs below are exactly what
+            // this platform does today -- the Kingdom to the Kingdom -- so a Saudi shipment is unchanged and no other route opens by itself.
+            // WHICH CARRIER REALLY SERVES WHICH COUNTRY, under which contract and company id, is the owner's question Q-33: these lines hold
+            // the answer once it is written down, they do not invent it. `*` on either side means any country, for a carrier that genuinely
+            // covers everything. Collecting cash abroad is a separate arrangement from carrying a parcel abroad, which is why it is a second
+            // list rather than a flag.
+            'routes' => ['SA:SA'],
+            'cash_on_delivery_routes' => ['SA:SA'],
             'adapter' => \App\Services\Fulfillment\Providers\M5azn\M5aznAdapter::class,
             // M5AZN's official docs (m5azn-api.stoplight.io, retrieved 2026-11-05) document nine
             // operations. These flags state what that documentation actually establishes — they are
@@ -173,6 +183,16 @@ return [
             'label' => 'Torod Point',
             'label_ar' => 'تورود بوينت',
             'role' => 'fulfillment_warehouse',
+            // The source-to-destination country routes this carrier serves, and the routes it can collect cash on (H1-02). A route
+            // nobody declares is NOT served: a shipment to a country the carrier does not cover would be sent, refused by the carrier and
+            // paid for by the customer first, so the dispatcher holds it (hold_route_unsupported) instead. The pairs below are exactly what
+            // this platform does today -- the Kingdom to the Kingdom -- so a Saudi shipment is unchanged and no other route opens by itself.
+            // WHICH CARRIER REALLY SERVES WHICH COUNTRY, under which contract and company id, is the owner's question Q-33: these lines hold
+            // the answer once it is written down, they do not invent it. `*` on either side means any country, for a carrier that genuinely
+            // covers everything. Collecting cash abroad is a separate arrangement from carrying a parcel abroad, which is why it is a second
+            // list rather than a flag.
+            'routes' => ['SA:SA'],
+            'cash_on_delivery_routes' => ['SA:SA'],
             // Fulfillment API v5 — warehouse products and warehouse (fulfillment) orders.
             'default_base_url' => 'https://apisv5.logestechs.com/api',
             // Lastmile API v2 — used ONLY for cities, package cancel, AWB and package status. Its

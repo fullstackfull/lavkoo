@@ -66,7 +66,11 @@ use App\Services\Storefront\OneSellingCompanyPerOrder;
 
 
 use App\Services\DeliverySyria\DeliverySyriaConfigService;
+use App\Services\Storefront\StorefrontShippingMethods;
 use App\Services\Customer\CustomerWalletWriter;
+use App\Services\Shipping\OrderCustomsQuote;
+use App\Services\Shipping\OrderShippingDecision;
+use App\Services\Shipping\ShippingEligibility;
 
 
 class OrderManager
@@ -1084,6 +1088,9 @@ class OrderManager
                 'coupon_discount' => $couponInfo['discount'] ?? 0,
                 'discount_type' => $couponInfo['discount'] == 0 ? null : 'coupon_discount',
                 'shipping_cost' => $shippingCost,
+                // Which rule produced that charge (H1-08): a destination zone, the method the customer chose, or the lines themselves in
+                // a shop that charges per product or per category. CartManager answers all three, because all three land in one column.
+                'shipping_rate_source' => CartManager::getShippingRateSource(groupId: $groupId),
                 'shipping_address_id' => OrderManager::getOrderAddressId(type: 'shipping_address', id: $data['address_id'] ?? null),
                 'billing_address_id' => OrderManager::getOrderAddressId(type: 'billing_address', id: $data['billing_address_id'] ?? null),
                 'shipping_type' => isset($shippingType?->shipping_type) ? $shippingType->shipping_type : 'order_wise',
@@ -1192,7 +1199,14 @@ class OrderManager
     {
         $taxConfig = self::getTaxSystemType();
         $adminCommission = (float)str_replace(",", "", Helpers::sales_commission_before_order($cartData['cart_group_id'], $cartData['coupon_discount']));
-        return [
+
+        // Which rule produced the shipping charge (H1-08), added only where the column exists: a shop that has not run the migration must
+        // place orders exactly as it does today, so the key is absent rather than null.
+        $rateSource = \Illuminate\Support\Facades\Schema::hasColumn('orders', 'shipping_rate_source')
+            ? ['shipping_rate_source' => $cartData['shipping_rate_source'] ?? null]
+            : [];
+
+        return $rateSource + [
             'id' => $orderId,
             'verification_code' => random_int(100000, 999999),
             'customer_id' => $customerData['customer_id'],
@@ -1560,6 +1574,16 @@ class OrderManager
         // ledger row of a running system named no company however the registry was set up. Stamping mid-loop would be worse than either: the first
         // line's country would be frozen and the lines after it ignored, because an order is stamped once and never restamped.
         app(OrderStorefrontSnapshot::class)->record(orderId: $orderId);
+
+        // What the shipping engine decided about this order, kept on the order (H1-06), from the order's own lines and the address copy it
+        // keeps -- the same question the checkout asked before payment, asked of what the order actually holds. A decision that is
+        // recomputed later is a decision that changes, so it is written once and never rewritten. Silent while the cross-border switch is
+        // off, which is how the platform ships.
+        OrderShippingDecision::record($orderId, app(ShippingEligibility::class)->decideForOrder($orderId));
+
+        // And what was quoted for customs duty (H1-09), beside it and for the same reason: a tariff changes, a rule is written or
+        // withdrawn, and an order recomputed a year later would show a figure nobody ever charged. Silent while duty is off.
+        OrderCustomsQuote::record($orderId);
 
         foreach ($savedLines as $savedLine) {
             // Freeze the commission for this line, here, inside the order transaction.
@@ -2050,6 +2074,27 @@ foreach ($orderPlacedIds as $deliverySyriaOrderId) {
          * الربط حسب name وليس ID حسب ما اتفقنا.
          */
         if ((string) $shippingMethod->name !== 'DeliverySyria') {
+            continue;
+        }
+
+        /*
+        | H1-11: a market is served only by a shipping method that belongs to it.
+        |
+        | Delivery Syria is a Syrian courier, and a Gulf order reaching this hook would be handed to a company that does not deliver in
+        | that country. A market lists only its own methods (H1-14), so such an order should not exist -- but an id stored before
+        | storefronts, or one an API caller chose for itself, would arrive here with nothing to stop it, because the test above is the
+        | method's NAME and says nothing about where the parcel is going.
+        |
+        | It refuses only a DISAGREEMENT: with storefronts off, before the market column exists, or for an order that records no market --
+        | which is every order of the platform as it stands -- this passes and the hook runs exactly as it always has.
+        */
+        if (!app(StorefrontShippingMethods::class)->mayBeUsedBy(methodId: $order->shipping_method_id, market: $order->storefront_country)) {
+            Log::warning('Delivery Syria: the order belongs to a market this shipping method does not', [
+                'order_id' => $order->id,
+                'shipping_method_id' => $order->shipping_method_id,
+                'market' => $order->storefront_country,
+            ]);
+
             continue;
         }
 

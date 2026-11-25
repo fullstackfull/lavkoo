@@ -11,12 +11,14 @@ use Illuminate\Support\Facades\Schema;
 /**
  * The tables a return receipt reads and writes: `products`, `order_details`, `return_shipments` and `stock_movements`.
  *
- * `return_shipments` and `stock_movements` have no migration in this repository (they come from the installation dump), so their
- * columns here are what `ReturnShipment::$fillable` and `InventoryService::record()` write, nothing more. The tables are dropped
- * before and after, because on MySQL they outlive the test process.
+ * `return_shipments` and `stock_movements` have no migration in this repository (they come from the installation dump); they are built by
+ * `BuildsReturnDumpTables`, which is the one definition of them that every test exercising a return shares. The tables are dropped before and
+ * after, because on MySQL they outlive the test process.
  */
 trait BuildsReturnReceiptSchema
 {
+    use BuildsReturnDumpTables;
+
     private const RECEIPT_TABLES = ['return_shipments', 'stock_movements', 'storages', 'business_settings', 'translations', 'reviews', 'order_details', 'products'];
 
     /** @var array<string, string> */
@@ -45,26 +47,7 @@ trait BuildsReturnReceiptSchema
             $table->timestamps();
         });
 
-        Schema::create('return_shipments', function (Blueprint $table): void {
-            $table->id();
-            $table->string('reference')->nullable();
-            $table->unsignedBigInteger('order_id')->nullable();
-            $table->unsignedBigInteger('order_details_id')->nullable();
-            $table->unsignedBigInteger('refund_request_id')->nullable();
-            $table->unsignedBigInteger('product_id')->nullable();
-            $table->unsignedBigInteger('seller_id')->nullable();
-            $table->integer('qty')->default(1);
-            $table->string('reason')->nullable();
-            $table->string('status', 20)->default(ReturnShipment::STATUS_AUTHORIZED);
-            $table->boolean('restock')->default(1);
-            $table->string('carrier')->nullable();
-            $table->string('tracking_number')->nullable();
-            $table->timestamp('received_at')->nullable();
-            $table->text('note')->nullable();
-            $table->unsignedBigInteger('created_by')->nullable();
-            $table->string('created_by_type', 24)->nullable();
-            $table->timestamps();
-        });
+        $this->createReturnDumpTables();
 
         // And its review count, through a `reviews` relation.
         Schema::create('reviews', function (Blueprint $table): void {
@@ -103,21 +86,6 @@ trait BuildsReturnReceiptSchema
             $table->string('data_id', 100)->index();
             $table->string('key')->nullable();
             $table->string('value')->index();
-            $table->timestamps();
-        });
-        Schema::create('stock_movements', function (Blueprint $table): void {
-            $table->id();
-            $table->unsignedBigInteger('product_id');
-            $table->unsignedBigInteger('seller_id')->nullable();
-            $table->string('type', 24);
-            $table->integer('qty_change');
-            $table->integer('balance_after')->nullable();
-            $table->string('reason', 40)->nullable();
-            $table->string('reference_type', 40)->nullable();
-            $table->unsignedBigInteger('reference_id')->nullable();
-            $table->text('note')->nullable();
-            $table->unsignedBigInteger('created_by')->nullable();
-            $table->string('created_by_type', 24)->nullable();
             $table->timestamps();
         });
     }

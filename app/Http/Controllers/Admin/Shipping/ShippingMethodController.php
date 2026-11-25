@@ -9,6 +9,7 @@ use App\Contracts\Repositories\CategoryShippingCostRepositoryInterface;
 use App\Contracts\Repositories\ShippingMethodRepositoryInterface;
 use App\Contracts\Repositories\ShippingTypeRepositoryInterface;
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopeShippingToStaffCountries;
 use App\Http\Requests\Admin\ShippingMethodRequest;
 use Exception;
 use Illuminate\Database\Eloquent\Collection;
@@ -44,6 +45,9 @@ class ShippingMethodController extends BaseController
         private readonly BusinessSettingRepositoryInterface      $businessSettingRepo,
     )
     {
+        // A shipping method belongs to a market, so editing, switching off or deleting one is an act in that market: an employee restricted
+        // to some countries may act only on their own methods (GCC-14c slice 6, StaffShippingRoutes).
+        $this->middleware(ScopeShippingToStaffCountries::class);
     }
 
     /**

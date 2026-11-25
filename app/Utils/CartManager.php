@@ -15,6 +15,8 @@ use App\Models\Scopes\StorefrontCartScope;
 use App\Models\ShippingType;
 use App\Models\Shop;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
 
@@ -193,6 +195,45 @@ class CartManager
             ->toArray();
     }
 
+    /**
+     * Which rule produced the shipping charge this cart group was quoted (H1-08).
+     *
+     * The charge alone cannot be explained afterwards, because three different things can produce it and they all land in the same column:
+     *
+     *   `zone:{id}`      a destination zone's rate decided it
+     *   `method:{id}`    the shipping method the customer chose decided it
+     *   `product_wise`   the lines decided it, each product carrying its own cost
+     *   `category_wise`  the same, by category
+     *
+     * The first two are recorded on the cart when the method is chosen. The last two are not recorded there at all and cannot be: a shop
+     * that charges per product or per category keeps NO cart-shipping row, because the cost lives on each line -- the same code that
+     * computes those line costs deletes the group's row and writes the type onto the lines, which is what this reads.
+     *
+     * Null for a group quoted before any of this existed, and null on a shop whose column has not been created.
+     */
+    public static function getShippingRateSource(string|int|null $groupId): ?string
+    {
+        if ($groupId === null) {
+            return null;
+        }
+
+        if (Schema::hasTable('cart_shippings') && Schema::hasColumn('cart_shippings', 'rate_source')) {
+            $source = DB::table('cart_shippings')->where('cart_group_id', $groupId)->value('rate_source');
+
+            if (is_string($source) && $source !== '') {
+                return $source;
+            }
+        }
+
+        if (!Schema::hasTable('carts') || !Schema::hasColumn('carts', 'shipping_type')) {
+            return null;
+        }
+
+        $type = (string) DB::table('carts')->where('cart_group_id', $groupId)->value('shipping_type');
+
+        return in_array($type, ['product_wise', 'category_wise'], true) ? $type : null;
+    }
+
     public static function get_shipping_cost($groupId = null, $type = null)
     {
         self::updateOrderSummaryShippingCost($groupId, $type);
@@ -274,6 +315,13 @@ class CartManager
         $cartListGroup = $cartList?->groupBy('cart_group_id');
 
         foreach($cartListGroup as $cartGroupItems) {
+            // Deliberately not 'order_wise'. A shop whose `shipping_method` setting is missing, or holds any other value, falls through
+            // both branches and is then treated as NOT order-wise: its cart-shipping row is dropped and each line is given the product's
+            // or the category's own shipping cost, which is a real and working path -- `products.shipping_cost` is what such a shop
+            // charges. Defaulting this to 'order_wise' makes the charge ZERO for those shops instead, because nothing has written a
+            // cart-shipping row; 39 tests across the address and storefront groups say so. The order's `shipping_type` column is resolved
+            // separately and records 'order_wise' in that state, so the two disagree about the LABEL -- but the money comes from the lines,
+            // and it is right.
             $shippingType = '';
             if ($shippingMethod == 'inhouse_shipping') {
                 $shippingType = isset($adminShipping) ? $adminShipping->shipping_type : 'order_wise';
@@ -816,15 +864,15 @@ class CartManager
         $sellerShippingList = null;
         if ($shippingMethod == 'inhouse_shipping') {
             $shippingType = isset($adminShipping) ? $adminShipping->shipping_type : 'order_wise';
-            $sellerShippingList = $shippingType == 'order_wise' ? ShippingMethod::where(['status' => 1])->where(['creator_type' => 'admin'])->get() : null;
+            $sellerShippingList = $shippingType == 'order_wise' ? ShippingMethod::where(['status' => 1])->where(['creator_type' => 'admin'])->forStorefront()->get() : null;
         } else {
             if ($product['added_by'] == 'admin') {
                 $shippingType = isset($adminShipping) ? $adminShipping->shipping_type : 'order_wise';
-                $sellerShippingList = $shippingType == 'order_wise' ? ShippingMethod::where(['status' => 1])->where(['creator_type' => 'admin'])->get() : null;
+                $sellerShippingList = $shippingType == 'order_wise' ? ShippingMethod::where(['status' => 1])->where(['creator_type' => 'admin'])->forStorefront()->get() : null;
             } else {
                 $sellerShipping = ShippingType::where('seller_id', $product['user_id'])->first();
                 $shippingType = isset($sellerShipping) ? $sellerShipping->shipping_type : 'order_wise';
-                $sellerShippingList = ShippingMethod::where(['status' => 1])->where(['creator_id' => $product['user_id'], 'creator_type' => 'seller'])->get();
+                $sellerShippingList = ShippingMethod::where(['status' => 1])->where(['creator_id' => $product['user_id'], 'creator_type' => 'seller'])->forStorefront()->get();
             }
         }
 
@@ -964,12 +1012,12 @@ class CartManager
             }
 
             if ($shippingMethod == 'inhouse_shipping') {
-                $categoryShippingCost = CategoryShippingCost::where('seller_id', 0)->where('category_id', $categoryID)->first();
+                $categoryShippingCost = CategoryShippingCost::where('seller_id', 0)->where('category_id', $categoryID)->forStorefront()->first();
             } else {
                 if ($product['added_by'] == 'admin') {
-                    $categoryShippingCost = CategoryShippingCost::where('seller_id', 0)->where('category_id', $categoryID)->first();
+                    $categoryShippingCost = CategoryShippingCost::where('seller_id', 0)->where('category_id', $categoryID)->forStorefront()->first();
                 } else {
-                    $categoryShippingCost = CategoryShippingCost::where('seller_id', $product['user_id'])->where('category_id', $categoryID)->first();
+                    $categoryShippingCost = CategoryShippingCost::where('seller_id', $product['user_id'])->where('category_id', $categoryID)->forStorefront()->first();
                 }
             }
 

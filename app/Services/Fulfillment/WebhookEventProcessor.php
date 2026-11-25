@@ -3,7 +3,7 @@
 namespace App\Services\Fulfillment;
 
 use App\Enums\Fulfillment\EventOutcome;
-use App\Enums\Fulfillment\ProviderCode;
+use App\Services\Fulfillment\Contracts\ProviderIdentity;
 use App\Models\ProviderFulfillment;
 use App\Models\ProviderFulfillmentEvent;
 use App\Services\Fulfillment\Contracts\HandlesWebhooks;
@@ -41,7 +41,7 @@ class WebhookEventProcessor
      * @param array<array-key, mixed> $payload
      * @return array{status: string, event_id: int|null}
      */
-    public function ingest(ProviderCode $provider, string $type, array $payload): array
+    public function ingest(ProviderIdentity $provider, string $type, array $payload): array
     {
         $adapter = $this->registry->adapter($provider);
         if (!$adapter instanceof HandlesWebhooks) {
@@ -53,11 +53,11 @@ class WebhookEventProcessor
             return ['status' => 'invalid', 'event_id' => null];
         }
 
-        $this->sync->received($provider->value, ProviderSyncRecorder::WEBHOOKS);
+        $this->sync->received($provider->code(), ProviderSyncRecorder::WEBHOOKS);
 
         try {
             $event = ProviderFulfillmentEvent::create([
-                'provider' => $provider->value,
+                'provider' => $provider->code(),
                 'source' => 'webhook',
                 'event_type' => $type,
                 'dedupe_key' => $normalized->dedupeKey,
@@ -85,7 +85,15 @@ class WebhookEventProcessor
             return $event?->outcome ?? EventOutcome::FAILED;
         }
 
-        $provider = ProviderCode::from($event->provider);
+        $provider = $this->registry->identity($event->provider);
+
+        if ($provider === null) {
+            // A stored event whose carrier this installation no longer knows: its configuration entry was
+            // removed between the event arriving and this run. Nothing can be done with it, and guessing a
+            // carrier would apply one carrier's status map to another's shipment.
+            return $this->close($event, EventOutcome::FAILED, 'provider_no_longer_configured');
+        }
+
         $adapter = $this->registry->adapter($provider);
         if (!$adapter instanceof HandlesWebhooks) {
             return $this->close($event, EventOutcome::FAILED, 'adapter_cannot_handle_webhooks');
@@ -100,7 +108,7 @@ class WebhookEventProcessor
         if ($fulfillment === null) {
             return $this->close($event, EventOutcome::IGNORED_UNMATCHED, 'no_fulfillment_for_references');
         }
-        if ($fulfillment->provider !== $provider->value) {
+        if ($fulfillment->provider !== $provider->code()) {
             // Never apply one provider's event to another provider's fulfillment.
             return $this->close($event, EventOutcome::IGNORED_UNMATCHED, 'provider_mismatch');
         }

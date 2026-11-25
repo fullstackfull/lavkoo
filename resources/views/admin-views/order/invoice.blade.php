@@ -856,6 +856,30 @@ $orderTotalPriceSummary = \App\Utils\OrderManager::getOrderTotalPriceSummary(ord
                                                 class="text-dark">{{ setCurrencySymbol(amount: usdToDefaultCurrency(amount: $orderTotalPriceSummary['taxTotal']), currencyCode: getCurrencyCode()) }}</span>
                                         </td>
                                     </tr>
+                                    {{-- Customs duty, as it was quoted on the day the order was taken (H1-09). Printed only where the order
+                                         carries a quote, which is never on an order that crossed no border, and never while duty is off.
+                                         A route nobody had a rule for prints the sentence saying so rather than a figure of zero: the
+                                         invoice has to say what was decided, and "not quoted" is what was decided. --}}
+                                    @php($customsQuote = \App\Services\Shipping\OrderCustomsQuote::of($order->id))
+                                    @if ($customsQuote && $customsQuote->kind !== \App\Services\Shipping\CustomsDutyQuote::NONE)
+                                        <tr>
+                                            <td class="px-2 pt-1 pb-1 text-left">
+                                                {{ translate('customs_duty') }}
+                                                @if ($customsQuote->noticeKey())
+                                                    <span class="fs-10 fw-medium d-block">{{ translate($customsQuote->noticeKey()) }}</span>
+                                                @endif
+                                            </td>
+                                            <td class="px-2 pt-1 pb-1 text-right">
+                                                <span class="text-dark">
+                                                    @if ($customsQuote->isPayable())
+                                                        {{ setCurrencySymbol(amount: usdToDefaultCurrency(amount: $customsQuote->amount), currencyCode: getCurrencyCode()) }}
+                                                    @else
+                                                        &mdash;
+                                                    @endif
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    @endif
                                     @if($order->order_type == 'default_type' && $order?->is_shipping_free != 1)
                                         <tr>
                                             <td class="px-2 pt-1 pb-1 text-left">{{ translate('Shipping_fee') }}</td>

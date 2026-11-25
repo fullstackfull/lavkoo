@@ -2,9 +2,10 @@
 
 namespace App\Services\Fulfillment;
 
+use App\Services\Fulfillment\ProviderRegistry;
+use App\Services\Fulfillment\Contracts\ProviderIdentity;
 use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\HoldReason;
-use App\Enums\Fulfillment\ProviderCode;
 use App\Models\Order;
 use App\Models\ProviderFulfillment;
 use App\Models\ProviderFulfillmentItem;
@@ -31,6 +32,7 @@ class FulfillmentRouter
         private readonly OrderEligibility $eligibility,
         private readonly FulfillmentMoney $money,
         private readonly FulfillmentQueue $queue,
+        private readonly ProviderRegistry $registry,
     ) {
     }
 
@@ -58,7 +60,7 @@ class FulfillmentRouter
             $allItems = $this->money->allItems($orderId);
 
             foreach ($unrouted->groupBy('provider') as $providerValue => $items) {
-                $provider = ProviderCode::tryFrom((string) $providerValue);
+                $provider = $this->registry->identity((string) $providerValue);
                 if ($provider === null) {
                     continue;
                 }
@@ -103,7 +105,7 @@ class FulfillmentRouter
             }
 
             $order = Order::whereKey($fulfillment->order_id)->lockForUpdate()->first();
-            $provider = $fulfillment->providerCode();
+            $provider = $fulfillment->providerIdentity();
             if ($order === null || $provider === null) {
                 return;
             }
@@ -134,9 +136,9 @@ class FulfillmentRouter
      * @param Collection<int, ProviderFulfillmentItem> $items
      * @param Collection<int, ProviderFulfillmentItem> $allItems
      */
-    private function create(Order $order, ProviderCode $provider, Collection $items, Collection $allItems): ?ProviderFulfillment
+    private function create(Order $order, ProviderIdentity $provider, Collection $items, Collection $allItems): ?ProviderFulfillment
     {
-        $generation = (int) ProviderFulfillment::where('order_id', $order->id)->where('provider', $provider->value)->max('generation') + 1;
+        $generation = (int) ProviderFulfillment::where('order_id', $order->id)->where('provider', $provider->code())->max('generation') + 1;
         $itemIds = $items->pluck('id')->sort()->values()->all();
         $money = $this->money->assess($order, $provider, $items, $allItems);
 
@@ -145,12 +147,12 @@ class FulfillmentRouter
                 return ProviderFulfillment::create([
                     'reference' => $order->id . '-' . $provider->referenceCode() . $generation,
                     'order_id' => $order->id,
-                    'provider' => $provider->value,
+                    'provider' => $provider->code(),
                     'generation' => $generation,
-                    'idempotency_key' => hash('sha256', implode('|', ['v1', $order->id, $provider->value, $generation, implode(',', $itemIds)])),
+                    'idempotency_key' => hash('sha256', implode('|', ['v1', $order->id, $provider->code(), $generation, implode(',', $itemIds)])),
                     'status' => $money->blockedReason === null ? FulfillmentStatus::Pending : FulfillmentStatus::Held,
                     'hold_reason' => $money->blockedReason,
-                    'currency' => WhatACourierIsPaidIn::forOrder($order, $provider->value),
+                    'currency' => WhatACourierIsPaidIn::forOrder($order, $provider->code()),
                     'created_by_type' => 'system',
                 ] + $money->columns());
             });
@@ -168,10 +170,10 @@ class FulfillmentRouter
     }
 
     /** A fulfillment for this order+provider that is not finished: new unrouted items must not start a second one. */
-    private function hasLiveFulfillment(int $orderId, ProviderCode $provider): bool
+    private function hasLiveFulfillment(int $orderId, ProviderIdentity $provider): bool
     {
         return ProviderFulfillment::where('order_id', $orderId)
-            ->where('provider', $provider->value)
+            ->where('provider', $provider->code())
             ->whereIn('status', FulfillmentStatus::activeValues())
             ->exists();
     }

@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Services\Fulfillment\ProviderRegistry;
+use App\Services\Fulfillment\Contracts\ProviderIdentity;
 use App\Casts\MoneyInItsCurrency;
 use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\PaymentMode;
@@ -105,9 +107,16 @@ class ProviderFulfillment extends Model
         return $this->hasMany(ProviderFulfillmentEvent::class, 'provider_fulfillment_id');
     }
 
-    public function providerCode(): ?ProviderCode
+    /**
+     * The carrier this shipment belongs to, or null where this installation knows no such carrier.
+     *
+     * Resolved through `ProviderRegistry` and not through `ProviderCode` (H1-11): a carrier declared only in `config/fulfillment.php` has no
+     * enum case, and reading the enum here made every such shipment undispatchable -- the dispatcher and the router both treat null as
+     * "nothing to do", so the parcel would have sat in `pending` for ever with nothing to say why.
+     */
+    public function providerIdentity(): ?ProviderIdentity
     {
-        return ProviderCode::tryFrom($this->provider);
+        return app(ProviderRegistry::class)->identity($this->provider);
     }
 
     public function isTerminal(): bool
@@ -149,9 +158,9 @@ class ProviderFulfillment extends Model
         return data_get($this->meta ?? [], $key, $default);
     }
 
-    public function scopeForProvider(Builder $query, ProviderCode|string $provider): Builder
+    public function scopeForProvider(Builder $query, ProviderIdentity|string $provider): Builder
     {
-        return $query->where('provider', $provider instanceof ProviderCode ? $provider->value : $provider);
+        return $query->where('provider', $provider instanceof ProviderIdentity ? $provider->code() : $provider);
     }
 
     public function scopeActive(Builder $query): Builder

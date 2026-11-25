@@ -10,6 +10,7 @@ use App\Http\Controllers\Admin\Marketplace\BrandRegistryController;
 use App\Http\Controllers\Admin\Marketplace\CommissionRuleController;
 use App\Http\Controllers\Admin\Marketplace\InventoryAdjustmentController;
 use App\Http\Controllers\Admin\Marketplace\ProductModerationController;
+use App\Http\Controllers\Admin\Shipping\ProductDestinationPermissionController;
 use App\Http\Controllers\Admin\Marketplace\PurchaseOrderController;
 use App\Http\Controllers\Admin\Marketplace\ReturnLogisticsController;
 use App\Http\Controllers\Admin\Marketplace\WarehouseController;
@@ -82,6 +83,10 @@ final class StaffProductInventory
         ProductController::class => [
             'class' => self::SCOPED, 'slice' => null,
             'reason' => 'The product screens: lists, counters, pickers, exports, the add and edit forms, and every action on a product. Every action has a rule in StaffProductRoutes.',
+        ],
+        ProductDestinationPermissionController::class => [
+            'class' => self::SCOPED, 'slice' => null,
+            'reason' => 'Which countries one product may be shipped to, and on whose authority (H1-03, H1-04). Reads the product by the id in the request and writes or withdraws its permissions, so both actions are judged by that id: granting another country\'s product permission to leave it is not a restricted employee\'s to do.',
         ],
         ProductModerationController::class => [
             'class' => self::SCOPED, 'slice' => null,

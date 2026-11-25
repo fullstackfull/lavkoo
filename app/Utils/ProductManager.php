@@ -1032,7 +1032,7 @@ class ProductManager
             $shipping_type = ShippingType::where(['seller_id' => 0])->first();
             if ($shipping_type->shipping_type == "category_wise") {
                 $cat_id = $product->category_id;
-                $CategoryShippingCost = CategoryShippingCost::where(['seller_id' => 0, 'category_id' => $cat_id])->first();
+                $CategoryShippingCost = CategoryShippingCost::where(['seller_id' => 0, 'category_id' => $cat_id])->forStorefront()->first();
                 $delivery_cost = $CategoryShippingCost ?
                     ($CategoryShippingCost->multiply_qty != 0 ? ($CategoryShippingCost->cost * $quantity) : $CategoryShippingCost->cost)
                     : 0;
@@ -1056,9 +1056,9 @@ class ProductManager
                 if ($shipping_type->shipping_type == "category_wise") {
                     $cat_id = $product->category_id;
                     if ($product->added_by == "admin") {
-                        $CategoryShippingCost = CategoryShippingCost::where(['seller_id' => 0, 'category_id' => $cat_id])->first();
+                        $CategoryShippingCost = CategoryShippingCost::where(['seller_id' => 0, 'category_id' => $cat_id])->forStorefront()->first();
                     } else {
-                        $CategoryShippingCost = CategoryShippingCost::where(['seller_id' => $product->user_id, 'category_id' => $cat_id])->first();
+                        $CategoryShippingCost = CategoryShippingCost::where(['seller_id' => $product->user_id, 'category_id' => $cat_id])->forStorefront()->first();
                     }
 
                     $delivery_cost = $CategoryShippingCost ?

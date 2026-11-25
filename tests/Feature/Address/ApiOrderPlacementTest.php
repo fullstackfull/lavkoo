@@ -51,6 +51,326 @@ class ApiOrderPlacementTest extends ApiAddressTestCase
         return json_decode((string) DB::table('orders')->where('id', $orderId)->value($column), true);
     }
 
+    /**
+     * H1-06: the cross-border engine refuses this basket for this address BEFORE payment.
+     *
+     * A refusal discovered after the money is taken is a refund and an apology, so the engine is asked beside the other pre-payment guards.
+     * The switch ships off, which is why every other test in this file is unaffected by it.
+     */
+    private function openTheBorderTo(string $destination): void
+    {
+        config(['gcc.shipping.cross_border.enabled' => true]);
+        (require database_path('migrations/2026_12_20_100000_create_product_destination_permissions_table.php'))->up();
+        \App\Services\Shipping\ProductDestinationPermission::forget();
+
+        if (!Schema::hasColumn('products', \App\Services\Storefront\StorefrontCatalog::COLUMN)) {
+            Schema::table('products', fn (Blueprint $table) => $table->string(\App\Services\Storefront\StorefrontCatalog::COLUMN, 2)->nullable());
+        }
+        DB::table('products')->update([\App\Services\Storefront\StorefrontCatalog::COLUMN => 'SA']);
+        DB::table('shipping_addresses')->update(['country' => $destination]);
+    }
+
+    public function test_a_basket_the_cross_border_engine_refuses_is_refused_before_payment(): void
+    {
+        $customer = $this->makeCustomer();
+        $address = $this->makeLegacyAddress($customer->id);
+        $this->putOneProductInTheCart($customer->id);
+        $this->openTheBorderTo('KW');
+
+        $response = $this->asCustomer($customer)->getJson(self::COD . '?address_id=' . $address->id);
+
+        $response->assertStatus(403)->assertJsonPath('message', translate('shipping_product_not_permitted_abroad'));
+        $this->assertSame(0, $this->ordersCount(), 'no order');
+        $this->assertSame(10, $this->stock(), 'no stock taken');
+    }
+
+    /** And the same basket to an address in its own country is placed, which is every order this platform takes today. */
+    public function test_a_basket_delivered_in_its_own_country_is_placed_with_the_engine_on(): void
+    {
+        $customer = $this->makeCustomer();
+        $address = $this->makeLegacyAddress($customer->id);
+        $this->putOneProductInTheCart($customer->id);
+        $this->openTheBorderTo('SA');
+
+        $this->asCustomer($customer)->getJson(self::COD . '?address_id=' . $address->id)->assertOk();
+
+        $this->assertSame(1, $this->ordersCount());
+    }
+
+    /**
+     * H1-06's last criterion: the decision is stored on the order, so what was decided stays decided when the settings change later. A
+     * permission withdrawn next month must not make an order that was correctly accepted look as though it never should have been.
+     */
+    public function test_the_order_keeps_the_shipping_decision_it_was_taken_under(): void
+    {
+        $customer = $this->makeCustomer();
+        $address = $this->makeLegacyAddress($customer->id);
+        $this->putOneProductInTheCart($customer->id);
+        $this->openTheBorderTo('SA');
+        (require database_path('migrations/2026_12_20_100200_add_shipping_decision_to_orders_table.php'))->up();
+        \App\Services\Shipping\OrderShippingDecision::forget();
+
+        $this->asCustomer($customer)->getJson(self::COD . '?address_id=' . $address->id)->assertOk();
+
+        $this->assertSame(
+            ['kind' => 'local', 'allowed' => true, 'reasons' => []],
+            \App\Services\Shipping\OrderShippingDecision::of(100001),
+        );
+    }
+
+    /**
+     * H1-09's storage: the order keeps what was quoted for customs duty, beside what was decided about shipping it.
+     *
+     * A tariff changes and a rule is written or withdrawn, so an order recomputed a year later would show a figure nobody ever charged.
+     * The quote here is `none` because the order is domestic -- nothing crosses a border, so nothing is due -- and that is itself worth
+     * recording: it says the question was asked and answered, which "no row" does not.
+     */
+    public function test_the_order_keeps_the_customs_quote_it_was_taken_under(): void
+    {
+        $customer = $this->makeCustomer();
+        $address = $this->makeLegacyAddress($customer->id);
+        $this->putOneProductInTheCart($customer->id);
+        $this->openTheBorderTo('SA');
+        $this->openTheDutyRules(['SA:KW' => ['percentage' => 5, 'payer' => 'buyer_on_delivery']]);
+
+        $this->asCustomer($customer)->getJson(self::COD . '?address_id=' . $address->id)->assertOk();
+
+        $quote = \App\Services\Shipping\OrderCustomsQuote::of(100001);
+
+        $this->assertNotNull($quote, 'the question was asked and answered');
+        $this->assertSame(\App\Services\Shipping\CustomsDutyQuote::NONE, $quote->kind);
+        $this->assertSame(0.0, $quote->amount);
+    }
+
+    /** And with duty off nothing is written at all, which is how the platform ships. */
+    public function test_no_customs_quote_is_written_while_duty_is_off(): void
+    {
+        $customer = $this->makeCustomer();
+        $address = $this->makeLegacyAddress($customer->id);
+        $this->putOneProductInTheCart($customer->id);
+        $this->openTheBorderTo('SA');
+        (require database_path('migrations/2026_12_20_100400_add_customs_quote_to_orders_table.php'))->up();
+        \App\Services\Shipping\OrderCustomsQuote::forget();
+
+        $this->asCustomer($customer)->getJson(self::COD . '?address_id=' . $address->id)->assertOk();
+
+        $this->assertNull(\App\Services\Shipping\OrderCustomsQuote::of(100001));
+    }
+
+    /**
+     * H1-09's second criterion through the app's own endpoint: the customer is told the duty before they pay.
+     *
+     * The address has to be the caller's own, which is why the endpoint reads it scoped to the caller: the country of somebody else's
+     * address is not theirs to read, and the id arrives from a request.
+     */
+    public function test_the_app_is_told_the_duty_before_payment(): void
+    {
+        $customer = $this->makeCustomer();
+        $address = $this->makeLegacyAddress($customer->id);
+        $this->putOneProductInTheCart($customer->id);
+        $this->openTheBorderTo('KW');
+        $this->openTheDutyRules(['SA:KW' => ['percentage' => 5, 'payer' => 'buyer_on_delivery']]);
+
+        $response = $this->asCustomer($customer)->getJson('/api/v1/cart/customs-duty?address_id=' . $address->id)->assertOk();
+
+        $this->assertSame('payable', $response->json('customs_duty.kind'));
+        // Compared numerically rather than by type: PHP's json_encode writes a whole float without its decimal point, so 5.0 goes out as
+        // `5` and a client has to read these as numbers rather than assume a decimal.
+        $this->assertEquals(5, $response->json('customs_duty.amount'), 'five per cent of the one hundred the basket holds');
+        $this->assertEquals(100, $response->json('customs_duty.basis'));
+        $this->assertSame('buyer_on_delivery', $response->json('customs_duty.payer'));
+        $this->assertSame(
+            'Customs duty is paid by you when the parcel is delivered.',
+            $response->json('customs_duty.notice'),
+        );
+    }
+
+    /** A route nobody has a rule for says so rather than claiming nothing is owed. */
+    public function test_the_app_is_told_when_the_duty_could_not_be_quoted(): void
+    {
+        $customer = $this->makeCustomer();
+        $address = $this->makeLegacyAddress($customer->id);
+        $this->putOneProductInTheCart($customer->id);
+        $this->openTheBorderTo('KW');
+        $this->openTheDutyRules([]);
+
+        $response = $this->asCustomer($customer)->getJson('/api/v1/cart/customs-duty?address_id=' . $address->id)->assertOk();
+
+        $this->assertSame('not_quoted', $response->json('customs_duty.kind'));
+        $this->assertEquals(0, $response->json('customs_duty.amount'));
+        $this->assertSame('Customs duty has not been quoted for this country.', $response->json('customs_duty.notice'));
+    }
+
+    /** And with duty off the app is told nothing, so it draws no line: the platform as it runs today. */
+    public function test_the_app_is_told_nothing_while_duty_is_off(): void
+    {
+        $customer = $this->makeCustomer();
+        $address = $this->makeLegacyAddress($customer->id);
+        $this->putOneProductInTheCart($customer->id);
+        $this->openTheBorderTo('KW');
+
+        $response = $this->asCustomer($customer)->getJson('/api/v1/cart/customs-duty?address_id=' . $address->id)->assertOk();
+
+        $this->assertNull($response->json('customs_duty'));
+    }
+
+    /**
+     * Another customer's address is not a country this caller may read, so no destination is read and there is nothing to say.
+     *
+     * Nothing to say, rather than a refusal: this endpoint only tells a customer what they are about to owe. Refusing an order whose
+     * destination is unknown is the engine's job and it already does it, with `shipping_destination_unknown`.
+     */
+    public function test_the_endpoint_reads_only_the_callers_own_address(): void
+    {
+        $customer = $this->makeCustomer();
+        $stranger = $this->makeCustomer(['id' => 777, 'email' => 'stranger@example.test', 'phone' => '0500000777']);
+        $strangersAddress = $this->makeLegacyAddress($stranger->id);
+        $this->putOneProductInTheCart($customer->id);
+        $this->openTheBorderTo('KW');
+        $this->openTheDutyRules(['SA:KW' => ['percentage' => 5, 'payer' => 'buyer_on_delivery']]);
+
+        $response = $this->asCustomer($customer)->getJson('/api/v1/cart/customs-duty?address_id=' . $strangersAddress->id)->assertOk();
+
+        $this->assertNull($response->json('customs_duty'), 'no destination was read from a stranger\'s address, so there is nothing to say');
+    }
+
+    /**
+     * The claim both quoters make about each other, pinned: what the customer is shown before payment is what the order keeps.
+     *
+     * They read different places -- the basket before, the order's own lines after -- so nothing but a test keeps them in step, and a
+     * figure shown and then not kept is the one failure a customer would actually notice.
+     */
+    public function test_what_the_customer_is_shown_is_what_the_order_keeps(): void
+    {
+        $customer = $this->makeCustomer();
+        $address = $this->makeLegacyAddress($customer->id);
+        $this->putOneProductInTheCart($customer->id);
+        $this->openTheBorderTo('KW');
+        $this->permitTheProductAbroad('KW');
+        $this->openTheDutyRules(['SA:KW' => ['percentage' => 5, 'payer' => 'buyer_on_delivery']]);
+
+        $shown = $this->asCustomer($customer)->getJson('/api/v1/cart/customs-duty?address_id=' . $address->id)->assertOk();
+        $this->asCustomer($customer)->getJson(self::COD . '?address_id=' . $address->id)->assertOk();
+
+        $kept = \App\Services\Shipping\OrderCustomsQuote::of(100001);
+
+        $this->assertNotNull($kept);
+        $this->assertSame($shown->json('customs_duty.kind'), $kept->kind);
+        $this->assertEquals($shown->json('customs_duty.basis'), $kept->basis, 'the same value is quoted on');
+        $this->assertEquals($shown->json('customs_duty.amount'), $kept->amount, 'and the same amount comes of it');
+        $this->assertSame($shown->json('customs_duty.payer'), $kept->payer);
+    }
+
+    /** H1-03's permission, granted so that the order can actually be placed: without it the engine refuses it, as it should. */
+    private function permitTheProductAbroad(string $destination, int $productId = 1): void
+    {
+        \App\Models\ProductDestinationPermission::create([
+            'product_id' => $productId, 'destination_country' => $destination,
+            'may_ship' => true, 'may_export' => true, 'may_import' => true,
+        ]);
+        \App\Services\Shipping\ProductDestinationPermission::forget();
+    }
+
+    /**
+     * H1-08's last criterion end to end: the order keeps which rule produced its shipping charge.
+     *
+     * The cart records it when the method is chosen and the order copies it when it is placed, so the figure can still be explained after
+     * the zones have changed -- a zone's rate and a method's own cost land in the same column, and nothing else tells them apart.
+     */
+    public function test_the_order_keeps_which_rule_produced_its_shipping_charge(): void
+    {
+        $customer = $this->makeCustomer();
+        $address = $this->makeLegacyAddress($customer->id);
+        $this->putOneProductInTheCart($customer->id);
+        (require database_path('migrations/2026_12_20_100500_add_shipping_rate_source_to_orders_table.php'))->up();
+        // A shop that charges order-wise, which is what keeps a cart-shipping row at all: one that charges per product or per category
+        // keeps none, because the cost lives on each line.
+        DB::table('business_settings')->updateOrInsert(['type' => 'shipping_method'], ['value' => 'inhouse_shipping']);
+        \Illuminate\Support\Facades\Cache::flush();
+        DB::table('cart_shippings')->insert([
+            'cart_group_id' => 'group-' . $customer->id . 'c', 'shipping_method_id' => 1, 'shipping_cost' => 15,
+            'rate_source' => 'zone:4', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->asCustomer($customer)->getJson(self::COD . '?address_id=' . $address->id)->assertOk();
+
+        $this->assertSame('zone:4', DB::table('orders')->where('id', 100001)->value('shipping_rate_source'));
+    }
+
+    /**
+     * A shop whose `shipping_method` setting is missing charges per PRODUCT, and the order says so.
+     *
+     * This is a surprise worth keeping written down. The type that decides it falls through both of the branches that set it and stays an
+     * empty string, which is not `order_wise`, so such a shop drops its cart-shipping row -- the cost of the method the customer chose --
+     * and charges each line the product's own shipping cost instead. I read that as a defect and defaulted the type to `order_wise`; 39
+     * tests across the address and storefront groups then failed, because that makes the charge ZERO for those shops, nothing having
+     * written a cart-shipping row. The per-product path is real and is what they charge.
+     *
+     * What genuinely disagrees is the LABEL: `orders.shipping_type` is resolved separately and records `order_wise` in this state, while
+     * the type written onto the lines is an empty string. The money is right and both labels are wrong, so the rate source claims nothing
+     * rather than guessing which rule it was.
+     */
+    public function test_a_shop_with_no_shipping_method_setting_charges_per_product(): void
+    {
+        $customer = $this->makeCustomer();
+        $address = $this->makeLegacyAddress($customer->id);
+        $this->putOneProductInTheCart($customer->id);
+        (require database_path('migrations/2026_12_20_100500_add_shipping_rate_source_to_orders_table.php'))->up();
+        DB::table('business_settings')->where('type', 'shipping_method')->delete();
+        \Illuminate\Support\Facades\Cache::flush();
+        DB::table('cart_shippings')->insert([
+            'cart_group_id' => 'group-' . $customer->id . 'c', 'shipping_method_id' => 1, 'shipping_cost' => 15,
+            'rate_source' => 'method:1', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->asCustomer($customer)->getJson(self::COD . '?address_id=' . $address->id)->assertOk();
+
+        $order = DB::table('orders')->where('id', 100001)->first(['shipping_type', 'shipping_rate_source']);
+        $this->assertSame('order_wise', $order->shipping_type, 'the label the order records, which is not what decided the charge');
+        $this->assertSame(0, DB::table('cart_shippings')->count(), 'such a shop keeps no cart-shipping row at all');
+        // And the rate source claims nothing. The lines decided the charge, but the type written onto them in this state is an empty
+        // string rather than `product_wise`, so there is no rule to name -- and naming one anyway would be a guess. Null is the record
+        // saying it does not know, which is the only thing it can honestly say here.
+        $this->assertNull($order->shipping_rate_source);
+    }
+
+    /** And an order placed on a shop that quoted no source says nothing rather than claiming a rule. */
+    public function test_an_order_quoted_without_a_source_records_none(): void
+    {
+        $customer = $this->makeCustomer();
+        $address = $this->makeLegacyAddress($customer->id);
+        $this->putOneProductInTheCart($customer->id);
+        (require database_path('migrations/2026_12_20_100500_add_shipping_rate_source_to_orders_table.php'))->up();
+
+        $this->asCustomer($customer)->getJson(self::COD . '?address_id=' . $address->id)->assertOk();
+
+        $this->assertNull(DB::table('orders')->where('id', 100001)->value('shipping_rate_source'));
+    }
+
+    private function openTheDutyRules(array $routes): void
+    {
+        config([
+            'gcc.shipping.duty.mode' => \App\Services\Shipping\CustomsDuty::MODE_DECLARE,
+            'gcc.shipping.duty.routes' => $routes,
+        ]);
+        (require database_path('migrations/2026_12_20_100400_add_customs_quote_to_orders_table.php'))->up();
+        \App\Services\Shipping\OrderCustomsQuote::forget();
+    }
+
+    /** And with the switch off nothing is written, because a platform serving one country has taken only local orders. */
+    public function test_no_decision_is_written_while_the_switch_is_off(): void
+    {
+        $customer = $this->makeCustomer();
+        $address = $this->makeLegacyAddress($customer->id);
+        $this->putOneProductInTheCart($customer->id);
+        (require database_path('migrations/2026_12_20_100200_add_shipping_decision_to_orders_table.php'))->up();
+        \App\Services\Shipping\OrderShippingDecision::forget();
+
+        $this->asCustomer($customer)->getJson(self::COD . '?address_id=' . $address->id)->assertOk();
+
+        $this->assertNull(\App\Services\Shipping\OrderShippingDecision::of(100001));
+    }
+
     private function assertRefusedBeforeAnythingWasCreated($response, string $expectedMessage): void
     {
         $response->assertStatus(403)->assertJsonPath('message', $expectedMessage);

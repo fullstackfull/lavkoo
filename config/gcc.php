@@ -366,6 +366,23 @@ return [
             'pending_age_hours' => 24,
             'pending_warning_count' => 5,
             'pending_critical_count' => 20,
+            // The operational health signals of L-09, one pair of counts each. One row is information; these raise it. The owner sets the
+            // real numbers -- what counts as a warning differs by signal, and a single unreconciled cost may deserve more than one stuck
+            // payment attempt does -- and a ruling changes a line here rather than any code.
+            'health' => [
+                'payments_stuck_warning_count' => 5,
+                'payments_stuck_critical_count' => 20,
+                'payments_unreconciled_warning_count' => 5,
+                'payments_unreconciled_critical_count' => 20,
+                'channels_failing_warning_count' => 5,
+                'channels_failing_critical_count' => 20,
+                'carriers_failing_warning_count' => 5,
+                'carriers_failing_critical_count' => 20,
+                'shop_issues_open_warning_count' => 5,
+                'shop_issues_open_critical_count' => 20,
+                'approvals_pending_warning_count' => 5,
+                'approvals_pending_critical_count' => 20,
+            ],
         ],
     ],
 
@@ -423,6 +440,67 @@ return [
         // conversion minimum cannot be converted, and the only admin wallet action adds funds. So a refusal stands until somebody can zero the holding,
         // which is why the administrator's own deletion route is left unguarded, and why anonymising rather than refusing is the question for the owner.
         'refuse_while_balance_remains' => filter_var(env('GCC_REFUSE_ACCOUNT_DELETE_WITH_BALANCE', false), FILTER_VALIDATE_BOOLEAN),
+    ],
+
+    'shipping' => [
+        // H1-06: the one engine that decides whether a basket may be shipped to a destination and whether that crosses a border. OFF as it
+        // ships, and with it off the engine answers "local, allowed" for everything, so every checkout surface behaves exactly as today --
+        // which is right for a platform serving one country: it has no cross-border question to answer. Turning it on is what says a second
+        // country is open, and it only ever REFUSES: a product with no permission row (H1-03) and a route no carrier declares (H1-02) are
+        // both read as no, so turning it on can never open a shipment that was closed.
+        'cross_border' => [
+            'enabled' => filter_var(env('GCC_CROSS_BORDER_SHIPPING', false), FILTER_VALIDATE_BOOLEAN),
+        ],
+
+        // H1-04: regulated health and pharmaceutical goods, which do not cross a border because a courier flies there. OFF as it ships,
+        // and `off` is a position rather than an empty list: a platform selling inside one country holds no export licence and needs none.
+        // In `strict` mode App\Services\Shipping\RegulatedShippingGate refuses a FOREIGN destination for a product nobody classified --
+        // no category means refused -- and, for a product these lists name, asks for a recorded clearance: a reference on the product's
+        // destination permission row (H1-03) plus a person whose role carries `clearance_module`. A carrier covering the route changes
+        // none of it. Which classes may cross which border, and who may approve the list, is the owner's Q-13; the lists ship empty, so
+        // turning the mode on without them refuses only what nobody has classified.
+        'regulated' => [
+            'mode' => env('GCC_REGULATED_SHIPPING_MODE', App\Services\Shipping\RegulatedShippingGate::MODE_OFF),
+
+            // The admin module a person must hold before a clearance they recorded counts. Role 1 always may.
+            'clearance_module' => env('GCC_REGULATED_SHIPPING_CLEARANCE_MODULE', 'catalog'),
+
+            // The owner's lists. A product is regulated when one of them names it: its category, a word in its name, or its brand.
+            'category_ids' => [],
+            'name_patterns' => [],
+            'brand_ids' => [],
+
+            // Per destination, merged with the lists above so a global rule is never lost by naming a country:
+            //   'AE' => ['mode' => 'strict', 'category_ids' => ['12'], 'name_patterns' => [], 'brand_ids' => []],
+            'destinations' => [],
+        ],
+
+        // H1-09: customs duty on a cross-border order. A duty rate is not a thing a shop may invent -- it belongs to the destination's
+        // tariff, it turns on what the goods are and where they were made, and it is the owner's to give per route with a competent source
+        // behind it (Q-11). So the routes below ship EMPTY, and every cross-border route therefore answers "not quoted", which is the
+        // honest answer: App\Services\Shipping\CustomsDutyQuote tells "not quoted" from "nothing payable" because a zero is an ANSWER --
+        // it says the goods cross free -- and a platform that records zero where it means "we do not know" charges the customer nothing and
+        // then has them handed a bill at the door.
+        //
+        //   'off'      the default: there is no duty on this platform, which is the truth for a shop selling inside one country
+        //   'declare'  a cross-border order carries its quote, and an unquotable route says so; nothing is refused
+        //   'strict'   a cross-border order on a route nobody has written a rule for is REFUSED before payment (the requirement's own rule)
+        //
+        // An unrecognised value is read as `off`, so a typo never starts refusing orders.
+        'duty' => [
+            'mode' => env('GCC_CUSTOMS_DUTY_MODE', App\Services\Shipping\CustomsDuty::MODE_OFF),
+
+            // One entry per route, keyed `SOURCE:DESTINATION`; `*` on either side means any country, and the exact route wins over a
+            // wildcard. Each needs BOTH a rate and a payer to be a quote at all, because who pays is a commercial term and not a rounding:
+            // the buyer settling with the carrier at the door and the seller paying up front are different prices and different promises.
+            //
+            //   'SA:KW' => ['percentage' => 5, 'payer' => 'buyer_on_delivery', 'de_minimis' => 100],
+            //
+            // `percentage` 0 is a real answer where somebody wrote it down (these goods cross free); a missing one is not. `de_minimis` is
+            // the destination's threshold, under which a parcel enters free, read in the order's own currency -- converting it here would
+            // invent a rate. `payer` is `buyer_on_delivery` or `seller`.
+            'routes' => [],
+        ],
     ],
 
     'refunds' => [

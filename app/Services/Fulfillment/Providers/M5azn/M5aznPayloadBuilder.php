@@ -32,7 +32,7 @@ class M5aznPayloadBuilder
     {
         $address = $this->address($order);
         $isCod = $fulfillment->payment_mode === PaymentMode::CashOnDelivery;
-        $country = DestinationCountry::ofOrder($order->id);
+        $country = DestinationCountry::deliveryOf($order->id);
         [$first, $last] = $this->splitName(AddressSnapshot::plain($address, 'contact_person_name'));
 
         return [

@@ -7,11 +7,14 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
+use App\Models\PlatformAdminGrant;
+use Tests\Support\BuildsPaymentRequestsTable;
 use Tests\Support\BuildsStorefrontLegalDocuments;
 use Tests\Support\SeedsPlatformMarketData;
 
 class AlertsTest extends PlatformAdminTestCase
 {
+    use BuildsPaymentRequestsTable;
     use BuildsStorefrontLegalDocuments;
     use SeedsPlatformMarketData;
 
@@ -290,6 +293,133 @@ class AlertsTest extends PlatformAdminTestCase
     }
 
     /** @return list<string> the markets with an alert of that code, in the order they come */
+    /**
+     * The health signals raise one alert each, for the market they are in, for an operator who holds the health capability.
+     *
+     * The figures behind them come from `PlatformHealthService`, so this also pins that the two endpoints cannot drift: an alert here is a
+     * count the health endpoint would show.
+     */
+    public function test_each_health_signal_raises_its_own_alert_for_an_operator_who_holds_the_capability(): void
+    {
+        $this->giveStuckSaudiPayments(3);
+
+        $alerts = $this->alerts(token: $this->healthToken())->json('data');
+        $health = array_values(array_filter($alerts, static fn (array $alert): bool => $alert['code'] === 'payments_stuck'));
+
+        $this->assertCount(1, $health, 'one alert for the one market that has stuck attempts');
+        $this->assertSame('SA', $health[0]['market']);
+        $this->assertSame('info', $health[0]['severity'], 'three is below the warning count of five');
+        $this->assertSame('3 payment attempts in SA have been started and never confirmed.', $health[0]['message']);
+        $this->assertSame(substr(sha1('payments_stuck|SA'), 0, 16), $health[0]['id'], 'the same alert has the same id every time');
+        $this->assertSame('markets/SA', $health[0]['deep_link']);
+    }
+
+    /**
+     * And an operator who does NOT hold it gets no health alert at all.
+     *
+     * This is the gate the criterion asks for. Without it the alerts endpoint would hand over through a message -- "14 payment attempts in KW
+     * have been started and never confirmed" -- exactly the figures the separate capability exists to withhold from the health endpoint.
+     */
+    public function test_an_operator_without_the_health_capability_gets_no_health_alert(): void
+    {
+        $this->giveStuckSaudiPayments(3);
+
+        $codes = array_column($this->alerts()->json('data'), 'code');
+
+        $this->assertNotContains('payments_stuck', $codes);
+        $this->assertContains('legal_not_ready', $codes, 'and the alerts that are not health are unaffected');
+    }
+
+    /** `health` alone does not open the alerts endpoint: that is what `alerts` is for, and the two gates are separate on purpose. */
+    public function test_the_health_capability_alone_does_not_open_the_alerts_endpoint(): void
+    {
+        $healthOnly = $this->mintToken($this->platformAdmin(
+            grantOverrides: ['capabilities' => json_encode([PlatformAdminGrant::CAPABILITY_HEALTH])],
+        ));
+
+        $this->getJson(self::URL, $this->bearer($healthOnly))->assertForbidden();
+    }
+
+    public function test_a_health_signal_raises_its_alert_at_the_configured_counts(): void
+    {
+        config(['gcc.platform_admin.alerts.health' => ['payments_stuck_warning_count' => 2, 'payments_stuck_critical_count' => 3]]);
+        $this->giveStuckSaudiPayments(2);
+
+        $this->assertSame('warning', $this->severityOfHealthAlert('payments_stuck'));
+
+        $this->giveStuckSaudiPayments(1, from: 3);
+        $this->assertSame('critical', $this->severityOfHealthAlert('payments_stuck'));
+    }
+
+    /** A row whose market is not recorded raises nothing: an alert names a market, and that row is in none. */
+    public function test_an_unattributed_figure_raises_no_alert(): void
+    {
+        $this->giveStuckSaudiPayments(3, market: null);
+
+        $this->assertSame([], array_values(array_filter(
+            $this->alerts(token: $this->healthToken())->json('data'),
+            static fn (array $alert): bool => $alert['code'] === 'payments_stuck',
+        )));
+    }
+
+    /** One attempt is said in the singular, as the stock and order alerts are. */
+    public function test_one_stuck_attempt_is_said_in_the_singular(): void
+    {
+        $this->giveStuckSaudiPayments(1);
+
+        $alert = array_values(array_filter($this->alerts(token: $this->healthToken())->json('data'), static fn (array $a): bool => $a['code'] === 'payments_stuck'))[0];
+
+        $this->assertSame('1 payment attempt in SA has been started and never confirmed.', $alert['message']);
+    }
+
+    private function severityOfHealthAlert(string $code): ?string
+    {
+        $alerts = array_values(array_filter($this->alerts(token: $this->healthToken())->json('data'), static fn (array $alert): bool => $alert['code'] === $code));
+
+        return $alerts === [] ? null : $alerts[0]['severity'];
+    }
+
+    /** Payment attempts started two hours ago against orders of one market, never paid, which is what the health service calls stuck. */
+    private function giveStuckSaudiPayments(int $attempts, int $from = 0, ?string $market = 'SA'): void
+    {
+        $this->createPaymentRequestsTable();
+
+        if (!Schema::hasColumn('orders', 'storefront_country')) {
+            (require database_path('migrations/2026_11_26_100000_add_storefront_snapshot_to_orders_table.php'))->up();
+        }
+
+        for ($index = $from; $index < $from + $attempts; $index++) {
+            $orderId = 9100 + $index;
+
+            DB::table('orders')->updateOrInsert(
+                ['id' => $orderId],
+                ['customer_id' => 1, 'order_status' => 'pending', 'payment_status' => 'unpaid', 'storefront_country' => $market, 'order_amount' => 100, 'created_at' => now(), 'updated_at' => now()],
+            );
+            DB::table('payment_requests')->updateOrInsert(
+                ['id' => 'stuck-' . $index],
+                [
+                    'attribute' => 'order', 'attribute_id' => (string) $orderId, 'is_paid' => false,
+                    'payment_amount' => 10, 'currency_code' => 'SAR', 'payment_method' => 'Visa',
+                    'created_at' => now()->subHours(2), 'updated_at' => now()->subHours(2),
+                ],
+            );
+        }
+    }
+
+    /**
+     * An operator granted the alerts screen AND the health capability.
+     *
+     * Both, because the health alerts sit on top of the alerts endpoint: `alerts` opens the endpoint and `health` decides whether the health
+     * signals are among what it returns. A grant naming only `health` is refused the endpoint itself, which is the right answer and is why the
+     * two are named here together rather than one standing in for the other.
+     */
+    private function healthToken(): string
+    {
+        return $this->mintToken($this->platformAdmin(
+            grantOverrides: ['capabilities' => json_encode(['alerts', PlatformAdminGrant::CAPABILITY_HEALTH])],
+        ));
+    }
+
     private function marketsWith(string $code): array
     {
         return array_column(array_filter($this->alerts()->json('data'), static fn (array $alert): bool => $alert['code'] === $code), 'market');

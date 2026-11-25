@@ -75,6 +75,12 @@ final class StorefrontCurrency
     /** The shipping type a storefront with its own currency uses: the cost typed on each product, in that storefront's currency. */
     public const PRODUCT_WISE_SHIPPING = 'product_wise';
 
+    /** The shipping type that charges a shipping method, which is one of the two a market can own (H1-14). */
+    public const ORDER_WISE_SHIPPING = 'order_wise';
+
+    /** The shipping type that charges the per-category costs, which is the other (H1-14). */
+    public const CATEGORY_WISE_SHIPPING = 'category_wise';
+
     private const SINGLE_CURRENCY_MODEL = 'single_currency';
 
     /**
@@ -244,13 +250,44 @@ final class StorefrontCurrency
     }
 
     /**
-     * The shipping type the request prices shipping with. The platform's shipping tables (a cost for each method, each category and each zone) are typed in
-     * the platform's money, so a storefront that trades in its own currency prices shipping from the product alone: the cost typed on the product, in
-     * that storefront's currency, and nothing from the tables. Everywhere else the stored type stands.
+     * Whether the market being served owns the rows that THIS type would charge, so that the amounts are in its own money.
+     *
+     * One question per type, from the table that type reads. A type that reads no table (`product_wise`, or a value the platform does not know) owns
+     * nothing to charge and is priced from the product, which is what it already means.
+     */
+    private function marketOwnsWhatThisTypeCharges(?string $stored): bool
+    {
+        return match ($stored) {
+            self::ORDER_WISE_SHIPPING => app(StorefrontShippingMethods::class)->marketHasOwnMethods(),
+            self::CATEGORY_WISE_SHIPPING => app(StorefrontCategoryShippingCosts::class)->marketHasOwnCosts(),
+            default => false,
+        };
+    }
+
+    /**
+     * The shipping type the request prices shipping with.
+     *
+     * The platform's shipping tables -- a cost for each category and each zone -- are typed in the platform's money, so a storefront that trades in its own
+     * currency prices shipping from the product alone: the cost typed on the product, in that storefront's currency, and nothing from the tables.
+     * Everywhere else the stored type stands.
+     *
+     * **One exception, and it is the point of H1-14.** A shipping METHOD now belongs to a market
+     * (`App\Services\Storefront\StorefrontShippingMethods`), so a market that has methods of its own has costs that are already in its own money, and
+     * `order_wise` prices them correctly. Without this a market could own a method and never charge it: the type was forced to `product_wise` before the
+     * method was ever read, which is "lists but cannot charge" -- half of what the requirement asks for.
+     *
+     * Both of the types that read a table now answer that way, each from its own table: `order_wise` charges a shipping METHOD and `category_wise` the
+     * per-category costs, and a market may own either, both or neither. What it may NEVER do is charge the unmarked rows: those are the default
+     * storefront's, typed in the platform's money, and charging them in another currency is the very mistake the override exists to prevent. A market
+     * with its own currency that owns nothing of the kind a type charges prices shipping exactly as it did, from the product.
      */
     public function shippingTypeInForce(?string $stored): ?string
     {
-        return $this->currencyInForce() === null ? $stored : self::PRODUCT_WISE_SHIPPING;
+        if ($this->currencyInForce() === null) {
+            return $stored;
+        }
+
+        return $this->marketOwnsWhatThisTypeCharges($stored) ? $stored : self::PRODUCT_WISE_SHIPPING;
     }
 
     /**

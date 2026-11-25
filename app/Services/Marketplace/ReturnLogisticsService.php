@@ -7,6 +7,7 @@ use App\Models\RefundRequest;
 use App\Models\ReturnShipment;
 use App\Models\StockMovement;
 use App\Services\AuditLogger;
+use App\Services\Returns\CrossBorderReturn;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -19,13 +20,27 @@ use Illuminate\Support\Facades\Schema;
  * a row lock, and recorded as a `return` movement in the same inventory log a purchase receipt writes
  * to. The financial side (commission reversal) already lives in the refund path; this links to the
  * refund_request rather than duplicating it.
+ *
+ * A return also carries the market its goods came off and the money it owes back (H1-13,
+ * App\Services\Returns\CrossBorderReturn): the market the order was sold in, the currency the customer's
+ * payment was taken in and the merchant account that took it, stamped when the return is authorised, and a
+ * receipt whose product belongs to another market's shelf is received rather than restocked. All of that is
+ * dormant by default: with cross-border returns off, which is how they ship, a return records nothing extra
+ * and restocks exactly what it restocked before.
  */
 class ReturnLogisticsService
 {
     public function __construct(
         private readonly ?InventoryService $inventory = null,
         private readonly ?AuditLogger $audit = null,
+        private readonly ?CrossBorderReturn $crossBorder = null,
     ) {
+    }
+
+    /** The market a return's goods belong to and the money it owes back (H1-13). Resolved lazily so a caller that builds this service by hand still gets it. */
+    private function crossBorder(): CrossBorderReturn
+    {
+        return $this->crossBorder ?? app(CrossBorderReturn::class);
     }
 
     /**
@@ -35,7 +50,11 @@ class ReturnLogisticsService
      */
     public function authorize(array $data, int|string|null $by = null, string $byType = 'admin'): ReturnShipment
     {
-        $rma = ReturnShipment::create([
+        $rma = ReturnShipment::create($this->crossBorder()->recordOn(
+            table: 'return_shipments',
+            orderId: $data['order_id'] ?? null,
+            productId: $data['product_id'] ?? null,
+        ) + [
             'reference' => $this->nextReference(),
             'order_id' => $data['order_id'] ?? null,
             'order_details_id' => $this->lineThisReturnIsFor($data),
@@ -106,7 +125,15 @@ class ReturnLogisticsService
             $restockedUnits = 0;
             $clamped = null;
 
-            if ($rma->restock && $rma->product_id && Schema::hasTable('products')) {
+            // Which market's shelf these units belong on (H1-13). A product that belongs to a market other
+            // than the one the order was sold in has no shelf here: putting the units back would grow the
+            // stock of a market that sold nothing and leave the market that did sell short. The goods are
+            // received, the reason is reported, and a person decides where they go. Nothing is refused
+            // while cross-border returns are off, which is the default, nor where either market is
+            // unrecorded -- a missing record is not a disagreement.
+            $wrongShelf = $this->crossBorder()->restockRefusal(orderId: $rma->order_id, productId: $rma->product_id);
+
+            if ($rma->restock && $rma->product_id && $wrongShelf === null && Schema::hasTable('products')) {
                 // Coordinate with the legacy order-status restock (getStockUpdateOnOrderStatusChange) so a
                 // line is never restocked twice — once here and once when the order is marked returned, and
                 // never for more units than the line held. The line's quantity is a budget both writers draw
@@ -203,7 +230,7 @@ class ReturnLogisticsService
             $this->audit?->record(
                 action: 'returns.received',
                 subject: ['type' => 'return_shipment', 'id' => $rma->id],
-                after: ['restocked' => $restocked, 'balance_after' => $balanceAfter, 'restocked_units' => $restocked ? $restockedUnits : 0, 'clamped' => $clamped],
+                after: ['restocked' => $restocked, 'balance_after' => $balanceAfter, 'restocked_units' => $restocked ? $restockedUnits : 0, 'clamped' => $clamped, 'refused' => $wrongShelf],
             );
 
             return [
@@ -216,6 +243,9 @@ class ReturnLogisticsService
                 // clamped ALL THE WAY TO ZERO is the clamp's worst case and the one the operator most needs
                 // to hear about: goods are on the receiving desk that the shelf will not take.
                 'clamped' => $clamped,
+                // Why no shelf would take them at all, when that is the answer (H1-13). Null on every
+                // return of a one-market shop.
+                'refused' => $wrongShelf,
             ];
         });
     }

@@ -59,6 +59,11 @@ final class PlatformAdminSettings
 
     private const DEFAULT_PENDING_CRITICAL_COUNT = 20;
 
+    /** A health signal of this many rows is a warning. One row is information; the owner sets the real numbers per signal (L-09's open decision). */
+    private const DEFAULT_HEALTH_WARNING_COUNT = 5;
+
+    private const DEFAULT_HEALTH_CRITICAL_COUNT = 20;
+
     /** Only a real boolean true switches the API on: a string or a number that merely looks true does not. */
     public function enabled(): bool
     {
@@ -171,6 +176,24 @@ final class PlatformAdminSettings
     public function pendingCriticalCount(): int
     {
         return max($this->positiveInteger(key: 'alerts.pending_critical_count', default: self::DEFAULT_PENDING_CRITICAL_COUNT), $this->pendingWarningCount());
+    }
+
+    /**
+     * The count at which one health signal becomes a warning. One signal, one pair of numbers, so that a ruling on any of them changes
+     * configuration rather than code (L-09's open decision names the thresholds as the owner's).
+     */
+    public function healthAlertWarningCount(string $signal): int
+    {
+        return $this->positiveInteger(key: "alerts.health.{$signal}_warning_count", default: self::DEFAULT_HEALTH_WARNING_COUNT);
+    }
+
+    /** Never below the warning count of the same signal, so its levels stay in order whatever is configured. */
+    public function healthAlertCriticalCount(string $signal): int
+    {
+        return max(
+            $this->positiveInteger(key: "alerts.health.{$signal}_critical_count", default: self::DEFAULT_HEALTH_CRITICAL_COUNT),
+            $this->healthAlertWarningCount(signal: $signal),
+        );
     }
 
     private function positiveInteger(string $key, int $default): int

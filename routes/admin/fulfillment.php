@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\Fulfillment\IntegrationCenterController;
+use App\Http\Controllers\Admin\Shipping\ProductDestinationPermissionController;
 use App\Http\Controllers\Admin\Fulfillment\LiveVerificationController;
 use App\Http\Controllers\Admin\Fulfillment\M5aznProductsController;
 use App\Http\Controllers\Admin\Fulfillment\ProviderFulfillmentController;
@@ -63,4 +64,18 @@ Route::group([
     Route::get('{provider}/verification/{run}', [LiveVerificationController::class, 'download'])->whereIn('provider', ['m5azn', 'torod-point'])->where('run', '[A-Za-z0-9_]+')->name('verification.download');
     Route::post('{provider}/field-map/{capability}/sample', [IntegrationCenterController::class, 'fieldMapSample'])->whereIn('provider', ['m5azn', 'torod-point'])->middleware('throttle:10,1')->name('field-map.sample');
     Route::post('{provider}/field-map/{capability}', [IntegrationCenterController::class, 'fieldMapSave'])->whereIn('provider', ['m5azn', 'torod-point'])->name('field-map.save');
+});
+
+/*
+| Which products may reach which countries (H1-03). A separate group because it is about the CATALOGUE rather than about a provider's
+| integration: the module that governs products governs this, and nothing here calls a provider. A destination with no row is refused, so
+| this screen is where a refusal becomes a permission, and every write of it is audited.
+*/
+Route::group([
+    'prefix' => 'admin/shipping',
+    'as' => 'admin.shipping.',
+    'middleware' => ['admin', 'actch:admin_panel', 'module:catalog'],
+], function () {
+    Route::get('destination-permissions', [ProductDestinationPermissionController::class, 'index'])->name('destination-permissions.index');
+    Route::post('destination-permissions', [ProductDestinationPermissionController::class, 'record'])->name('destination-permissions.record');
 });

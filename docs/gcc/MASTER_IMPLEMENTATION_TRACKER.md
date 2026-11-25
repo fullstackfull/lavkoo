@@ -24,18 +24,18 @@ again** from the per-requirement records: `docs/gcc/audits/2026-11-24-post-merge
 |---|---:|
 | requirements | 359 |
 | acceptance criteria | 1,753 |
-| met (implemented, with a named test) | 913 — 52% |
-| coded (implemented, not proven) | 375 — 21% |
-| missing | 465 — 27% |
-| **development progress** (met + coded) | **73%** |
-| **proven progress** (met) | **52%** |
-| requirements proven end to end | 55 |
+| met (implemented, with a named test) | 938 — 54% |
+| coded (implemented, not proven) | 372 — 21% |
+| missing | 443 — 25% |
+| **development progress** (met + coded) | **75%** |
+| **proven progress** (met) | **54%** |
+| requirements proven end to end | 59 |
 | requirements with every criterion addressed but something unproven | 76 |
 | partially implemented | 211 |
-| not started | 17 |
+| not started | 13 |
 | waiting on an owner decision | 260 |
 | waiting on a review (finance, security, legal, Arabic) | 267 |
-| **launch-ready** (all criteria met, no open decision, no outstanding review) | **16 of 359 — 4%** |
+| **launch-ready** (all criteria met, no open decision, no outstanding review) | **17 of 359 — 5%** |
 
 Every figure in this table is printed by `php docs/gcc/audits/2026-11-24-post-merge-assessment/count.php`, which reads the tracker files and
 nothing else. Run it to check them; run it to update them.
@@ -650,3 +650,7 @@ touches.
 | 2026-11-24 | E-07 | `wallet:backfill-market-accounts` carries the balances a customer holds into one market's accounts, once, expand only, and refuses to write while the keys are off, before the migration, or while one balance does not equal its ledger. 15 tests on both engines. | `5694ae6b` |
 | 2026-11-24 | E-07 | Shadow mode: every movement of the one balance is mirrored into the account of the market it names, in the same transaction, and the two are compared. The mirror never opens an account and can never fail the write it follows; `wallet:reconcile` gained the per-market half of its report, which had no caller. 15 tests. All five E-07 criteria met. | `53c7e16f` |
 | 2026-11-24 | E-13 | The four payments that a read, not a claim, used to guard are claimed by one conditional UPDATE inside the transaction that pays: the refund (RF-01, RF-11), the return amount on both panels (RF-03), the point-of-sale cancellation (RF-04) and the points of a delivery (IDEM-08). The four race cases of RefundConcurrencyTest are un-skipped and green. A refund credit names its refund (RF-02), which is also what lets the reconciliation see one paid twice. The vendor panel's return amount reached no wallet while clearing the debt all the same; it now pays the customer the order names, or clears nothing. | `pending` |
+| 2026-11-25 | H1-13 | The cross-border trace is pinned end to end. `ShippingScenarioMatrixTest` asks the five shipping facts one question at a time across seven shapes of order and then walks ONE order the whole way: checkout, decision, duty quote (115.025 of goods, 5.751 of duty, the dinar's third decimal intact), dispatch, return, shelf. The matrix found the engine comparing a country's NAME with its two-letter CODE, which would have refused every order on the day it was switched on; `App\Services\Shipping\DestinationCountryCode` is now the one normaliser and the dispatcher asks the engine where a parcel is going instead of passing the selling market. The return half: `App\Services\Returns\CrossBorderReturn` restocks the shelf of the market that SOLD the goods -- a product belonging to another market is received, not restocked, writes no movement and leaves the line's claim alone -- and records the market, the currency the payment was taken in and the account that took it. All four criteria met. 17 tests, teeth checked both ways; dormant by default. | `e97ba253` and this commit |
+| 2026-11-25 | H1-11 | A carrier for another Gulf country is now one adapter class plus one entry in `config/fulfillment.php`: `ProviderIdentity` is who a carrier is, `ProviderCode` implements it so all 827 call sites that name a case are untouched, `ConfiguredProvider` is a carrier declared only in configuration, and `ProviderRegistry` is the one resolver. Widened to accept any carrier: the adapter contract, the connection manager (its secret-key map is a default now, declarable per carrier), the router, the money assessment, the dispatcher, the webhook route and the fulfilment row -- whose `providerCode()` returned null for such a carrier, so every one of its shipments would have sat in `pending` for ever with nothing to say why. It also fixes the family of defect H1-13 found: the four places that tell a carrier where a parcel goes were asking for the market that SOLD the order, so a Saudi shop selling into Kuwait would have named Saudi Arabia and held the parcel over a perfectly good Kuwaiti number. 23 tests, teeth checked both ways. | this commit |
+| 2026-11-25 | L-09 | `GET api/platform-admin/v1/health`: operational health per market, counts and timestamps only. Two signals of the four the requirement names -- payment attempts started and never confirmed (joined to the order's own market, so the market whose gateway took the payment is the one it counts in) and sales-channel sync health per account (accounts, resources failing three times in a row, resources with no success in the window, last success). Each figure carries a sentence saying what it MEANS, because a stuck attempt is not a failed one: a shopper who closed the tab leaves the same row. The capability is the first that a grant naming none does NOT get (`PlatformAdminGrant::NOT_GIVEN_BY_DEFAULT`), which answers this requirement's own open decision the conservative way -- an existing grant keeps exactly what it was given. 12 tests, one of which reads the whole body and asserts no amount, customer, gateway reference or credential is in it. **No criterion is counted as met**: each names more signals than are built, so the figures do not move. | this commit |
+| 2026-11-25 | H1-14 | A shipping method belongs to a market and is inherited by none: `shipping_methods.storefront_country`, `ShippingMethod::scopeForStorefront` and `App\Services\Storefront\StorefrontShippingMethods` as the one place that knows the rule -- the default storefront lists its own and the unmarked ones (every method this platform has was made for it), every other market only what names it, so a market with none of its own is offered NONE rather than another market's. All four listing paths narrowed. The charging half with it: `shippingTypeInForce()` forced `product_wise` on any market with its own currency, so a market could own a method and never charge it; it now keeps `order_wise` where the market has methods that NAME it, and nowhere else. 15 tests, five of them inside the real money world because the config switch alone leaves `currencyInForce()` null and the test passes with the exception absent. Teeth both ways. 4,319 storefront tests green. | this commit |

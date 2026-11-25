@@ -73,6 +73,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Session;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use App\Services\Marketplace\PaymentRoutingService;
+use App\Services\Shipping\CheckoutCustomsQuote;
+use App\Services\Shipping\ShippingEligibility;
 use function App\Utils\payment_gateways;
 
 class WebController extends Controller
@@ -82,6 +84,57 @@ class WebController extends Controller
     use SmsGateway;
     use MaintenanceModeTrait;
     use CacheManagerTrait;
+
+    /**
+     * Why this basket may not be shipped to the address the checkout is using (H1-06), already translated, or null when it may.
+     *
+     * The website reads the address the session is checking out with, which is the same address the order will carry. One engine answers
+     * for every surface, so a basket refused in the app is refused on the website with the same words.
+     */
+    private function crossBorderRefusal(Request $request): ?string
+    {
+        if (!ShippingEligibility::isOn()) {
+            return null;
+        }
+
+        $addressId = $request['address_id'] ?? session('address_id');
+        $address = $addressId === null ? null : ShippingAddress::query()->whereKey($addressId)->first(['country', 'city_id']);
+
+        $decision = app(ShippingEligibility::class)->decide(
+            CartManager::get_cart_group_ids(request: $request, type: 'checked'),
+            $address?->country,
+            $address?->city_id,
+        );
+
+        return $decision->allowed ? null : translate($decision->reasons[0]);
+    }
+
+    /**
+     * What this basket is told about customs duty before payment (H1-09): the amount, who pays it, and the sentence that says so.
+     *
+     * Null while duty is off and for a basket that crosses no border, and a view reading null draws no line -- a line about duty on an
+     * order that never approaches a border is noise. The same service answers the app, so a customer is shown one figure in one place.
+     *
+     * @return array{quote: \App\Services\Shipping\CustomsDutyQuote, notice: ?string}|null
+     */
+    private function customsDutyQuote(Request $request): ?array
+    {
+        $addressId = $request['address_id'] ?? session('address_id');
+        $destination = $addressId === null ? null : ShippingAddress::query()->whereKey($addressId)->value('country');
+
+        $quote = app(CheckoutCustomsQuote::class)->forCart(
+            CartManager::get_cart_group_ids(request: $request, type: 'checked'),
+            $destination,
+        );
+
+        if ($quote === null) {
+            return null;
+        }
+
+        $notice = $quote->noticeKey();
+
+        return ['quote' => $quote, 'notice' => $notice === null ? null : translate($notice)];
+    }
 
     public function __construct(
         private OrderDetail                                   $order_details,
@@ -501,6 +554,8 @@ class WebController extends Controller
                 'payment_gateways_list' => $paymentGatewaysList,
                 'offline_payment_methods' => $offlinePaymentMethods,
                 'activeMinimumMethods' => count($availablePaymentMethod) > 0,
+                // What the customer is told about customs duty before they pay (H1-09). Null on every order that crosses no border.
+                'customsDuty' => $this->customsDutyQuote($request),
             ]);
         }
 
@@ -555,6 +610,17 @@ class WebController extends Controller
                 return response()->json(['status' => 0, 'message' => $codBlockedReason]);
             }
             Toastr::error($codBlockedReason);
+
+            return back();
+        }
+
+        // H1-06: the same engine the API asks, asked here too, so the website and the app refuse the same basket for the same reason. With
+        // the cross-border switch off it answers allowed and this changes nothing.
+        if ($shippingRefusal = $this->crossBorderRefusal($request)) {
+            if ($request->ajax()) {
+                return response()->json(['status' => 0, 'message' => $shippingRefusal]);
+            }
+            Toastr::error($shippingRefusal);
 
             return back();
         }

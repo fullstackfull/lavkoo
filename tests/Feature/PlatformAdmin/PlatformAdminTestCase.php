@@ -3,6 +3,7 @@
 namespace Tests\Feature\PlatformAdmin;
 
 use App\Models\Admin;
+use App\Models\PlatformAdminGrant;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Routing\Route as RoutingRoute;
 use Illuminate\Support\Facades\Cache;
@@ -112,6 +113,20 @@ abstract class PlatformAdminTestCase extends TestCase
             'created_at' => now(),
             'updated_at' => now(),
         ], $overrides));
+    }
+
+    /**
+     * An admin whose grant NAMES every capability, for a test that walks every route.
+     *
+     * `platformAdmin()` names none, which is every capability except those added after the first grant was made
+     * (`PlatformAdminGrant::NOT_GIVEN_BY_DEFAULT`), so a walk of every route with such a token meets a 403 on the newest parts. A test about
+     * routes rather than about capabilities wants this one.
+     *
+     * @return array<string, mixed>
+     */
+    protected function platformAdminWithEveryCapability(?array $countries = null): array
+    {
+        return $this->platformAdmin($countries, grantOverrides: ['capabilities' => json_encode(PlatformAdminGrant::CAPABILITIES)]);
     }
 
     /** An admin with a grant: every market unless countries are given. */

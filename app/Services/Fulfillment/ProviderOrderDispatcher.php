@@ -2,10 +2,10 @@
 
 namespace App\Services\Fulfillment;
 
+use App\Services\Fulfillment\Contracts\ProviderIdentity;
 use App\Enums\Fulfillment\EventOutcome;
 use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\HoldReason;
-use App\Enums\Fulfillment\ProviderCode;
 use App\Models\Order;
 use App\Models\ProviderFulfillment;
 use App\Services\Fulfillment\Contracts\ProviderAdapter;
@@ -14,6 +14,10 @@ use App\Services\Fulfillment\Exceptions\ProviderUnavailableException;
 use App\Services\Fulfillment\Support\PiiRedactor;
 use App\Services\Fulfillment\Support\ProviderConfig;
 use App\Services\Fulfillment\Support\ProviderSyncRecorder;
+use App\Services\Fulfillment\Support\DestinationCountry;
+use App\Services\Fulfillment\Support\ProviderRouteSupport;
+use App\Services\Storefront\StorefrontResolver;
+use App\Services\Shipping\ShippingEligibility;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -48,6 +52,7 @@ class ProviderOrderDispatcher
         HoldReason::MAPPING_NOT_APPROVED,
         HoldReason::STOCK_UNAVAILABLE,
         HoldReason::CITY_UNMAPPED,
+        HoldReason::ROUTE_UNSUPPORTED,
         HoldReason::ADDRESS_INCOMPLETE,
         HoldReason::PHONE_INVALID,
     ];
@@ -124,7 +129,7 @@ class ProviderOrderDispatcher
                 return null;
             }
 
-            $provider = $fulfillment->providerCode();
+            $provider = $fulfillment->providerIdentity();
             if ($provider === null) {
                 return null;
             }
@@ -213,6 +218,32 @@ class ProviderOrderDispatcher
             return [HoldReason::AWAITING_APPROVAL, null];
         }
 
+        // H1-02: the destination against the routes this provider declares it serves. A shipment to a country the carrier does not
+        // cover would be sent and refused by the carrier, after the customer paid, so it is held here instead -- before the adapter is
+        // asked to build anything. The destination is the market the order records (C-15's DestinationCountry), and a provider that
+        // declares nothing serves the platform's own market, which is every provider today.
+        $source = $config->get('default_country') ?? StorefrontResolver::fromConfig()->defaultCountry();
+        // An order that records no market is the platform's own, which is every order placed before markets existed: it ships the
+        // provider's domestic route, as it always has.
+        // Where the parcel is actually going, which is the address the order keeps -- not the market it was sold in. Asking about the
+        // market made a Saudi shop's order to Kuwait a question about SA to SA, so a carrier had to declare the market pair as well as
+        // the real one before anything would move. The engine reads the address and normalises its spelling; this asks the engine, so the
+        // two cannot drift. An order with no readable address falls back to its market, and then to the platform's own country.
+        $destination = ShippingEligibility::deliveryCountryOf($fulfillment->order_id)
+            ?? DestinationCountry::ofOrder($fulfillment->order_id)
+            ?? $source;
+        if (!ProviderRouteSupport::serves($fulfillment->provider, $source, $destination)) {
+            return [HoldReason::ROUTE_UNSUPPORTED, "{$source} to {$destination} is not a route this provider declares it serves."];
+        }
+
+        // H1-06: the engine asked again, on the order's own facts, for a shipment that has been waiting. A permission withdrawn, or a
+        // carrier that stopped serving a route, must stop a parcel that has not left yet -- the decision the order was taken under is kept
+        // for the record, not used as a licence to send. Silent while the cross-border switch is off, which is how the platform ships.
+        $shipping = app(ShippingEligibility::class)->decideForOrder($fulfillment->order_id);
+        if (!$shipping->allowed) {
+            return [HoldReason::ROUTE_UNSUPPORTED, implode(' ', array_map(static fn (string $reason): string => translate($reason), $shipping->reasons))];
+        }
+
         $readiness = $adapter->readiness();
         if (!$readiness->canUse('dispatch')) {
             return [HoldReason::PROVIDER_NOT_READY, implode(', ', $readiness->missing) ?: $readiness->capability('dispatch')?->reason];
@@ -239,7 +270,7 @@ class ProviderOrderDispatcher
      *
      * @return array{0:string,1:?string}|null [reason, detail] when the money can no longer be assigned safely
      */
-    private function reassessMoney(ProviderFulfillment $fulfillment, Order $order, ProviderCode $provider): ?array
+    private function reassessMoney(ProviderFulfillment $fulfillment, Order $order, ProviderIdentity $provider): ?array
     {
         $money = $this->money->assess($order, $provider, $fulfillment->loadMissing('items')->items, $this->money->allItems($order->id));
         if ($money->blockedReason !== null) {

@@ -1,0 +1,604 @@
+<?php
+
+namespace Tests\Feature\PlatformAdmin;
+
+use App\Models\PlatformAdminGrant;
+use App\Services\PlatformAdmin\PlatformHealthService;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Testing\TestResponse;
+use App\Services\Marketplace\SellerMarketScope;
+use Tests\Support\BuildsPaymentRequestsTable;
+use Tests\Support\BuildsSellerIssueTables;
+
+/**
+ * L-09: operational health per market -- the payment attempts that never came back, and the integrations that have stopped syncing.
+ *
+ * Three things are pinned here that are easy to get wrong and expensive to get wrong:
+ *
+ *  - a row whose market is not recorded is reported APART and never counted as Saudi Arabia, which would make one market look busy because another one is;
+ *  - the answer carries counts and timestamps only. The test reads the whole body and asserts that no amount, customer, gateway reference or credential
+ *    is anywhere in it, because this endpoint is meant to be safe to give an operator who is not trusted with money;
+ *  - the capability is its own, and it is NOT given by a grant that names no capability. Every other capability works the other way round, so this is the
+ *    one place where "names none" does not mean "all", and a grant made before this endpoint existed must not have acquired it.
+ */
+class HealthTest extends PlatformAdminTestCase
+{
+    use BuildsPaymentRequestsTable;
+    use BuildsSellerIssueTables;
+
+    private const URL = self::PREFIX . '/health';
+
+    /** The shop granted Saudi Arabia alone, so everything of its own is counted there. */
+    private const SAUDI_SHOP = 501;
+
+    /** The shop granted Kuwait alone. */
+    private const KUWAITI_SHOP = 502;
+
+    /** The shop granted nothing, which is not narrowed at all and so belongs to no market. */
+    private const UNSCOPED_SHOP = 503;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->buildHealthWorld();
+    }
+
+    public function test_the_capability_is_not_given_by_a_grant_that_names_none(): void
+    {
+        $everything = $this->mintToken($this->platformAdmin());
+
+        $this->getJson(self::URL, $this->bearer($everything))->assertForbidden();
+    }
+
+    public function test_an_operator_granted_the_capability_is_let_in(): void
+    {
+        $this->health()->assertOk();
+    }
+
+    public function test_each_market_gets_its_own_figures_and_nothing_is_added_across_markets(): void
+    {
+        $markets = collect($this->health()->json('data.markets'))->keyBy('market');
+
+        $this->assertSame(2, $markets['SA']['payments']['stuck_attempts'], 'two Saudi attempts are old enough to be stuck');
+        $this->assertSame(1, $markets['KW']['payments']['stuck_attempts']);
+        $this->assertSame(0, $markets['AE']['payments']['stuck_attempts'], 'a market with nothing says zero');
+    }
+
+    public function test_an_attempt_that_is_not_old_enough_yet_is_not_called_stuck(): void
+    {
+        $markets = collect($this->health()->json('data.markets'))->keyBy('market');
+
+        $this->assertSame(
+            2,
+            $markets['SA']['payments']['stuck_attempts'],
+            'the third Saudi attempt was started a minute ago: a shopper still typing their card number is not an incident',
+        );
+    }
+
+    public function test_a_paid_attempt_is_not_stuck_however_old_it_is(): void
+    {
+        DB::table('payment_requests')->where('id', 'sa-old-1')->update(['is_paid' => true]);
+
+        $markets = collect($this->health()->json('data.markets'))->keyBy('market');
+
+        $this->assertSame(1, $markets['SA']['payments']['stuck_attempts']);
+    }
+
+    public function test_an_attempt_whose_market_is_not_recorded_is_reported_apart_and_never_as_the_default(): void
+    {
+        $body = $this->health('?market=all')->json('data');
+        $markets = collect($body['markets'])->keyBy('market');
+
+        $this->assertSame(1, $body['unattributed']['payments']['stuck_attempts'], 'the order with no market recorded');
+        $this->assertSame('no_market_recorded', $body['unattributed']['reason']);
+        $this->assertSame(2, $markets['SA']['payments']['stuck_attempts'], 'and Saudi Arabia did not absorb it');
+    }
+
+    public function test_an_attempt_that_was_not_for_an_order_is_left_out_rather_than_guessed_at(): void
+    {
+        $body = $this->health()->json('data');
+        $total = collect($body['markets'])->sum(fn (array $market): int => $market['payments']['stuck_attempts'])
+            + ($body['unattributed']['payments']['stuck_attempts'] ?? 0);
+
+        $this->assertSame(4, $total, 'the wallet top-up is not counted in any market, nor in the unattributed bucket');
+    }
+
+    /**
+     * The cost reconciliations nobody has settled, by the market the cost belongs to.
+     *
+     * A backlog rather than a window: a variance from last month that nobody has accepted is still money the platform cannot account for, so this figure
+     * does not fall when the window moves. The states a person has reached -- matched, resolved, disputed -- are not breaks; a dispute is open with the
+     * supplier, not on this platform's desk.
+     */
+    /**
+     * The company that sells in a market, from `legal_entities`, which is keyed by country.
+     *
+     * Not the one configured platform-wide: repeating that under every market would say six markets are sold by one company, which is the opposite of the
+     * plan's decision that each country has its own.
+     */
+    public function test_each_market_names_its_own_selling_company_and_the_unattributed_row_names_none(): void
+    {
+        $this->giveLegalEntities();
+
+        $body = $this->health()->json('data');
+        $markets = collect($body['markets'])->keyBy('market');
+
+        $this->assertSame('Lavkoo Trading Company', $markets['SA']['legal_entity']);
+        $this->assertSame('Lavkoo Kuwait', $markets['KW']['legal_entity']);
+        $this->assertNull($markets['AE']['legal_entity'], 'a market with no company recorded says so rather than borrowing one');
+        $this->assertNull($body['unattributed']['legal_entity'], 'rows nobody attributed belong to no company');
+    }
+
+    public function test_the_unsettled_reconciliations_are_counted_by_the_market_of_the_cost(): void
+    {
+        $this->giveReconciliations();
+
+        $body = $this->health()->json('data');
+        $markets = collect($body['markets'])->keyBy('market');
+
+        $this->assertSame(2, $markets['SA']['payments']['reconciliation_breaks'], 'the variance and the unmatched invoice of the Saudi order');
+        $this->assertSame(1, $markets['KW']['payments']['reconciliation_breaks'], 'the Kuwaiti channel account\'s');
+        $this->assertSame(0, $markets['AE']['payments']['reconciliation_breaks']);
+        $this->assertSame(1, $body['unattributed']['payments']['reconciliation_breaks'], 'a cost with neither an account nor an order');
+    }
+
+    public function test_a_reconciliation_somebody_has_settled_is_not_a_break(): void
+    {
+        $this->giveReconciliations();
+        DB::table('operational_cost_reconciliations')->where('status', 'variance')->update(['status' => 'resolved']);
+
+        $markets = collect($this->health()->json('data.markets'))->keyBy('market');
+
+        $this->assertSame(1, $markets['SA']['payments']['reconciliation_breaks'], 'the unmatched invoice is still a break');
+    }
+
+    public function test_a_dispute_is_open_with_the_supplier_and_not_a_break_here(): void
+    {
+        $this->giveReconciliations();
+        DB::table('operational_cost_reconciliations')->update(['status' => 'disputed']);
+
+        $body = $this->health()->json('data');
+
+        $this->assertSame(0, collect($body['markets'])->sum(fn (array $market): int => $market['payments']['reconciliation_breaks']));
+        $this->assertSame(0, $body['unattributed']['payments']['reconciliation_breaks']);
+    }
+
+    public function test_the_answer_says_that_the_reconciliation_figure_is_a_backlog(): void
+    {
+        $means = $this->health()->json('data.means');
+
+        $this->assertStringContainsString('BACKLOG', $means['payments.reconciliation_breaks']);
+        $this->assertStringContainsString('does not fall when the window moves', $means['payments.reconciliation_breaks']);
+    }
+
+    public function test_the_open_shop_issues_are_counted_in_the_market_of_the_shop(): void
+    {
+        $this->giveSellerIssues();
+
+        $body = $this->health()->json('data');
+        $markets = collect($body['markets'])->keyBy('market');
+
+        $this->assertSame(2, $markets['SA']['issues']['open_shop_issues'], 'the Saudi shop has two open breaches');
+        $this->assertSame(1, $markets['KW']['issues']['open_shop_issues']);
+        $this->assertSame(0, $markets['AE']['issues']['open_shop_issues'], 'a market with no shop of its own says zero');
+    }
+
+    public function test_a_cleared_breach_is_not_an_open_issue(): void
+    {
+        $this->giveSellerIssues();
+        DB::table('seller_sla_breaches')->update(['status' => 'cleared', 'cleared_at' => now()]);
+
+        $body = $this->health()->json('data');
+
+        $this->assertSame(0, collect($body['markets'])->sum(fn (array $market): int => $market['issues']['open_shop_issues']));
+        $this->assertSame(0, $body['unattributed']['issues']['open_shop_issues']);
+    }
+
+    /**
+     * A shop granted SEVERAL markets belongs to no single one of them, so its issues are reported apart rather than put under the first
+     * market found -- which would be a count an operator acts on.
+     */
+    public function test_a_shop_of_several_markets_has_its_issues_reported_apart(): void
+    {
+        $this->giveSellerIssues();
+        DB::table(SellerMarketScope::TABLE)->insert([
+            'seller_id' => self::SAUDI_SHOP, 'staff_id' => 0, 'country' => 'BH', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $body = $this->health()->json('data');
+        $markets = collect($body['markets'])->keyBy('market');
+
+        $this->assertSame(0, $markets['SA']['issues']['open_shop_issues'], 'the shop is no longer only Saudi');
+        $this->assertSame(3, $body['unattributed']['issues']['open_shop_issues'], 'its two, beside the one of the shop that is granted nothing');
+    }
+
+    /** And a shop granted nothing is not narrowed at all, so nothing of its own can be attributed either. */
+    public function test_a_shop_granted_no_market_has_its_issues_reported_apart(): void
+    {
+        $this->giveSellerIssues();
+
+        $body = $this->health()->json('data');
+
+        $this->assertSame(1, $body['unattributed']['issues']['open_shop_issues'], 'the shop with no grant at all');
+    }
+
+    public function test_the_pending_approvals_are_counted_in_the_market_of_the_shop_that_asked(): void
+    {
+        $this->giveApprovalRequests();
+
+        $body = $this->health()->json('data');
+        $markets = collect($body['markets'])->keyBy('market');
+
+        $this->assertSame(1, $markets['SA']['issues']['pending_approvals'], 'the one the Saudi shop asked for, and not the one an admin of the same id asked for');
+        $this->assertSame(1, $markets['KW']['issues']['pending_approvals']);
+        $this->assertSame(1, $body['unattributed']['issues']['pending_approvals'], 'the admin\'s, because nothing on that row names a shop');
+    }
+
+    public function test_an_approval_somebody_has_decided_is_no_longer_pending(): void
+    {
+        $this->giveApprovalRequests();
+        DB::table('approval_requests')->update(['status' => 'approved', 'decided_at' => now()]);
+
+        $body = $this->health()->json('data');
+
+        $this->assertSame(0, collect($body['markets'])->sum(fn (array $market): int => $market['issues']['pending_approvals']));
+        $this->assertSame(0, $body['unattributed']['issues']['pending_approvals']);
+    }
+
+    /**
+     * The criterion names staff issues and escalations too. Neither has a record anywhere in this platform, so neither is SENT: a zero would
+     * read as "none open", which is a different and untrue statement.
+     */
+    public function test_the_answer_says_that_staff_issues_and_escalations_are_not_recorded_at_all(): void
+    {
+        $body = $this->health()->json('data');
+
+        $this->assertSame(['open_shop_issues', 'pending_approvals'], array_keys($body['markets'][0]['issues']));
+        $this->assertStringContainsString('BACKLOG', $body['means']['issues.open_shop_issues']);
+        $this->assertStringContainsString('keeps no record of either', $body['means']['issues.open_shop_issues']);
+    }
+
+    public function test_the_integrations_of_each_market_report_their_accounts_failures_and_lateness(): void
+    {
+        $markets = collect($this->health()->json('data.markets'))->keyBy('market');
+
+        $this->assertSame(1, $markets['SA']['integrations']['channels']['accounts']);
+        $this->assertSame(1, $markets['SA']['integrations']['channels']['failing_resources'], 'three failures in a row is failing');
+        $this->assertSame(1, $markets['KW']['integrations']['channels']['late_resources'], 'no success inside the window is late');
+        $this->assertSame(0, $markets['AE']['integrations']['channels']['accounts'], 'a market with no account says zero');
+    }
+
+    public function test_failing_and_late_are_different_questions(): void
+    {
+        $markets = collect($this->health()->json('data.markets'))->keyBy('market');
+
+        $this->assertSame(1, $markets['SA']['integrations']['channels']['failing_resources']);
+        $this->assertSame(0, $markets['SA']['integrations']['channels']['late_resources'], 'it failed three times AND succeeded inside the window');
+    }
+
+    /**
+     * The carriers of a market, told apart from its sales channels.
+     *
+     * Both answer "is this integration working", and they answer it from different tables with different columns, so the two figures are reported
+     * separately and the sentence beside each says how it was worked out. A single "failing integrations" number would have added a count of three
+     * failures in a row to a count of last-event-was-a-failure.
+     */
+    public function test_the_carriers_of_a_market_are_reported_apart_from_its_channels(): void
+    {
+        $markets = collect($this->health()->json('data.markets'))->keyBy('market');
+        $body = $this->health()->json('data');
+
+        $this->assertArrayHasKey('carriers', $markets['SA']['integrations']);
+        $this->assertArrayHasKey('channels', $markets['SA']['integrations']);
+        $this->assertSame(
+            0,
+            $markets['SA']['integrations']['carriers']['connections'],
+            'this platform records no market for a carrier until storefronts are on, so its carriers are unattributed',
+        );
+        $this->assertSame(2, $body['unattributed']['integrations']['carriers']['connections'], 'the two shipped carriers');
+        $this->assertStringContainsString(
+            'different test',
+            $this->health()->json('data.means')['integrations.carriers.failing_capabilities'],
+            'the answer must say that this figure is not made the same way as the channels one',
+        );
+    }
+
+    public function test_a_carriers_last_event_decides_whether_it_is_failing(): void
+    {
+        DB::table('provider_sync_states')->insert([
+            ['provider' => 'torod_point', 'capability' => 'orders', 'last_success_at' => now()->subHour(), 'last_failure_at' => now(), 'created_at' => now(), 'updated_at' => now()],
+            ['provider' => 'torod_point', 'capability' => 'tracking', 'last_success_at' => now(), 'last_failure_at' => now()->subHour(), 'created_at' => now(), 'updated_at' => now()],
+            ['provider' => 'm5azn', 'capability' => 'orders', 'last_success_at' => null, 'last_failure_at' => now(), 'created_at' => now(), 'updated_at' => now()],
+        ]);
+
+        $carriers = $this->health()->json('data.unattributed.integrations.carriers');
+
+        $this->assertSame(2, $carriers['failing_capabilities'], 'the one that failed after succeeding, and the one that never succeeded');
+        $this->assertSame(
+            1,
+            $carriers['late_capabilities'],
+            'only the one that never succeeded: the other two succeeded inside the window, and failing is not the same question as late',
+        );
+    }
+
+    public function test_the_answer_says_what_each_figure_means(): void
+    {
+        $means = $this->health()->json('data.means');
+
+        $this->assertStringContainsString('never confirmed', $means['payments.stuck_attempts']);
+        $this->assertStringContainsString('closed the tab', $means['payments.stuck_attempts'], 'the figure is not a count of failures and must not be read as one');
+        $this->assertStringContainsString('in a row', $means['integrations.channels.failing_resources']);
+        $this->assertStringContainsString('never counted as the default market', $means['unattributed']);
+    }
+
+    /** The whole body, read for anything that is not a count or a timestamp. */
+    public function test_the_answer_carries_no_amount_no_customer_no_reference_and_no_credential(): void
+    {
+        $body = $this->health()->json();
+        $text = json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        foreach (['199.50', '45.000', 'alharbi@example.test', 'txn-sa-old-1', 'a-secret-token', 'Visa'] as $mustNotAppear) {
+            $this->assertStringNotContainsString($mustNotAppear, (string) $text, "the answer must not carry {$mustNotAppear}");
+        }
+    }
+
+    public function test_a_market_an_operator_is_not_granted_is_not_in_their_answer(): void
+    {
+        $kuwaitOnly = $this->mintToken($this->platformAdmin(
+            countries: ['KW'],
+            grantOverrides: ['capabilities' => json_encode([PlatformAdminGrant::CAPABILITY_HEALTH])],
+        ));
+
+        $markets = collect($this->getJson(self::URL, $this->bearer($kuwaitOnly))->json('data.markets'))->pluck('market')->all();
+
+        $this->assertSame(['KW'], $markets);
+    }
+
+    private function health(string $query = ''): TestResponse
+    {
+        return $this->getJson(self::URL . $query, $this->bearer($this->healthToken()));
+    }
+
+    private function healthToken(): string
+    {
+        return $this->mintToken($this->platformAdmin(
+            grantOverrides: ['capabilities' => json_encode([PlatformAdminGrant::CAPABILITY_HEALTH])],
+        ));
+    }
+
+    /**
+     * Four orders in three states of market, four stuck payment attempts, one attempt that is not old enough, one paid, one wallet top-up, and two
+     * sales-channel accounts whose sync resources are failing, late and healthy.
+     */
+    private function buildHealthWorld(): void
+    {
+        $this->createPaymentRequestsTable();
+        $this->createSalesChannelTables();
+        $this->makeOrdersWithMarkets();
+        $this->makePaymentAttempts();
+        $this->makeChannelAccounts();
+    }
+
+    /** The sales-channel and provider-fulfilment tables have migrations of their own; the platform-admin world does not run them. */
+    private function createSalesChannelTables(): void
+    {
+        if (!Schema::hasTable('sales_channel_accounts')) {
+            (require database_path('migrations/2026_11_07_100100_create_sales_channel_tables.php'))->up();
+        }
+
+        if (!Schema::hasTable('provider_sync_states')) {
+            (require database_path('migrations/2026_11_05_100000_create_provider_fulfillment_tables.php'))->up();
+        }
+    }
+
+    private function makeOrdersWithMarkets(): void
+    {
+        if (!Schema::hasColumn('orders', 'storefront_country')) {
+            (require database_path('migrations/2026_11_26_100000_add_storefront_snapshot_to_orders_table.php'))->up();
+        }
+
+        foreach ([[901, 'SA'], [902, 'SA'], [903, 'SA'], [904, 'KW'], [905, null]] as [$id, $market]) {
+            DB::table('orders')->updateOrInsert(
+                ['id' => $id],
+                ['customer_id' => 1, 'order_status' => 'pending', 'payment_status' => 'unpaid', 'storefront_country' => $market, 'order_amount' => 100, 'created_at' => now(), 'updated_at' => now()],
+            );
+        }
+    }
+
+    private function makePaymentAttempts(): void
+    {
+        $old = now()->subHours(2);
+        $recent = now()->subMinute();
+
+        foreach ([
+            ['sa-old-1', 'order', '901', $old, false],
+            ['sa-old-2', 'order', '902', $old, false],
+            ['sa-new-1', 'order', '903', $recent, false],
+            ['kw-old-1', 'order', '904', $old, false],
+            ['no-market-1', 'order', '905', $old, false],
+            ['wallet-1', 'wallet', '1', $old, false],
+        ] as [$id, $attribute, $attributeId, $when, $paid]) {
+            DB::table('payment_requests')->updateOrInsert(
+                ['id' => $id],
+                [
+                    'attribute' => $attribute, 'attribute_id' => $attributeId, 'is_paid' => $paid,
+                    'payment_amount' => 199.50, 'currency_code' => 'SAR', 'payment_method' => 'Visa',
+                    'transaction_id' => 'txn-' . $id, 'created_at' => $when, 'updated_at' => $when,
+                ],
+            );
+        }
+    }
+
+    /**
+     * Four unsettled reconciliations and one settled: two of a Saudi order, one of a Kuwaiti channel account, one of a cost that names neither.
+     *
+     * The cost entry tables have migrations of their own, which the platform-admin world does not run.
+     */
+    private function giveReconciliations(): void
+    {
+        if (!Schema::hasTable('operational_cost_entries')) {
+            (require database_path('migrations/2026_11_07_100000_create_operational_cost_tables.php'))->up();
+            (require database_path('migrations/2026_11_09_100300_add_basis_to_operational_cost_reconciliations.php'))->up();
+        }
+
+        $kuwaitiAccount = (int) DB::table('sales_channel_accounts')->where('market', 'KW')->value('id');
+
+        $entries = [];
+
+        foreach ([
+            ['account_id' => null, 'order_id' => 901],
+            ['account_id' => null, 'order_id' => 902],
+            ['account_id' => $kuwaitiAccount, 'order_id' => null],
+            ['account_id' => null, 'order_id' => null],
+        ] as $index => $link) {
+            $entries[] = DB::table('operational_cost_entries')->insertGetId($link + [
+                'seller_id' => 0,
+                'dedupe_key' => 'entry-' . $index,
+                'slot_key' => 'slot',
+                'subject_type' => 'order',
+                'subject_id' => 1,
+                'variant_key' => '',
+                'period_date' => now()->toDateString(),
+                'cost_component' => 'shipping',
+                'cost_class' => 'direct',
+                'state' => 'estimated',
+                'currency' => 'SAR',
+                'source' => 'estimate',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
+        foreach ([
+            [$entries[0], 'variance'],
+            [$entries[1], 'unmatched_invoice'],
+            [$entries[2], 'unmatched_estimate'],
+            [$entries[3], 'variance'],
+        ] as $index => [$entryId, $status]) {
+            DB::table('operational_cost_reconciliations')->insert([
+                'invoice_item_id' => $index + 1,
+                'estimated_entry_id' => $entryId,
+                'status' => $status,
+                'currency' => 'SAR',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+    }
+
+    /** The selling company of two of the six markets; the other four have none recorded. */
+    private function giveLegalEntities(): void
+    {
+        if (!Schema::hasTable('legal_entities')) {
+            (require database_path('migrations/2026_11_27_100000_create_legal_entities_table.php'))->up();
+        }
+
+        foreach ([['SA', 'Lavkoo Trading Company'], ['KW', 'Lavkoo Kuwait']] as [$country, $name]) {
+            DB::table('legal_entities')->insert([
+                'country' => $country,
+                'legal_name' => $name,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+    }
+
+    /**
+     * Three open seller issues and one cleared: two against the Saudi shop, one against the Kuwaiti one, one against the shop with no grant.
+     *
+     * The grants are switched ON here, because a shop has a market only through `seller_market_scopes` and that table is dormant by default --
+     * which is why a one-market installation reads every one of these figures as unattributed, and is the truth about it.
+     */
+    private function giveSellerIssues(): void
+    {
+        $this->createSellerSlaBreachesTable();
+        $this->grantShopMarkets();
+
+        foreach ([
+            [self::SAUDI_SHOP, 'late_dispatch', 'open'],
+            [self::SAUDI_SHOP, 'cancellation_rate', 'open'],
+            [self::KUWAITI_SHOP, 'late_dispatch', 'open'],
+            [self::UNSCOPED_SHOP, 'late_dispatch', 'open'],
+            [self::KUWAITI_SHOP, 'cancellation_rate', 'cleared'],
+        ] as [$shop, $metric, $status]) {
+            DB::table('seller_sla_breaches')->insert([
+                'seller_id' => $shop,
+                'metric' => $metric,
+                'threshold' => 2,
+                'actual_value' => 5,
+                'status' => $status,
+                'cleared_at' => $status === 'cleared' ? now() : null,
+                'created_at' => now()->subDays(40),
+                'updated_at' => now()->subDays(40),
+            ]);
+        }
+    }
+
+    /** Three pending approvals -- one asked by the Saudi shop, one by the Kuwaiti one, one by nobody this platform can name -- and one decided. */
+    private function giveApprovalRequests(): void
+    {
+        $this->createApprovalRequestsTable();
+        $this->grantShopMarkets();
+
+        foreach ([
+            ['APR-1', 'payout', 'seller', self::SAUDI_SHOP, 'pending'],
+            ['APR-2', 'payout', 'seller', self::KUWAITI_SHOP, 'pending'],
+            // An ADMIN asked for this one, and the id they happen to carry is the Saudi shop's. Admin ids and seller ids are separate
+            // sequences, so that collision is ordinary: reading the id without reading `requested_by_type` would put this request in Saudi
+            // Arabia, which is the market of a shop that had nothing to do with it.
+            ['APR-3', 'settings', 'admin', self::SAUDI_SHOP, 'pending'],
+            ['APR-4', 'payout', 'seller', self::SAUDI_SHOP, 'approved'],
+        ] as [$reference, $workflow, $byType, $by, $status]) {
+            DB::table('approval_requests')->insert([
+                'reference' => $reference,
+                'workflow' => $workflow,
+                'subject_type' => 'payout',
+                'subject_id' => 1,
+                'status' => $status,
+                'amount' => 45.000,
+                'currency' => 'SAR',
+                'required_approvals' => 2,
+                'approvals_count' => $status === 'approved' ? 2 : 0,
+                'requested_by_type' => $byType,
+                'requested_by' => $by,
+                'decided_at' => $status === 'approved' ? now() : null,
+                'created_at' => now()->subDays(40),
+                'updated_at' => now()->subDays(40),
+            ]);
+        }
+    }
+
+    /** One market each for two of the three shops; the third is given none on purpose. */
+    private function grantShopMarkets(): void
+    {
+        if (!Schema::hasTable(SellerMarketScope::TABLE)) {
+            (require database_path('migrations/2026_12_10_100000_create_seller_market_scopes_table.php'))->up();
+        }
+
+        config([SellerMarketScope::SWITCH => true]);
+
+        foreach ([[self::SAUDI_SHOP, 'SA'], [self::KUWAITI_SHOP, 'KW']] as [$shop, $market]) {
+            DB::table(SellerMarketScope::TABLE)->updateOrInsert(
+                ['seller_id' => $shop, 'staff_id' => 0, 'country' => $market],
+                ['created_at' => now(), 'updated_at' => now()],
+            );
+        }
+    }
+
+    private function makeChannelAccounts(): void
+    {
+        $saudi = DB::table('sales_channel_accounts')->insertGetId([
+            'channel' => 'amazon', 'name' => 'Amazon SA', 'market' => 'SA', 'enabled' => true, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $kuwait = DB::table('sales_channel_accounts')->insertGetId([
+            'channel' => 'noon', 'name' => 'Noon KW', 'market' => 'KW', 'enabled' => true, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        DB::table('sales_channel_sync_states')->insert([
+            ['account_id' => $saudi, 'resource' => 'orders', 'consecutive_failures' => 3, 'last_success_at' => now()->subHour(), 'last_failure_at' => now(), 'created_at' => now(), 'updated_at' => now()],
+            ['account_id' => $kuwait, 'resource' => 'orders', 'consecutive_failures' => 0, 'last_success_at' => now()->subYear(), 'last_failure_at' => null, 'created_at' => now(), 'updated_at' => now()],
+        ]);
+    }
+}

@@ -190,7 +190,7 @@ class M5aznAdapter implements ProviderAdapter, ReconcilesSubmissions
         if (trim((string) ($address['address'] ?? '')) === '' || trim((string) ($address['city'] ?? '')) === '') {
             return PreflightResult::hold(HoldReason::ADDRESS_INCOMPLETE);
         }
-        if (MarketPhone::nationalNumberFor(DestinationCountry::ofOrder($fulfillment->order_id), (string) ($address['phone'] ?? '')) === null) {
+        if (MarketPhone::nationalNumberFor(DestinationCountry::deliveryOf($fulfillment->order_id), (string) ($address['phone'] ?? '')) === null) {
             return PreflightResult::hold(HoldReason::PHONE_INVALID);
         }
 

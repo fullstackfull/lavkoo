@@ -14,12 +14,38 @@ use App\Services\Storefront\StorefrontLegalReadiness;
  *    refuses every sale until they are.
  *  - `stock_zero` (warning, critical): live products at zero stock, at the configured counts.
  *  - `orders_pending_too_long` (info, warning, critical): orders still pending after the configured age, created within the longest window.
+ *  - the six health signals of L-09 (info, warning, critical), each with a code of its own: `payments_stuck`, `payments_unreconciled`,
+ *    `channels_failing`, `carriers_failing`, `shop_issues_open` and `approvals_pending`.
+ *
+ * **The health alerts are gated by the health capability, not by this service.** They are raised only when the caller HANDS IN the health
+ * figures, and the alerts endpoint hands them in only for an operator who holds `health`. That is deliberate: those figures are payment and
+ * integration failures, which is exactly what the separate capability exists to keep from an operator who is not trusted with them, and an
+ * alert that said "14 stuck payment attempts in KW" would hand over through this endpoint what the health endpoint refuses. One signal gets
+ * ONE code and one pair of configured counts, so a ruling on any threshold changes configuration and not code.
+ *
+ * Each signal keeps its own code rather than being folded into a shared "integrations" one. The health service counts a failing channel
+ * resource and a failing carrier capability by different tests and says so beside each figure; adding them together here would undo that in
+ * the one place an operator is most likely to act on the number.
  */
 final class PlatformAlertService
 {
     public const SEVERITIES = ['info', 'warning', 'critical'];
 
     private const SEVERITY_RANK = ['info' => 1, 'warning' => 2, 'critical' => 3];
+
+    /**
+     * The health signals that raise an alert: the code, where the figure sits in a market's health, and what one row of it is called.
+     *
+     * The code is also the settings key of its two counts, so a signal added here needs no second table to be configurable.
+     */
+    private const HEALTH_SIGNALS = [
+        'payments_stuck' => ['at' => ['payments', 'stuck_attempts'], 'one' => 'payment attempt', 'many' => 'payment attempts', 'doing' => 'been started and never confirmed'],
+        'payments_unreconciled' => ['at' => ['payments', 'reconciliation_breaks'], 'one' => 'cost reconciliation', 'many' => 'cost reconciliations', 'doing' => 'not been settled'],
+        'channels_failing' => ['at' => ['integrations', 'channels', 'failing_resources'], 'one' => 'sales-channel resource', 'many' => 'sales-channel resources', 'doing' => 'been failing'],
+        'carriers_failing' => ['at' => ['integrations', 'carriers', 'failing_capabilities'], 'one' => 'carrier capability', 'many' => 'carrier capabilities', 'doing' => 'failed at its last attempt'],
+        'shop_issues_open' => ['at' => ['issues', 'open_shop_issues'], 'one' => 'shop issue', 'many' => 'shop issues', 'doing' => 'been left open'],
+        'approvals_pending' => ['at' => ['issues', 'pending_approvals'], 'one' => 'approval request', 'many' => 'approval requests', 'doing' => 'been left undecided'],
+    ];
 
     public function __construct(
         private readonly PlatformMarkets $markets,
@@ -51,15 +77,19 @@ final class PlatformAlertService
      * @param list<string> $selected the market codes to raise alerts for
      * @param list<array{market: ?string, zero: int, low: int}>|null $stock the stock figures, when the caller already has them
      * @param list<array{market: ?string, status: string, stuck: int}>|null $backlog the backlog figures, when the caller already has them
+     * @param list<array<string, mixed>>|null $health a market's health figures as `PlatformHealthService` builds them, for a caller that holds the
+     *                                                `health` capability. NULL raises no health alert at all, which is what an operator without
+     *                                                that capability gets: the figures behind those alerts are the ones it exists to withhold.
      *
      * @return list<array{id: string, severity: string, market: string, code: string, message: string, deep_link: string, generated_at: string}>
      */
-    public function forMarkets(array $selected, ?array $stock = null, ?array $backlog = null): array
+    public function forMarkets(array $selected, ?array $stock = null, ?array $backlog = null, ?array $health = null): array
     {
         $generatedAt = (string) PlatformAdminPresenter::timestamp(moment: now());
         $zeroStock = $this->countsByMarket(rows: $stock ?? $this->figures->stock(), column: 'zero');
         $pendingRows = array_filter($backlog ?? $this->figures->backlog(), static fn (array $row): bool => $row['status'] === 'pending');
         $stuckOrders = $this->countsByMarket(rows: $pendingRows, column: 'stuck');
+        $healthOfMarket = $this->healthByMarket(health: $health);
         $alerts = [];
 
         foreach ($this->markets->all() as $code => $market) {
@@ -71,6 +101,7 @@ final class PlatformAlertService
                 $this->legalAlert(code: $code, active: $market['active']),
                 $this->stockAlert(code: $code, zero: $zeroStock[$code] ?? 0),
                 $this->pendingAlert(code: $code, stuck: $stuckOrders[$code] ?? 0),
+                ...$this->healthAlerts(code: $code, health: $healthOfMarket[$code] ?? null),
             ];
 
             foreach (array_filter($candidates) as [$severity, $alertCode, $message]) {
@@ -140,6 +171,64 @@ final class PlatformAlertService
         $hours = $this->settings->pendingAgeHours();
 
         return $severity === null ? null : [$severity, 'orders_pending_too_long', sprintf('%d %s in %s %s been pending for more than %d %s.', $stuck, $stuck === 1 ? 'order' : 'orders', $code, $stuck === 1 ? 'has' : 'have', $hours, $hours === 1 ? 'hour' : 'hours')];
+    }
+
+    /**
+     * One alert per health signal that has reached its first row, worst level it qualifies for.
+     *
+     * The market's own figures are read by the path the signal names rather than by a flattened key, so a signal added to the health answer
+     * is wired here by one line and a reader can see exactly which figure each alert speaks for.
+     *
+     * @param array<string, mixed>|null $health one market's health, or null when health alerts are not being raised at all
+     *
+     * @return list<array{0: string, 1: string, 2: string}>
+     */
+    private function healthAlerts(string $code, ?array $health): array
+    {
+        if ($health === null) {
+            return [];
+        }
+
+        $alerts = [];
+
+        foreach (self::HEALTH_SIGNALS as $signal => $about) {
+            $count = (int) data_get($health, implode('.', $about['at']), 0);
+            $severity = match (true) {
+                $count >= $this->settings->healthAlertCriticalCount(signal: $signal) => 'critical',
+                $count >= $this->settings->healthAlertWarningCount(signal: $signal) => 'warning',
+                $count >= 1 => 'info',
+                default => null,
+            };
+
+            if ($severity !== null) {
+                $alerts[] = [$severity, $signal, sprintf(
+                    '%d %s in %s %s %s.',
+                    $count,
+                    $count === 1 ? $about['one'] : $about['many'],
+                    $code,
+                    $count === 1 ? 'has' : 'have',
+                    $about['doing'],
+                )];
+            }
+        }
+
+        return $alerts;
+    }
+
+    /**
+     * The health figures keyed by the market each belongs to.
+     *
+     * The unattributed row needs no filter here and gets none: the loop that raises alerts walks the CONFIGURED markets, and a row belonging
+     * to no market matches none of them. An alert names a market, so a row in none cannot raise one without being put in a market it is not
+     * in -- which is the whole reason the health answer keeps that row apart.
+     *
+     * @param list<array<string, mixed>>|null $health
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function healthByMarket(?array $health): array
+    {
+        return $health === null ? [] : array_column($health, null, 'market');
     }
 
     /**
