@@ -10,6 +10,51 @@ or financial control. A pending owner decision stops its own task, never the pro
 
 ---
 
+## The parallel tracks, and how to pick them up (2026-11-25, owner's instruction)
+
+The owner asked for organised parallel development across five tracks. It is set up as FIVE LOCAL GIT WORKTREES, not
+five branches and not five pull requests -- `gcc/development` stays the one official branch per repository, which is what
+the owner required.
+
+| worktree | local branch | axes | repository |
+|---|---|---|---|
+| `/home/user/wt/de` | `wt/de` | D, E | lavkoo |
+| `/home/user/wt/bfi` | `wt/bfi` | B, F, I | lavkoo |
+| `/home/user/wt/acgh` | `wt/acgh` | A, C, G, H | lavkoo |
+| `/home/user/wt/j` | `wt/j` | J | lavkooapp |
+| `/home/user/wt/kl` | `wt/kl` | K, L (screens) | lavkooappseller |
+
+**How a backend worktree is made testable, because this is the part with a trap in it.** `cp -al vendor <wt>/vendor`
+hardlinks the 11GB directory for about nothing, but `composer dump-autoload` then WRITES THROUGH the hardlink and the
+main checkout's class map goes with it. So `vendor/composer` (8.4MB) is replaced with a REAL copy in each worktree before
+dumping:
+
+    cp -al vendor /home/user/wt/<t>/vendor
+    rm -rf /home/user/wt/<t>/vendor/composer && cp -a vendor /home/user/wt/<t>/vendor/composer   # breaks the hardlink
+    cp .env /home/user/wt/<t>/.env
+    (cd /home/user/wt/<t> && composer dump-autoload)
+
+Verify it rather than trust it: `stat -c %i <wt>/vendor/composer/autoload_psr4.php` must differ per checkout, and
+`php -r 'require "vendor/autoload.php"; echo (new ReflectionClass(App\Utils\OrderManager::class))->getFileName();'`
+must answer that worktree's own path. Three worktrees cost about 1GB in total this way.
+
+**What the tracks may and may not do.** They write code and targeted tests and commit in their own worktree. They never
+push, never open a pull request and never run a whole PHPUnit group -- this container has FOUR cores and the heavy groups
+are the coordinator's to run, one at a time. Each track is given explicit file boundaries; measured across the three
+backend tracks, exactly ONE file was touched by more than one of them (`config/gcc.php`, additive keys in different
+sections), which is the check to re-run before every merge:
+
+    for t in de bfi acgh; do (cd /home/user/wt/$t && b=$(git merge-base HEAD gcc/development); git diff --name-only $b..HEAD); done | sort | uniq -d
+
+**Three migrations were written with the same timestamp prefix** (`2026_12_27_100000`) by three tracks independently.
+Different filenames, so git does not conflict and Laravel orders them by the rest of the name, but renumber them at merge
+time rather than leaving three files claiming one minute.
+
+**The apps are verified by CI and by nothing else here**, and that is not a formality: the first merged track came back
+with a compile ERROR (`_storefrontCode` declared on one class and called from another), and because the analyze step
+precedes the test steps in that job, the failure SKIPPED every test in it. Merge the track, push, read the run, fix.
+Never move a card to MET on a track's own report.
+
 ## Where the work is
 
 | repository | branch | tip | merged to main |
