@@ -89,7 +89,6 @@
         "stock_clearance_products",
         "stock_clearance_setups",
         "storages",
-        "subscriptions",
         "tags",
         "translations",
         "v2_sidebar_pins",
@@ -637,7 +636,9 @@
             "by": "country_code"
         },
         "subscriptions": {
-            "scope": "inherited"
+            "scope": "storefront",
+            "by": "storefront_country, NULL being the default storefront's",
+            "why": "The newsletter list, one table for every market (I1-04). A signup records the market the visitor was on since 2026_12_31_100000; a row written before that names none, and NULL is read as the DEFAULT storefront's -- an unmarked subscriber signed up on the only storefront there has ever been. That is the OPPOSITE of the notifications.storefront_countries convention, where an unmarked row means every market, and the difference is the difference between a setting and a message: an unmarked broadcast was SENT to everybody and still is. Scope storefront rather than country on the A1-09 reading settled for notification_channel_profiles: a marketing list belongs to the SHOP a visitor subscribed to, as a sending account does, and not to the country as a jurisdiction. It leaves inherited because it now names a real owner, which is the only direction that bucket moves."
         },
         "tags": {
             "scope": "inherited"

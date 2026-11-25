@@ -246,6 +246,11 @@ class NewsletterConsentTest extends MarketingConsentTestCase
      * The honest record of what is NOT here: nothing in the application sends to the newsletter list.
      *
      * If a newsletter sender is ever added, this test turns red and whoever adds it has to gate it.
+     *
+     * The ONE reader moved on 2026-11-25 and is worth the note. It used to be `WebController`, which read
+     * `Subscription::where('email', ...)` for its duplicate check; that check is now per MARKET (I1-04), so the read moved into
+     * `App\Services\Notification\NewsletterMarkets`, which is the market rule for the signup and for the admin list. It is not a
+     * sender -- it reads the table and writes a market onto a row, and the assertion below pins that it carries no send.
      */
     public function test_no_sender_in_the_application_reads_the_newsletter_list(): void
     {
@@ -258,10 +263,16 @@ class NewsletterConsentTest extends MarketingConsentTestCase
         }
 
         $this->assertSame(
-            ['app/Http/Controllers/Web/WebController.php'],
+            ['app/Services/Notification/NewsletterMarkets.php'],
             $readers,
             'Something new reads the newsletter list. If it SENDS to it, it must ask MarketingConsentGate first.'
         );
+
+        // And the one reader is a rule, not a sender: no mail, no notification, no provider call.
+        $rule = (string) file_get_contents(base_path('app/Services/Notification/NewsletterMarkets.php'));
+        foreach (['Mail::', 'Notification::', 'Http::', 'dispatch(', '->send('] as $send) {
+            $this->assertStringNotContainsString($send, $rule, "the newsletter market rule has started sending ({$send})");
+        }
     }
 
     /**

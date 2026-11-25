@@ -5319,4 +5319,11 @@ ____________________________________________________on_search_engines_and_see_th
 	'you_do_not_have_permission_to_publish_a_theme' => 'ليست لديك صلاحية نشر قالب',
 	'you_do_not_have_permission_to_restore_a_version' => 'ليست لديك صلاحية استعادة نسخة',
 	'you_do_not_have_permission_to_view_a_theme' => 'ليست لديك صلاحية عرض قالب',
+	'the_list_and_the_export_are_both_limited_to_this_market' => 'القائمة والتصدير كلاهما مقصور على هذا السوق',
+	'Subscription_Date' => 'تاريخ الاشتراك',
+	'select_mail_sorting_order' => 'اختر ترتيب البريد',
+	'Sort_by_oldest' => 'الأقدم أولاً',
+	'Sort_by_newest' => 'الأحدث أولاً',
+	'no_subscriber_found' => 'لا يوجد مشترك',
+	'no_subscriber_matches_your_search' => 'لا يوجد مشترك يطابق بحثك',
 ];

@@ -11619,4 +11619,6 @@ return [
 	'version_restored_into_a_new_draft' => 'Version restored into a new draft',
 	'you_do_not_have_permission_to_publish_a_theme' => 'You do not have permission to publish a theme',
 	'you_do_not_have_permission_to_restore_a_version' => 'You do not have permission to restore a version',
+	'the_list_and_the_export_are_both_limited_to_this_market' => 'The list and the export are both limited to this market',
+	'You_already_subscribed_this_site' => 'You already subscribed this site',
 ];
