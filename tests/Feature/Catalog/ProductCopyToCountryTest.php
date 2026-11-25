@@ -354,6 +354,12 @@ class ProductCopyToCountryTest extends TestCase
      * The real-world configuration: this application never sets `filesystems.disks.default` (it sets `filesystems.default` and
      * `filesystems.disks.<type>`), so the probe that reads `disks.default == 's3'` is never true. Before this was fixed, a product whose
      * images were written to s3 was copied with thumbnail NULL, storage NULL and images [], and nothing said so.
+     *
+     * **This test asserted `public` as the copy's destination until 2026-11-25, and it was right to.** `copyStoredFile()` writes the copy
+     * "where a new upload is written", and while `FileManagerTrait` asked the unset `filesystems.disks.default` for that, a new upload on an
+     * s3 installation went to the LOCAL public disk -- so `public` was a true statement about the platform. The unset key is now read as
+     * `filesystems.default`, an upload lands on the disk the shop configured, and the sentence about the copy following a new upload gives
+     * `s3` here. The assertion follows the rule, not the old number.
      */
     public function test_a_source_image_on_the_disk_the_record_names_is_copied_and_not_lost(): void
     {
@@ -373,11 +379,13 @@ class ProductCopyToCountryTest extends TestCase
         $copiedThumbnail = $made->product->getAttributes()['thumbnail'];
         $this->assertNotNull($copiedThumbnail);
         $this->assertNotSame('source-thumb.webp', $copiedThumbnail);
-        $this->assertSame('the bytes', Storage::disk('public')->get('product/thumbnail/' . $copiedThumbnail));
-        $this->assertSame('public', $made->product->getAttributes()['thumbnail_storage_type'], 'the copy is written where a new upload is written');
+        $this->assertSame('the bytes', Storage::disk('s3')->get('product/thumbnail/' . $copiedThumbnail));
+        $this->assertSame('s3', $made->product->getAttributes()['thumbnail_storage_type'], 'the copy is written where a new upload is written');
+        $this->assertFalse(Storage::disk('public')->exists('product/thumbnail/' . $copiedThumbnail), 'and not on the local disk the shop moved off');
 
         $copiedGallery = json_decode($made->product->getAttributes()['images'], true);
-        $this->assertSame('the gallery bytes', Storage::disk('public')->get('product/' . $copiedGallery[0]['image_name']));
+        $this->assertSame('the gallery bytes', Storage::disk('s3')->get('product/' . $copiedGallery[0]['image_name']));
+        $this->assertSame('s3', $copiedGallery[0]['storage']);
     }
 
     public function test_a_source_image_on_the_installations_own_disk_is_copied_although_the_record_names_none(): void
@@ -391,7 +399,7 @@ class ProductCopyToCountryTest extends TestCase
 
         $this->assertSame([], $made->imagesNotCopied, 'an entry that names no disk: the one this installation stores on answers');
         $copied = json_decode($made->product->getAttributes()['images'], true);
-        $this->assertSame('the gallery bytes', Storage::disk('public')->get('product/' . $copied[0]['image_name']));
+        $this->assertSame('the gallery bytes', Storage::disk('s3')->get('product/' . $copied[0]['image_name']));
     }
 
     public function test_a_source_image_that_cannot_be_read_is_recorded_as_not_copied_and_never_shared(): void

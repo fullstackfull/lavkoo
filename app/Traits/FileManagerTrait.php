@@ -28,7 +28,7 @@ trait FileManagerTrait
      */
     protected function upload(string $dir, string $format, $image = null): string
     {
-        $storage = config('filesystems.disks.default') ?? 'public';
+        $storage = $this->storageDisk();
         Cache::forget("cache_all_files_for_public_storage");
         if (!is_null($image)) {
             if (!$this->checkFileExists($dir)['status']) {
@@ -71,7 +71,7 @@ trait FileManagerTrait
      */
     public function fileUpload(string $dir, string $format, $file = null, ?string $disk = null): string
     {
-        $storage = $disk ?? config('filesystems.disks.default') ?? 'public';
+        $storage = $disk ?? $this->storageDisk();
         Cache::forget("cache_all_files_for_public_storage");
 
         if (!is_null($file)) {
@@ -132,7 +132,7 @@ trait FileManagerTrait
             return null;
         }
 
-        $storage = config('filesystems.disks.default') ?? 'public';
+        $storage = $this->storageDisk();
         $extension = $format ?? (pathinfo($fileName, PATHINFO_EXTENSION) ?: 'webp');
         $copyName = Carbon::now()->toDateString() . '-' . uniqid() . '.' . $extension;
 
@@ -149,10 +149,9 @@ trait FileManagerTrait
     /**
      * The disk a stored file is really on, or null when none of the candidates holds it.
      *
-     * `checkFileExists` probes the public disk and then s3, but only while `filesystems.disks.default` says s3 -- a key this application never
-     * sets. `setStorageConnectionEnvironment()` sets `filesystems.default` and `filesystems.disks.<type>`, and `config/filesystems.php` has no
-     * `disks.default` entry at all, so that test is never true and a file on s3 reads as missing. Asked here, in order: the disk the record
-     * itself remembers, the public disk, and the one this installation stores on now.
+     * Asked in order: the disk the record itself remembers, the public disk, and the one this installation stores on now (`storageDisk()`). A
+     * record that remembers nothing is still found, and a record that remembers a disk the installation has since moved off is found on the
+     * disk it is really on rather than read as missing.
      *
      * Each disk is asked once, and a disk that cannot answer -- credentials that no longer exist for a disk a row still names -- is not the
      * disk holding the file, so the next candidate is asked instead and a file none of them holds comes back as "not copied", which is what
@@ -161,7 +160,7 @@ trait FileManagerTrait
     private function diskHolding(string $filePath, ?string $storageType): ?string
     {
         $candidates = [];
-        foreach ([$storageType, 'public', config('filesystems.default')] as $candidate) {
+        foreach ([$storageType, 'public', $this->storageDisk()] as $candidate) {
             $disk = is_string($candidate) ? trim($candidate) : '';
             if ($disk !== '' && !in_array($disk, $candidates, true) && config('filesystems.disks.' . $disk) !== null) {
                 $candidates[] = $disk;
@@ -231,15 +230,17 @@ trait FileManagerTrait
 
     private function checkFileExists(string $filePath): array
     {
+        $installationDisk = $this->storageDisk();
+
         if (Storage::disk('public')->exists($filePath)) {
             return [
                 'status' => true,
                 'disk' => 'public'
             ];
-        } elseif (config('filesystems.disks.default') == 's3' && Storage::disk('s3')->exists($filePath)) {
+        } elseif ($installationDisk !== 'public' && Storage::disk($installationDisk)->exists($filePath)) {
             return [
                 'status' => true,
-                'disk' => 's3'
+                'disk' => $installationDisk
             ];
         } elseif (app(DigitalProductFileService::class)->holdsPrivately(path: $filePath)) {
             return [
@@ -249,8 +250,33 @@ trait FileManagerTrait
         } else {
             return [
                 'status' => false,
-                'disk' => config('filesystems.disks.default') ?? 'public'
+                'disk' => $installationDisk
             ];
         }
+    }
+
+    /**
+     * The disk this installation stores an uploaded file ON, which is the answer `config('filesystems.disks.default')` was asked for in five
+     * places and never gave.
+     *
+     * There is no `disks.default` entry in `config/filesystems.php` and nothing writes one, so every one of those reads was `null ?? 'public'`
+     * -- i.e. the local public disk, whatever the shop had configured. For a shop on the public disk that is the right answer by accident; for a
+     * shop on s3 it meant the DESTINATION of every upload and every copy was the local disk and the `disk` recorded against the row was always
+     * `public`, so the file was written where nothing serves it from and the record pointed at the wrong disk as well.
+     *
+     * What the installation actually chose is `filesystems.default`: `setStorageConnectionEnvironment()` copies the `storage_connection_type`
+     * setting into it at boot, and `config/filesystems.php` seeds it from `FILESYSTEM_DRIVER`.
+     *
+     * `local` is not an answer. It is Laravel's shipped default for that env var, this application has never stored an upload there (every
+     * record's `*_storage_type` is `public` or `s3`), and its root is outside the directory the `storage` symlink publishes -- so a file written
+     * there has no address. A disk the configuration does not define is not an answer either. Both fall back to `public`, which is what the five
+     * reads effectively returned, so a shop that has not chosen s3 behaves exactly as it did.
+     */
+    private function storageDisk(): string
+    {
+        $chosen = config('filesystems.default');
+        $chosen = is_string($chosen) ? trim($chosen) : '';
+
+        return $chosen !== '' && $chosen !== 'local' && config('filesystems.disks.' . $chosen) !== null ? $chosen : 'public';
     }
 }
