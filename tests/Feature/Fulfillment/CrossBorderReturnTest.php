@@ -177,9 +177,14 @@ class CrossBorderReturnTest extends TestCase
             {
             }
 
-            public function record(string $action, array|object|null $subject = null, ?array $before = null, ?array $after = null, ?array $context = null): ?AuditLog
+            /**
+             * The whole signature, `$country` included: PHP will not let a child DROP a parameter, so a stub that stops short of the
+             * parent's is a fatal error on load -- exit 255 rather than a test failure, which takes the whole group with it. `AuditLogger`
+             * gained `$country` with G1-08, and this stub was written before it.
+             */
+            public function record(string $action, array|object|null $subject = null, ?array $before = null, ?array $after = null, ?array $context = null, ?string $country = null): ?AuditLog
             {
-                $this->recorded[] = ['action' => $action, 'after' => $after];
+                $this->recorded[] = ['action' => $action, 'after' => $after, 'country' => $country];
 
                 return null;
             }

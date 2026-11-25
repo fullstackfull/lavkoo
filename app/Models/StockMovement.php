@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\StaffCountryProductRowScope;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -47,5 +48,15 @@ class StockMovement extends Model
     {
         $query->where('seller_id', $sellerId)
             ->whereDoesntHave('product', fn ($product) => $product->whereNot(fn ($ownProduct) => $ownProduct->ofSeller(sellerId: $sellerId)));
+    }
+
+    /**
+     * A stock movement is one product's, so the movement history a restricted employee reads holds only their own countries' products (GCC-14c, slice 5).
+     */
+    protected static function boot(): void
+    {
+        parent::boot();
+
+        static::addGlobalScope(new StaffCountryProductRowScope());
     }
 }

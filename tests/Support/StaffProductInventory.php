@@ -59,7 +59,7 @@ use Modules\AI\app\Http\Controllers\API\V3\AIAuctionProductController;
  * does an entry without a reason or with a slice nobody named. The same table is in docs/gcc/GCC-14C-STAFF-COUNTRY-SCOPES.md, and a test keeps the two in step.
  *
  * `scoped`: a slice narrows it, slice 1 when it names none (App\Services\Staff\StaffProductRoutes holds the rules of the product screens) and slice 2 for the order, POS and
- * refund screens (App\Services\Staff\StaffOrderRoutes) and slice 4 for the promotion screens (App\Services\Staff\StaffPromotionRoutes). `not_needed`: it must keep seeing every country, or it has no product rows. `out`: it still shows every country's
+ * refund screens (App\Services\Staff\StaffOrderRoutes) slice 4 for the promotion and content screens (App\Services\Staff\StaffPromotionRoutes) and slice 5 for the marketplace stock screens (App\Services\Staff\StaffMarketplaceRoutes). `not_needed`: it must keep seeing every country, or it has no product rows. `out`: it still shows every country's
  * products to a restricted employee; the slice that takes it is named.
  */
 final class StaffProductInventory
@@ -217,8 +217,8 @@ final class StaffProductInventory
             'reason' => 'The request is bound for the whole controller (it lists orders), so a vendor\'s product tab lists the products of the employee\'s countries only. Every action has a rule in StaffOrderRoutes.',
         ],
         BatchController::class => [
-            'class' => self::OUT, 'slice' => 'slice 5',
-            'reason' => 'Batches of a marketplace product, picked by id from any country.',
+            'class' => self::SCOPED, 'slice' => 'slice 5',
+            'reason' => 'Batches of a marketplace product. Narrowed in slice 5: adding one is judged by the product id it posts, writing one off is judged by the product the BATCH is of, and the list is narrowed through that product (StaffCountryProductRowScope on ProductBatch).',
         ],
         BrandRegistryController::class => [
             'class' => self::OUT, 'slice' => 'slice 5',
@@ -229,20 +229,20 @@ final class StaffProductInventory
             'reason' => 'A commission rule can name a product of any country.',
         ],
         InventoryAdjustmentController::class => [
-            'class' => self::OUT, 'slice' => 'slice 5',
-            'reason' => 'Adjusts the stock of a product by id, of any country.',
+            'class' => self::SCOPED, 'slice' => 'slice 5',
+            'reason' => 'Adjusts the stock of a product by id. Narrowed in slice 5: the adjustment is judged by the product id it posts, and the movement history the screen lists is narrowed through the product of each movement (StaffCountryProductRowScope on StockMovement).',
         ],
         PurchaseOrderController::class => [
-            'class' => self::OUT, 'slice' => 'slice 5',
-            'reason' => 'A purchase order line names a product of any country.',
+            'class' => self::SCOPED, 'slice' => 'slice 5',
+            'reason' => 'A purchase order line names a product. Narrowed in slice 5: creating one is judged by every line that names a catalogue product, and opening, placing, receiving or cancelling one is judged by EVERY line\'s product -- the rule an order follows, because a purchase order can buy two markets\' goods. One that buys nothing from the catalogue belongs to no market and is refused rather than guessed at.',
         ],
         ReturnLogisticsController::class => [
             'class' => self::OUT, 'slice' => 'slice 5',
             'reason' => 'A return names a product of any country.',
         ],
         WarehouseController::class => [
-            'class' => self::OUT, 'slice' => 'slice 5',
-            'reason' => 'Places and transfers the stock of a product by id, of any country.',
+            'class' => self::SCOPED, 'slice' => 'slice 5',
+            'reason' => 'Places and transfers the stock of a product by id. Narrowed in slice 5: both writes are judged by the product id, and the per-shelf breakdown is narrowed through the product of each balance (StaffCountryProductRowScope on WarehouseStock). The WAREHOUSE itself carries no market -- inventory_locations gained one and the marketplace\'s own warehouses table did not -- so a restricted employee still sees every shelf on the list, which the survey says rather than implies.',
         ],
         M5aznProductsController::class => [
             'class' => self::OUT, 'slice' => 'slice 6',
@@ -314,10 +314,10 @@ final class StaffProductInventory
         'App\Http\Controllers\Admin\Customer\CustomerLoyaltyController' => ['slice' => 'slice 3', 'reason' => 'A customer\'s loyalty movements, narrowed the same way (StaffCountryLedgerScope; StaffOrderRoutes). It reads no product.'],
     ];
 
-    /** @return array<string, int> how many controllers there are of each status: scoped in slice 1, 2, 3 and 4, not needed, out */
+    /** @return array<string, int> how many controllers there are of each status: scoped in slice 1, 2, 3, 4 and 5, not needed, out */
     public static function countsByStatus(): array
     {
-        $counts = ['slice 1' => 0, 'slice 2' => 0, 'slice 3' => 0, 'slice 4' => 0, self::NOT_NEEDED => 0, self::OUT => 0];
+        $counts = ['slice 1' => 0, 'slice 2' => 0, 'slice 3' => 0, 'slice 4' => 0, 'slice 5' => 0, self::NOT_NEEDED => 0, self::OUT => 0];
         foreach (self::CONTROLLERS as $entry) {
             $counts[self::statusKeyOf($entry)]++;
         }

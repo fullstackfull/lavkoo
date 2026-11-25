@@ -4,6 +4,7 @@ namespace Tests\Feature\StaffScope;
 
 use App\Services\Staff\StaffOrderRoutes;
 use App\Services\Staff\StaffProductRoutes;
+use App\Services\Staff\StaffMarketplaceRoutes;
 use App\Services\Staff\StaffPromotionRoutes;
 use Illuminate\Support\Facades\Route;
 use Tests\Support\StaffOrderInventory;
@@ -41,14 +42,14 @@ class StaffScopeDocTest extends TestCase
         return match ($entry['class']) {
             StaffProductInventory::SCOPED => 'scoped in ' . ($entry['slice'] ?? 'slice 1'),
             StaffProductInventory::NOT_NEEDED => 'not needed',
-            default => 'out of slice 4 (' . $entry['slice'] . ')',
+            default => 'out of slice 5 (' . $entry['slice'] . ')',
         };
     }
 
     /** @param array{slice: string, class?: string} $entry */
     private function statusOfAControllerFoundByHand(array $entry): string
     {
-        return ($entry['class'] ?? null) === StaffProductInventory::SCOPED ? 'scoped in ' . $entry['slice'] : 'out of slice 4 (' . $entry['slice'] . ')';
+        return ($entry['class'] ?? null) === StaffProductInventory::SCOPED ? 'scoped in ' . $entry['slice'] : 'out of slice 5 (' . $entry['slice'] . ')';
     }
 
     public function test_the_doc_exists_and_names_the_switch_the_table_the_migration_and_the_commands(): void
@@ -84,13 +85,13 @@ class StaffScopeDocTest extends TestCase
     {
         $found = (new StaffProductRouteScanner())->controllers();
         $counts = StaffProductInventory::countsByStatus();
-        $routes = ['slice 1' => 0, 'slice 2' => 0, 'slice 3' => 0, 'slice 4' => 0, StaffProductInventory::NOT_NEEDED => 0, StaffProductInventory::OUT => 0];
+        $routes = ['slice 1' => 0, 'slice 2' => 0, 'slice 3' => 0, 'slice 4' => 0, 'slice 5' => 0, StaffProductInventory::NOT_NEEDED => 0, StaffProductInventory::OUT => 0];
         foreach (StaffProductInventory::CONTROLLERS as $controller => $entry) {
             $routes[StaffProductInventory::statusKeyOf($entry)] += count($found[$controller]['productRoutes']);
         }
 
-        $this->assertStringContainsString(sprintf('**%d controllers: %d scoped in slice 1, %d scoped in slice 2, %d scoped in slice 3, %d scoped in slice 4, %d not needed, %d out of slice 4.**', array_sum($counts), $counts['slice 1'], $counts['slice 2'], $counts['slice 3'], $counts['slice 4'], $counts['not_needed'], $counts['out']), $this->doc);
-        $this->assertStringContainsString(sprintf('**%d routes read or name a product: %d scoped in slice 1, %d scoped in slice 2, %d scoped in slice 3, %d scoped in slice 4, %d not needed, %d out of slice 4.**', array_sum($routes), $routes['slice 1'], $routes['slice 2'], $routes['slice 3'], $routes['slice 4'], $routes['not_needed'], $routes['out']), $this->doc);
+        $this->assertStringContainsString(sprintf('**%d controllers: %d scoped in slice 1, %d scoped in slice 2, %d scoped in slice 3, %d scoped in slice 4, %d scoped in slice 5, %d not needed, %d out of slice 5.**', array_sum($counts), $counts['slice 1'], $counts['slice 2'], $counts['slice 3'], $counts['slice 4'], $counts['slice 5'], $counts['not_needed'], $counts['out']), $this->doc);
+        $this->assertStringContainsString(sprintf('**%d routes read or name a product: %d scoped in slice 1, %d scoped in slice 2, %d scoped in slice 3, %d scoped in slice 4, %d scoped in slice 5, %d not needed, %d out of slice 5.**', array_sum($routes), $routes['slice 1'], $routes['slice 2'], $routes['slice 3'], $routes['slice 4'], $routes['slice 5'], $routes['not_needed'], $routes['out']), $this->doc);
         // Slice 1 is three: the product screens, the moderation screen and the shipping destination permissions (H1-03, H1-04), whose
         // two actions take a product id in the request and so are judged by it. Slice 2 is the five order and POS controllers.
         $this->assertSame([3, 5], [$counts['slice 1'], $counts['slice 2']], 'the product screens and the five order and POS controllers the scan finds');
@@ -121,6 +122,7 @@ class StaffScopeDocTest extends TestCase
                 in_array($controller, StaffProductRoutes::controllers(), true) => '`' . StaffProductRoutes::ruleOf($controller, $method) . '`',
                 in_array($controller, StaffOrderRoutes::controllers(), true) => implode(' + ', array_map(static fn (string $part): string => '`' . $part . '`', StaffOrderRoutes::ruleOf($controller, $method) ?? [])),
                 in_array($controller, StaffPromotionRoutes::controllers(), true) => implode(' + ', array_map(static fn (string $part): string => '`' . $part . '`', StaffPromotionRoutes::ruleOf($controller, $method) ?? [])),
+                in_array($controller, StaffMarketplaceRoutes::controllers(), true) => implode(' + ', array_map(static fn (string $part): string => '`' . $part . '`', StaffMarketplaceRoutes::ruleOf($controller, $method) ?? [])),
                 default => null,
             };
             if ($rule === null) {
@@ -138,6 +140,8 @@ class StaffScopeDocTest extends TestCase
         $this->assertStringContainsString('The rules of the 45 routes', $this->doc);
         $this->assertStringContainsString('The rules of the 49 routes', $this->doc);
         $this->assertStringContainsString('The rules of the 87 routes', $this->doc);
+        $this->assertStringContainsString('the rule of each of their 17 actions', $this->doc);
+        $this->assertSame(17, array_sum(array_map(static fn (string $controller): int => count(StaffMarketplaceRoutes::rulesOf($controller)), StaffMarketplaceRoutes::controllers())));
         $this->assertSame(87, array_sum(array_map(static fn (string $controller): int => count(StaffPromotionRoutes::rulesOf($controller)), StaffPromotionRoutes::controllers())));
         $this->assertSame(49, array_sum(array_map(static fn (string $controller): int => count(StaffOrderRoutes::rulesOf($controller)), StaffOrderRoutes::orderScreenControllers())));
     }
@@ -160,7 +164,7 @@ class StaffScopeDocTest extends TestCase
     public function test_the_doc_names_every_slice_and_every_controller_found_by_hand(): void
     {
         foreach (StaffProductInventory::SLICES as $slice => $what) {
-            if (!in_array($slice, ['slice 3', 'slice 4'], true)) {
+            if (!in_array($slice, ['slice 3', 'slice 4', 'slice 5'], true)) {
                 $this->assertStringContainsString("| {$slice} | {$what} |", $this->doc, $slice);
             }
         }
@@ -194,8 +198,8 @@ class StaffScopeDocTest extends TestCase
             $routes[StaffOrderInventory::statusKeyOf($entry)] += count($found[$controller]['orderRoutes']);
         }
 
-        $this->assertStringContainsString(sprintf('**%d controllers: %d scoped in slice 2, %d scoped in slice 3, %d scoped in slice 4, %d not needed, %d out of slice 4.**', array_sum($counts), $counts['slice 2'], $counts['slice 3'], $counts['slice 4'], $counts['not_needed'], $counts['out']), $this->doc);
-        $this->assertStringContainsString(sprintf('**%d routes read or name an order: %d scoped in slice 2, %d scoped in slice 3, %d scoped in slice 4, %d not needed, %d out of slice 4.**', array_sum($routes), $routes['slice 2'], $routes['slice 3'], $routes['slice 4'], $routes['not_needed'], $routes['out']), $this->doc);
+        $this->assertStringContainsString(sprintf('**%d controllers: %d scoped in slice 2, %d scoped in slice 3, %d scoped in slice 4, %d not needed, %d out of slice 5.**', array_sum($counts), $counts['slice 2'], $counts['slice 3'], $counts['slice 4'], $counts['not_needed'], $counts['out']), $this->doc);
+        $this->assertStringContainsString(sprintf('**%d routes read or name an order: %d scoped in slice 2, %d scoped in slice 3, %d scoped in slice 4, %d not needed, %d out of slice 5.**', array_sum($routes), $routes['slice 2'], $routes['slice 3'], $routes['slice 4'], $routes['not_needed'], $routes['out']), $this->doc);
     }
 
     public function test_every_route_that_reads_orders_or_names_one_is_in_the_doc(): void

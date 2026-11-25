@@ -1,4 +1,4 @@
-# GCC-14c: staff country scopes (slices 1 to 4: the product screens, the order, POS and refund screens, the shared layout, the people, the dashboard and the reports, and the promotion screens, of the admin panel)
+# GCC-14c: staff country scopes (slices 1 to 5: the product screens, the order, POS and refund screens, the shared layout, the people, the dashboard and the reports, the promotion and content screens, and the marketplace stock screens, of the admin panel)
 
 **Status:** draft, behind a switch that ships **off**. Nothing here runs on the pilot server or on production. One additive migration, no change to what a Saudi
 customer, seller or admin sees or is answered while the switch is off, and nothing narrows an employee until somebody assigns them a country.
@@ -663,6 +663,55 @@ country is not something an employee can find out by asking. The rules of the 87
 | `GET admin/seo-settings/sitemap-delete` | `SiteMapController::getDelete` | `unavailable` | module:business_settings |
 <!-- slice-4-rules-end -->
 
+## What slice 5 enforces (the marketplace stock screens)
+
+The warehouses, the inventory adjustments, the batches and the purchase orders: the four screens that MOVE stock or buy it.
+`ScopeMarketplaceToStaffCountries` is registered by their constructors, after the sign-in check and the module permission, and
+`App\Services\Staff\StaffMarketplaceRoutes` holds the rule of each of their 17 actions; a route of one of them without a rule is REFUSED
+to a restricted employee.
+
+**These are writes, which is why they come before the rest of slice 5.** A restricted employee could place another market's product on a
+shelf, adjust its balance, write off its batch and receive a purchase order of it -- and every one of those changes a figure the other market
+sells against. The listing is the lesser half here.
+
+1. Every action that names a product is judged by it: placing stock, transferring it between shelves, adjusting a balance, adding a batch.
+2. A BATCH is followed to the product it is a batch of, so writing one off is judged by that product and not by the batch's own id.
+3. A PURCHASE ORDER is judged by EVERY line's product, the rule an order follows (`StaffOrderVisibility`) and for the same reason: an order
+   can buy two markets' goods, so only an employee who holds both may open, place, receive or cancel it. One that buys nothing from the
+   catalogue -- every line a description -- belongs to no market and is refused rather than guessed at. Creating one is judged by every line
+   that names a catalogue product, and a line that names none is not a refusal, because a purchase order may buy a service or a pallet.
+4. The rows that belong to a product are narrowed through it (`StaffCountryProductRowScope` on `StockMovement`, `ProductBatch`,
+   `WarehouseStock` and `PurchaseOrderItem`), so the movement history, the batch list, the per-shelf breakdown and a purchase order's lines
+   hold only the employee's products.
+
+**What slice 5 does NOT reach: a warehouse has no market.** `inventory_locations` gained one (`2026_12_27_100000`, G1-05) and the
+marketplace's own `warehouses` table did not, so what can be told apart on these screens is the product whose units are moving, never the
+shelf. A restricted employee still SEES every warehouse on the list, with its code and its name; giving that table a market belongs with the
+inventory lane. The rest of slice 5 -- the reviews, the returns, the marketplace fulfilments, the seller scorecards and the settlements --
+is still out: each of those is made of ORDERS rather than of products, so it follows slice 2's rule and not slice 1's.
+
+<!-- slice-5-rules-start -->
+| Route | Action | Rule | Permission |
+|---|---|---|---|
+| `GET admin/marketplace/purchase-orders` | `PurchaseOrderController::index` | `list` | module:marketplace |
+| `GET admin/marketplace/purchase-orders/create` | `PurchaseOrderController::create` | `none` | module:marketplace |
+| `POST admin/marketplace/purchase-orders` | `PurchaseOrderController::store` | `product.items:items` | module:marketplace |
+| `GET admin/marketplace/purchase-orders/{id}` | `PurchaseOrderController::show` | `purchase_order.route:id` + `list` | module:marketplace |
+| `POST admin/marketplace/purchase-orders/{id}/place` | `PurchaseOrderController::place` | `purchase_order.route:id` | module:marketplace |
+| `POST admin/marketplace/purchase-orders/{id}/receive` | `PurchaseOrderController::receive` | `purchase_order.route:id` | module:marketplace |
+| `POST admin/marketplace/purchase-orders/{id}/cancel` | `PurchaseOrderController::cancel` | `purchase_order.route:id` | module:marketplace |
+| `GET admin/marketplace/inventory-adjustments` | `InventoryAdjustmentController::index` | `product.input:product_id?` + `list` | module:marketplace |
+| `POST admin/marketplace/inventory-adjustments/adjust` | `InventoryAdjustmentController::adjust` | `product.input:product_id` | module:marketplace |
+| `GET admin/marketplace/batches` | `BatchController::index` | `product.input:product_id?` + `list` | module:marketplace |
+| `POST admin/marketplace/batches` | `BatchController::store` | `product.input:product_id` | module:marketplace |
+| `POST admin/marketplace/batches/{id}/write-off` | `BatchController::writeOff` | `batch.route:id` | module:marketplace |
+| `GET admin/marketplace/warehouses` | `WarehouseController::index` | `product.input:product_id?` + `list` | module:marketplace |
+| `POST admin/marketplace/warehouses` | `WarehouseController::store` | `none` | module:marketplace |
+| `PUT admin/marketplace/warehouses/{id}` | `WarehouseController::update` | `none` | module:marketplace |
+| `POST admin/marketplace/warehouses/place` | `WarehouseController::place` | `product.input:product_id` | module:marketplace |
+| `POST admin/marketplace/warehouses/transfer` | `WarehouseController::transfer` | `product.input:product_id` | module:marketplace |
+<!-- slice-5-rules-end -->
+
 ## The survey: every admin route that reads products or names one
 
 `tests/Feature/StaffScope/StaffProductRouteInventoryTest.php` walks the real route table of the admin panel and fails for an admin controller that reads products or names
@@ -672,8 +721,8 @@ slice, and the scoped controllers are exactly the ones that have rules. A second
 each action, its path and its parameters, and the file of each controller (so a route that delegates to a helper of its controller is not missed): the repository, the model, the
 product manager, the products table, and a product id in a request.
 
-**50 controllers: 3 scoped in slice 1, 5 scoped in slice 2, 9 scoped in slice 3, 10 scoped in slice 4, 6 not needed, 17 out of slice 4.**
-**158 routes read or name a product: 47 scoped in slice 1, 16 scoped in slice 2, 13 scoped in slice 3, 22 scoped in slice 4, 22 not needed, 38 out of slice 4.**
+**50 controllers: 3 scoped in slice 1, 5 scoped in slice 2, 9 scoped in slice 3, 10 scoped in slice 4, 4 scoped in slice 5, 6 not needed, 13 out of slice 5.**
+**158 routes read or name a product: 47 scoped in slice 1, 16 scoped in slice 2, 13 scoped in slice 3, 22 scoped in slice 4, 8 scoped in slice 5, 22 not needed, 30 out of slice 5.**
 
 The slices that follow slice 3 (the people, the dashboard, the reports and the shared layout), in the order proposed:
 
@@ -717,24 +766,24 @@ The slices that follow slice 3 (the people, the dashboard, the reports and the s
 | `Admin\InhouseProductSaleController` | 1 | 1 | scoped in slice 3 | The in-house sales report lists the in-house products of the employee's countries. Every action has a rule in StaffOrderRoutes. |
 | `Admin\TransactionReportController` | 5 | 1 | scoped in slice 3 | The transaction report counts the products of the employee's countries. Every action has a rule in StaffOrderRoutes. |
 | `Admin\VendorProductSaleReportController` | 2 | 1 | scoped in slice 3 | The vendor sales report lists the products of the employee's countries. Every action has a rule in StaffOrderRoutes. |
-| `Admin\Product\ReviewController` | 7 | 3 | out of slice 4 (slice 5) | The reviews list and its product filter show the reviews of every country's products. |
+| `Admin\Product\ReviewController` | 7 | 3 | out of slice 5 (slice 5) | The reviews list and its product filter show the reviews of every country's products. |
 | `Admin\Vendor\VendorController` | 17 | 1 | scoped in slice 3 | The request is bound for the whole controller (it lists orders), so a vendor's product tab lists the products of the employee's countries only. Every action has a rule in StaffOrderRoutes. |
-| `Admin\Marketplace\BatchController` | 3 | 2 | out of slice 4 (slice 5) | Batches of a marketplace product, picked by id from any country. |
-| `Admin\Marketplace\BrandRegistryController` | 6 | 0 | out of slice 4 (slice 5) | Counts the products of each brand across every country. |
-| `Admin\Marketplace\CommissionRuleController` | 5 | 1 | out of slice 4 (slice 5) | A commission rule can name a product of any country. |
-| `Admin\Marketplace\InventoryAdjustmentController` | 2 | 2 | out of slice 4 (slice 5) | Adjusts the stock of a product by id, of any country. |
-| `Admin\Marketplace\PurchaseOrderController` | 7 | 1 | out of slice 4 (slice 5) | A purchase order line names a product of any country. |
-| `Admin\Marketplace\ReturnLogisticsController` | 5 | 1 | out of slice 4 (slice 5) | A return names a product of any country. |
-| `Admin\Marketplace\WarehouseController` | 5 | 3 | out of slice 4 (slice 5) | Places and transfers the stock of a product by id, of any country. |
-| `Admin\Fulfillment\M5aznProductsController` | 3 | 3 | out of slice 4 (slice 6) | Imports provider items as products in the default country, and lists the ones already mapped. |
-| `Admin\Fulfillment\TorodMatchingController` | 13 | 4 | out of slice 4 (slice 6) | Matches provider items to the products of the default storefront's country when codes are per country; otherwise every country's. |
-| `Admin\SalesChannels\ChannelProductController` | 8 | 8 | out of slice 4 (slice 6) | Links a channel listing to a product picked among every country's. |
-| `Admin\SalesChannels\ChannelListingController` | 9 | 2 | out of slice 4 (slice 6) | Drafts and publishes the listing of a product by id, of any country. |
-| `Admin\SalesChannels\ChannelInventoryController` | 2 | 1 | out of slice 4 (slice 6) | Lists the stock a channel holds for the products of every country. |
-| `Admin\SalesChannels\ChannelOrderController` | 7 | 1 | out of slice 4 (slice 6) | A channel order's lines are matched to products of any country. |
-| `Admin\SalesChannels\ChannelRoutingController` | 4 | 1 | out of slice 4 (slice 6) | A routing rule can name a product of any country. |
-| `Admin\OperationalCosts\ProductCostController` | 4 | 4 | out of slice 4 (slice 6) | The cost layer picker offers the products of every country. |
-| `Admin\OperationalCosts\ReturnController` | 2 | 1 | out of slice 4 (slice 6) | The returns of the operational costs name products of any country. |
+| `Admin\Marketplace\BatchController` | 3 | 2 | scoped in slice 5 | Batches of a marketplace product. Narrowed in slice 5: adding one is judged by the product id it posts, writing one off is judged by the product the BATCH is of, and the list is narrowed through that product (StaffCountryProductRowScope on ProductBatch). |
+| `Admin\Marketplace\BrandRegistryController` | 6 | 0 | out of slice 5 (slice 5) | Counts the products of each brand across every country. |
+| `Admin\Marketplace\CommissionRuleController` | 5 | 1 | out of slice 5 (slice 5) | A commission rule can name a product of any country. |
+| `Admin\Marketplace\InventoryAdjustmentController` | 2 | 2 | scoped in slice 5 | Adjusts the stock of a product by id. Narrowed in slice 5: the adjustment is judged by the product id it posts, and the movement history the screen lists is narrowed through the product of each movement (StaffCountryProductRowScope on StockMovement). |
+| `Admin\Marketplace\PurchaseOrderController` | 7 | 1 | scoped in slice 5 | A purchase order line names a product. Narrowed in slice 5: creating one is judged by every line that names a catalogue product, and opening, placing, receiving or cancelling one is judged by EVERY line's product -- the rule an order follows, because a purchase order can buy two markets' goods. One that buys nothing from the catalogue belongs to no market and is refused rather than guessed at. |
+| `Admin\Marketplace\ReturnLogisticsController` | 5 | 1 | out of slice 5 (slice 5) | A return names a product of any country. |
+| `Admin\Marketplace\WarehouseController` | 5 | 3 | scoped in slice 5 | Places and transfers the stock of a product by id. Narrowed in slice 5: both writes are judged by the product id, and the per-shelf breakdown is narrowed through the product of each balance (StaffCountryProductRowScope on WarehouseStock). The WAREHOUSE itself carries no market -- inventory_locations gained one and the marketplace's own warehouses table did not -- so a restricted employee still sees every shelf on the list, which the survey says rather than implies. |
+| `Admin\Fulfillment\M5aznProductsController` | 3 | 3 | out of slice 5 (slice 6) | Imports provider items as products in the default country, and lists the ones already mapped. |
+| `Admin\Fulfillment\TorodMatchingController` | 13 | 4 | out of slice 5 (slice 6) | Matches provider items to the products of the default storefront's country when codes are per country; otherwise every country's. |
+| `Admin\SalesChannels\ChannelProductController` | 8 | 8 | out of slice 5 (slice 6) | Links a channel listing to a product picked among every country's. |
+| `Admin\SalesChannels\ChannelListingController` | 9 | 2 | out of slice 5 (slice 6) | Drafts and publishes the listing of a product by id, of any country. |
+| `Admin\SalesChannels\ChannelInventoryController` | 2 | 1 | out of slice 5 (slice 6) | Lists the stock a channel holds for the products of every country. |
+| `Admin\SalesChannels\ChannelOrderController` | 7 | 1 | out of slice 5 (slice 6) | A channel order's lines are matched to products of any country. |
+| `Admin\SalesChannels\ChannelRoutingController` | 4 | 1 | out of slice 5 (slice 6) | A routing rule can name a product of any country. |
+| `Admin\OperationalCosts\ProductCostController` | 4 | 4 | out of slice 5 (slice 6) | The cost layer picker offers the products of every country. |
+| `Admin\OperationalCosts\ReturnController` | 2 | 1 | out of slice 5 (slice 6) | The returns of the operational costs name products of any country. |
 
 ### Routes that read or name a product, of the controllers that are not needed
 
@@ -786,20 +835,25 @@ The slices that follow slice 3 (the people, the dashboard, the reports and the s
 | `Admin\Settings\SeoHealthController` | `GET admin/seo-settings/health` |
 | `Admin\Settings\SiteMapController` |  |
 
-### Routes that read or name a product, of the controllers that are out of slice 4
+### Routes that read or name a product, of the controllers scoped in slice 5
+
+| Controller | Routes that read or name a product |
+|---|---|
+| `Admin\Marketplace\BatchController` | `GET admin/marketplace/batches`<br>`POST admin/marketplace/batches` |
+| `Admin\Marketplace\InventoryAdjustmentController` | `GET admin/marketplace/inventory-adjustments`<br>`POST admin/marketplace/inventory-adjustments/adjust` |
+| `Admin\Marketplace\PurchaseOrderController` | `POST admin/marketplace/purchase-orders` |
+| `Admin\Marketplace\WarehouseController` | `GET admin/marketplace/warehouses`<br>`POST admin/marketplace/warehouses/place`<br>`POST admin/marketplace/warehouses/transfer` |
+
+### Routes that read or name a product, of the controllers that are out of slice 5
 
 A restricted employee who has the permission of one of these screens still sees every country's products there. Each is named for the slice that takes it.
 
 | Controller | Routes that read or name a product |
 |---|---|
 | `Admin\Product\ReviewController` | `GET admin/reviews/list`<br>`GET admin/reviews/export`<br>`GET\|POST\|PUT\|PATCH\|DELETE\|OPTIONS admin/reviews/search-product` |
-| `Admin\Marketplace\BatchController` | `GET admin/marketplace/batches`<br>`POST admin/marketplace/batches` |
 | `Admin\Marketplace\BrandRegistryController` |  |
 | `Admin\Marketplace\CommissionRuleController` | `GET admin/marketplace/commission-rules` |
-| `Admin\Marketplace\InventoryAdjustmentController` | `GET admin/marketplace/inventory-adjustments`<br>`POST admin/marketplace/inventory-adjustments/adjust` |
-| `Admin\Marketplace\PurchaseOrderController` | `POST admin/marketplace/purchase-orders` |
 | `Admin\Marketplace\ReturnLogisticsController` | `POST admin/marketplace/returns` |
-| `Admin\Marketplace\WarehouseController` | `GET admin/marketplace/warehouses`<br>`POST admin/marketplace/warehouses/place`<br>`POST admin/marketplace/warehouses/transfer` |
 | `Admin\Fulfillment\M5aznProductsController` | `GET admin/fulfillment-providers/m5azn/products`<br>`POST admin/fulfillment-providers/m5azn/products/import-all`<br>`POST admin/fulfillment-providers/m5azn/products/{item}/import` |
 | `Admin\Fulfillment\TorodMatchingController` | `GET admin/fulfillment-providers/torod-point/matching`<br>`POST admin/fulfillment-providers/torod-point/matching/approve`<br>`POST admin/fulfillment-providers/torod-point/matching/push`<br>`GET admin/fulfillment-providers/torod-point/products/search` |
 | `Admin\SalesChannels\ChannelProductController` | `GET admin/sales-channels/products`<br>`GET admin/sales-channels/products/product-search`<br>`POST admin/sales-channels/products/{mapping}/link`<br>`POST admin/sales-channels/products/{mapping}/ignore`<br>`POST admin/sales-channels/products/{mapping}/unignore`<br>`POST admin/sales-channels/products/{mapping}/accept-suggestion`<br>`POST admin/sales-channels/products/{mapping}/settings`<br>`POST admin/sales-channels/products/{mapping}/fulfilment-mode` |
@@ -841,8 +895,8 @@ It walks the real route table and fails for an admin controller that reads any o
 The scan reads the models, the repositories, the tables, the relations, the services that hold the sums, the wallets, and an order id in a request, in the source of each action and
 in the file of each controller. The scoped controllers are exactly the ones that have rules in `StaffOrderRoutes`, and a test keeps this document in step.
 
-**32 controllers: 6 scoped in slice 2, 14 scoped in slice 3, 1 scoped in slice 4, 4 not needed, 7 out of slice 4.**
-**114 routes read or name an order: 36 scoped in slice 2, 49 scoped in slice 3, 1 scoped in slice 4, 13 not needed, 15 out of slice 4.**
+**32 controllers: 6 scoped in slice 2, 14 scoped in slice 3, 1 scoped in slice 4, 4 not needed, 7 out of slice 5.**
+**114 routes read or name an order: 36 scoped in slice 2, 49 scoped in slice 3, 1 scoped in slice 4, 13 not needed, 15 out of slice 5.**
 
 | Slice | What it takes |
 |---|---|
@@ -879,13 +933,13 @@ in the file of each controller. The scoped controllers are exactly the ones that
 | `Admin\Settings\OrderSettingsController` | 2 | 2 | not needed | The order settings page is a setting of the shop. It reads no order. |
 | `Admin\Marketplace\PurchaseOrderController` | 7 | 7 | not needed | Purchase orders to suppliers are not customer orders: they have no order, no order line and no country of their own. |
 | `Admin\Settings\InhouseShopController` | 6 | 1 | scoped in slice 4 | The in-house shop page counts the in-house orders. Narrowed in slice 4 by the `list:orders` part of its rule in StaffPromotionRoutes, which is the slice that took the page: an order and a product are two subjects, and one middleware carries both. |
-| `Admin\Marketplace\FulfillmentController` | 4 | 2 | out of slice 4 (slice 5) | The marketplace fulfilments are shipments of orders of every country, picked by order number. |
-| `Admin\Marketplace\ReturnLogisticsController` | 5 | 1 | out of slice 4 (slice 5) | A marketplace return names an order of any country. |
-| `Admin\Product\ReviewController` | 7 | 1 | out of slice 4 (slice 5) | The reviews list reads the order behind a review, of any country. |
-| `Admin\Fulfillment\ProviderFulfillmentController` | 5 | 1 | out of slice 4 (slice 6) | The provider fulfilments are shipments of orders of every country. |
-| `Admin\SalesChannels\ChannelOrderController` | 7 | 7 | out of slice 4 (slice 6) | A channel order is mapped to an order of any country. |
-| `Admin\OperationalCosts\ProfitabilityController` | 3 | 1 | out of slice 4 (slice 6) | The profitability of an order of any country, with its costs. |
-| `Admin\MyFatoorah\SettingsController` | 10 | 2 | out of slice 4 (slice 6) | Lists the payment attempts and refunds of the gateway, which belong to orders of every country, and acts on an attempt by its id. |
+| `Admin\Marketplace\FulfillmentController` | 4 | 2 | out of slice 5 (slice 5) | The marketplace fulfilments are shipments of orders of every country, picked by order number. |
+| `Admin\Marketplace\ReturnLogisticsController` | 5 | 1 | out of slice 5 (slice 5) | A marketplace return names an order of any country. |
+| `Admin\Product\ReviewController` | 7 | 1 | out of slice 5 (slice 5) | The reviews list reads the order behind a review, of any country. |
+| `Admin\Fulfillment\ProviderFulfillmentController` | 5 | 1 | out of slice 5 (slice 6) | The provider fulfilments are shipments of orders of every country. |
+| `Admin\SalesChannels\ChannelOrderController` | 7 | 7 | out of slice 5 (slice 6) | A channel order is mapped to an order of any country. |
+| `Admin\OperationalCosts\ProfitabilityController` | 3 | 1 | out of slice 5 (slice 6) | The profitability of an order of any country, with its costs. |
+| `Admin\MyFatoorah\SettingsController` | 10 | 2 | out of slice 5 (slice 6) | Lists the payment attempts and refunds of the gateway, which belong to orders of every country, and acts on an attempt by its id. |
 
 ### Routes that read or name an order, of the controllers scoped in slice 3
 
@@ -921,7 +975,7 @@ in the file of each controller. The scoped controllers are exactly the ones that
 |---|---|
 | `Admin\Settings\InhouseShopController` | `GET admin/business-settings/inhouse-shop` |
 
-### Routes that read or name an order, of the controllers that are out of slice 4
+### Routes that read or name an order, of the controllers that are out of slice 5
 
 A restricted employee who has the permission of one of these screens still sees the orders of every country there. Each is named for the slice that takes it, or for the owner.
 
@@ -948,10 +1002,10 @@ fails the day one reaches it.
 | `Admin\InhouseProductSaleController` | scoped in slice 3 | The in-house sales report counts the sales of the order lines of the employee's countries through the product repository, for their products. Every action has a rule in StaffOrderRoutes. |
 | `Admin\Customer\CustomerWalletController` | scoped in slice 3 | The wallet report and a customer's wallet movements. The reason they were the owner's to decide -- "they carry no order and no country" -- stopped being true when wallet_transactions gained storefront_country: each row records its own market, so a restricted employee is shown the movements of their markets through StaffCountryLedgerScope. The bonus setup is the platform's own configuration and lists nothing. Every action has a rule in StaffOrderRoutes. |
 | `Admin\Customer\CustomerLoyaltyController` | scoped in slice 3 | A customer's loyalty movements, narrowed the same way through loyalty_point_transactions.storefront_country. Every action has a rule in StaffOrderRoutes. |
-| `Admin\Marketplace\SellerScorecardController` | out of slice 4 (slice 5) | The scorecard of a seller is made of its orders of every country, through SellerScorecardService. |
-| `Admin\Marketplace\SettlementController` | out of slice 4 (slice 5) | The settlements of the sellers are made of their orders of every country, through the vendor ledger. |
-| `Admin\OperationalCosts\OverviewController` | out of slice 4 (slice 6) | The overview of the operational costs aggregates the profit of the orders of every country. |
-| `Admin\SalesChannels\ChannelAccountOperationsController` | out of slice 4 (slice 6) | Synchronises the orders of a sales channel account, which map to orders of any country. |
+| `Admin\Marketplace\SellerScorecardController` | out of slice 5 (slice 5) | The scorecard of a seller is made of its orders of every country, through SellerScorecardService. |
+| `Admin\Marketplace\SettlementController` | out of slice 5 (slice 5) | The settlements of the sellers are made of their orders of every country, through the vendor ledger. |
+| `Admin\OperationalCosts\OverviewController` | out of slice 5 (slice 6) | The overview of the operational costs aggregates the profit of the orders of every country. |
+| `Admin\SalesChannels\ChannelAccountOperationsController` | out of slice 5 (slice 6) | Synchronises the orders of a sales channel account, which map to orders of any country. |
 | `Admin\POS\CartController` | scoped in slice 2 | The POS cart takes, prices and counts a product by id and reads no order (StaffOrderRoutes). |
 | `Admin\ProductStockReportController` | scoped in slice 3 | The stock report and its export list the products of the employee's countries and read no order (StaffOrderRoutes). |
 | `Admin\ProductWishlistReportController` | scoped in slice 3 | The wishlist report and its export list the products of the employee's countries and read no order (StaffOrderRoutes). |

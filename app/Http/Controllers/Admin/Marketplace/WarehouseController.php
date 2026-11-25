@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin\Marketplace;
 
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopeMarketplaceToStaffCountries;
 use App\Models\Product;
 use App\Models\Warehouse;
 use App\Services\Marketplace\WarehouseService;
@@ -23,6 +24,10 @@ class WarehouseController extends BaseController
         private readonly WarehouseService $warehouses,
         private readonly AuditLogger $audit,
     ) {
+        // Slice 5 of the staff country scopes (GCC-14c): these four screens MOVE stock, so a restricted employee reaches only the
+        // products of their own countries on them -- the lists and the balances, and every write that names a product, a batch or a
+        // purchase order. Inert while the switch is off.
+        $this->middleware(ScopeMarketplaceToStaffCountries::class);
     }
 
     public function index(Request|null $request, ?string $type = null): View

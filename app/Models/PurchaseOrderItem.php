@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\StaffCountryProductRowScope;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -33,5 +34,15 @@ class PurchaseOrderItem extends Model
     public function outstanding(): int
     {
         return max(0, (int) $this->qty_ordered - (int) $this->qty_received);
+    }
+
+    /**
+     * A purchase-order line names at most one product, and a line that names none buys something that is not in the catalogue. A restricted employee reads only the lines of their own countries' products (GCC-14c, slice 5); a line with no product belongs to no market and is not one of theirs.
+     */
+    protected static function boot(): void
+    {
+        parent::boot();
+
+        static::addGlobalScope(new StaffCountryProductRowScope());
     }
 }

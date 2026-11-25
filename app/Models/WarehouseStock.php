@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\StaffCountryProductRowScope;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -23,5 +24,15 @@ class WarehouseStock extends Model
     public function warehouse(): BelongsTo
     {
         return $this->belongsTo(Warehouse::class);
+    }
+
+    /**
+     * A shelf balance is of one product, so a restricted employee reads only the balances of their own countries' products -- which is as far as the staff scope reaches on these screens, because the WAREHOUSE itself carries no market (GCC-14c, slice 5; G1-05).
+     */
+    protected static function boot(): void
+    {
+        parent::boot();
+
+        static::addGlobalScope(new StaffCountryProductRowScope());
     }
 }

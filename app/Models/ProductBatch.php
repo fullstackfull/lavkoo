@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\StaffCountryProductRowScope;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -38,5 +39,15 @@ class ProductBatch extends Model
     public function scopeActive($query)
     {
         return $query->where('status', self::STATUS_ACTIVE)->where('quantity', '>', 0);
+    }
+
+    /**
+     * A batch is one product's, so a restricted employee reads and writes only the batches of their own countries' products (GCC-14c, slice 5). Inert for every request that binds no country.
+     */
+    protected static function boot(): void
+    {
+        parent::boot();
+
+        static::addGlobalScope(new StaffCountryProductRowScope());
     }
 }
