@@ -1,0 +1,101 @@
+name: CI quick
+
+# A TARGETED run, on demand only, for use DURING development.
+#
+# `ci.yml` is the protection path and this file does not touch it: that workflow still runs its whole matrix on every pull
+# request and on every push to `main`, which is where a stage is judged before it is merged. The problem this solves is a
+# different one -- `ci.yml` expands to about thirty jobs, of which `tests-mysql` alone is two engines by fifteen groups, and
+# the whole SQLite suite has taken forty-five minutes on a slow runner -- so a single dispatch is a two-hour wait, and a
+# second dispatch while the first is queued does not run sooner: the concurrency group holds it, and a third DISCARDS the
+# one waiting in the middle.
+#
+# So: no `pull_request` trigger, no `push` trigger, nothing automatic. It cannot make a merge look green, because nothing
+# reads it as a merge gate. It only lets a developer ask one question quickly instead of waiting for the answer to thirty.
+#
+# Protection is not reduced anywhere. Use `ci.yml` for the stage that is going to `main`.
+on:
+  workflow_dispatch:
+    inputs:
+      paths:
+        description: 'Test paths or files, space separated. Empty runs the whole suite.'
+        required: false
+        default: ''
+      engine:
+        description: 'sqlite | mysql | mariadb'
+        required: false
+        default: 'sqlite'
+      php:
+        description: 'PHP version'
+        required: false
+        default: '8.3'
+
+permissions:
+  contents: read
+
+concurrency:
+  # Its OWN group, so a quick run never queues behind or cancels the protection path, and a newer quick run of the same
+  # branch supersedes an older one, which is what you want while iterating.
+  group: ci-quick-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PHP_EXTENSIONS: curl, dom, fileinfo, gd, intl, json, libxml, mbstring, mysqli, openssl, pdo_mysql, pdo_sqlite, sqlite3, zip, bcmath, exif
+
+jobs:
+  targeted:
+    name: ${{ inputs.engine }} (PHP ${{ inputs.php }}) ${{ inputs.paths }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+
+    services:
+      # Started for every run and simply unused by a sqlite one: a service block cannot be made conditional, and an idle
+      # container costs the run nothing it would not otherwise spend waiting for a runner.
+      mysql:
+        image: ${{ inputs.engine == 'mariadb' && 'mariadb:11.4.2' || 'mysql:8.0' }}
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root-password
+          MYSQL_DATABASE: pharmacy_testing
+          MARIADB_ROOT_PASSWORD: ci-root-password
+          MARIADB_DATABASE: pharmacy_testing
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="${{ inputs.engine == 'mariadb' && 'mariadb-admin ping -h 127.0.0.1 -uroot -pci-root-password' || 'mysqladmin ping -h 127.0.0.1 -pci-root-password' }}"
+          --health-interval=10s --health-timeout=5s --health-retries=20
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php }}
+          extensions: ${{ env.PHP_EXTENSIONS }}
+          coverage: none
+      - name: Cache Composer downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer
+          key: composer-${{ inputs.php }}-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-${{ inputs.php }}-
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist --no-scripts
+      - name: Environment (the example file carries a throwaway APP_KEY; no secret is used)
+        run: cp .env.example .env
+      - name: strace (a deployment-tooling test watches the order in which a rollback restores and deletes)
+        run: sudo apt-get install -y --no-install-recommends strace
+
+      - name: Targeted tests, SQLite
+        if: inputs.engine == 'sqlite'
+        env:
+          EXPECT_DB_DRIVER: sqlite
+        run: vendor/bin/phpunit --display-skipped ${{ inputs.paths }}
+
+      - name: Targeted tests on a real engine
+        if: inputs.engine != 'sqlite'
+        env:
+          DB_CONNECTION: mysql
+          DB_HOST: 127.0.0.1
+          DB_PORT: '3306'
+          DB_DATABASE: pharmacy_testing
+          DB_USERNAME: root
+          DB_PASSWORD: ci-root-password
+        run: vendor/bin/phpunit -c phpunit.mysql.xml --display-skipped ${{ inputs.paths }}
