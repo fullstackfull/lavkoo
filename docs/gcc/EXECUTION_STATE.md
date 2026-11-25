@@ -16,7 +16,7 @@ or financial control. A pending owner decision stops its own task, never the pro
 |---|---|---|---|
 | `fullstackfull/lavkoo` | `gcc/development` | see `git log -1` | up to `ca4f68e0`, whose tree is byte-identical to `bc39790` -- the SHA CI run 655 proved green. Everything after it waits on a green run of its own |
 | `fullstackfull/lavkooapp` | `gcc/development` | see `git log -1` | up to `78fa518`, whose tree is byte-identical to `9a4e1c2` -- the SHA CI run 51 proved green |
-| `fullstackfull/lavkooappseller` | `gcc/development` | see `git log -1` | its earlier GCC work is on main; `596ed26` (the held-shipment screen) is not yet |
+| `fullstackfull/lavkooappseller` | `gcc/development` | see `git log -1` | up to `5fc4411`, whose tree is byte-identical to `596ed26` -- the SHA CI run 52 proved green |
 
 The customer app's CI has no `workflow_dispatch`: it runs on a push to `gcc/**`, so every push to that branch is its own
 run and no dispatch is needed. The backend's runs ONLY on dispatch for a branch, so a push there has to be followed by
@@ -71,20 +71,21 @@ refusal vocabulary in Arabic and English, and the customer app showing every rea
 H1-09 is done but for one criterion, and that one is BLOCKED rather than unwritten: naming which tax regime a
 cross-border sale falls under needs the owner's Q-11 answered. H1-03 and H1-06 are complete in code.
 
-Done since: the seller's held shipments (`GET api/v3/seller/orders/{id}/shipment-holds` and the screen above the
-earnings), which closed H1-04 and H1-06 completely. H1-03, H1-04 and H1-06 are now complete in code; H1-09 has one
-criterion left and it is blocked on Q-11.
+Done since: the seller's held shipments, which closed H1-04 and H1-06 completely; H1-08's zone rule pinned, the app and
+website brought into agreement, the per-kilogram rate given a weight and the rate's origin recorded on the order; and
+H1-05's city serviceability moved from the dispatcher to the checkout. H1-03, H1-04 and H1-06 are complete in code.
+What is left on H1-05, H1-08 and H1-09 is owner decisions (licensed city lists, Q-07, Q-08, Q-11), not code.
 
-1. **H1-08** — shipping cost per destination and route, in the store's currency. The engine already knows whether an
-   order crosses a border and what route it takes, so this is a rate table and the checkout reading it, not a new
-   decision. Q-07 and Q-08 are open on the rates themselves, so the mechanism ships empty like the duty routes.
-2. **H1-05** — country-aware address rules. Needs licensed region and city lists for five countries, so the parts that
-   do not depend on them are the phone and postal formats per country and refusing a city no carrier serves at
-   checkout rather than only at dispatch.
-3. **H1-02 remainder** — filtering candidate cities by the country of OUR city. Blocked on H1-10 / the address system
+1. **H1-13** — the cross-border scenario matrix, checkout to dispatch, in the Fulfillment group so it runs on SQLite,
+   MySQL 8 and MariaDB. The tracker's "skip the cases that need the engine" caveat is gone, because the engine exists.
+   One case per shape of order the six markets can produce, each naming its own outcome: the decision, the reason, the
+   duty quote and whether the dispatcher held the parcel or sent it. A draft is in the scratchpad.
+2. **H1-02 remainder** — filtering candidate cities by the country of OUR city. Blocked on H1-10 / the address system
    going multi-country; recorded as blocked rather than faked.
-4. Then the rest of axis H, then the axes with the most missing, by dependency rather than by ease: L (GCC-20 super
-   admin), K and J (the two apps), B, F, G.
+3. **H1-11** (carrier adapters open to other countries, 4 missing) and **H1-14** (local shipping rules belong to a
+   storefront, 3 missing) are the largest remaining H1 gaps; H2-06, H2-07 and H2-10 the largest in H2.
+4. Then the axes with the most missing, by dependency rather than by ease: L (GCC-20 super admin), K and J (the two
+   apps), B, F, G.
 
 ## Rules this work follows, learned the hard way
 
