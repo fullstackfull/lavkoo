@@ -15,6 +15,7 @@ use App\Services\MyFatoorah\PaymentSettlementService;
 use App\Services\MyFatoorah\PaymentVerificationService;
 use App\Services\MyFatoorah\ReconciliationService;
 use App\Services\MyFatoorah\RefundService;
+use App\Services\Refund\GatewayRefundLink;
 use App\Services\Payments\GatewayAccountDirectory;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Contracts\View\View;
@@ -207,7 +208,7 @@ class SettingsController extends Controller
      * double-submitted form sends one refund. Returning stock is NOT done here — the store's returns
      * workflow owns that, and money coming back is not evidence that goods did.
      */
-    public function refund(Request $request, int $attempt): RedirectResponse
+    public function refund(Request $request, int $attempt, GatewayRefundLink $gatewayRefundLink): RedirectResponse
     {
         $row = MyFatoorahPaymentAttempt::query()->findOrFail($attempt);
 
@@ -224,11 +225,19 @@ class SettingsController extends Controller
 
         $amount = round((float) $request['amount'], 2);
 
+        // Which sale this money is going back for (D2-15). The refund row has carried `order_id` and `refund_request_id` since it was
+        // created and this screen passed neither, so every refund the platform sent through a gateway was filed against a payment attempt
+        // and against nothing a customer, an accountant or a seller could find it by. Worked out rather than asked for, and null wherever
+        // the answer is not certain -- a payment that became several orders, or an amount that matches two returned lines.
+        $link = $gatewayRefundLink->of(attempt: $row, amount: $amount);
+
         $result = $this->refunds->request(
             attempt: $row,
             amount: $amount,
             comment: (string) ($request['comment'] ?? ''),
             requestedBy: auth('admin')->id(),
+            refundRequestId: $link['refund_request_id'],
+            orderId: $link['order_id'],
             // Keyed on the attempt, the amount and the comment: resubmitting the same form is one refund,
             // while a deliberate second partial refund of the same amount needs a different comment —
             // which the form asks for, so the operator states their intent rather than guessing.
