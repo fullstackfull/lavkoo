@@ -140,7 +140,10 @@ class ProviderOrderDispatcher
                 return null;
             }
 
-            $config = $this->connections->config($provider);
+            // H1-11: the account of the country the parcel is going TO. One carrier code can hold two accounts -- a Saudi one and a
+            // Kuwaiti one -- and a country without an account of its own reads the platform-wide row, which is the only row a one-account
+            // platform has. Asked once here, so the whole dispatch of this shipment is done under one account.
+            $config = $this->connections->config($provider, DestinationCountry::deliveryOf($fulfillment->order_id));
             $order = Order::find($fulfillment->order_id);
 
             if ($this->eligibility->isClosed($order)) {

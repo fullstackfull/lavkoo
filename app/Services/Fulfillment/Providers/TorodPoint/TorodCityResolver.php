@@ -12,10 +12,12 @@ use App\Services\Address\LegacyCityMatcher;
 use App\Services\AuditLogger;
 use App\Services\Fulfillment\Data\CityResolution;
 use App\Services\Fulfillment\Exceptions\CityMappingRefusedException;
+use App\Services\Fulfillment\ProviderCityCountry;
 use App\Services\Fulfillment\ProviderCityMappingService;
 use App\Services\Fulfillment\Support\ArabicText;
 use App\Services\Fulfillment\Support\FieldMap;
 use App\Services\Fulfillment\Support\ProviderSyncRecorder;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
 /**
@@ -45,39 +47,56 @@ class TorodCityResolver
         private readonly ProviderCityMappingService $mappings,
         private readonly LegacyCityMatcher $matcher,
         private readonly AuditLogger $audit,
+        private readonly ProviderCityCountry $lists,
     ) {
+    }
+
+    /**
+     * The carrier's cities, narrowed to the ONE list this country reads (H1-11).
+     *
+     * A carrier that serves two countries numbers its cities from 1 in each, so the lists are kept apart and a lookup reads one of them: the
+     * country's own where it has imported one, and otherwise the platform-wide list, which is what every lookup read before this existed. A
+     * caller that names no country -- the mapping screen, an alias being saved -- reads the platform-wide list, as it always did.
+     */
+    private function cities(?string $country = null): Builder
+    {
+        return $this->lists->narrow(ProviderCity::where('provider', self::PROVIDER), self::PROVIDER, $country);
     }
 
     /** @param array<array-key, mixed> $address the order's address snapshot as an array */
     public function resolveForAddress(array $address): CityResolution
     {
         $typedCity = AddressSnapshot::plain($address, 'city');
+        // Where the parcel is going decides which of the carrier's city lists is read. The address's own country, not the order's market: a
+        // cross-border order is sold in one country and delivered in another, and it is the delivery country whose cities the carrier lists.
+        $country = AddressSnapshot::plain($address, 'country');
+
         if (!$this->mappings->available()) {
-            $city = $this->resolve($typedCity);
+            $city = $this->resolve($typedCity, country: $country);
 
             return $city === null ? CityResolution::unmappedAsBefore($typedCity) : CityResolution::resolved(city: $city);
         }
 
         $cityId = (int) ($address['city_id'] ?? 0);
         if ($cityId > 0) {
-            return $this->fromApprovedMapping(cityId: $cityId, cityName: AddressSnapshot::cityName($address, 'ar') ?? $typedCity);
+            return $this->fromApprovedMapping(cityId: $cityId, cityName: AddressSnapshot::cityName($address, 'ar') ?? $typedCity, country: $country);
         }
 
         $normalized = ArabicText::normalize($typedCity);
-        $aliased = $normalized === '' ? null : $this->fromAlias($normalized);
+        $aliased = $normalized === '' ? null : $this->fromAlias($normalized, country: $country);
         if ($aliased !== null) {
             return $aliased->missing_since === null ? CityResolution::resolved(city: $aliased) : CityResolution::providerCityMissing(cityName: $typedCity);
         }
 
-        return $this->fromTypedCity(address: $address, typedCity: $typedCity);
+        return $this->fromTypedCity(address: $address, typedCity: $typedCity, country: $country);
     }
 
     /** The cached city for a typed name: an administrator's alias, else the one city that name matches exactly. */
-    public function resolve(?string $city): ?ProviderCity
+    public function resolve(?string $city, ?string $country = null): ?ProviderCity
     {
         $normalized = ArabicText::normalize($city);
 
-        return $normalized === '' ? null : ($this->fromAlias($normalized) ?? $this->fromCityList($normalized));
+        return $normalized === '' ? null : ($this->fromAlias($normalized, country: $country) ?? $this->fromCityList($normalized, country: $country));
     }
 
     /** @return array{ok: bool, count?: int, verdict?: string, reason?: ?string, error?: string} */
@@ -110,7 +129,7 @@ class TorodCityResolver
             throw new CityMappingRefusedException('city_alias_spelling_empty');
         }
 
-        $city = ProviderCity::where('provider', self::PROVIDER)->where('external_id', $externalCityId)->first();
+        $city = $this->cities()->where('external_id', $externalCityId)->first();
         if ($city === null || $city->missing_since !== null) {
             throw new CityMappingRefusedException('city_alias_city_not_listed');
         }
@@ -132,7 +151,7 @@ class TorodCityResolver
             return collect();
         }
 
-        return ProviderCity::where('provider', self::PROVIDER)
+        return $this->cities()
             ->where(static fn ($builder) => $builder->where('normalized_ar', 'like', '%' . $normalized . '%')->orWhere('normalized_en', 'like', '%' . $normalized . '%'))
             ->orderBy('name_en')
             ->limit($limit)
@@ -140,10 +159,10 @@ class TorodCityResolver
     }
 
     /** An old address: only its typed text says where it goes, so its internal city must be certain before a mapping is consulted. */
-    private function fromTypedCity(array $address, string $typedCity): CityResolution
+    private function fromTypedCity(array $address, string $typedCity, ?string $country = null): CityResolution
     {
         if (!AddressSchema::hasCities()) {
-            $listed = $this->fromCityList(ArabicText::normalize($typedCity));
+            $listed = $this->fromCityList(ArabicText::normalize($typedCity), country: $country);
 
             return $listed === null ? CityResolution::unmapped(cityName: $typedCity) : CityResolution::resolved(city: $listed);
         }
@@ -152,15 +171,15 @@ class TorodCityResolver
         $match = $this->matcher->match(cityText: $typedCity, regionText: is_scalar($state) ? (string) $state : null);
 
         return $match->matched()
-            ? $this->fromApprovedMapping(cityId: (int) $match->city->id, cityName: (string) $match->city->name_ar)
+            ? $this->fromApprovedMapping(cityId: (int) $match->city->id, cityName: (string) $match->city->name_ar, country: $country)
             : CityResolution::unmapped(cityName: $typedCity);
     }
 
-    private function fromApprovedMapping(int $cityId, string $cityName): CityResolution
+    private function fromApprovedMapping(int $cityId, string $cityName, ?string $country = null): CityResolution
     {
         $mapping = $this->mappings->approvedFor(provider: self::PROVIDER, cityId: $cityId);
         if ($mapping !== null) {
-            $city = ProviderCity::where('provider', self::PROVIDER)->where('external_id', $mapping->external_city_id)->first();
+            $city = $this->cities($country)->where('external_id', $mapping->external_city_id)->first();
 
             return $city !== null && $city->missing_since === null
                 ? CityResolution::resolved(city: $city, addressCityId: $cityId)
@@ -176,16 +195,16 @@ class TorodCityResolver
         };
     }
 
-    private function fromAlias(string $normalized): ?ProviderCity
+    private function fromAlias(string $normalized, ?string $country = null): ?ProviderCity
     {
         $alias = ProviderCityAlias::where('provider', self::PROVIDER)->where('alias', $normalized)->first();
 
-        return $alias === null ? null : ProviderCity::where('provider', self::PROVIDER)->where('external_id', $alias->external_city_id)->first();
+        return $alias === null ? null : $this->cities($country)->where('external_id', $alias->external_city_id)->first();
     }
 
-    private function fromCityList(string $normalized): ?ProviderCity
+    private function fromCityList(string $normalized, ?string $country = null): ?ProviderCity
     {
-        $matches = ProviderCity::where('provider', self::PROVIDER)
+        $matches = $this->cities($country)
             ->where(static fn ($builder) => $builder->where('normalized_ar', $normalized)->orWhere('normalized_en', $normalized))
             ->limit(2)
             ->get();
@@ -221,7 +240,11 @@ class TorodCityResolver
             $english = (string) ($city['englishName'] ?? $city['name'] ?? '');
 
             ProviderCity::updateOrCreate(
-                ['provider' => self::PROVIDER, 'external_id' => (string) $city['id']],
+                // The platform-wide list, which is the one list this path has ever written: a per-country import is the directory's
+                // (H1-10), and this runs only on a store whose mapping tables have not been migrated at all.
+                $this->lists->applies()
+                    ? ['provider' => self::PROVIDER, ProviderCityCountry::COLUMN => ProviderCityCountry::PLATFORM_WIDE, 'external_id' => (string) $city['id']]
+                    : ['provider' => self::PROVIDER, 'external_id' => (string) $city['id']],
                 [
                     'name_ar' => $arabic,
                     'name_en' => $english !== '' ? $english : null,

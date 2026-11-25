@@ -11,6 +11,7 @@ use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 /**
@@ -23,6 +24,11 @@ use Illuminate\Support\Str;
  *
  * Outbound traffic needs two independent switches: the environment's global kill switch and this
  * provider's own `enabled` flag. `canCall()` is the single place that rule lives.
+ *
+ * **One carrier, two countries** (H1-11). A carrier that serves Saudi Arabia and Kuwait is one adapter with TWO accounts, so a row is keyed
+ * by (provider, country) and `''` is the PLATFORM-WIDE row -- the only row every installation has today. Every reader takes an optional
+ * country and falls back to that row when the country asked for has no account of its own, so a platform with one account answers exactly as
+ * it did, by the same query, whatever country is asked about. Nothing writes a country until an operator gives a carrier a second account.
  */
 class ProviderConnectionManager
 {
@@ -33,6 +39,13 @@ class ProviderConnectionManager
      * credentials nothing would accept could be configured and never authenticate. The two below are not in the configuration on purpose -- what a
      * shipped adapter authenticates with is part of that adapter, not a setting -- so their behaviour is byte for byte what it was.
      */
+    /** The row that belongs to no country in particular: the account every installation has before a carrier serves a second market. */
+    public const PLATFORM_WIDE = '';
+
+    private const COUNTRY = 'country';
+
+    private ?bool $rowsCarryACountry = null;
+
     private const SECRET_KEYS = [
         'm5azn' => ['email', 'password', 'access_token', 'token_expires_at', 'webhook_secret'],
         // Fulfillment API v5 authenticates with headers (username/password); Lastmile API v2 with an
@@ -84,30 +97,99 @@ class ProviderConnectionManager
         return self::SECRET_KEYS[$provider->code()] ?? [];
     }
 
-    /** May any outbound call be made for this provider right now? */
-    public function canCall(ProviderIdentity $provider): bool
+    /** May any outbound call be made for this provider right now? For the account of this country, where it has one of its own. */
+    public function canCall(ProviderIdentity $provider, ?string $country = null): bool
     {
-        return $this->isGloballyEnabled() && $this->config($provider)->enabled;
+        return $this->isGloballyEnabled() && $this->config($provider, $country)->enabled;
     }
 
-    public function config(ProviderIdentity $provider): ProviderConfig
+    /**
+     * This carrier's connection settings for a country: its own account where it has one, and otherwise the platform-wide row.
+     *
+     * A caller that names no country gets the platform-wide row, which is what every caller got before carriers had countries.
+     */
+    public function config(ProviderIdentity $provider, ?string $country = null): ProviderConfig
     {
-        $row = IntegrationSetting::where('provider', $provider->code())->first();
+        return $this->configOfTheRow(provider: $provider, row: $this->rowFor(provider: $provider, country: $country));
+    }
 
-        $settings = array_replace(
-            $this->registry->defaultSettings($provider),
-            is_array($row?->settings) ? $row->settings : [],
-        );
+    /** The row to write, locked, creating one for this country if it has none. */
+    private function lockedRow(ProviderIdentity $provider, string $country): IntegrationSetting
+    {
+        $rows = IntegrationSetting::where('provider', $provider->code());
 
-        $baseUrl = rtrim((string) ($row?->base_url ?: config('fulfillment.providers.' . $provider->code() . '.default_base_url')), '/');
+        if ($this->rowsCarryACountry()) {
+            $rows->where(self::COUNTRY, $country);
+        }
 
+        return $rows->lockForUpdate()->first() ?? new IntegrationSetting(['provider' => $provider->code()]);
+    }
+
+    /** The settings a given row holds, which is what `config()` answers once the row is chosen. */
+    private function configOfTheRow(ProviderIdentity $provider, ?IntegrationSetting $row): ProviderConfig
+    {
         return new ProviderConfig(
             provider: $provider,
             enabled: (bool) ($row?->enabled ?? false),
-            baseUrl: $baseUrl,
-            settings: $settings,
+            baseUrl: rtrim((string) ($row?->base_url ?: config('fulfillment.providers.' . $provider->code() . '.default_base_url')), '/'),
+            settings: array_replace($this->registry->defaultSettings($provider), is_array($row?->settings) ? $row->settings : []),
             credentials: $this->decrypt($row),
         );
+    }
+
+    /**
+     * The countries this carrier has an account of its OWN for, in order. The platform-wide row is not one of them: it is what every country
+     * without an account falls back to, and calling it a country would make a one-account platform look as though it served none.
+     *
+     * @return list<string>
+     */
+    public function countriesWithTheirOwnAccount(ProviderIdentity $provider): array
+    {
+        if (!$this->rowsCarryACountry()) {
+            return [];
+        }
+
+        return IntegrationSetting::query()
+            ->where('provider', $provider->code())
+            ->where(self::COUNTRY, '<>', self::PLATFORM_WIDE)
+            ->orderBy(self::COUNTRY)
+            ->pluck(self::COUNTRY)
+            ->map(static fn (mixed $country): string => (string) $country)
+            ->all();
+    }
+
+    /**
+     * The row an answer is read from: the country's own, else the platform-wide one.
+     *
+     * The country is compared BYTE for byte, as the column is declared, so a stored `kw` is not read as `KW`; `countryKey()` is what keeps
+     * what this class writes upper case.
+     */
+    private function rowFor(ProviderIdentity $provider, ?string $country): ?IntegrationSetting
+    {
+        $rows = IntegrationSetting::where('provider', $provider->code());
+
+        if (!$this->rowsCarryACountry()) {
+            return $rows->first();
+        }
+
+        $code = $this->countryKey($country);
+
+        return ($code === self::PLATFORM_WIDE ? null : (clone $rows)->where(self::COUNTRY, $code)->first())
+            ?? $rows->where(self::COUNTRY, self::PLATFORM_WIDE)->first();
+    }
+
+    /** What a country means as a key here: upper case without spaces, and the platform-wide row for anything that names no country. */
+    private function countryKey(?string $country): string
+    {
+        $code = strtoupper(trim((string) $country));
+
+        return preg_match('/^[A-Z]{2}$/', $code) === 1 ? $code : self::PLATFORM_WIDE;
+    }
+
+    /** Whether the credentials table carries a country at all. Before the migration it does not, and nothing here reads one. */
+    private function rowsCarryACountry(): bool
+    {
+        return $this->rowsCarryACountry ??= Schema::hasColumn('integration_settings', self::COUNTRY);
     }
 
     /**
@@ -126,12 +208,15 @@ class ProviderConnectionManager
         array $secrets = [],
         array $clearSecrets = [],
         array $auditContext = [],
+        ?string $country = null,
     ): void {
-        DB::transaction(function () use ($provider, $enabled, $baseUrl, $settings, $secrets, $clearSecrets, $auditContext): void {
-            $row = IntegrationSetting::where('provider', $provider->code())->lockForUpdate()->first()
-                ?? new IntegrationSetting(['provider' => $provider->code()]);
+        DB::transaction(function () use ($provider, $enabled, $baseUrl, $settings, $secrets, $clearSecrets, $auditContext, $country): void {
+            $code = $this->rowsCarryACountry() ? $this->countryKey($country) : self::PLATFORM_WIDE;
+            $row = $this->lockedRow(provider: $provider, country: $code);
 
-            $before = $this->config($provider);
+            // The row of the country being WRITTEN, not whichever row a reader would fall back to: starting a second country's account from
+            // the platform-wide one's settings would hand it the first country's map and its switch.
+            $before = $this->configOfTheRow(provider: $provider, row: $row->exists ? $row : null);
             $enabled ??= $before->enabled;
 
             $merged = array_replace(
@@ -159,6 +244,11 @@ class ProviderConnectionManager
 
             $row->name = config('fulfillment.providers.' . $provider->code() . '.label', $provider->code());
             $row->enabled = $enabled;
+
+            if ($this->rowsCarryACountry()) {
+                $row->setAttribute(self::COUNTRY, $code);
+            }
+
             $row->base_url = $baseUrl === null ? $row->base_url : ($baseUrl === '' ? null : rtrim($baseUrl, '/'));
             $row->settings = $merged;
             $row->credentials = $credentials === [] ? null : Crypt::encryptString(json_encode($credentials, JSON_THROW_ON_ERROR));
@@ -169,7 +259,7 @@ class ProviderConnectionManager
                 subject: ['type' => 'integration_setting', 'id' => $row->id],
                 before: ['enabled' => $before->enabled, 'settings' => $this->auditableSettings($before->settings())],
                 after: ['enabled' => $enabled, 'settings' => $this->auditableSettings($merged)],
-                context: ['provider' => $provider->code(), 'secrets_changed' => $changedSecrets] + $auditContext,
+                context: ['provider' => $provider->code(), 'country' => $code, 'secrets_changed' => $changedSecrets] + $auditContext,
             );
         });
     }
@@ -178,10 +268,13 @@ class ProviderConnectionManager
      * Store a secret the SYSTEM obtained (an access token). Read-modify-write under a row lock so a
      * concurrent admin save cannot be overwritten by it, nor overwrite it.
      */
-    public function putRuntimeSecret(ProviderIdentity $provider, string $key, ?string $value): void
+    public function putRuntimeSecret(ProviderIdentity $provider, string $key, ?string $value, ?string $country = null): void
     {
-        DB::transaction(function () use ($provider, $key, $value): void {
-            $row = IntegrationSetting::where('provider', $provider->code())->lockForUpdate()->first();
+        DB::transaction(function () use ($provider, $key, $value, $country): void {
+            // The row the token was obtained FOR, so a token issued by one country's account is never written over another's. A country
+            // without an account of its own has none to write to, which is the platform-wide row it reads from.
+            $row = $this->rowFor(provider: $provider, country: $country);
+            $row = $row === null ? null : IntegrationSetting::whereKey($row->getKey())->lockForUpdate()->first();
             if ($row === null) {
                 return;
             }
@@ -199,7 +292,7 @@ class ProviderConnectionManager
     }
 
     /** Generate a fresh webhook secret and return it ONCE; only its presence is shown afterwards. */
-    public function rotateWebhookSecret(ProviderIdentity $provider): string
+    public function rotateWebhookSecret(ProviderIdentity $provider, ?string $country = null): string
     {
         $secret = Str::random(48);
         $this->save(
@@ -208,6 +301,7 @@ class ProviderConnectionManager
             baseUrl: null,
             settings: [],
             secrets: ['webhook_secret' => $secret],
+            country: $country,
         );
 
         return $secret;
