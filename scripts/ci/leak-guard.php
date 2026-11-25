@@ -49,6 +49,22 @@ final class Scanner
     /** Documentation shows examples; but recorded provider evidence is data, and it gets every rule. */
     private const DOCUMENTATION = '#^docs/(?!integrations/recorded-schemas/).*\.md$#';
 
+    /**
+     * A mobile number of the five markets beside Saudi Arabia, by each country's own numbering plan: the Emirates 5 and eight digits,
+     * Kuwait 5, 6 or 9 and seven, Qatar 3, 5, 6 or 7 and seven, Bahrain 3 and seven, Oman 7 or 9 and seven.
+     *
+     * The platform serves six markets and this scanner knew one of them, so a real Emirati or Kuwaiti customer's number added to a tracked
+     * file broke no rule anywhere in the programme while a Saudi one was refused. That is the gap this closes, and it is a personal-data
+     * gap and not a theoretical one: the apps' port of this same scanner found that an Emirati number passed every rule it had.
+     *
+     * Unlike the Saudi rule beside it, none of these has a bare LOCAL branch. Saudi numbers are matched in the `05...` form as well,
+     * because that form is unmistakable at ten digits; a bare eight-digit Kuwaiti or Qatari number is not, and reading every such run of
+     * digits as a telephone number would refuse order totals, stock counts and identifiers. These therefore require the country code,
+     * which is also how a number of these markets is actually written down. Arabic-Indic and Persian digits are handled for free: the
+     * line is put through `withAsciiDigits()` before any rule sees it.
+     */
+    private const GCC_MOBILE = '/(?<![\d.])(?:(?:\+?971|00971)[\s\-]?5(?:[\s\-]?\d){8}|(?:\+?965|00965)[\s\-]?[569](?:[\s\-]?\d){7}|(?:\+?974|00974)[\s\-]?[3567](?:[\s\-]?\d){7}|(?:\+?973|00973)[\s\-]?3(?:[\s\-]?\d){7}|(?:\+?968|00968)[\s\-]?[79](?:[\s\-]?\d){7})(?!\d)/';
+
     /** Files where `KEY=value` and `key: value` carry configuration without quotes. */
     private const CONFIGURATION = '#(^|/)(\.env[^/]*|[^/]*\.env|\.npmrc|\.netrc|Dockerfile|docker-compose[^/]*|[^/]*\.(ini|ya?ml|conf|cnf|sh|properties|toml))$#i';
 
@@ -148,6 +164,9 @@ final class Scanner
         }
         if (!$fixture && !$vendored && preg_match('/(?<![\d.])(?:\+?966|00966|0)[\s\-]?5(?:[\s\-]?\d){8}(?!\d)/', $line) === 1) {
             $broken[] = 'saudi-mobile-number';
+        }
+        if (!$fixture && !$vendored && preg_match(self::GCC_MOBILE, $line) === 1) {
+            $broken[] = 'gcc-mobile-number';
         }
         if (!$fixture && !$vendored && $this->containsPersonalAddress($line)) {
             $broken[] = 'email-address';

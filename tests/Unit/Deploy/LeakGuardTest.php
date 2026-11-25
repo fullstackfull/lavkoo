@@ -128,6 +128,13 @@ class LeakGuardTest extends TestCase
             'a number with spaces' => ['app/Leaky.php', 'call +966 55 123 ' . '4567', 'saudi-mobile-number'],
             'a number with dashes' => ['app/Leaky.php', 'call 00966-55-123-' . '4567', 'saudi-mobile-number'],
             'a number in arabic digits' => ['app/Leaky.php', 'call ٠٥٥١٢٣' . '٤٥٦٧', 'saudi-mobile-number'],
+            'an emirati mobile number' => ['app/Leaky.php', 'call +9715' . '01234567', 'gcc-mobile-number'],
+            'a kuwaiti mobile number' => ['app/Leaky.php', 'call +9655' . '0123456', 'gcc-mobile-number'],
+            'a qatari mobile number' => ['app/Leaky.php', 'call +9743' . '3123456', 'gcc-mobile-number'],
+            'a bahraini mobile number' => ['app/Leaky.php', 'call +9733' . '6123456', 'gcc-mobile-number'],
+            'an omani mobile number' => ['app/Leaky.php', 'call +9689' . '2123456', 'gcc-mobile-number'],
+            'a gcc number with spaces and dashes' => ['app/Leaky.php', 'call 00971-50 123 ' . '4567', 'gcc-mobile-number'],
+            'a gcc number in arabic digits' => ['app/Leaky.php', 'call +٩٦٥٥٠١٢٣' . '٤٥٦', 'gcc-mobile-number'],
             'a personal e-mail address' => ['app/Leaky.php', 'owner: someone' . '@gmail.com', 'email-address'],
             'a work e-mail address' => ['docs/team.md', 'write to omar.alharbi' . '@pharmacy.sa', 'email-address'],
             'a number in a json fixture' => ['tests/Fixtures/order.json', '{"phone": "05' . '51234567"}', 'saudi-mobile-number'],
@@ -177,6 +184,13 @@ class LeakGuardTest extends TestCase
             'an example in the documentation' => ['docs/guide.md', "Use password = 'something-long-enough-1' in the form"],
             'an address in a lock file' => ['composer.lock', '"email": "someone@gmail.com"'],
             'a number in a vendored script' => ['public/assets/lib.min.js', 'var example = "0551234567";'],
+            // The four shapes the GCC numbering rule must NOT read as a telephone number. A bare run of eight digits is a Kuwaiti or
+            // Qatari number's LENGTH, which is why that rule requires the country code: stock counts, order totals and identifiers are
+            // eight digits all over this codebase, and a rule that refused them would be switched off within the week.
+            'a bare eight-digit figure is a stock count, not a kuwaiti number' => ['app/Services/Thing.php', 'const CEILING = 50123456;'],
+            'a country code reached through a dot is part of a version' => ['docs/deploy.md', 'toolchain v1.971.5012345678 installed'],
+            'a country code reached through digits is part of an identifier' => ['app/Services/Thing.php', "\$reference = '4400971501234567';"],
+            'an omani number in a php fixture is an invented person' => ['tests/Feature/CheckoutTest.php', "\$phone = '+96892123456';"],
         ];
     }
 
