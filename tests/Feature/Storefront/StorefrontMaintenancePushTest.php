@@ -163,6 +163,60 @@ class StorefrontMaintenancePushTest extends TestCase
         $this->assertCount(1, $this->whatWasTold());
     }
 
+    /**
+     * The config answer names WHICH markets are paused (K-V4).
+     *
+     * Both apps have only ever been told the platform's one maintenance switch, with no country in it, so a seller whose market was stopped
+     * and a seller whose market was selling were told the same thing -- and a seller who works in both could not tell which of them stopped.
+     * The per-market block is beside that one, keyed by country because `/api/v1/config` deliberately resolves no storefront of its own.
+     */
+    public function test_the_config_answer_names_which_markets_are_paused(): void
+    {
+        $this->activeKuwait();
+        $this->lifecycle()->pause(country: 'KW', mode: StorefrontLifecycle::MAINTENANCE, by: self::PERSON, reason: self::REASON, message: 'Back on Sunday');
+
+        $paused = $this->lifecycle()->apiPause();
+
+        $this->assertSame(['KW'], array_keys($paused['storefront_pause']), 'the market that is stopped, and no other');
+        $this->assertSame(
+            ['country' => 'KW', 'state' => StorefrontLifecycle::PAUSED, 'mode' => StorefrontLifecycle::MAINTENANCE, 'message' => 'Back on Sunday', 'until' => null],
+            $paused['storefront_pause']['KW'],
+        );
+    }
+
+    /** The operator's own record of why a market was stopped, and who stopped it, is not sent to an app. */
+    public function test_the_config_answer_carries_no_reason_no_person_and_no_reference(): void
+    {
+        $this->activeKuwait();
+        $this->lifecycle()->pause(country: 'KW', mode: StorefrontLifecycle::MAINTENANCE, by: self::PERSON, reason: self::REASON);
+
+        $sent = $this->lifecycle()->apiPause()['storefront_pause']['KW'];
+
+        $this->assertSame(['country', 'state', 'mode', 'message', 'until'], array_keys($sent));
+        $this->assertStringNotContainsString(self::PERSON, (string) json_encode($sent));
+        $this->assertStringNotContainsString(self::REASON, (string) json_encode($sent));
+    }
+
+    public function test_a_market_that_is_selling_is_not_in_the_map_and_a_quiet_platform_sends_no_key(): void
+    {
+        $this->activeKuwait();
+
+        $this->assertSame([], $this->lifecycle()->apiPause(), 'nothing is paused, so there is no key to read');
+
+        $this->lifecycle()->pause(country: 'KW', mode: StorefrontLifecycle::BROWSE_ONLY, by: self::PERSON, reason: self::REASON);
+
+        $this->assertSame(['KW'], array_keys($this->lifecycle()->apiPause()['storefront_pause']), 'a stop that is not a maintenance is still a stop');
+    }
+
+    public function test_with_storefronts_off_the_config_answer_carries_no_pause_block_at_all(): void
+    {
+        $this->activeKuwait();
+        $this->lifecycle()->pause(country: 'KW', mode: StorefrontLifecycle::MAINTENANCE, by: self::PERSON, reason: self::REASON);
+        config(['gcc.storefronts.enabled' => false]);
+
+        $this->assertSame([], $this->lifecycle()->apiPause());
+    }
+
     /** The topic name is built in one place, because the app subscribes to it and a mismatch is silent. */
     public function test_the_topic_of_a_market_is_the_platform_topic_with_the_market_appended(): void
     {

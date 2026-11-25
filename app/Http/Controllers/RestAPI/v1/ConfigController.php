@@ -9,6 +9,7 @@ use App\Services\Address\AddressSchema;
 use App\Services\Address\NationalAddress;
 use App\Services\DigitalFileAddressService;
 use App\Services\Storefront\StorefrontCurrency;
+use App\Services\Storefront\StorefrontLifecycle;
 use App\Traits\CacheManagerTrait;
 use App\Traits\MaintenanceModeTrait;
 use App\Traits\SettingsTrait;
@@ -283,7 +284,12 @@ $metaAppTracking = MetaAppIntegration::where('app_type', 'customer')
         ]
             // The money of the storefront the app asked for, so it formats prices in that currency with that currency's decimals rather
             // than working them out from a numeric setting. Absent entirely unless a storefront trades in its own currency (GCC-05).
-            + app(StorefrontCurrency::class)->apiMoney());
+            + app(StorefrontCurrency::class)->apiMoney()
+            // And WHICH markets are paused, beside the platform's one maintenance switch rather than instead of it (K-V4): with six markets,
+            // a seller whose market is stopped and a seller whose market is selling were told the same thing, and a seller who works in both
+            // could not tell which of them stopped. Keyed by country, because this answer resolves no storefront of its own; absent while
+            // storefronts are off, and a market that is selling is not in the map.
+            + app(StorefrontLifecycle::class)->apiPause());
     }
 
     /**

@@ -82,6 +82,59 @@ final class StorefrontLifecycle
     /**
      * @return array{state: string, mode: ?string, reason: ?string, message: ?string, until: ?string, changed_by: ?string, reference: ?string, changed_at: ?string, implicit: bool}
      */
+    /**
+     * Which markets are paused, for the apps (K-V4).
+     *
+     * The platform has had ONE maintenance switch since it had one market, and that is what both apps are still told: `maintenance_mode`
+     * with no country in it. With six markets a seller whose market is paused and a seller whose market is selling are told the same thing,
+     * and a seller who works in both cannot tell which of them stopped -- the maintenance screen of the seller app has no market in it at
+     * all. This is the per-market answer BESIDE that one and not instead of it: the global block is unchanged, so an app build that reads
+     * only it behaves exactly as before.
+     *
+     * Keyed by country, and every paused market at once, because `/api/v1/config` deliberately resolves NO storefront
+     * (`ResolveStorefrontMiddlewareTest` pins that: the config answer must not depend on which market asked for it, so that it stays one
+     * cacheable answer). An app knows which market it is working in and reads its own entry; a seller who works in two can be told about
+     * both without asking twice.
+     *
+     * Absent entirely while storefronts are off, like `StorefrontCurrency::apiMoney()`, and a market that is selling is simply not in the
+     * map: a key that is there and empty would have an app draw a pause with no reason in it.
+     *
+     * Five fields per market and no more. `reason`, `changed_by` and `reference` are the operator's own record of WHY a market was stopped
+     * and who stopped it -- the minutes of a meeting, a person's name -- and an app has no business holding any of it. `message` is the text
+     * written for the people who will read it.
+     *
+     * @return array{storefront_pause?: array<string, array{country: string, state: string, mode: string|null, message: string|null, until: string|null}>}
+     */
+    public function apiPause(): array
+    {
+        $resolver = StorefrontResolver::fromConfig();
+
+        if (!$resolver->isEnabled()) {
+            return [];
+        }
+
+        $paused = [];
+
+        foreach ($resolver->configuredCountries() as $country) {
+            $code = $this->codeOf((string) $country);
+            $status = $this->statusOf($code);
+
+            if (($status['state'] ?? null) !== self::PAUSED) {
+                continue;
+            }
+
+            $paused[$code] = [
+                'country' => $code,
+                'state' => (string) $status['state'],
+                'mode' => $status['mode'] ?? null,
+                'message' => $status['message'] ?? null,
+                'until' => $status['until'] ?? null,
+            ];
+        }
+
+        return $paused === [] ? [] : ['storefront_pause' => $paused];
+    }
+
     public function statusOf(string $country): array
     {
         $code = $this->codeOf($country);
