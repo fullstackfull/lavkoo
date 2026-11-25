@@ -22,6 +22,12 @@ The customer app's CI has no `workflow_dispatch`: it runs on a push to `gcc/**`,
 run and no dispatch is needed. The backend's runs ONLY on dispatch for a branch, so a push there has to be followed by
 one.
 
+**Dispatch the backend ONCE per batch, and let it finish.** Its concurrency group is `ci-<ref>` with
+`cancel-in-progress` true only for a pull request, so a dispatch while another run is going does not cancel it -- it
+QUEUES. Queue a third and GitHub discards the one waiting in the middle. That is why runs 658, 659 and 660 all read
+"cancelled" while only 661 ran: each dispatch superseded the pending one before it. Finish the batch, push, dispatch
+once, and read that run.
+
 **How a stage is merged.** CI is dispatched on the branch tip; when it comes back green, THAT SHA is merged into `main`
 with `--no-ff` and nothing newer is swept in with it. The check is mechanical: `git diff <tested sha> HEAD --name-only`
 must print nothing after the merge. Run 655 / `bc39790` / `ca4f68e0` is the worked example.
@@ -105,6 +111,12 @@ criteria names more signals than are built -- which is the honest record and is 
 ## Rules this work follows, learned the hard way
 
 - Never write to or delete a path before reading what is there and `git log --oneline -- <path>`.
+- **One PHPUnit suite at a time in this container.** Two suites run at once share `resources/lang`, the bootstrap
+  cache and the storage directory, and the four-group run of 2026-11-25 came back with 4 failures in
+  AdminSalesChannelsAccountsTest that do not exist when that group runs alone (1,977 green). A verdict from an
+  overlapped run proves nothing and costs a re-run to find out.
+- **Do not edit a file while a suite that loads it is running.** PHPUnit reads a class the first time it is used, so an
+  edit lands halfway through the run and the result describes no single tree. Finish the edits, then run.
 - Every new switch ships off, and the first test asserts that with it off nothing changed.
 - A guard that fails open is reported, not relaxed; a guard that asks to be recorded is recorded.
 - A test that proves a problem exists is not a fix for it.

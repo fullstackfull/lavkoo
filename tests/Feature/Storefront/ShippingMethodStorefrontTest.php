@@ -4,12 +4,14 @@ namespace Tests\Feature\Storefront;
 
 use App\Models\ShippingMethod;
 use App\Services\Storefront\StorefrontContext;
+use App\Services\Storefront\StorefrontCurrency;
 use App\Services\Storefront\StorefrontShippingMethods;
 use App\Utils\Helpers;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use RuntimeException;
+use Tests\Support\BuildsStorefrontMoneyWorld;
 use Tests\TestCase;
 
 /**
@@ -23,6 +25,8 @@ use Tests\TestCase;
  */
 class ShippingMethodStorefrontTest extends TestCase
 {
+    use BuildsStorefrontMoneyWorld;
+
     private const SAUDI = 'SA';
 
     private const KUWAIT = 'KW';
@@ -37,6 +41,7 @@ class ShippingMethodStorefrontTest extends TestCase
 
     protected function tearDown(): void
     {
+        $this->dropStorefrontMoneyWorld();
         Schema::dropIfExists('shipping_methods');
         parent::tearDown();
     }
@@ -167,6 +172,104 @@ class ShippingMethodStorefrontTest extends TestCase
         $this->assertFalse(Schema::hasColumn('shipping_methods', StorefrontShippingMethods::COLUMN));
     }
 
+    /**
+     * H1-14's charging half: a market that owns a method may charge it, and one that does not prices shipping as it always did.
+     *
+     * `shippingTypeInForce` forced `product_wise` on every storefront with its own currency, because the platform's shipping tables are in the platform's
+     * money. A market's OWN method is not: its cost was typed for that market. Without this exception a market could own a method and never charge it.
+     *
+     * These run inside `inStorefront()`, the real money world, so the storefront's currency is genuinely in force. Asserting this with only the config
+     * switch on proves nothing: `currencyInForce()` answers null without a storefront and a currency row, the method returns the stored type by its first
+     * line, and the test passes without the exception existing at all. The first version of these tests did exactly that.
+     */
+    public function test_a_market_that_owns_a_method_charges_it_while_its_own_currency_is_in_force(): void
+    {
+        $this->moneyWorld();
+        $this->methodsOf(['Kuwaiti standard' => self::KUWAIT]);
+
+        $answered = $this->inStorefront(self::KUWAIT, function (): array {
+            app(StorefrontShippingMethods::class)->forget();
+
+            return [
+                'owns' => app(StorefrontShippingMethods::class)->marketHasOwnMethods(),
+                'type' => app(StorefrontCurrency::class)->shippingTypeInForce('order_wise'),
+            ];
+        });
+
+        $this->assertTrue($answered['owns']);
+        $this->assertSame('order_wise', $answered['type'], 'the method belongs to this market, so order_wise prices it in this market\'s money');
+    }
+
+    public function test_a_market_with_no_method_of_its_own_still_prices_shipping_from_the_product(): void
+    {
+        $this->moneyWorld();
+        $this->methodsOf(['Saudi standard' => self::SAUDI, 'Legacy' => null]);
+
+        $answered = $this->inStorefront(self::KUWAIT, function (): array {
+            app(StorefrontShippingMethods::class)->forget();
+
+            return [
+                'owns' => app(StorefrontShippingMethods::class)->marketHasOwnMethods(),
+                'type' => app(StorefrontCurrency::class)->shippingTypeInForce('order_wise'),
+            ];
+        });
+
+        $this->assertFalse($answered['owns'], 'the unmarked method is the default storefront\'s, typed in the platform\'s money');
+        $this->assertSame('product_wise', $answered['type']);
+    }
+
+    /** The exception covers the type that charges a METHOD and nothing else: a category cost has no market and is still the platform's money. */
+    public function test_a_category_cost_is_still_priced_from_the_product_even_where_the_market_owns_a_method(): void
+    {
+        $this->moneyWorld();
+        $this->methodsOf(['Kuwaiti standard' => self::KUWAIT]);
+
+        $types = $this->inStorefront(self::KUWAIT, function (): array {
+            app(StorefrontShippingMethods::class)->forget();
+            $currency = app(StorefrontCurrency::class);
+
+            return [$currency->shippingTypeInForce('category_wise'), $currency->shippingTypeInForce('product_wise')];
+        });
+
+        $this->assertSame(['product_wise', 'product_wise'], $types);
+    }
+
+    public function test_a_switched_off_method_is_not_a_method_this_market_owns(): void
+    {
+        $this->moneyWorld();
+        DB::table('shipping_methods')->insert([
+            'title' => 'Kuwaiti, switched off', 'cost' => 15, 'status' => 0, 'creator_type' => 'admin',
+            'creator_id' => null, StorefrontShippingMethods::COLUMN => self::KUWAIT, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $type = $this->inStorefront(self::KUWAIT, function (): string {
+            app(StorefrontShippingMethods::class)->forget();
+
+            return (string) app(StorefrontCurrency::class)->shippingTypeInForce('order_wise');
+        });
+
+        $this->assertSame('product_wise', $type, 'a method nobody offers is not a method this market can charge');
+    }
+
+    public function test_the_default_storefront_prices_shipping_exactly_as_it_always_did(): void
+    {
+        $this->moneyWorld();
+        $this->methodsOf(['Legacy' => null]);
+
+        $types = $this->inStorefront(self::SAUDI, function (): array {
+            app(StorefrontShippingMethods::class)->forget();
+            $currency = app(StorefrontCurrency::class);
+
+            return array_map(fn (?string $stored): ?string => $currency->shippingTypeInForce($stored), ['order_wise', 'category_wise', 'product_wise', null]);
+        });
+
+        $this->assertSame(
+            ['order_wise', 'category_wise', 'product_wise', null],
+            $types,
+            'the default storefront keeps the platform\'s money, so the stored type stands whatever it is',
+        );
+    }
+
     /** @return list<string> */
     private function offered(): array
     {
@@ -200,6 +303,14 @@ class ShippingMethodStorefrontTest extends TestCase
     {
         config(['gcc.storefronts.enabled' => true, 'gcc.storefronts.default_country' => self::SAUDI]);
         app()->instance(StorefrontContext::class, new StorefrontContext(country: $serving, currency: 'SAR', storefrontsEnabled: true));
+        app(StorefrontShippingMethods::class)->forget();
+    }
+
+    /** The storefronts with currencies of their own, so that `currencyInForce()` answers one. */
+    private function moneyWorld(): void
+    {
+        $this->buildStorefrontMoneyWorld();
+        $this->buildShippingMethods();
         app(StorefrontShippingMethods::class)->forget();
     }
 

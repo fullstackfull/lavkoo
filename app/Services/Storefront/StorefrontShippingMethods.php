@@ -2,6 +2,7 @@
 
 namespace App\Services\Storefront;
 
+use App\Models\ShippingMethod;
 use Illuminate\Container\Attributes\Singleton;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Schema;
@@ -29,6 +30,9 @@ final class StorefrontShippingMethods
     private const TABLE = 'shipping_methods';
 
     private ?bool $columnReady = null;
+
+    /** @var array<string, bool> */
+    private array $ownMethods = [];
 
     /** Whether a shipping method can carry a market at all, and whether anything should read it. */
     public function applies(): bool
@@ -62,6 +66,33 @@ final class StorefrontShippingMethods
             : $query->where(self::COLUMN, $market);
     }
 
+    /**
+     * Whether this market has shipping methods of its OWN -- rows that name it, not the unmarked rows of the default storefront.
+     *
+     * This is what decides whether a market with its own currency may charge a method at all. The unmarked methods are deliberately
+     * not counted: they are the default storefront's, typed in the platform's money, and charging them in another currency is the
+     * mistake the whole override exists to prevent.
+     *
+     * Asked once per market per request: a basket of twenty lines reads the shipping type twenty times.
+     */
+    public function marketHasOwnMethods(?string $country = null): bool
+    {
+        if (!$this->applies()) {
+            return false;
+        }
+
+        $market = $this->stampFor($country);
+
+        if ($market === null) {
+            return false;
+        }
+
+        return $this->ownMethods[$market] ??= ShippingMethod::query()
+            ->where('status', 1)
+            ->where(self::COLUMN, $market)
+            ->exists();
+    }
+
     /** The market a method is given when one is made in a storefront, or null while this does not apply. */
     public function stampFor(?string $country = null): ?string
     {
@@ -77,6 +108,7 @@ final class StorefrontShippingMethods
     public function forget(): void
     {
         $this->columnReady = null;
+        $this->ownMethods = [];
     }
 
     /** The storefront whose methods are the ones that name no market. */

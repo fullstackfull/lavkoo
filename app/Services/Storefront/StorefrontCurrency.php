@@ -75,6 +75,9 @@ final class StorefrontCurrency
     /** The shipping type a storefront with its own currency uses: the cost typed on each product, in that storefront's currency. */
     public const PRODUCT_WISE_SHIPPING = 'product_wise';
 
+    /** The shipping type that charges a shipping method, which is the one a market can own (H1-14). */
+    public const ORDER_WISE_SHIPPING = 'order_wise';
+
     private const SINGLE_CURRENCY_MODEL = 'single_currency';
 
     /**
@@ -244,13 +247,31 @@ final class StorefrontCurrency
     }
 
     /**
-     * The shipping type the request prices shipping with. The platform's shipping tables (a cost for each method, each category and each zone) are typed in
-     * the platform's money, so a storefront that trades in its own currency prices shipping from the product alone: the cost typed on the product, in
-     * that storefront's currency, and nothing from the tables. Everywhere else the stored type stands.
+     * The shipping type the request prices shipping with.
+     *
+     * The platform's shipping tables -- a cost for each category and each zone -- are typed in the platform's money, so a storefront that trades in its own
+     * currency prices shipping from the product alone: the cost typed on the product, in that storefront's currency, and nothing from the tables.
+     * Everywhere else the stored type stands.
+     *
+     * **One exception, and it is the point of H1-14.** A shipping METHOD now belongs to a market
+     * (`App\Services\Storefront\StorefrontShippingMethods`), so a market that has methods of its own has costs that are already in its own money, and
+     * `order_wise` prices them correctly. Without this a market could own a method and never charge it: the type was forced to `product_wise` before the
+     * method was ever read, which is "lists but cannot charge" -- half of what the requirement asks for.
+     *
+     * The exception is deliberately narrow. It covers `order_wise` only, because that is the type that charges a METHOD; `category_wise` charges
+     * `category_shipping_costs`, which has no market yet and is still in the platform's money. And it counts only methods that NAME the market: the
+     * unmarked ones are the default storefront's, typed in the platform's money, and charging those in another currency is the very mistake the override
+     * exists to prevent. A market with its own currency and no method of its own prices shipping exactly as it did.
      */
     public function shippingTypeInForce(?string $stored): ?string
     {
-        return $this->currencyInForce() === null ? $stored : self::PRODUCT_WISE_SHIPPING;
+        if ($this->currencyInForce() === null) {
+            return $stored;
+        }
+
+        return $stored === self::ORDER_WISE_SHIPPING && app(StorefrontShippingMethods::class)->marketHasOwnMethods()
+            ? $stored
+            : self::PRODUCT_WISE_SHIPPING;
     }
 
     /**
