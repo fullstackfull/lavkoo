@@ -9,14 +9,19 @@ use App\Services\SalesChannels\Publishing\PublishPolicyResolver;
 use App\Services\SalesChannels\Publishing\StockListingGate;
 
 /**
- * The listings that share a pool: every linked listing of every account that is opted in to stock publishing, takes its stock from this pool's location and can be given stock
- * at all (not an FBA listing, not an Amazon listing of unknown fulfilment). Opting in is the listing's own decision, so a policy never makes a listing a member.
+ * The listings that share a pool: every linked listing of every account that is opted in to stock publishing, takes its stock from this pool's location, sells in the pool's own
+ * market and can be given stock at all (not an FBA listing, not an Amazon listing of unknown fulfilment). Opting in is the listing's own decision, so a policy never makes a
+ * listing a member.
+ *
+ * The MARKET is the pool's, not the listing's: who may take units of a pool of another country is {@see PoolMarket}'s question, and it is asked here because membership is where
+ * units are handed out. It is a different question from the one the gate answers for a listing, and the reasoning for the difference is recorded on that class.
  */
 class PoolMembers
 {
     public function __construct(
         private readonly PublishPolicyResolver $policies,
         private readonly StockListingGate $gate,
+        private readonly PoolMarket $market,
     ) {
     }
 
@@ -29,7 +34,10 @@ class PoolMembers
 
         foreach ($listings as $listing) {
             $policy = $this->policies->resolve($listing);
-            if ($listing->account === null || $policy->stockLocationId !== $key->locationId || $this->gate->refusal($listing->account, $listing, $location) !== null) {
+            if ($listing->account === null || $policy->stockLocationId !== $key->locationId || !$this->market->admits($listing->account, $key->market)) {
+                continue;
+            }
+            if ($this->gate->refusal($listing->account, $listing, $location) !== null) {
                 continue;
             }
             $members[] = new PoolMember($listing, $listing->account, $policy);

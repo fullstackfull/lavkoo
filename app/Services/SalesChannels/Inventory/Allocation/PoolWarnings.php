@@ -56,7 +56,7 @@ class PoolWarnings
     private function overSubscribed(PoolKey $key, ?InventoryLocation $location): ?array
     {
         $members = $this->members->of($key, $location);
-        $pool = InventoryPool::where($key->columns())->first();
+        $pool = InventoryPool::where($key->poolColumns())->first();
         $reserveMode = $pool?->storefront_reserve_mode ?? config('sales_channels.stock.allocation.storefront_reserve_mode');
         $reserveValue = (int) ($pool?->storefront_reserve_mode !== null ? $pool->storefront_reserve_value : config('sales_channels.stock.allocation.storefront_reserve_value'));
 

@@ -21,8 +21,8 @@ class DirtyPools
         }
         foreach ($keys as $key) {
             DB::table('inventory_pools')->upsert(
-                [$key->columns() + ['dirty_at' => now(), 'created_at' => now(), 'updated_at' => now()]],
-                ['location_id', 'product_id', 'variant_key'],
+                [$key->poolColumns() + ['dirty_at' => now(), 'created_at' => now(), 'updated_at' => now()]],
+                PoolKey::poolUniqueBy(),
                 ['dirty_at', 'updated_at'],
             );
         }
@@ -32,6 +32,17 @@ class DirtyPools
     public function pending(int $limit = 500): array
     {
         return InventoryPool::whereNotNull('dirty_at')->orderBy('dirty_at')->orderBy('id')->limit($limit)->get()
-            ->map(static fn (InventoryPool $pool): PoolKey => new PoolKey((int) $pool->location_id, (int) $pool->product_id, (string) $pool->variant_key))->all();
+            ->map(static fn (InventoryPool $pool): PoolKey => self::keyOf($pool))->all();
+    }
+
+    /** The row's own market, not the product's: a pool is worked out again as the market it was marked under, whatever the product says now. */
+    private static function keyOf(InventoryPool $pool): PoolKey
+    {
+        return new PoolKey(
+            locationId: (int) $pool->location_id,
+            productId: (int) $pool->product_id,
+            variantKey: (string) $pool->variant_key,
+            market: (string) ($pool->storefront_country ?? PoolKey::DEFAULT_MARKET),
+        );
     }
 }
