@@ -112,15 +112,6 @@ class POSController extends Controller
         );
     }
 
-    public static function getOrderNewId()
-    {
-        $generateOrderID = 100000 + Order::all()->count() + 1;
-        if (Order::find($generateOrderID)) {
-            $generateOrderID = Order::orderBy('id', 'DESC')->first()->id + 1;
-        }
-        return $generateOrderID;
-    }
-
     public function get_categories(): JsonResponse
     {
         $categories = Category::with(['childes.childes'])->where(['position' => 0])->priority()->get();
@@ -409,7 +400,14 @@ class POSController extends Controller
                     throw new WalletDebitRefusedException(customerId: $customerId);
                 }
 
-                $generateOrderID = self::getOrderNewId();
+                // The web checkout's own picker, and the panel tills' since the duplicate-key crash was measured on the running
+                // store. This till had kept a copy of the OLD rule -- `100000 + Order::all()->count() + 1` -- which differs from
+                // it in three ways that all matter: it loaded EVERY order row into memory to count them, once per sale; a gap in
+                // the ids (any order ever deleted) made the count smaller than the highest id, so it handed out a number BELOW
+                // the top and a new sale could take an id that old records and invoices already name; and its read took no lock,
+                // leaving `writeOrderRetryingOnDuplicateId` around this closure as the only thing between two overlapping sales
+                // and a 500. The retry stays, because the locking read closes the common case and not every case.
+                $generateOrderID = OrderManager::generateNewOrderID();
 
                 if ($request['modified_cart']) {
                     // Ascending product id, as generateOrder locks: two sales never lock the same product rows in opposite orders.

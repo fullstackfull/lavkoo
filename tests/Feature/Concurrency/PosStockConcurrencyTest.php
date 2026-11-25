@@ -177,10 +177,13 @@ class PosStockConcurrencyTest extends TestCase
     /**
      * Two seller-app sales that BOTH fit must both go through.
      *
-     * `POSController::getOrderNewId()` picks the id by counting the rows and adding one, exactly as the panel tills did, so
-     * two overlapping sales pick the same number and the second dies on the primary key. The panel tills measured that as one
-     * HTTP 500 in three runs out of three. Here the id is chosen inside the transaction, after the ordered lock, and
-     * `OrderManager::writeOrderRetryingOnDuplicateId` retries the whole write when the number is taken.
+     * This till USED to pick the id by counting the rows and adding one, exactly as the panel tills did, so two overlapping
+     * sales picked the same number and the second died on the primary key -- the panel tills measured that as one HTTP 500 in
+     * three runs out of three. It now calls `OrderManager::generateNewOrderID()`, whose read takes the row lock, like the web
+     * checkout and both panel tills. The id is still chosen inside the transaction, after the ordered lock, and
+     * `OrderManager::writeOrderRetryingOnDuplicateId` still retries the whole write when the number is taken: the locking read
+     * closes the common case and not every case, which is why both are kept. This test passed before that change and passes
+     * after it, deliberately -- the retry was already carrying it, and what the change removes is the reliance on the retry.
      */
     public function test_two_seller_app_sales_that_both_fit_both_go_through_with_their_own_order_ids(): void
     {
