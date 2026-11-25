@@ -143,6 +143,15 @@ criteria names more signals than are built -- which is the honest record and is 
   made the charge ZERO for those shops, because nothing writes a cart-shipping row for them. Thirty-nine tests across
   the address and storefront groups said so, and they were right. Before changing a default that money passes through,
   run the groups that touch money; a targeted test passing proves only that the new behaviour is self-consistent.
+- **A real engine can be run IN this container, and should be, before pushing a schema or collation test.**
+  `service mariadb start`, then once: `mysql -u root -e "CREATE USER IF NOT EXISTS 'ci'@'%' IDENTIFIED BY 'ci-pass'; GRANT ALL
+  PRIVILEGES ON *.* TO 'ci'@'%' WITH GRANT OPTION; FLUSH PRIVILEGES;"` -- root authenticates by unix socket, so a TCP connection as root is
+  denied and a user has to be made. Then
+  `DB_CONNECTION=mysql DB_HOST=127.0.0.1 DB_DATABASE=pharmacy_testing DB_USERNAME=ci DB_PASSWORD=ci-pass php vendor/bin/phpunit -c
+  phpunit.mysql.xml <paths>`. This would have caught run 664's one failure before it was pushed: a test asserting that the market compares
+  BYTE for byte built its own `char(2)` column, which takes the engine's own case-INSENSITIVE collation, so `kw` matched `KW` on MariaDB and
+  MySQL 8 and did not on SQLite. The repair is the shape to copy -- the test creates the table WITHOUT the column and runs the real migration
+  to add it, so the column is exactly what production gets, `ascii_bin` and all.
 - **The platform-admin area may not name the seller world at all.** `ReverseIsolationTest` scans every file under
   `app/Services/PlatformAdmin`, the platform middleware, controllers and commands for `Seller`, `seller_`, `auth_token`,
   `Passport`, `Sanctum`, `Auth::` and `auth(` -- comments stripped first, so what a file SAYS about what it refuses does

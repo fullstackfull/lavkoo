@@ -132,7 +132,9 @@ class ShippingMethodStorefrontTest extends TestCase
     public function test_a_database_without_the_column_narrows_nothing(): void
     {
         config(['gcc.storefronts.enabled' => true]);
-        Schema::table('shipping_methods', fn (Blueprint $table) => $table->dropColumn(StorefrontShippingMethods::COLUMN));
+        // Rolled back through the migration rather than dropped by hand: the column carries an index now, and dropping an indexed column
+        // leaves SQLite with an index pointing at nothing.
+        $this->marketMigration()->down();
         app(StorefrontShippingMethods::class)->forget();
         DB::table('shipping_methods')->insert([
             ['title' => 'Legacy', 'cost' => 15, 'status' => 1, 'creator_type' => 'admin', 'creator_id' => null, 'created_at' => now(), 'updated_at' => now()],
@@ -144,8 +146,8 @@ class ShippingMethodStorefrontTest extends TestCase
 
     public function test_the_migration_adds_the_column_and_refuses_to_roll_back_once_a_method_carries_a_market(): void
     {
-        $migration = require database_path('migrations/2026_12_22_100000_add_storefront_country_to_shipping_methods.php');
-        Schema::table('shipping_methods', fn (Blueprint $table) => $table->dropColumn(StorefrontShippingMethods::COLUMN));
+        $migration = $this->marketMigration();
+        $migration->down();
 
         $migration->up();
         $migration->up();
@@ -164,7 +166,7 @@ class ShippingMethodStorefrontTest extends TestCase
 
     public function test_the_rollback_is_allowed_while_no_method_carries_a_market(): void
     {
-        $migration = require database_path('migrations/2026_12_22_100000_add_storefront_country_to_shipping_methods.php');
+        $migration = $this->marketMigration();
         $this->methodsOf(['Legacy' => null]);
 
         $migration->down();
@@ -318,6 +320,14 @@ class ShippingMethodStorefrontTest extends TestCase
     }
 
     /** `shipping_methods` comes from the installation dump, so a test that reads it builds it. */
+    /**
+     * The table as the installation dump leaves it, and then the REAL migration for the market column.
+     *
+     * The column is not declared here, deliberately. It is `ascii_bin` on MySQL and MariaDB, which is what makes the market compare byte for
+     * byte, and a `char(2)` declared by hand takes the database's own collation instead -- case-INSENSITIVE on both engines. A test that
+     * built the column itself therefore asserted byte-for-byte matching against a column that did not have it: it passed on SQLite, whose
+     * `=` is case-sensitive, and failed on MariaDB and MySQL 8, where `kw` matched `KW`. CI run 664 found that, and it was right to.
+     */
     private function buildShippingMethods(): void
     {
         Schema::dropIfExists('shipping_methods');
@@ -329,8 +339,14 @@ class ShippingMethodStorefrontTest extends TestCase
             $table->decimal('cost', 24, 2)->default(0);
             $table->string('duration')->nullable();
             $table->boolean('status')->default(true);
-            $table->char(StorefrontShippingMethods::COLUMN, 2)->nullable();
             $table->timestamps();
         });
+
+        $this->marketMigration()->up();
+    }
+
+    private function marketMigration(): object
+    {
+        return require database_path('migrations/2026_12_22_100000_add_storefront_country_to_shipping_methods.php');
     }
 }
