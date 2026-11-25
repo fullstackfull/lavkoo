@@ -1,9 +1,12 @@
 # The money questions that are the owner's, with what each answer costs
 
-**Status:** nothing in this file has been implemented. It exists because five parts of the plan cannot be finished without an answer that
+**Status:** nothing in this file has been implemented. It exists because parts of the plan cannot be finished without an answer that
 is not a technical one: each option moves real money in a different direction, and picking one myself would be deciding what the platform
 pays its customers and its couriers. Every figure below is **measured**, with the test or the line of code that produced it named, so the
 decision can be taken on numbers rather than on description.
+
+Section 7 was added on 2026-11-25 and is the one section whose **safe default is already running**: it is listed because a reporting
+property is open, not because a figure is.
 
 The owner's instruction of 2026-11-24: *do not assume the loyalty point price, the courier settlement currency, or change the refund
 behaviour automatically; implement the independent safe parts and prepare the cases that need a decision with the impact of each option.*
@@ -404,7 +407,59 @@ truncated company name is a different company to any reader. The writer now reco
 length (`wallet.market_account_company_too_long_to_record`) rather than inventing a company. Widening the column is a migration on a money
 table and is not done here.
 
+---
+
+## 7. Which sale a gateway refund of a multi-vendor payment belongs to (D2-15)
+
+### What the platform does today
+
+Nothing could answer the question at all until this batch: `MyFatoorah\RefundService::request()` has always taken `$orderId` and
+`$refundRequestId`, `myfatoorah_refunds` has always had the columns, and the only caller — the gateway screen's refund button — passed
+**neither**. Every refund this platform has sent back through a gateway was therefore recorded against a payment attempt and against
+nothing a customer, an accountant or a seller could find it by.
+
+`App\Services\Refund\GatewayRefundLink` now works both links out from the payment itself, and for a payment that produced ONE order it
+answers both. **The open question is the other case.** One payment becomes one order per vendor under one `order_group_id` — that is what
+a multi-vendor basket is — and `myfatoorah_refunds.order_id` is a single column.
+
+### What it does in that case, and why that is the safe default rather than the answer
+
+It records **no order and no refund request**, and the refund still goes through. Naming one of three orders would file the refund against
+an arbitrary vendor's sale, and a wrong link on a refund is worse than none: it is the row somebody reads a year later to answer "was this
+customer paid back, and for what". A missing link never stops a customer being refunded.
+
+### The options
+
+- **7A — record the order GROUP.** Add `order_group_id` to the refund row (nullable, additive) and record it whenever the payment's orders
+  share one. Every refund becomes findable from the purchase, including a multi-vendor one. Cost: a migration on a money table, and the
+  group is not the order, so a reader still cannot say which vendor's goods came back.
+- **7B — keep recording nothing for a multi-vendor payment** (today, after this batch). No migration, no wrong link, and the multi-vendor
+  case stays unanswerable from the refund row — it can still be reached through the payment attempt by hand.
+- **7C — split the gateway refund into one record per order, by each order's share of the payment.** Every order gets a link and a figure.
+  Cost: the share is an arithmetic rule nobody has approved, a partial refund of a single line would be spread across vendors who sold
+  nothing back, and it is the only one of the three that invents a number.
+
+### What is blocked until it is answered
+
+Nothing is blocked: D2-15's inbound criterion closed on 7B's behaviour. What is open is whether a multi-vendor gateway refund should be
+findable from the purchase, which is a reporting and reconciliation property rather than a figure.
+
+### Done already, needing no decision
+
+The single-order case, which is every order of a one-vendor basket: the order and, where exactly one agreed line asks for exactly the
+amount, the refund request are both recorded. The refusals are deliberate and tested — two identical returned lines record no request, a
+`pending` or `denied` line is not treated as agreed, an order of another payment is never named, and an installation whose
+`refund_requests` table has not been migrated records the order alone. `tests/Feature/Refund/TheGatewayRefundNamesItsOrderTest.php`,
+13 tests, green on SQLite and MariaDB 10.11.14.
+
+### One thing this decision does NOT include
+
+The **ledger**. The vendor and commission ledger is moved by the refund DECISION, once, under `RefundClaims::claimRefunded()` and capped by
+`OrderItemCommission::reversed_amount`; the gateway send is the money leaving afterwards and moves nothing. That is settled, not open:
+moving it at the send as well would reverse one refund twice — the seller debited for a return they gave back once — and the test holds
+both ledger tables empty across the send to keep it that way.
+
 ## How to answer
 
-One line each is enough, e.g. *"1A with no back-credit"*, *"2B"*, *"3A"*, *"4B, new payments only"*, *"5C"*. Each answer is written into
+One line each is enough, e.g. *"1A with no back-credit"*, *"2B"*, *"3A"*, *"4B, new payments only"*, *"5C"*, *"7B"*. Each answer is written into
 `docs/gcc/DECISIONS.md` with the date, and the work it unblocks is listed above it.
