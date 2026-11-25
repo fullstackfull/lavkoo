@@ -90,12 +90,21 @@ class StaffScopeDormancyTest extends PlatformAdminTestCase
         $employee = $this->employeeWithGrant(grantCountries: null, staffCountries: ['KW']);
         $withoutRow = $this->employeeWithGrant(grantCountries: null, staffCountries: null);
 
-        foreach ([$employee, $withoutRow] as $admin) {
+        // ONE resolve per request, and a resolve is a DIFFERENT number of reads for the two employees -- which is the security-relevant
+        // branch and is worth asserting rather than flattening. `StaffCountryScope::resolve()` asks the table two questions on purpose
+        // (G1-14): first whether this employee holds ANY row, then which of their rows are still in force. An employee with NO row is
+        // unrestricted on this platform, so `resolve()` RETURNS EARLY on the first answer and never asks the second -- hence one read.
+        // An employee who does hold rows is asked both -- hence two.
+        //
+        // Merging the two questions into a single "ignore the expired rows" query would make an employee whose every row has EXPIRED look
+        // like an employee with no row, and so unrestricted: a privilege escalation on a timer. Both expectations said 1 until the grant
+        // trail arrived (3e33a819) and this test predates it; a flat 2 is just as wrong, and this test is what caught that.
+        foreach ([[$employee, 2, 'holds rows, so both questions are asked'], [$withoutRow, 1, 'holds none, so resolve returns on the first answer']] as [$admin, $expected, $why]) {
             $token = $this->mintToken($admin);
             foreach (range(1, 3) as $attempt) {
                 $statements = $this->statementsWithBindings(fn () => $this->getJson(self::PREFIX . '/me', $this->bearer($token))->assertOk());
 
-                $this->assertCount(1, $this->readsOfTheStaffTable($statements), "request {$attempt}: one read, however many readers there are of the principal");
+                $this->assertCount($expected, $this->readsOfTheStaffTable($statements), "request {$attempt}: one resolve, however many readers there are of the principal -- this employee {$why}");
             }
         }
     }
@@ -110,7 +119,8 @@ class StaffScopeDormancyTest extends PlatformAdminTestCase
         $employeeSignIn = $this->statementsWithBindings(fn () => $this->postJson(self::PREFIX . '/auth/login', ['email' => $employee['email'], 'password' => $employee['password'], 'device_name' => 'Pixel'])->assertOk());
         $masterSignIn = $this->statementsWithBindings(fn () => $this->postJson(self::PREFIX . '/auth/login', ['email' => $master['email'], 'password' => $master['password'], 'device_name' => 'Pixel'])->assertOk());
 
-        $this->assertCount(1, $this->readsOfTheStaffTable($employeeSignIn));
+        // One resolve, which is two reads: see the note in the test above.
+        $this->assertCount(2, $this->readsOfTheStaffTable($employeeSignIn));
         $this->assertSame([], $this->askingAboutTheStaffTable($masterSignIn));
     }
 
