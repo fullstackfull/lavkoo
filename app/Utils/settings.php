@@ -9,6 +9,7 @@ use App\Services\Storefront\StorefrontCatalog;
 use App\Services\Storefront\StorefrontCurrency;
 use App\Services\Storefront\StorefrontLegalPages;
 use App\Services\Storefront\StorefrontPaymentMethods;
+use App\Services\Theme\StorefrontBrand;
 use App\Utils\Helpers;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Storage;
@@ -28,6 +29,19 @@ if (!function_exists('getWebConfig')) {
 
             if ($storefrontValue !== null) {
                 return $storefrontValue;
+            }
+        }
+
+        // The marketing identity a market may show instead of the platform's (F-13), read here for the same reason the currency is: the
+        // name, the logos and the favicon are asked for from about a hundred places -- the website's head and footer, the app's
+        // configuration, every e-mail template, the SEO tags -- and one override at the single accessor they all use is the only way the
+        // answer cannot differ between two of them. The LEGAL identity is not among these fields and is never read this way: an invoice
+        // prints the selling company (F-14), which is `invoice_settings` and `company_web_logo_png`, neither of which a market may override.
+        if (in_array($name, StorefrontBrand::FIELDS, true)) {
+            $marketBrand = app(StorefrontBrand::class)->shapedOverridesOf();
+
+            if (array_key_exists($name, $marketBrand)) {
+                return $marketBrand[$name];
             }
         }
 

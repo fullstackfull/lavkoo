@@ -25,6 +25,7 @@ use App\Traits\FileManagerTrait;
 use App\Traits\ThemeHelper;
 use App\Services\AuditLogger;
 use App\Services\Staff\StaffCountryScope;
+use App\Services\Theme\StorefrontBrand;
 use App\Services\SellerIntelligence\Producers\BrandComplianceProducer;
 use App\Services\SellerIntelligence\Producers\CatalogIntegrityProducer;
 use App\Services\SellerIntelligence\Producers\FinanceIntegrityProducer;
@@ -324,6 +325,17 @@ class AppServiceProvider extends ServiceProvider
                     // Currency
                     Helpers::currency_load();
                     View::share(['web_config' => $web_config, 'language' => $language]);
+                    // The market's own marketing name, logos and favicon, applied when a view is RENDERED (F-13). The array above is built at
+                    // boot, before the `storefront` middleware has run, so the brand baked into it is the default market's whichever market
+                    // the request turns out to be for. A market with no override of its own -- which is every market today and every market
+                    // while storefronts are off -- gets the array back unchanged, so this is a no-op on the platform as it stands.
+                    View::composer('*', static function ($view) use ($web_config): void {
+                        $brand = app(StorefrontBrand::class);
+
+                        if ($brand->overridesAnything()) {
+                            $view->with('web_config', $brand->dress(webConfig: $web_config));
+                        }
+                    });
                     Schema::defaultStringLength(191);
                 }
          } catch (\Throwable $exception) {

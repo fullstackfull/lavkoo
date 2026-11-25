@@ -4,6 +4,8 @@ namespace App\Http\Controllers\RestAPI\v1;
 
 use App\Http\Controllers\Controller;
 use App\Services\DeveloperPortal\ApiDoc;
+use App\Services\Storefront\StorefrontResolver;
+use App\Services\Theme\StorefrontBrand;
 use App\Services\Theme\Channel;
 use App\Services\Theme\ExperiencePageService;
 use App\Services\Theme\SectionDataResolver;
@@ -245,6 +247,33 @@ class ThemeSectionController extends Controller
     public function version(): JsonResponse
     {
         return response()->json($this->delivery->revision());
+    }
+
+    #[ApiDoc(
+        summary: 'The marketing name, logos and favicon the app should show for this storefront',
+        description: 'The brand of the storefront named by `X-Storefront`: `company_name`, `company_web_logo`, '
+            . '`company_mobile_logo`, `company_fav_icon` and `company_footer_logo`, each resolved -- a field the '
+            . 'storefront has not overridden is the platform-wide value, so the answer is always complete and a '
+            . 'client never has to merge two payloads. '
+            . 'It is here rather than on /api/v1/config because /config deliberately resolves no storefront: an '
+            . 'app asks it before it knows which storefront it is in, and a storefront-dependent answer there '
+            . 'would be the default storefront\'s for every client. '
+            . 'The legal identity of the selling company is NOT here and is never the brand: it belongs to the '
+            . 'order and is printed on the invoice.',
+        audience: ApiDoc::CUSTOMER_APP,
+        visibility: ApiDoc::PARTNER_VISIBLE,
+        stability: ApiDoc::STABLE,
+        since: 'v1',
+    )]
+    public function brand(StorefrontBrand $brand): JsonResponse
+    {
+        $resolved = [];
+
+        foreach (StorefrontBrand::FIELDS as $field) {
+            $resolved[$field] = $brand->of(field: $field);
+        }
+
+        return response()->json($resolved)->header('Vary', StorefrontResolver::HEADER);
     }
 
     /** A draft is for one merchant and one phone: no cache keeps it and no crawler is offered it. */

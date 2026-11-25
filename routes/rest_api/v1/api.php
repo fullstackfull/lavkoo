@@ -498,6 +498,13 @@ Route::get('/cash', function () {
              */
             Route::get('home', 'home')->name('api.v1.theme.home');
             Route::get('version', 'version')->name('api.v1.theme.version');
+
+            /*
+             * The marketing name, logos and favicon of this storefront (F-13). It lives in this group rather than on
+             * /api/v1/config because that route deliberately resolves no storefront -- an app asks it before it knows
+             * which storefront it is in -- so a storefront's brand asked for there would always be the default's.
+             */
+            Route::get('brand', 'brand')->name('api.v1.theme.brand');
         });
     });
 

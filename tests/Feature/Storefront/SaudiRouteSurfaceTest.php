@@ -144,6 +144,12 @@ class SaudiRouteSurfaceTest extends TestCase
         // platform serves one market, so the Saudi platform of today serves nothing new at it.
         'POST storefront | storefront.choose',
 
+        // The marketing name, logos and favicon one storefront shows (F-13). It is in the theme group, which already resolves a storefront,
+        // because /api/v1/config deliberately resolves none -- an app asks it before it knows which storefront it is in -- so a brand asked
+        // for there would always be the default storefront's. It answers every field resolved, so a client never merges two payloads, and it
+        // serves the Saudi platform the platform-wide identity it already serves: the default storefront has no brand record of its own.
+        'GET api/v1/theme/brand | api.v1.theme.brand',
+
         // Each market's own notification accounts and the test send that proves one works (I1-01). The one shared mail configuration main
         // serves is untouched and still at admin/third-party/mail; these three sit behind the same module:3rd_party_setup permission, and
         // the markets any given employee is offered are narrowed again by their country scope. They serve the Saudi platform nothing new:
