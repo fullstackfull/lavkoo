@@ -211,7 +211,13 @@ class ReferralRewardCharacterizationTest extends TestCase
         $this->assertEqualsWithDelta(self::REWARD_SETTING / self::SAR_PER_USD, $this->walletBalance(self::REFERRER_ID), 0.000001);
     }
 
-    public function test_vendor_panel_delivery_currently_credits_the_referee_instead_of_the_referrer(): void
+    /**
+     * Was `test_vendor_panel_delivery_currently_credits_the_referee_instead_of_the_referrer`, and the behaviour it pinned is fixed (E-15).
+     *
+     * The vendor panel looked the beneficiary up by the REFEREE's own id, so it paid the customer who was referred instead of the one who
+     * referred them -- for the same order the other three paths pay correctly. The referrer is now paid, and the referee is paid nothing.
+     */
+    public function test_vendor_panel_delivery_credits_the_referrer_and_not_the_referee(): void
     {
         $this->makeOrder(id: 100, attributes: ['order_status' => 'confirmed', 'seller_id' => self::SELLER_ID, 'seller_is' => 'seller']);
 
@@ -222,12 +228,37 @@ class ReferralRewardCharacterizationTest extends TestCase
         $this->assertCount(1, $rows);
         $this->assertSame('add_fund_by_admin', $rows[0]->transaction_type);
         $this->assertEqualsWithDelta(10.0, (float) $rows[0]->credit, 0.000001);
-        $this->assertSame(self::REFEREE_ID, (int) $rows[0]->user_id);
-        $this->assertEqualsWithDelta(0.0, $this->walletBalance(self::REFERRER_ID), 0.000001);
-        $this->assertEqualsWithDelta(10.0, $this->walletBalance(self::REFEREE_ID), 0.000001);
+        $this->assertSame(self::REFERRER_ID, (int) $rows[0]->user_id, 'the customer who referred, as the other three paths pay');
+        $this->assertEqualsWithDelta(10.0, $this->walletBalance(self::REFERRER_ID), 0.000001);
+        $this->assertEqualsWithDelta(0.0, $this->walletBalance(self::REFEREE_ID), 0.000001, 'and the referee is paid nothing');
     }
 
-    public function test_vendor_panel_delivery_currently_divides_the_setting_by_the_sar_rate_unlike_the_shared_writer(): void
+    /**
+     * The reward is paid on a FIRST delivered and paid order, and not on the first order of any kind (E-15).
+     *
+     * The vendor panel asked `OrderRepository::getListWhereCount()` for the count, and that method applies `customer_id` and SILENTLY DROPS
+     * every other filter -- so a customer whose earlier order was cancelled, or never paid for, had that order counted and the reward was
+     * refused on the order that really was their first. The count is now made in place, as the other three paths make it.
+     */
+    public function test_vendor_panel_delivery_pays_on_the_first_order_that_was_delivered_and_paid_for(): void
+    {
+        $this->makeOrder(id: 98, attributes: ['order_status' => 'canceled', 'payment_status' => 'unpaid']);
+        $this->makeOrder(id: 99, attributes: ['order_status' => 'delivered', 'payment_status' => 'unpaid']);
+        $this->makeOrder(id: 100, attributes: ['order_status' => 'confirmed', 'seller_id' => self::SELLER_ID, 'seller_is' => 'seller']);
+
+        $this->deliverThroughVendorPanel(orderId: 100);
+
+        $rows = $this->referralRows(userId: null);
+        $this->assertCount(1, $rows, 'the cancelled and the unpaid order are not first orders');
+        $this->assertSame(self::REFERRER_ID, (int) $rows[0]->user_id);
+    }
+
+    /**
+     * NOT ENDORSED, and left as it is. The shared writer in OrderManager treats the setting as USD and the other four writers divide it by
+     * the default currency's rate, so the same reward is a different amount depending on which panel marked the order delivered. Which of
+     * the two is right is a question about the unit a wallet credit is stored in, which is E-16's, so it is pinned here and not guessed at.
+     */
+    public function test_current_behaviour_vendor_panel_delivery_divides_the_setting_by_the_sar_rate_unlike_the_shared_writer(): void
     {
         $this->useMultiCurrencyWithSarDefault();
         $this->makeOrder(id: 100, attributes: ['order_status' => 'confirmed', 'seller_id' => self::SELLER_ID, 'seller_is' => 'seller']);
@@ -361,7 +392,8 @@ class ReferralRewardCharacterizationTest extends TestCase
         $this->assertEqualsWithDelta(10.0, $this->walletBalance(self::REFERRER_ID), 0.000001);
     }
 
-    public function test_vendor_panel_delivery_currently_counts_a_cancelled_order_toward_the_first_order_check(): void
+    /** Was `..._currently_counts_a_cancelled_order_toward_the_first_order_check`, and that is fixed: a cancelled order is not a first order. */
+    public function test_vendor_panel_delivery_does_not_count_a_cancelled_order_toward_the_first_order_check(): void
     {
         $this->makeOrder(id: 99, attributes: ['order_status' => 'canceled', 'payment_status' => 'unpaid']);
         $this->makeOrder(id: 100, attributes: ['order_status' => 'confirmed', 'seller_id' => self::SELLER_ID, 'seller_is' => 'seller']);
@@ -370,7 +402,7 @@ class ReferralRewardCharacterizationTest extends TestCase
 
         $this->assertSame(1, $response->getData(true)['status']);
         $this->assertSame('delivered', DB::table('orders')->where('id', 100)->value('order_status'));
-        $this->assertSame(0, $this->referralRows(userId: null)->count());
+        $this->assertSame(1, $this->referralRows(userId: self::REFERRER_ID)->count(), 'the reward is paid on the order that really is the first');
     }
 
     public function test_vendor_panel_redelivery_pays_nothing(): void

@@ -303,9 +303,13 @@ class ReferralRewardIdempotencyTest extends TestCase
     }
 
     /**
-     * The vendor panel still credits the referee (pinned defect), so its grant is keyed (referee, referee) and cannot block a referrer's grant.
+     * The vendor panel credits the REFERRER now (E-15), so its grant is keyed (referee, referrer) like every other path's and blocks a
+     * second grant for the same pair however many times the order is reverted and delivered again.
+     *
+     * This test was `..._grants_once_to_the_pinned_beneficiary` and said in its own docblock that the vendor panel "still credits the
+     * referee (pinned defect)". It does not any more.
      */
-    public function test_vendor_panel_redelivering_after_a_revert_grants_once_to_the_pinned_beneficiary(): void
+    public function test_vendor_panel_redelivering_after_a_revert_grants_once_to_the_referrer(): void
     {
         $this->makeOrder(id: 100, attributes: ['order_status' => 'confirmed', 'seller_id' => self::SELLER_ID, 'seller_is' => 'seller']);
 
@@ -313,11 +317,11 @@ class ReferralRewardIdempotencyTest extends TestCase
         $this->setOrderStatus(orderId: 100, status: 'confirmed');
         $this->deliverThroughVendorPanel(orderId: 100);
 
-        $this->assertSame(1, $this->referralRows(userId: self::REFEREE_ID)->count());
-        $this->assertSame(0, $this->referralRows(userId: self::REFERRER_ID)->count());
+        $this->assertSame(0, $this->referralRows(userId: self::REFEREE_ID)->count());
+        $this->assertSame(1, $this->referralRows(userId: self::REFERRER_ID)->count());
         $grant = $this->grantRows()->sole();
         $this->assertSame(self::REFEREE_ID, (int) $grant->referee_id);
-        $this->assertSame(self::REFEREE_ID, (int) $grant->beneficiary_id);
+        $this->assertSame(self::REFERRER_ID, (int) $grant->beneficiary_id);
     }
 
     public function test_before_the_migration_runs_the_writers_behave_as_today(): void

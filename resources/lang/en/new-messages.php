@@ -11458,4 +11458,7 @@ return [
 	'reset_your_password' => 'Reset your password',
 	'Please_check_your_email' => 'Please check your email',
 	'point_to_wallet_transfer_successfully!' => 'Point to wallet transfer successfully!',
+	'Discount_amount_for_percentage_type_must_be_between_1_and_100' => 'Discount amount for percentage type must be between 1 and 100',
+	'order_status_updated_successfully' => 'Order status updated successfully',
+	'Order_updated_successfully' => 'Order updated successfully',
 ];

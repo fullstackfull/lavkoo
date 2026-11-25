@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Vendor\Order;
 
+use App\Models\Order;
 use App\Enums\LedgerActor;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
 use App\Contracts\Repositories\BusinessSettingRepositoryInterface;
@@ -722,8 +723,15 @@ class OrderController extends BaseController
         if (!$order['is_guest'] && $refEarningStatus == 1 && $request['order_status'] == 'delivered') {
 
             $customer = $this->customerRepo->getFirstWhere(params: ['id' => $order['customer_id']]);
-            $isFirstOrder = $this->orderRepo->getListWhereCount(filters: ['customer_id' => $order['customer_id'], 'order_status' => 'delivered', 'payment_status' => 'paid']);
-            $referredByUser = $this->customerRepo->getFirstWhere(params: ['id' => $order['customer_id']]);
+            // Counted in place, as the other three paths that pay this reward already do (OrderManager, the v3 seller API, the delivery-man
+            // API). `OrderRepository::getListWhereCount()` applies `customer_id` and SILENTLY DROPS every other filter, so this read counted
+            // every order the customer had ever placed -- cancelled and unpaid ones included -- and the reward was paid on an order that was
+            // not their first. The repository is left as it is on purpose: three badge counts pass it filters today and get none applied, and
+            // teaching it to filter would change those three screens in the same breath as a money fix.
+            $isFirstOrder = Order::where(['customer_id' => $order['customer_id'], 'order_status' => 'delivered', 'payment_status' => 'paid'])->count();
+            // The REFERRER, not the referee. This looked the beneficiary up by the referee's own id, so the vendor panel paid the customer
+            // who was referred instead of the one who referred them -- for the same order the other three paths pay correctly.
+            $referredByUser = $this->customerRepo->getFirstWhere(params: ['id' => $customer['referred_by'] ?? null]);
 
             if ($isFirstOrder == 1 && isset($customer->referred_by) && isset($referredByUser)) {
                 $this->referralRewards->creditOnce(
