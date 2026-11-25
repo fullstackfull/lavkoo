@@ -87,7 +87,55 @@ six tables scoped `storefront` are the ones a second storefront per country woul
 - **Country paths.** `gcc.storefronts.paths.enabled` ships off and no route group is mounted under a country prefix, so
   no old link has moved.
 
-## 5. What this document does not decide
+## 5. Where the data lives, and which of it can be told apart by market
+
+Report 02 maps the system as it is; this is the storage leg of that map, as built. Three kinds of storage carry this
+platform's data, and only one of them can be narrowed by market today.
+
+**The database is the source, and it is the only one of the three a market scope reaches.** 155 tables, each with one of
+eleven scopes in `table-ownership.json` (section 2), so the question "which market does this row belong to" has a written
+answer for every table -- either a column of its own or the parent it is derived through. The columns are listed in
+section 2; what matters here is that nothing else on this list has that property.
+
+**Uploaded files live on four disks, and a file's market is knowable only through the row that owns it.** The disks are
+declared in `config/filesystems.php`: `local` (`storage/app`), `public` (`storage/app/public`, served under
+`/storage`), `digital_private` (`storage/app/private/digital`, visibility `private`, the disk
+`DigitalProductFileService::PRIVATE_DISK` names) and `s3`. Which disk a particular file went to is recorded per file in
+`storages`, a polymorphic table `App\Traits\StorageTrait` morphs to the row that owns the file -- so the same product
+image can be on the public disk on one installation and on S3 on another, and the row says which.
+
+What follows from that, and it is the finding of this leg: **a stored file has no market, and its PATH cannot be given
+one.** A product image belongs to a product, which has a market; the file is a flat name on a shared disk. Every
+narrowing of a file therefore has to go through the owning row, which is why the staff export survey (G-10) ends with
+exactly one entry it cannot classify by country -- the file manager, which serves a file of the storage by its NAME,
+with no row behind it at all. The digital files of a sale are the counter-example and the shape to copy: they are on a
+private disk, served only by a route that names the order line (`line.route:id`), so the scope of the orders decides who
+may download one. The upload surface itself -- 146 suspects over seven areas, and what each one stores -- is mapped in
+`docs/gcc/audits/2026-11-16-upload-surface-audit.md` rather than repeated here.
+
+**Client-local storage is not in this repository, and the backend's only lever on it is a sync contract.** Both Flutter
+apps and every browser keep their own copy of what they were served, and nothing here can reach into them. What is here
+is the contract they refresh against, and it is per market:
+
+- `/api/v1/theme/version` answers `revision` (monotonic, one step per publish), `checksum` (the ETag), `schema_version`
+  and `engine_version`. A client sends `If-None-Match` with the checksum it holds and is answered 304 with no body, so a
+  resume costs a header rather than a home page.
+- The answer is per storefront twice over: the server-side cache key is scoped (`StorefrontContext::scopedCacheKey`),
+  and the response carries `Vary` naming the UI headers the payload varies by, with `X-Storefront` appended by the
+  `VaryByStorefront` middleware (the alias storefront.vary) while `gcc.storefronts.enabled` is on -- `ResolveStorefront::varyByHeader()` adds it
+  without replacing what the controller already set. A shared HTTP cache in front of the API therefore keys on the
+  market, which is what stops one market's theme reaching another market's app. The probe for the case where a
+  controller sets its own `Vary` first is in `ResolveStorefrontMiddlewareTest`.
+- A draft theme shares no cache and no validator with the published one: a preview answer says `preview: true` and is
+  never cached, so a 304 against a shopper's checksum cannot hand them a draft.
+
+**What this leg does NOT cover, and nobody should read it as covering.** No test uses a shared cache store or a real
+queue worker, which is the only arrangement in which a cache leak between markets can be observed at all (THREAT_MODEL
+class 7 says the same); the apps' own on-device caches are verified by their repositories' CI and by a device run, and
+neither has happened for the market chooser (M2-10); and a file already on a disk cannot be moved behind a market
+without a migration of the paths, which nothing proposes.
+
+## 6. What this document does not decide
 
 The legal-entity model is the owner's (Q-10), and whether the country column plus the configuration registry STAYS
 instead of `storefronts` and `countries` tables is the owner's too. This file records what was built and why, so that
