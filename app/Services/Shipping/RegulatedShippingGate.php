@@ -248,8 +248,8 @@ final class RegulatedShippingGate
 
     private static function country(?string $code): ?string
     {
-        $country = strtoupper(trim((string) $code));
-
-        return $country === '' ? null : $country;
+        // Through the one normaliser, because the values do not agree: a product's market is a code and the address book holds the English
+        // NAME. Comparing the two directly made a Riyadh-to-Riyadh order read as crossing a border.
+        return DestinationCountryCode::of($code);
     }
 }

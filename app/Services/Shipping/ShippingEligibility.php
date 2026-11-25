@@ -184,6 +184,19 @@ final class ShippingEligibility
             ->all();
     }
 
+    /**
+     * The country an order is going to, for anybody who needs it rather than only for this engine.
+     *
+     * The dispatcher needs the same answer: it used to ask whether the carrier serves the platform's country to the order's MARKET, which
+     * for a cross-border order is the wrong pair -- a Saudi shop's order to Kuwait asked about SA to SA, so a carrier had to declare the
+     * market pair as well as the real one to get a parcel moving. One notion of "where is this going", read from the address the order
+     * keeps and normalised, is the only way the two can agree.
+     */
+    public static function deliveryCountryOf(int|string|null $orderId): ?string
+    {
+        return $orderId === null ? null : self::destinationOfOrder($orderId);
+    }
+
     /** The country the order is going to, out of the address copy the order keeps, which is the address as it was that day. */
     private static function destinationOfOrder(int|string $orderId): ?string
     {
@@ -241,8 +254,8 @@ final class ShippingEligibility
 
     private static function country(?string $code): ?string
     {
-        $country = strtoupper(trim((string) $code));
-
-        return $country === '' ? null : $country;
+        // Through the one normaliser, because the values do not agree: a product's market is a code and the address book holds the English
+        // NAME. Comparing the two directly made a Riyadh-to-Riyadh order read as crossing a border.
+        return DestinationCountryCode::of($code);
     }
 }

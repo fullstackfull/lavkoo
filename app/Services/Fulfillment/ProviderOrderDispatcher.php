@@ -225,7 +225,13 @@ class ProviderOrderDispatcher
         $source = $config->get('default_country') ?? StorefrontResolver::fromConfig()->defaultCountry();
         // An order that records no market is the platform's own, which is every order placed before markets existed: it ships the
         // provider's domestic route, as it always has.
-        $destination = DestinationCountry::ofOrder($fulfillment->order_id) ?? $source;
+        // Where the parcel is actually going, which is the address the order keeps -- not the market it was sold in. Asking about the
+        // market made a Saudi shop's order to Kuwait a question about SA to SA, so a carrier had to declare the market pair as well as
+        // the real one before anything would move. The engine reads the address and normalises its spelling; this asks the engine, so the
+        // two cannot drift. An order with no readable address falls back to its market, and then to the platform's own country.
+        $destination = ShippingEligibility::deliveryCountryOf($fulfillment->order_id)
+            ?? DestinationCountry::ofOrder($fulfillment->order_id)
+            ?? $source;
         if (!ProviderRouteSupport::serves($fulfillment->provider, $source, $destination)) {
             return [HoldReason::ROUTE_UNSUPPORTED, "{$source} to {$destination} is not a route this provider declares it serves."];
         }

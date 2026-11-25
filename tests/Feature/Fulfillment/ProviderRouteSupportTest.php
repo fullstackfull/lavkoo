@@ -127,17 +127,61 @@ class ProviderRouteSupportTest extends FulfillmentTestCase
         $this->assertFalse(ProviderRouteSupport::isCrossBorder('SA', null), 'a destination nobody knows is not a border crossing');
     }
 
-    /** And the whole point of the declaration: the dispatcher holds a shipment whose destination the carrier does not serve. */
+    /**
+     * And the whole point of the declaration: the dispatcher holds a shipment whose destination the carrier does not serve.
+     *
+     * The destination is the ADDRESS the order keeps, not the market it was sold in. This fixture used to say only `storefront_country`
+     * and leave the Saudi address in place, which the dispatcher then read as a shipment to Kuwait -- so a carrier had to declare the
+     * market pair before a parcel could move at all. The address is what the courier drives to, so it is what is set here.
+     */
     public function test_a_shipment_to_an_undeclared_destination_is_held_and_nothing_is_sent(): void
     {
         $this->enableProvider(ProviderCode::TorodPoint);
-        $fulfillment = $this->routeSingleProviderOrder(ProviderCode::TorodPoint, orderOverrides: ['storefront_country' => 'KW'], orderId: 4100);
+        $fulfillment = $this->routeSingleProviderOrder(
+            ProviderCode::TorodPoint,
+            orderOverrides: ['storefront_country' => 'KW', 'shipping_address_data' => $this->anAddressIn('KW')],
+            orderId: 4100,
+        );
 
         app(ProviderOrderDispatcher::class)->dispatch($fulfillment->id);
 
         $held = ProviderFulfillment::findOrFail($fulfillment->id);
         $this->assertSame(HoldReason::ROUTE_UNSUPPORTED, $held->hold_reason);
         $this->assertSame([], $this->torod->submitted, 'nothing left for the carrier');
+    }
+
+    /**
+     * The other half of reading the address: an order SOLD in Kuwait and DELIVERED in Saudi Arabia is a Saudi shipment, and the Saudi
+     * route every carrier declares covers it.
+     *
+     * Before the destination was read from the address, this was held -- the dispatcher asked about the market and found SA to KW
+     * undeclared -- so a parcel going to Riyadh did not move because the shop that sold it was Kuwaiti.
+     */
+    public function test_a_shipment_delivered_at_home_is_sent_whatever_market_sold_it(): void
+    {
+        $this->enableProvider(ProviderCode::TorodPoint);
+        $fulfillment = $this->routeSingleProviderOrder(
+            ProviderCode::TorodPoint,
+            orderOverrides: ['storefront_country' => 'KW', 'shipping_address_data' => $this->anAddressIn('Saudi Arabia')],
+            orderId: 4108,
+        );
+
+        app(ProviderOrderDispatcher::class)->dispatch($fulfillment->id);
+
+        $this->assertNotSame(
+            HoldReason::ROUTE_UNSUPPORTED,
+            ProviderFulfillment::findOrFail($fulfillment->id)->hold_reason,
+            'the address is in the kingdom, and the kingdom is the route every carrier declares',
+        );
+    }
+
+    /** An address copy whose country is written out in full, which is how the address book has always stored it. */
+    private function anAddressIn(string $country): string
+    {
+        return json_encode([
+            'contact_person_name' => 'Sara Alharbi', 'phone' => '0551234567', 'address' => 'King Fahd Rd 12',
+            'city' => 'Anywhere', 'country' => $country, 'email' => 'sara@example.test',
+        ]);
     }
 
     /**

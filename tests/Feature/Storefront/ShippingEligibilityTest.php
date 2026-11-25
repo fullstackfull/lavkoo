@@ -448,6 +448,51 @@ class ShippingEligibilityTest extends TestCase
         \App\Services\Address\AddressSchema::flush();
     }
 
+    /**
+     * The address book holds the English NAME of a country, and a product's market holds a CODE. They have to be read as the same country.
+     *
+     * This is the defect the scenario matrix of H1-13 found. The engine compared the two directly, so an order placed in Riyadh for
+     * delivery in Riyadh -- market `SA`, address "Saudi Arabia" -- read as crossing a border and was refused for want of an export
+     * permission it should never have been asked for. Nothing broke in production, because the engine ships off; it would have refused
+     * every order on the day it was switched on, which is worse than a bug that shows.
+     */
+    public function test_an_address_holding_the_countrys_name_is_the_same_country_as_the_products_code(): void
+    {
+        $this->crossBorderIsOpen();
+        $this->aLineOf(market: self::HOME);
+
+        foreach (['Saudi Arabia', 'saudi arabia', 'SA', 'sa'] as $spelling) {
+            $decision = $this->decide($spelling);
+
+            $this->assertTrue($decision->allowed, "an order delivered in {$spelling} from SA crosses no border");
+            $this->assertSame(EligibilityDecision::LOCAL, $decision->kind);
+            $this->assertSame([], $decision->reasons);
+        }
+    }
+
+    /** And a name that really is another country is still another country. */
+    public function test_a_foreign_country_named_in_full_is_still_foreign(): void
+    {
+        $this->crossBorderIsOpen();
+        $this->aLineOf(market: self::HOME);
+
+        foreach (['Kuwait', 'KW'] as $spelling) {
+            $decision = $this->decide($spelling);
+
+            $this->assertFalse($decision->allowed, "an order delivered in {$spelling} from SA does cross a border");
+            $this->assertSame(EligibilityDecision::CROSS_BORDER, $decision->kind);
+        }
+    }
+
+    /** A value that names no country the platform knows is "nobody said where this is going", which is refused rather than guessed. */
+    public function test_a_destination_that_names_no_country_is_not_a_destination(): void
+    {
+        $this->crossBorderIsOpen();
+        $this->aLineOf(market: self::HOME);
+
+        $this->assertSame([ShippingRefusal::DESTINATION_UNKNOWN], $this->decide('Nowhereland')->reasons);
+    }
+
     /** A domestic order is never asked about duty, however strict the mode: nothing crosses a border, so nothing is due. */
     public function test_a_domestic_order_is_not_refused_by_the_duty_rule(): void
     {
