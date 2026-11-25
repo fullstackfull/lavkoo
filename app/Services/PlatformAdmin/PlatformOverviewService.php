@@ -21,6 +21,10 @@ final class PlatformOverviewService
 
     private const NO_CURRENCY_REASON = 'order_currency_not_recorded';
 
+    private const NO_SETTLEMENTS_REASON = 'no_settlements_are_recorded_on_this_installation';
+
+    private const SETTLEMENT_CURRENCY_REASON = 'settlement_currency_not_recorded';
+
     public function __construct(
         private readonly PlatformMarkets $markets,
         private readonly PlatformMarketFigures $figures,
@@ -48,6 +52,7 @@ final class PlatformOverviewService
             'window' => $window->toArray(),
             'freshness' => ['mode' => 'live', 'cached' => false],
             'attribution' => $this->attribution(),
+            'settlements' => $this->settlementsOf(rows: $this->figures->settlements(from: $window->startsAt(), before: $window->endsBefore())),
             'markets' => $this->marketsOf(
                 selection: $selection,
                 figures: $figures,
@@ -209,6 +214,52 @@ final class PlatformOverviewService
             'currency' => $this->figures->orderCurrencyRecorded()
                 ? ['per_order' => true, 'rule' => 'order_market_company_and_currency', 'via' => 'orders.storefront_country, orders.legal_entity_id, orders.currency_code', 'priced_when' => 'currency_rate = 1']
                 : ['per_order' => false, 'reason' => self::NO_CURRENCY_REASON],
+        ];
+    }
+
+    /**
+     * What the platform settled in the window, per company and per currency, and never across currencies (E-17).
+     *
+     * **It is NOT inside a market, and that is the honest shape rather than a convenience.** A settlement has no
+     * market: it has a company, a currency and a period, and the shop it pays belongs to one company at a time. A
+     * settlements figure filed under a market would be a claim nothing supports.
+     *
+     * An installation that keeps no settlements says so; one whose settlements record no currency says that
+     * instead; and a settlement that records none is counted apart from the ones that do, never folded in.
+     *
+     * @param list<array{entity: ?int, currency: ?string, status: string, settlements: int, net: ?string}> $rows
+     *
+     * @return array<string, mixed>
+     */
+    private function settlementsOf(array $rows): array
+    {
+        if (!$this->figures->settlementsRecordTheirCurrency()) {
+            return ['by_currency' => null, 'reason' => self::NO_SETTLEMENTS_REASON];
+        }
+
+        $byCurrency = [];
+        $notCounted = 0;
+
+        foreach ($rows as $row) {
+            if ($row['currency'] === null) {
+                $notCounted += $row['settlements'];
+                continue;
+            }
+
+            $byCurrency[] = [
+                'currency' => $row['currency'],
+                'legal_entity_id' => $row['entity'],
+                'status' => $row['status'],
+                'settlements' => $row['settlements'],
+                'net' => $row['net'],
+            ];
+        }
+
+        usort($byCurrency, static fn (array $a, array $b): int => [$a['currency'], (int) $a['legal_entity_id'], $a['status']] <=> [$b['currency'], (int) $b['legal_entity_id'], $b['status']]);
+
+        return [
+            'by_currency' => $byCurrency === [] ? null : $byCurrency,
+            'not_counted' => ['settlements' => $notCounted, 'reason' => $notCounted === 0 ? null : self::SETTLEMENT_CURRENCY_REASON],
         ];
     }
 }

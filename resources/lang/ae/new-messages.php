@@ -18095,4 +18095,6 @@ return [
 	'this_section_will_not_appear' => 'هذا القسم لن يظهر',
 	'this_shows_each_visitor_their_own_history_so_it_is_empty_until_they_have_one' => 'هذا يعرض لكل زائر سجله الخاص، لذلك يبقى فارغاً حتى يصبح له سجل',
 	'payment_method_updated' => 'تم تحديث طريقة الدفع',
+	'destination_country' => 'بلد التوصيل',
+	'every_storefront' => 'كل المتاجر',
 ];

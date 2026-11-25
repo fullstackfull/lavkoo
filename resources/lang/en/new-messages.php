@@ -11649,4 +11649,6 @@ return [
 	'this_section_will_not_appear' => 'This section will not appear',
 	'this_shows_each_visitor_their_own_history_so_it_is_empty_until_they_have_one' => 'This shows each visitor their own history, so it is empty until they have one',
 	'payment_method_updated' => 'Payment method updated',
+	'destination_country' => 'Destination country',
+	'every_storefront' => 'Every storefront',
 ];

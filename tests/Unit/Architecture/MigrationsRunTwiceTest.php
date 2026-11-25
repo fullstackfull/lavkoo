@@ -161,8 +161,7 @@ class MigrationsRunTwiceTest extends TestCase
     private function dropWhatWasNotThere(array $before): void
     {
         Schema::withoutForeignKeyConstraints(function () use ($before): void {
-            foreach (Schema::getTableListing() as $table) {
-                $name = $this->withoutThePrefix($table);
+            foreach ($this->tablesOfThisDatabase() as $name) {
                 if (!array_key_exists($name, $before)) {
                     Schema::dropIfExists($name);
                 }
@@ -170,12 +169,41 @@ class MigrationsRunTwiceTest extends TestCase
         });
     }
 
+    /**
+     * The tables of THIS connection's own database, unqualified.
+     *
+     * `Schema::getTableListing()` with no argument asks MariaDB for every schema the connection can SEE, and the `ci` user in this
+     * container is globally privileged -- so a run listed 148 tables across five databases belonging to other work. Two tracks found it
+     * independently: one measured the failure count moving 85 -> 79 between two runs of the SAME tree, the other watched another
+     * database's tables appear between the "after one run" and "after two runs" reads. Flaky by construction, and invisible in CI, which
+     * gives each job a database of its own.
+     *
+     * Worse than noisy: `dropWhatWasNotThere()` hands these names to `Schema::dropIfExists()`, and a foreign table kept its
+     * `other_database.` prefix because the old stripper removed only this one's. Laravel's grammar reads that as a QUALIFIED name, so the
+     * drop was aimed at another database's table -- the most likely source of the `Table 'orders' doesn't exist` errors other tracks saw
+     * here. That is why this is a fix and not a tidy-up.
+     *
+     * `schemaQualified: false` alone would be WORSE than the bug: it strips the prefix, so a sibling's table arrives under a bare name and
+     * is dropped without even looking foreign. Naming the schema is the fix.
+     *
+     * @return list<string>
+     */
+    private function tablesOfThisDatabase(): array
+    {
+        $connection = (string) config('database.default');
+        $database = (string) config("database.connections.{$connection}.database");
+
+        // SQLite has no schema to name, and answers an empty list when given one.
+        return $database === '' || config("database.connections.{$connection}.driver") === 'sqlite'
+            ? Schema::getTableListing()
+            : Schema::getTableListing(schema: $database, schemaQualified: false);
+    }
+
     /** @return array<string, list<string>> the columns of every table, by table */
     private function schemaFingerprint(): array
     {
         $tables = [];
-        foreach (Schema::getTableListing() as $table) {
-            $name = $this->withoutThePrefix($table);
+        foreach ($this->tablesOfThisDatabase() as $name) {
             $tables[$name] = Schema::getColumnListing($name);
             sort($tables[$name]);
         }
@@ -183,13 +211,5 @@ class MigrationsRunTwiceTest extends TestCase
         ksort($tables);
 
         return $tables;
-    }
-
-    /** MariaDB answers `getTableListing()` with the schema name in front of each table; SQLite does not. */
-    private function withoutThePrefix(string $table): string
-    {
-        $database = (string) config('database.connections.' . config('database.default') . '.database');
-
-        return str_starts_with($table, $database . '.') ? substr($table, strlen($database) + 1) : $table;
     }
 }

@@ -15,7 +15,7 @@ class PaymentRoutingRule extends Model
     public const STATUS_ACTIVE = 'active';
 
     protected $fillable = [
-        'name', 'gateway_code', 'action', 'min_amount', 'max_amount', 'country', 'priority', 'status', 'created_by',
+        'name', 'gateway_code', 'action', 'min_amount', 'max_amount', 'country', 'storefront', 'priority', 'status', 'created_by',
     ];
 
     protected $casts = [
@@ -26,7 +26,7 @@ class PaymentRoutingRule extends Model
     ];
 
     /** Does this rule's conditions match the given order context? */
-    public function matches(float $amount, ?string $country): bool
+    public function matches(float $amount, ?string $country, ?string $storefront = null): bool
     {
         if ($this->min_amount !== null && $amount < (float) $this->min_amount) {
             return false;
@@ -35,7 +35,42 @@ class PaymentRoutingRule extends Model
             return false;
         }
 
-        return $this->countryMatches($country);
+        return $this->storefrontMatches($storefront) && $this->countryMatches($country);
+    }
+
+    /**
+     * Does this rule's storefront condition cover the shop being served? A rule naming no storefront
+     * covers every shop, which is how every rule written before the column existed behaved.
+     *
+     * THE STOREFRONT IS NOT THE DESTINATION. `country` is where the parcel goes; this is which shop the
+     * rule governs. On one market the two always agreed and there was nothing to tell apart; on six,
+     * "not in the Kuwaiti shop" and "not for orders delivered to Kuwait" are different rules and an
+     * operator could previously only write the second.
+     *
+     * A rule that names a storefront acts in that storefront and nowhere else -- including nowhere at
+     * all when no storefront is being served, which is a panel, a seller API or a console command. Such
+     * a caller sees every market, so a rule belonging to one of them must not narrow what it is shown.
+     */
+    public function storefrontMatches(?string $storefront): bool
+    {
+        if ($this->storefront === null || trim((string) $this->storefront) === '') {
+            return true;
+        }
+
+        if ($storefront === null || trim($storefront) === '') {
+            return false;
+        }
+
+        // Resolved to ISO on both sides, for the reason countryMatches() gives below: the two sides are
+        // written in different places, and the engine's own collation must not be what decides a rule.
+        $rule = AddressCountry::anyCountryIsoCode($this->storefront);
+        $served = AddressCountry::anyCountryIsoCode($storefront);
+
+        if ($rule !== null && $served !== null) {
+            return $rule === $served;
+        }
+
+        return mb_strtolower(trim((string) $this->storefront)) === mb_strtolower(trim($storefront));
     }
 
     /** Does this rule's country condition cover this destination? A rule naming no country covers every destination. */
@@ -69,11 +104,12 @@ class PaymentRoutingRule extends Model
         return mb_strtolower(trim($this->country)) === mb_strtolower(trim((string) $country));
     }
 
-    /** A rule that names neither an amount band nor a country, so it applies wherever it is read. */
+    /** A rule that names no amount band, no country and no storefront, so it applies wherever it is read. */
     public function appliesEverywhere(): bool
     {
         return $this->min_amount === null
             && $this->max_amount === null
-            && ($this->country === null || trim($this->country) === '');
+            && ($this->country === null || trim($this->country) === '')
+            && ($this->storefront === null || trim((string) $this->storefront) === '');
     }
 }

@@ -3,18 +3,17 @@
 namespace App\Http\Controllers\Payment_Methods;
 
 use App\Models\PaymentRequest;
-use App\Services\Payments\GatewayConfirmations;
 use App\Models\User;
 use App\Services\Payments\GatewayAccountSecrets;
 use App\Services\Payments\GatewayReturnVerification;
 use App\Services\Payments\PaymentAccountBinding;
+use App\Services\Payments\SettlesAConfirmedPayment;
 use App\Traits\Processor;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Validator;
 
@@ -454,33 +453,14 @@ class PaymobController extends Controller
      */
     private function settle(string $paymentId, string $transaction, mixed $minorUnits, string $currency): ?PaymentRequest
     {
-        $confirmations = app(GatewayConfirmations::class);
-        $payment = $confirmations->thePaymentItSettles(gateway: self::GATEWAY, paymentId: $paymentId, reference: $transaction, minorUnits: $minorUnits, currency: $currency);
-
-        if ($payment === null || $transaction === '') {
-            return null;
-        }
-
-        return DB::transaction(function () use ($confirmations, $payment, $transaction): ?PaymentRequest {
-            if (!$confirmations->hold(gateway: self::GATEWAY, reference: $transaction, paymentId: $payment->id)) {
-                return null;
-            }
-
-            $settled = $this->payment::where(['id' => $payment->id, 'is_paid' => 0])
-                ->update(['payment_method' => self::GATEWAY, 'is_paid' => 1, 'transaction_id' => $transaction]);
-
-            return $settled === 1 ? $payment->refresh() : null;
-        });
+        // One place, because a recovery sweep settles the same way a browser return does and two copies of
+        // this is how the two would come to disagree (App\Services\Payments\SettlesAConfirmedPayment).
+        return app(SettlesAConfirmedPayment::class)->settle(
+            gateway: self::GATEWAY,
+            paymentId: $paymentId,
+            reference: $transaction,
+            minorUnits: $minorUnits,
+            currency: $currency,
+        );
     }
-
-    /**
-     * Marks the payment this confirmation settles as paid, and answers it; null when the confirmation settles no payment.
-     *
-     * What Paymob signs is its own transaction, its order and the amount it took -- never the payment this shop is waiting for.
-     * So the amount and the currency of the confirmation must be the payment's, one transaction of Paymob settles one payment
-     * (App\Services\Payments\GatewayConfirmations), and the paid flag is set only while it is still unset: a confirmation that
-     * arrives twice at once settles once.
-     *
-     * @param numeric-string|int|float|null $minorUnits
-     */
 }

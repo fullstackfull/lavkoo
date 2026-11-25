@@ -11,6 +11,7 @@ use App\Events\OrderEditDuePaymentEvent;
 use App\Services\Address\OrderAddressService;
 use App\Services\Analytics\Analytics;
 use App\Services\Payments\GatewayCurrencySupport;
+use App\Services\Payments\PaymentStartRefused;
 use App\Services\Storefront\StorefrontPaymentMethods;
 use App\Models\AdminWallet;
 use App\Models\Cart;
@@ -212,6 +213,26 @@ class PaymentController extends Controller
         }
 
         $redirectLink = $this->getCustomerPaymentRequest($request, $orderAdditionalData);
+
+        /*
+         * A refusal decided while the order was being read is answered the way every refusal above it is:
+         * 403 and an `errors` list for the app, a message and a page for the browser. It used to be
+         * answered with the URL of the checkout page, which the app branch below cannot tell from a
+         * gateway's -- so a phone whose payment method a routing rule had ruled out was handed
+         * `redirect_link` pointing at the website's checkout, with a 200 and nothing saying no.
+         */
+        if ($redirectLink instanceof PaymentStartRefused) {
+            if (in_array($request['payment_request_from'], ['app'])) {
+                return response()->json([
+                    'message' => $redirectLink->message,
+                    'errors' => [['code' => $redirectLink->code, 'message' => $redirectLink->message]],
+                ], 403);
+            }
+
+            Toastr::error($redirectLink->message);
+
+            return redirect()->route($redirectLink->route);
+        }
 
         if (in_array($request['payment_request_from'], ['app'])) {
             return response()->json([
@@ -494,9 +515,11 @@ class PaymentController extends Controller
          * payment is a different question with its own answer, and this must not take it over.
          */
         if ($this->routingHidesTheChosenMethod(method: (string) $request['payment_method'], amount: (float) $paymentAmount, addressId: $additionalData['address_id'] ?? null)) {
-            Toastr::error(translate('this_payment_method_is_not_available_for_this_order'));
-
-            return route('checkout-payment');
+            return new PaymentStartRefused(
+                code: 'payment-method',
+                message: translate('this_payment_method_is_not_available_for_this_order'),
+                route: 'checkout-payment',
+            );
         }
 
         $paymentInfo = new PaymentInfo(

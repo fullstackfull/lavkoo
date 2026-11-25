@@ -772,8 +772,8 @@ class ReportController extends Controller
             ->whereDate('created_at', '>=', $start_date)
             ->whereDate('created_at', '<=', $end_date)
             ->selectRaw('sum(admin_commission) as commission, YEAR(created_at) year, MONTH(created_at) month')
-            ->groupBy(DB::raw("DATE_FORMAT(created_at, '%M')"))
-            ->latest('created_at')->get();
+            ->groupBy(DB::raw('YEAR(created_at), MONTH(created_at)'))
+            ->orderByRaw('YEAR(created_at) DESC, MONTH(created_at) DESC')->get();
 
         $commission = $this->earningReportsService->getCommissionFromOrderForEarningReport(
             query: $commissions,
@@ -813,8 +813,8 @@ class ReportController extends Controller
             ->where(['order_type' => 'default_type', 'order_status' => 'delivered'])
             ->whereDate('created_at', '>=', $start_date)
             ->whereDate('created_at', '<=', $end_date)
-            ->groupBy(DB::raw("DATE_FORMAT(created_at, '%M')"))
-            ->latest('created_at')->get();
+            ->groupBy(DB::raw('YEAR(created_at), MONTH(created_at)'))
+            ->orderByRaw('YEAR(created_at) DESC, MONTH(created_at) DESC')->get();
 
         $deliverymanIncentive = $this->earningReportsService->getCommissionFromOrderForEarningReport(
             query: $deliverymanIncentives,
@@ -830,8 +830,8 @@ class ReportController extends Controller
             ->whereDate('created_at', '>=', $start_date)
             ->whereDate('created_at', '<=', $end_date)
             ->selectRaw('sum(CASE WHEN is_shipping_free=1 AND free_delivery_bearer="admin" THEN extra_discount ELSE 0 END) as free_shipping_admin_bearer, YEAR(created_at) year, MONTH(created_at) month')
-            ->groupBy(DB::raw("DATE_FORMAT(created_at, '%M')"))
-            ->latest('created_at')->get();
+            ->groupBy(DB::raw('YEAR(created_at), MONTH(created_at)'))
+            ->orderByRaw('YEAR(created_at) DESC, MONTH(created_at) DESC')->get();
 
         for ($inc = $defaultInc; $inc <= $number; $inc++) {
             $month = substr(date("F", strtotime("2023-$inc-01")), 0, 3);
@@ -863,8 +863,8 @@ class ReportController extends Controller
             ->whereDate('created_at', '>=', $start_date)
             ->whereDate('created_at', '<=', $end_date)
             ->selectRaw('sum(tax) as total_tax, YEAR(created_at) year, MONTH(created_at) month')
-            ->groupBy(DB::raw("DATE_FORMAT(created_at, '%M')"))
-            ->latest('created_at')->get();
+            ->groupBy(DB::raw('YEAR(created_at), MONTH(created_at)'))
+            ->orderByRaw('YEAR(created_at) DESC, MONTH(created_at) DESC')->get();
 
         $totalTax = $this->earningReportsService->getVatTAxFromOrderForEarningReport(
             query: $taxes,
@@ -881,8 +881,8 @@ class ReportController extends Controller
             ->whereDate('created_at', '>=', $start_date)
             ->whereDate('created_at', '<=', $end_date)
             ->selectRaw('sum(amount) as refund_amount, YEAR(created_at) year, MONTH(created_at) month')
-            ->groupBy(DB::raw("DATE_FORMAT(created_at, '%M')"))
-            ->latest('created_at')->get();
+            ->groupBy(DB::raw('YEAR(created_at), MONTH(created_at)'))
+            ->orderByRaw('YEAR(created_at) DESC, MONTH(created_at) DESC')->get();
 
         $refundGiven = $this->earningReportsService->getRefundGivenFromOrderForEarningReport(
             query: $refunds,
@@ -928,8 +928,8 @@ class ReportController extends Controller
             ->whereDate('created_at', '>=', $start_date)
             ->whereDate('created_at', '<=', $end_date)
             ->selectRaw('sum(admin_commission) as commission, YEAR(created_at) year')
-            ->groupBy(DB::raw("DATE_FORMAT(created_at, '%Y')"))
-            ->latest('created_at')->get();
+            ->groupBy(DB::raw('YEAR(created_at)'))
+            ->orderByRaw('YEAR(created_at) DESC')->get();
 
         $commission = $this->earningReportsService->getCommissionFromOrderForEarningReport(
             query: $commissions,
@@ -969,8 +969,8 @@ class ReportController extends Controller
             ->whereDate('created_at', '>=', $start_date)
             ->whereDate('created_at', '<=', $end_date)
             ->selectRaw('sum(CASE WHEN delivery_type="self_delivery" AND shipping_responsibility=' . ($type == 'seller' ? '"sellerwise_shipping" AND seller_is="seller"' : '"inhouse_shipping" OR seller_is="admin"') . ' THEN deliveryman_charge ELSE 0 END) as deliveryman_incentive, YEAR(created_at) year')
-            ->groupBy(DB::raw("DATE_FORMAT(created_at, '%Y')"))
-            ->latest('created_at')->get();
+            ->groupBy(DB::raw('YEAR(created_at)'))
+            ->orderByRaw('YEAR(created_at) DESC')->get();
 
         $deliverymanIncentive = $this->earningReportsService->getCommissionFromOrderForEarningReport(
             query: $deliverymanIncentives,
@@ -987,8 +987,8 @@ class ReportController extends Controller
             ->whereDate('created_at', '>=', $start_date)
             ->whereDate('created_at', '<=', $end_date)
             ->selectRaw('sum(CASE WHEN is_shipping_free=1 AND free_delivery_bearer="admin" THEN extra_discount ELSE 0 END) as free_shipping_admin_bearer, YEAR(created_at) year')
-            ->groupBy(DB::raw("DATE_FORMAT(created_at, '%Y')"))
-            ->latest('created_at')->get();
+            ->groupBy(DB::raw('YEAR(created_at)'))
+            ->orderByRaw('YEAR(created_at) DESC')->get();
 
         $adminBearerFreeShipping = [];
         for ($inc = $from_year; $inc <= $to_year; $inc++) {
@@ -1021,8 +1021,8 @@ class ReportController extends Controller
             ->whereDate('created_at', '>=', $start_date)
             ->whereDate('created_at', '<=', $end_date)
             ->selectRaw('sum(tax) as total_tax, YEAR(created_at) year')
-            ->groupBy(DB::raw("DATE_FORMAT(created_at, '%Y')"))
-            ->latest('created_at')->get();
+            ->groupBy(DB::raw('YEAR(created_at)'))
+            ->orderByRaw('YEAR(created_at) DESC')->get();
 
         $totalTax = $this->earningReportsService->getVatTAxFromOrderForEarningReport(
             query: $taxes,
@@ -1039,8 +1039,8 @@ class ReportController extends Controller
             ->whereDate('created_at', '>=', $start_date)
             ->whereDate('created_at', '<=', $end_date)
             ->selectRaw('sum(amount) as refund_amount, YEAR(created_at) year')
-            ->groupBy(DB::raw("DATE_FORMAT(created_at, '%Y')"))
-            ->latest('created_at')->get();
+            ->groupBy(DB::raw('YEAR(created_at)'))
+            ->orderByRaw('YEAR(created_at) DESC')->get();
 
         $refundGiven = $this->earningReportsService->getRefundGivenFromOrderForEarningReport(
             query: $refunds,

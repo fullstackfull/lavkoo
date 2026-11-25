@@ -2,6 +2,7 @@
 
 namespace App\Services\PlatformAdmin;
 
+use App\Services\Marketplace\SettlementTotals;
 use App\Services\Marketplace\SlaService;
 use Carbon\CarbonInterface;
 use Illuminate\Container\Attributes\Scoped;
@@ -40,8 +41,30 @@ final class PlatformMarketFigures
     /** @var array<string, bool> whether the orders table carries a column, asked once per column and per request */
     private array $orderColumns = [];
 
-    public function __construct(private readonly PlatformMarkets $markets, private readonly PlatformAdminSettings $settings)
+    public function __construct(
+        private readonly PlatformMarkets $markets,
+        private readonly PlatformAdminSettings $settings,
+        private readonly SettlementTotals $settlements,
+    ) {
+    }
+
+    /**
+     * What the platform settled in the window, by the company that owes it and the currency it is drawn in (E-17).
+     *
+     * Read through `App\Services\Marketplace\SettlementTotals` and not here, because the settlement table names the shop it pays in a
+     * column this area of the application may not mention at all -- the same indirection, and for the same reason, as the shop issue counts.
+     *
+     * @return list<array{entity: ?int, currency: ?string, status: string, settlements: int, net: ?string}>
+     */
+    public function settlements(CarbonInterface $from, CarbonInterface $before): array
     {
+        return $this->settlements->byCompanyAndCurrency(from: $from, before: $before);
+    }
+
+    /** Whether a settlement of this installation says which currency it is drawn in. */
+    public function settlementsRecordTheirCurrency(): bool
+    {
+        return $this->settlements->recordTheirCurrency();
     }
 
     /** `column` when products carry a country of their own, `default_storefront` while they do not. */

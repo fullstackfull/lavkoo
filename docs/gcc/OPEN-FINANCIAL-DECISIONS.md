@@ -57,6 +57,17 @@ of the label, the website path is the one that does not do what the setting says
 The divergence is pinned by tests, so whichever answer is given, the change is one line in each formula and the tests fail loudly if a
 third formula appears. `App\Services\Loyalty\PointsToWalletConversion` is the one place both paths already go through for the debit side.
 
+Since 2026-11-25 the credit side goes through one place too, and the REST writer reads the exchange rate the way every other reader of the
+four loyalty settings reads it — through `getWebConfig`, so a market with its own rate converts at ITS rate rather than at the platform's.
+That was a straight defect and needed no decision: on a market with no rate of its own, and on every market while storefronts are off, the
+figure is the one that line read before.
+
+**One thing this uncovered, and it is not a decision either — it is a gap.** A per-market exchange rate cannot yet be observed through a
+conversion at all, because the switch that makes a market answer its own loyalty settings (`gcc.storefronts.currency.enabled`) is the same
+switch that CLOSES THE WALLET in a market trading in its own currency (GCC-05 slice 5b). Both loyalty controllers read `wallet_status`
+through the storefront seam, which answers 0 there, so they refuse with 422 before any rate is read. Measured at 0 for Kuwait. Nothing about
+this decision depends on it; it is why the per-market half of E-02 is tested at the writer and not at the endpoint.
+
 ### One more thing this decision holds up
 
 `Convert::default()` rounds every amount it converts to **two** decimals, in both currency models. Both loyalty formulas read it
@@ -67,11 +78,23 @@ function, was separable and is fixed.
 
 ---
 
-### Prepared, and waiting only on the answer — `4f349593`
+### Prepared, and waiting only on the answer — `4f349593`, **and a correction of 2026-11-25 that matters to the owner**
 
 `App\Services\Loyalty\WhatAPointIsWorth` holds both formulas and hands each path its own. The setting
 `gcc.loyalty.point_value` (`GCC_LOYALTY_POINT_VALUE`) names the three answers, and an unrecognised value is read as today's
 behaviour, so a typo in an environment file cannot move money.
+
+> **CORRECTION.** Until 2026-11-25 this section said the answer was one setting away. **It was not: the setting reached no
+> customer.** `WhatAPointIsWorth` was read only by `App\Services\Customer\WalletPosting`, and nothing in the application
+> calls that class — both loyalty controllers even import it and then use the older writers. The REST conversion went to
+> `CustomerManager::create_wallet_transaction` and the website's to `CustomerTrait::createWalletTransaction`, each carrying its
+> own copy of a formula. Answering LF-1 and setting the value would have changed nothing anybody was paid.
+>
+> Both writers now ask the one class, with the default rule reproducing each path's own formula to the digit — measured, not
+> asserted: `PointsToWalletFormulaCharacterizationTest` still reads the same two figures through the real controllers.
+> `TheLoyaltyDecisionReachesTheRealEndpointsTest` (9 tests) drives both endpoints and shows that option A makes both credit one
+> dollar's worth, option B makes both credit one unit in force, and the two agree under either answer — which is the criterion
+> this decision unblocks. So the answer IS now one setting, and the claim can be relied on.
 
 - **Default, as it ships:** `as_each_path_does_today` — the apps keep the app formula, the website keeps the website's, to the digit.
   `PointsToWalletFormulaCharacterizationTest` still measures the same two figures, which is the proof that nothing was adopted.
@@ -340,6 +363,46 @@ conversion guard is unreachable from this setting, which is asserted too.
 
 **What is deliberately NOT done, and is part of adopting an option:** the "report" half of option A -- no screen shows an
 operator that a balance is negative -- and nothing restates a balance that is negative already.
+
+---
+
+## 6. What happens to the market accounts stamped with the wrong company (GCC-13, E-01)
+
+### What the platform did, and what it does now
+
+`App\Services\Wallet\CustomerMarketBalances` recorded the single platform-wide
+`gcc.storefronts.legal.legal_entity` on EVERY market's wallet and loyalty account as it was opened, above a comment saying it would do so
+until per-market entities existed. **They exist**: `legal_entities` holds one row per country, `country` is UNIQUE on it, and the
+platform-admin market list, the health answer and the per-market reports all read it that way. The company on a money account is who the
+customer's balance is a **liability of**, so one company's name on six markets' accounts is a false statement about whose money it is.
+
+**The writer is corrected and nothing is back-filled.** From now on an account opened in a market the registry names carries that market's
+own company; a market the registry does NOT name records **nothing**, rather than another company's name, because an absent answer is better
+than a guessed one and the account still has to open (refusing a customer's credit over a missing company record would move a bookkeeping gap
+onto their money). While the registry is off or not migrated — today's platform — the one platform-wide value is still recorded, so no Saudi
+account changes. Proved in `tests/Feature/Wallet/AMarketAccountCarriesItsOwnCompanyTest` (9 tests), teeth at 5, 2 and 1 of 9.
+
+### The decision
+
+Accounts opened before this carry the platform-wide company whatever market they belong to. **Changing a stored legal entity on live balance
+rows has legal meaning and is not a code fix**, so nothing here touches one. The figure the decision needs is read, not estimated:
+`CustomerMarketBalances::companiesThatDoNotMatchTheirMarket()` counts, per market and per account kind, how many accounts carry a company
+that is not the one their market's row names — and counts apart the accounts of a market the registry names no company for, because nothing
+says what those should have carried. It writes nothing.
+
+| | What it means | What it costs |
+|---|---|---|
+| **A. Leave them** | Every account keeps the company it was opened under. | The record then says that a Kuwaiti balance is a liability of the Saudi company, which is what it said when the account was opened and is not what anybody intended. Cheapest, and the one that leaves a wrong label on a money account. |
+| **B. Restate them, per market** | Each account's `legal_entity` is set to the company its market's row names, in one migration, with the before and after recorded. | The record becomes true. It is a write to live balance rows with legal meaning, so it needs the owner's signature, a count taken first, and a statement of what happens to an account whose market still has no company. |
+| **C. Restate only where the market has a company, and report the rest** | B for the markets the registry names; the others are listed for a person. | Splits the difference and leaves no guessed value behind. Two states to keep track of instead of one. |
+
+### One schema question that comes with it
+
+The account column is `legal_entity varchar(64)`; `legal_entities.legal_name` is `varchar(191)`. A company whose name is longer than 64
+characters therefore **cannot be recorded faithfully**, and MySQL truncates silently while this application's connection is not strict — a
+truncated company name is a different company to any reader. The writer now records **nothing** in that case and logs the market and the
+length (`wallet.market_account_company_too_long_to_record`) rather than inventing a company. Widening the column is a migration on a money
+table and is not done here.
 
 ## How to answer
 

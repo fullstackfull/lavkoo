@@ -408,7 +408,22 @@ class OverviewTest extends PlatformAdminTestCase
 
         $touchingOrders = array_filter($reads, static fn (string $sql): bool => str_contains($sql, 'orders'));
         $touchingRefunds = array_filter($reads, static fn (string $sql): bool => str_contains($sql, 'refund_requests'));
-        $this->assertCount(2, $touchingOrders, 'the orders of the window, and the backlog, which also says how many of its orders are stuck, for the alerts');
+        // TWO: the orders of the window by market and status, and the backlog -- which also says how many of
+        // its orders are stuck, for the alerts. The sales figure (E-17, L-08) costs NO statement here, and that
+        // is `PlatformMarketFigures::sales()` doing what it says: while no order records a currency it returns
+        // early without asking the database at all, because a sale cannot be put under a currency that is not
+        // recorded. On an installation whose orders DO record one it becomes a third grouped aggregate over the
+        // same bounded range.
+        //
+        // This read THREE for a short while today. Two tracks wrote `sales()` independently -- one for E-17 and
+        // one for L-08 -- and the merge kept the version that returns early, because it also refuses to count an
+        // amount whose order carries a currency rate other than one rather than scaling it by a guess. This
+        // expectation follows the code that is actually there.
+        //
+        // The number matters and is pinned rather than loosened, because what this test exists to catch is a read
+        // PER MARKET, ORDER OR PRODUCT; each is one grouped aggregate over a bounded range, which the loop below
+        // proves by adding sixty of everything and asserting the count does not move.
+        $this->assertCount(2, $touchingOrders, 'the orders of the window, and the backlog with its stuck count');
         $this->assertCount(1, $touchingRefunds);
         foreach (array_merge($touchingOrders, $touchingRefunds) as $sql) {
             $this->assertStringContainsString('created_at', $sql, 'a read of orders or refund requests is bounded by a date: ' . $sql);

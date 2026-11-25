@@ -5376,4 +5376,8 @@ ____________________________________________________on_search_engines_and_see_th
 	'this_shows_each_visitor_their_own_history_so_it_is_empty_until_they_have_one' => 'هذا يعرض لكل زائر سجله الخاص، لذلك يبقى فارغاً حتى يصبح له سجل',
 	'todays_cut_off_time_has_passed_so_this_appears_again_tomorrow_morning' => 'انتهى وقت القطع لهذا اليوم، لذلك سيظهر هذا مرة أخرى صباح الغد',
 	'payment_method_updated' => 'تم تحديث طريقة الدفع',
+	'destination_country' => 'بلد التوصيل',
+	'every_storefront' => 'كل المتاجر',
+	'storefront' => 'المتجر',
+	'in' => 'في',
 ];

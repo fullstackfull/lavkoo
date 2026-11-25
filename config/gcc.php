@@ -182,6 +182,33 @@ return [
                 'banners' => env('GCC_STOREFRONT_THEME_COPY_BANNERS', 'duplicate'),
             ],
         ],
+        // Where a customer LANDS after the gateway (D2-14). A payment is already finished in the storefront it started in; the page the
+        // customer is then sent to is `payment-success` or `payment-fail`, which are unprefixed routes, so a Kuwaiti shopper who has just
+        // paid in dinars is answered the default market's page -- its money, its legal texts, its catalogue.
+        //
+        //   'unchanged'  the default, and today's URL exactly
+        //   'query'      appends `storefront=<code>`, which every route of the website already resolves
+        //
+        // THE PATH-PREFIX FORM IS DELIBERATELY NOT BUILT. Emitting `/kw/payment-success` means deciding the public URL shape of every
+        // return page on every market, which is D2-14's open owner decision. An unrecognised value reads as `unchanged`, so a value typed
+        // in hope changes nothing. The storefront is read from the payment's own record and never from the gateway's request.
+        'payment_return' => [
+            'url_form' => env('GCC_PAYMENT_RETURN_URL_FORM', App\Services\Payments\PaymentReturnsToItsStorefront::UNCHANGED),
+        ],
+
+        // What a storefront must have before it may sell, beyond its legal texts, its currency and its selling company (D2-05, D1-16).
+        //
+        // `needs_a_payment_account` adds one prerequisite to `StorefrontPreflight`: a market that takes ONLINE payments must have a gateway
+        // that could actually take one -- switched on, its credentials in the column its own mode reads, able to take the market's own
+        // currency, and with the provider's support for that market CONFIRMED (gcc.payments.capabilities). A market selling
+        // cash-on-delivery only needs no gateway and is ready without one.
+        //
+        // OFF BY DEFAULT, and it has to be: what "ready to sell" includes beyond the legal texts is the owner's open decision on D1-16, and
+        // the provider confirmations the check reads are the owner's open Q-33. A market must not be refused for the absence of a record
+        // nobody has been asked for yet. With it off the gate answers exactly what it answers today, and the check costs one config read.
+        'sale_gate' => [
+            'needs_a_payment_account' => filter_var(env('GCC_SALE_GATE_NEEDS_A_PAYMENT_ACCOUNT', false), FILTER_VALIDATE_BOOLEAN),
+        ],
         'market_accounts' => [
             // Off by default, and off means the platform of today: a customer has the one wallet balance and the one point balance the `users` row keeps
             // (`wallet_balance`, `loyalty_point`), every read answers from those two columns whatever market is asked for, and no account table is read —
@@ -639,6 +666,55 @@ return [
             'GCC_WHAT_A_PAYMENT_IS_WORTH',
             App\Services\Payments\WhatAPaymentIsWorth::AS_TODAY,
         ),
+
+        // WHICH PROVIDER SUPPORT HAS ACTUALLY BEEN CONFIRMED, per gateway, market, currency and method (D2-05).
+        //
+        // The foundation rule is that a country named in documentation counts for nothing. A gateway's own currency list says what the
+        // GATEWAY can do in general; it says nothing about whether this merchant's account with that provider is live in Kuwait, in
+        // dinars, for cards. That is a fact somebody obtains from the provider and writes down with a date -- the owner's open Q-33, for
+        // every cell.
+        //
+        // An entry grants nothing unless it carries `confirmed` STRICTLY TRUE (not 1, not 'yes'), a `provider` naming who confirmed it, a
+        // readable `confirmed_on` that is not in the future, and a non-empty `currencies` list. `methods` is optional and absent means
+        // every method, because a provider confirmation that does not break down by method is the ordinary case.
+        //
+        //   'gateways' => ['paymob_accept' => ['SA' => [
+        //       'confirmed' => true, 'provider' => 'Paymob', 'confirmed_on' => '2026-01-15', 'currencies' => ['SAR'],
+        //   ]]],
+        //
+        // MODE SHIPS `off`, where the registry is not consulted and refuses nothing, because a default-deny registry switched on with an
+        // empty table is a platform that cannot take a payment anywhere. `enforce` is default deny and is a deliberate act, taken once the
+        // cells are written down. The register itself ships EMPTY: every cell is a question for the provider, and this file is not the
+        // place to answer it on their behalf.
+        'capabilities' => [
+            'mode' => env('GCC_PAYMENT_CAPABILITIES_MODE', App\Services\Payments\GatewayCapabilityRegistry::OFF),
+            'gateways' => [],
+        ],
+
+        // Finding the payments a gateway TOOK and this shop never heard about (D2-12, D2-16).
+        //
+        // Every Paymob payment here is settled by the customer's browser coming back, and the callback reads
+        // `session('payment_id')` to know which payment it is about -- so a customer who paid and then closed the tab,
+        // lost signal or was timed out of their session leaves the money with Paymob and the payment row unpaid for
+        // ever: no order, no wallet credit, and nothing on the platform that notices. The sweep asks Paymob, with the
+        // reference the payment start already sends it (`special_reference`, the payment's own id), and settles
+        // through the same service a confirmed browser return settles through.
+        //
+        // OFF AS IT SHIPS, and the command says so and stops: it creates orders and credits wallets on the strength
+        // of what a gateway says, so a schedule written before an operator has decided to run it moves no money. It
+        // never fails a payment -- a refusal is reported and the row is left exactly as it was.
+        'recovery_sweep' => [
+            'enabled' => filter_var(env('GCC_PAYMENT_RECOVERY_SWEEP', false), FILTER_VALIDATE_BOOLEAN),
+            // A customer still at the gateway is not an abandoned payment, and settling one under them would have the
+            // shop and the browser settling at once. Fifteen minutes is longer than any checkout and shorter than any
+            // reconciliation window.
+            'minimum_age_minutes' => (int) env('GCC_PAYMENT_RECOVERY_SWEEP_MIN_AGE', 15),
+            // How far back a run looks. Beyond this a payment is a reconciliation question for a person, not something
+            // a sweep should settle into an order whose stock, prices and coupons have all moved on.
+            'oldest_days' => (int) env('GCC_PAYMENT_RECOVERY_SWEEP_OLDEST_DAYS', 7),
+            // Payments considered per run, oldest first: the oldest unsettled payment has been owed longest.
+            'batch' => (int) env('GCC_PAYMENT_RECOVERY_SWEEP_BATCH', 200),
+        ],
     ],
 
     'tax' => [
