@@ -190,7 +190,21 @@ final class StorefrontCatalog
         return self::context()?->scopedCacheKey($key) ?? self::unboundKey($key);
     }
 
-    /** @return list<string> every key the entry can be under: the plain key, and while storefronts are on, each storefront's and the unbound one. */
+    /**
+     * Every key the entry can be under: the plain key, and while storefronts are on, each storefront's and the unbound one.
+     *
+     * **The gate is deliberate, and it is NOT the same decision as {@see StorefrontContext::keysForEveryStorefront}, which has none.** A
+     * theme publish reaches every market's copy whether storefronts are on or off; a catalogue change reaches only the plain key while they
+     * are off, so that a storefront configuration which is missing or mistyped cannot reach the caches of a platform that is not using
+     * storefronts (`StorefrontProductCachesTest::test_while_storefronts_are_off_a_missing_or_broken_storefront_configuration_does_not_reach_the_caches`).
+     *
+     * What that leaves is a known, named trade-off rather than an oversight: the copies written while the flag was on are not forgotten by
+     * a catalogue change made while it is off, so they would be served again after the next flip. Step 6 of
+     * `docs/gcc/STOREFRONT_FLAG_RUNBOOK.md` is the answer -- `php artisan cache:clear` on every flip, in either direction. Both halves of
+     * the asymmetry are pinned by `StorefrontCacheKeyOwnershipTest`, so removing this gate fails a test that explains why it is here.
+     *
+     * @return list<string>
+     */
     public static function cacheKeysForEveryStorefront(string $key): array
     {
         if (!config('gcc.storefronts.enabled')) {

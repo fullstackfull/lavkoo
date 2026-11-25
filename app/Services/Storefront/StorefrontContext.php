@@ -10,6 +10,19 @@ use Closure;
  */
 final readonly class StorefrontContext
 {
+    /**
+     * The market that owns the UNPREFIXED cache key: the market whose entries this platform already had cached before storefronts existed.
+     *
+     * A literal, deliberately, and not {@see StorefrontResolver::defaultCountry()}. Reading the configured default market here would mean
+     * that changing it -- which owner decision A1-03 makes a recorded, changeable decision -- handed the new default market the bare key,
+     * and the bare key holds entries built from the Saudi catalogue. The new market would read another market's cached lists.
+     *
+     * What it IS coupled to is the pre-migration half of {@see StorefrontCatalog}: before the `storefront_country` column exists, the
+     * unmarked catalogue rows are served to the CONFIGURED default market, so the market that owns the bare key and the market that owns
+     * the unmarked rows have to be the same one. They are, while the default market is Saudi Arabia.
+     * `StorefrontCacheKeyOwnershipTest::test_the_unprefixed_key_belongs_to_the_market_the_platform_serves_by_default` fails on any other
+     * configuration rather than letting it ship quietly, and moving the default market means moving both halves together.
+     */
     private const UNSCOPED_COUNTRY = 'SA';
 
     public function __construct(
