@@ -402,3 +402,32 @@ criteria names more signals than are built -- which is the honest record and is 
   stalled the suite at 43% for ten minutes and starved the tracks of the CPU the owner asked to be spent on them. CI's
   own SQLite jobs run the same full suite on a clean tree for free; use those and keep the local box for targeted
   directories.
+- **File ownership does NOT stop two tracks building the same mechanism.** Round 2's partition gave every track its own
+  files, and two tracks still wrote a POS sale gate -- `Checkout\PointOfSaleSaleRule` and `Pos\PosSaleGate` -- each in
+  its own new file, each wired into the SAME three place-order actions, and answering differently on two inputs (a cart
+  spanning two markets; a product naming no market). Nothing in a file-based partition forbids a NEW file that answers
+  an owned question. Partition the QUESTIONS as well as the files: name, per track, which decision it owns, and have a
+  track that finds itself answering someone else's question stop and say so.
+- **A track that ships a capability ON must run the worlds its switch would break, or it has not tested its claim.**
+  One of those two gates shipped OFF and wrote down the measurement for the default: a market with no lifecycle record
+  is a DRAFT, so an on gate refuses till sales in any market nobody made active, and it NAMED six test worlds that sell
+  in exactly such a market. The other shipped ON, claimed C-16 [MET], and never ran them. Running them returned exactly
+  the two failures the first track predicted. A prediction written down by a sibling track is evidence; check it before
+  claiming the opposite.
+- **When two duplicates must be collapsed, keep the more cautious design and take the other's best TEST.** The survivor
+  was the one with the switch, the register entry and the architecture test; what moved across was the deleted gate's
+  column-absent case, which is the state of every installation today and worth pinning. The deleted gate's one real
+  insight (read the market by id so a scoped employee cannot hide a line) was recorded in the survivor's docblock with
+  the reason it was NOT adopted, rather than dropped silently -- a rejected idea with a reason does not get re-proposed.
+- **Re-derive a criterion's STATE after any merge arbitration, not just its text.** C-16 was [MET] on the strength of a
+  class the arbitration deleted, and the surviving gate ships off; a rule that is switched off is not a rule the tills
+  apply. It went back to [CODED] with what closing it needs. A merge that changes which code survives changes what the
+  tracker may claim.
+- **`git push -u origin <branch>` pushes the branch you NAME, not the one you are on.** Eleven commits sat unpushed
+  while a stale local branch of the same repo went to the remote and created a ref holding nothing. After any push,
+  read `git branch -vv` and confirm the ahead-count of the branch you are actually on is zero.
+- **A register pointing at a lost document can often be rebuilt from what that document summarised.** The security
+  triage's 222 ids all point to a "restricted annex" that exists on no ref of any of the three repositories, and the
+  Discovery-01 dossiers repeat the same pointer -- but their surrounding prose states each finding's technical fact WITH
+  file and line and then attaches the SEC id to it. The ids' subjects are therefore recoverable from the dossiers even
+  though the annex is not. Before recording a register as unrecoverable, look for the source it was derived from.
