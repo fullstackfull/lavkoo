@@ -54,6 +54,21 @@ class TranslateDoesNotRewriteALanguageFileTest extends TestCase
     private const BASELINE = ['no_locale' => 1073, 'en' => 1216, 'sa' => 3122, 'ae' => 1137];
 
     /**
+     * The number of keys an ARABIC locale answers in LATIN script, which is the figure the four above hide.
+     *
+     * "Short of a key" and "answers in English" are different failures and the second is much larger. `translate()` does not fall back: it
+     * looks a key up in `<locale>/messages.php` and then in `<locale>/new-messages.php`, and when it finds neither it APPENDS a humanised
+     * English placeholder to the second file and returns it. So a key that has ever been rendered on a locale is PRESENT on that locale --
+     * and present holding English. The counts above see a present key; this one reads what it says.
+     *
+     * Measured on 2026-11-25: `sa` answered 229 of its 8,879 defined keys in Latin and `ae` 8,124 of its 10,864 -- 75% of the Emirati
+     * catalogue, on a market that is approved and not yet switched on. 6,085 of the Emirati ones and 175 of the Saudi ones were replaced
+     * with the Arabic the OTHER Arabic locales of this repository already held for the same key, which is why the baselines are 54 and
+     * 2,039. Nothing was translated by machine and nothing was copied from `en`.
+     */
+    private const LATIN_BASELINE = ['sa' => 54, 'ae' => 2039];
+
+    /**
      * The surfaces this programme wrote or extended, which must hold no such key at all.
      *
      * Kept apart from `CouponNotificationCheckoutAndStorefrontAreTranslatedTest`'s own list on purpose: that test also demands ARABIC
@@ -209,6 +224,55 @@ class TranslateDoesNotRewriteALanguageFileTest extends TestCase
             'a key defined in no locale was added. Every shop writes a language file for it on the request that renders it. '
             . 'The whole set is: ' . implode(', ', $nowhere),
         );
+    }
+
+    /**
+     * The Emirati locale's PRIMARY file is empty, and this pins that as a measured fact with its mechanism rather than as a count.
+     *
+     * `resources/lang/ae/messages.php` is `return []` -- zero keys, against 6,816 in `en` and 7,312 in `sa` -- so every answer that locale
+     * gives comes out of `new-messages.php`, which is the file `translate()` itself writes to. That is why it is the LARGEST of the six
+     * (more entries than `en` holds in both of its files) and why three quarters of it was English: it is a transcript of every key an
+     * Emirati request has ever rendered, accumulated one request at a time.
+     *
+     * The good news in that mechanism, and the reason this is a gap rather than a disaster: the English is IN THE REPOSITORY, where it can
+     * be found and replaced, instead of being produced at read time by a fallback nobody can see. It is deliberately NOT fixed by copying
+     * `en/messages.php` across -- that would put English behind an Arabic locale and make the file look finished while reading wrong -- and
+     * a single key added to it would make the locale look populated, so it stays empty until there is Arabic to put in it.
+     */
+    public function test_the_emirati_locale_answers_entirely_out_of_the_file_translate_writes_to(): void
+    {
+        $this->assertSame([], include base_path('resources/lang/ae/messages.php'), 'if this file has been populated, say with what: see the docblock');
+
+        $primary = array_map(static fn (string $locale): int => count(include base_path("resources/lang/{$locale}/messages.php")), ['en' => 'en', 'sa' => 'sa']);
+
+        $this->assertGreaterThan(6000, $primary['en'], 'the other locales do serve their primary file');
+        $this->assertGreaterThan(6000, $primary['sa']);
+        $this->assertGreaterThan(
+            count(include base_path('resources/lang/en/new-messages.php')),
+            count(include base_path('resources/lang/ae/new-messages.php')),
+            'the Emirati written-at-runtime file is the largest of the six, which is what an empty primary file costs',
+        );
+    }
+
+    public function test_the_number_of_keys_an_arabic_locale_answers_in_latin_script_has_not_grown(): void
+    {
+        $keys = $this->keysUnder(self::TREES);
+
+        foreach (self::LATIN_BASELINE as $locale => $baseline) {
+            $latin = array_values(array_filter(
+                $keys,
+                fn (string $key): bool => is_string($this->catalogue[$locale][$key] ?? null)
+                    && preg_match('/\p{L}/u', (string) $this->catalogue[$locale][$key]) === 1
+                    && preg_match('/\p{Arabic}/u', (string) $this->catalogue[$locale][$key]) !== 1,
+            ));
+
+            $this->assertLessThanOrEqual(
+                $baseline,
+                count($latin),
+                "resources/lang/{$locale} answers more keys in Latin script than its baseline, so a visitor of that market reads more "
+                . 'English than they did. A key defined with an English value is not a translated key. The whole set is: ' . implode(', ', $latin),
+            );
+        }
     }
 
     public function test_the_number_of_keys_each_locale_is_short_of_has_not_grown(): void

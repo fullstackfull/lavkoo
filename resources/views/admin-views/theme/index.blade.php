@@ -204,8 +204,14 @@
                                             @if($latestDraft)
                                                 <span class="badge badge-soft-warning">{{ translate('draft') }} #{{ $latestDraft->id }}</span>
                                                 @if($latestDraft->isScheduled())
+                                                    {{-- F-08: on the clock of the theme's own market, with the zone beside it, because a
+                                                         time with no zone can be read as the wrong one. The stored moment is absolute and
+                                                         in the platform's zone; this is the operator's wall clock. --}}
+                                                    @php $clock = app(\App\Services\Theme\ThemeScheduleClock::class); @endphp
                                                     <span class="badge badge-soft-info" dir="auto">
-                                                        {{ translate('publishes') }} {{ $latestDraft->publish_at->toDayDateTimeString() }}
+                                                        {{ translate('publishes') }}
+                                                        {{ $clock->onTheMarketsClock($theme, $latestDraft->publish_at)?->toDayDateTimeString() }}
+                                                        ({{ $clock->labelOf($theme) }})
                                                     </span>
                                                 @endif
                                                 @php $report = $compatibility[$theme->id] ?? null; @endphp
@@ -275,6 +281,7 @@
                                                                 @csrf
                                                                 <input type="hidden" name="version_id" value="{{ $latestDraft->id }}">
                                                                 <input type="datetime-local" name="publish_at" class="form-control form-control-sm">
+                                                                <small class="text-muted">{{ app(\App\Services\Theme\ThemeScheduleClock::class)->labelOf($theme) }}</small>
                                                                 <button type="submit" class="btn btn-sm btn-outline-info">{{ translate('publish_later') }}</button>
                                                             </form>
                                                         @else

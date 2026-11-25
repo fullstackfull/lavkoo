@@ -91,13 +91,18 @@ return [
 
         'default_country' => env('GCC_DEFAULT_COUNTRY', 'SA'),
 
+        // `timezone` is the market's own clock, for the times an operator of that market TYPES (F-08). `config/app.php` sets one zone for
+        // the whole platform (`Asia/Dhaka`, which is the upstream vendor's), so "publish at nine" entered on the Emirati screen meant nine
+        // o'clock in Dhaka -- six in the morning in Dubai. The stored moment stays absolute and in the platform's zone, as every other
+        // timestamp of this database is; what the market's zone decides is how the operator's wall clock is read and written back to them.
+        // The six are the GCC's, none of which observes daylight saving, so no market's schedule moves twice a year.
         'countries' => [
-            'SA' => ['path' => 'sa', 'currency' => 'SAR', 'active' => true, 'name' => 'Saudi Arabia'],
-            'AE' => ['path' => 'ae', 'currency' => 'AED', 'active' => false, 'name' => 'United Arab Emirates'],
-            'KW' => ['path' => 'kw', 'currency' => 'KWD', 'active' => false, 'name' => 'Kuwait'],
-            'QA' => ['path' => 'qa', 'currency' => 'QAR', 'active' => false, 'name' => 'Qatar'],
-            'BH' => ['path' => 'bh', 'currency' => 'BHD', 'active' => false, 'name' => 'Bahrain'],
-            'OM' => ['path' => 'om', 'currency' => 'OMR', 'active' => false, 'name' => 'Oman'],
+            'SA' => ['path' => 'sa', 'currency' => 'SAR', 'active' => true, 'name' => 'Saudi Arabia', 'timezone' => 'Asia/Riyadh'],
+            'AE' => ['path' => 'ae', 'currency' => 'AED', 'active' => false, 'name' => 'United Arab Emirates', 'timezone' => 'Asia/Dubai'],
+            'KW' => ['path' => 'kw', 'currency' => 'KWD', 'active' => false, 'name' => 'Kuwait', 'timezone' => 'Asia/Kuwait'],
+            'QA' => ['path' => 'qa', 'currency' => 'QAR', 'active' => false, 'name' => 'Qatar', 'timezone' => 'Asia/Qatar'],
+            'BH' => ['path' => 'bh', 'currency' => 'BHD', 'active' => false, 'name' => 'Bahrain', 'timezone' => 'Asia/Bahrain'],
+            'OM' => ['path' => 'om', 'currency' => 'OMR', 'active' => false, 'name' => 'Oman', 'timezone' => 'Asia/Muscat'],
         ],
 
         'paths' => [

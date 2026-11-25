@@ -10,6 +10,7 @@ use App\Services\AuditLogger;
 use App\Services\Theme\BuilderReadiness;
 use App\Services\Theme\PublishValidator;
 use App\Services\Theme\StorefrontThemeResolver;
+use App\Services\Theme\ThemeScheduleClock;
 use App\Services\Theme\ThemeStorefrontSelection;
 use App\Services\Theme\ThemeCopyToMarket;
 use App\Services\Theme\ThemeManager;
@@ -309,9 +310,19 @@ class ThemeManagementController extends BaseController
             return $this->backToIndex();
         }
 
-        $moment = $this->parseMoment($request['publish_at'] ?? null);
+        // On the clock of the theme's own market (F-08). The form sends a `datetime-local` value, which carries no zone, and this platform
+        // has ONE zone for every market -- `Asia/Dhaka` -- so "publish at nine" typed on the Emirati screen used to mean nine in Dhaka,
+        // i.e. six in the morning in Dubai.
+        $clock = app(ThemeScheduleClock::class);
+        // Read with a rescue, because this path tolerates a theme read that throws on purpose (StorefrontThemeScheduledPublishTest) and a
+        // clock that made the read load-bearing would turn a tolerated failure into a 500. No theme means the platform's own clock, which
+        // is the clock this screen used for every market until now.
+        $themeOfTheVersion = rescue(callback: fn () => $version->theme, rescue: null, report: false);
+        $moment = $clock->momentTyped(theme: $themeOfTheVersion, typed: $request['publish_at'] ?? null);
         if ($moment === null) {
-            ToastMagic::error(translate('choose_a_date_and_time_in_the_future') . '!');
+            // Two different refusals share this one place: a moment that has passed, and a moment beyond what the column can hold -- which
+            // MySQL stores as `0000-00-00` and the runner then reads as already due, publishing IMMEDIATELY.
+            ToastMagic::error(translate($clock->whyItCannotBeScheduled(theme: $themeOfTheVersion, typed: $request['publish_at'] ?? null) ?? ThemeScheduleClock::NOT_IN_THE_FUTURE) . '!');
             return $this->backToIndex();
         }
 
@@ -371,21 +382,6 @@ class ThemeManagementController extends BaseController
      */
 
     /** A future moment from the form, or null when it is unparseable or already past. */
-    private function parseMoment(mixed $input): ?\Illuminate\Support\Carbon
-    {
-        if (!is_string($input) || trim($input) === '') {
-            return null;
-        }
-
-        try {
-            $moment = \Illuminate\Support\Carbon::parse($input);
-        } catch (\Throwable) {
-            return null;
-        }
-
-        return $moment->isFuture() ? $moment : null;
-    }
-
     /** Duplicate a version into a fresh draft (revision / edit-a-copy workflow). */
     public function duplicateVersion(Request $request): RedirectResponse
     {
