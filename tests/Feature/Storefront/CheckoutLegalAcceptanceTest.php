@@ -3,6 +3,7 @@
 namespace Tests\Feature\Storefront;
 
 use App\Models\StorefrontLegalAcceptance;
+use App\Services\Address\AddressSchema;
 use App\Services\Storefront\CheckoutLegalAcceptance;
 use Illuminate\Http\Request;
 use App\Models\User;
@@ -85,6 +86,29 @@ class CheckoutLegalAcceptanceTest extends ApiAddressTestCase
             ->json('order_ids.0');
 
         return [$customer, (int) $orderId];
+    }
+
+    /**
+     * Places one order the way a shopper on the WEBSITE places it: cash on delivery, their own saved address in the session, the
+     * storefront header their browser sends. A different controller, a different guard and a different request shape from the API's.
+     *
+     * @return int the order that was placed
+     */
+    private function placeAWebOrderOn(string $country, array $showed = []): int
+    {
+        $this->setAddressMode(AddressSchema::MODE_SOFT);
+        $customer = $this->makeCustomer();
+        $address = $this->makeStructuredAddress($this->ids, $customer->id);
+        $this->fillTheCartFrom(customer: $customer, country: $country, productId: self::PRODUCT_OF[$country]);
+
+        $this->actingAs($customer, 'customer')
+            ->withHeaders(['X-Requested-With' => 'XMLHttpRequest', 'X-Storefront' => $country])
+            ->withSession(['address_id' => $address->id, 'billing_address_id' => $address->id])
+            ->post(route('checkout-complete'), ['payment_method' => 'cash_on_delivery'] + ($showed === [] ? [] : ['accepted_documents' => $showed]))
+            ->assertOk()
+            ->assertJsonPath('status', 1);
+
+        return (int) DB::table('orders')->orderByDesc('id')->value('id');
     }
 
     /** @return list<array<string, mixed>> the receipts written, as rows */
@@ -250,5 +274,92 @@ class CheckoutLegalAcceptanceTest extends ApiAddressTestCase
 
         $this->assertNull(StorefrontLegalAcceptance::query()->value('customer_id'));
         $this->assertSame($orderId, (int) StorefrontLegalAcceptance::query()->value('order_id'), 'the order is still named');
+    }
+
+    /**
+     * The WEBSITE writes a receipt too, and that is the criterion this file exists for (I2-05).
+     *
+     * The recorder was called from the three `/api/v1` endpoints the customer app posts to, and from nowhere else. A customer buying on
+     * the website went through `Web\WebController` instead, which never called it, so the whole web channel placed orders that needed an
+     * accepted text and recorded nothing -- and the gap was invisible, because the three paths that were covered were the three with
+     * tests. The call now sits inside `OrderManager::generateOrder`, which both controllers go through.
+     *
+     * This test posts to `/checkout-complete` and reads the row. It fails on the arrangement it replaced.
+     */
+    public function test_the_website_writes_a_receipt_and_not_only_the_customer_app(): void
+    {
+        $this->requireAcceptanceOf('terms');
+        $this->publishRequiredLegalDocuments(country: 'KW', reviewed: false);
+
+        $orderId = $this->placeAWebOrderOn('KW', showed: ['terms']);
+
+        $this->assertSame([[
+            'storefront_country' => 'KW',
+            'document_type' => 'terms',
+            'locale' => 'en',
+            'document_version' => 1,
+            'order_id' => $orderId,
+            'customer_id' => DB::table('orders')->where('id', $orderId)->value('customer_id'),
+        ]], $this->receipts(), 'a web order carries its own receipt, naming its own order');
+    }
+
+    /** The website obeys the same two gates as the app: nothing required, nothing recorded. */
+    public function test_the_website_records_nothing_while_no_type_requires_acceptance(): void
+    {
+        $this->publishRequiredLegalDocuments(country: 'KW', reviewed: false);
+
+        $orderId = $this->placeAWebOrderOn('KW', showed: ['terms', 'privacy']);
+
+        $this->assertGreaterThan(0, $orderId, 'the order was placed');
+        $this->assertSame([], $this->receipts(), 'the shipped configuration requires nothing, so the website is untouched');
+    }
+
+    /**
+     * One receipt per order and per type, and not two.
+     *
+     * While the three API endpoints called the service themselves AND the order writer called it, every order of those three endpoints
+     * got two identical receipts -- and the table has no unique key to stop it, because a receipt is written once and never updated. Two
+     * rows saying the same thing is a corrupt record of consent, not a harmless duplicate: it is the document a regulator would be shown.
+     * This is why the outer calls were removed rather than left as belt and braces.
+     */
+    public function test_one_order_and_one_type_write_exactly_one_receipt(): void
+    {
+        $this->requireAcceptanceOf('terms');
+        $this->publishRequiredLegalDocuments(country: 'KW', reviewed: false);
+
+        [, $orderId] = $this->placeAnOrderOn('KW', showed: ['terms']);
+
+        $this->assertSame(
+            1,
+            StorefrontLegalAcceptance::query()->where(['order_id' => $orderId, 'document_type' => 'terms'])->count(),
+            'exactly one receipt: a second caller writing the same row again is a duplicated record of consent',
+        );
+    }
+
+    /**
+     * A checkout that places no order writes no receipt.
+     *
+     * The receipt is written inside `generateOrder`'s transaction, so it cannot outlive the order it is about. Proven here from the
+     * outside, which is what a test can see: a cart whose stock has gone places nothing, and leaves nothing behind claiming the customer
+     * accepted terms for it. What this does NOT prove is the rollback of a refusal raised AFTER the order row was inserted -- that needs
+     * a stock race this cannot force -- and the lexical position of the call is pinned instead by
+     * {@see \Tests\Unit\Architecture\LegalReceiptHasOneWriterTest}.
+     */
+    public function test_a_checkout_that_places_no_order_leaves_no_receipt(): void
+    {
+        $this->requireAcceptanceOf('terms');
+        $this->publishRequiredLegalDocuments(country: 'KW', reviewed: false);
+
+        $customer = $this->makeCustomer();
+        $this->fillTheCartFrom(customer: $customer, country: 'KW', productId: self::PRODUCT_OF['KW']);
+        DB::table('products')->where('id', self::PRODUCT_OF['KW'])->update(['current_stock' => 0]);
+
+        $this->asCustomer($customer)
+            ->withHeader('X-Storefront', 'KW')
+            ->withHeader('lang', 'en')
+            ->getJson(self::PLACE_ORDER . '?' . http_build_query(['accepted_documents' => ['terms']]));
+
+        $this->assertSame(0, DB::table('orders')->count(), 'nothing was placed');
+        $this->assertSame([], $this->receipts(), 'and nothing records a consent for an order that does not exist');
     }
 }

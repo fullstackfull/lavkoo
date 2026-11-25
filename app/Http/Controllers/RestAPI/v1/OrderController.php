@@ -14,7 +14,6 @@ use App\Services\DigitalProductFileService;
 use App\Services\Customer\WalletOrderDebit;
 use App\Services\Fulfillment\CheckoutCodGuard;
 use App\Services\Fulfillment\CustomerFulfillmentPresenter;
-use App\Services\Storefront\CheckoutLegalAcceptance;
 use App\Services\Storefront\StorefrontCurrency;
 use App\Http\Requests\API\v1\RefundStoreRequest;
 use App\Models\Cart;
@@ -331,17 +330,6 @@ class OrderController extends Controller
             return response()->json(['message' => translate('The_following_items_in_your_cart_are_currently_out_of_stock')], 403);
         }
 
-        // Which legal texts the customer confirmed they were shown, recorded against the orders now that they exist (GCC-11, J-15).
-        // The recorder has existed for a while and nothing called it, so the platform kept no record of what anyone agreed to. Nothing is
-        // required until an operator lists a type in gcc.storefronts.legal.explicit_acceptance, which ships empty, and a failure here is
-        // reported rather than thrown: the order is placed and the money may have moved.
-        app(CheckoutLegalAcceptance::class)->record(
-            request: $request,
-            orderIds: $orderIds,
-            customerId: $user == 'offline' ? null : (int) $user['id'],
-            guestId: $user == 'offline' ? (string) $request['guest_id'] : null,
-        );
-
         return response()->json([
             'order_ids' => $orderIds,
             'new_user' => (bool)$newCustomerRegister
@@ -476,17 +464,6 @@ class OrderController extends Controller
             return response()->json(['message' => translate('The_following_items_in_your_cart_are_currently_out_of_stock')], 403);
         }
 
-        // Which legal texts the customer confirmed they were shown, recorded against the orders now that they exist (GCC-11, J-15).
-        // The recorder has existed for a while and nothing called it, so the platform kept no record of what anyone agreed to. Nothing is
-        // required until an operator lists a type in gcc.storefronts.legal.explicit_acceptance, which ships empty, and a failure here is
-        // reported rather than thrown: the order is placed and the money may have moved.
-        app(CheckoutLegalAcceptance::class)->record(
-            request: $request,
-            orderIds: $orderIds,
-            customerId: $user == 'offline' ? null : (int) $user['id'],
-            guestId: $user == 'offline' ? (string) $request['guest_id'] : null,
-        );
-
         return response()->json([
             'messages' => translate('order_placed_successfully'),
             'new_user' => (bool)$newCustomerRegister,
@@ -588,12 +565,6 @@ class OrderController extends Controller
             if (empty($orderIds)) {
                 return response()->json(['message' => translate('The_following_items_in_your_cart_are_currently_out_of_stock')], 403);
             }
-
-            // Which legal texts the customer confirmed they were shown, recorded against the orders now that they exist (GCC-11, J-15).
-            // The recorder has existed for a while and nothing called it, so the platform kept no record of what anyone agreed to. Nothing is
-            // required until an operator lists a type in gcc.storefronts.legal.explicit_acceptance, which ships empty, and a failure here is
-            // reported rather than thrown: the order is placed and the money may have moved.
-            app(CheckoutLegalAcceptance::class)->record(request: $request, orderIds: $orderIds, customerId: (int) $user->id);
 
             return response()->json([
                 'messages' => translate('order_placed_successfully'),

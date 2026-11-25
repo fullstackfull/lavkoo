@@ -57,6 +57,7 @@ use App\Services\Fulfillment\OrderItemOwnershipSnapshotter;
 use App\Services\Marketplace\RestockBudget;
 use App\Services\Storefront\LedgerAttribution;
 use App\Services\Storefront\LedgerOrigin;
+use App\Services\Storefront\CheckoutLegalAcceptance;
 use App\Services\Storefront\OrderStorefrontSnapshot;
 use App\Services\SalesChannels\Dispatch\ChannelOrderMarker;
 use App\Enums\Address\AddressChannel;
@@ -1907,6 +1908,34 @@ class OrderManager
             $storefrontSnapshot = app(OrderStorefrontSnapshot::class);
             $storefrontSnapshot->record(orderId: $order_id);
             $storefrontSnapshot->stampMoneyRows(table: 'order_details', orderId: $order_id);
+
+            // Which legal texts the customer confirmed they were shown, recorded against THIS order while its
+            // transaction is still open (GCC-11, I2-05).
+            //
+            // Here, and not at the callers, because this is the one line every order of this platform is written at:
+            // the web checkout, both API versions and the point-of-sale helper all arrive here. The recorder used to
+            // be called from the three v1 endpoints the customer app uses, which left the four other paths -- the
+            // whole website included -- writing no receipt at all.
+            //
+            // Inside the transaction, so a receipt cannot outlive its order: one written after generateOrder returned
+            // would survive an order the transaction refused, claiming a customer accepted terms for a sale that
+            // never happened. It also means the market is read from the order row the snapshot above has just
+            // written rather than from the request, which is the rule every per-market read on this platform follows.
+            //
+            // The request is the caller's own where there IS one, and `requestObj` is NOT always a request: the payment
+            // settlement path builds it as an ARRAY (`app/Utils/module-helper.php`) and merges that array into the global
+            // request before it calls this, so the global one is where its `accepted_documents` actually is. An order
+            // placed by a queue or a console command names no accepted document and writes nothing.
+            //
+            // `customer_id` holds the GUEST id for a guest order (getCustomerInfoForOrder), so is_guest decides which
+            // of the two this is. Handing a guest id over as a customer id would store an identity the privacy
+            // setting says to keep only as a hash.
+            app(CheckoutLegalAcceptance::class)->record(
+                request: ($data['requestObj'] ?? null) instanceof Request ? $data['requestObj'] : request(),
+                orderIds: [$order_id],
+                customerId: ($getCustomerInfo['is_guest'] ?? 0) ? null : (int) $getCustomerInfo['customer_id'],
+                guestId: ($getCustomerInfo['is_guest'] ?? 0) ? (string) $getCustomerInfo['guest_id'] : null,
+            );
 
             $order = Order::with('customer', 'seller.shop', 'details')->find($order_id);
             

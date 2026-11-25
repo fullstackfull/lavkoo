@@ -3,17 +3,27 @@
 namespace App\Services\Storefront;
 
 use Illuminate\Container\Attributes\Singleton;
+use Illuminate\Database\DetectsConcurrencyErrors;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use RuntimeException;
 use Throwable;
 
 /**
  * Records, at checkout, which legal texts the customer confirmed they were shown (GCC-11, J-15).
  *
  * `StorefrontLegalAcceptanceRecorder` has been able to write a receipt for a while and NOTHING CALLED IT, so the platform kept no record of
- * what any customer ever agreed to. This is the caller: the three v1 order-placement endpoints the customer app uses hand over the order
- * ids once the orders exist, and one row is written per order and per required document type.
+ * what any customer ever agreed to. This is the caller, and it is called from ONE place: inside `OrderManager::generateOrder`'s
+ * transaction, once the order row and its lines exist. One row is written per order and per required document type.
+ *
+ * **Why there and not at the checkouts.** It was called from the three v1 endpoints the customer app uses, which is three of the SEVEN
+ * paths that create an order on this platform -- the web checkout has three of its own and the point-of-sale helper a seventh -- so a
+ * customer buying on the website left no receipt at all. `generateOrder` is the one line every order passes through, which is the same
+ * argument the order's analytics event is raised there for.
+ *
+ * **Inside the transaction, so a receipt cannot outlive its order.** A receipt written after `generateOrder` returned would survive an
+ * order that rolled back, leaving a record that a customer accepted terms for a sale that never happened; and it could not be written at
+ * all for an order the transaction refused. Being inside it also means the market can be read from the order row the storefront snapshot
+ * has just written, in the same transaction, before anything is committed.
  *
  * **The server decides what must be accepted, the client only says what it showed.** The loop is over
  * `gcc.storefronts.legal.explicit_acceptance`, which ships EMPTY, so nothing is required and nothing is recorded until an operator lists a
@@ -38,6 +48,8 @@ use Throwable;
 #[Singleton]
 final class CheckoutLegalAcceptance
 {
+    use DetectsConcurrencyErrors;
+
     public function __construct(private readonly StorefrontLegalAcceptanceRecorder $recorder)
     {
     }
@@ -82,8 +94,20 @@ final class CheckoutLegalAcceptance
     {
         try {
             return $this->recorder->recordIfRequired($country, $documentType, $locale, customerId: $customerId, guestId: $guestId, orderId: $orderId) === null ? 0 : 1;
-        } catch (RuntimeException | Throwable $failure) {
-            // The order exists and may be paid for. A gap in the record is reported, not thrown.
+        } catch (Throwable $failure) {
+            // This runs INSIDE the order's transaction, and that changes what may be swallowed here.
+            //
+            // A deadlock or a lock-wait timeout is the engine asking for the whole transaction to be tried again, and
+            // `generateOrder`'s `DB::transaction(attempts: 3)` does exactly that -- but only if the exception reaches it.
+            // Swallowing one would leave the order's transaction running after the engine had already rolled its work
+            // back, and that is how a half-written order gets committed. A receipt is not worth that risk.
+            if ($this->causedByConcurrencyError($failure)) {
+                throw $failure;
+            }
+
+            // Anything else is a gap in the RECORD, and a gap in the record must not cost a placed order: by this point the
+            // order, its lines and possibly its money are written in this transaction. Reported and stepped over, which is
+            // the trade this service has always made -- the difference is that it is now a deliberately narrow one.
             report($failure);
 
             return 0;
