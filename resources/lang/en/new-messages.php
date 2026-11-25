@@ -11813,4 +11813,6 @@ return [
 	'noon_sandbox_help' => 'Calls go to the noon test environment and no real order is created',
 	'read_fbn_inventory' => 'Read FBN inventory',
 	'fbn_units_are_noons_own_stock' => 'FBN units are the stock noon holds itself',
+	'connect_noon' => 'Connect noon',
+	'connect_noon_help' => 'noon partner API: orders, prices and stock, with the FBN units noon holds itself. Needs an access key and a secret from the noon partner portal.',
 ];

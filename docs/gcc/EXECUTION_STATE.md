@@ -431,3 +431,35 @@ criteria names more signals than are built -- which is the honest record and is 
   Discovery-01 dossiers repeat the same pointer -- but their surrounding prose states each finding's technical fact WITH
   file and line and then attaches the SEC id to it. The ids' subjects are therefore recoverable from the dossiers even
   though the annex is not. Before recording a register as unrecoverable, look for the source it was derived from.
+- **A CI job log read from the END is container teardown, not test output.** Two fetches this round cost heavily and taught
+  it twice: the first returned nothing but `docker logs` and network cleanup, and the second looked like 61 failures when
+  every one of those `61)` entries was a SKIP message -- that job had ONE failure in 1,680 tests. What works: let the
+  tool write the log to a file, then parse the file for PHPUnit's own shapes (`^\d+\) `, `Failed asserting`, `^Tests:`),
+  which is cheap and exact. The failure MESSAGE is usually the whole answer -- a ratchet prints the entire offending set
+  -- so one parsed log can replace a local run. What does not work is reading the tail and guessing.
+- **`config/database.php` sets `strict => false`, which makes MySQL and MariaDB the LENIENT engine about NOT NULL.** An
+  earlier lesson here says SQLite is the lenient one. It is not lenient about a missing NOT NULL column: a fixture that
+  omitted three of them STORED on MariaDB and ERRORED on SQLite, which is the opposite of what that lesson leads you to
+  expect and cost a track a false "order-dependent test" diagnosis. A non-strict MySQL session silently supplies the
+  implicit default; SQLite refuses. Run a new fixture on BOTH engines before believing either.
+- **A ratchet going red is answered with the WORK, never with a higher ceiling** -- and its delta tells you the size of
+  the set, which is how you know you found all of it rather than a selection of it. 1,100 against a 1,073 ceiling and
+  1,243 against 1,216 both said 27; the candidates came to 113 once intersected with the branch's own files, and of those
+  exactly 17 + 2 + 8 = 27 belonged to files the round created. Matching the delta on BOTH counters is the proof. Raising
+  the baseline would have hidden that `translate()` rewrites a language file on the request that renders a missing key --
+  on six markets, in whatever order visitors arrive.
+- **An Arabic file holding English is not a translation, and a second counter exists to say so.** The same test that
+  ratchets missing keys also ratchets, per locale, the values containing a Latin letter. Pasting the English across
+  would have turned one red into another -- correctly. `noon` becomes نون and FBN becomes مخزون الوفاء بنون.
+- **The FORMATTER'S VERSION is part of a format check.** `dart format` changed to tall style in Dart 3.7, so formatting
+  with 3.5.4 fails a gate that runs 3.13.0. Read the version the workflow pins (`flutter-version`), resolve what it
+  bundles (Flutter 3.47.0 → Dart 3.13.0 in the releases JSON) and fetch exactly that; the Dart SDK alone is ~215MB and
+  enough, where the Flutter tarball is several times that. And a check that reads whole FILES rather than changed lines
+  turns the first one-line fix to any legacy file into a 355-line diff, so the reformat goes in a commit of its own,
+  proven whitespace-only (strip all whitespace, drop trailing commas before a closing bracket, compare).
+- **A scanner that reads source must STRIP COMMENTS, not merely avoid writing examples.** The earlier lesson here says
+  do not write an example of a secret into a file. That is necessary and not sufficient: the fix for a fault often has
+  to NAME the fault to explain itself, and then the scan reads its own explanation. The TLS guard added this round
+  refuses `badCertificateCallback`, and the comment that stops anyone reinstalling it names that callback -- so the scan
+  strips whole-line comments first, and a run with stripping disabled was recorded as the measurement that the strip is
+  load-bearing. Fourth occurrence of this shape in this programme.
