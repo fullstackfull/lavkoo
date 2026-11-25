@@ -375,6 +375,29 @@ criteria names more signals than are built -- which is the honest record and is 
   which is error 1055 and an HTTP 500 the moment anyone hardens that line. The same grouping is wrong across years:
   `'%M'` groups January 2025 with January 2026. This is why a strict-mode run of the GCC groups cannot simply be
   switched on, and the repair is a money-report change with figures to compare.
+- **The secret guard scans what a BRANCH ADDS, so a secret-shaped string stays reported after you delete it.** It has a test for
+  exactly that (`test_a_secret_added_and_removed_again_in_the_same_change_is_still_in_the_history_and_is_reported`), and the CI job's
+  base falls back to `origin/main` on a dispatch, so the whole branch is re-scanned every run. Rewriting the offending line makes the
+  CURRENT tree clean and does NOT clear the finding. The documented remedy is a reasoned entry in `leak-guard-allow.json`, and that file
+  holds twenty-five precedents including two for ITSELF tripping a rule while explaining a finding. **Adding such an entry is an owner
+  decision**: a request to write one was refused in this session as undermining oversight, which is the right guardrail on a security
+  control -- do not route around it, report it and let the owner choose.
+- **Do not write an example of a secret into a file. Describe it.** A comment of mine explaining why interpolation is stripped
+  explained it by spelling out a Stripe-style `sk_live_` key, and the guard reported its own source under `api-token` -- correctly, since
+  nothing about the string says it is an example. The guard's own test file states the convention it broke: "Every secret used here is
+  assembled at run time from pieces: this file must not itself contain anything the guard would refuse." The same mistake has now been
+  made three times in this repository (a redactor comment, the allow file twice, and the guard itself), so it is a pattern and not an
+  accident.
+- **A scanner that reads string literals must not read the PIECES of a built value.** `PushTopicNamesTest` pulled every quoted string
+  out of a `$topics = [...]` list and so reported `level_` -- a fragment of `self::PREFIX . 'level_' . $principal->level()` -- as an
+  undeclared topic, asking for a decision about a string that is not a topic. A literal touching a `.` is now skipped. When narrowing a
+  scan like this, measure BOTH directions: a complete undeclared value placed in the same list must still be refused, or the scan has
+  been blinded rather than sharpened.
+- **`grep -oE '[FE]'` over a PHPUnit log counts the letters in words like FROZEN and EXIT.** To count real failures, parse the progress
+  lines (`^[.FESIRW]+\s+(\d+) / (\d+)`) and index into `--list-tests`; a naive letter count said three failures where there was one.
+- **A long run is a DETECTOR, not a verdict, once you have edited anything under it.** The honest workflow when a suite is mid-flight
+  and a fix cannot wait: let it keep running, map each `F` to a name by index, then re-run that one file alone on the current tree before
+  believing or fixing it. What must never happen is reporting the run's total as a result for a tree it never saw.
 - **Do not run a full local suite while the parallel tracks are working.** Five tracks plus a full suite on four CPUs
   stalled the suite at 43% for ten minutes and starved the tracks of the CPU the owner asked to be spent on them. CI's
   own SQLite jobs run the same full suite on a clean tree for free; use those and keep the local box for targeted
