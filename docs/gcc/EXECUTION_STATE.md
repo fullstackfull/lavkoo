@@ -352,6 +352,29 @@ criteria names more signals than are built -- which is the honest record and is 
   value, so `"sk_live_...{$suffix}"` and `"{$prefix}Zq81-mailbox-pass-4417"` both pass. Stripping leaves the literal half
   to be judged. Never silence such a finding with an allow-list entry: that silences the next real finding on that line
   too.
+- **This container was missing ONE PHP extension that CI installs, and it cost a wrong diagnosis.** CI's
+  `PHP_EXTENSIONS` list includes `bcmath`; this image did not have it. So every money test that sums exactly with
+  `bcadd()` ERRORED locally -- `Call to undefined function bcadd()` -- while passing in CI. I read a local storefront
+  run's 56 failures as a reproduction of CI's red storefront job and said so; it was not one, because the two
+  environments were not the same. Fixed once and for good with `apt-get install -y php8.3-bcmath`, after which the
+  refund file is 27 green. **Before trusting a local run against a CI result, diff the extension lists**:
+  `php -m` against `PHP_EXTENSIONS` in `.github/workflows/ci.yml`. `bcmath` was the only one missing, and it is
+  installed now.
+- **A class that passes alone and fails inside its group is a different bug from the one it looks like.**
+  `StorefrontCustomerSignInTest` is 61 green on MariaDB on its own and failed 33 times inside the group run. Run the
+  file alone before reading a group's failures as defects in the classes they are reported against -- the index-mapping
+  trick below makes that cheap.
+- **A killed or still-running suite can still name its failures.** `phpunit --list-tests` prints tests in execution
+  order, so the position of each `F` in the progress output maps to a test name: count the marks per line against the
+  `n / total` counter, then index into the list. That turned an abandoned run into six named classes without re-running
+  anything, and it is the way to read a run that is too slow to finish. Mind the offset if the tree has changed since.
+- **`config/database.php` sets `'strict' => false`, and six report screens depend on it.** Laravel answers that by
+  setting `sql_mode='NO_ENGINE_SUBSTITUTION'` for the session, which REMOVES `ONLY_FULL_GROUP_BY` even on a MySQL 8
+  server whose global default includes it. Eleven call sites in six controllers -- admin AND vendor panels -- select
+  `YEAR(created_at)`/`MONTH(created_at)` and order by `created_at` while grouping by `DATE_FORMAT(created_at, '%M')`,
+  which is error 1055 and an HTTP 500 the moment anyone hardens that line. The same grouping is wrong across years:
+  `'%M'` groups January 2025 with January 2026. This is why a strict-mode run of the GCC groups cannot simply be
+  switched on, and the repair is a money-report change with figures to compare.
 - **Do not run a full local suite while the parallel tracks are working.** Five tracks plus a full suite on four CPUs
   stalled the suite at 43% for ten minutes and starved the tracks of the CPU the owner asked to be spent on them. CI's
   own SQLite jobs run the same full suite on a clean tree for free; use those and keep the local box for targeted
