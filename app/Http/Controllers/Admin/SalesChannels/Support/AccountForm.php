@@ -33,10 +33,20 @@ final class AccountForm
     public const SECRET_FIELDS = [
         'amazon' => ['lwa_client_id', 'lwa_client_secret', 'refresh_token'],
         'trendyol' => ['api_key', 'api_secret'],
+        // noon hands out a JSON key file once, from its Access app, and `NoonClient::signIn()` needs all three of its values. There was
+        // no entry here at all, so `SECRET_FIELDS[$channel->value]` was an undefined index for noon and the account form could not be
+        // opened, let alone submitted: the channel was connectable in the enum and unreachable in the panel (H2-02).
+        'noon' => ['key_id', 'private_key', 'project_code'],
     ];
 
     /** The settings that say WHICH seller account a connection test was about: changing one leaves the earlier test describing something else. */
-    public const IDENTITY_SETTINGS = ['amazon' => ['region'], 'trendyol' => ['storefront_code']];
+    public const IDENTITY_SETTINGS = [
+        'amazon' => ['region'],
+        'trendyol' => ['storefront_code'],
+        // A noon price belongs to a COUNTRY and a noon stock figure to a WAREHOUSE, so changing either leaves an earlier connection test
+        // describing something else -- which is exactly what the identity set is for (E12-F02 recorded that neither was in it).
+        'noon' => ['country_code', 'warehouse_code'],
+    ];
 
     /** What an account does with an order no rule decides about. It can follow only; creating shipments needs a rule that says from where. */
     public const DEFAULT_POLICIES = [ExecutionPolicy::ManualReview, ExecutionPolicy::ExternallyManaged];
@@ -44,6 +54,7 @@ final class AccountForm
     private const SETTING_FIELDS = [
         'amazon' => ['region', 'marketplace_ids', 'sync_fba_inventory', 'request_buyer_data', 'auto_link_exact_sku', 'route_cod_orders', 'shipment_creation', 'dispatch_mode'],
         'trendyol' => ['storefront_code', 'integration_name', 'accept_language', 'auto_link_exact_barcode', 'prices_include_tax', 'route_cod_orders', 'auto_restock_accepted_returns', 'torod_reference_field', 'carrier_codes', 'shipment_creation', 'dispatch_mode'],
+        'noon' => ['country_code', 'warehouse_code', 'use_sandbox', 'sync_fbn_inventory', 'route_cod_orders'],
     ];
 
     /** A setting that decides something another module owns: changing it needs that module's permission, whichever page the form is on (the account pages need only Sales channels). */
@@ -156,6 +167,16 @@ final class AccountForm
             array_fill(0, count($names), ['sometimes', 'boolean']),
         );
 
+        if ($channel === SalesChannel::Noon) {
+            // The country is checked against the countries noon serves (H2-07), read from the configuration so that opening a market is
+            // a list to edit. The warehouse code is optional because noon publishes no way to list the warehouses: an account with none
+            // simply publishes no stock, which the stock gate already says.
+            return $flags(['use_sandbox', 'sync_fbn_inventory', 'route_cod_orders']) + [
+                'settings.country_code' => ['required', 'string', Rule::in(array_map('strtolower', ChannelSettings::marketsOf('noon')))],
+                'settings.warehouse_code' => ['nullable', 'string', 'max:60'],
+            ];
+        }
+
         if ($channel === SalesChannel::Amazon) {
             return $flags(['sync_fba_inventory', 'request_buyer_data', 'auto_link_exact_sku', 'route_cod_orders'])
                 + ['settings.region' => ['required', Rule::in(ChannelSettings::AMAZON_REGIONS)], 'settings.shipment_creation' => ['nullable', Rule::in(['unset', 'app'])], 'settings.dispatch_mode' => ['nullable', Rule::in(ChannelSettings::DISPATCH_MODES)]]
@@ -208,6 +229,10 @@ final class AccountForm
             'settings.dispatch_mode' => translate('dispatch_mode_setting'),
             'settings.carrier_codes' => translate('carrier_codes'),
             'settings.carrier_codes.*' => translate('carrier_codes'),
+            // noon's two fields are deliberately NOT named here. `attributes()` runs on every POST, `translate()` writes a key it cannot
+            // find into the language files, and `AdminPagesTestCase` hashes those files around every page test -- so naming a key that has
+            // no text yet fails tests that never render a page. The validator falls back to the field name, which is what every other noon
+            // field already does; the names come back here with the twelve words the screens owe (see AdminNoonAccountTest::WORDS).
             'clear_secrets' => translate('clear_stored_value'),
         ];
     }

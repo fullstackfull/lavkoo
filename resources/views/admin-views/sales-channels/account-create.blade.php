@@ -15,8 +15,9 @@
                 @foreach ($channels as $choice)
                     <div class="col-md-6">
                         <x-k.card :title="translate($choice->labelKey())">
-                            <p class="fs-12 text-muted">{{ $choice->value === 'amazon' ? translate('connect_amazon_help') : translate('connect_trendyol_help') }}</p>
-                            <a class="btn btn-primary btn-sm" href="{{ route('admin.sales-channels.accounts.create', ['channel' => $choice->value]) }}">{{ $choice->value === 'amazon' ? translate('connect_amazon') : translate('connect_trendyol') }}</a>
+                            {{-- Per channel, by the channel's own key: the two-way guess showed every noon card Trendyol's words (H2-02). --}}
+                            <p class="fs-12 text-muted">{{ translate('connect_' . $choice->value . '_help') }}</p>
+                            <a class="btn btn-primary btn-sm" href="{{ route('admin.sales-channels.accounts.create', ['channel' => $choice->value]) }}">{{ translate('connect_' . $choice->value) }}</a>
                         </x-k.card>
                     </div>
                 @endforeach

@@ -5,6 +5,7 @@
 @use('App\Http\Controllers\Admin\SalesChannels\Support\AccountForm')
 @php
     $isAmazon = $channel === SalesChannel::Amazon;
+    $isNoon = $channel === SalesChannel::Noon;
     $setting = static fn (string $key, mixed $default = null): mixed => old('settings.' . $key, $settings[$key] ?? $default);
 @endphp
 <div class="row g-3">
@@ -39,10 +40,10 @@
         @endif
     </div>
     <div class="col-md-6">
-        <label class="form-label" for="account-external-id">{{ translate($isAmazon ? 'amazon_seller_id' : 'trendyol_seller_id') }}</label>
+        <label class="form-label" for="account-external-id">{{ translate($isAmazon ? 'amazon_seller_id' : ($isNoon ? 'noon_merchant_code' : 'trendyol_seller_id')) }}</label>
         <input class="form-control" id="account-external-id" name="external_account_id" maxlength="64" required inputmode="{{ $isAmazon ? 'text' : 'numeric' }}"
                value="{{ old('external_account_id', $account?->external_account_id) }}">
-        <div class="fs-12 text-muted">{{ translate($isAmazon ? 'amazon_seller_id_help' : 'trendyol_seller_id_help') }}</div>
+        <div class="fs-12 text-muted">{{ translate($isAmazon ? 'amazon_seller_id_help' : ($isNoon ? 'noon_merchant_code_help' : 'trendyol_seller_id_help')) }}</div>
         @error('external_account_id')<div class="text-danger fs-12">{{ $message }}</div>@enderror
     </div>
     <div class="col-md-3">
@@ -61,7 +62,29 @@
         @error('execution_policy')<div class="text-danger fs-12">{{ $message }}</div>@enderror
     </div>
 
-    @if ($isAmazon)
+    @if ($isNoon)
+        {{-- noon (H2-02). A noon price and a noon stock figure belong to a (country, warehouse) pair rather than to the account, so
+             both are fields of their own: without them nothing can be published, which is why they are here and not assumed. --}}
+        <div class="col-md-3">
+            <label class="form-label" for="noon-country">{{ translate('noon_country') }}</label>
+            <select class="form-select" id="noon-country" name="settings[country_code]" required>
+                @foreach (\App\Services\SalesChannels\Support\ChannelSettings::marketsOf('noon') as $country)
+                    <option value="{{ strtolower($country) }}" @selected(strtoupper((string) $setting('country_code')) === $country)>{{ $country }}</option>
+                @endforeach
+            </select>
+            <div class="fs-12 text-muted">{{ translate('noon_country_help') }}</div>
+            @error('settings.country_code')<div class="text-danger fs-12">{{ $message }}</div>@enderror
+        </div>
+        <div class="col-md-3">
+            <label class="form-label" for="noon-warehouse">{{ translate('noon_warehouse_code') }}</label>
+            <input class="form-control" id="noon-warehouse" name="settings[warehouse_code]" maxlength="60" value="{{ $setting('warehouse_code') }}">
+            <div class="fs-12 text-muted">{{ translate('noon_warehouse_code_help') }}</div>
+            @error('settings.warehouse_code')<div class="text-danger fs-12">{{ $message }}</div>@enderror
+        </div>
+        <div class="col-md-4">@include('admin-views.sales-channels.partials._switch', ['name' => 'settings[use_sandbox]', 'id' => 'noon-sandbox', 'label' => translate('use_the_noon_sandbox'), 'checked' => (bool) $setting('use_sandbox'), 'help' => translate('noon_sandbox_help')])</div>
+        <div class="col-md-4">@include('admin-views.sales-channels.partials._switch', ['name' => 'settings[sync_fbn_inventory]', 'id' => 'noon-sync-fbn', 'label' => translate('read_fbn_inventory'), 'checked' => (bool) $setting('sync_fbn_inventory'), 'help' => translate('fbn_units_are_noons_own_stock')])</div>
+        <div class="col-md-4">@include('admin-views.sales-channels.partials._switch', ['name' => 'settings[route_cod_orders]', 'id' => 'noon-route-cod', 'label' => translate('route_cash_on_delivery_orders'), 'checked' => (bool) $setting('route_cod_orders'), 'help' => translate('route_cod_help')])</div>
+    @elseif ($isAmazon)
         <div class="col-md-3">
             <label class="form-label" for="amazon-region">{{ translate('amazon_region') }}</label>
             <select class="form-select" id="amazon-region" name="settings[region]">
