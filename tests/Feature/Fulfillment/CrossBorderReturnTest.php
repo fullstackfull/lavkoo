@@ -4,15 +4,13 @@ namespace Tests\Feature\Fulfillment;
 
 use App\Models\ReturnShipment;
 use App\Models\StockMovement;
-use App\Models\AuditLog;
-use App\Services\AuditLogger;
-use App\Services\Marketplace\InventoryService;
 use App\Services\Marketplace\ReturnLogisticsService;
 use App\Services\Returns\CrossBorderReturn;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use RuntimeException;
+use Tests\Support\BuildsAuditLogTable;
 use Tests\Support\BuildsReturnReceiptSchema;
 use Tests\TestCase;
 
@@ -26,6 +24,7 @@ use Tests\TestCase;
  */
 class CrossBorderReturnTest extends TestCase
 {
+    use BuildsAuditLogTable;
     use BuildsReturnReceiptSchema;
 
     private const SAUDI = 'SA';
@@ -36,6 +35,7 @@ class CrossBorderReturnTest extends TestCase
     {
         parent::setUp();
         $this->buildReturnReceiptSchema();
+        $this->buildAuditLogTable();
         $this->addTheMarketColumns();
         app(CrossBorderReturn::class)->forget();
     }
@@ -43,6 +43,7 @@ class CrossBorderReturnTest extends TestCase
     protected function tearDown(): void
     {
         Schema::dropIfExists('orders');
+        Schema::dropIfExists('audit_logs');
         $this->dropReturnReceiptSchema();
         parent::tearDown();
     }
@@ -170,29 +171,15 @@ class CrossBorderReturnTest extends TestCase
     {
         config([CrossBorderReturn::SETTING => true]);
         $sale = $this->saleOf(soldIn: self::SAUDI, productIn: self::KUWAIT, currency: 'SAR');
-        $recorded = [];
-        $audit = new class($recorded) extends AuditLogger {
-            /** @param array<int, array<string, mixed>> $recorded */
-            public function __construct(private array &$recorded)
-            {
-            }
 
-            public function record(string $action, array|object|null $subject = null, ?array $before = null, ?array $after = null, ?array $context = null): ?AuditLog
-            {
-                $this->recorded[] = ['action' => $action, 'after' => $after];
+        app(ReturnLogisticsService::class)->receive(rma: $sale['return'], by: 1);
 
-                return null;
-            }
-        };
-
-        (new ReturnLogisticsService(inventory: app(InventoryService::class), audit: $audit, crossBorder: app(CrossBorderReturn::class)))
-            ->receive(rma: $sale['return'], by: 1);
-
-        $receipt = array_values(array_filter($recorded, static fn (array $row): bool => $row['action'] === 'returns.received'));
+        $receipt = DB::table('audit_logs')->where('action', 'returns.received')->orderBy('id')->get()->all();
 
         $this->assertCount(1, $receipt);
-        $this->assertSame(CrossBorderReturn::REFUSAL_SHELF_BELONGS_TO_ANOTHER_MARKET, $receipt[0]['after']['refused']);
-        $this->assertFalse($receipt[0]['after']['restocked']);
+        $after = json_decode((string) $receipt[0]->after, true);
+        $this->assertSame(CrossBorderReturn::REFUSAL_SHELF_BELONGS_TO_ANOTHER_MARKET, $after['refused']);
+        $this->assertFalse($after['restocked']);
     }
 
     public function test_the_migration_adds_the_three_columns_and_refuses_to_roll_back_once_a_return_carries_a_record(): void

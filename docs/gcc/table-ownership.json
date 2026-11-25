@@ -184,6 +184,11 @@
             "scope": "derived",
             "by": "location_id -> inventory_locations"
         },
+        "checkout_idempotency_keys": {
+            "scope": "customer",
+            "by": "customer_scope",
+            "why": "'customer:<id>' or 'guest:<id>': the key is claimed by whoever pressed submit, so two people may hold the same idempotency key and one person cannot submit it twice (D1-326)."
+        },
         "customer_market_loyalty_accounts": {
             "scope": "customer",
             "by": "customer_id with market"
@@ -195,6 +200,11 @@
         "customer_marketing_consents": {
             "scope": "customer",
             "by": "customer_id"
+        },
+        "customer_registration_claims": {
+            "scope": "customer",
+            "by": "identity",
+            "why": "'email:<address>' or 'phone:<number>', one row per identity across every market as GCC-13 requires. The row is written BEFORE the account exists -- user_id is filled by whichever concurrent payment confirmation wins -- so the owner is the identity rather than a user id (D1-328)."
         },
         "delivery_country_codes": {
             "scope": "inherited"
@@ -322,6 +332,11 @@
             "scope": "derived",
             "by": "external_identifier -> myfatoorah_payment_attempts",
             "why": "an inbound event is stored before its owner is known; the attempt it dedupes to carries the storefront"
+        },
+        "notification_channel_profiles": {
+            "scope": "country",
+            "by": "country",
+            "why": "One sending account per channel per market (I1-01, I1-02), unique on (channel, country). Country rather than storefront: it names no legal entity beside it, unlike payment_gateway_accounts."
         },
         "notification_messages": {
             "scope": "inherited"
