@@ -2,6 +2,9 @@
 
 namespace App\Services\PlatformAdmin;
 
+use App\Services\Fulfillment\Contracts\ProviderIdentity;
+use App\Services\Fulfillment\ProviderRegistry;
+use App\Services\Fulfillment\ProviderStorefrontCountry;
 use Carbon\CarbonImmutable;
 use Illuminate\Container\Attributes\Scoped;
 use Illuminate\Support\Facades\DB;
@@ -44,8 +47,11 @@ final class PlatformHealthService
     /** The column an order keeps its market in. */
     private const MARKET_COLUMN = 'storefront_country';
 
-    public function __construct(private readonly PlatformMarkets $markets)
-    {
+    public function __construct(
+        private readonly PlatformMarkets $markets,
+        private readonly ProviderRegistry $carriers,
+        private readonly ProviderStorefrontCountry $carrierMarket,
+    ) {
     }
 
     /** @return array<string, mixed> */
@@ -53,6 +59,7 @@ final class PlatformHealthService
     {
         $stuck = $this->stuckPaymentsByMarket(window: $window);
         $syncs = $this->channelSyncByMarket(window: $window);
+        $carriers = $this->carrierSyncByMarket(window: $window);
 
         return [
             'scope' => $selection->scope,
@@ -62,11 +69,11 @@ final class PlatformHealthService
             'freshness' => ['mode' => 'live', 'cached' => false],
             'means' => $this->whatTheFiguresMean(),
             'markets' => array_map(
-                fn (string $market): array => $this->healthOf(market: $market, stuck: $stuck, syncs: $syncs),
+                fn (string $market): array => $this->healthOf(market: $market, stuck: $stuck, syncs: $syncs, carriers: $carriers),
                 $selection->markets,
             ),
             'unattributed' => $selection->includesUnattributed
-                ? $this->healthOf(market: null, stuck: $stuck, syncs: $syncs) + ['reason' => 'no_market_recorded']
+                ? $this->healthOf(market: null, stuck: $stuck, syncs: $syncs, carriers: $carriers) + ['reason' => 'no_market_recorded']
                 : null,
         ];
     }
@@ -74,25 +81,97 @@ final class PlatformHealthService
     /**
      * @param array<string, int> $stuck
      * @param array<string, array{accounts: int, failing: int, late: int, last_success_at: ?string}> $syncs
+     * @param array<string, array{connections: int, failing: int, late: int, last_success_at: ?string}> $carriers
      *
      * @return array<string, mixed>
      */
-    private function healthOf(?string $market, array $stuck, array $syncs): array
+    private function healthOf(?string $market, array $stuck, array $syncs, array $carriers): array
     {
         $key = $market ?? '';
         $sync = $syncs[$key] ?? ['accounts' => 0, 'failing' => 0, 'late' => 0, 'last_success_at' => null];
+        $carrier = $carriers[$key] ?? ['connections' => 0, 'failing' => 0, 'late' => 0, 'last_success_at' => null];
 
         return [
             'market' => $market,
             'legal_entity' => $market === null ? null : $this->markets->legalEntity(),
             'payments' => ['stuck_attempts' => $stuck[$key] ?? 0],
             'integrations' => [
-                'channel_accounts' => $sync['accounts'],
-                'failing_resources' => $sync['failing'],
-                'late_resources' => $sync['late'],
-                'last_success_at' => $sync['last_success_at'],
+                'channels' => [
+                    'accounts' => $sync['accounts'],
+                    'failing_resources' => $sync['failing'],
+                    'late_resources' => $sync['late'],
+                    'last_success_at' => $sync['last_success_at'],
+                ],
+                'carriers' => [
+                    'connections' => $carrier['connections'],
+                    'failing_capabilities' => $carrier['failing'],
+                    'late_capabilities' => $carrier['late'],
+                    'last_success_at' => $carrier['last_success_at'],
+                ],
             ],
         ];
+    }
+
+    /**
+     * Carrier sync health by market: how many of this installation's carriers belong to the market, how many of their capabilities last FAILED rather than
+     * succeeded, how many have not succeeded inside the window, and the most recent success of any of them.
+     *
+     * `provider_sync_states` keeps no failure counter, only the moments, so "failing" here means the last thing that happened to that capability was a
+     * failure -- a different test from the sales channels' three failures in a row, and said so in `means` rather than left for a reader to assume the two
+     * numbers were made the same way.
+     *
+     * A carrier's market is the one its connection serves (`ProviderStorefrontCountry`), which answers nothing at all while the platform records no
+     * markets -- so on a one-country installation every carrier is unattributed, which is the truth about it.
+     *
+     * @return array<string, array{connections: int, failing: int, late: int, last_success_at: ?string}>
+     */
+    private function carrierSyncByMarket(PlatformWindow $window): array
+    {
+        // A carrier this installation knows is a connection to report whether or not a sync has ever been recorded for it. The table being absent means
+        // nothing has synced, not that there are no carriers, so the connections are counted either way and their figures read zero.
+        $recorded = Schema::hasTable('provider_sync_states');
+        $health = [];
+
+        foreach ($this->carriers->identities() as $carrier) {
+            $key = $this->marketKeyOf($this->carrierMarket->of($carrier->code()));
+            $health[$key] ??= ['connections' => 0, 'failing' => 0, 'late' => 0, 'last_success_at' => null];
+            $health[$key]['connections']++;
+
+            if (!$recorded) {
+                continue;
+            }
+
+            foreach (DB::table('provider_sync_states')->where('provider', $carrier->code())->get() as $state) {
+                $health[$key] = $this->withTheStateOf(state: $state, window: $window, health: $health[$key]);
+            }
+        }
+
+        return $health;
+    }
+
+    /**
+     * @param array{connections: int, failing: int, late: int, last_success_at: ?string} $health
+     *
+     * @return array{connections: int, failing: int, late: int, last_success_at: ?string}
+     */
+    private function withTheStateOf(object $state, PlatformWindow $window, array $health): array
+    {
+        $succeeded = $state->last_success_at === null ? null : CarbonImmutable::parse($state->last_success_at);
+        $failed = $state->last_failure_at === null ? null : CarbonImmutable::parse($state->last_failure_at);
+
+        if ($failed !== null && ($succeeded === null || $failed->greaterThan($succeeded))) {
+            $health['failing']++;
+        }
+
+        if ($succeeded === null || $succeeded->lessThan($window->startsAt())) {
+            $health['late']++;
+        }
+
+        if ($succeeded !== null && ($health['last_success_at'] === null || $succeeded->greaterThan(CarbonImmutable::parse($health['last_success_at'])))) {
+            $health['last_success_at'] = PlatformAdminPresenter::timestamp(moment: $succeeded);
+        }
+
+        return $health;
     }
 
     /**
@@ -184,8 +263,10 @@ final class PlatformHealthService
     {
         return [
             'payments.stuck_attempts' => 'started, never confirmed, and older than ' . self::STUCK_AFTER_MINUTES . ' minutes; a shopper who closed the tab leaves the same row, so watch it for a change rather than reading it as failures',
-            'integrations.failing_resources' => 'resources that have failed ' . self::FAILING_AFTER_ATTEMPTS . ' times in a row',
-            'integrations.late_resources' => 'resources with no success inside this window',
+            'integrations.channels.failing_resources' => 'resources that have failed ' . self::FAILING_AFTER_ATTEMPTS . ' times in a row',
+            'integrations.channels.late_resources' => 'resources with no success inside this window',
+            'integrations.carriers.failing_capabilities' => 'capabilities whose LAST event was a failure; the carrier table keeps no failure counter, so this is a different test from the channels above',
+            'integrations.carriers.late_capabilities' => 'capabilities with no success inside this window',
             'unattributed' => 'rows whose market is not recorded; never counted as the default market',
         ];
     }

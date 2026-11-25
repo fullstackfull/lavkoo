@@ -97,18 +97,63 @@ class HealthTest extends PlatformAdminTestCase
     {
         $markets = collect($this->health()->json('data.markets'))->keyBy('market');
 
-        $this->assertSame(1, $markets['SA']['integrations']['channel_accounts']);
-        $this->assertSame(1, $markets['SA']['integrations']['failing_resources'], 'three failures in a row is failing');
-        $this->assertSame(1, $markets['KW']['integrations']['late_resources'], 'no success inside the window is late');
-        $this->assertSame(0, $markets['AE']['integrations']['channel_accounts'], 'a market with no account says zero');
+        $this->assertSame(1, $markets['SA']['integrations']['channels']['accounts']);
+        $this->assertSame(1, $markets['SA']['integrations']['channels']['failing_resources'], 'three failures in a row is failing');
+        $this->assertSame(1, $markets['KW']['integrations']['channels']['late_resources'], 'no success inside the window is late');
+        $this->assertSame(0, $markets['AE']['integrations']['channels']['accounts'], 'a market with no account says zero');
     }
 
     public function test_failing_and_late_are_different_questions(): void
     {
         $markets = collect($this->health()->json('data.markets'))->keyBy('market');
 
-        $this->assertSame(1, $markets['SA']['integrations']['failing_resources']);
-        $this->assertSame(0, $markets['SA']['integrations']['late_resources'], 'it failed three times AND succeeded inside the window');
+        $this->assertSame(1, $markets['SA']['integrations']['channels']['failing_resources']);
+        $this->assertSame(0, $markets['SA']['integrations']['channels']['late_resources'], 'it failed three times AND succeeded inside the window');
+    }
+
+    /**
+     * The carriers of a market, told apart from its sales channels.
+     *
+     * Both answer "is this integration working", and they answer it from different tables with different columns, so the two figures are reported
+     * separately and the sentence beside each says how it was worked out. A single "failing integrations" number would have added a count of three
+     * failures in a row to a count of last-event-was-a-failure.
+     */
+    public function test_the_carriers_of_a_market_are_reported_apart_from_its_channels(): void
+    {
+        $markets = collect($this->health()->json('data.markets'))->keyBy('market');
+        $body = $this->health()->json('data');
+
+        $this->assertArrayHasKey('carriers', $markets['SA']['integrations']);
+        $this->assertArrayHasKey('channels', $markets['SA']['integrations']);
+        $this->assertSame(
+            0,
+            $markets['SA']['integrations']['carriers']['connections'],
+            'this platform records no market for a carrier until storefronts are on, so its carriers are unattributed',
+        );
+        $this->assertSame(2, $body['unattributed']['integrations']['carriers']['connections'], 'the two shipped carriers');
+        $this->assertStringContainsString(
+            'different test',
+            $this->health()->json('data.means')['integrations.carriers.failing_capabilities'],
+            'the answer must say that this figure is not made the same way as the channels one',
+        );
+    }
+
+    public function test_a_carriers_last_event_decides_whether_it_is_failing(): void
+    {
+        DB::table('provider_sync_states')->insert([
+            ['provider' => 'torod_point', 'capability' => 'orders', 'last_success_at' => now()->subHour(), 'last_failure_at' => now(), 'created_at' => now(), 'updated_at' => now()],
+            ['provider' => 'torod_point', 'capability' => 'tracking', 'last_success_at' => now(), 'last_failure_at' => now()->subHour(), 'created_at' => now(), 'updated_at' => now()],
+            ['provider' => 'm5azn', 'capability' => 'orders', 'last_success_at' => null, 'last_failure_at' => now(), 'created_at' => now(), 'updated_at' => now()],
+        ]);
+
+        $carriers = $this->health()->json('data.unattributed.integrations.carriers');
+
+        $this->assertSame(2, $carriers['failing_capabilities'], 'the one that failed after succeeding, and the one that never succeeded');
+        $this->assertSame(
+            1,
+            $carriers['late_capabilities'],
+            'only the one that never succeeded: the other two succeeded inside the window, and failing is not the same question as late',
+        );
     }
 
     public function test_the_answer_says_what_each_figure_means(): void
@@ -117,7 +162,7 @@ class HealthTest extends PlatformAdminTestCase
 
         $this->assertStringContainsString('never confirmed', $means['payments.stuck_attempts']);
         $this->assertStringContainsString('closed the tab', $means['payments.stuck_attempts'], 'the figure is not a count of failures and must not be read as one');
-        $this->assertStringContainsString('in a row', $means['integrations.failing_resources']);
+        $this->assertStringContainsString('in a row', $means['integrations.channels.failing_resources']);
         $this->assertStringContainsString('never counted as the default market', $means['unattributed']);
     }
 
@@ -169,11 +214,15 @@ class HealthTest extends PlatformAdminTestCase
         $this->makeChannelAccounts();
     }
 
-    /** The sales-channel tables have a migration of their own; the platform-admin world does not run it. */
+    /** The sales-channel and provider-fulfilment tables have migrations of their own; the platform-admin world does not run them. */
     private function createSalesChannelTables(): void
     {
         if (!Schema::hasTable('sales_channel_accounts')) {
             (require database_path('migrations/2026_11_07_100100_create_sales_channel_tables.php'))->up();
+        }
+
+        if (!Schema::hasTable('provider_sync_states')) {
+            (require database_path('migrations/2026_11_05_100000_create_provider_fulfillment_tables.php'))->up();
         }
     }
 
