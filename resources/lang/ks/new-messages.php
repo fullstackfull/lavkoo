@@ -2911,4 +2911,6 @@ return [
 	'Test_Email_Sender' => 'رسالة اختبار',
 	'test_Mail' => 'بريد اختبار',
 	'mail_configuration_check' => 'التحقق من إعدادات البريد',
+	'in_house_fulfillment' => 'تنفيذ داخلي',
+	'unknown_fulfillment_source' => 'مصدر التنفيذ غير معروف',
 ];

@@ -383,4 +383,6 @@ return [
 	'Test_Email_Sender' => 'Test e-mail',
 	'test_Mail' => 'Test mail',
 	'mail_configuration_check' => 'Mail configuration check',
+	'in_house_fulfillment' => 'Fulfilled in house',
+	'unknown_fulfillment_source' => 'Fulfillment source unknown',
 ];
