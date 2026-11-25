@@ -9,6 +9,7 @@ use App\Services\Address\AddressSchema;
 use App\Services\Address\AddressText;
 use App\Services\Address\NationalAddress;
 use App\Models\ShippingAddress;
+use App\Services\Fulfillment\Support\MarketPhone;
 use App\Services\Fulfillment\Support\SaudiPhone;
 use Closure;
 use Illuminate\Support\Facades\DB;
@@ -122,17 +123,54 @@ class ShippingAddressService
     }
 
     /**
-     * The phone of an edit that carries no location, judged by the rule a full edit of the same address meets: a Saudi mobile number, for a
-     * Saudi address, on a channel that has to give the structured address. A client that may still send the old fields is not asked for more
-     * than it ever was.
+     * The phone of an edit that carries no location, judged by the rule a full edit of the same address meets: a mobile number of the
+     * address's OWN market, on a channel that has to give the structured address. A client that may still send the old fields is not
+     * asked for more than it ever was.
+     *
+     * Until A2-06 the only rule was the Saudi one, so an address in any of the other five markets was asked for no number at all: a
+     * Kuwaiti mobile is eight digits and could never have matched a Saudi pattern, and leaving the check out was the only thing that
+     * did not refuse every Kuwaiti address. Each market's rule is now its own, read from the one table of per-market mobile facts the
+     * platform already keeps ({@see MarketPhone}, `gcc.storefronts.phone`), which is also what fulfilment holds a shipment on -- so the
+     * number a customer may save and the number a courier may be given cannot drift apart.
+     *
+     * **Saudi Arabia keeps `SaudiPhone`**, which is the same rule (the configured Saudi pattern is that class's own), so a Saudi
+     * address is judged by the very code it has always been judged by rather than by a second implementation of it.
      *
      * @throws ValidationException
      */
     public function assertPhone(mixed $phone, ?string $country, AddressChannel $channel): void
     {
-        if ($this->requiresStructured($country, $channel) && SaudiPhone::normalize(is_scalar($phone) ? (string) $phone : null) === null) {
-            throw ValidationException::withMessages(['phone' => [translate('address_phone_invalid')]]);
+        $market = $this->marketWhosePhoneRuleApplies(country: $country, channel: $channel);
+
+        if ($market === null || $this->isAMobileOf($market, is_scalar($phone) ? (string) $phone : null)) {
+            return;
         }
+
+        throw ValidationException::withMessages(['phone' => [translate('address_phone_invalid')]]);
+    }
+
+    /**
+     * The market whose mobile-number rule an address is judged by, or null when none applies (A2-06).
+     *
+     * For Saudi Arabia these are exactly the conditions {@see requiresStructured()} has always applied, so nothing about a Saudi
+     * address moves. For the other five markets the rule applies on the same terms -- the store is in `soft` or `strict` mode and the
+     * client is one that must give the structured address -- so the check is dormant on an unmigrated or `off` store, as everything
+     * here is. A country outside the six markets is judged by nobody: the platform has no numbering plan for it and does not invent one.
+     */
+    private function marketWhosePhoneRuleApplies(?string $country, AddressChannel $channel): ?string
+    {
+        if (!AddressSchema::enabled() || $this->mayStayLegacy($channel)) {
+            return null;
+        }
+
+        return AddressCountry::isoCode($country);
+    }
+
+    private function isAMobileOf(string $market, ?string $phone): bool
+    {
+        return AddressCountry::isSaudi($market)
+            ? SaudiPhone::normalize($phone) !== null
+            : MarketPhone::nationalNumberFor($market, $phone) !== null;
     }
 
     /** The columns of an address that no longer names a place of the list. */
