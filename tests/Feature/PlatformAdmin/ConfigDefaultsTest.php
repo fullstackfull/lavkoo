@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\PlatformAdmin;
 
+use App\Services\PlatformAdmin\PlatformAlertService;
 use Tests\TestCase;
 
 /**
@@ -40,6 +41,8 @@ class ConfigDefaultsTest extends TestCase
                     'channels_failing_critical_count' => 20,
                     'carriers_failing_warning_count' => 5,
                     'carriers_failing_critical_count' => 20,
+                    'books_need_a_person_warning_count' => 5,
+                    'books_need_a_person_critical_count' => 20,
                     'shop_issues_open_warning_count' => 5,
                     'shop_issues_open_critical_count' => 20,
                     'approvals_pending_warning_count' => 5,
@@ -48,6 +51,22 @@ class ConfigDefaultsTest extends TestCase
             ],
             config('gcc.platform_admin.alerts'),
         );
+    }
+
+    /**
+     * Every health signal that raises an alert has its own pair of counts in the SHIPPED configuration.
+     *
+     * Here rather than in AlertsTest, which replaces the whole alerts block with thresholds of its own: this is a question about what the
+     * platform ships, and asking it where a test has overridden the block would answer about the override.
+     */
+    public function test_every_health_signal_has_its_own_pair_of_shipped_counts(): void
+    {
+        $configured = array_keys((array) config('gcc.platform_admin.alerts.health'));
+
+        foreach (app(PlatformAlertService::class)->healthSignalCodes() as $signal) {
+            $this->assertContains($signal . '_warning_count', $configured, $signal . ' needs a warning count');
+            $this->assertContains($signal . '_critical_count', $configured, $signal . ' needs a critical count');
+        }
     }
 
     public function test_the_environment_flag_is_read_as_a_boolean_and_the_example_file_ships_it_off(): void

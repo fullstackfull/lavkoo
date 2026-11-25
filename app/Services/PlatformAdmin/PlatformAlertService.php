@@ -14,8 +14,10 @@ use App\Services\Storefront\StorefrontLegalReadiness;
  *    refuses every sale until they are.
  *  - `stock_zero` (warning, critical): live products at zero stock, at the configured counts.
  *  - `orders_pending_too_long` (info, warning, critical): orders still pending after the configured age, created within the longest window.
- *  - the six health signals of L-09 (info, warning, critical), each with a code of its own: `payments_stuck`, `payments_unreconciled`,
- *    `channels_failing`, `carriers_failing`, `shop_issues_open` and `approvals_pending`.
+ *  - the seven health signals of L-09 (info, warning, critical), each with a code of its own: `payments_stuck`,
+ *    `payments_unreconciled`, `channels_failing`, `carriers_failing`, `books_need_a_person`, `shop_issues_open` and
+ *    `approvals_pending`. The ACCOUNTING signal is the one the queue has stopped on, not the one it is still working: a queued entry is not
+ *    a fault and an alert for it would be noise an operator learns to ignore.
  *
  * **The health alerts are gated by the health capability, not by this service.** They are raised only when the caller HANDS IN the health
  * figures, and the alerts endpoint hands them in only for an operator who holds `health`. That is deliberate: those figures are payment and
@@ -43,6 +45,7 @@ final class PlatformAlertService
         'payments_unreconciled' => ['at' => ['payments', 'reconciliation_breaks'], 'one' => 'cost reconciliation', 'many' => 'cost reconciliations', 'doing' => 'not been settled'],
         'channels_failing' => ['at' => ['integrations', 'channels', 'failing_resources'], 'one' => 'sales-channel resource', 'many' => 'sales-channel resources', 'doing' => 'been failing'],
         'carriers_failing' => ['at' => ['integrations', 'carriers', 'failing_capabilities'], 'one' => 'carrier capability', 'many' => 'carrier capabilities', 'doing' => 'failed at its last attempt'],
+        'books_need_a_person' => ['at' => ['integrations', 'books', 'postings_needing_a_person'], 'one' => 'accounting entry', 'many' => 'accounting entries', 'doing' => 'stopped and need a decision'],
         'shop_issues_open' => ['at' => ['issues', 'open_shop_issues'], 'one' => 'shop issue', 'many' => 'shop issues', 'doing' => 'been left open'],
         'approvals_pending' => ['at' => ['issues', 'pending_approvals'], 'one' => 'approval request', 'many' => 'approval requests', 'doing' => 'been left undecided'],
     ];
@@ -53,6 +56,20 @@ final class PlatformAlertService
         private readonly PlatformMarketFigures $figures,
         private readonly PlatformAdminSettings $settings,
     ) {
+    }
+
+    /**
+     * The health signals that raise an alert, by code and in order.
+     *
+     * Public so that the list can be pinned by a test without seven table worlds being built to make each figure non-zero: what is worth
+     * guarding is that an eighth signal gets a code and a pair of counts of its own rather than being folded into another, and that is a
+     * question about this list and not about any figure.
+     *
+     * @return list<string>
+     */
+    public function healthSignalCodes(): array
+    {
+        return array_keys(self::HEALTH_SIGNALS);
     }
 
     /**

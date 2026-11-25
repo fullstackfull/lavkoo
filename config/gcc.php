@@ -378,6 +378,8 @@ return [
                 'channels_failing_critical_count' => 20,
                 'carriers_failing_warning_count' => 5,
                 'carriers_failing_critical_count' => 20,
+                'books_need_a_person_warning_count' => 5,
+                'books_need_a_person_critical_count' => 20,
                 'shop_issues_open_warning_count' => 5,
                 'shop_issues_open_critical_count' => 20,
                 'approvals_pending_warning_count' => 5,

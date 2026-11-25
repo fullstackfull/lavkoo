@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
 use App\Models\PlatformAdminGrant;
+use App\Services\PlatformAdmin\PlatformAlertService;
 use Tests\Support\BuildsPaymentRequestsTable;
 use Tests\Support\BuildsStorefrontLegalDocuments;
 use Tests\Support\SeedsPlatformMarketData;
@@ -328,6 +329,30 @@ class AlertsTest extends PlatformAdminTestCase
 
         $this->assertNotContains('payments_stuck', $codes);
         $this->assertContains('legal_not_ready', $codes, 'and the alerts that are not health are unaffected');
+    }
+
+    /**
+     * The health signals that raise an alert, written out, so an eighth has to be looked at by somebody.
+     *
+     * One code per signal and no shared one: the health service counts a failing channel resource and a failing carrier capability by
+     * different tests, and folding them into one alert would undo that where an operator is most likely to act on the number. The accounting
+     * signal is the one the queue has STOPPED on and not the one it is still working, because a queued entry is not a fault and an alert for
+     * it would be noise an operator learns to ignore.
+     *
+     * The LIST is what is pinned, not the figures: each figure has its own test in HealthTest, and building seven table worlds here to make
+     * each one non-zero would prove the same thing twice and break for the wrong reasons.
+     */
+    public function test_the_health_signals_that_raise_an_alert_are_these_seven(): void
+    {
+        $this->assertSame([
+            'payments_stuck',
+            'payments_unreconciled',
+            'channels_failing',
+            'carriers_failing',
+            'books_need_a_person',
+            'shop_issues_open',
+            'approvals_pending',
+        ], app(PlatformAlertService::class)->healthSignalCodes(), 'a health signal was added or taken away: give it a code and a pair of counts, or say why it raises none');
     }
 
     /** `health` alone does not open the alerts endpoint: that is what `alerts` is for, and the two gates are separate on purpose. */

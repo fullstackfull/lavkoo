@@ -2,11 +2,14 @@
 
 namespace Tests\Feature\PlatformAdmin;
 
+use Carbon\Carbon;
+use App\Models\OdooPosting;
 use App\Models\PlatformAdminGrant;
 use App\Services\PlatformAdmin\PlatformHealthService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
+use App\Services\Accounting\Odoo\OdooPostingKey;
 use App\Services\Marketplace\SellerMarketScope;
 use Tests\Support\BuildsPaymentRequestsTable;
 use Tests\Support\BuildsSellerIssueTables;
@@ -260,6 +263,74 @@ class HealthTest extends PlatformAdminTestCase
         $this->assertStringContainsString('keeps no record of either', $body['means']['issues.open_shop_issues']);
     }
 
+    /**
+     * The accounting queue by market, and the three figures kept apart because they are three different questions.
+     *
+     * A posting's market is the market of the COST it is for, which is the same rule the reconciliation figure uses, so the two figures of
+     * one market are about the same costs.
+     */
+    public function test_the_accounting_postings_are_counted_by_the_market_of_the_cost(): void
+    {
+        $this->givePostings();
+
+        $body = $this->health()->json('data');
+        $markets = collect($body['markets'])->keyBy('market');
+
+        $this->assertSame(2, $markets['SA']['integrations']['books']['queued_postings'], 'one pending and one that may have posted');
+        $this->assertSame(1, $markets['SA']['integrations']['books']['postings_needing_a_person'], 'the one that needs review');
+        $this->assertSame(1, $markets['SA']['integrations']['books']['overdue_postings'], 'the pending one whose turn has passed');
+        $this->assertSame(1, $markets['KW']['integrations']['books']['postings_needing_a_person'], 'the dead one of the Kuwaiti account');
+        $this->assertSame(0, $markets['KW']['integrations']['books']['queued_postings']);
+        $this->assertSame(0, $markets['AE']['integrations']['books']['queued_postings'], 'a market with nothing says zero');
+    }
+
+    /** A posted entry is neither queued nor waiting on anybody: it is done, and only its moment is reported. */
+    public function test_a_posted_entry_is_not_queued_and_its_moment_is_the_latest_one(): void
+    {
+        $this->givePostings();
+
+        $markets = collect($this->health()->json('data.markets'))->keyBy('market');
+
+        // Computed, not written out: the row is stored in the application's time zone and the answer is Zulu, so a literal here would be
+        // pinning the offset of the machine that happened to run the test.
+        $this->assertSame(
+            Carbon::parse('2026-11-24 09:00:00')->utc()->toIso8601ZuluString(),
+            $markets['SA']['integrations']['books']['last_posted_at'],
+            'the later of the two Saudi postings',
+        );
+        $this->assertNull($markets['KW']['integrations']['books']['last_posted_at'], 'nothing of that market has ever posted');
+    }
+
+    /** An entry whose turn has not come yet is queued and NOT overdue: the queue is working, not stopped. */
+    public function test_an_entry_whose_turn_has_not_come_is_not_overdue(): void
+    {
+        $this->givePostings();
+        DB::table('odoo_posting_queue')->update(['available_at' => now()->addHour()]);
+
+        $markets = collect($this->health()->json('data.markets'))->keyBy('market');
+
+        $this->assertSame(2, $markets['SA']['integrations']['books']['queued_postings']);
+        $this->assertSame(0, $markets['SA']['integrations']['books']['overdue_postings']);
+    }
+
+    /** A posting of something that is not a cost entry has no market to read and is counted apart rather than guessed at. */
+    public function test_a_posting_of_something_that_is_not_a_cost_is_reported_apart(): void
+    {
+        $this->givePostings();
+
+        $this->assertSame(1, $this->health()->json('data.unattributed.integrations.books.queued_postings'));
+    }
+
+    public function test_the_answer_says_what_the_accounting_figures_mean(): void
+    {
+        $means = $this->health()->json('data.means');
+
+        $this->assertStringContainsString('Not a fault', $means['integrations.books.queued_postings']);
+        $this->assertStringContainsString('BACKLOG', $means['integrations.books.postings_needing_a_person']);
+        $this->assertStringContainsString('stopped worker', $means['integrations.books.overdue_postings']);
+        $this->assertStringContainsString('not bounded by the window', $means['integrations.books.last_posted_at']);
+    }
+
     public function test_the_integrations_of_each_market_report_their_accounts_failures_and_lateness(): void
     {
         $markets = collect($this->health()->json('data.markets'))->keyBy('market');
@@ -484,6 +555,45 @@ class HealthTest extends PlatformAdminTestCase
                 'currency' => 'SAR',
                 'created_at' => now(),
                 'updated_at' => now(),
+            ]);
+        }
+    }
+
+    /**
+     * Six postings: three of a Saudi order's cost, one of a Kuwaiti channel account's, one of a cost that names neither, one that is not for
+     * a cost at all. The accounting tables have migrations of their own, which the platform-admin world does not run.
+     */
+    private function givePostings(): void
+    {
+        $this->giveReconciliations();
+
+        if (!Schema::hasTable('odoo_posting_queue')) {
+            (require database_path('migrations/2026_11_15_100000_create_odoo_accounting_tables.php'))->up();
+        }
+
+        $entries = DB::table('operational_cost_entries')->orderBy('id')->pluck('id')->all();
+
+        foreach ([
+            // state, the entry it is for (null = not a cost at all), available_at, posted_at
+            [OdooPosting::PENDING, $entries[0], now()->subHour(), null],
+            [OdooPosting::MAY_HAVE_POSTED, $entries[0], null, null],
+            [OdooPosting::NEEDS_REVIEW, $entries[1], null, null],
+            [OdooPosting::POSTED, $entries[1], null, '2026-11-24 09:00:00'],
+            [OdooPosting::DEAD, $entries[2], null, null],
+            [OdooPosting::PENDING, null, now()->subHour(), null],
+        ] as $index => [$state, $entryId, $availableAt, $postedAt]) {
+            DB::table('odoo_posting_queue')->insert([
+                'seller_id' => 0,
+                'source_type' => $entryId === null ? 'something_else' : OdooPostingKey::SOURCE_COST_ENTRY,
+                'source_id' => $entryId ?? 999,
+                'source_version' => 'v' . $index,
+                'odoo_ref' => 'REF-' . $index,
+                'state' => $state,
+                'attempts' => 0,
+                'available_at' => $availableAt,
+                'posted_at' => $postedAt,
+                'created_at' => now()->subDays(40),
+                'updated_at' => now()->subDays(40),
             ]);
         }
     }
