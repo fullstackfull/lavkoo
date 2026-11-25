@@ -99,6 +99,49 @@ class ArchitectureAsBuiltTest extends TestCase
     }
 
     /**
+     * The storage leg (report 02's open criterion): the document covers all three kinds of storage this platform has, and every file and
+     * class it cites for them is in the tree.
+     *
+     * The three kinds are pinned HERE and not read out of the document, for the reason the threat model's guard pins its nine classes in
+     * its own test: a document that renamed a kind to one that happens to be covered would otherwise pass. The citations are pinned the same
+     * way, because the failure this is for is the one a reader cannot see -- a path that was true when it was written and has since moved.
+     */
+    public function test_the_storage_leg_covers_the_three_kinds_and_every_path_it_cites_is_in_the_tree(): void
+    {
+        $document = $this->document();
+
+        foreach ([
+            'the database as the source' => 'The database is the source',
+            'the uploaded files' => 'Uploaded files live on four disks',
+            'the storage of the clients' => 'Client-local storage is not in this repository',
+            'what the leg does not cover' => 'What this leg does NOT cover',
+        ] as $kind => $sentence) {
+            $this->assertStringContainsString($sentence, $document, 'the storage leg must cover ' . $kind);
+        }
+
+        foreach ([
+            'config/filesystems.php' => 'config/filesystems.php',
+            'App\Traits\StorageTrait' => 'app/Traits/StorageTrait.php',
+            'DigitalProductFileService::PRIVATE_DISK' => 'app/Services/DigitalProductFileService.php',
+            'VaryByStorefront' => 'app/Http/Middleware/VaryByStorefront.php',
+            'ResolveStorefront::varyByHeader()' => 'app/Http/Middleware/ResolveStorefront.php',
+            'ResolveStorefrontMiddlewareTest' => 'tests/Feature/Storefront/ResolveStorefrontMiddlewareTest.php',
+            'docs/gcc/audits/2026-11-16-upload-surface-audit.md' => 'docs/gcc/audits/2026-11-16-upload-surface-audit.md',
+        ] as $citation => $path) {
+            $this->assertStringContainsString($citation, $document, 'the storage leg must cite ' . $citation);
+            $this->assertFileExists($this->repositoryRoot() . '/' . $path, $citation . ' is cited by ' . self::DOCUMENT . ' and is not in the tree');
+        }
+
+        // The four disks are the ones the application really declares. A disk named here that the configuration does not have would make the
+        // map describe a platform that does not exist.
+        $filesystems = (string) file_get_contents($this->repositoryRoot() . '/config/filesystems.php');
+        foreach (['local', 'public', 'digital_private', 's3'] as $disk) {
+            $this->assertStringContainsString("'" . $disk . "' => [", $filesystems, 'the storage leg names the disk ' . $disk);
+            $this->assertStringContainsString('`' . $disk . '`', $document, 'the disk ' . $disk . ' is declared and the storage leg does not name it');
+        }
+    }
+
+    /**
      * The half of the reconciliation that would otherwise rot silently: the document says `countries` and `storefronts`
      * were deliberately NOT built, and the day somebody creates one the document becomes a lie about the schema. This
      * fails then, and names the table.

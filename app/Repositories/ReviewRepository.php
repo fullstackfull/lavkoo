@@ -90,7 +90,10 @@ class ReviewRepository implements ReviewRepositoryInterface
                 });
             })
             ->when(!$globalScope, function ($query) {
-                return $query->withoutGlobalScopes();
+                // Only the scope this flag was written for ('active', which already no-ops in a panel), named rather than "every scope
+                // there is": `withoutGlobalScopes()` also strips the ones added later, and the staff country scope of the reviews is one
+                // of those (GCC-14c, slice 5). A security narrowing a repository silently removes is a narrowing that is not there.
+                return $query->withoutGlobalScope('active');
             })
             ->when(!empty($whereInFilters['product_id']) && $whereInFilters['product_id'] != 0, function ($query) use ($whereInFilters) {
                 return $query->whereIn('product_id', $whereInFilters['product_id']);
@@ -154,7 +157,8 @@ class ReviewRepository implements ReviewRepositoryInterface
             ->whereHas($whereHas, function ($query) use ($whereHasFilter) {
                 return $query->where($whereHasFilter);
             })->when(!$globalScope, function ($query) {
-                return $query->withoutGlobalScopes();
+                // The same reason as in getListWhereIn(): the flag strips the 'active' scope, not every scope a model will ever carry.
+                return $query->withoutGlobalScope('active');
             })->when(!empty($searchValue), function ($query) use ($searchValue) {
                 return  $query->whereHas('order', function ($query) use ($searchValue) {
                     return $query->where('id', 'like', "%{$searchValue}%");

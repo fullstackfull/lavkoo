@@ -11,6 +11,7 @@ use App\Contracts\Repositories\VendorRepositoryInterface;
 use App\Enums\ViewPaths\Admin\Review;
 use App\Exports\CustomerReviewListExport;
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopeMarketplaceToStaffCountries;
 use App\Models\Order;
 use App\Models\Product;
 use App\Traits\InHouseTrait;
@@ -38,6 +39,9 @@ class ReviewController extends BaseController
         private readonly ShopRepositoryInterface        $shopRepo,
     )
     {
+        // Slice 5 of the staff country scopes (GCC-14c): a review is about one product, so a restricted employee reads, exports,
+        // publishes and replies to only the reviews of their own countries' products. Inert while the switch is off.
+        $this->middleware(ScopeMarketplaceToStaffCountries::class);
     }
 
     /**

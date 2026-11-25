@@ -168,16 +168,16 @@ final class StaffOrderInventory
             'reason' => 'The in-house shop page counts the in-house orders. Narrowed in slice 4 by the `list:orders` part of its rule in StaffPromotionRoutes, which is the slice that took the page: an order and a product are two subjects, and one middleware carries both.',
         ],
         FulfillmentController::class => [
-            'class' => self::OUT, 'slice' => 'slice 5',
-            'reason' => 'The marketplace fulfilments are shipments of orders of every country, picked by order number.',
+            'class' => self::SCOPED, 'slice' => 'slice 5', 'by' => 'the marketplace screens',
+            'reason' => 'The marketplace fulfilments are shipments of orders. Narrowed in slice 5 through the order each one ships (StaffCountryOrderScope on OrderFulfillment, subject `fulfillments`), and opening, advancing or cancelling one is judged by that order. Only the queue is narrowed: the service that opens one has to see the fulfilments an order already has, whatever market they are in. Every action has a rule in StaffMarketplaceRoutes.',
         ],
         ReturnLogisticsController::class => [
-            'class' => self::OUT, 'slice' => 'slice 5',
-            'reason' => 'A marketplace return names an order of any country.',
+            'class' => self::SCOPED, 'slice' => 'slice 5', 'by' => 'the marketplace screens',
+            'reason' => 'A marketplace return names an order, a line, a product or several of those, and is judged by whichever it names; the queue is narrowed through the order each return is of. Every action has a rule in StaffMarketplaceRoutes.',
         ],
         ReviewController::class => [
-            'class' => self::OUT, 'slice' => 'slice 5',
-            'reason' => 'The reviews list reads the order behind a review, of any country.',
+            'class' => self::SCOPED, 'slice' => 'slice 5', 'by' => 'the marketplace screens',
+            'reason' => 'The reviews list loads the order behind a review, and the review itself is narrowed by the market of its PRODUCT -- which is the market of the review, and the one key a review always has, since a review may name no order. Every action has a rule in StaffMarketplaceRoutes.',
         ],
         ProviderFulfillmentController::class => [
             'class' => self::OUT, 'slice' => 'slice 6',
@@ -209,8 +209,8 @@ final class StaffOrderInventory
         'App\Http\Controllers\Admin\InhouseProductSaleController' => ['class' => self::SCOPED, 'slice' => 'slice 3', 'reason' => 'The in-house sales report counts the sales of the order lines of the employee\'s countries through the product repository, for their products. Every action has a rule in StaffOrderRoutes.'],
         'App\Http\Controllers\Admin\Customer\CustomerWalletController' => ['class' => self::SCOPED, 'slice' => 'slice 3', 'reason' => 'The wallet report and a customer\'s wallet movements. The reason they were the owner\'s to decide -- "they carry no order and no country" -- stopped being true when wallet_transactions gained storefront_country: each row records its own market, so a restricted employee is shown the movements of their markets through StaffCountryLedgerScope. The bonus setup is the platform\'s own configuration and lists nothing. Every action has a rule in StaffOrderRoutes.'],
         'App\Http\Controllers\Admin\Customer\CustomerLoyaltyController' => ['class' => self::SCOPED, 'slice' => 'slice 3', 'reason' => 'A customer\'s loyalty movements, narrowed the same way through loyalty_point_transactions.storefront_country. Every action has a rule in StaffOrderRoutes.'],
-        'App\Http\Controllers\Admin\Marketplace\SellerScorecardController' => ['slice' => 'slice 5', 'reason' => 'The scorecard of a seller is made of its orders of every country, through SellerScorecardService.'],
-        'App\Http\Controllers\Admin\Marketplace\SettlementController' => ['slice' => 'slice 5', 'reason' => 'The settlements of the sellers are made of their orders of every country, through the vendor ledger.'],
+        'App\Http\Controllers\Admin\Marketplace\SellerScorecardController' => ['class' => self::SCOPED, 'slice' => 'slice 5', 'by' => 'the marketplace screens', 'reason' => 'The scorecard of a seller is made of its orders of every country, through SellerScorecardService, which reads them with the QUERY BUILDER so no scope reaches them -- and which market\'s orders count towards a seller\'s tier is a question nobody has answered. Settled in slice 5 by a REFUSAL: `unavailable` in StaffMarketplaceRoutes, so a restricted employee is answered like for a page that does not exist rather than shown a platform total.'],
+        'App\Http\Controllers\Admin\Marketplace\SettlementController' => ['class' => self::SCOPED, 'slice' => 'slice 5', 'by' => 'the marketplace screens', 'reason' => 'The settlements of the sellers are made of their orders of every country, through a vendor ledger keyed by seller, currency and legal entity and not by market (E-17.2 ships off), so a settlement cannot be split by country at all; and the separation of duties and the payment terms on that page change what happens in every market. Settled in slice 5 by a REFUSAL: every action is `unavailable` in StaffMarketplaceRoutes.'],
         'App\Http\Controllers\Admin\OperationalCosts\OverviewController' => ['slice' => 'slice 6', 'reason' => 'The overview of the operational costs aggregates the profit of the orders of every country.'],
         'App\Http\Controllers\Admin\SalesChannels\ChannelAccountOperationsController' => ['slice' => 'slice 6', 'reason' => 'Synchronises the orders of a sales channel account, which map to orders of any country.'],
     ];
@@ -226,10 +226,10 @@ final class StaffOrderInventory
         'App\Http\Controllers\Admin\ProductWishlistReportController' => ['slice' => 'slice 3', 'reason' => 'The wishlist report and its export list the products of the employee\'s countries and read no order (StaffOrderRoutes).'],
     ];
 
-    /** @return array<string, int> how many controllers there are of each status: scoped in slice 2, 3 and 4, not needed, out */
+    /** @return array<string, int> how many controllers there are of each status: scoped in slice 2, 3, 4 and 5, not needed, out */
     public static function countsByStatus(): array
     {
-        $counts = ['slice 2' => 0, 'slice 3' => 0, 'slice 4' => 0, self::NOT_NEEDED => 0, self::OUT => 0];
+        $counts = ['slice 2' => 0, 'slice 3' => 0, 'slice 4' => 0, 'slice 5' => 0, self::NOT_NEEDED => 0, self::OUT => 0];
         foreach (self::CONTROLLERS as $entry) {
             $counts[self::statusKeyOf($entry)]++;
         }

@@ -163,7 +163,13 @@ class StaffProductRouteInventoryTest extends TestCase
             foreach ($rules as $action => $rule) {
                 $this->assertNotSame([], $rule, $controller . '@' . $action);
                 foreach ($rule as $part) {
-                    $this->assertMatchesRegularExpression('/^(none|list|(product|batch|purchase_order)\.(route|input|items):[A-Za-z_]+\??)$/', $part, $controller . '@' . $action);
+                    $this->assertMatchesRegularExpression(
+                        '/^(none|unavailable|list(:(returns|fulfillments))?'
+                        . '|(product|batch|purchase_order|order|review|return|fulfillment|commission_rule)\.(route|input|items):[A-Za-z_]+\??'
+                        . '|(return|commission_rule)\.posted)$/',
+                        $part,
+                        $controller . '@' . $action,
+                    );
                 }
             }
         }

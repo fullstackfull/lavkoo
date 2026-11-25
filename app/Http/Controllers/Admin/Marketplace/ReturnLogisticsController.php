@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin\Marketplace;
 
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopeMarketplaceToStaffCountries;
 use App\Models\ReturnShipment;
 use App\Services\Fulfillment\Support\SafeToast;
 use App\Services\Marketplace\ReturnLogisticsService;
@@ -20,6 +21,10 @@ class ReturnLogisticsController extends BaseController
 {
     public function __construct(private readonly ReturnLogisticsService $returns)
     {
+        // Slice 5 of the staff country scopes (GCC-14c): a return is a return OF an order, so a restricted employee sees the queue of
+        // their own countries' orders and authorises, advances, receives or rejects only what names a product or an order of theirs.
+        // Receiving one puts stock back on a shelf another market sells against. Inert while the switch is off.
+        $this->middleware(ScopeMarketplaceToStaffCountries::class);
     }
 
     public function index(Request|null $request, ?string $type = null): View

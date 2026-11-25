@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin\Marketplace;
 
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopeMarketplaceToStaffCountries;
 use App\Services\Platform\PolicyRegistry;
 use App\Services\Platform\Policy;
 use App\Models\BusinessSetting;
@@ -37,6 +38,11 @@ class SettlementController extends BaseController
         private readonly VendorLedger $ledger,
         private readonly SettlementCurrency $currency,
     ) {
+        // Slice 5 of the staff country scopes (GCC-14c): a settlement is a seller's money across every market -- the vendor ledger is
+        // keyed by seller, currency and legal entity and not by market -- and the two platform controls on this page, the separation of
+        // duties and the payment terms, change what happens in all of them. A restricted employee is answered like for a page that does
+        // not exist rather than shown or allowed to move money they cannot be accountable for. Inert while the switch is off.
+        $this->middleware(ScopeMarketplaceToStaffCountries::class);
     }
 
     public function index(Request|null $request, ?string $type = null): View

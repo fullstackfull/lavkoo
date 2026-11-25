@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin\Marketplace;
 
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopeMarketplaceToStaffCountries;
 use App\Models\CommissionRule;
 use App\Services\Marketplace\CommissionEngine;
 use App\Services\AuditLogger;
@@ -27,6 +28,10 @@ class CommissionRuleController extends BaseController
         private readonly CommissionEngine $engine,
         private readonly AuditLogger $audit,
     ) {
+        // Slice 5 of the staff country scopes (GCC-14c): only a rule that names a PRODUCT belongs to a market, so a restricted employee
+        // lists their own countries' product rules and writes nothing else -- a global, category or vendor rule changes what the sellers
+        // of every market are charged. Inert while the switch is off.
+        $this->middleware(ScopeMarketplaceToStaffCountries::class);
     }
 
     public function index(Request|null $request, ?string $type = null): View

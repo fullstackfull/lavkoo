@@ -54,9 +54,20 @@ control is behind a switch, the line says so, because the day the switch goes on
 - **Pinned by.** `StaffOrderScopeTest::test_an_order_of_two_countries_needs_an_employee_who_holds_both`,
   `StaffOrderScopeTest::test_an_employee_restricted_to_nothing_sees_no_order_at_all`,
   `StaffCountryScopeTest::test_with_the_switch_off_nothing_is_asked_of_the_database_and_nobody_is_narrowed`,
-  `AdminRouteAuthenticationTest::test_no_admin_route_is_reachable_without_the_admin_guard`
+  `AdminRouteAuthenticationTest::test_no_admin_route_is_reachable_without_the_admin_guard`,
+  `StaffScopeGrantTrailTest::test_an_employee_whose_every_grant_has_expired_is_restricted_to_nothing_and_never_widened`,
+  `StaffExportRouteInventoryTest::test_every_admin_controller_that_hands_over_a_file_is_classified`
 - **Gap.** `AdminRouteTableTest`, which fails a NEW unguarded admin route, is not on `main` (M1-16). The seller app's own
-  staff screens are proven by the backend's refusals, not by a device run.
+  staff screens are proven by the backend's refusals, not by a device run. **The EXPORTS are the measured hole, and the
+  figure is now counted rather than estimated: 10 of the 39 admin controllers that hand over a file still hand a
+  restricted employee every market's rows** (the employee and role lists, the coupon export, the operational costs and
+  their reports, a courier verification log, a theme version, a delivery man's withdrawals, the VAT rates and the file
+  manager), and this matters more than the equivalent hole in a screen because a downloaded file cannot be taken back.
+  One of the ten is unreachable by ANY country scope by construction -- the file manager serves a file of the storage by
+  its NAME, with no row behind it to carry a market -- so that one is M1-09's upload surface and not a scoping task.
+  Of the screens, slices 1 to 5 are in and slice 6 (sales channels, fulfilment providers, operational costs) is not
+  started; and an employee cannot be restricted by legal ENTITY at all, since `admin_country_scopes` has no entity
+  column (G-13).
 - **Owner.** Engineering: the scopes and the route gates are code, and the switch they sit behind is the owner's to turn on per market.
 
 ## 3. mixed-money-and-balances
