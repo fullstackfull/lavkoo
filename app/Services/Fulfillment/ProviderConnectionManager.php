@@ -3,7 +3,7 @@
 namespace App\Services\Fulfillment;
 
 use App\Enums\Fulfillment\IntegrationMode;
-use App\Enums\Fulfillment\ProviderCode;
+use App\Services\Fulfillment\Contracts\ProviderIdentity;
 use App\Models\IntegrationSetting;
 use App\Services\AuditLogger;
 use App\Services\Fulfillment\Support\ProviderConfig;
@@ -26,7 +26,13 @@ use Illuminate\Support\Str;
  */
 class ProviderConnectionManager
 {
-    /** Secret keys each provider accepts. Anything else submitted is ignored. */
+    /**
+     * Secret keys the two shipped carriers accept. Anything else submitted is ignored.
+     *
+     * A DEFAULT, not a gate, since H1-11: a carrier declared in `config/fulfillment.php` names its own keys under `secret_keys`, because a carrier whose
+     * credentials nothing would accept could be configured and never authenticate. The two below are not in the configuration on purpose -- what a
+     * shipped adapter authenticates with is part of that adapter, not a setting -- so their behaviour is byte for byte what it was.
+     */
     private const SECRET_KEYS = [
         'm5azn' => ['email', 'password', 'access_token', 'token_expires_at', 'webhook_secret'],
         // Fulfillment API v5 authenticates with headers (username/password); Lastmile API v2 with an
@@ -62,22 +68,38 @@ class ProviderConnectionManager
         return IntegrationMode::resolve($this->isGloballyEnabled(), (bool) config('fulfillment.external_writes_enabled', false));
     }
 
+    /**
+     * The secret keys this carrier accepts: the ones its configuration entry names, or, for the two shipped carriers, the ones written above.
+     *
+     * @return list<string>
+     */
+    private function secretKeysOf(ProviderIdentity $provider): array
+    {
+        $declared = config('fulfillment.providers.' . $provider->code() . '.secret_keys');
+
+        if (is_array($declared)) {
+            return array_values(array_filter($declared, static fn (mixed $key): bool => is_string($key) && $key !== ''));
+        }
+
+        return self::SECRET_KEYS[$provider->code()] ?? [];
+    }
+
     /** May any outbound call be made for this provider right now? */
-    public function canCall(ProviderCode $provider): bool
+    public function canCall(ProviderIdentity $provider): bool
     {
         return $this->isGloballyEnabled() && $this->config($provider)->enabled;
     }
 
-    public function config(ProviderCode $provider): ProviderConfig
+    public function config(ProviderIdentity $provider): ProviderConfig
     {
-        $row = IntegrationSetting::where('provider', $provider->value)->first();
+        $row = IntegrationSetting::where('provider', $provider->code())->first();
 
         $settings = array_replace(
             $this->registry->defaultSettings($provider),
             is_array($row?->settings) ? $row->settings : [],
         );
 
-        $baseUrl = rtrim((string) ($row?->base_url ?: config('fulfillment.providers.' . $provider->value . '.default_base_url')), '/');
+        $baseUrl = rtrim((string) ($row?->base_url ?: config('fulfillment.providers.' . $provider->code() . '.default_base_url')), '/');
 
         return new ProviderConfig(
             provider: $provider,
@@ -97,7 +119,7 @@ class ProviderConnectionManager
      * @param array<string, mixed> $auditContext extra facts for the audit entry of this change (for example a gate that was overridden)
      */
     public function save(
-        ProviderCode $provider,
+        ProviderIdentity $provider,
         ?bool $enabled,
         ?string $baseUrl,
         array $settings,
@@ -106,8 +128,8 @@ class ProviderConnectionManager
         array $auditContext = [],
     ): void {
         DB::transaction(function () use ($provider, $enabled, $baseUrl, $settings, $secrets, $clearSecrets, $auditContext): void {
-            $row = IntegrationSetting::where('provider', $provider->value)->lockForUpdate()->first()
-                ?? new IntegrationSetting(['provider' => $provider->value]);
+            $row = IntegrationSetting::where('provider', $provider->code())->lockForUpdate()->first()
+                ?? new IntegrationSetting(['provider' => $provider->code()]);
 
             $before = $this->config($provider);
             $enabled ??= $before->enabled;
@@ -119,7 +141,7 @@ class ProviderConnectionManager
             );
             $merged = $this->applyGoLive($before->enabled, $before->settings(), $merged, $enabled);
 
-            $allowed = self::SECRET_KEYS[$provider->value] ?? [];
+            $allowed = $this->secretKeysOf($provider);
             $credentials = $this->decrypt($row);
             $changedSecrets = [];
             foreach ($secrets as $key => $value) {
@@ -135,7 +157,7 @@ class ProviderConnectionManager
                 }
             }
 
-            $row->name = config('fulfillment.providers.' . $provider->value . '.label', $provider->value);
+            $row->name = config('fulfillment.providers.' . $provider->code() . '.label', $provider->code());
             $row->enabled = $enabled;
             $row->base_url = $baseUrl === null ? $row->base_url : ($baseUrl === '' ? null : rtrim($baseUrl, '/'));
             $row->settings = $merged;
@@ -147,7 +169,7 @@ class ProviderConnectionManager
                 subject: ['type' => 'integration_setting', 'id' => $row->id],
                 before: ['enabled' => $before->enabled, 'settings' => $this->auditableSettings($before->settings())],
                 after: ['enabled' => $enabled, 'settings' => $this->auditableSettings($merged)],
-                context: ['provider' => $provider->value, 'secrets_changed' => $changedSecrets] + $auditContext,
+                context: ['provider' => $provider->code(), 'secrets_changed' => $changedSecrets] + $auditContext,
             );
         });
     }
@@ -156,10 +178,10 @@ class ProviderConnectionManager
      * Store a secret the SYSTEM obtained (an access token). Read-modify-write under a row lock so a
      * concurrent admin save cannot be overwritten by it, nor overwrite it.
      */
-    public function putRuntimeSecret(ProviderCode $provider, string $key, ?string $value): void
+    public function putRuntimeSecret(ProviderIdentity $provider, string $key, ?string $value): void
     {
         DB::transaction(function () use ($provider, $key, $value): void {
-            $row = IntegrationSetting::where('provider', $provider->value)->lockForUpdate()->first();
+            $row = IntegrationSetting::where('provider', $provider->code())->lockForUpdate()->first();
             if ($row === null) {
                 return;
             }
@@ -177,7 +199,7 @@ class ProviderConnectionManager
     }
 
     /** Generate a fresh webhook secret and return it ONCE; only its presence is shown afterwards. */
-    public function rotateWebhookSecret(ProviderCode $provider): string
+    public function rotateWebhookSecret(ProviderIdentity $provider): string
     {
         $secret = Str::random(48);
         $this->save(
@@ -192,7 +214,7 @@ class ProviderConnectionManager
     }
 
     /** @return array<string, mixed> */
-    public function defaultSettings(ProviderCode $provider): array
+    public function defaultSettings(ProviderIdentity $provider): array
     {
         return $this->registry->defaultSettings($provider);
     }

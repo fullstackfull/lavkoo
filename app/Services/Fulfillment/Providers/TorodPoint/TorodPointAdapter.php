@@ -231,7 +231,7 @@ class TorodPointAdapter implements ProviderAdapter, ReconcilesSubmissions, Handl
         if (AddressSnapshot::plain($address, 'address') === '') {
             return PreflightResult::hold(HoldReason::ADDRESS_INCOMPLETE);
         }
-        if (MarketPhone::nationalNumberFor(DestinationCountry::ofOrder($fulfillment->order_id), AddressSnapshot::plain($address, 'phone')) === null) {
+        if (MarketPhone::nationalNumberFor(DestinationCountry::deliveryOf($fulfillment->order_id), AddressSnapshot::plain($address, 'phone')) === null) {
             return PreflightResult::hold(HoldReason::PHONE_INVALID);
         }
         $resolution = $this->cities->resolveForAddress($address);

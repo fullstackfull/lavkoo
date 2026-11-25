@@ -21,11 +21,6 @@ use Illuminate\Support\Facades\Http;
 
 class TorodAdapterTest extends TorodTestCase
 {
-    private function fakeOrderAccepted(array $body = ['id' => 4455, 'barcode' => 'O0015030400001']): void
-    {
-        Http::fake([self::V5 . '/public/fulfillment/order' => Http::response($body)]);
-    }
-
     public function test_warehouse_calls_carry_the_documented_headers_and_our_company_id(): void
     {
         $fulfillment = $this->torodFulfillment();

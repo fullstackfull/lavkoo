@@ -14,6 +14,7 @@ use App\Services\Fulfillment\Providers\TorodPoint\TorodInvoiceRoundTrip;
 use App\Services\Fulfillment\Providers\TorodPoint\TorodPointAdapter;
 use App\Services\Fulfillment\Support\ArabicText;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 
 /**
  * The REAL Torod Point adapter against faked HTTP.
@@ -69,6 +70,12 @@ abstract class TorodTestCase extends FulfillmentTestCase
     }
 
     /** One Torod product line (2 units, 60 SAR) plus one M5AZN line, routed. */
+    /** The warehouse accepting an order, which is what every test that reads a sent payload needs first. */
+    protected function fakeOrderAccepted(array $body = ['id' => 4455, 'barcode' => 'O0015030400001']): void
+    {
+        Http::fake([self::V5 . '/public/fulfillment/order' => Http::response($body)]);
+    }
+
     protected function torodFulfillment(array $orderOverrides = [], int $orderId = 100, bool $mapped = true): ProviderFulfillment
     {
         DB::table('products')->where('id', 1)->exists() || $this->makeProduct(1, ProviderCode::TorodPoint);

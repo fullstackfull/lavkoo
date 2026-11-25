@@ -2,9 +2,9 @@
 
 namespace App\Services\Fulfillment;
 
+use App\Services\Fulfillment\Contracts\ProviderIdentity;
 use App\Enums\Fulfillment\HoldReason;
 use App\Enums\Fulfillment\PaymentMode;
-use App\Enums\Fulfillment\ProviderCode;
 use App\Models\Order;
 use App\Models\ProviderFulfillmentItem;
 use App\Services\Fulfillment\Data\MoneyAssessment;
@@ -32,13 +32,13 @@ class FulfillmentMoney
      * @param Collection<int, ProviderFulfillmentItem> $shipmentItems this shipment's lines
      * @param Collection<int, ProviderFulfillmentItem> $allItems every non-cancelled provider line of the order
      */
-    public function assess(Order $order, ProviderCode $provider, Collection $shipmentItems, Collection $allItems): MoneyAssessment
+    public function assess(Order $order, ProviderIdentity $provider, Collection $shipmentItems, Collection $allItems): MoneyAssessment
     {
         $plan = $this->codPolicy->plan($order, $allItems);
         $blockedReason = $plan->blockedReason
             ?? ($this->hasUnconvertedLine($shipmentItems) ? HoldReason::CURRENCY_UNCONVERTIBLE : null)
             ?? $this->holdIfTheStampWouldLie($order, $provider);
-        $cod = $plan->codByProvider[$provider->value] ?? 0.0;
+        $cod = $plan->codByProvider[$provider->code()] ?? 0.0;
         $decimals = $this->currency->decimals();
         $itemsTotal = round((float) $shipmentItems->sum('line_total'), $decimals);
         $total = $this->shares->totalFor($plan->orderTotal, $order->id, $shipmentItems, $allItems);
@@ -63,9 +63,9 @@ class FulfillmentMoney
      *
      * With the default rule in force the two can never differ and this never fires.
      */
-    private function holdIfTheStampWouldLie(Order $order, ProviderCode $provider): ?string
+    private function holdIfTheStampWouldLie(Order $order, ProviderIdentity $provider): ?string
     {
-        return WhatACourierIsPaidIn::forOrder($order, $provider->value) === $this->currency->code()
+        return WhatACourierIsPaidIn::forOrder($order, $provider->code()) === $this->currency->code()
             ? null
             : HoldReason::CURRENCY_UNCONVERTIBLE;
     }

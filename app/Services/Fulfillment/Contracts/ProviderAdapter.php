@@ -3,7 +3,6 @@
 namespace App\Services\Fulfillment\Contracts;
 
 use App\Enums\Fulfillment\FulfillmentStatus;
-use App\Enums\Fulfillment\ProviderCode;
 use App\Models\ProviderFulfillment;
 use App\Services\Fulfillment\Data\CancellationResult;
 use App\Services\Fulfillment\Data\ConnectionTestResult;
@@ -22,7 +21,13 @@ use App\Services\Fulfillment\Data\SubmissionResult;
  */
 interface ProviderAdapter
 {
-    public function code(): ProviderCode;
+    /**
+     * Who this adapter is.
+     *
+     * Widened from `ProviderCode` for H1-11: an adapter for a carrier declared only in the configuration has no enum case to return. The two shipped
+     * adapters still return their case, which is a `ProviderIdentity`, so nothing about them changed.
+     */
+    public function code(): ProviderIdentity;
 
     /** What the provider's documentation lets us do, and whether it is configured and switched on. */
     public function readiness(): ReadinessReport;

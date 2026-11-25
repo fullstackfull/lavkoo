@@ -76,7 +76,7 @@ class ProviderFulfillmentController extends Controller
     public function show(int $id): View
     {
         $fulfillment = ProviderFulfillment::with(['items', 'events' => static fn ($query) => $query->latest('id')->limit(50)])->findOrFail($id);
-        $provider = $fulfillment->providerCode();
+        $provider = $fulfillment->providerIdentity();
 
         return view('admin-views.fulfillment.fulfillment-show', [
             'fulfillment' => $fulfillment,
@@ -156,7 +156,7 @@ class ProviderFulfillmentController extends Controller
     /** A retryable answer is tried again by itself only where orders are sent automatically; otherwise it waits for a person to approve it again. */
     private function retriesByItself(int $id): bool
     {
-        $provider = ProviderFulfillment::find($id)?->providerCode();
+        $provider = ProviderFulfillment::find($id)?->providerIdentity();
 
         return $provider !== null && $this->connections->config($provider)->bool('auto_dispatch', false);
     }

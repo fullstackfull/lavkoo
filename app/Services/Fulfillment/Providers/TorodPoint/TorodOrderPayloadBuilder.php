@@ -36,7 +36,7 @@ class TorodOrderPayloadBuilder
     {
         $address = $this->address($order);
         $isCod = $fulfillment->payment_mode === PaymentMode::CashOnDelivery;
-        $country = DestinationCountry::ofOrder($order->id);
+        $country = DestinationCountry::deliveryOf($order->id);
         $local = (string) MarketPhone::nationalNumberFor($country, AddressSnapshot::plain($address, 'phone'));
 
         $payload = [

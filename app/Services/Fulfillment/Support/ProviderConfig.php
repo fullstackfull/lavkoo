@@ -2,7 +2,7 @@
 
 namespace App\Services\Fulfillment\Support;
 
-use App\Enums\Fulfillment\ProviderCode;
+use App\Services\Fulfillment\Contracts\ProviderIdentity;
 
 /**
  * A provider's configuration as loaded for one operation: non-secret settings plus decrypted secrets.
@@ -17,7 +17,7 @@ final class ProviderConfig
      * @param array<string, mixed> $credentials
      */
     public function __construct(
-        public readonly ProviderCode $provider,
+        public readonly ProviderIdentity $provider,
         public readonly bool $enabled,
         public readonly string $baseUrl,
         private readonly array $settings,
@@ -81,7 +81,7 @@ final class ProviderConfig
     public function toDisplayArray(): array
     {
         return [
-            'provider' => $this->provider->value,
+            'provider' => $this->provider->code(),
             'enabled' => $this->enabled,
             'base_url' => $this->baseUrl,
             'settings' => $this->settings,
@@ -91,6 +91,6 @@ final class ProviderConfig
 
     public function __debugInfo(): array
     {
-        return ['provider' => $this->provider->value, 'enabled' => $this->enabled, 'credentials' => '[hidden]'];
+        return ['provider' => $this->provider->code(), 'enabled' => $this->enabled, 'credentials' => '[hidden]'];
     }
 }

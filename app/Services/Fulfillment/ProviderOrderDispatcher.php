@@ -2,10 +2,10 @@
 
 namespace App\Services\Fulfillment;
 
+use App\Services\Fulfillment\Contracts\ProviderIdentity;
 use App\Enums\Fulfillment\EventOutcome;
 use App\Enums\Fulfillment\FulfillmentStatus;
 use App\Enums\Fulfillment\HoldReason;
-use App\Enums\Fulfillment\ProviderCode;
 use App\Models\Order;
 use App\Models\ProviderFulfillment;
 use App\Services\Fulfillment\Contracts\ProviderAdapter;
@@ -129,7 +129,7 @@ class ProviderOrderDispatcher
                 return null;
             }
 
-            $provider = $fulfillment->providerCode();
+            $provider = $fulfillment->providerIdentity();
             if ($provider === null) {
                 return null;
             }
@@ -270,7 +270,7 @@ class ProviderOrderDispatcher
      *
      * @return array{0:string,1:?string}|null [reason, detail] when the money can no longer be assigned safely
      */
-    private function reassessMoney(ProviderFulfillment $fulfillment, Order $order, ProviderCode $provider): ?array
+    private function reassessMoney(ProviderFulfillment $fulfillment, Order $order, ProviderIdentity $provider): ?array
     {
         $money = $this->money->assess($order, $provider, $fulfillment->loadMissing('items')->items, $this->money->allItems($order->id));
         if ($money->blockedReason !== null) {
