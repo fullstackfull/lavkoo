@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin\Promotion;
 use App\Contracts\Repositories\MostDemandedRepositoryInterface;
 use App\Contracts\Repositories\ProductRepositoryInterface;
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopePromotionsToStaffCountries;
 use App\Http\Requests\Admin\MostDemandedRequest;
 use App\Services\MostDemandedService;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
@@ -22,6 +23,9 @@ class MostDemandedController extends BaseController
         private readonly ProductRepositoryInterface      $productRepo,
     )
     {
+        // Slice 4 of the staff country scopes (GCC-14c): a restricted employee reaches only the products of their own countries
+        // on these screens -- the pickers, the lists, the counters and every write that names a product. Inert while the switch is off.
+        $this->middleware(ScopePromotionsToStaffCountries::class);
     }
 
     /**

@@ -8,6 +8,7 @@ use App\Contracts\Repositories\CategoryRepositoryInterface;
 use App\Contracts\Repositories\ProductRepositoryInterface;
 use App\Contracts\Repositories\ShopRepositoryInterface;
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopePromotionsToStaffCountries;
 use App\Http\Requests\Admin\BannerAddRequest;
 use App\Http\Requests\Admin\BannerUpdateRequest;
 use App\Services\BannerService;
@@ -36,6 +37,9 @@ class BannerController extends BaseController
         private readonly CategoryService             $categoryService,
     )
     {
+        // Slice 4 of the staff country scopes (GCC-14c): a restricted employee reaches only the products of their own countries
+        // on these screens -- the pickers, the lists, the counters and every write that names a product. Inert while the switch is off.
+        $this->middleware(ScopePromotionsToStaffCountries::class);
     }
 
     /**

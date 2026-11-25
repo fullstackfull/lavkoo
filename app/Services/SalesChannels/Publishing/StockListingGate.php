@@ -11,9 +11,17 @@ use App\Models\SalesChannelProductMapping;
  *
  * Amazon FBA listings and FBA stock are never touched (Amazon holds that stock); a quantity goes to the merchant-fulfilled offer (`DEFAULT`) of an Amazon listing, and on a listing
  * whose offer Amazon did not describe that would start one, so only a listing known to have one takes it; a location is active and may only feed the channels it lists.
+ *
+ * And, since E11-F19, the listing, the product it points at and the shelf its stock comes from must be of ONE MARKET. That question is
+ * `ChannelMarketMatch`'s and is not restated here. It is asked LAST, after the refusals that hold whatever the markets say, so the reason a
+ * person is shown is the plainest true one: a listing Amazon fulfils is refused for being Amazon's, not for a market.
  */
 class StockListingGate
 {
+    public function __construct(private readonly ChannelMarketMatch $markets)
+    {
+    }
+
     /**
      * The channel key a location must list before it may feed that channel.
      *
@@ -63,6 +71,6 @@ class StockListingGate
             return 'location_not_for_this_channel';
         }
 
-        return null;
+        return $this->markets->refusal($account, $listing, $location);
     }
 }

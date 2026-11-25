@@ -7,6 +7,7 @@ use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use App\Models\Scopes\StaffCountryProductRowScope;
 
 /**
  * App\Models\StockClearanceProduct
@@ -101,6 +102,11 @@ class StockClearanceProduct extends Model
     protected static function boot(): void
     {
         parent::boot();
+
+        // A clearance offer is one product's, and the clearance screens name their rows by `product_id` rather than by the row's own id --
+        // including the delete of every admin offer at once -- so this is what keeps those writes inside a restricted employee's countries
+        // (GCC-14c, slice 4). A row whose product is null or gone belongs to no market and is hidden from them.
+        static::addGlobalScope(new StaffCountryProductRowScope());
 
         static::saved(function ($model) {
             cacheRemoveByType(type: 'products');

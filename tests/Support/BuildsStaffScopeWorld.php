@@ -18,7 +18,7 @@ use RuntimeException;
  * dropped before they are built, so on a real engine the database must be unmistakably a throwaway one.
  *
  * Employees: 1 is the master admin (role 1), 2 and 3 are catalog employees (role 2), 4 is an employee whose role was never set, 5 holds the catalog and the
- * marketplace (role 3) and 6 holds the orders only (role 4).
+ * marketplace (role 3) and 6 holds the orders only (role 4). 70 holds the catalog and marketing (role 50), which is what the promotion screens ask for.
  */
 trait BuildsStaffScopeWorld
 {
@@ -224,6 +224,149 @@ trait BuildsStaffScopeWorld
     }
 
     /** The pages ask for the tax system of the shop; the answer is remembered, so the tests give it instead of building the tax tables. */
+    /**
+     * The tables the promotion screens of slice 4 read: the deals and what is in them, the deal of the day, the most-demanded entries, the
+     * clearance setup and the banners, plus the orders the in-house shop page counts. `buildStaffProductTables()` runs first and builds the
+     * products, the reviews and the clearance offers these hang off.
+     *
+     * `most_demandeds` is built from its REAL migration, which is the only one of these tables this repository creates; the rest are
+     * inferred from their models, as the products and the admins are, because the installation dump is not in the repository.
+     */
+    protected function buildStaffPromotionTables(): void
+    {
+        $this->refuseToDropStaffTablesOutsideATestDatabase();
+
+        foreach (['flash_deal_products', 'flash_deals', 'deal_of_the_days', 'most_demandeds', 'banners', 'stock_clearance_setups', 'seo_meta_info', 'orders'] as $table) {
+            Schema::dropIfExists($table);
+        }
+
+        Schema::create('flash_deals', function (Blueprint $table) {
+            $table->id();
+            $table->string('title')->nullable();
+            $table->string('slug')->nullable();
+            $table->string('deal_type')->default('flash_deal');
+            $table->boolean('status')->default(true);
+            $table->boolean('featured')->default(false);
+            $table->string('banner')->nullable();
+            $table->string('background_color')->nullable();
+            $table->string('text_color')->nullable();
+            $table->date('start_date')->nullable();
+            $table->date('end_date')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('flash_deal_products', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('flash_deal_id');
+            $table->unsignedBigInteger('product_id');
+            $table->decimal('discount', 24, 2)->default(0);
+            $table->string('discount_type')->default('flat');
+            $table->timestamps();
+        });
+
+        Schema::create('deal_of_the_days', function (Blueprint $table) {
+            $table->id();
+            $table->string('title')->nullable();
+            $table->unsignedBigInteger('product_id')->nullable();
+            $table->decimal('discount', 24, 2)->default(0);
+            $table->string('discount_type')->default('flat');
+            $table->boolean('status')->default(true);
+            $table->timestamps();
+        });
+
+        // The one of these tables this repository creates, so it is built from its real migration. It is an old-style migration that
+        // declares a NAMED class, so it is required once per process and instantiated: `require`ing it a second time is a fatal error.
+        require_once database_path('migrations/2023_07_08_210747_create_most_demandeds_table.php');
+        (new \CreateMostDemandedsTable())->up();
+
+        Schema::create('banners', function (Blueprint $table) {
+            $table->id();
+            $table->string('theme')->nullable();
+            $table->string('photo')->nullable();
+            $table->string('mobile_photo')->nullable();
+            $table->string('url')->nullable();
+            $table->string('title')->nullable();
+            $table->string('sub_title')->nullable();
+            $table->string('button_text')->nullable();
+            $table->string('background_color')->nullable();
+            $table->string('layout')->nullable();
+            $table->integer('priority')->nullable();
+            $table->string('resource_type')->nullable();
+            $table->unsignedBigInteger('resource_id')->nullable();
+            $table->string('banner_type')->nullable();
+            $table->boolean('published')->default(true);
+            $table->timestamps();
+        });
+
+        Schema::create('stock_clearance_setups', function (Blueprint $table) {
+            $table->id();
+            $table->string('setup_by')->nullable();
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->unsignedBigInteger('shop_id')->nullable();
+            $table->boolean('is_active')->default(true);
+            $table->string('discount_type')->nullable();
+            $table->decimal('discount_amount', 24, 2)->default(0);
+            $table->boolean('show_in_homepage')->default(false);
+            $table->boolean('show_in_shop')->default(false);
+            $table->date('duration_start_date')->nullable();
+            $table->date('duration_end_date')->nullable();
+            $table->string('offer_active_time')->nullable();
+            $table->time('offer_active_range_start')->nullable();
+            $table->time('offer_active_range_end')->nullable();
+            $table->timestamps();
+        });
+
+        // The clearance screens filter their offers by who made them and read the setup each belongs to; `buildStaffProductTables()` builds
+        // the offers for the product screens, which need neither. The clearance list also averages the rating of each product.
+        Schema::table('stock_clearance_products', function (Blueprint $table) {
+            $table->string('added_by')->nullable();
+            $table->unsignedBigInteger('setup_id')->nullable();
+            $table->unsignedBigInteger('user_id')->nullable();
+        });
+        Schema::table('reviews', function (Blueprint $table) {
+            $table->integer('rating')->default(5);
+        });
+        // The banner form's category picker orders by `priority`. SQLite let the unknown column through and MariaDB did not, which is the
+        // same lesson as every other real-engine find: the in-memory database is not the engine the panel runs on.
+        Schema::table('categories', function (Blueprint $table) {
+            $table->integer('priority')->default(0);
+        });
+
+        // Two settings these screens read without a default of their own: the deal list dies on a missing `flash_deal_priority`, and the
+        // in-house shop object reads `vacation_add` as an array.
+        DB::table('business_settings')->insert([
+            ['type' => 'flash_deal_priority', 'value' => json_encode([])],
+            ['type' => 'vacation_add', 'value' => json_encode(['status' => 0, 'vacation_note' => '', 'vacation_start_date' => null, 'vacation_end_date' => null])],
+        ]);
+
+        Schema::create('seo_meta_info', function (Blueprint $table) {
+            $table->id();
+            $table->string('seoable_type');
+            $table->unsignedBigInteger('seoable_id');
+            $table->string('title')->nullable();
+            $table->text('description')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('orders', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('customer_id')->nullable();
+            $table->unsignedBigInteger('seller_id')->nullable();
+            $table->string('seller_is')->default('admin');
+            $table->string('order_status')->default('pending');
+            $table->string('payment_status')->default('unpaid');
+            $table->decimal('order_amount', 24, 2)->default(0);
+            $table->timestamps();
+        });
+    }
+
+    /** One order of one product, as the in-house shop page counts it: an order follows the country of the products of its lines. */
+    protected function insertStaffOrderOfProduct(int $orderId, int $productId, array $extra = []): void
+    {
+        DB::table('orders')->insert(array_merge(['id' => $orderId, 'seller_is' => 'admin', 'seller_id' => 1, 'order_status' => 'delivered'], $extra));
+        DB::table('order_details')->insert(['order_id' => $orderId, 'product_id' => $productId]);
+    }
+
     protected function primeTaxSystemCache(): void
     {
         Cache::flush();

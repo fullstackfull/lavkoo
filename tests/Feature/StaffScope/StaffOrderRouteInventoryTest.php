@@ -4,7 +4,9 @@ namespace Tests\Feature\StaffScope;
 
 use App\Http\Controllers\Admin\Report\RefundTransactionController;
 use App\Http\Controllers\Admin\TransactionController;
+use App\Services\Staff\StaffCountryScope;
 use App\Services\Staff\StaffOrderRoutes;
+use App\Services\Staff\StaffPromotionRoutes;
 use Illuminate\Support\Facades\Route;
 use Tests\Support\StaffOrderInventory;
 use Tests\Support\StaffOrderRouteScanner;
@@ -83,12 +85,12 @@ class StaffOrderRouteInventoryTest extends TestCase
                 $this->assertArrayHasKey($entry['slice'], StaffOrderInventory::SLICES, $controller . ': the slice that takes it, or the owner');
             }
             if ($entry['class'] === StaffOrderInventory::SCOPED) {
-                $this->assertContains($entry['slice'], ['slice 2', 'slice 3'], $controller);
+                $this->assertContains($entry['slice'], ['slice 2', 'slice 3', 'slice 4'], $controller);
             }
         }
         foreach (StaffOrderInventory::READ_THROUGH_SERVICES as $controller => $entry) {
             $this->assertNotSame('', trim($entry['reason']), $controller);
-            $this->assertArrayHasKey($entry['slice'], ($entry['class'] ?? null) === StaffOrderInventory::SCOPED ? ['slice 2' => true, 'slice 3' => true] : StaffOrderInventory::SLICES, $controller);
+            $this->assertArrayHasKey($entry['slice'], ($entry['class'] ?? null) === StaffOrderInventory::SCOPED ? ['slice 2' => true, 'slice 3' => true, 'slice 4' => true] : StaffOrderInventory::SLICES, $controller);
         }
         foreach (StaffOrderInventory::SCOPED_WITHOUT_ORDER_READS as $controller => $entry) {
             $this->assertNotSame('', trim($entry['reason']), $controller);
@@ -144,23 +146,39 @@ class StaffOrderRouteInventoryTest extends TestCase
         }
     }
 
-    public function test_a_controller_scoped_by_its_search_has_no_rules_and_no_middleware_and_says_what_narrows_it(): void
+    /**
+     * A scoped entry whose rules are NOT in StaffOrderRoutes says so with `by`, and the set of them is exact: there are two reasons for it
+     * and no third, so a controller that quietly stops being covered cannot hide behind the word.
+     */
+    public function test_a_controller_narrowed_by_something_other_than_the_order_registry_says_what_narrows_it(): void
     {
-        $bySearch = [];
+        $byAnother = [];
         foreach ([...StaffOrderInventory::CONTROLLERS, ...StaffOrderInventory::READ_THROUGH_SERVICES, ...\Tests\Support\StaffProductInventory::READ_THROUGH_SERVICES] as $controller => $entry) {
             if (isset($entry['by'])) {
-                $bySearch[$controller] = $entry;
+                $byAnother[$controller] = $entry['by'];
             }
         }
+        ksort($byAnother);
 
-        $names = array_keys($bySearch);
-        sort($names);
+        $this->assertSame([
+            'App\Http\Controllers\Admin\AdvancedSearchController' => 'the search',
+            'App\Http\Controllers\Admin\Settings\InhouseShopController' => 'the promotion screens',
+            'App\Http\Controllers\Admin\V2AdvancedSearchController' => 'the search',
+        ], $byAnother);
 
-        $this->assertSame(['App\Http\Controllers\Admin\AdvancedSearchController', 'App\Http\Controllers\Admin\V2AdvancedSearchController'], $names);
-        foreach ($bySearch as $controller => $entry) {
-            $this->assertSame('the search', $entry['by'], $controller);
-            $this->assertSame([], StaffOrderRoutes::rulesOf(controller: $controller), $controller . ' narrows what it hands back: it registers no middleware (it would narrow the query that fills a cache every employee shares)');
-            $this->assertStringNotContainsString('ScopeOrdersToStaffCountries', (string) file_get_contents((string) (new \ReflectionClass($controller))->getFileName()), $controller);
+        foreach ($byAnother as $controller => $by) {
+            $this->assertSame([], StaffOrderRoutes::rulesOf(controller: $controller), $controller . ' is not covered by the order registry');
+            $source = (string) file_get_contents((string) (new \ReflectionClass($controller))->getFileName());
+            if ($by === 'the search') {
+                // It narrows what it hands back, not its query: the query fills a cache every employee shares.
+                $this->assertStringNotContainsString('ScopeOrdersToStaffCountries', $source, $controller);
+                continue;
+            }
+            // Slice 4's own middleware carries the order subject for it, so the order middleware must NOT also be registered: two
+            // middlewares would each read a rule out of a registry that does not hold the other's, and the first 404 would win.
+            $this->assertStringNotContainsString('ScopeOrdersToStaffCountries', $source, $controller);
+            $this->assertStringContainsString('ScopePromotionsToStaffCountries', $source, $controller);
+            $this->assertContains(StaffCountryScope::SUBJECT_ORDERS, StaffPromotionRoutes::subjectsOf(rule: StaffPromotionRoutes::ruleOf($controller, 'index') ?? []), $controller);
         }
     }
 

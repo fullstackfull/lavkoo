@@ -1,4 +1,4 @@
-# GCC-14c: staff country scopes (slices 1 to 3: the product screens, the order, POS and refund screens, and the shared layout, the people, the dashboard and the reports, of the admin panel)
+# GCC-14c: staff country scopes (slices 1 to 5: the product screens, the order, POS and refund screens, the shared layout, the people, the dashboard and the reports, the promotion and content screens, and the marketplace stock screens, of the admin panel)
 
 **Status:** draft, behind a switch that ships **off**. Nothing here runs on the pilot server or on production. One additive migration, no change to what a Saudi
 customer, seller or admin sees or is answered while the switch is off, and nothing narrows an employee until somebody assigns them a country.
@@ -529,6 +529,189 @@ constructors, after the sign-in check and the module permission of the route (th
 | `GET admin/report/vendor-tax-export` | `VendorTaxReportController::vendorTaxExport` | `list:orders` + `list:order_transactions` | module:reports |
 <!-- slice-3-rules-end -->
 
+## What slice 4 enforces (the promotion and storefront-content screens)
+
+The flash deals, the deal of the day, the clearance sale, the most-demanded entries, the banners, the in-house shop page, the theme builder, the two SEO screens, the site map
+and the collection preview. `ScopePromotionsToStaffCountries` is registered by the constructors of these eleven controllers, after the sign-in check and the module permission
+of the route, and `App\Services\Staff\StaffPromotionRoutes` holds the rule of every one of their actions: a route of one of them without a rule is REFUSED to a restricted
+employee, as in slices 2 and 3.
+
+**What a promotion has no country for.** A flash deal, a banner, the clearance setup and the most-demanded section are platform rows: nothing on them says which market they
+belong to, and GCC-17 has to decide that before it can. So editing a deal's name or its dates, publishing a banner or saving the clearance discount is judged by the module
+permission alone, exactly as before, and this document records that rather than pretending otherwise.
+
+**What these screens DO narrow** is the only thing on them that can be told apart by country -- the products:
+
+1. Every picker, search and list of products holds the employee's countries' products (the product scope of slice 1, which every bound request carries).
+2. Every row that BELONGS to a product is narrowed through it (`App\Models\Scopes\StaffCountryProductRowScope` on `FlashDealProduct`, `DealOfTheDay`, `MostDemanded` and
+   `StockClearanceProduct`). That closes three things the product scope alone does not: the list of a deal's products, the COUNT of them that the deal list prints beside each
+   deal, and a write that names its row by `product_id` rather than by its own id -- which is how the clearance screens are written, the delete of every admin clearance offer
+   at once included.
+3. Every action that names a product is judged by it: adding products to a deal, removing one, setting a clearance discount or a clearance status, deleting one clearance
+   offer, choosing the deal of the day, and a banner form that says `resource_type=product`.
+4. An edit that moves a product is judged at BOTH ends -- the row's current product and the product it is being changed to -- because either one alone would let a restricted
+   employee move a foreign product in, or one of theirs out.
+5. The in-house shop page also counts ORDERS, which are a different subject: its rule names `list:orders`, so the order scope of slice 2 narrows that count. One middleware
+   carries both; the page is NOT also given `ScopeOrdersToStaffCountries`, because two middlewares would each read a rule out of a registry that does not hold the other's and
+   the first 404 would win.
+
+**And the one thing on these screens that HAS a market of its own: a theme.** `themes.storefront_country` exists since the `2026_12_04` migration (F-01), so unlike a
+promotion the theme builder does not wait for GCC-17. Every version, section, block and asset the builder names is followed to its theme -- a block hangs off a section, a
+section off a version, a version and an asset off the theme -- and the theme's market must be one the employee holds. The rule of which market a theme belongs to is
+`StorefrontMarketRows`': a theme that names none is the DEFAULT storefront's, which is every theme that exists today, and before the column exists every theme is that
+storefront's, which is the same answer rather than a special case. A row that is gone, or hangs off one that is, belongs to no theme and so to no market, and is refused.
+
+**The two SEO screens and the site map.** The SEO translations screen is polymorphic: `entity_type` says what kind of row `entity_id` is, and only `product` makes it a
+product id, so a category or a page override is not judged by a product it does not name. Its list of the twenty most recent overrides is narrowed through the product each
+hangs off, leaving the other kinds alone. The SEO health audit reads its products with the model, so the product scope holds all of it. The SITE MAP is settled by a refusal
+rather than a narrowing: the bare file lists the default storefront's product addresses and the rest is one file per live market, so there is no part of it a restricted
+employee owns -- generating it rewrites every market's file and downloading it hands over another market's product addresses. Every action of that screen is `unavailable` to
+them. Generating one file per storefront, for the markets an employee holds, is the storefront lane's to build.
+
+A product out of the employee's countries is answered like a product that does not exist (a 404), for an id of the path, of the request and of a list, so that belonging to a
+country is not something an employee can find out by asking. The rules of the 87 routes:
+
+<!-- slice-4-rules-start -->
+| Route | Action | Rule | Permission |
+|---|---|---|---|
+| `GET admin/banner/list` | `BannerController::index` | `list` | module:marketing |
+| `GET admin/banner/placement-guide` | `BannerController::getPlacementGuide` | `none` | module:marketing |
+| `GET admin/banner/theme-layout` | `BannerController::getThemeLayoutView` | `none` | module:marketing |
+| `POST admin/banner/add` | `BannerController::add` | `banner_form` | module:marketing |
+| `POST admin/banner/delete` | `BannerController::delete` | `none` | module:marketing |
+| `POST admin/banner/status` | `BannerController::updateStatus` | `none` | module:marketing |
+| `GET admin/banner/update/{id}` | `BannerController::getUpdateView` | `list` | module:marketing |
+| `POST admin/banner/update/{id}` | `BannerController::update` | `banner_form` | module:marketing |
+| `GET admin/deal/flash` | `FlashDealController::index` | `list` | module:marketing |
+| `GET admin/deal/flash/add` | `FlashDealController::getAddView` | `none` | module:marketing |
+| `POST admin/deal/flash` | `FlashDealController::add` | `none` | module:marketing |
+| `GET admin/deal/update/{id}` | `FlashDealController::getUpdateView` | `none` | module:marketing |
+| `POST admin/deal/update/{id}` | `FlashDealController::update` | `none` | module:marketing |
+| `POST admin/deal/status-update` | `FlashDealController::updateStatus` | `none` | module:marketing |
+| `POST admin/deal/delete-product` | `FlashDealController::delete` | `product.input:id` | module:marketing |
+| `GET admin/deal/add-product/{deal_id}` | `FlashDealController::getAddProductView` | `list` | module:marketing |
+| `POST admin/deal/add-product/{deal_id}` | `FlashDealController::addProduct` | `product.inputs:product_id` | module:marketing |
+| `GET\|POST\|PUT\|PATCH\|DELETE\|OPTIONS admin/deal/search-product` | `FlashDealController::search` | `list` | module:marketing |
+| `GET admin/deal/day` | `DealOfTheDayController::index` | `list` | module:marketing |
+| `POST admin/deal/day` | `DealOfTheDayController::add` | `product.input:product_id` | module:marketing |
+| `POST admin/deal/day-status-update` | `DealOfTheDayController::updateStatus` | `deal_of_the_day.input:id` | module:marketing |
+| `GET admin/deal/day-update/{id}` | `DealOfTheDayController::getUpdateView` | `deal_of_the_day.route:id` | module:marketing |
+| `POST admin/deal/day-update/{id}` | `DealOfTheDayController::update` | `deal_of_the_day.route:id` + `product.input:product_id` | module:marketing |
+| `POST admin/deal/day-delete` | `DealOfTheDayController::delete` | `deal_of_the_day.input:id` | module:marketing |
+| `GET admin/deal/clearance-sale` | `ClearanceSaleController::index` | `list` | module:marketing |
+| `POST admin/deal/clearance-sale/status-update` | `ClearanceSaleController::updateStatus` | `none` | module:marketing |
+| `POST admin/deal/clearance-sale/update-config` | `ClearanceSaleController::updateClearanceConfig` | `none` | module:marketing |
+| `POST admin/deal/clearance-sale/update-seo-meta` | `ClearanceSaleController::updateClearanceSeoConfig` | `none` | module:marketing |
+| `GET admin/deal/clearance-sale/search` | `ClearanceSaleController::getSearchedProductsView` | `list` | module:marketing |
+| `GET admin/deal/clearance-sale/multiple-product-details` | `ClearanceSaleController::getMultipleProductDetailsView` | `list` | module:marketing |
+| `POST admin/deal/clearance-sale/add-clearance-product` | `ClearanceSaleController::addClearanceProduct` | `product.inputs:productIds` | module:marketing |
+| `POST admin/deal/clearance-sale/clearance-product-status-update` | `ClearanceSaleController::updateProductStatus` | `product.input:product_id` | module:marketing |
+| `DELETE admin/deal/clearance-sale/clearance-delete/{product_id}` | `ClearanceSaleController::deleteClearanceProduct` | `product.route:product_id` | module:marketing |
+| `DELETE admin/deal/clearance-sale/clearance-products-delete` | `ClearanceSaleController::deleteClearanceAllProduct` | `list` | module:marketing |
+| `POST admin/deal/clearance-sale/update-discount` | `ClearanceSaleController::updateDiscountAmount` | `product.input:product_id` | module:marketing |
+| `GET admin/most-demanded` | `MostDemandedController::getListView` | `none` | module:marketing |
+| `POST admin/most-demanded/store` | `MostDemandedController::add` | `product.input:product_id` | module:marketing |
+| `GET admin/most-demanded/update/{id}` | `MostDemandedController::getUpdateView` | `most_demanded.route:id` | module:marketing |
+| `POST admin/most-demanded/update/{id}` | `MostDemandedController::update` | `most_demanded.route:id` + `product.input:product_id` | module:marketing |
+| `POST admin/most-demanded/delete` | `MostDemandedController::delete` | `most_demanded.input:id` | module:marketing |
+| `POST admin/most-demanded/status` | `MostDemandedController::updateStatus` | `most_demanded.input:id` | module:marketing |
+| `GET admin/business-settings/inhouse-shop` | `InhouseShopController::index` | `list` + `list:orders` | module:business_settings |
+| `POST admin/business-settings/inhouse-shop` | `InhouseShopController::update` | `none` | module:business_settings |
+| `POST admin/business-settings/inhouse-shop-temporary-close` | `InhouseShopController::getTemporaryClose` | `none` | module:business_settings |
+| `POST admin/business-settings/vacation-update` | `InhouseShopController::updateVacation` | `none` | module:business_settings |
+| `GET admin/business-settings/inhouse-shop/setup` | `InhouseShopController::getSetupView` | `none` | module:business_settings |
+| `POST admin/business-settings/inhouse-shop/setup` | `InhouseShopController::updateSetup` | `none` | module:business_settings |
+| `GET admin/commerce/collections` | `CollectionController::index` | `none` | module:themes_and_addons |
+| `POST admin/commerce/collections/store` | `CollectionController::store` | `none` | module:themes_and_addons |
+| `POST admin/commerce/collections/update` | `CollectionController::update` | `none` | module:themes_and_addons |
+| `POST admin/commerce/collections/delete` | `CollectionController::delete` | `none` | module:themes_and_addons |
+| `GET admin/commerce/collections/preview` | `CollectionController::preview` | `list` | module:themes_and_addons |
+| `GET admin/theme/builder` | `ThemeBuilderController::index` | `theme_version.input:version?` | module:themes_and_addons |
+| `GET admin/theme/builder/section-schema` | `ThemeBuilderController::sectionSchema` | `theme_section.input:section_id?` | module:themes_and_addons |
+| `GET admin/theme/builder/resources` | `ThemeBuilderController::resources` | `list` | module:themes_and_addons |
+| `GET admin/theme/builder/resource-labels` | `ThemeBuilderController::resourceLabels` | `list` | module:themes_and_addons |
+| `POST admin/theme/builder/link/compose` | `ThemeBuilderController::composeLink` | `link_form` | module:themes_and_addons |
+| `POST admin/theme/builder/preview/start` | `ThemeBuilderController::startPreview` | `theme_version.input:version_id` | module:themes_and_addons |
+| `POST admin/theme/builder/preview/link` | `ThemeBuilderController::previewLink` | `theme_version.input:version_id` | module:themes_and_addons |
+| `GET admin/theme/builder/preview/stop` | `ThemeBuilderController::stopPreview` | `none` | module:themes_and_addons |
+| `POST admin/theme/builder/section/add` | `ThemeBuilderController::addSection` | `theme_version.input:version_id` | module:themes_and_addons |
+| `POST admin/theme/builder/section/update` | `ThemeBuilderController::updateSection` | `theme_section.input:section_id` | module:themes_and_addons |
+| `POST admin/theme/builder/section/reorder` | `ThemeBuilderController::reorderSections` | `theme_version.input:version_id` | module:themes_and_addons |
+| `POST admin/theme/builder/section/toggle` | `ThemeBuilderController::toggleSection` | `theme_section.input:section_id` | module:themes_and_addons |
+| `POST admin/theme/builder/section/duplicate` | `ThemeBuilderController::duplicateSection` | `theme_section.input:section_id` | module:themes_and_addons |
+| `POST admin/theme/builder/section/delete` | `ThemeBuilderController::deleteSection` | `theme_section.input:section_id` | module:themes_and_addons |
+| `POST admin/theme/builder/section/delivery-rules` | `ThemeBuilderController::updateDeliveryRules` | `theme_section.input:section_id` | module:themes_and_addons |
+| `GET admin/theme/builder/block-schema` | `ThemeBuilderController::blockSchema` | `theme_block.input:block_id` | module:themes_and_addons |
+| `POST admin/theme/builder/block/add` | `ThemeBuilderController::addBlock` | `theme_section.input:section_id` | module:themes_and_addons |
+| `POST admin/theme/builder/block/update` | `ThemeBuilderController::updateBlock` | `theme_block.input:block_id` | module:themes_and_addons |
+| `POST admin/theme/builder/block/reorder` | `ThemeBuilderController::reorderBlocks` | `theme_section.input:section_id` | module:themes_and_addons |
+| `POST admin/theme/builder/block/toggle` | `ThemeBuilderController::toggleBlock` | `theme_block.input:block_id` | module:themes_and_addons |
+| `POST admin/theme/builder/block/duplicate` | `ThemeBuilderController::duplicateBlock` | `theme_block.input:block_id` | module:themes_and_addons |
+| `POST admin/theme/builder/block/delete` | `ThemeBuilderController::deleteBlock` | `theme_block.input:block_id` | module:themes_and_addons |
+| `POST admin/theme/builder/media/upload` | `ThemeBuilderController::uploadMedia` | `theme_version.input:version_id` | module:themes_and_addons |
+| `POST admin/theme/builder/media/delete` | `ThemeBuilderController::deleteMedia` | `theme_asset.input:id` | module:themes_and_addons |
+| `GET admin/theme/builder/media/library` | `ThemeBuilderController::mediaLibrary` | `theme_version.input:version_id` | module:themes_and_addons |
+| `GET admin/seo-settings/translations` | `SeoTranslationController::index` | `seo_entity:entity_type,entity_id` + `list` | module:business_settings |
+| `POST admin/seo-settings/translations/save` | `SeoTranslationController::save` | `seo_entity:entity_type,entity_id` | module:business_settings |
+| `GET admin/seo-settings/translations/delete` | `SeoTranslationController::delete` | `seo_entity:entity_type,entity_id` | module:business_settings |
+| `GET admin/seo-settings/health` | `SeoHealthController::index` | `list` | module:business_settings |
+| `GET admin/seo-settings/sitemap` | `SiteMapController::index` | `unavailable` | module:business_settings |
+| `GET admin/seo-settings/sitemap-generate-download` | `SiteMapController::getGenerateAndDownload` | `unavailable` | module:business_settings |
+| `GET admin/seo-settings/sitemap-generate-upload` | `SiteMapController::getGenerateAndUpload` | `unavailable` | module:business_settings |
+| `POST admin/seo-settings/sitemap-manual-upload` | `SiteMapController::getUpload` | `unavailable` | module:business_settings |
+| `GET admin/seo-settings/sitemap-download` | `SiteMapController::getDownload` | `unavailable` | module:business_settings |
+| `GET admin/seo-settings/sitemap-delete` | `SiteMapController::getDelete` | `unavailable` | module:business_settings |
+<!-- slice-4-rules-end -->
+
+## What slice 5 enforces (the marketplace stock screens)
+
+The warehouses, the inventory adjustments, the batches and the purchase orders: the four screens that MOVE stock or buy it.
+`ScopeMarketplaceToStaffCountries` is registered by their constructors, after the sign-in check and the module permission, and
+`App\Services\Staff\StaffMarketplaceRoutes` holds the rule of each of their 17 actions; a route of one of them without a rule is REFUSED
+to a restricted employee.
+
+**These are writes, which is why they come before the rest of slice 5.** A restricted employee could place another market's product on a
+shelf, adjust its balance, write off its batch and receive a purchase order of it -- and every one of those changes a figure the other market
+sells against. The listing is the lesser half here.
+
+1. Every action that names a product is judged by it: placing stock, transferring it between shelves, adjusting a balance, adding a batch.
+2. A BATCH is followed to the product it is a batch of, so writing one off is judged by that product and not by the batch's own id.
+3. A PURCHASE ORDER is judged by EVERY line's product, the rule an order follows (`StaffOrderVisibility`) and for the same reason: an order
+   can buy two markets' goods, so only an employee who holds both may open, place, receive or cancel it. One that buys nothing from the
+   catalogue -- every line a description -- belongs to no market and is refused rather than guessed at. Creating one is judged by every line
+   that names a catalogue product, and a line that names none is not a refusal, because a purchase order may buy a service or a pallet.
+4. The rows that belong to a product are narrowed through it (`StaffCountryProductRowScope` on `StockMovement`, `ProductBatch`,
+   `WarehouseStock` and `PurchaseOrderItem`), so the movement history, the batch list, the per-shelf breakdown and a purchase order's lines
+   hold only the employee's products.
+
+**What slice 5 does NOT reach: a warehouse has no market.** `inventory_locations` gained one (`2026_12_27_100000`, G1-05) and the
+marketplace's own `warehouses` table did not, so what can be told apart on these screens is the product whose units are moving, never the
+shelf. A restricted employee still SEES every warehouse on the list, with its code and its name; giving that table a market belongs with the
+inventory lane. The rest of slice 5 -- the reviews, the returns, the marketplace fulfilments, the seller scorecards and the settlements --
+is still out: each of those is made of ORDERS rather than of products, so it follows slice 2's rule and not slice 1's.
+
+<!-- slice-5-rules-start -->
+| Route | Action | Rule | Permission |
+|---|---|---|---|
+| `GET admin/marketplace/purchase-orders` | `PurchaseOrderController::index` | `list` | module:marketplace |
+| `GET admin/marketplace/purchase-orders/create` | `PurchaseOrderController::create` | `none` | module:marketplace |
+| `POST admin/marketplace/purchase-orders` | `PurchaseOrderController::store` | `product.items:items` | module:marketplace |
+| `GET admin/marketplace/purchase-orders/{id}` | `PurchaseOrderController::show` | `purchase_order.route:id` + `list` | module:marketplace |
+| `POST admin/marketplace/purchase-orders/{id}/place` | `PurchaseOrderController::place` | `purchase_order.route:id` | module:marketplace |
+| `POST admin/marketplace/purchase-orders/{id}/receive` | `PurchaseOrderController::receive` | `purchase_order.route:id` | module:marketplace |
+| `POST admin/marketplace/purchase-orders/{id}/cancel` | `PurchaseOrderController::cancel` | `purchase_order.route:id` | module:marketplace |
+| `GET admin/marketplace/inventory-adjustments` | `InventoryAdjustmentController::index` | `product.input:product_id?` + `list` | module:marketplace |
+| `POST admin/marketplace/inventory-adjustments/adjust` | `InventoryAdjustmentController::adjust` | `product.input:product_id` | module:marketplace |
+| `GET admin/marketplace/batches` | `BatchController::index` | `product.input:product_id?` + `list` | module:marketplace |
+| `POST admin/marketplace/batches` | `BatchController::store` | `product.input:product_id` | module:marketplace |
+| `POST admin/marketplace/batches/{id}/write-off` | `BatchController::writeOff` | `batch.route:id` | module:marketplace |
+| `GET admin/marketplace/warehouses` | `WarehouseController::index` | `product.input:product_id?` + `list` | module:marketplace |
+| `POST admin/marketplace/warehouses` | `WarehouseController::store` | `none` | module:marketplace |
+| `PUT admin/marketplace/warehouses/{id}` | `WarehouseController::update` | `none` | module:marketplace |
+| `POST admin/marketplace/warehouses/place` | `WarehouseController::place` | `product.input:product_id` | module:marketplace |
+| `POST admin/marketplace/warehouses/transfer` | `WarehouseController::transfer` | `product.input:product_id` | module:marketplace |
+<!-- slice-5-rules-end -->
+
 ## The survey: every admin route that reads products or names one
 
 `tests/Feature/StaffScope/StaffProductRouteInventoryTest.php` walks the real route table of the admin panel and fails for an admin controller that reads products or names
@@ -538,8 +721,8 @@ slice, and the scoped controllers are exactly the ones that have rules. A second
 each action, its path and its parameters, and the file of each controller (so a route that delegates to a helper of its controller is not missed): the repository, the model, the
 product manager, the products table, and a product id in a request.
 
-**50 controllers: 3 scoped in slice 1, 5 scoped in slice 2, 9 scoped in slice 3, 6 not needed, 27 out of slice 3.**
-**158 routes read or name a product: 47 scoped in slice 1, 16 scoped in slice 2, 13 scoped in slice 3, 22 not needed, 60 out of slice 3.**
+**50 controllers: 3 scoped in slice 1, 5 scoped in slice 2, 9 scoped in slice 3, 10 scoped in slice 4, 4 scoped in slice 5, 6 not needed, 13 out of slice 5.**
+**158 routes read or name a product: 47 scoped in slice 1, 16 scoped in slice 2, 13 scoped in slice 3, 22 scoped in slice 4, 8 scoped in slice 5, 22 not needed, 30 out of slice 5.**
 
 The slices that follow slice 3 (the people, the dashboard, the reports and the shared layout), in the order proposed:
 
@@ -560,16 +743,16 @@ The slices that follow slice 3 (the people, the dashboard, the reports and the s
 | `Modules\AI\Admin\AIProductController` | 8 | 8 | not needed | Writes a title, a description or the SEO text of a product from what is typed in the form. It reads no product row. |
 | `Modules\AI\API\V3\AIAuctionProductController` | 8 | 8 | not needed | As the product text generation, for the auction add-on, whose products are not in the products table. |
 | `Admin\SalesChannels\ChannelAccountOperationsController` | 7 | 1 | not needed | The only route that mentions a product is the Noon product group of a channel account, a setting of the account. It reads no product row. |
-| `Admin\Settings\SeoTranslationController` | 3 | 0 | out of slice 3 (slice 4) | Lists the products whose SEO text can be translated: every country's. |
-| `Admin\Promotion\FlashDealController` | 10 | 4 | out of slice 3 (slice 4) | The deal pages pick products and list the ones in a deal: every country's. A promotion has no country yet (GCC-17). |
-| `Admin\Promotion\DealOfTheDayController` | 6 | 4 | out of slice 3 (slice 4) | Picks the product of the day among every country's products. |
-| `Admin\Promotion\ClearanceSaleController` | 11 | 8 | out of slice 3 (slice 4) | Picks, lists and removes clearance products of every country. |
-| `Admin\Promotion\MostDemandedController` | 6 | 0 | out of slice 3 (slice 4) | Picks the products of the most demanded section among every country's. |
-| `Admin\Promotion\BannerController` | 8 | 2 | out of slice 3 (slice 4) | A banner can point at a product, picked among every country's. |
-| `Admin\Settings\InhouseShopController` | 6 | 1 | out of slice 3 (slice 4) | The in-house shop page lists the in-house products of every country. |
-| `Admin\Settings\ThemeBuilderController` | 25 | 2 | out of slice 3 (slice 4) | The pickers of the theme builder list and name products of every country. |
-| `Admin\Settings\SeoHealthController` | 1 | 1 | out of slice 3 (slice 4) | Audits the SEO of the products a storefront shows, of every country. |
-| `Admin\Settings\SiteMapController` | 6 | 0 | out of slice 3 (slice 4) | The site map lists the active products of every country. |
+| `Admin\Settings\SeoTranslationController` | 3 | 0 | scoped in slice 4 | Lists the products whose SEO text can be translated. Narrowed in slice 4: the screen is polymorphic, so `entity_id` is judged as a product id only when `entity_type` says `product`, and the twenty most recent overrides are narrowed through the product each hangs off (StaffCountryProductRowScope on SeoMetaTranslation, which leaves the overrides of a category, a brand, a shop or a page alone -- they have no market). |
+| `Admin\Promotion\FlashDealController` | 10 | 4 | scoped in slice 4 | The deal pages pick products and list the ones in a deal. Narrowed in slice 4: the pickers and the search list the employee's countries' products, a deal's product list and the count the deal list prints beside each deal hold only theirs (StaffCountryProductRowScope on FlashDealProduct), and adding or removing a product is judged by its id. The DEAL row itself still has no country (GCC-17), so its name, dates and status are the module permission's business. |
+| `Admin\Promotion\DealOfTheDayController` | 6 | 4 | scoped in slice 4 | Picks the product of the day. Narrowed in slice 4: the picker lists the employee's countries' products, the deal rows are narrowed through the product each names (StaffCountryProductRowScope), and an edit is judged at both ends -- the row's product and the product it is being changed to. |
+| `Admin\Promotion\ClearanceSaleController` | 11 | 8 | scoped in slice 4 | Picks, lists and removes clearance products. Narrowed in slice 4: every picker, search and list holds the employee's countries' products, and because these screens name their rows by `product_id` rather than by the row's own id -- the delete of every admin offer at once included -- what keeps the writes inside their countries is StaffCountryProductRowScope on the offers. The clearance SETUP and its SEO text are platform settings and stay so. |
+| `Admin\Promotion\MostDemandedController` | 6 | 0 | scoped in slice 4 | The most-demanded screens were retired with the fashion theme and redirect to the dashboard; the writes still name a product, and in slice 4 they are judged by it at both ends, the row and the posted product. |
+| `Admin\Promotion\BannerController` | 8 | 2 | scoped in slice 4 | A banner can point at a product. Narrowed in slice 4: the product picker of the list and of the edit form holds the employee's countries' products, and a form that says `resource_type=product` is judged by the product id it posts. The BANNER row has no country (GCC-17), so publishing or deleting one is the module permission's business. |
+| `Admin\Settings\InhouseShopController` | 6 | 1 | scoped in slice 4 | The in-house shop page counts the in-house products, the reviews of those products and the in-house ORDERS. Narrowed in slice 4: the product and review counts by the product scope, the order count by the order subject the rule names (`list:orders`). |
+| `Admin\Settings\ThemeBuilderController` | 25 | 2 | scoped in slice 4 | The pickers of the theme builder list and name products. Narrowed in slice 4 twice over: the pickers hold the employee's countries' products, and every version, section, block and asset the builder names is judged by the MARKET of the theme it belongs to -- a theme has one of its own (`themes.storefront_country`, F-01), so unlike a promotion it does not wait for GCC-17. |
+| `Admin\Settings\SeoHealthController` | 1 | 1 | scoped in slice 4 | Audits the SEO of the products a storefront shows. Narrowed in slice 4: it reads them with the model, so the product scope holds the whole audit. |
+| `Admin\Settings\SiteMapController` | 6 | 0 | scoped in slice 4 | The site map lists the active products of every country, and generating it rewrites every market's file. Settled in slice 4 by a REFUSAL, not a narrowing: a site map is a platform-wide artefact with no part a restricted employee owns, so every action of the screen is `unavailable` to them. Generating one file per storefront for the markets an employee holds is the storefront lane's to build. |
 | `Admin\Order\OrderController` | 18 | 1 | scoped in slice 2 | Every order screen: the lists per status with their filters and counters, the exports, the details with the neighbours of an order, and every action on an order (status, payment, address, courier, invoice, bulk change). Every action has a rule in StaffOrderRoutes. |
 | `Admin\Order\OrderEditController` | 7 | 6 | scoped in slice 2 | The order edit: the product picker is narrowed by the product scope, the order is looked up by id and a product of another country is refused. Every action has a rule in StaffOrderRoutes. |
 | `Admin\POS\POSController` | 6 | 5 | scoped in slice 2 | The POS grid and search offer the products of the employee's countries (the product scope), and a product of another country is refused by id. Every action has a rule in StaffOrderRoutes. |
@@ -583,24 +766,24 @@ The slices that follow slice 3 (the people, the dashboard, the reports and the s
 | `Admin\InhouseProductSaleController` | 1 | 1 | scoped in slice 3 | The in-house sales report lists the in-house products of the employee's countries. Every action has a rule in StaffOrderRoutes. |
 | `Admin\TransactionReportController` | 5 | 1 | scoped in slice 3 | The transaction report counts the products of the employee's countries. Every action has a rule in StaffOrderRoutes. |
 | `Admin\VendorProductSaleReportController` | 2 | 1 | scoped in slice 3 | The vendor sales report lists the products of the employee's countries. Every action has a rule in StaffOrderRoutes. |
-| `Admin\Product\ReviewController` | 7 | 3 | out of slice 3 (slice 5) | The reviews list and its product filter show the reviews of every country's products. |
+| `Admin\Product\ReviewController` | 7 | 3 | out of slice 5 (slice 5) | The reviews list and its product filter show the reviews of every country's products. |
 | `Admin\Vendor\VendorController` | 17 | 1 | scoped in slice 3 | The request is bound for the whole controller (it lists orders), so a vendor's product tab lists the products of the employee's countries only. Every action has a rule in StaffOrderRoutes. |
-| `Admin\Marketplace\BatchController` | 3 | 2 | out of slice 3 (slice 5) | Batches of a marketplace product, picked by id from any country. |
-| `Admin\Marketplace\BrandRegistryController` | 6 | 0 | out of slice 3 (slice 5) | Counts the products of each brand across every country. |
-| `Admin\Marketplace\CommissionRuleController` | 5 | 1 | out of slice 3 (slice 5) | A commission rule can name a product of any country. |
-| `Admin\Marketplace\InventoryAdjustmentController` | 2 | 2 | out of slice 3 (slice 5) | Adjusts the stock of a product by id, of any country. |
-| `Admin\Marketplace\PurchaseOrderController` | 7 | 1 | out of slice 3 (slice 5) | A purchase order line names a product of any country. |
-| `Admin\Marketplace\ReturnLogisticsController` | 5 | 1 | out of slice 3 (slice 5) | A return names a product of any country. |
-| `Admin\Marketplace\WarehouseController` | 5 | 3 | out of slice 3 (slice 5) | Places and transfers the stock of a product by id, of any country. |
-| `Admin\Fulfillment\M5aznProductsController` | 3 | 3 | out of slice 3 (slice 6) | Imports provider items as products in the default country, and lists the ones already mapped. |
-| `Admin\Fulfillment\TorodMatchingController` | 13 | 4 | out of slice 3 (slice 6) | Matches provider items to the products of the default storefront's country when codes are per country; otherwise every country's. |
-| `Admin\SalesChannels\ChannelProductController` | 8 | 8 | out of slice 3 (slice 6) | Links a channel listing to a product picked among every country's. |
-| `Admin\SalesChannels\ChannelListingController` | 9 | 2 | out of slice 3 (slice 6) | Drafts and publishes the listing of a product by id, of any country. |
-| `Admin\SalesChannels\ChannelInventoryController` | 2 | 1 | out of slice 3 (slice 6) | Lists the stock a channel holds for the products of every country. |
-| `Admin\SalesChannels\ChannelOrderController` | 7 | 1 | out of slice 3 (slice 6) | A channel order's lines are matched to products of any country. |
-| `Admin\SalesChannels\ChannelRoutingController` | 4 | 1 | out of slice 3 (slice 6) | A routing rule can name a product of any country. |
-| `Admin\OperationalCosts\ProductCostController` | 4 | 4 | out of slice 3 (slice 6) | The cost layer picker offers the products of every country. |
-| `Admin\OperationalCosts\ReturnController` | 2 | 1 | out of slice 3 (slice 6) | The returns of the operational costs name products of any country. |
+| `Admin\Marketplace\BatchController` | 3 | 2 | scoped in slice 5 | Batches of a marketplace product. Narrowed in slice 5: adding one is judged by the product id it posts, writing one off is judged by the product the BATCH is of, and the list is narrowed through that product (StaffCountryProductRowScope on ProductBatch). |
+| `Admin\Marketplace\BrandRegistryController` | 6 | 0 | out of slice 5 (slice 5) | Counts the products of each brand across every country. |
+| `Admin\Marketplace\CommissionRuleController` | 5 | 1 | out of slice 5 (slice 5) | A commission rule can name a product of any country. |
+| `Admin\Marketplace\InventoryAdjustmentController` | 2 | 2 | scoped in slice 5 | Adjusts the stock of a product by id. Narrowed in slice 5: the adjustment is judged by the product id it posts, and the movement history the screen lists is narrowed through the product of each movement (StaffCountryProductRowScope on StockMovement). |
+| `Admin\Marketplace\PurchaseOrderController` | 7 | 1 | scoped in slice 5 | A purchase order line names a product. Narrowed in slice 5: creating one is judged by every line that names a catalogue product, and opening, placing, receiving or cancelling one is judged by EVERY line's product -- the rule an order follows, because a purchase order can buy two markets' goods. One that buys nothing from the catalogue belongs to no market and is refused rather than guessed at. |
+| `Admin\Marketplace\ReturnLogisticsController` | 5 | 1 | out of slice 5 (slice 5) | A return names a product of any country. |
+| `Admin\Marketplace\WarehouseController` | 5 | 3 | scoped in slice 5 | Places and transfers the stock of a product by id. Narrowed in slice 5: both writes are judged by the product id, and the per-shelf breakdown is narrowed through the product of each balance (StaffCountryProductRowScope on WarehouseStock). The WAREHOUSE itself carries no market -- inventory_locations gained one and the marketplace's own warehouses table did not -- so a restricted employee still sees every shelf on the list, which the survey says rather than implies. |
+| `Admin\Fulfillment\M5aznProductsController` | 3 | 3 | out of slice 5 (slice 6) | Imports provider items as products in the default country, and lists the ones already mapped. |
+| `Admin\Fulfillment\TorodMatchingController` | 13 | 4 | out of slice 5 (slice 6) | Matches provider items to the products of the default storefront's country when codes are per country; otherwise every country's. |
+| `Admin\SalesChannels\ChannelProductController` | 8 | 8 | out of slice 5 (slice 6) | Links a channel listing to a product picked among every country's. |
+| `Admin\SalesChannels\ChannelListingController` | 9 | 2 | out of slice 5 (slice 6) | Drafts and publishes the listing of a product by id, of any country. |
+| `Admin\SalesChannels\ChannelInventoryController` | 2 | 1 | out of slice 5 (slice 6) | Lists the stock a channel holds for the products of every country. |
+| `Admin\SalesChannels\ChannelOrderController` | 7 | 1 | out of slice 5 (slice 6) | A channel order's lines are matched to products of any country. |
+| `Admin\SalesChannels\ChannelRoutingController` | 4 | 1 | out of slice 5 (slice 6) | A routing rule can name a product of any country. |
+| `Admin\OperationalCosts\ProductCostController` | 4 | 4 | out of slice 5 (slice 6) | The cost layer picker offers the products of every country. |
+| `Admin\OperationalCosts\ReturnController` | 2 | 1 | out of slice 5 (slice 6) | The returns of the operational costs name products of any country. |
 
 ### Routes that read or name a product, of the controllers that are not needed
 
@@ -637,9 +820,7 @@ The slices that follow slice 3 (the people, the dashboard, the reports and the s
 | `Admin\VendorProductSaleReportController` | `GET admin/report/vendor-report` |
 | `Admin\Vendor\VendorController` | `GET admin/vendors/order-details/{order_id}/{vendor_id}` |
 
-### Routes that read or name a product, of the controllers that are out of slice 3
-
-A restricted employee who has the permission of one of these screens still sees every country's products there. Each is named for the slice that takes it.
+### Routes that read or name a product, of the controllers scoped in slice 4
 
 | Controller | Routes that read or name a product |
 |---|---|
@@ -653,14 +834,26 @@ A restricted employee who has the permission of one of these screens still sees 
 | `Admin\Settings\ThemeBuilderController` | `GET admin/theme/builder/resources`<br>`GET admin/theme/builder/resource-labels` |
 | `Admin\Settings\SeoHealthController` | `GET admin/seo-settings/health` |
 | `Admin\Settings\SiteMapController` |  |
-| `Admin\Product\ReviewController` | `GET admin/reviews/list`<br>`GET admin/reviews/export`<br>`GET\|POST\|PUT\|PATCH\|DELETE\|OPTIONS admin/reviews/search-product` |
+
+### Routes that read or name a product, of the controllers scoped in slice 5
+
+| Controller | Routes that read or name a product |
+|---|---|
 | `Admin\Marketplace\BatchController` | `GET admin/marketplace/batches`<br>`POST admin/marketplace/batches` |
-| `Admin\Marketplace\BrandRegistryController` |  |
-| `Admin\Marketplace\CommissionRuleController` | `GET admin/marketplace/commission-rules` |
 | `Admin\Marketplace\InventoryAdjustmentController` | `GET admin/marketplace/inventory-adjustments`<br>`POST admin/marketplace/inventory-adjustments/adjust` |
 | `Admin\Marketplace\PurchaseOrderController` | `POST admin/marketplace/purchase-orders` |
-| `Admin\Marketplace\ReturnLogisticsController` | `POST admin/marketplace/returns` |
 | `Admin\Marketplace\WarehouseController` | `GET admin/marketplace/warehouses`<br>`POST admin/marketplace/warehouses/place`<br>`POST admin/marketplace/warehouses/transfer` |
+
+### Routes that read or name a product, of the controllers that are out of slice 5
+
+A restricted employee who has the permission of one of these screens still sees every country's products there. Each is named for the slice that takes it.
+
+| Controller | Routes that read or name a product |
+|---|---|
+| `Admin\Product\ReviewController` | `GET admin/reviews/list`<br>`GET admin/reviews/export`<br>`GET\|POST\|PUT\|PATCH\|DELETE\|OPTIONS admin/reviews/search-product` |
+| `Admin\Marketplace\BrandRegistryController` |  |
+| `Admin\Marketplace\CommissionRuleController` | `GET admin/marketplace/commission-rules` |
+| `Admin\Marketplace\ReturnLogisticsController` | `POST admin/marketplace/returns` |
 | `Admin\Fulfillment\M5aznProductsController` | `GET admin/fulfillment-providers/m5azn/products`<br>`POST admin/fulfillment-providers/m5azn/products/import-all`<br>`POST admin/fulfillment-providers/m5azn/products/{item}/import` |
 | `Admin\Fulfillment\TorodMatchingController` | `GET admin/fulfillment-providers/torod-point/matching`<br>`POST admin/fulfillment-providers/torod-point/matching/approve`<br>`POST admin/fulfillment-providers/torod-point/matching/push`<br>`GET admin/fulfillment-providers/torod-point/products/search` |
 | `Admin\SalesChannels\ChannelProductController` | `GET admin/sales-channels/products`<br>`GET admin/sales-channels/products/product-search`<br>`POST admin/sales-channels/products/{mapping}/link`<br>`POST admin/sales-channels/products/{mapping}/ignore`<br>`POST admin/sales-channels/products/{mapping}/unignore`<br>`POST admin/sales-channels/products/{mapping}/accept-suggestion`<br>`POST admin/sales-channels/products/{mapping}/settings`<br>`POST admin/sales-channels/products/{mapping}/fulfilment-mode` |
@@ -680,7 +873,7 @@ still an admin controller, nothing more), with what is done about them:
 |---|---|---|
 | `Admin\AdvancedSearchController` | scoped in slice 3 | The header search of the classic layout finds a product only when it is one of the employee's countries' (StaffSearchHits), with no middleware: it fills a cache every employee shares. |
 | `Admin\V2AdvancedSearchController` | scoped in slice 3 | The header search of the new layout is the same search (StaffSearchHits). |
-| `Admin\Commerce\CollectionController` | out of slice 3 (slice 4) | The preview of a collection resolves its products through CollectionResolver. |
+| `Admin\Commerce\CollectionController` | scoped in slice 4 | The preview of a collection resolves its products through CollectionResolver, which reads them with the model, so the product scope narrows the preview as soon as the request is bound. Scoped in slice 4; a collection itself has no market. |
 | `Admin\Order\RefundController` | scoped in slice 2 | A refund request follows the country of the product of the order line it is about. The refund lists, their exports, the details and the decision on a request go through the scope of the refund requests and the rules of StaffOrderRoutes. |
 | `Admin\Telemetry\AnalyticsController` | scoped in slice 3 | The analytics export by product counts the products of every country, so it is unavailable to a restricted employee (StaffOrderRoutes). |
 | `Admin\Order\DeliverySyriaDispatchController` | scoped in slice 2 | Dispatches an order to the Delivery Syria courier by its id: an order route like the order screens (StaffOrderRoutes). It reads no product. |
@@ -702,8 +895,8 @@ It walks the real route table and fails for an admin controller that reads any o
 The scan reads the models, the repositories, the tables, the relations, the services that hold the sums, the wallets, and an order id in a request, in the source of each action and
 in the file of each controller. The scoped controllers are exactly the ones that have rules in `StaffOrderRoutes`, and a test keeps this document in step.
 
-**32 controllers: 6 scoped in slice 2, 14 scoped in slice 3, 4 not needed, 8 out of slice 3.**
-**114 routes read or name an order: 36 scoped in slice 2, 49 scoped in slice 3, 13 not needed, 16 out of slice 3.**
+**32 controllers: 6 scoped in slice 2, 14 scoped in slice 3, 1 scoped in slice 4, 4 not needed, 7 out of slice 5.**
+**114 routes read or name an order: 36 scoped in slice 2, 49 scoped in slice 3, 1 scoped in slice 4, 13 not needed, 15 out of slice 5.**
 
 | Slice | What it takes |
 |---|---|
@@ -739,14 +932,14 @@ in the file of each controller. The scoped controllers are exactly the ones that
 | `Admin\Settings\BusinessSettingsController` | 15 | 2 | not needed | The refund setup page is a setting of the shop. It reads no order. |
 | `Admin\Settings\OrderSettingsController` | 2 | 2 | not needed | The order settings page is a setting of the shop. It reads no order. |
 | `Admin\Marketplace\PurchaseOrderController` | 7 | 7 | not needed | Purchase orders to suppliers are not customer orders: they have no order, no order line and no country of their own. |
-| `Admin\Settings\InhouseShopController` | 6 | 1 | out of slice 3 (slice 4) | The in-house shop page counts the in-house orders of every country. |
-| `Admin\Marketplace\FulfillmentController` | 4 | 2 | out of slice 3 (slice 5) | The marketplace fulfilments are shipments of orders of every country, picked by order number. |
-| `Admin\Marketplace\ReturnLogisticsController` | 5 | 1 | out of slice 3 (slice 5) | A marketplace return names an order of any country. |
-| `Admin\Product\ReviewController` | 7 | 1 | out of slice 3 (slice 5) | The reviews list reads the order behind a review, of any country. |
-| `Admin\Fulfillment\ProviderFulfillmentController` | 5 | 1 | out of slice 3 (slice 6) | The provider fulfilments are shipments of orders of every country. |
-| `Admin\SalesChannels\ChannelOrderController` | 7 | 7 | out of slice 3 (slice 6) | A channel order is mapped to an order of any country. |
-| `Admin\OperationalCosts\ProfitabilityController` | 3 | 1 | out of slice 3 (slice 6) | The profitability of an order of any country, with its costs. |
-| `Admin\MyFatoorah\SettingsController` | 10 | 2 | out of slice 3 (slice 6) | Lists the payment attempts and refunds of the gateway, which belong to orders of every country, and acts on an attempt by its id. |
+| `Admin\Settings\InhouseShopController` | 6 | 1 | scoped in slice 4 | The in-house shop page counts the in-house orders. Narrowed in slice 4 by the `list:orders` part of its rule in StaffPromotionRoutes, which is the slice that took the page: an order and a product are two subjects, and one middleware carries both. |
+| `Admin\Marketplace\FulfillmentController` | 4 | 2 | out of slice 5 (slice 5) | The marketplace fulfilments are shipments of orders of every country, picked by order number. |
+| `Admin\Marketplace\ReturnLogisticsController` | 5 | 1 | out of slice 5 (slice 5) | A marketplace return names an order of any country. |
+| `Admin\Product\ReviewController` | 7 | 1 | out of slice 5 (slice 5) | The reviews list reads the order behind a review, of any country. |
+| `Admin\Fulfillment\ProviderFulfillmentController` | 5 | 1 | out of slice 5 (slice 6) | The provider fulfilments are shipments of orders of every country. |
+| `Admin\SalesChannels\ChannelOrderController` | 7 | 7 | out of slice 5 (slice 6) | A channel order is mapped to an order of any country. |
+| `Admin\OperationalCosts\ProfitabilityController` | 3 | 1 | out of slice 5 (slice 6) | The profitability of an order of any country, with its costs. |
+| `Admin\MyFatoorah\SettingsController` | 10 | 2 | out of slice 5 (slice 6) | Lists the payment attempts and refunds of the gateway, which belong to orders of every country, and acts on an attempt by its id. |
 
 ### Routes that read or name an order, of the controllers scoped in slice 3
 
@@ -776,13 +969,18 @@ in the file of each controller. The scoped controllers are exactly the ones that
 | `Admin\Settings\OrderSettingsController` | `GET admin/business-settings/order-settings/index`<br>`POST admin/business-settings/order-settings/update-order-settings` |
 | `Admin\Marketplace\PurchaseOrderController` | `GET admin/marketplace/purchase-orders`<br>`GET admin/marketplace/purchase-orders/create`<br>`POST admin/marketplace/purchase-orders`<br>`GET admin/marketplace/purchase-orders/{id}`<br>`POST admin/marketplace/purchase-orders/{id}/place`<br>`POST admin/marketplace/purchase-orders/{id}/receive`<br>`POST admin/marketplace/purchase-orders/{id}/cancel` |
 
-### Routes that read or name an order, of the controllers that are out of slice 3
+### Routes that read or name an order, of the controllers scoped in slice 4
+
+| Controller | Routes that read or name an order |
+|---|---|
+| `Admin\Settings\InhouseShopController` | `GET admin/business-settings/inhouse-shop` |
+
+### Routes that read or name an order, of the controllers that are out of slice 5
 
 A restricted employee who has the permission of one of these screens still sees the orders of every country there. Each is named for the slice that takes it, or for the owner.
 
 | Controller | Routes that read or name an order |
 |---|---|
-| `Admin\Settings\InhouseShopController` | `GET admin/business-settings/inhouse-shop` |
 | `Admin\Marketplace\FulfillmentController` | `GET admin/marketplace/fulfillments`<br>`POST admin/marketplace/fulfillments` |
 | `Admin\Marketplace\ReturnLogisticsController` | `POST admin/marketplace/returns` |
 | `Admin\Product\ReviewController` | `GET admin/reviews/list` |
@@ -804,13 +1002,62 @@ fails the day one reaches it.
 | `Admin\InhouseProductSaleController` | scoped in slice 3 | The in-house sales report counts the sales of the order lines of the employee's countries through the product repository, for their products. Every action has a rule in StaffOrderRoutes. |
 | `Admin\Customer\CustomerWalletController` | scoped in slice 3 | The wallet report and a customer's wallet movements. The reason they were the owner's to decide -- "they carry no order and no country" -- stopped being true when wallet_transactions gained storefront_country: each row records its own market, so a restricted employee is shown the movements of their markets through StaffCountryLedgerScope. The bonus setup is the platform's own configuration and lists nothing. Every action has a rule in StaffOrderRoutes. |
 | `Admin\Customer\CustomerLoyaltyController` | scoped in slice 3 | A customer's loyalty movements, narrowed the same way through loyalty_point_transactions.storefront_country. Every action has a rule in StaffOrderRoutes. |
-| `Admin\Marketplace\SellerScorecardController` | out of slice 3 (slice 5) | The scorecard of a seller is made of its orders of every country, through SellerScorecardService. |
-| `Admin\Marketplace\SettlementController` | out of slice 3 (slice 5) | The settlements of the sellers are made of their orders of every country, through the vendor ledger. |
-| `Admin\OperationalCosts\OverviewController` | out of slice 3 (slice 6) | The overview of the operational costs aggregates the profit of the orders of every country. |
-| `Admin\SalesChannels\ChannelAccountOperationsController` | out of slice 3 (slice 6) | Synchronises the orders of a sales channel account, which map to orders of any country. |
+| `Admin\Marketplace\SellerScorecardController` | out of slice 5 (slice 5) | The scorecard of a seller is made of its orders of every country, through SellerScorecardService. |
+| `Admin\Marketplace\SettlementController` | out of slice 5 (slice 5) | The settlements of the sellers are made of their orders of every country, through the vendor ledger. |
+| `Admin\OperationalCosts\OverviewController` | out of slice 5 (slice 6) | The overview of the operational costs aggregates the profit of the orders of every country. |
+| `Admin\SalesChannels\ChannelAccountOperationsController` | out of slice 5 (slice 6) | Synchronises the orders of a sales channel account, which map to orders of any country. |
 | `Admin\POS\CartController` | scoped in slice 2 | The POS cart takes, prices and counts a product by id and reads no order (StaffOrderRoutes). |
 | `Admin\ProductStockReportController` | scoped in slice 3 | The stock report and its export list the products of the employee's countries and read no order (StaffOrderRoutes). |
 | `Admin\ProductWishlistReportController` | scoped in slice 3 | The wishlist report and its export list the products of the employee's countries and read no order (StaffOrderRoutes). |
+
+## The survey: every admin route that reads the panel's own governance
+
+`tests/Feature/StaffScope/StaffGovernanceScreensTest.php` is the THIRD scan, and it asks a different question from the other two. Those ask which market a row of the shop
+belongs to; this one asks who may change who may see it: the employees, their roles, the countries they work with, the audit trail, and the credentials of the integrations.
+These screens were in neither survey, so a screen that hands an employee the power to widen their own reach could have been added with nobody deciding so.
+
+It walks the real route table and fails for an admin controller that reads any of those and is not in `tests/Support/StaffGovernanceInventory.php` with a reason. Writing an
+audit line is NOT part of it -- forty controllers record one, and that is G1-08's business rather than a screen that shows one.
+
+**10 controllers: 2 master-only, 1 scoped, 5 not needed, 2 out.**
+
+| Controller | Admin routes | Routes that read it | Status |
+|---|---:|---:|---|
+| `Admin\Employee\EmployeeController` | 8 | 8 | master only |
+| `Admin\Employee\CustomRoleController` | 7 | 7 | master only |
+| `Admin\Marketplace\AuditLogController` | 1 | 1 | scoped |
+| `Admin\ProfileController` | 3 | 3 | not needed |
+| `Admin\Vendor\VendorController` | 17 | 1 | not needed |
+| `Admin\Settings\InhouseShopController` | 6 | 1 | not needed |
+| `Admin\OperationalCosts\ContractController` | 9 | 1 | not needed |
+| `Admin\OperationalCosts\CostEntryController` | 6 | 1 | not needed |
+| `Admin\ThirdParty\PaymentMethodController` | 3 | 3 | out (owner) |
+| `Admin\ThirdParty\SMSModuleController` | 3 | 2 | out (owner) |
+
+**`master_only` is a real answer, not an omission.** The employee and role groups carry `EnsureMasterAdmin`, so no restricted employee reaches them at all, and the three
+questions a delegated people manager would raise -- not reaching the master account, not creating an employee wider than oneself, not handing out a role one does not hold --
+are answered by that gate rather than by a country scope. It is only true while the middleware is there, so the guard asserts it on every one of those 15 routes: a route of
+such a controller that lost the gate would hand a restricted employee the one screen that can widen their own reach. `AdminService::isOutOfReachOfStaffManagement()` and
+`::assignableRoleId()` guard the actions underneath it, so the master ACCOUNT and the master ROLE stay out of reach even of the first admin's own screens
+(`tests/Feature/Security/MasterAccountInStaffManagementTest.php`).
+
+**The audit centre was the defect this survey found.** `AuditLogController` narrows both of its reads -- the listing and the module list of its filter -- by
+`StaffCountryScope::boundCountries()`, and NOTHING on its route bound anything. The shared admin layout binds a request that nothing else did, but it does so in a view
+composer, which runs after the controller has already read and paginated its rows. So the narrowing was dead code and a restricted employee with the system-settings module
+read every market's trail. `ScopeGovernanceToStaffCountries`, registered by the controller, is what binds it, and `App\Services\Staff\StaffGovernanceRoutes` holds the rule
+of its one action so a second action cannot be added unconsidered. The general lesson is the one slice 3 already learnt in another form: a screen that reads a market-owned
+table needs a middleware of its own, and a narrowing that reads the bound countries proves nothing until something binds them.
+
+| Route | Action | Rule | Permission |
+|---|---|---|---|
+| `GET admin/marketplace/audit-log` | `AuditLogController::index` | `list:audit` | module:system_settings |
+
+A line that names no market is nobody's: `AuditLogger` refuses to file a panel action as the default market's, so a reading that handed those lines to whoever holds the
+default market would invent the same fact at the other end. Every line written before `2026_12_29_100000` names no market, so a restricted employee sees none of them.
+
+**What is still out, and the question it waits on.** The payment-gateway and SMS credentials live in one global settings row each (`live_values`), so a restricted employee
+with the third-party setup module reads and writes every market's. Whether a gateway belongs to a market at all is the owner's to say (G1-13); the gateway ACCOUNTS of
+GCC-06 are the per-market design and these two screens are the legacy global ones.
 
 ## Out of slices 1 to 3: the rule that would apply
 

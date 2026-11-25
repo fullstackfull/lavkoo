@@ -10,6 +10,7 @@ use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use App\Models\Scopes\StaffCountryProductRowScope;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Support\Facades\App;
 
@@ -72,6 +73,8 @@ class DealOfTheDay extends Model
     protected static function boot(): void
     {
         parent::boot();
+        // The deal of the day is one product, so a restricted employee reads it only when that product is one of theirs (GCC-14c, slice 4).
+        static::addGlobalScope(new StaffCountryProductRowScope());
         static::addGlobalScope('translate', function (Builder $builder) {
             $builder->with(['translations' => function ($query) {
                 if (RequestArea::isApi()){

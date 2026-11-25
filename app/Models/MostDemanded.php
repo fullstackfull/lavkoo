@@ -6,6 +6,7 @@ use App\Traits\StorageTrait;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use App\Models\Scopes\StaffCountryProductRowScope;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -67,6 +68,8 @@ class MostDemanded extends Model
     protected static function boot(): void
     {
         parent::boot();
+        // A most-demanded entry is one product, so a restricted employee reads it only when that product is one of theirs (GCC-14c, slice 4).
+        static::addGlobalScope(new StaffCountryProductRowScope());
         static::saved(function ($model) {
             if($model->isDirty('banner')){
                 $storage = config('filesystems.disks.default') ?? 'public';

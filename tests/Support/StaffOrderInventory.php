@@ -44,7 +44,9 @@ use Modules\TaxModule\app\Http\Controllers\Admin\Reports\VendorTaxReportControll
  *
  * `scoped`: a slice narrows it (App\Services\Staff\StaffOrderRoutes holds the rules): slice 2 for the order, POS and refund screens, slice 3 for the screens that read orders.
  * `not_needed`: it must keep seeing every order, or it holds no order row. `out`: it still shows every country's orders to a restricted employee; the slice that takes it is
- * named, or `owner` when what it shows cannot be told apart by country and the owner has to decide what an employee may see.
+ * named, or `owner` when what it shows cannot be told apart by country and the owner has to decide what an employee may see. `by` names what narrows a controller whose
+ * rules are NOT in StaffOrderRoutes: the header search, which narrows what it hands back rather than its query, and the promotion screens, whose own registry carries the
+ * order subject for the one page of slice 4 that counts orders.
  */
 final class StaffOrderInventory
 {
@@ -162,8 +164,8 @@ final class StaffOrderInventory
             'reason' => 'Purchase orders to suppliers are not customer orders: they have no order, no order line and no country of their own.',
         ],
         InhouseShopController::class => [
-            'class' => self::OUT, 'slice' => 'slice 4',
-            'reason' => 'The in-house shop page counts the in-house orders of every country.',
+            'class' => self::SCOPED, 'slice' => 'slice 4', 'by' => 'the promotion screens',
+            'reason' => 'The in-house shop page counts the in-house orders. Narrowed in slice 4 by the `list:orders` part of its rule in StaffPromotionRoutes, which is the slice that took the page: an order and a product are two subjects, and one middleware carries both.',
         ],
         FulfillmentController::class => [
             'class' => self::OUT, 'slice' => 'slice 5',
@@ -224,10 +226,10 @@ final class StaffOrderInventory
         'App\Http\Controllers\Admin\ProductWishlistReportController' => ['slice' => 'slice 3', 'reason' => 'The wishlist report and its export list the products of the employee\'s countries and read no order (StaffOrderRoutes).'],
     ];
 
-    /** @return array<string, int> how many controllers there are of each status: scoped in slice 2, scoped in slice 3, not needed, out */
+    /** @return array<string, int> how many controllers there are of each status: scoped in slice 2, 3 and 4, not needed, out */
     public static function countsByStatus(): array
     {
-        $counts = ['slice 2' => 0, 'slice 3' => 0, self::NOT_NEEDED => 0, self::OUT => 0];
+        $counts = ['slice 2' => 0, 'slice 3' => 0, 'slice 4' => 0, self::NOT_NEEDED => 0, self::OUT => 0];
         foreach (self::CONTROLLERS as $entry) {
             $counts[self::statusKeyOf($entry)]++;
         }

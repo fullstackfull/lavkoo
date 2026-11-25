@@ -59,7 +59,7 @@ use Modules\AI\app\Http\Controllers\API\V3\AIAuctionProductController;
  * does an entry without a reason or with a slice nobody named. The same table is in docs/gcc/GCC-14C-STAFF-COUNTRY-SCOPES.md, and a test keeps the two in step.
  *
  * `scoped`: a slice narrows it, slice 1 when it names none (App\Services\Staff\StaffProductRoutes holds the rules of the product screens) and slice 2 for the order, POS and
- * refund screens (App\Services\Staff\StaffOrderRoutes). `not_needed`: it must keep seeing every country, or it has no product rows. `out`: it still shows every country's
+ * refund screens (App\Services\Staff\StaffOrderRoutes) slice 4 for the promotion and content screens (App\Services\Staff\StaffPromotionRoutes) and slice 5 for the marketplace stock screens (App\Services\Staff\StaffMarketplaceRoutes). `not_needed`: it must keep seeing every country, or it has no product rows. `out`: it still shows every country's
  * products to a restricted employee; the slice that takes it is named.
  */
 final class StaffProductInventory
@@ -117,44 +117,44 @@ final class StaffProductInventory
             'reason' => 'The only route that mentions a product is the Noon product group of a channel account, a setting of the account. It reads no product row.',
         ],
         SeoTranslationController::class => [
-            'class' => self::OUT, 'slice' => 'slice 4',
-            'reason' => 'Lists the products whose SEO text can be translated: every country\'s.',
+            'class' => self::SCOPED, 'slice' => 'slice 4',
+            'reason' => 'Lists the products whose SEO text can be translated. Narrowed in slice 4: the screen is polymorphic, so `entity_id` is judged as a product id only when `entity_type` says `product`, and the twenty most recent overrides are narrowed through the product each hangs off (StaffCountryProductRowScope on SeoMetaTranslation, which leaves the overrides of a category, a brand, a shop or a page alone -- they have no market).',
         ],
         FlashDealController::class => [
-            'class' => self::OUT, 'slice' => 'slice 4',
-            'reason' => 'The deal pages pick products and list the ones in a deal: every country\'s. A promotion has no country yet (GCC-17).',
+            'class' => self::SCOPED, 'slice' => 'slice 4',
+            'reason' => 'The deal pages pick products and list the ones in a deal. Narrowed in slice 4: the pickers and the search list the employee\'s countries\' products, a deal\'s product list and the count the deal list prints beside each deal hold only theirs (StaffCountryProductRowScope on FlashDealProduct), and adding or removing a product is judged by its id. The DEAL row itself still has no country (GCC-17), so its name, dates and status are the module permission\'s business.',
         ],
         DealOfTheDayController::class => [
-            'class' => self::OUT, 'slice' => 'slice 4',
-            'reason' => 'Picks the product of the day among every country\'s products.',
+            'class' => self::SCOPED, 'slice' => 'slice 4',
+            'reason' => 'Picks the product of the day. Narrowed in slice 4: the picker lists the employee\'s countries\' products, the deal rows are narrowed through the product each names (StaffCountryProductRowScope), and an edit is judged at both ends -- the row\'s product and the product it is being changed to.',
         ],
         ClearanceSaleController::class => [
-            'class' => self::OUT, 'slice' => 'slice 4',
-            'reason' => 'Picks, lists and removes clearance products of every country.',
+            'class' => self::SCOPED, 'slice' => 'slice 4',
+            'reason' => 'Picks, lists and removes clearance products. Narrowed in slice 4: every picker, search and list holds the employee\'s countries\' products, and because these screens name their rows by `product_id` rather than by the row\'s own id -- the delete of every admin offer at once included -- what keeps the writes inside their countries is StaffCountryProductRowScope on the offers. The clearance SETUP and its SEO text are platform settings and stay so.',
         ],
         MostDemandedController::class => [
-            'class' => self::OUT, 'slice' => 'slice 4',
-            'reason' => 'Picks the products of the most demanded section among every country\'s.',
+            'class' => self::SCOPED, 'slice' => 'slice 4',
+            'reason' => 'The most-demanded screens were retired with the fashion theme and redirect to the dashboard; the writes still name a product, and in slice 4 they are judged by it at both ends, the row and the posted product.',
         ],
         BannerController::class => [
-            'class' => self::OUT, 'slice' => 'slice 4',
-            'reason' => 'A banner can point at a product, picked among every country\'s.',
+            'class' => self::SCOPED, 'slice' => 'slice 4',
+            'reason' => 'A banner can point at a product. Narrowed in slice 4: the product picker of the list and of the edit form holds the employee\'s countries\' products, and a form that says `resource_type=product` is judged by the product id it posts. The BANNER row has no country (GCC-17), so publishing or deleting one is the module permission\'s business.',
         ],
         InhouseShopController::class => [
-            'class' => self::OUT, 'slice' => 'slice 4',
-            'reason' => 'The in-house shop page lists the in-house products of every country.',
+            'class' => self::SCOPED, 'slice' => 'slice 4',
+            'reason' => 'The in-house shop page counts the in-house products, the reviews of those products and the in-house ORDERS. Narrowed in slice 4: the product and review counts by the product scope, the order count by the order subject the rule names (`list:orders`).',
         ],
         ThemeBuilderController::class => [
-            'class' => self::OUT, 'slice' => 'slice 4',
-            'reason' => 'The pickers of the theme builder list and name products of every country.',
+            'class' => self::SCOPED, 'slice' => 'slice 4',
+            'reason' => 'The pickers of the theme builder list and name products. Narrowed in slice 4 twice over: the pickers hold the employee\'s countries\' products, and every version, section, block and asset the builder names is judged by the MARKET of the theme it belongs to -- a theme has one of its own (`themes.storefront_country`, F-01), so unlike a promotion it does not wait for GCC-17.',
         ],
         SeoHealthController::class => [
-            'class' => self::OUT, 'slice' => 'slice 4',
-            'reason' => 'Audits the SEO of the products a storefront shows, of every country.',
+            'class' => self::SCOPED, 'slice' => 'slice 4',
+            'reason' => 'Audits the SEO of the products a storefront shows. Narrowed in slice 4: it reads them with the model, so the product scope holds the whole audit.',
         ],
         SiteMapController::class => [
-            'class' => self::OUT, 'slice' => 'slice 4',
-            'reason' => 'The site map lists the active products of every country.',
+            'class' => self::SCOPED, 'slice' => 'slice 4',
+            'reason' => 'The site map lists the active products of every country, and generating it rewrites every market\'s file. Settled in slice 4 by a REFUSAL, not a narrowing: a site map is a platform-wide artefact with no part a restricted employee owns, so every action of the screen is `unavailable` to them. Generating one file per storefront for the markets an employee holds is the storefront lane\'s to build.',
         ],
         OrderController::class => [
             'class' => self::SCOPED, 'slice' => 'slice 2',
@@ -217,8 +217,8 @@ final class StaffProductInventory
             'reason' => 'The request is bound for the whole controller (it lists orders), so a vendor\'s product tab lists the products of the employee\'s countries only. Every action has a rule in StaffOrderRoutes.',
         ],
         BatchController::class => [
-            'class' => self::OUT, 'slice' => 'slice 5',
-            'reason' => 'Batches of a marketplace product, picked by id from any country.',
+            'class' => self::SCOPED, 'slice' => 'slice 5',
+            'reason' => 'Batches of a marketplace product. Narrowed in slice 5: adding one is judged by the product id it posts, writing one off is judged by the product the BATCH is of, and the list is narrowed through that product (StaffCountryProductRowScope on ProductBatch).',
         ],
         BrandRegistryController::class => [
             'class' => self::OUT, 'slice' => 'slice 5',
@@ -229,20 +229,20 @@ final class StaffProductInventory
             'reason' => 'A commission rule can name a product of any country.',
         ],
         InventoryAdjustmentController::class => [
-            'class' => self::OUT, 'slice' => 'slice 5',
-            'reason' => 'Adjusts the stock of a product by id, of any country.',
+            'class' => self::SCOPED, 'slice' => 'slice 5',
+            'reason' => 'Adjusts the stock of a product by id. Narrowed in slice 5: the adjustment is judged by the product id it posts, and the movement history the screen lists is narrowed through the product of each movement (StaffCountryProductRowScope on StockMovement).',
         ],
         PurchaseOrderController::class => [
-            'class' => self::OUT, 'slice' => 'slice 5',
-            'reason' => 'A purchase order line names a product of any country.',
+            'class' => self::SCOPED, 'slice' => 'slice 5',
+            'reason' => 'A purchase order line names a product. Narrowed in slice 5: creating one is judged by every line that names a catalogue product, and opening, placing, receiving or cancelling one is judged by EVERY line\'s product -- the rule an order follows, because a purchase order can buy two markets\' goods. One that buys nothing from the catalogue belongs to no market and is refused rather than guessed at.',
         ],
         ReturnLogisticsController::class => [
             'class' => self::OUT, 'slice' => 'slice 5',
             'reason' => 'A return names a product of any country.',
         ],
         WarehouseController::class => [
-            'class' => self::OUT, 'slice' => 'slice 5',
-            'reason' => 'Places and transfers the stock of a product by id, of any country.',
+            'class' => self::SCOPED, 'slice' => 'slice 5',
+            'reason' => 'Places and transfers the stock of a product by id. Narrowed in slice 5: both writes are judged by the product id, and the per-shelf breakdown is narrowed through the product of each balance (StaffCountryProductRowScope on WarehouseStock). The WAREHOUSE itself carries no market -- inventory_locations gained one and the marketplace\'s own warehouses table did not -- so a restricted employee still sees every shelf on the list, which the survey says rather than implies.',
         ],
         M5aznProductsController::class => [
             'class' => self::OUT, 'slice' => 'slice 6',
@@ -291,7 +291,7 @@ final class StaffProductInventory
     public const READ_THROUGH_SERVICES = [
         'App\Http\Controllers\Admin\AdvancedSearchController' => ['class' => self::SCOPED, 'slice' => 'slice 3', 'by' => 'the search', 'reason' => 'The header search of the classic layout finds a product only when it is one of the employee\'s countries\' (StaffSearchHits), with no middleware: it fills a cache every employee shares.'],
         'App\Http\Controllers\Admin\V2AdvancedSearchController' => ['class' => self::SCOPED, 'slice' => 'slice 3', 'by' => 'the search', 'reason' => 'The header search of the new layout is the same search (StaffSearchHits).'],
-        'App\Http\Controllers\Admin\Commerce\CollectionController' => ['slice' => 'slice 4', 'reason' => 'The preview of a collection resolves its products through CollectionResolver.'],
+        'App\Http\Controllers\Admin\Commerce\CollectionController' => ['class' => self::SCOPED, 'slice' => 'slice 4', 'reason' => 'The preview of a collection resolves its products through CollectionResolver, which reads them with the model, so the product scope narrows the preview as soon as the request is bound. Scoped in slice 4; a collection itself has no market.'],
         'App\Http\Controllers\Admin\Order\RefundController' => ['class' => self::SCOPED, 'slice' => 'slice 2', 'reason' => 'A refund request follows the country of the product of the order line it is about. The refund lists, their exports, the details and the decision on a request go through the scope of the refund requests and the rules of StaffOrderRoutes.'],
         'App\Http\Controllers\Admin\Telemetry\AnalyticsController' => ['class' => self::SCOPED, 'slice' => 'slice 3', 'reason' => 'The analytics export by product counts the products of every country, so it is unavailable to a restricted employee (StaffOrderRoutes).'],
     ];
@@ -314,10 +314,10 @@ final class StaffProductInventory
         'App\Http\Controllers\Admin\Customer\CustomerLoyaltyController' => ['slice' => 'slice 3', 'reason' => 'A customer\'s loyalty movements, narrowed the same way (StaffCountryLedgerScope; StaffOrderRoutes). It reads no product.'],
     ];
 
-    /** @return array<string, int> how many controllers there are of each status: scoped in slice 1, 2 and 3, not needed, out */
+    /** @return array<string, int> how many controllers there are of each status: scoped in slice 1, 2, 3, 4 and 5, not needed, out */
     public static function countsByStatus(): array
     {
-        $counts = ['slice 1' => 0, 'slice 2' => 0, 'slice 3' => 0, self::NOT_NEEDED => 0, self::OUT => 0];
+        $counts = ['slice 1' => 0, 'slice 2' => 0, 'slice 3' => 0, 'slice 4' => 0, 'slice 5' => 0, self::NOT_NEEDED => 0, self::OUT => 0];
         foreach (self::CONTROLLERS as $entry) {
             $counts[self::statusKeyOf($entry)]++;
         }
