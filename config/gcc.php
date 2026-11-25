@@ -308,6 +308,20 @@ return [
             // confirmation is expected at. Under the gateway list above they move no answer at all; they move one only once this gateway joins it.
             // Reviewer B of the stage-C round found that "reversible by flipping one setting" did not hold of those two lines.
             'one_confirmation_address' => filter_var(env('GCC_PAYMENT_ONE_CONFIRMATION_ADDRESS', false), FILTER_VALIDATE_BOOLEAN),
+            // Whether a market's gateway account stops answering for that market's sales when the account belongs to ANOTHER legal
+            // company (D1-03). Off by default, and the default is the whole point: the account the registry holds for a market takes the
+            // payment whichever company it is filed under, which is what every payment on this platform does today.
+            //
+            // It is off rather than on because the repository answers the question twice, in opposite directions, and neither answer is
+            // the owner's. `App\Services\Payments\PaymentBelongsToOrder` records in as many words that a market's gateway account MAY
+            // belong to another country's company, and refuses to compare the two at refund time; criterion M2-06 says the selling entity
+            // is what picks the account. Until the owner settles it (Q-D1-1) the switch ships off and nothing changes, because the
+            // alternative is a settlement rule nobody approved deciding where a market's money lands.
+            //
+            // `filter_var` rather than a bare `env()`, like every switch in this section: `env('X', false)` hands back the STRING "false"
+            // when somebody writes `GCC_...=false` in an environment file, and a non-empty string is truthy, so a bare read would turn the
+            // switch ON for an operator trying to turn it off.
+            'account_belongs_to_the_selling_company' => filter_var(env('GCC_PAYMENT_ACCOUNT_IS_THE_SELLING_COMPANYS', false), FILTER_VALIDATE_BOOLEAN),
             // Which class asks each gateway, server to server, what became of a transaction. A gateway with no entry cannot be asked, so a return of
             // it is never confirmed and, while `confirm_returns` is on, never settles.
             'inquiries' => [
