@@ -184,6 +184,11 @@
             "scope": "derived",
             "by": "location_id -> inventory_locations"
         },
+        "checkout_idempotency_keys": {
+            "scope": "customer",
+            "by": "customer_scope",
+            "why": "the key is claimed per submitter, so two customers who send the same key are two submits; the row names the orders it placed and no market of its own"
+        },
         "customer_market_loyalty_accounts": {
             "scope": "customer",
             "by": "customer_id with market"
@@ -322,6 +327,11 @@
             "scope": "derived",
             "by": "external_identifier -> myfatoorah_payment_attempts",
             "why": "an inbound event is stored before its owner is known; the attempt it dedupes to carries the storefront"
+        },
+        "notification_channel_profiles": {
+            "scope": "country",
+            "by": "country, '' being the platform-wide row",
+            "why": "one row per channel per market: the account a market's messages leave through, keyed (channel, country) as integration_settings is"
         },
         "notification_messages": {
             "scope": "inherited"
