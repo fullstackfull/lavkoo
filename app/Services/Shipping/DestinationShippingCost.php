@@ -5,6 +5,7 @@ namespace App\Services\Shipping;
 use App\Models\Cart;
 use App\Models\ShippingAddress;
 use App\Services\Marketplace\ShippingRateService;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -52,10 +53,35 @@ final class DestinationShippingCost
         return $this->rates->checkoutCost(
             $methodCost,
             $address->country,
-            0.0,
+            $this->basketWeightInKilograms($cartGroupId),
             $this->basketValue($cartGroupId),
             $address->state,
         );
+    }
+
+    /**
+     * What the basket weighs, in kilograms, out of the products' own recorded weights.
+     *
+     * Every caller passed 0 before this, so a zone's `per_kg_cost` was a setting the platform collected and then ignored: a shop that
+     * wrote one charged the base cost and nothing else, for ever, with no sign that its rule was not being applied.
+     *
+     * It is dormant without being switched off, which is the honest kind of dormant here. `products.weight_grams` is null for every
+     * product that exists (H1-03 added the column empty), so the weight is 0 and the cost is what it was; the first shop to record a
+     * weight is a shop asking for its per-kilogram rule to apply. Grams, because a carrier's rate table is banded in grams and a float
+     * weight rounds a parcel into the wrong band -- the division happens once, here, at the end.
+     */
+    private function basketWeightInKilograms(string|int $cartGroupId): float
+    {
+        if (!Schema::hasTable('carts') || !Schema::hasTable('products') || !Schema::hasColumn('products', 'weight_grams')) {
+            return 0.0;
+        }
+
+        $grams = (int) DB::table('carts')
+            ->join('products', 'products.id', '=', 'carts.product_id')
+            ->where('carts.cart_group_id', $cartGroupId)
+            ->sum(DB::raw('COALESCE(products.weight_grams, 0) * carts.quantity'));
+
+        return $grams / 1000;
     }
 
     /** What the basket is worth in goods: price less discount, times quantity, over its rows. */

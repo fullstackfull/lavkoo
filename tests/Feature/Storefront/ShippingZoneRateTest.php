@@ -42,7 +42,7 @@ class ShippingZoneRateTest extends TestCase
 
     protected function tearDown(): void
     {
-        foreach (['shipping_zones', 'cart_shippings', 'shipping_methods', 'carts', 'shipping_addresses', 'business_settings'] as $table) {
+        foreach (['shipping_zones', 'cart_shippings', 'shipping_methods', 'carts', 'products', 'shipping_addresses', 'business_settings'] as $table) {
             Schema::dropIfExists($table);
         }
         Cache::flush();
@@ -52,7 +52,7 @@ class ShippingZoneRateTest extends TestCase
 
     private function buildShippingWorld(): void
     {
-        foreach (['shipping_zones', 'cart_shippings', 'shipping_methods', 'carts', 'shipping_addresses', 'business_settings'] as $table) {
+        foreach (['shipping_zones', 'cart_shippings', 'shipping_methods', 'carts', 'products', 'shipping_addresses', 'business_settings'] as $table) {
             Schema::dropIfExists($table);
         }
 
@@ -98,6 +98,12 @@ class ShippingZoneRateTest extends TestCase
             $table->boolean('is_checked')->default(1);
             $table->timestamps();
         });
+        Schema::create('products', function (Blueprint $table): void {
+            $table->id();
+            $table->string('name')->nullable();
+            $table->unsignedInteger('weight_grams')->nullable();
+            $table->timestamps();
+        });
         Schema::create('shipping_addresses', function (Blueprint $table): void {
             $table->id();
             $table->string('country')->nullable();
@@ -128,10 +134,14 @@ class ShippingZoneRateTest extends TestCase
         return new ShippingRateService();
     }
 
-    private function aBasketWorth(float $value): void
+    private function aBasketWorth(float $value, ?int $weightGrams = null, int $quantity = 1, int $productId = 1): void
     {
+        DB::table('products')->insertOrIgnore([
+            'id' => $productId, 'name' => 'Product ' . $productId, 'weight_grams' => $weightGrams,
+        ]);
         DB::table('carts')->insert([
-            'cart_group_id' => self::GROUP, 'product_id' => 1, 'price' => $value, 'discount' => 0, 'quantity' => 1, 'is_checked' => 1,
+            'cart_group_id' => self::GROUP, 'product_id' => $productId, 'price' => $value, 'discount' => 0,
+            'quantity' => $quantity, 'is_checked' => 1,
         ]);
     }
 
@@ -311,6 +321,98 @@ class ShippingZoneRateTest extends TestCase
         ShippingMethodController::insert_into_cart_shipping($this->chooseRequest(['address_id' => $addressId]));
 
         $this->assertSame(self::METHOD_COST, $this->writtenCost());
+    }
+
+    // ---- the weight the per-kilogram rule was never given --------------------------------------------------------------------------
+
+    /**
+     * The dormancy, and the honest kind: a product with no recorded weight weighs nothing, so a zone's per-kilogram rule adds nothing
+     * and the cost is what it has always been. `products.weight_grams` is null for every product that exists.
+     */
+    public function test_a_basket_of_products_with_no_recorded_weight_pays_the_base_cost_only(): void
+    {
+        $this->zoneShippingIs(true);
+        $this->aZone(['name' => 'saudi', 'countries' => ['SA'], 'base_cost' => 20, 'per_kg_cost' => 3]);
+        $this->aBasketWorth(200.0, weightGrams: null);
+        session(['address_id' => $this->anAddressIn('SA')]);
+
+        SystemController::insertIntoCartShipping($this->chooseRequest());
+
+        $this->assertSame(20.0, $this->writtenCost());
+    }
+
+    /**
+     * And the first shop to record a weight is a shop asking for its rule to apply. Before this, `per_kg_cost` was a setting the platform
+     * collected and then ignored: every caller passed a weight of zero, so a shop that wrote a per-kilogram rate charged the base cost
+     * for ever with no sign that its rule was not being applied.
+     */
+    public function test_a_recorded_weight_is_charged_at_the_zones_per_kilogram_rate(): void
+    {
+        $this->zoneShippingIs(true);
+        $this->aZone(['name' => 'saudi', 'countries' => ['SA'], 'base_cost' => 20, 'per_kg_cost' => 3]);
+        $this->aBasketWorth(200.0, weightGrams: 2_000);
+        session(['address_id' => $this->anAddressIn('SA')]);
+
+        SystemController::insertIntoCartShipping($this->chooseRequest());
+
+        $this->assertSame(26.0, $this->writtenCost(), 'two kilograms at three');
+    }
+
+    /** The quantity counts: two of a one-kilogram thing is two kilograms. */
+    public function test_the_weight_is_counted_per_item_in_the_basket(): void
+    {
+        $this->zoneShippingIs(true);
+        $this->aZone(['name' => 'saudi', 'countries' => ['SA'], 'base_cost' => 0, 'per_kg_cost' => 10]);
+        $this->aBasketWorth(50.0, weightGrams: 1_000, quantity: 3);
+        session(['address_id' => $this->anAddressIn('SA')]);
+
+        SystemController::insertIntoCartShipping($this->chooseRequest());
+
+        $this->assertSame(30.0, $this->writtenCost());
+    }
+
+    /**
+     * Grams are summed and divided once at the end, because a carrier's rate table is banded in grams and rounding each line into
+     * kilograms first puts the parcel in the wrong band: three lines of 400g are 1.2kg, not 0kg and not 3kg.
+     */
+    public function test_grams_are_summed_before_they_become_kilograms(): void
+    {
+        $this->zoneShippingIs(true);
+        $this->aZone(['name' => 'saudi', 'countries' => ['SA'], 'base_cost' => 0, 'per_kg_cost' => 10]);
+        $this->aBasketWorth(50.0, weightGrams: 400, quantity: 3);
+        session(['address_id' => $this->anAddressIn('SA')]);
+
+        SystemController::insertIntoCartShipping($this->chooseRequest());
+
+        $this->assertSame(12.0, $this->writtenCost(), '1.2 kilograms at ten');
+    }
+
+    /** A basket of several products weighs what they weigh together, and a weightless line adds nothing. */
+    public function test_a_basket_of_several_products_weighs_them_together(): void
+    {
+        $this->zoneShippingIs(true);
+        $this->aZone(['name' => 'saudi', 'countries' => ['SA'], 'base_cost' => 0, 'per_kg_cost' => 4]);
+        $this->aBasketWorth(50.0, weightGrams: 1_500, productId: 1);
+        $this->aBasketWorth(50.0, weightGrams: 500, productId: 2);
+        $this->aBasketWorth(50.0, weightGrams: null, productId: 3);
+        session(['address_id' => $this->anAddressIn('SA')]);
+
+        SystemController::insertIntoCartShipping($this->chooseRequest());
+
+        $this->assertSame(8.0, $this->writtenCost(), 'two kilograms at four');
+    }
+
+    /** And the app weighs the same basket the same way. */
+    public function test_the_app_charges_the_same_weight_as_the_website(): void
+    {
+        $this->zoneShippingIs(true);
+        $this->aZone(['name' => 'saudi', 'countries' => ['SA'], 'base_cost' => 20, 'per_kg_cost' => 3]);
+        $this->aBasketWorth(200.0, weightGrams: 2_000);
+        $addressId = $this->anAddressIn('SA');
+
+        ShippingMethodController::insert_into_cart_shipping($this->chooseRequest(['address_id' => $addressId]));
+
+        $this->assertSame(26.0, $this->writtenCost());
     }
 
     private function chooseRequest(array $extra = []): Request
