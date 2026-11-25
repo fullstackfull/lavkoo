@@ -11441,4 +11441,8 @@ return [
 	'maintenance_Mode_On' => 'Maintenance Mode On',
 	'successfully_added!' => 'Successfully added!',
 	'update_successful' => 'Update successful',
+	'Maintenance_Mode_start' => 'Maintenance Mode start',
+	'we_are_currently_undergoing_maintenance' => 'We are currently undergoing maintenance',
+	'Maintenance_mode_turned_off' => 'Maintenance mode turned off',
+	'Maintenance_Mode_End' => 'Maintenance Mode End',
 ];

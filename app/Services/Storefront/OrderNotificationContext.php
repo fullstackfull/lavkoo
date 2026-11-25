@@ -47,6 +47,27 @@ final class OrderNotificationContext
         ));
     }
 
+    /**
+     * The market of an order, as a key to add to a push payload, or nothing at all (K-11, GCC-12).
+     *
+     * A push about an order has to say which market the order belongs to, or an app serving several has to guess -- and the guess it would
+     * make is the market the seller happens to be looking at, which is how a tap on a Kuwaiti order opens a Saudi screen.
+     *
+     * It is the SAME resolution the notification itself is sent under ({@see storefrontOf}), not a second reading of the record: the money,
+     * the language, the selling company and now the market a tap opens all come from one answer, so they cannot disagree about one order.
+     *
+     * An ARRAY rather than a value, so that a platform with storefronts off sends exactly the payload it always sent -- no key at all,
+     * nothing for an older app to misread, and nothing to strip. An app that has never heard of the key is unaffected either way.
+     *
+     * @return array<string, string>
+     */
+    public static function marketOf(object|array $order): array
+    {
+        $context = self::storefrontOf(order: $order);
+
+        return $context === null || $context->country === '' ? [] : ['storefront' => $context->country];
+    }
+
     /** The storefront the order records, the default storefront when it records none, or null while storefronts are off. */
     private static function storefrontOf(object|array $order): ?StorefrontContext
     {

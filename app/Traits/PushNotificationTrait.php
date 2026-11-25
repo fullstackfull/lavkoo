@@ -2,6 +2,7 @@
 
 namespace App\Traits;
 
+use App\Services\Storefront\OrderNotificationContext;
 use App\Models\NotificationMessage;
 use App\Models\Order;
 use App\Models\ReferralCustomer;
@@ -42,7 +43,7 @@ trait PushNotificationTrait
                         'image' => '',
                         'type' => 'order',
                         'message_key' => $key,
-                    ];
+                    ] + OrderNotificationContext::marketOf(order: $order);
                     $this->sendPushNotificationToDevice($fcmToken, $postData);
                 }
             }
@@ -86,7 +87,7 @@ trait PushNotificationTrait
                             'image' => '',
                             'type' => 'order',
                             'message_key' => $key,
-                        ];
+                        ] + OrderNotificationContext::marketOf(order: $order);
                         if (isset($data['refund'])) {
                             $postData['type'] = 'refund';
                             $postData['refund_id'] = $data['refund']['id'];
@@ -114,7 +115,7 @@ trait PushNotificationTrait
                         'expected_delivery_date' => $order['expected_delivery_date'] ?? '',
                         'image' => '',
                         'type' => 'order'
-                    ];
+                    ] + OrderNotificationContext::marketOf(order: $order);
                     if ($order->delivery_man_id) {
                         self::add_deliveryman_push_notification($postData, $order->delivery_man_id);
                     }
@@ -352,33 +353,57 @@ trait PushNotificationTrait
      * @return bool|string
      */
 
+    /**
+     * The data a device receives, which is a FIXED set of keys: anything a caller adds that is not named here is dropped.
+     *
+     * That is why the market is added HERE rather than only at the senders -- the payload each sender builds is filtered through this list,
+     * so a key put in a payload and not in this list never leaves the server. It cost the first version of K-11 a test run to find out.
+     *
+     * The market key is present only when the sender HAS one (K-11). A platform with storefronts off sends the data it always sent, with no
+     * extra key: an app that reads no key cannot tell "no market" from "a server too old to say", and omitting it keeps those two answers
+     * apart instead of sending an empty string for both.
+     *
+     * @param array<string, mixed> $data
+     * @return array<string, string>
+     */
+    private function deviceData(array $data): array
+    {
+        $deviceData = [
+            'title' => (string)$data['title'],
+            'body' => (string)$data['description'],
+            'image' => $data['image'],
+            'order_id' => (string)($data['order_id'] ?? ''),
+            'order_details_id' => (string)($data['order_details_id'] ?? ''),
+            'refund_id' => (string)($data['refund_id'] ?? ''),
+            'deliveryman_charge' => (string)($data['deliveryman_charge'] ?? ''),
+            'expected_delivery_date' => (string)($data['expected_delivery_date'] ?? ''),
+            'type' => (string)$data['type'],
+            'is_read' => '0',
+            'message_key' => (string)($data['message_key'] ?? ''),
+            'notification_key' => (string)($data['notification_key'] ?? ''),
+            'notification_from' => (string)($data['notification_from'] ?? ''),
+            'auction_id' => (string)($data['auction_id'] ?? ''),
+            'auction_slug' => (string)($data['auction_slug'] ?? ''),
+            'auction_product_name' => (string)($data['auction_product_name'] ?? ''),
+            'auction_product_thumbnail_full_url' => (string)($data['auction_product_thumbnail_full_url'] ?? ''),
+            'excluded_user_id' => (string)($data['excluded_user_id'] ?? ''),
+            'recipient_user_id' => (string)($data['recipient_user_id'] ?? ''),
+            'recipient_type' => (string)($data['recipient_type'] ?? ''),
+        ];
+
+        if (isset($data['storefront']) && (string) $data['storefront'] !== '') {
+            $deviceData['storefront'] = (string) $data['storefront'];
+        }
+
+        return $deviceData;
+    }
+
     protected function sendPushNotificationToDevice(string $fcmToken, array $data): bool|string
     {
         $postData = [
             'message' => [
                 'token' => $fcmToken,
-                'data' => [
-                    'title' => (string)$data['title'],
-                    'body' => (string)$data['description'],
-                    'image' => $data['image'],
-                    'order_id' => (string)($data['order_id'] ?? ''),
-                    'order_details_id' => (string)($data['order_details_id'] ?? ''),
-                    'refund_id' => (string)($data['refund_id'] ?? ''),
-                    'deliveryman_charge' => (string)($data['deliveryman_charge'] ?? ''),
-                    'expected_delivery_date' => (string)($data['expected_delivery_date'] ?? ''),
-                    'type' => (string)$data['type'],
-                    'is_read' => '0',
-                    'message_key' => (string)($data['message_key'] ?? ''),
-                    'notification_key' => (string)($data['notification_key'] ?? ''),
-                    'notification_from' => (string)($data['notification_from'] ?? ''),
-                    'auction_id' => (string)($data['auction_id'] ?? ''),
-                    'auction_slug' => (string)($data['auction_slug'] ?? ''),
-                    'auction_product_name' => (string)($data['auction_product_name'] ?? ''),
-                    'auction_product_thumbnail_full_url' => (string)($data['auction_product_thumbnail_full_url'] ?? ''),
-                    'excluded_user_id' => (string)($data['excluded_user_id'] ?? ''),
-                    'recipient_user_id' => (string)($data['recipient_user_id'] ?? ''),
-                    'recipient_type' => (string)($data['recipient_type'] ?? ''),
-                ],
+                'data' => $this->deviceData($data),
                 'notification' => [
                     'title' => (string)$data['title'],
                     'body' => (string)$data['description'],

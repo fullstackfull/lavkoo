@@ -2,11 +2,13 @@
 
 namespace App\Services\Storefront;
 
+use App\Services\BusinessSettingService;
 use Carbon\CarbonImmutable;
 use DateTimeImmutable;
 use DateTimeZone;
 use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
+use Throwable;
 
 /**
  * I2-11 to I2-17: the state a storefront is in, kept for each country in the database. A storefront nobody has prepared is a draft. It becomes ready when its prerequisites
@@ -200,6 +202,8 @@ final class StorefrontLifecycle
      */
     private function change(string $code, string $from, string $state, string $by, string $reason, string $action, ?string $reference = null, ?string $mode = null, ?string $message = null, ?string $until = null): array
     {
+        $wasInMaintenance = $this->statusOf($code)['mode'] === self::MAINTENANCE;
+
         $record = [
             'state' => $state,
             'mode' => $mode,
@@ -219,7 +223,42 @@ final class StorefrontLifecycle
             context: ['from' => $from, 'to' => $state, 'mode' => $mode, 'reason' => $record['reason'], 'by' => $record['changed_by'], 'reference' => $record['reference']],
         );
 
+        $this->tellTheSellersOfThisMarket(code: $code, wasInMaintenance: $wasInMaintenance, isInMaintenance: $mode === self::MAINTENANCE);
+
         return $record;
+    }
+
+    /**
+     * Tells the sellers of THIS market that its maintenance has begun or ended (K-11, K-V4).
+     *
+     * A maintenance of one market is not news for the others: the platform-wide seller topic would tell every seller of every market to stop
+     * working, and a seller who also works in the paused market would be told the same thing whichever market they were looking at. So the
+     * message goes to that market's own topic, and only on the EDGE -- when maintenance begins and when it ends. Every other lifecycle change
+     * writes its record and sends nothing, which is what they did before this existed.
+     *
+     * Pausing a market that is already in maintenance into another stop mode ENDS the maintenance, and is told as such: a seller whose app is
+     * showing a maintenance screen has to be let back in even though the market is still stopped.
+     *
+     * It is best effort and last, after the decision is written: a push that cannot be sent must never undo a lifecycle change a person made.
+     * While storefronts are off there is no market topic at all and nothing is sent.
+     */
+    private function tellTheSellersOfThisMarket(string $code, bool $wasInMaintenance, bool $isInMaintenance): void
+    {
+        if ($wasInMaintenance === $isInMaintenance) {
+            return;
+        }
+
+        $topic = StorefrontPushTopics::sellerMaintenance(country: $code);
+
+        if ($topic === null) {
+            return;
+        }
+
+        try {
+            app(BusinessSettingService::class)->sendMaintenanceModeNotification(status: $isInMaintenance ? 'on' : 'off', topic: $topic);
+        } catch (Throwable $thePushCouldNotBeSent) {
+            report($thePushCouldNotBeSent);
+        }
     }
 
     private function refusalOfThePerson(string $code, string $by, string $reason): ?string
