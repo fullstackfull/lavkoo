@@ -17,7 +17,6 @@ class CategoryManager
     public static function products($category_id, $request = null, $dataLimit = null)
     {
         $user = Helpers::getCustomerInformation($request);
-        $id = '"' . $category_id . '"';
 
         $brandIds         = $request->has('brand_ids')         ? (is_array($request['brand_ids'])         ? $request['brand_ids']         : (json_decode($request['brand_ids'], true)         ?? [])) : [];
         $publishingHouses = $request->has('publishing_houses') ? (is_array($request['publishing_houses']) ? $request['publishing_houses'] : (json_decode($request['publishing_houses'], true) ?? [])) : [];
@@ -45,7 +44,17 @@ class CategoryManager
                 $query->where('customer_id', $user != 'offline' ? $user['id'] : '0');
             }])
             ->active()
-            ->where('category_ids', 'like', "%{$id}%")
+            // The three category id columns, which is how the WEBSITE's category page selects (ProductManager::whereInCategory) and how
+            // this list now selects too (B-13).
+            //
+            // It used to read `category_ids like '%"5"%'` -- a substring match over a JSON text column that holds the same three ids as a
+            // derived copy. `ProductService::getCategoriesArray()` builds that copy FROM these columns, so they are the authoritative side
+            // and the JSON is the duplicate; and the quoting of an id in it depends on who wrote the row. A row whose ids were written as
+            // numbers (`"id":5`) rather than as strings (`"id":"5"`) does not match the pattern at all, so such a product was MISSING from
+            // its own category on the app and present on the website -- the two lists disagreeing about what is in a category, which is
+            // exactly what the project's "web and API logic stay in sync" rule exists to prevent. The columns are also indexable, where a
+            // leading-wildcard `like` over a text column never is.
+            ->tap(fn ($query) => ProductManager::whereInCategory($query, $category_id))
             ->when($request->has('search') && !empty($request['search']), function ($query) use ($request) {
                 $searchKey = $request['search'];
                 $productsIDArray = [];

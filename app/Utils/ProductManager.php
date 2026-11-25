@@ -463,7 +463,14 @@ class ProductManager
         }
     }
 
-    private static function whereInCategory($query, $category)
+    /**
+     * Narrows a product query to one category, whether it is a top, a sub or a sub-sub category (B-13).
+     *
+     * Public because the API's category product list reads the SAME question through `CategoryManager::products()` and used to read it a
+     * different way -- a `like` over the `category_ids` JSON text -- so the two lists could disagree about which products are in a category.
+     * The project's rule is that web and API logic stay in sync, and the way to keep them in sync is one reader.
+     */
+    public static function whereInCategory($query, $category)
     {
         return $query->where(function ($categoryQuery) use ($category) {
             $categoryQuery->where(['category_id' => $category])
