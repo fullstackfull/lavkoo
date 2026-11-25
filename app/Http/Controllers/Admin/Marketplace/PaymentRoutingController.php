@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin\Marketplace;
 use App\Http\Controllers\BaseController;
 use App\Models\PaymentRoutingRule;
 use App\Services\Marketplace\PaymentRoutingService;
+use App\Services\Storefront\StorefrontResolver;
 use App\Services\AuditLogger;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Contracts\View\View;
@@ -12,6 +13,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Validation\Rule;
 
 /**
  * Admin payment orchestration (Phase 3, Stage E). Manage gateway routing rules and preview the
@@ -44,6 +46,10 @@ class PaymentRoutingController extends BaseController
             'rules' => $rules,
             'gateways' => $gateways,
             'preview' => $preview,
+            // The markets a rule may be bound to, from the platform's own list rather than typed: the
+            // destination is free text because it comes from an address book, the storefront is not.
+            // Empty while the storefront column has not been added, which hides the field entirely.
+            'storefronts' => $this->storefrontIsRecorded() ? StorefrontResolver::fromConfig()->configuredCountries() : [],
         ]);
     }
 
@@ -81,11 +87,15 @@ class PaymentRoutingController extends BaseController
             'min_amount' => 'nullable|numeric|min:0',
             'max_amount' => 'nullable|numeric|min:0',
             'country' => 'nullable|string|max:120',
+            // One of the platform's own markets, never free text: this is which SHOP the rule governs,
+            // and the shops are a list the platform holds. `country` above is the destination an address
+            // book wrote, which is why that one stays free text and is resolved to ISO when compared.
+            'storefront' => ['nullable', Rule::in(StorefrontResolver::fromConfig()->configuredCountries())],
             'priority' => 'nullable|integer|min:0',
             'status' => 'nullable|in:active,inactive',
         ]);
 
-        return [
+        $fields = [
             'name' => $v['name'],
             'gateway_code' => $v['gateway_code'],
             'action' => $v['action'],
@@ -95,6 +105,21 @@ class PaymentRoutingController extends BaseController
             'priority' => $v['priority'] ?? 10,
             'status' => $v['status'] ?? 'active',
         ];
+
+        // Named only where the column is there. The table itself may come from the installed SQL dump
+        // rather than from the guarded create migration, so the column cannot be assumed -- and an insert
+        // naming a column that does not exist is the whole screen failing, not one field being ignored.
+        if ($this->storefrontIsRecorded()) {
+            $fields['storefront'] = ($v['storefront'] ?? '') === '' ? null : $v['storefront'];
+        }
+
+        return $fields;
+    }
+
+    /** Whether a rule can say which storefront it governs yet (D2-06); false until the column's migration has run. */
+    private function storefrontIsRecorded(): bool
+    {
+        return Schema::hasTable('payment_routing_rules') && Schema::hasColumn('payment_routing_rules', 'storefront');
     }
 
     /** The payment gateway codes the platform knows about (from addon_settings). */

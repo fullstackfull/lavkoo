@@ -32,10 +32,19 @@
                                 <input type="number" step="0.01" name="min_amount" class="form-control form-control-sm" min="0" placeholder="—"></div>
                             <div class="col-6"><label class="form-label fs-12">{{ translate('max_amount') }}</label>
                                 <input type="number" step="0.01" name="max_amount" class="form-control form-control-sm" min="0" placeholder="—"></div>
-                            <div class="col-8"><label class="form-label fs-12">{{ translate('country') }}</label>
+                            <div class="col-8"><label class="form-label fs-12">{{ translate('destination_country') }}</label>
                                 <input type="text" name="country" class="form-control form-control-sm" placeholder="{{ translate('any') }}"></div>
                             <div class="col-4"><label class="form-label fs-12">{{ translate('priority') }}</label>
                                 <input type="number" name="priority" class="form-control form-control-sm" min="0" value="10"></div>
+                            @if(count($storefronts ?? []) > 0)
+                                <div class="col-12"><label class="form-label fs-12">{{ translate('storefront') }}</label>
+                                    <select name="storefront" class="form-control form-control-sm">
+                                        <option value="">{{ translate('every_storefront') }}</option>
+                                        @foreach($storefronts as $storefront)
+                                            <option value="{{ $storefront }}">{{ $storefront }}</option>
+                                        @endforeach
+                                    </select></div>
+                            @endif
                             <div class="col-12 d-flex justify-content-end"><button class="btn btn-primary btn-sm">{{ translate('save') }}</button></div>
                         </form>
                     </div>
@@ -82,8 +91,9 @@
                                         <td><span class="k-badge k-badge--{{ $r->action === 'hide' ? 'danger' : 'success' }}">{{ translate($r->action) }}</span></td>
                                         <td class="fs-12">
                                             @if($r->min_amount !== null || $r->max_amount !== null){{ translate('amount') }}: {{ $r->min_amount !== null ? number_format((float)$r->min_amount,0) : '0' }}–{{ $r->max_amount !== null ? number_format((float)$r->max_amount,0) : '∞' }}@endif
-                                            @if($r->country) · {{ $r->country }}@endif
-                                            @if($r->min_amount === null && $r->max_amount === null && !$r->country)<span class="text-muted">{{ translate('always') }}</span>@endif
+                                            @if($r->country) · {{ translate('to') }} {{ $r->country }}@endif
+                                            @if($r->storefront) · {{ translate('in') }} {{ $r->storefront }}@endif
+                                            @if($r->min_amount === null && $r->max_amount === null && !$r->country && !$r->storefront)<span class="text-muted">{{ translate('always') }}</span>@endif
                                         </td>
                                         <td><span class="k-badge k-badge--{{ $r->status === 'active' ? 'success' : 'secondary' }}">{{ translate($r->status) }}</span></td>
                                         <td class="text-end"><form action="{{ route('admin.marketplace.payment-routing.destroy', $r->id) }}" method="post" onsubmit="return confirm('{{ translate('are_you_sure') }}')">@csrf @method('DELETE')<button class="btn btn-sm btn-outline-danger">{{ translate('delete') }}</button></form></td>

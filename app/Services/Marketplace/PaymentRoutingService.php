@@ -3,6 +3,7 @@
 namespace App\Services\Marketplace;
 
 use App\Models\PaymentRoutingRule;
+use App\Services\Storefront\StorefrontCatalog;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -19,6 +20,12 @@ class PaymentRoutingService
     /**
      * Filter and order a list of available gateway codes for an order context.
      *
+     * A rule may also name a STOREFRONT, which is not the same as the destination it already named: the
+     * `country` column is where the parcel goes, the `storefront` column is which shop the rule governs.
+     * The shop is read from the request here rather than passed in, because that is what it is a property
+     * of; a rule naming no storefront governs every shop, which is how every rule written before the
+     * column behaved.
+     *
      * @param array<int, string> $availableGateways gateway codes the platform offers
      * @return array<int, string> the resolved list — hidden gateways removed, preferred ones first
      */
@@ -30,12 +37,13 @@ class PaymentRoutingService
         }
 
         $rules = $this->activeRules();
+        $storefront = $this->storefrontBeingServed();
 
         $hidden = [];
         $preferredOrder = [];   // gateway_code => priority
 
         foreach ($rules as $rule) {
-            if (!in_array($rule->gateway_code, $available, true) || !$rule->matches($amount, $country)) {
+            if (!in_array($rule->gateway_code, $available, true) || !$rule->matches($amount, $country, $storefront)) {
                 continue;
             }
             if ($rule->action === PaymentRoutingRule::ACTION_HIDE) {
@@ -160,7 +168,9 @@ class PaymentRoutingService
         foreach ($this->activeRules() as $rule) {
             $boundToAnAmount = $rule->min_amount !== null || $rule->max_amount !== null;
 
-            if ($rule->action === PaymentRoutingRule::ACTION_HIDE && !$boundToAnAmount && $rule->countryMatches($country) && in_array($rule->gateway_code, $available, true)) {
+            // The storefront is the one being asked about, which is the whole input this method has, so a
+            // rule bound to a storefront is judged here as well as one bound to a destination.
+            if ($rule->action === PaymentRoutingRule::ACTION_HIDE && !$boundToAnAmount && $rule->storefrontMatches($country) && $rule->countryMatches($country) && in_array($rule->gateway_code, $available, true)) {
                 $hidden[$rule->gateway_code] = true;
             }
         }
@@ -202,6 +212,22 @@ class PaymentRoutingService
         }
 
         return !in_array($gateway, $this->resolve($availableGateways, $amount, $country), true);
+    }
+
+    /**
+     * The storefront this request is being served from, or null for a panel, a seller API, a queue or a
+     * console command -- and null while storefronts are off, which is every installation until the
+     * decision to switch them on is taken.
+     *
+     * A rule bound to a storefront acts only in that storefront, so null means such a rule acts nowhere:
+     * a caller that sees every market must not be narrowed by a rule belonging to one of them. Read from
+     * the request rather than taken as an argument, because which shop is being served is a property of
+     * the request and of nothing a caller could usefully pass -- the same reason the ledger attribution
+     * reads it the same way.
+     */
+    private function storefrontBeingServed(): ?string
+    {
+        return StorefrontCatalog::country();
     }
 
     /** The active rules in the order they are judged. */

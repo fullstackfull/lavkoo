@@ -11521,4 +11521,6 @@ return [
 	'update_Notification' => 'Update notification',
 	'in_house_fulfillment' => 'Fulfilled in house',
 	'unknown_fulfillment_source' => 'Fulfillment source unknown',
+	'destination_country' => 'Destination country',
+	'every_storefront' => 'Every storefront',
 ];

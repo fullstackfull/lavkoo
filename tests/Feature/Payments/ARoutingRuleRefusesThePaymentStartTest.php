@@ -84,11 +84,22 @@ class ARoutingRuleRefusesThePaymentStartTest extends PaymentCurrencyTestCase
         }
     }
 
-    /** The real migration, never a shape this test invented. */
+    /** The real migrations, never a shape this test invented: the table, then the column that says which shop a rule governs. */
     private function theRoutingRulesTable(): void
     {
         Schema::dropIfExists('payment_routing_rules');
         (require database_path('migrations/2026_12_02_100000_create_payment_routing_rules_table.php'))->up();
+        (require database_path('migrations/2026_12_31_100000_add_storefront_to_payment_routing_rules.php'))->up();
+    }
+
+    /** Six markets served, with the default one answering a request that names none. */
+    private function storefrontsAreOn(): void
+    {
+        config([
+            'gcc.storefronts.enabled' => true,
+            'gcc.storefronts.countries.SA.active' => true,
+            'gcc.storefronts.countries.KW.active' => true,
+        ]);
     }
 
     private function aRule(array $overrides = []): PaymentRoutingRule
@@ -266,6 +277,79 @@ class ARoutingRuleRefusesThePaymentStartTest extends PaymentCurrencyTestCase
         $this->startsAppPayment(addressCountry: 'Saudi Arabia')->assertOk();
 
         $this->assertSame(1, $this->paymentRequests(), 'a Kuwaiti rule refused a Saudi order');
+    }
+
+    // ---------------------------------------------------------------- which storefront the rule governs
+
+    /**
+     * `country` is where the parcel goes; `storefront` is which shop the rule governs. On one market the
+     * two always agreed; on six they are different rules, and until the column existed an operator could
+     * only write the second one.
+     *
+     * Driven on the DEFAULT market, which is the Saudi baseline this platform must not move: a rule
+     * naming the default storefront refuses a payment started there, and the same rule naming another
+     * market does not.
+     */
+    public function test_a_rule_bound_to_this_storefront_refuses_a_payment_started_in_it(): void
+    {
+        $this->storefrontsAreOn();
+        $this->aRule(['storefront' => 'SA']);
+
+        $this->startsAppPayment();
+
+        $this->assertNoPaymentWasStarted();
+    }
+
+    public function test_a_rule_bound_to_another_storefront_leaves_this_ones_payment_alone(): void
+    {
+        $this->storefrontsAreOn();
+        $this->aRule(['storefront' => 'KW']);
+
+        $this->startsAppPayment()->assertOk();
+
+        $this->assertSame(1, $this->paymentRequests(), "a rule bound to another market refused this market's payment");
+    }
+
+    /**
+     * A storefront nobody can recognise acts NOWHERE, which is the opposite of what the destination column
+     * does with the same input -- and deliberately so. A destination is free text an address book wrote,
+     * so an unrecognisable one keeps the text comparison it has always had: deciding it matches nothing
+     * would switch off a rule somebody wrote. A storefront is chosen from the platform's own list of
+     * markets (the admin form validates it with `Rule::in`), so a value that is not one of them is not a
+     * market at all, and a rule for no market must not act in every market.
+     */
+    public function test_a_rule_naming_a_storefront_nobody_can_recognise_acts_nowhere(): void
+    {
+        $this->storefrontsAreOn();
+        $this->aRule(['storefront' => 'Narnia']);
+
+        $this->startsAppPayment()->assertOk();
+
+        $this->assertSame(1, $this->paymentRequests(), 'a rule naming no real market refused a payment');
+    }
+
+    /**
+     * While storefronts are off -- which is every installation until that decision is taken -- no shop is
+     * being served, so a rule bound to one acts nowhere. A rule bound to nothing still acts everywhere,
+     * which is the whole of the dormancy claim: nothing an operator has already written changes.
+     */
+    public function test_a_storefront_bound_rule_acts_nowhere_while_storefronts_are_off(): void
+    {
+        $this->aRule(['storefront' => 'SA']);
+
+        $this->startsAppPayment()->assertOk();
+
+        $this->assertSame(1, $this->paymentRequests(), 'a storefront-bound rule acted with storefronts switched off');
+    }
+
+    public function test_a_rule_naming_no_storefront_still_refuses_in_every_market(): void
+    {
+        $this->storefrontsAreOn();
+        $this->aRule();
+
+        $this->startsAppPayment();
+
+        $this->assertNoPaymentWasStarted();
     }
 
     // ---------------------------------------------------------------- before the migration has run

@@ -5032,4 +5032,8 @@ ____________________________________________________on_search_engines_and_see_th
 	'host' => 'المضيف',
 	'in_house_fulfillment' => 'تنفيذ داخلي',
 	'unknown_fulfillment_source' => 'مصدر التنفيذ غير معروف',
+	'destination_country' => 'بلد التوصيل',
+	'every_storefront' => 'كل المتاجر',
+	'storefront' => 'المتجر',
+	'in' => 'في',
 ];
