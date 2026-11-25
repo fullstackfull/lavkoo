@@ -25,12 +25,18 @@ final class PlatformAdminPresenter
     }
 
     /**
-     * What `GET /me` answers: the admin as the sign-in shows them, what their grant includes and when it ends, and how this session stands with the second
-     * factor. `enrolled` is whether the admin has a factor they may sign in with, `verified` whether this session passed it, and `method` how.
+     * What `GET /me` answers: the admin as the sign-in shows them, what their grant includes and when it ends, how this session stands with the second
+     * factor, and the contract level the server speaks beside the oldest one it answers. `enrolled` is whether the admin has a factor they may sign
+     * in with, `verified` whether this session passed it, and `method` how.
+     *
+     * `contract` is here so that a shell which is still new enough can see where the floor stands and warn before it is refused, rather than
+     * learning it from a 426 one morning. A shell already below the floor never reaches this route: the refusal carries both numbers itself.
+     *
+     * @param array{version: int, min_supported: ?int} $contract
      *
      * @return array<string, mixed>
      */
-    public static function profile(PlatformAdminPrincipal $principal, bool $enrolled): array
+    public static function profile(PlatformAdminPrincipal $principal, bool $enrolled, array $contract): array
     {
         $method = $principal->token->mfaMethod();
 
@@ -38,6 +44,7 @@ final class PlatformAdminPresenter
             'capabilities' => $principal->capabilities(),
             'grant_expires_at' => self::timestamp(moment: $principal->grant->expires_at),
             'mfa' => ['enrolled' => $enrolled, 'verified' => $method !== null, 'method' => $method?->value],
+            'contract' => $contract,
         ];
     }
 

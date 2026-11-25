@@ -257,7 +257,7 @@ class CapabilitiesTest extends PlatformAdminTestCase
         $this->assertSame(['overview', 'sessions'], $answers['some']['capabilities']);
         $this->assertSame(Carbon::parse('2027-03-31 23:59:59')->utc()->toIso8601ZuluString(), $answers['some']['grant_expires_at']);
         $this->assertSame([], $answers['none']['capabilities']);
-        $this->assertSame(['admin_id', 'name', 'level', 'scope', 'markets', 'token_expires_at', 'capabilities', 'grant_expires_at', 'mfa'], array_keys($answers['some']));
+        $this->assertSame(['admin_id', 'name', 'level', 'scope', 'markets', 'token_expires_at', 'capabilities', 'grant_expires_at', 'mfa', 'contract'], array_keys($answers['some']));
     }
 
     public function test_the_capabilities_are_read_on_every_request_so_narrowing_a_grant_takes_effect_at_once(): void

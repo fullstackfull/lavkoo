@@ -240,6 +240,24 @@ somebody holds the password: change it. The lines the console commands write car
   `429 platform_admin_throttled` with `Retry-After` (and no challenge), and a code sent with a challenge that is still good gets the same 429 without being checked or counted; every other request of the second step is
   the uniform 401, locked or not, so that a 429 can only be seen by somebody who holds a good challenge.
 
+### The contract level of the shell
+
+The seller app's force-update gate (`seller_app_version_control`, in front of its login screen) is about the SELLER app's release. The admin shell is a different thing inside the same binary: it can stop being
+able to read this API without the seller app needing a release, and the seller app can be released without the shell changing. So the shell has a floor of its own, as a CONTRACT level rather than an app version —
+what matters is not which build is installed but whether it understands the answers. **Nothing here reads or touches the seller version gate, and a test asserts no statement of a request mentions it.**
+
+* A request says which level it speaks in `X-Platform-Admin-Contract`. A build from before the header says nothing, which is **level 0 and not "whatever is current"**: an older shell must not be handed answers it
+  was never written to read. A header that is not a whole number (`1.0`, `v1`, text) is level 0 as well; space around a number is ignored.
+* The server's own level is `1`. It goes up when an answer of this API changes shape in a way an older shell cannot read.
+* `GCC_PLATFORM_ADMIN_MIN_CONTRACT` is the oldest level the server will answer. It **ships unset, so nothing is forced** and deploying this changes no request's outcome. A value that is not a positive whole number
+  means no floor at all, rather than the 0 or 1 a cast would make of it: for a floor, the unsafe direction of a nonsense value is ON.
+* **The floor can never be set above the level the server itself speaks.** A minimum of 2 against a server of 1 would refuse every request including the sign-in, leaving no session to read the floor from and no way
+  back but another number — which is exactly how the seller version gate once locked every seller out. A configured value above `version` is held down to it.
+* The refusal is `426 contract_too_old` and is raised **in front of the whole API, the sign-in included**: a build that cannot read the answers is not given a session to read them with. It carries `claimed`,
+  `version` and `min_supported`, because it has to be enough on its own. It is answered `Cache-Control: no-store, private` like every other answer of this API, and says nothing about the account that asked.
+* The switch comes first: while the API is off, every route including this check is a plain 404. A dormant API never answers 426, which would admit it exists.
+* `GET /me` carries `contract: {version, min_supported}` so a shell that is still new enough can see where the floor stands and warn before it is refused, rather than learning it from a 426 one morning.
+
 ### Error codes
 
 | Status | Code | When |
@@ -252,6 +270,7 @@ somebody holds the password: change it. The lines the console commands write car
 | 422 | `invalid_market` | `market` is not `all` or a configured code; the error carries `valid` |
 | 422 | `invalid_window` | `from` or `to` is not a date written `YYYY-MM-DD`, or `from` is after `to` |
 | 422 | `invalid_severity` | `severity` is not `info`, `warning` or `critical`; the error carries `valid` |
+| 426 | `contract_too_old` | The shell speaks an older contract level than the oldest this server answers (section 4, "The contract level of the shell"). Carries `contract: {claimed, version, min_supported}`, so a build can say what is wrong without a session: this refusal comes back from the SIGN-IN too. No floor is set by default, so nothing meets this |
 | 429 | `platform_admin_throttled` | Too many sign-in attempts or requests, too many tries at the second step from one address, or the admin is locked out of the second step; `Retry-After` says when |
 | 503 | `platform_admin_unavailable` | The flag is on and the migrations have not run |
 
@@ -329,16 +348,20 @@ Ends the session of the token used: `{"data": {"revoked": true}}`. The admin's o
 
 ### `GET /me`
 
-`{"data": {"admin_id", "name", "level", "scope", "markets", "token_expires_at", "capabilities", "grant_expires_at", "mfa": {"enrolled", "verified", "method"}}}`. `scope` is `all` (the platform owner) or `restricted` (the grant names markets, or the staff country scope restricts the admin: section 12); `markets` is what the server allows (the grant, narrowed by the staff scope while it is on), in
+`{"data": {"admin_id", "name", "level", "scope", "markets", "token_expires_at", "capabilities", "grant_expires_at", "mfa": {"enrolled", "verified", "method"}, "contract": {"version", "min_supported"}}}`. `scope` is `all` (the platform owner) or `restricted` (the grant names markets, or the staff country scope restricts the admin: section 12); `markets` is what the server allows (the grant, narrowed by the staff scope while it is on), in
 configuration order; **`capabilities` is the list of the parts of the API the grant includes** (`overview`, `markets`, `alerts`, `audit`, `sessions`, in that order: what the server enforces, so the app offers only those); `grant_expires_at` is when the grant ends (UTC, with a `Z`) or `null` for no end. **The app must never decide for itself what an admin may see; it reads this on every start, and right after a sign-in.** No e-mail is returned.
 
 `mfa.enrolled` is whether the admin has a confirmed factor made for their own admin row (whether or not it is required just now); `mfa.verified` is whether **this session** passed the second factor, and `mfa.method`
 is how: `"totp"`, `"recovery_code"`, or `null` (`verified` is then `false`: a session opened while the second factor was not required, which can only be seen while it is still not required). With the second factor
 required `verified` is always `true` and there is always a method, because every other session is refused before it gets here.
 
+`contract.version` is the level this server speaks and `contract.min_supported` the oldest it answers, `null` when no floor is set (see section 4, "The contract level of the shell"). A shell already below the
+floor never reaches this route — the 426 carries both numbers itself — so this member is for warning an operator ahead of time, not for discovering a refusal.
+
 ```json
 {"data": {"admin_id": 7, "name": "Platform Owner", "level": 1, "scope": "all", "markets": ["SA","AE","KW","QA","BH","OM"], "token_expires_at": "2026-11-17T18:00:00Z",
-  "capabilities": ["overview","markets","alerts","audit","sessions"], "grant_expires_at": null, "mfa": {"enrolled": true, "verified": true, "method": "totp"}}}
+  "capabilities": ["overview","markets","alerts","audit","sessions"], "grant_expires_at": null, "mfa": {"enrolled": true, "verified": true, "method": "totp"},
+  "contract": {"version": 1, "min_supported": null}}}
 ```
 
 ### `GET /sessions`, `DELETE /sessions/{id}`, `DELETE /sessions`
