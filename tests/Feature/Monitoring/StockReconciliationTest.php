@@ -5,6 +5,8 @@ namespace Tests\Feature\Monitoring;
 use App\Models\ChannelStockEvent;
 use App\Models\InventoryReservation;
 use App\Models\ProviderFulfillmentItem;
+use App\Services\Monitoring\Panels\InventoryIntegrityPanel;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -202,6 +204,55 @@ class StockReconciliationTest extends TestCase
     }
 
     /**
+     * The monitoring page's own stuck-hold finding, which until now answered `not_supported` with the note "this build has no reservation
+     * of any kind". That was true when it was written and stopped being true when `inventory_reservations` arrived, so the page told an
+     * operator there was nothing to look at while holds of a shared shelf stood open. A stale "not supported" is worse than a gap,
+     * because it closes the question.
+     */
+    public function test_the_monitoring_page_lists_a_hold_that_has_stood_too_long_and_not_a_fresh_one(): void
+    {
+        $this->product(id: 84, stock: 5);
+        $this->hold(product: 84, quantity: 6, state: InventoryReservation::RESERVED, orderId: 940, reservedAt: now()->subDays(30));
+        $this->hold(product: 84, quantity: 1, state: InventoryReservation::RESERVED, orderId: 941, reservedAt: now()->subHour());
+        $this->hold(product: 84, quantity: 9, state: InventoryReservation::COMMITTED, orderId: 942, reservedAt: now()->subDays(30));
+
+        $finding = $this->panelFinding();
+
+        $this->assertSame('ok', $finding['state'], 'the page can read the table, so the finding is a finding and not "not supported"');
+        $this->assertSame(1, $finding['count']);
+        $this->assertSame(6, $finding['units']);
+        $this->assertSame([940], array_column($finding['rows'], 'order_id'), 'the fresh hold and the committed one are not stuck');
+        $this->assertSame('standing', $finding['scope']);
+    }
+
+    public function test_the_monitoring_page_says_not_configured_where_there_is_no_hold_table_at_all(): void
+    {
+        Schema::drop('inventory_reservations');
+
+        $finding = $this->panelFinding();
+
+        $this->assertSame('not_configured', $finding['state']);
+        $this->assertNull($finding['count'], 'a deployment with no hold table must not be told that no hold is stuck');
+        $this->assertStringContainsString('inventory_and_routing', (string) $finding['remedy'], 'the remedy names the migration that creates the table');
+
+        (require database_path('migrations/2026_11_07_100200_create_inventory_and_routing_tables.php'))->up();
+    }
+
+    /** @return array<string, mixed> */
+    private function panelFinding(string $key = 'stuck_stock_reservations'): array
+    {
+        $data = app(InventoryIntegrityPanel::class)->data('24h', Request::create('/'));
+
+        foreach ($data['findings'] as $finding) {
+            if ($finding['key'] === $key) {
+                return $finding;
+            }
+        }
+
+        $this->fail("the inventory integrity panel publishes no finding named '{$key}'");
+    }
+
+    /**
      * @return array{exit: int, checks: list<array<string, mixed>>, read_only_proof: array<string, mixed>}
      */
     private function reconcile(): array
@@ -289,7 +340,7 @@ class StockReconciliationTest extends TestCase
         ]);
     }
 
-    private function hold(int $product, int $quantity, string $state, ?int $orderId): void
+    private function hold(int $product, int $quantity, string $state, ?int $orderId, mixed $reservedAt = null): void
     {
         DB::table('inventory_reservations')->insert([
             'location_id' => 1,
@@ -299,7 +350,7 @@ class StockReconciliationTest extends TestCase
             'reservation_key' => 'hold-' . $product . '-' . ($orderId ?? 'none') . '-' . $state . '-' . DB::table('inventory_reservations')->count(),
             'state' => $state,
             'order_id' => $orderId,
-            'reserved_at' => now(),
+            'reserved_at' => $reservedAt ?? now(),
             'created_at' => now(),
             'updated_at' => now(),
         ]);
