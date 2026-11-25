@@ -8,7 +8,12 @@ use App\Services\Catalog\ProductCodeScope;
 use App\Services\Storefront\ProductCountry;
 
 /**
- * The storefront country a channel account sells in, when its own settings say so. Trendyol names its storefront and noon its country. An Amazon
+ * The storefront country a channel account sells in. It is the one the account DECLARES (`ChannelSettings::MARKET`) when it declares one --
+ * an explicit answer, validated when it is saved against the platform's storefronts and against the account's own marketplace, so an Amazon
+ * account of the Emirati marketplace cannot claim the Saudi storefront (M-744). While storefronts are off no account declares anything and
+ * the answer is DERIVED, exactly as it always was:
+ *
+ * Trendyol names its storefront and noon its country. An Amazon
  * account names a region and marketplace ids: it has a country when every one of its marketplaces is the one Amazon lists for that country (the
  * Gulf marketplaces it lists are Saudi Arabia and the United Arab Emirates), and none when it has no marketplace, one this class does not know, or
  * marketplaces of two countries. An account whose setting is empty, or names a country the platform has no storefront for (the
@@ -52,6 +57,12 @@ final class ChannelAccountCountry
     {
     }
 
+    /** The country one Amazon marketplace id sells in, or empty when this platform does not know that marketplace. */
+    public static function countryOfMarketplace(string $marketplaceId): string
+    {
+        return self::AMAZON_MARKETPLACES[strtoupper(trim($marketplaceId))] ?? '';
+    }
+
     public function of(SalesChannelAccount $account): ?string
     {
         $code = $this->countryOf($account);
@@ -78,8 +89,23 @@ final class ChannelAccountCountry
     /** The country the account's own settings name, whether or not this platform has a storefront for it. Empty when they name none, or two. */
     private function countryOf(SalesChannelAccount $account): string
     {
+        $declared = $this->declaredCountry($account);
+
+        if ($declared !== '') {
+            return $declared;
+        }
+
         return $account->channel === SalesChannel::Amazon->value ? $this->amazonCountry($account) : $this->settingCountry($account);
     }
+
+    /** The country the account SAYS it sells in. Empty while storefronts are off, and empty for every account that declares none. */
+    private function declaredCountry(SalesChannelAccount $account): string
+    {
+        return ChannelSettings::marketMayBeDeclared((string) $account->channel)
+            ? strtoupper(trim((string) $account->setting(ChannelSettings::MARKET, '')))
+            : '';
+    }
+
     private function settingCountry(SalesChannelAccount $account): string
     {
         $setting = self::SETTINGS[$account->channel] ?? null;
@@ -91,7 +117,7 @@ final class ChannelAccountCountry
     private function amazonCountry(SalesChannelAccount $account): string
     {
         $countries = array_unique(array_map(
-            static fn (mixed $marketplace): string => self::AMAZON_MARKETPLACES[strtoupper(trim((string) $marketplace))] ?? '',
+            static fn (mixed $marketplace): string => self::countryOfMarketplace((string) $marketplace),
             $this->marketplaceIdsOf($account),
         ));
 

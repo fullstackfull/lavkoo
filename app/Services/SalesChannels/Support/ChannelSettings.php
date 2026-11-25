@@ -2,6 +2,7 @@
 
 namespace App\Services\SalesChannels\Support;
 
+use App\Services\Storefront\StorefrontResolver;
 use InvalidArgumentException;
 
 /**
@@ -11,6 +12,22 @@ use InvalidArgumentException;
 final class ChannelSettings
 {
     public const AMAZON_REGIONS = ['na', 'eu', 'fe'];
+
+    /**
+     * The storefront country an account DECLARES it sells in (H2-06, M-744).
+     *
+     * Until this, the country of a channel account was only ever DERIVED from whichever setting each channel happens to keep it under --
+     * Trendyol's `storefront_code`, noon's `country_code`, the countries of an Amazon account's marketplace ids -- and nothing validated the
+     * answer against anything. So an account of two countries' marketplaces, or of a marketplace this platform does not know, had no
+     * country at all and was therefore narrowed to no market, which is the one state in which two countries' accounts can meet in one stock
+     * pool. This is the account SAYING which storefront it sells in, and {@see ChannelAccountCountry} prefers it to the derived answer.
+     *
+     * An empty declaration says nothing and changes nothing: the derived answer stands, which is today's behaviour and the behaviour of
+     * every account that exists. A declaration that CONTRADICTS the account's own marketplace is refused outright -- an Amazon account of
+     * the Emirati marketplace cannot declare the Saudi storefront -- because such an account would otherwise be given a market's products
+     * to publish on another market's marketplace, and the figures would add up.
+     */
+    public const MARKET = 'storefront_country';
 
     /**
      * The Gulf storefronts a Trendyol account may name.
@@ -71,8 +88,23 @@ final class ChannelSettings
         };
     }
 
+    /**
+     * Whether an account may declare its storefront country at all. The switch alone, because the declaration lives in the account's own
+     * settings and not in a column: `StorefrontMarketRows` answers for a TABLE's market, and there is no table here to ask about.
+     */
+    public static function marketMayBeDeclared(string $channel): bool
+    {
+        return (bool) config('gcc.storefronts.enabled', false) && self::shippedDefaults($channel) !== [];
+    }
+
     /** @return array<string, mixed> */
     public static function defaults(string $channel): array
+    {
+        return self::shippedDefaults($channel) + (self::marketMayBeDeclared($channel) ? [self::MARKET => ''] : []);
+    }
+
+    /** @return array<string, mixed> */
+    private static function shippedDefaults(string $channel): array
     {
         return match ($channel) {
             'amazon' => [
@@ -185,6 +217,75 @@ final class ChannelSettings
             $merged['carrier_codes'] = array_map(static fn ($code): string => trim((string) $code), array_filter((array) $merged['carrier_codes'], static fn ($code): bool => trim((string) $code) !== ''));
         }
 
+        if (array_key_exists(self::MARKET, $merged)) {
+            $merged[self::MARKET] = self::validatedMarket($channel, $merged);
+        }
+
         return $merged;
+    }
+
+    /**
+     * The declared storefront country, checked against the platform's storefronts and against the marketplace the account's own settings
+     * name. Empty is kept empty: an account that declares nothing is left to the derived answer.
+     *
+     * @param array<string, mixed> $merged the settings as they have just been normalised, so the marketplace fields read as they will be stored
+     */
+    private static function validatedMarket(string $channel, array $merged): string
+    {
+        $declared = strtoupper(trim((string) $merged[self::MARKET]));
+
+        if ($declared === '') {
+            return '';
+        }
+
+        $configured = StorefrontResolver::fromConfig()->configuredCountries();
+
+        if (!in_array($declared, $configured, true)) {
+            throw new InvalidArgumentException('The storefront country must be one of: ' . implode(', ', $configured) . ', or empty.');
+        }
+
+        foreach (self::marketplaceCountriesOf($channel, $merged) as $marketplace => $country) {
+            if ($country !== $declared) {
+                throw new InvalidArgumentException("This account's marketplace {$marketplace} sells in {$country}, so it cannot declare the {$declared} storefront.");
+            }
+        }
+
+        return $declared;
+    }
+
+    /**
+     * The country of each marketplace the account's own settings name, as far as this platform knows them.
+     *
+     * A marketplace whose country is UNKNOWN is left out rather than refused: a new Amazon marketplace id is a fact about Amazon's
+     * catalogue, not a contradiction, and refusing it would stop an account the day Amazon opens a marketplace we have not listed yet.
+     *
+     * @param array<string, mixed> $merged
+     * @return array<string, string> country by marketplace, as a person would name it
+     */
+    private static function marketplaceCountriesOf(string $channel, array $merged): array
+    {
+        $named = [];
+
+        if ($channel === 'noon') {
+            $named['noon ' . strtolower((string) $merged['country_code'])] = strtoupper((string) $merged['country_code']);
+        }
+
+        if ($channel === 'trendyol') {
+            // Empty is not silence here: Trendyol's own setting means the TURKISH marketplace, which this platform has no storefront for.
+            $code = (string) $merged['storefront_code'];
+            $named[$code === '' ? 'Trendyol Turkey' : 'Trendyol ' . $code] = $code === '' ? 'TR' : $code;
+        }
+
+        if ($channel === 'amazon') {
+            foreach ((array) $merged['marketplace_ids'] as $id) {
+                $country = ChannelAccountCountry::countryOfMarketplace((string) $id);
+
+                if ($country !== '') {
+                    $named[(string) $id] = $country;
+                }
+            }
+        }
+
+        return $named;
     }
 }
