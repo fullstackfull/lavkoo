@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\StoresLocalTime;
+use App\Models\Scopes\StaffCountryChannelAccountScope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -69,5 +70,16 @@ class ExternalOrderLine extends Model
     public function activeQuantity(): int
     {
         return max(0, $this->quantity - $this->quantity_cancelled);
+    }
+
+    /**
+     * A line of a channel order follows that order's account (GCC-14c, slice 6): its own `product_id` is NULL until the line is matched to one
+     * of ours, which is the state the return queue is full of. Inert for every request that binds no country.
+     */
+    protected static function boot(): void
+    {
+        parent::boot();
+
+        static::addGlobalScope(new StaffCountryChannelAccountScope(through: ['external_order_mappings', 'mapping_id']));
     }
 }

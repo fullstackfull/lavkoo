@@ -14,6 +14,7 @@ use App\Http\Controllers\Admin\SalesChannels\Support\ReadsFilters;
 use App\Http\Controllers\Admin\SalesChannels\Support\RunAnnouncer;
 use App\Http\Controllers\Admin\SalesChannels\Support\WriteState;
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\ScopeIntegrationsToStaffCountries;
 use App\Models\ChannelOrderDispatch;
 use App\Models\ExternalOrderMapping;
 use App\Models\FulfillmentRoutingDecision;
@@ -67,6 +68,10 @@ class ChannelOrderController extends Controller
         private readonly DispatchGate $dispatchGate,
         private readonly ReturnPanel $returns,
     ) {
+        // Slice 6 of the staff country scopes (GCC-14c): a channel listing and a channel order belong to the market their ACCOUNT
+        // sells in, a draft and a cost layer to their product, a warehouse to its own market. A restricted employee reaches only theirs,
+        // and the screens that cannot be told apart by market answer them like something that does not exist. Inert while the switch is off.
+        $this->middleware(ScopeIntegrationsToStaffCountries::class);
     }
 
     public function index(Request $request): View

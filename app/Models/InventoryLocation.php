@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\StaffCountryMarketRowScope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -71,5 +72,17 @@ class InventoryLocation extends Model
     public function scopeActive(Builder $query): Builder
     {
         return $query->where('is_active', true);
+    }
+
+    /**
+     * A warehouse carries its own market (`storefront_country`, G1-05), so a restricted employee reads only the shelves of their countries
+     * (GCC-14c, slices 5 and 6) -- and an unmarked location is the default storefront's, which is the rule `StorefrontMarketRows` owns.
+     * Inert for every request that binds no country.
+     */
+    protected static function boot(): void
+    {
+        parent::boot();
+
+        static::addGlobalScope(new StaffCountryMarketRowScope());
     }
 }

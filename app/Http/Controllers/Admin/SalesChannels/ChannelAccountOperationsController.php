@@ -6,6 +6,7 @@ use App\Enums\SalesChannels\SalesChannel;
 use App\Http\Controllers\Admin\SalesChannels\Support\RunAnnouncer;
 use App\Http\Controllers\Admin\SalesChannels\Support\WriteState;
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\ScopeIntegrationsToStaffCountries;
 use Carbon\CarbonImmutable;
 use App\Models\SalesChannelAccount;
 use App\Services\Fulfillment\Support\SafeToast;
@@ -73,6 +74,10 @@ class ChannelAccountOperationsController extends Controller
         private readonly AmazonFinanceGroups $financeGroups,
         private readonly RunAnnouncer $announcer,
     ) {
+        // Slice 6 of the staff country scopes (GCC-14c): a channel listing and a channel order belong to the market their ACCOUNT
+        // sells in, a draft and a cost layer to their product, a warehouse to its own market. A restricted employee reaches only theirs,
+        // and the screens that cannot be told apart by market answer them like something that does not exist. Inert while the switch is off.
+        $this->middleware(ScopeIntegrationsToStaffCountries::class);
     }
 
     /** A read-only test. It never switches anything on, however well it goes. */

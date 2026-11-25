@@ -5,6 +5,8 @@ namespace Tests\Feature\StaffScope;
 use App\Http\Controllers\Admin\Report\RefundTransactionController;
 use App\Http\Controllers\Admin\TransactionController;
 use App\Services\Staff\StaffCountryScope;
+use App\Services\Staff\StaffCostRoutes;
+use App\Services\Staff\StaffIntegrationRoutes;
 use App\Services\Staff\StaffMarketplaceRoutes;
 use App\Services\Staff\StaffOrderRoutes;
 use App\Services\Staff\StaffPromotionRoutes;
@@ -86,12 +88,12 @@ class StaffOrderRouteInventoryTest extends TestCase
                 $this->assertArrayHasKey($entry['slice'], StaffOrderInventory::SLICES, $controller . ': the slice that takes it, or the owner');
             }
             if ($entry['class'] === StaffOrderInventory::SCOPED) {
-                $this->assertContains($entry['slice'], ['slice 2', 'slice 3', 'slice 4', 'slice 5'], $controller);
+                $this->assertContains($entry['slice'], ['slice 2', 'slice 3', 'slice 4', 'slice 5', 'slice 6'], $controller);
             }
         }
         foreach (StaffOrderInventory::READ_THROUGH_SERVICES as $controller => $entry) {
             $this->assertNotSame('', trim($entry['reason']), $controller);
-            $this->assertArrayHasKey($entry['slice'], ($entry['class'] ?? null) === StaffOrderInventory::SCOPED ? ['slice 2' => true, 'slice 3' => true, 'slice 4' => true, 'slice 5' => true] : StaffOrderInventory::SLICES, $controller);
+            $this->assertArrayHasKey($entry['slice'], ($entry['class'] ?? null) === StaffOrderInventory::SCOPED ? ['slice 2' => true, 'slice 3' => true, 'slice 4' => true, 'slice 5' => true, 'slice 6' => true] : StaffOrderInventory::SLICES, $controller);
         }
         foreach (StaffOrderInventory::SCOPED_WITHOUT_ORDER_READS as $controller => $entry) {
             $this->assertNotSame('', trim($entry['reason']), $controller);
@@ -129,7 +131,14 @@ class StaffOrderRouteInventoryTest extends TestCase
         sort($slice2);
         sort($slice3);
 
-        $this->assertSame(['slice 2' => $slice2, 'slice 3' => $slice3], $this->scopedBySurvey());
+        // Slice 6's registries span both surveys, so what this survey can assert of them is containment: see the product survey's own
+        // test for the same reasoning and the other direction.
+        $survey = $this->scopedBySurvey();
+        $slice6 = array_values(array_unique([...StaffIntegrationRoutes::controllers(), ...StaffCostRoutes::controllers()]));
+        $this->assertSame([], array_values(array_diff($survey['slice 6'] ?? [], $slice6)), 'a controller the order survey calls scoped in slice 6 has no rules in either slice-6 registry');
+        unset($survey['slice 6']);
+
+        $this->assertSame(['slice 2' => $slice2, 'slice 3' => $slice3], $survey);
     }
 
     public function test_the_controller_of_the_transactions_nobody_reaches_has_no_admin_route(): void
@@ -163,11 +172,15 @@ class StaffOrderRouteInventoryTest extends TestCase
 
         $this->assertSame([
             'App\Http\Controllers\Admin\AdvancedSearchController' => 'the search',
+            'App\Http\Controllers\Admin\Fulfillment\ProviderFulfillmentController' => 'the integration screens',
             'App\Http\Controllers\Admin\Marketplace\FulfillmentController' => 'the marketplace screens',
             'App\Http\Controllers\Admin\Marketplace\ReturnLogisticsController' => 'the marketplace screens',
             'App\Http\Controllers\Admin\Marketplace\SellerScorecardController' => 'the marketplace screens',
             'App\Http\Controllers\Admin\Marketplace\SettlementController' => 'the marketplace screens',
+            'App\Http\Controllers\Admin\MyFatoorah\SettingsController' => 'the integration screens',
+            'App\Http\Controllers\Admin\OperationalCosts\ProfitabilityController' => 'the cost screens',
             'App\Http\Controllers\Admin\Product\ReviewController' => 'the marketplace screens',
+            'App\Http\Controllers\Admin\SalesChannels\ChannelOrderController' => 'the integration screens',
             'App\Http\Controllers\Admin\Settings\InhouseShopController' => 'the promotion screens',
             'App\Http\Controllers\Admin\V2AdvancedSearchController' => 'the search',
         ], $byAnother);
@@ -186,6 +199,12 @@ class StaffOrderRouteInventoryTest extends TestCase
             if ($by === 'the marketplace screens') {
                 $this->assertStringContainsString('ScopeMarketplaceToStaffCountries', $source, $controller);
                 $this->assertNotSame([], StaffMarketplaceRoutes::rulesOf(controller: $controller), $controller . ' is covered by the marketplace registry');
+                continue;
+            }
+            if ($by === 'the integration screens' || $by === 'the cost screens') {
+                $this->assertStringContainsString('ScopeIntegrationsToStaffCountries', $source, $controller);
+                $rules = $by === 'the cost screens' ? StaffCostRoutes::rulesOf(controller: $controller) : StaffIntegrationRoutes::rulesOf(controller: $controller);
+                $this->assertNotSame([], $rules, $controller . ' is covered by its slice-6 registry');
                 continue;
             }
             $this->assertStringContainsString('ScopePromotionsToStaffCountries', $source, $controller);

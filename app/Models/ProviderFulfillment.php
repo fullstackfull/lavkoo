@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\StaffCountryOrderScope;
+use App\Services\Staff\StaffCountryScope;
 use App\Services\Fulfillment\ProviderRegistry;
 use App\Services\Fulfillment\Contracts\ProviderIdentity;
 use App\Casts\MoneyInItsCurrency;
@@ -166,5 +168,16 @@ class ProviderFulfillment extends Model
     public function scopeActive(Builder $query): Builder
     {
         return $query->whereIn('status', FulfillmentStatus::activeValues());
+    }
+
+    /**
+     * A provider shipment is a shipment of one order, so it follows that order where a screen asked to be narrowed (GCC-14c, slice 6), exactly
+     * as slice 5's own fulfilments do. Inert for every request that binds no country, and for a request no screen narrowed.
+     */
+    protected static function boot(): void
+    {
+        parent::boot();
+
+        static::addGlobalScope(new StaffCountryOrderScope(subject: StaffCountryScope::SUBJECT_PROVIDER_FULFILLMENTS, orderIdColumn: 'order_id'));
     }
 }

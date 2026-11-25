@@ -3,7 +3,9 @@
 namespace App\Services\Staff;
 
 use App\Models\Admin;
+use App\Models\SalesChannelAccount;
 use App\Services\SalesChannels\Inventory\InventoryLocationMarket;
+use App\Services\SalesChannels\Support\ChannelAccountCountry;
 use App\Services\Storefront\CouponCountry;
 use App\Services\Storefront\StorefrontCatalog;
 use App\Services\Storefront\StorefrontCategoryShippingCosts;
@@ -75,6 +77,9 @@ final class StaffCountryScope
 
     /** The fulfilments a request lists (`order_fulfillments`), each through the order it ships (slice 5). */
     public const SUBJECT_FULFILLMENTS = 'fulfillments';
+
+    /** The provider shipments a request lists (`provider_fulfillments`), each through the order the provider is shipping (slice 6). */
+    public const SUBJECT_PROVIDER_FULFILLMENTS = 'provider_fulfillments';
 
     private const REQUEST_ATTRIBUTE = 'staff_country_scope';
 
@@ -564,5 +569,85 @@ final class StaffCountryScope
         });
 
         return $lines->count() === count($ids);
+    }
+
+    /**
+     * Whether the current request may work with the market that the rows carrying NO market belong to (GCC-14c slice 6).
+     *
+     * Two kinds of slice-6 screen need this. A provider's own catalogue -- M5azn's items, the Torod point-of-sale matching -- has no market
+     * column at all and imports what it matches into the default storefront, so the screen belongs to that market and to no other. And a row
+     * of a table that CAN carry a market but does not is the default storefront's by the one rule the whole platform follows
+     * (`StorefrontMarketRows`), which is why this asks that class for the market rather than naming `SA` again here.
+     *
+     * A request that is not narrowed may work with it, as it may with everything.
+     */
+    public function coversTheDefaultMarket(): bool
+    {
+        return $this->allows(country: app(StorefrontMarketRows::class)->defaultCountry());
+    }
+
+    /**
+     * Whether every one of these sales-channel accounts sells in a market the current request may work with (GCC-14c slice 6; H2-04).
+     *
+     * A channel account is the one thing on the sales-channel screens that always has a market: Trendyol names its storefront, noon its
+     * country, and an Amazon account names marketplace ids that say which country it sells in. The rule of how an account's settings become
+     * a country is `ChannelAccountCountry`'s and stays there.
+     *
+     * An account whose settings name NO country -- an Amazon account holding two countries' marketplaces, an empty setting, a country this
+     * platform has no storefront for -- belongs to no market and so to no restricted employee: it fails closed. That is the same answer an
+     * order with no line gets, and for the same reason: nobody has said which market it is, and guessing on a screen that pushes prices and
+     * stock to a marketplace is the one thing that must not happen.
+     *
+     * @param list<int|string> $accountIds
+     */
+    public function coversEveryChannelAccount(array $accountIds): bool
+    {
+        $bound = $this->boundCountries();
+        $ids = array_values(array_unique($accountIds));
+
+        if ($bound === null || $ids === []) {
+            return true;
+        }
+
+        $covered = $this->channelAccountIdsIn(countries: $bound, onlyIds: $ids);
+
+        return count($covered) === count($ids);
+    }
+
+    /**
+     * The sales-channel accounts that sell in the countries of the current request, for the listing scopes of slice 6: the channel listings,
+     * the channel orders and their lines are rows of an account, so what an employee may see of them is what their account's market says.
+     *
+     * Resolved in PHP because an account's market is read from its settings and not from a column, so no SQL can ask the question. There are
+     * tens of accounts on a platform, not thousands, and the scopes that call this run once per query.
+     *
+     * @return list<int>|null null when the request is not narrowed and nothing should be narrowed
+     */
+    public function channelAccountIdsOfTheRequest(): ?array
+    {
+        $bound = $this->boundCountries();
+
+        return $bound === null ? null : $this->channelAccountIdsIn(countries: $bound);
+    }
+
+    /**
+     * @param list<string> $countries
+     * @param list<int|string>|null $onlyIds the accounts asked about, or null for every account there is
+     * @return list<int>
+     */
+    private function channelAccountIdsIn(array $countries, ?array $onlyIds = null): array
+    {
+        if ($countries === [] || !Schema::hasTable('sales_channel_accounts')) {
+            return [];
+        }
+
+        $accounts = SalesChannelAccount::query()->when($onlyIds !== null, static fn ($query) => $query->whereIn('id', (array) $onlyIds))->get();
+        $market = app(ChannelAccountCountry::class);
+
+        return $accounts
+            ->filter(static fn (SalesChannelAccount $account): bool => in_array($market->of($account), $countries, true))
+            ->map(static fn (SalesChannelAccount $account): int => (int) $account->getKey())
+            ->values()
+            ->all();
     }
 }

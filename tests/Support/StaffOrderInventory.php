@@ -180,20 +180,20 @@ final class StaffOrderInventory
             'reason' => 'The reviews list loads the order behind a review, and the review itself is narrowed by the market of its PRODUCT -- which is the market of the review, and the one key a review always has, since a review may name no order. Every action has a rule in StaffMarketplaceRoutes.',
         ],
         ProviderFulfillmentController::class => [
-            'class' => self::OUT, 'slice' => 'slice 6',
-            'reason' => 'The provider fulfilments are shipments of orders of every country.',
+            'class' => self::SCOPED, 'slice' => 'slice 6', 'by' => 'the integration screens',
+            'reason' => 'A provider shipment is a shipment of one order, so it follows that order where a screen asked to be narrowed (StaffCountryOrderScope on ProviderFulfillment, subject `provider_fulfillments`), and an action on one is judged by the order it ships. The provider API logs are the provider\'s traffic for the whole platform and are refused. Every action has a rule in StaffIntegrationRoutes.',
         ],
         ChannelOrderController::class => [
-            'class' => self::OUT, 'slice' => 'slice 6',
-            'reason' => 'A channel order is mapped to an order of any country.',
+            'class' => self::SCOPED, 'slice' => 'slice 6', 'by' => 'the integration screens',
+            'reason' => 'A channel order belongs to its ACCOUNT, not to an order of ours: order_id stays NULL until we take responsibility for fulfilling it, so the account is the key the row always has. Narrowed in slice 6 by the account (StaffCountryChannelAccountScope). Every action has a rule in StaffIntegrationRoutes.',
         ],
         ProfitabilityController::class => [
-            'class' => self::OUT, 'slice' => 'slice 6',
-            'reason' => 'The profitability of an order of any country, with its costs.',
+            'class' => self::SCOPED, 'slice' => 'slice 6', 'by' => 'the cost screens',
+            'reason' => 'The profit page of ONE sale names an order of ours or a channel order and is judged by whichever it names. The LIST and its export are read by SaleDocumentReader with the query builder and the rollup has no market dimension, so both are refused together rather than narrowing a page whose export hands over every market. Every action has a rule in StaffCostRoutes.',
         ],
         MyFatoorahSettingsController::class => [
-            'class' => self::OUT, 'slice' => 'slice 6',
-            'reason' => 'Lists the payment attempts and refunds of the gateway, which belong to orders of every country, and acts on an attempt by its id.',
+            'class' => self::SCOPED, 'slice' => 'slice 6', 'by' => 'the integration screens',
+            'reason' => 'A payment ATTEMPT names a payment_request_id and not an order -- the order does not exist yet when the attempt is made -- so no row of this monitor can be told apart by market, while its actions refund money and re-run webhooks. Settled in slice 6 by a REFUSAL: every action is `unavailable` in StaffIntegrationRoutes.',
         ],
     ];
 
@@ -211,8 +211,8 @@ final class StaffOrderInventory
         'App\Http\Controllers\Admin\Customer\CustomerLoyaltyController' => ['class' => self::SCOPED, 'slice' => 'slice 3', 'reason' => 'A customer\'s loyalty movements, narrowed the same way through loyalty_point_transactions.storefront_country. Every action has a rule in StaffOrderRoutes.'],
         'App\Http\Controllers\Admin\Marketplace\SellerScorecardController' => ['class' => self::SCOPED, 'slice' => 'slice 5', 'by' => 'the marketplace screens', 'reason' => 'The scorecard of a seller is made of its orders of every country, through SellerScorecardService, which reads them with the QUERY BUILDER so no scope reaches them -- and which market\'s orders count towards a seller\'s tier is a question nobody has answered. Settled in slice 5 by a REFUSAL: `unavailable` in StaffMarketplaceRoutes, so a restricted employee is answered like for a page that does not exist rather than shown a platform total.'],
         'App\Http\Controllers\Admin\Marketplace\SettlementController' => ['class' => self::SCOPED, 'slice' => 'slice 5', 'by' => 'the marketplace screens', 'reason' => 'The settlements of the sellers are made of their orders of every country, through a vendor ledger keyed by seller, currency and legal entity and not by market (E-17.2 ships off), so a settlement cannot be split by country at all; and the separation of duties and the payment terms on that page change what happens in every market. Settled in slice 5 by a REFUSAL: every action is `unavailable` in StaffMarketplaceRoutes.'],
-        'App\Http\Controllers\Admin\OperationalCosts\OverviewController' => ['slice' => 'slice 6', 'reason' => 'The overview of the operational costs aggregates the profit of the orders of every country.'],
-        'App\Http\Controllers\Admin\SalesChannels\ChannelAccountOperationsController' => ['slice' => 'slice 6', 'reason' => 'Synchronises the orders of a sales channel account, which map to orders of any country.'],
+        'App\Http\Controllers\Admin\OperationalCosts\OverviewController' => ['class' => self::SCOPED, 'slice' => 'slice 6', 'reason' => 'The overview of the operational costs aggregates the profit of the orders of every country, and the rollup has no market dimension to narrow. Settled in slice 6 by a REFUSAL: `unavailable` in StaffCostRoutes, so an employee of one market is not shown a platform total as though it were theirs.'],
+        'App\Http\Controllers\Admin\SalesChannels\ChannelAccountOperationsController' => ['class' => self::SCOPED, 'slice' => 'slice 6', 'reason' => 'Everything that CALLS a marketplace is an account\'s connection, so each action is judged by the market that account sells in (StaffCountryScope::coversEveryChannelAccount). An account whose settings name no country belongs to no market and is refused. Every action has a rule in StaffIntegrationRoutes.'],
     ];
 
     /**
@@ -229,7 +229,7 @@ final class StaffOrderInventory
     /** @return array<string, int> how many controllers there are of each status: scoped in slice 2, 3, 4 and 5, not needed, out */
     public static function countsByStatus(): array
     {
-        $counts = ['slice 2' => 0, 'slice 3' => 0, 'slice 4' => 0, 'slice 5' => 0, self::NOT_NEEDED => 0, self::OUT => 0];
+        $counts = ['slice 2' => 0, 'slice 3' => 0, 'slice 4' => 0, 'slice 5' => 0, 'slice 6' => 0, self::NOT_NEEDED => 0, self::OUT => 0];
         foreach (self::CONTROLLERS as $entry) {
             $counts[self::statusKeyOf($entry)]++;
         }

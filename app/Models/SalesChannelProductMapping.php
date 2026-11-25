@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\StoresLocalTime;
+use App\Models\Scopes\StaffCountryChannelAccountScope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -93,5 +94,17 @@ class SalesChannelProductMapping extends Model
     public function scopeUnlinked(Builder $query): Builder
     {
         return $query->whereIn('status', [self::UNMAPPED, self::SUGGESTED, self::CONFLICT]);
+    }
+
+    /**
+     * A channel listing is its ACCOUNT's, and an account sells in one market, so a restricted employee reads only the listings of the accounts
+     * that sell in their countries (GCC-14c, slice 6). Narrowed by the account and never by `product_id`, which is NULL for exactly the rows
+     * this screen exists for -- an unlinked listing waiting to be matched to one of ours. Inert for every request that binds no country.
+     */
+    protected static function boot(): void
+    {
+        parent::boot();
+
+        static::addGlobalScope(new StaffCountryChannelAccountScope());
     }
 }

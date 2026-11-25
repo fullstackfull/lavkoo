@@ -1,4 +1,4 @@
-# GCC-14c: staff country scopes (slices 1 to 5: the product screens, the order, POS and refund screens, the shared layout, the people, the dashboard and the reports, the promotion and content screens, and the marketplace stock screens, of the admin panel)
+# GCC-14c: staff country scopes (slices 1 to 6: the product screens, the order, POS and refund screens, the shared layout, the people, the dashboard and the reports, the promotion and content screens, the marketplace screens, and the integrations and operational costs, of the admin panel)
 
 **Status:** draft, behind a switch that ships **off**. Nothing here runs on the pilot server or on production. One additive migration, no change to what a Saudi
 customer, seller or admin sees or is answered while the switch is off, and nothing narrows an employee until somebody assigns them a country.
@@ -773,6 +773,70 @@ inventory lane. Nor does it reach the vendor panel, the seller API staff or a le
 | `GET\|POST\|PUT\|PATCH\|DELETE\|OPTIONS admin/reviews/search-vendor` | `ReviewController::searchVendor` | `list` | module:people |
 <!-- slice-5-rules-end -->
 
+## What slice 6 enforces (the integrations and the operational costs)
+
+The sales channels, the fulfilment providers, the payment-gateway monitor and the operational costs.
+`ScopeIntegrationsToStaffCountries` is registered by the constructors of all fourteen controllers, after the sign-in check and the module
+permission of the route, and two registries hold the rules. `App\Services\Staff\StaffIntegrationRoutes` holds
+the rule of each of their 68 actions, and `App\Services\Staff\StaffCostRoutes` holds the rule of each of their 10 cost actions.
+A route of one of them without a rule is
+REFUSED to a restricted employee, so an action added to one of these screens is unreachable to such an employee until somebody decides what
+market it belongs to.
+
+**One middleware for both registries**, for the reason slice 4 gives: two would each read a rule out of a registry that does not hold the
+other's and refuse the route the other covers.
+
+**What made this slice wait, and what the enabling change was.** These are the first screens on the project to use ROUTE MODEL BINDING
+(`SalesChannelAccount $account`, `ChannelListingDraft $draft`, `InventoryLocation $location`, `FulfillmentRoutingRule $rule`), and
+`SubstituteBindings` runs in the `web` group BEFORE a controller's own middleware -- so `$request->route('account')` hands back the MODEL and
+not the digits, and `StaffRouteIds::one()` answered null for it. Reading a bound model's key is the whole of the enabling change; without it
+the guard would have refused every one of these screens to every restricted employee while looking like a working guard.
+
+**Which thing carries the market is not the same on every screen, and the product is the wrong answer on the ones that look most like it.**
+
+1. A CHANNEL LISTING belongs to its ACCOUNT. `sales_channel_product_mappings.product_id` is nullable and is null for exactly the rows the
+   screen exists for -- an unlinked listing the channel sent us, waiting for somebody to say which of our products it is -- so a product rule
+   would hide the whole job from every restricted employee. An account sells in one market (`ChannelAccountCountry`: Trendyol names its
+   storefront, noon its country, an Amazon account its marketplace ids), and one whose settings name NO country belongs to no market and is
+   refused, which is the answer an order with no line gets.
+2. LINKING a listing to a product is judged by BOTH -- the listing's account and the posted product. That is the security property of that
+   screen: a Kuwait employee must not be able to attach a Saudi product to a Kuwait channel listing and start publishing its price and stock.
+3. A CHANNEL ORDER (`external_order_mappings`) belongs to its account too: its `order_id` stays null until we take responsibility for
+   fulfilling it. A LINE of one (`external_order_lines`) reaches its account through the mapping, which is how the cost return queue is
+   narrowed.
+4. A LISTING DRAFT (`channel_listing_drafts.product_id`, not nullable) is one of OUR products going out, so it follows the product.
+5. A PROVIDER SHIPMENT (`provider_fulfillments.order_id`) follows the order it carries, as slice 5's own fulfilments do, through the new
+   subject `provider_fulfillments` -- narrowed only where a screen asked for it, so an action that CHANGES one still runs on the real data.
+6. A WAREHOUSE is judged by its own market (`inventory_locations.storefront_country`), which is what
+   `StaffCountryScope::coversEveryInventoryLocation()` was built for in slice 5 and had no caller for until here. Its LIST is narrowed by
+   `StaffCountryMarketRowScope`, the rule the shipping scope already applied, under a name that is not about shipping.
+7. A COST LAYER is the purchase price of one product in one warehouse, so it follows the product -- the mirror of a channel listing, which is
+   the sale price of one, and the reason the integrations and the costs are one slice. RECORDING a cost is judged by the product AND the
+   warehouse: writing a purchase cost onto another market's product changes the margin that market sells on.
+8. A ROUTING RULE is judged by the product or the country it names. One that names NEITHER decides where every market's parcels go, so it
+   stays on the list -- it has no market to be hidden by -- and every write of it is refused. That is the rule a global commission rule
+   follows.
+9. A PROFIT page of one sale names an order of ours or a channel order and is judged by whichever it names.
+
+**Five things are settled by a REFUSAL (`unavailable`, or the market of the unmarked rows), and each is a fact about the data rather than a
+preference:**
+
+- the M5AZN catalogue and the TOROD point-of-sale matching are one provider's own catalogue with no market column at all, and what they
+  import or match becomes a product of the DEFAULT storefront; M5azn's screen also joins `products` with the query builder, so no scope
+  reaches it. They belong to the default market and to no other (`default_market`), which is a refusal for every employee who does not hold
+  it rather than a narrowing. Torod is declared SA:SA until Q-33 is answered;
+- the PAYMENT-GATEWAY MONITOR (MyFatoorah) lists payment ATTEMPTS, and an attempt names a `payment_request_id` and not an order -- the order
+  does not exist yet when the attempt is made. So no row of it can be told apart by market, while the actions on that screen REFUND money and
+  re-run webhooks. Every action is refused rather than letting an employee of one market take money back on another market's payment;
+- the COST OVERVIEW and the PROFIT LIST with its export are the same figures at two sizes, read by `SaleDocumentReader` with the query
+  builder, and the rollup has no market dimension at all. Narrowing the page while the export of the same page hands over every market is the
+  shape G-10 exists to stop, so both are refused together until the rollup has a market;
+- the PROVIDER API LOGS are the provider's traffic for the whole platform.
+
+**What this slice does NOT cover**, and is written here rather than implied: a sales-channel ACCOUNT still derives its market from its own
+settings rather than holding one (H2-04 asks for an explicit column and a validation, which is a different lane); the stock POOLS read their
+market through the product, not through a key of their own; and the `legal_entity_id` of a warehouse is written by nothing.
+
 ## The survey: every admin route that reads products or names one
 
 `tests/Feature/StaffScope/StaffProductRouteInventoryTest.php` walks the real route table of the admin panel and fails for an admin controller that reads products or names
@@ -782,8 +846,8 @@ slice, and the scoped controllers are exactly the ones that have rules. A second
 each action, its path and its parameters, and the file of each controller (so a route that delegates to a helper of its controller is not missed): the repository, the model, the
 product manager, the products table, and a product id in a request.
 
-**50 controllers: 3 scoped in slice 1, 5 scoped in slice 2, 9 scoped in slice 3, 10 scoped in slice 4, 8 scoped in slice 5, 6 not needed, 9 out of slice 5.**
-**158 routes read or name a product: 47 scoped in slice 1, 16 scoped in slice 2, 13 scoped in slice 3, 22 scoped in slice 4, 13 scoped in slice 5, 22 not needed, 25 out of slice 5.**
+**50 controllers: 3 scoped in slice 1, 5 scoped in slice 2, 9 scoped in slice 3, 10 scoped in slice 4, 8 scoped in slice 5, 9 scoped in slice 6, 6 not needed, 0 out of slice 6.**
+**158 routes read or name a product: 47 scoped in slice 1, 16 scoped in slice 2, 13 scoped in slice 3, 22 scoped in slice 4, 13 scoped in slice 5, 25 scoped in slice 6, 22 not needed, 0 out of slice 6.**
 
 The slices that follow slice 3 (the people, the dashboard, the reports and the shared layout), in the order proposed:
 
@@ -836,15 +900,15 @@ The slices that follow slice 3 (the people, the dashboard, the reports and the s
 | `Admin\Marketplace\PurchaseOrderController` | 7 | 1 | scoped in slice 5 | A purchase order line names a product. Narrowed in slice 5: creating one is judged by every line that names a catalogue product, and opening, placing, receiving or cancelling one is judged by EVERY line's product -- the rule an order follows, because a purchase order can buy two markets' goods. One that buys nothing from the catalogue belongs to no market and is refused rather than guessed at. |
 | `Admin\Marketplace\ReturnLogisticsController` | 5 | 1 | scoped in slice 5 | A return names a product, an order, a line, or several of those. Narrowed in slice 5 by whichever it names -- the product directly, or every product of the order or line it points at -- and the queue is narrowed through the order each return is of (StaffCountryOrderScope on ReturnShipment, subject `returns`). A return that names neither a product nor an order belongs to no market and fails closed. Every action has a rule in StaffMarketplaceRoutes. |
 | `Admin\Marketplace\WarehouseController` | 5 | 3 | scoped in slice 5 | Places and transfers the stock of a product by id. Narrowed in slice 5: both writes are judged by the product id, and the per-shelf breakdown is narrowed through the product of each balance (StaffCountryProductRowScope on WarehouseStock). The WAREHOUSE itself carries no market -- inventory_locations gained one and the marketplace's own warehouses table did not -- so a restricted employee still sees every shelf on the list, which the survey says rather than implies. |
-| `Admin\Fulfillment\M5aznProductsController` | 3 | 3 | out of slice 5 (slice 6) | Imports provider items as products in the default country, and lists the ones already mapped. |
-| `Admin\Fulfillment\TorodMatchingController` | 13 | 4 | out of slice 5 (slice 6) | Matches provider items to the products of the default storefront's country when codes are per country; otherwise every country's. |
-| `Admin\SalesChannels\ChannelProductController` | 8 | 8 | out of slice 5 (slice 6) | Links a channel listing to a product picked among every country's. |
-| `Admin\SalesChannels\ChannelListingController` | 9 | 2 | out of slice 5 (slice 6) | Drafts and publishes the listing of a product by id, of any country. |
-| `Admin\SalesChannels\ChannelInventoryController` | 2 | 1 | out of slice 5 (slice 6) | Lists the stock a channel holds for the products of every country. |
-| `Admin\SalesChannels\ChannelOrderController` | 7 | 1 | out of slice 5 (slice 6) | A channel order's lines are matched to products of any country. |
-| `Admin\SalesChannels\ChannelRoutingController` | 4 | 1 | out of slice 5 (slice 6) | A routing rule can name a product of any country. |
-| `Admin\OperationalCosts\ProductCostController` | 4 | 4 | out of slice 5 (slice 6) | The cost layer picker offers the products of every country. |
-| `Admin\OperationalCosts\ReturnController` | 2 | 1 | out of slice 5 (slice 6) | The returns of the operational costs name products of any country. |
+| `Admin\Fulfillment\M5aznProductsController` | 3 | 3 | scoped in slice 6 | M5azn's own catalogue has no market column, and what it imports becomes a product of the DEFAULT storefront -- while its rows join products with the QUERY BUILDER, so no scope reaches them. Settled in slice 6 by the market the unmarked rows belong to: `default_market` in StaffIntegrationRoutes, so only an employee who holds the default storefront's market reaches the screen. |
+| `Admin\Fulfillment\TorodMatchingController` | 13 | 4 | scoped in slice 6 | The Torod point-of-sale catalogue and its city decisions are the default storefront's, and the provider is declared SA:SA until Q-33 is answered. Settled in slice 6 the same way as M5azn's: `default_market` for all thirteen actions. |
+| `Admin\SalesChannels\ChannelProductController` | 8 | 8 | scoped in slice 6 | A channel listing belongs to the market its ACCOUNT sells in, not to the product it points at -- product_id is NULL for exactly the rows this screen exists for. Narrowed in slice 6 by the account (StaffCountryChannelAccountScope), and LINKING one is judged by the listing's account AND the posted product. Every action has a rule in StaffIntegrationRoutes. |
+| `Admin\SalesChannels\ChannelListingController` | 9 | 2 | scoped in slice 6 | One of OUR products going out to a channel: judged by the product at the start and by the draft's product from then on (StaffCountryProductRowScope on ChannelListingDraft). Every action has a rule in StaffIntegrationRoutes. |
+| `Admin\SalesChannels\ChannelInventoryController` | 2 | 1 | scoped in slice 6 | The stock a channel holds, by warehouse. Narrowed in slice 6 by the market of the WAREHOUSE (inventory_locations.storefront_country, StaffCountryMarketRowScope and StaffCountryScope::coversEveryInventoryLocation), which is the first caller that question ever had. Every action has a rule in StaffIntegrationRoutes. |
+| `Admin\SalesChannels\ChannelOrderController` | 7 | 1 | scoped in slice 6 | A channel order belongs to its ACCOUNT: order_id stays NULL until we take responsibility for fulfilling it. Narrowed in slice 6 by the account. Every action has a rule in StaffIntegrationRoutes. |
+| `Admin\SalesChannels\ChannelRoutingController` | 4 | 1 | scoped in slice 6 | A routing rule is judged by the product or the country it names; one that names neither decides where every market's parcels go, so it stays on the list and every write of it is refused -- the rule a global commission rule follows. Every action has a rule in StaffIntegrationRoutes. |
+| `Admin\OperationalCosts\ProductCostController` | 4 | 4 | scoped in slice 6 | A cost layer is what one product cost us in one warehouse, so it follows the product (StaffCountryProductRowScope on InventoryCostLayer), and recording one is judged by the product AND the warehouse. Every action has a rule in StaffCostRoutes. |
+| `Admin\OperationalCosts\ReturnController` | 2 | 1 | scoped in slice 6 | A return decision is about a line of a channel order, so it follows that order's account (StaffCountryChannelAccountScope through external_order_mappings). Every action has a rule in StaffCostRoutes. |
 
 ### Routes that read or name a product, of the controllers that are not needed
 
@@ -905,7 +969,7 @@ The slices that follow slice 3 (the people, the dashboard, the reports and the s
 | `Admin\Marketplace\PurchaseOrderController` | `POST admin/marketplace/purchase-orders` |
 | `Admin\Marketplace\WarehouseController` | `GET admin/marketplace/warehouses`<br>`POST admin/marketplace/warehouses/place`<br>`POST admin/marketplace/warehouses/transfer` |
 
-### Routes that read or name a product, of the controllers that are out of slice 5
+### Routes that read or name a product, of the controllers that are out of slice 6
 
 A restricted employee who has the permission of one of these screens still sees every country's products there. Each is named for the slice that takes it.
 
@@ -959,8 +1023,8 @@ It walks the real route table and fails for an admin controller that reads any o
 The scan reads the models, the repositories, the tables, the relations, the services that hold the sums, the wallets, and an order id in a request, in the source of each action and
 in the file of each controller. The scoped controllers are exactly the ones that have rules in `StaffOrderRoutes`, and a test keeps this document in step.
 
-**32 controllers: 6 scoped in slice 2, 14 scoped in slice 3, 1 scoped in slice 4, 3 scoped in slice 5, 4 not needed, 4 out of slice 5.**
-**114 routes read or name an order: 36 scoped in slice 2, 49 scoped in slice 3, 1 scoped in slice 4, 4 scoped in slice 5, 13 not needed, 11 out of slice 5.**
+**32 controllers: 6 scoped in slice 2, 14 scoped in slice 3, 1 scoped in slice 4, 3 scoped in slice 5, 4 scoped in slice 6, 4 not needed, 0 out of slice 6.**
+**114 routes read or name an order: 36 scoped in slice 2, 49 scoped in slice 3, 1 scoped in slice 4, 4 scoped in slice 5, 11 scoped in slice 6, 13 not needed, 0 out of slice 6.**
 
 | Slice | What it takes |
 |---|---|
@@ -1000,10 +1064,10 @@ in the file of each controller. The scoped controllers are exactly the ones that
 | `Admin\Marketplace\FulfillmentController` | 4 | 2 | scoped in slice 5 | The marketplace fulfilments are shipments of orders. Narrowed in slice 5 through the order each one ships (StaffCountryOrderScope on OrderFulfillment, subject `fulfillments`), and opening, advancing or cancelling one is judged by that order. Only the queue is narrowed: the service that opens one has to see the fulfilments an order already has, whatever market they are in. Every action has a rule in StaffMarketplaceRoutes. |
 | `Admin\Marketplace\ReturnLogisticsController` | 5 | 1 | scoped in slice 5 | A marketplace return names an order, a line, a product or several of those, and is judged by whichever it names; the queue is narrowed through the order each return is of. Every action has a rule in StaffMarketplaceRoutes. |
 | `Admin\Product\ReviewController` | 7 | 1 | scoped in slice 5 | The reviews list loads the order behind a review, and the review itself is narrowed by the market of its PRODUCT -- which is the market of the review, and the one key a review always has, since a review may name no order. Every action has a rule in StaffMarketplaceRoutes. |
-| `Admin\Fulfillment\ProviderFulfillmentController` | 5 | 1 | out of slice 5 (slice 6) | The provider fulfilments are shipments of orders of every country. |
-| `Admin\SalesChannels\ChannelOrderController` | 7 | 7 | out of slice 5 (slice 6) | A channel order is mapped to an order of any country. |
-| `Admin\OperationalCosts\ProfitabilityController` | 3 | 1 | out of slice 5 (slice 6) | The profitability of an order of any country, with its costs. |
-| `Admin\MyFatoorah\SettingsController` | 10 | 2 | out of slice 5 (slice 6) | Lists the payment attempts and refunds of the gateway, which belong to orders of every country, and acts on an attempt by its id. |
+| `Admin\Fulfillment\ProviderFulfillmentController` | 5 | 1 | scoped in slice 6 | A provider shipment is a shipment of one order, so it follows that order where a screen asked to be narrowed (StaffCountryOrderScope on ProviderFulfillment, subject `provider_fulfillments`), and an action on one is judged by the order it ships. The provider API logs are the provider's traffic for the whole platform and are refused. Every action has a rule in StaffIntegrationRoutes. |
+| `Admin\SalesChannels\ChannelOrderController` | 7 | 7 | scoped in slice 6 | A channel order belongs to its ACCOUNT, not to an order of ours: order_id stays NULL until we take responsibility for fulfilling it, so the account is the key the row always has. Narrowed in slice 6 by the account (StaffCountryChannelAccountScope). Every action has a rule in StaffIntegrationRoutes. |
+| `Admin\OperationalCosts\ProfitabilityController` | 3 | 1 | scoped in slice 6 | The profit page of ONE sale names an order of ours or a channel order and is judged by whichever it names. The LIST and its export are read by SaleDocumentReader with the query builder and the rollup has no market dimension, so both are refused together rather than narrowing a page whose export hands over every market. Every action has a rule in StaffCostRoutes. |
+| `Admin\MyFatoorah\SettingsController` | 10 | 2 | scoped in slice 6 | A payment ATTEMPT names a payment_request_id and not an order -- the order does not exist yet when the attempt is made -- so no row of this monitor can be told apart by market, while its actions refund money and re-run webhooks. Settled in slice 6 by a REFUSAL: every action is `unavailable` in StaffIntegrationRoutes. |
 
 ### Routes that read or name an order, of the controllers scoped in slice 3
 
@@ -1039,7 +1103,7 @@ in the file of each controller. The scoped controllers are exactly the ones that
 |---|---|
 | `Admin\Settings\InhouseShopController` | `GET admin/business-settings/inhouse-shop` |
 
-### Routes that read or name an order, of the controllers that are out of slice 5
+### Routes that read or name an order, of the controllers that are out of slice 6
 
 A restricted employee who has the permission of one of these screens still sees the orders of every country there. Each is named for the slice that takes it, or for the owner.
 
@@ -1068,8 +1132,8 @@ fails the day one reaches it.
 | `Admin\Customer\CustomerLoyaltyController` | scoped in slice 3 | A customer's loyalty movements, narrowed the same way through loyalty_point_transactions.storefront_country. Every action has a rule in StaffOrderRoutes. |
 | `Admin\Marketplace\SellerScorecardController` | scoped in slice 5 | The scorecard of a seller is made of its orders of every country, through SellerScorecardService, which reads them with the QUERY BUILDER so no scope reaches them -- and which market's orders count towards a seller's tier is a question nobody has answered. Settled in slice 5 by a REFUSAL: `unavailable` in StaffMarketplaceRoutes, so a restricted employee is answered like for a page that does not exist rather than shown a platform total. |
 | `Admin\Marketplace\SettlementController` | scoped in slice 5 | The settlements of the sellers are made of their orders of every country, through a vendor ledger keyed by seller, currency and legal entity and not by market (E-17.2 ships off), so a settlement cannot be split by country at all; and the separation of duties and the payment terms on that page change what happens in every market. Settled in slice 5 by a REFUSAL: every action is `unavailable` in StaffMarketplaceRoutes. |
-| `Admin\OperationalCosts\OverviewController` | out of slice 5 (slice 6) | The overview of the operational costs aggregates the profit of the orders of every country. |
-| `Admin\SalesChannels\ChannelAccountOperationsController` | out of slice 5 (slice 6) | Synchronises the orders of a sales channel account, which map to orders of any country. |
+| `Admin\OperationalCosts\OverviewController` | scoped in slice 6 | The overview of the operational costs aggregates the profit of the orders of every country, and the rollup has no market dimension to narrow. Settled in slice 6 by a REFUSAL: `unavailable` in StaffCostRoutes, so an employee of one market is not shown a platform total as though it were theirs. |
+| `Admin\SalesChannels\ChannelAccountOperationsController` | scoped in slice 6 | Everything that CALLS a marketplace is an account's connection, so each action is judged by the market that account sells in (StaffCountryScope::coversEveryChannelAccount). An account whose settings name no country belongs to no market and is refused. Every action has a rule in StaffIntegrationRoutes. |
 | `Admin\POS\CartController` | scoped in slice 2 | The POS cart takes, prices and counts a product by id and reads no order (StaffOrderRoutes). |
 | `Admin\ProductStockReportController` | scoped in slice 3 | The stock report and its export list the products of the employee's countries and read no order (StaffOrderRoutes). |
 | `Admin\ProductWishlistReportController` | scoped in slice 3 | The wishlist report and its export list the products of the employee's countries and read no order (StaffOrderRoutes). |

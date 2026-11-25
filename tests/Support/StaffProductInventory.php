@@ -245,40 +245,40 @@ final class StaffProductInventory
             'reason' => 'Places and transfers the stock of a product by id. Narrowed in slice 5: both writes are judged by the product id, and the per-shelf breakdown is narrowed through the product of each balance (StaffCountryProductRowScope on WarehouseStock). The WAREHOUSE itself carries no market -- inventory_locations gained one and the marketplace\'s own warehouses table did not -- so a restricted employee still sees every shelf on the list, which the survey says rather than implies.',
         ],
         M5aznProductsController::class => [
-            'class' => self::OUT, 'slice' => 'slice 6',
-            'reason' => 'Imports provider items as products in the default country, and lists the ones already mapped.',
+            'class' => self::SCOPED, 'slice' => 'slice 6',
+            'reason' => 'M5azn\'s own catalogue has no market column, and what it imports becomes a product of the DEFAULT storefront -- while its rows join products with the QUERY BUILDER, so no scope reaches them. Settled in slice 6 by the market the unmarked rows belong to: `default_market` in StaffIntegrationRoutes, so only an employee who holds the default storefront\'s market reaches the screen.',
         ],
         TorodMatchingController::class => [
-            'class' => self::OUT, 'slice' => 'slice 6',
-            'reason' => 'Matches provider items to the products of the default storefront\'s country when codes are per country; otherwise every country\'s.',
+            'class' => self::SCOPED, 'slice' => 'slice 6',
+            'reason' => 'The Torod point-of-sale catalogue and its city decisions are the default storefront\'s, and the provider is declared SA:SA until Q-33 is answered. Settled in slice 6 the same way as M5azn\'s: `default_market` for all thirteen actions.',
         ],
         ChannelProductController::class => [
-            'class' => self::OUT, 'slice' => 'slice 6',
-            'reason' => 'Links a channel listing to a product picked among every country\'s.',
+            'class' => self::SCOPED, 'slice' => 'slice 6',
+            'reason' => 'A channel listing belongs to the market its ACCOUNT sells in, not to the product it points at -- product_id is NULL for exactly the rows this screen exists for. Narrowed in slice 6 by the account (StaffCountryChannelAccountScope), and LINKING one is judged by the listing\'s account AND the posted product. Every action has a rule in StaffIntegrationRoutes.',
         ],
         ChannelListingController::class => [
-            'class' => self::OUT, 'slice' => 'slice 6',
-            'reason' => 'Drafts and publishes the listing of a product by id, of any country.',
+            'class' => self::SCOPED, 'slice' => 'slice 6',
+            'reason' => 'One of OUR products going out to a channel: judged by the product at the start and by the draft\'s product from then on (StaffCountryProductRowScope on ChannelListingDraft). Every action has a rule in StaffIntegrationRoutes.',
         ],
         ChannelInventoryController::class => [
-            'class' => self::OUT, 'slice' => 'slice 6',
-            'reason' => 'Lists the stock a channel holds for the products of every country.',
+            'class' => self::SCOPED, 'slice' => 'slice 6',
+            'reason' => 'The stock a channel holds, by warehouse. Narrowed in slice 6 by the market of the WAREHOUSE (inventory_locations.storefront_country, StaffCountryMarketRowScope and StaffCountryScope::coversEveryInventoryLocation), which is the first caller that question ever had. Every action has a rule in StaffIntegrationRoutes.',
         ],
         ChannelOrderController::class => [
-            'class' => self::OUT, 'slice' => 'slice 6',
-            'reason' => 'A channel order\'s lines are matched to products of any country.',
+            'class' => self::SCOPED, 'slice' => 'slice 6',
+            'reason' => 'A channel order belongs to its ACCOUNT: order_id stays NULL until we take responsibility for fulfilling it. Narrowed in slice 6 by the account. Every action has a rule in StaffIntegrationRoutes.',
         ],
         ChannelRoutingController::class => [
-            'class' => self::OUT, 'slice' => 'slice 6',
-            'reason' => 'A routing rule can name a product of any country.',
+            'class' => self::SCOPED, 'slice' => 'slice 6',
+            'reason' => 'A routing rule is judged by the product or the country it names; one that names neither decides where every market\'s parcels go, so it stays on the list and every write of it is refused -- the rule a global commission rule follows. Every action has a rule in StaffIntegrationRoutes.',
         ],
         ProductCostController::class => [
-            'class' => self::OUT, 'slice' => 'slice 6',
-            'reason' => 'The cost layer picker offers the products of every country.',
+            'class' => self::SCOPED, 'slice' => 'slice 6',
+            'reason' => 'A cost layer is what one product cost us in one warehouse, so it follows the product (StaffCountryProductRowScope on InventoryCostLayer), and recording one is judged by the product AND the warehouse. Every action has a rule in StaffCostRoutes.',
         ],
         OperationalCostsReturnController::class => [
-            'class' => self::OUT, 'slice' => 'slice 6',
-            'reason' => 'The returns of the operational costs name products of any country.',
+            'class' => self::SCOPED, 'slice' => 'slice 6',
+            'reason' => 'A return decision is about a line of a channel order, so it follows that order\'s account (StaffCountryChannelAccountScope through external_order_mappings). Every action has a rule in StaffCostRoutes.',
         ],
     ];
 
@@ -320,7 +320,7 @@ final class StaffProductInventory
     /** @return array<string, int> how many controllers there are of each status: scoped in slice 1, 2, 3, 4 and 5, not needed, out */
     public static function countsByStatus(): array
     {
-        $counts = ['slice 1' => 0, 'slice 2' => 0, 'slice 3' => 0, 'slice 4' => 0, 'slice 5' => 0, self::NOT_NEEDED => 0, self::OUT => 0];
+        $counts = ['slice 1' => 0, 'slice 2' => 0, 'slice 3' => 0, 'slice 4' => 0, 'slice 5' => 0, 'slice 6' => 0, self::NOT_NEEDED => 0, self::OUT => 0];
         foreach (self::CONTROLLERS as $entry) {
             $counts[self::statusKeyOf($entry)]++;
         }

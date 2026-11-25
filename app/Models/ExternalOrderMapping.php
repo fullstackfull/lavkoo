@@ -6,6 +6,7 @@ use App\Enums\SalesChannels\ChannelOrderStatus;
 use App\Enums\SalesChannels\ExecutionPolicy;
 use App\Enums\SalesChannels\FulfillmentMode;
 use App\Models\Concerns\StoresLocalTime;
+use App\Models\Scopes\StaffCountryChannelAccountScope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -85,5 +86,16 @@ class ExternalOrderMapping extends Model
     public function scopeForAccount(Builder $query, int $accountId): Builder
     {
         return $query->where('account_id', $accountId);
+    }
+
+    /**
+     * A channel order is its ACCOUNT's: `order_id` stays NULL until we take responsibility for fulfilling it, so the account is the key the row
+     * always has (GCC-14c, slice 6). Inert for every request that binds no country.
+     */
+    protected static function boot(): void
+    {
+        parent::boot();
+
+        static::addGlobalScope(new StaffCountryChannelAccountScope());
     }
 }

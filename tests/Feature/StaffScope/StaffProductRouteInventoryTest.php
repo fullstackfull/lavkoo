@@ -6,6 +6,8 @@ use App\Http\Controllers\Admin\Product\ReviewController;
 use App\Http\Controllers\Admin\Promotion\BannerController;
 use App\Services\Staff\StaffOrderRoutes;
 use App\Services\Staff\StaffProductRoutes;
+use App\Services\Staff\StaffCostRoutes;
+use App\Services\Staff\StaffIntegrationRoutes;
 use App\Services\Staff\StaffMarketplaceRoutes;
 use App\Services\Staff\StaffPromotionRoutes;
 use Illuminate\Support\Facades\Route;
@@ -75,23 +77,23 @@ class StaffProductRouteInventoryTest extends TestCase
                 $this->assertArrayHasKey($entry['slice'], StaffProductInventory::SLICES, $controller . ': the slice that takes it is one that follows slice 2');
             }
             if ($entry['class'] === StaffProductInventory::SCOPED) {
-                $this->assertContains($entry['slice'], [null, 'slice 2', 'slice 3', 'slice 4', 'slice 5'], $controller . ': scoped in slice 1 (no slice named), in slice 2, 3, 4 or 5');
+                $this->assertContains($entry['slice'], [null, 'slice 2', 'slice 3', 'slice 4', 'slice 5', 'slice 6'], $controller . ': scoped in slice 1 (no slice named), in slice 2, 3, 4, 5 or 6');
             }
         }
         foreach (StaffProductInventory::READ_THROUGH_SERVICES as $controller => $entry) {
             $this->assertNotSame('', trim($entry['reason']), $controller);
-            $this->assertArrayHasKey($entry['slice'], ($entry['class'] ?? null) === StaffProductInventory::SCOPED ? ['slice 2' => true, 'slice 3' => true, 'slice 4' => true, 'slice 5' => true] : StaffProductInventory::SLICES, $controller);
+            $this->assertArrayHasKey($entry['slice'], ($entry['class'] ?? null) === StaffProductInventory::SCOPED ? ['slice 2' => true, 'slice 3' => true, 'slice 4' => true, 'slice 5' => true, 'slice 6' => true] : StaffProductInventory::SLICES, $controller);
         }
         foreach (StaffProductInventory::SCOPED_WITHOUT_PRODUCTS as $controller => $entry) {
             $this->assertNotSame('', trim($entry['reason']), $controller);
-            $this->assertContains($entry['slice'], ['slice 2', 'slice 3', 'slice 4', 'slice 5'], $controller);
+            $this->assertContains($entry['slice'], ['slice 2', 'slice 3', 'slice 4', 'slice 5', 'slice 6'], $controller);
         }
     }
 
     /** @return array<string, list<class-string>> the controllers the survey says a slice scoped, by slice */
     private function scopedBySurvey(): array
     {
-        $scoped = ['slice 1' => [], 'slice 2' => [], 'slice 3' => [], 'slice 4' => [], 'slice 5' => []];
+        $scoped = ['slice 1' => [], 'slice 2' => [], 'slice 3' => [], 'slice 4' => [], 'slice 5' => [], 'slice 6' => []];
         foreach (StaffProductInventory::CONTROLLERS as $controller => $entry) {
             if ($entry['class'] === StaffProductInventory::SCOPED) {
                 $scoped[$entry['slice'] ?? 'slice 1'][] = $controller;
@@ -125,9 +127,20 @@ class StaffProductRouteInventoryTest extends TestCase
         sort($slice4);
         sort($slice5);
 
-        $this->assertSame(['slice 1' => $slice1, 'slice 2' => $slice2, 'slice 3' => $slice3, 'slice 4' => $slice4, 'slice 5' => $slice5], $this->scopedBySurvey());
+        // Slice 6 is the first slice whose registries span BOTH surveys -- `StaffIntegrationRoutes` and `StaffCostRoutes` hold fourteen
+        // controllers, of which this survey finds the nine that read products and the order survey the rest -- so what is exact here is
+        // containment in each direction, not equality of one list with one registry: every controller this survey calls scoped in slice 6
+        // has rules in one of the two registries, and no controller of those registries is missing from both surveys (asserted below).
+        $slice6 = array_values(array_unique([...StaffIntegrationRoutes::controllers(), ...StaffCostRoutes::controllers()]));
+        sort($slice6);
+        $survey = $this->scopedBySurvey();
+        $this->assertSame([], array_values(array_diff($survey['slice 6'], $slice6)), 'a controller the survey calls scoped in slice 6 has no rules in either slice-6 registry');
+        $this->assertSame([], array_values(array_intersect(StaffIntegrationRoutes::controllers(), StaffCostRoutes::controllers())), 'a slice-6 controller is covered by one registry');
+        unset($survey['slice 6']);
+
+        $this->assertSame(['slice 1' => $slice1, 'slice 2' => $slice2, 'slice 3' => $slice3, 'slice 4' => $slice4, 'slice 5' => $slice5], $survey);
         // One controller, one registry: a screen whose rules were in two of them would be judged by whichever middleware ran first.
-        $slices = [$slice1, $slice2, $slice3, $slice4, $slice5];
+        $slices = [$slice1, $slice2, $slice3, $slice4, $slice5, $slice6];
         foreach ($slices as $i => $left) {
             foreach (array_slice($slices, $i + 1) as $right) {
                 $this->assertSame([], array_values(array_intersect($left, $right)), 'a controller is covered by one slice');
