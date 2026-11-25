@@ -16,10 +16,14 @@ class AuditLog extends Model
         'actor_type', 'actor_id', 'actor_name', 'action',
         'subject_type', 'subject_id', 'before', 'after', 'context',
         'ip_address', 'user_agent',
+        // Which market and company the line concerns (G1-08). Null for a line written before they were recorded, and for a panel action
+        // that belongs to no one market -- an administrator sees every country, so filing it as the default market's would invent a fact.
+        'storefront_country', 'legal_entity_id',
     ];
 
     protected $casts = [
         'actor_id' => 'integer',
+        'legal_entity_id' => 'integer',
         'before' => 'array',
         'after' => 'array',
         'context' => 'array',

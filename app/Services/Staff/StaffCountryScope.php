@@ -38,6 +38,13 @@ final class StaffCountryScope
 
     private const MASTER_ADMIN_ROLE_ID = 1;
 
+    public const GRANTED_BY = 'granted_by';
+
+    public const EXPIRES_AT = 'expires_at';
+
+    /** Whether a scope row carries its grant trail. Asked once per process: every bind of a request asks it. */
+    private static ?bool $rowsRecordTheirGrant = null;
+
     /** The orders a request lists: their lists, counters and exports. */
     public const SUBJECT_ORDERS = 'orders';
 
@@ -127,15 +134,54 @@ final class StaffCountryScope
             return null;
         }
 
+        // Read TWICE on purpose (G1-14). An employee with NO row is unrestricted on this platform, so "ignore the expired rows" written as
+        // one query would turn the last row's expiry into a privilege escalation on a timer: the employee would hold no country and be
+        // read as unrestricted. Whether the employee HAS rows and which of them are still in force are two different questions, and an
+        // employee whose every row has expired is restricted to NOTHING.
         $stored = $this->storedCountriesOf(adminId: $adminId);
         if ($stored === []) {
             return null;
         }
 
-        $granted = array_values(array_unique(array_intersect($stored, $this->configuredCountries())));
+        $granted = array_values(array_unique(array_intersect($this->countriesStillInForceFor(adminId: $adminId), $this->configuredCountries())));
         sort($granted);
 
         return $granted;
+    }
+
+    /** Whether a scope row can record who granted it and when it ends, and whether anything should read or write those. */
+    public function rowsRecordTheirGrant(): bool
+    {
+        return self::$rowsRecordTheirGrant ??= Schema::hasTable(self::TABLE)
+            && Schema::hasColumn(self::TABLE, self::GRANTED_BY)
+            && Schema::hasColumn(self::TABLE, self::EXPIRES_AT);
+    }
+
+    /**
+     * The countries of an employee whose grant has not ended: every row of theirs before the expiry column exists, which is the same
+     * answer, since a row that cannot record an end never ends.
+     *
+     * @return list<string>
+     */
+    public function countriesStillInForceFor(int $adminId): array
+    {
+        if (!$this->rowsRecordTheirGrant()) {
+            return $this->storedCountriesOf(adminId: $adminId);
+        }
+
+        return DB::table(self::TABLE)
+            ->where('admin_id', $adminId)
+            ->where(static fn (QueryBuilder $row) => $row->whereNull(self::EXPIRES_AT)->orWhere(self::EXPIRES_AT, '>', now()))
+            ->orderBy('country')
+            ->pluck('country')
+            ->map(static fn ($country): string => (string) $country)
+            ->all();
+    }
+
+    /** Forgets what was read about the scope table's shape, for a test that migrates it mid-run. */
+    public static function forgetTheSchema(): void
+    {
+        self::$rowsRecordTheirGrant = null;
     }
 
     private function isMasterAdmin(?int $roleId): bool

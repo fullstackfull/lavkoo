@@ -3,6 +3,8 @@
 namespace Tests\Support;
 
 use App\Models\Admin;
+use App\Services\AuditLogger;
+use App\Services\Staff\StaffCountryScope;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -21,6 +23,12 @@ use RuntimeException;
 trait BuildsStaffScopeWorld
 {
     private const STAFF_SCOPE_MIGRATION = '2026_11_28_100000_create_admin_country_scopes_table.php';
+
+    /** The grant trail on a scope row (G1-14) and the audit trail every grant writes a line to (G1-08). */
+    private const STAFF_TRAIL_MIGRATIONS = [
+        '2026_12_29_100000_create_audit_logs_and_name_the_market_each_line_concerns.php',
+        '2026_12_29_100100_add_grant_trail_to_admin_country_scopes.php',
+    ];
 
     protected function buildStaffAdminTables(): void
     {
@@ -247,11 +255,29 @@ trait BuildsStaffScopeWorld
     protected function runStaffScopeMigration(): void
     {
         (require database_path('migrations/' . self::STAFF_SCOPE_MIGRATION))->up();
+        $this->runStaffTrailMigrations();
+    }
+
+    /**
+     * The audit trail and the grant trail, run beside the scope table: a grant and a revoke record a line through `recordOrFail()`, so a
+     * world that runs those commands without `audit_logs` would have them refuse rather than record.
+     */
+    protected function runStaffTrailMigrations(): void
+    {
+        foreach (self::STAFF_TRAIL_MIGRATIONS as $file) {
+            (require database_path('migrations/' . $file))->up();
+        }
+
+        AuditLogger::forget();
+        StaffCountryScope::forgetTheSchema();
     }
 
     protected function rollBackStaffScopeMigration(): void
     {
+        Schema::dropIfExists('audit_logs');
         (require database_path('migrations/' . self::STAFF_SCOPE_MIGRATION))->down();
+        AuditLogger::forget();
+        StaffCountryScope::forgetTheSchema();
     }
 
     /** @param list<string> $countries stored as they are given: a test may hand over a value no command would accept */

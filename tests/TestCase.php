@@ -3,6 +3,8 @@
 namespace Tests;
 
 use App\Services\Address\AddressSchema;
+use App\Services\AuditLogger;
+use App\Services\Staff\StaffCountryScope;
 use App\Services\Fulfillment\FulfillmentSchema;
 use App\Services\Shipping\OrderCustomsQuote;
 use App\Services\Shipping\OrderShippingDecision;
@@ -32,6 +34,10 @@ abstract class TestCase extends BaseTestCase
         // server the process outlives the schema -- every test drops the tables and builds its own -- so an answer from the test before
         // would have this test reading a column that is no longer there. Cleared here rather than in each test, because a test that builds
         // an orders table should not have to know which services cached a fact about it.
+        // The audit trail reads once per process whether it carries the market columns; every test builds its own table, so a leftover
+        // answer would have a line written against a column that is no longer there.
+        AuditLogger::forget();
+        StaffCountryScope::forgetTheSchema();
         OrderShippingDecision::forget();
         OrderCustomsQuote::forget();
         ProductDestinationPermission::forget();

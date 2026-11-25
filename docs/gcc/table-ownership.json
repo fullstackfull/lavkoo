@@ -133,6 +133,11 @@
         "attachments": {
             "scope": "inherited"
         },
+        "audit_logs": {
+            "scope": "storefront",
+            "by": "storefront_country, with legal_entity_id beside it",
+            "why": "The panel audit trail, one table for every market. G1-08: each line names the market it concerns since 2026_12_29_100000; a line written before that names none, which is the honest record rather than a guessed Saudi Arabia."
+        },
         "authors": {
             "scope": "inherited"
         },
