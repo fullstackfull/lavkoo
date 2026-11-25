@@ -185,3 +185,24 @@ Coverage gaps stated by the assessors (section 8 of the master tracker), as of 2
 
 - (2026-11-25, D1-16, **BUILT, WIRED, SHIPPED OFF, and the reason is six measured test worlds**) The sale gate at the till is the one piece of this batch whose adoption is NOT this track's to make, and the obstacle is not the owner -- I2-09 settled it -- but the blast radius. `App\Services\Checkout\PointOfSaleSaleRule` asks `StorefrontSellingGate::maySell()` for the market of the goods on the counter and is called in all three tills beside the one-company rule; `gcc.storefronts.sale_gate.at_the_till` ships off. **Why:** `StorefrontLifecycle::statusOf()` answers DRAFT for a non-default market with no lifecycle record (`StorefrontLifecycle.php:144-146`), so adopting the rule refuses a till sale in any market nobody has made active -- and six existing test worlds sell at a till in exactly such a market: `tests/Feature/Storefront/PosOrderRecordsItsMarketTest`, `StorefrontOrderWritersTest`, `OrderCurrencyOnEverySurfaceTest`, `OrderMoneyRowCurrencyTest`, `StorefrontStopContinuityTest` and `tests/Feature/Notifications/PushMarketTest`. Several of those are the EVIDENCE cited for other criteria of axis D, so breaking them would cost more than the criterion is worth. The worlds are legitimately incomplete rather than wrong -- a CUSTOMER could not check out in any of them either, because the gate would refuse a market in DRAFT -- so the work that has to come first is two lines of world-building in each (`approveNoTaxFor` + `activateStorefrontFor`, which is exactly what `BuildsStorefrontCart::switchStorefrontsOn()` already does for the Emirati market), in lanes this track does not own and cannot validate here: the container runs one suite at a time beside four other tracks, and the storefront group is 5,000 tests. **What to do to close D1-16:** complete those six worlds, run the storefront and notification groups, then set `GCC_SALE_GATE_AT_THE_TILL=true`. The refusal behaviour is already proved with the key on, including that a refused sale writes no order, no line, takes no stock and leaves the wallet where it was.
 - (2026-11-25, i18n, **NOT MINE, reported for track 4**) `resources/lang/ae/messages.php` is `return []` -- the Emirati locale has ZERO keys, against 6,816 in `en` and 7,312 in `sa` -- and `resources/lang/ae/new-messages.php` is where `translate()` has been writing them one at a time as screens are opened. So on that locale EVERY key is a `translate()`-writes-a-file event, not just a new one. This was found while checking that the till refusal reuses an existing key rather than inventing one (`storefront_not_open_for_checkout_yet`, present in `en` and `sa`): no language file was touched by this batch and no key was added, and the gap is reported rather than papered over with a single key in an otherwise empty file, which would make the locale look populated.
+
+## A request REMOVES `ONLY_FULL_GROUP_BY` from the session so a broken GROUP BY will run (reported by the M track, 2026-11-25)
+
+`Modules/TaxModule/app/Http/Controllers/Admin/Reports/VendorTaxReportController.php:42` and
+`Modules/TaxModule/app/Http/Controllers/Api/v3/VendorTaxReportController.php:39` both execute, at REQUEST time:
+
+    DB::statement("SET sql_mode=(SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY',''));");
+
+**This is the same defect family as the 33 day-grouped report queries, with one difference that makes it worse:** those survive
+because `config/database.php` sets `'strict' => false`, which is a configuration nobody re-reads. Here the application asks the
+server, on every request, to stop enforcing the rule — so the query would be refused by a correctly configured server and the code
+removes the refusal instead of being fixed. It is also a VENDOR-facing surface and an API, not only an admin screen.
+
+Why it is recorded and not repaired here: the repair is the query, and the query's grouping decides what figures an operator reads.
+The 22 report queries corrected on 2026-11-25 each needed a measured before-and-after, and several of the remaining ones select the
+weekday name while grouping by the day of the month, so each needs its own figure. That is the money lane's work (axis D), not the
+security lane's, and the M track recorded it in `NoDirectSqlOutsideMigrationsTest`'s allow-list labelled **"DEFECT, recorded not
+accepted"** rather than letting the guard pass it silently.
+
+**Consequence to keep in view:** `config/database.php`'s `'strict' => false` still must not be hardened, and this pair means that even
+hardening it would not make these two endpoints correct — they would simply remove the protection again for their own session.
