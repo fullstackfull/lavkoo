@@ -16,13 +16,26 @@ The owner asked for organised parallel development across five tracks. It is set
 five branches and not five pull requests -- `gcc/development` stays the one official branch per repository, which is what
 the owner required.
 
-| worktree | local branch | axes | repository |
-|---|---|---|---|
-| `/home/user/wt/de` | `wt/de` | D, E | lavkoo |
-| `/home/user/wt/bfi` | `wt/bfi` | B, F, I | lavkoo |
-| `/home/user/wt/acgh` | `wt/acgh` | A, C, G, H | lavkoo |
-| `/home/user/wt/j` | `wt/j` | J | lavkooapp |
-| `/home/user/wt/kl` | `wt/kl` | K, L (screens) | lavkooappseller |
+**Second batch (from `b7e5f180`), re-cut so that every axis has exactly one owner and the 334 remaining criteria are
+partitioned with no overlap.** Each track also has its OWN database, because the owner forbids concurrent heavy groups
+that share files or a database:
+
+| worktree | local branch | axes | missing | database |
+|---|---|---|---|---|
+| `/home/user/wt/m` | `wt/m` | M, G | 87 | `pharmacy_testing_m` |
+| `/home/user/wt/de` | `wt/de` | D, E | 52 | `pharmacy_testing_de` |
+| `/home/user/wt/acgh` | `wt/acgh` | H, C, A | 71 | `pharmacy_testing_acgh` |
+| `/home/user/wt/bfi` | `wt/bfi` | I, B, F | 58 | `pharmacy_testing_bfi` |
+| `/home/user/wt/klj` | `wt/klj` | K, L, J (+ both app repositories) | 66 | `pharmacy_testing_klj` |
+
+87 + 52 + 71 + 58 + 66 = 334, which is the whole remaining set. `/home/user/wt/kl` is a worktree of **lavkooappseller**
+holding the already-merged Jetifier fix -- do not reuse that path for a backend track, which is why the fifth is `klj`.
+
+The first batch was cut by convenience rather than by coverage (D+E, B+F+I, A+C+G+H, J, K+L) and left M -- the largest
+axis on the project, and the one with the lowest proven rate -- without a dedicated owner until late.
+
+**Honest about the hardware:** this container has FOUR cores. Five tracks interleave; they do not run five-wide. The
+gain is real but it is not 5x, and claiming otherwise would be claiming parallelism that is not available.
 
 **How a backend worktree is made testable, because this is the part with a trap in it.** `cp -al vendor <wt>/vendor`
 hardlinks the 11GB directory for about nothing, but `composer dump-autoload` then WRITES THROUGH the hardlink and the
@@ -199,6 +212,11 @@ criteria names more signals than are built -- which is the honest record and is 
   expired, while SQLite stored it happily. Use DATETIME for a date that may be beyond 2038.
   Where two tracks share this container, give each its own DATABASE (`pharmacy_testing_de` and so on) so one suite cannot
   clobber another's.
+- **CORRECTION OF THE CORRECTION (2026-11-25, later): MariaDB 10.11.14 IS now installed in this container** -- a track
+  installed it with the apt recipe above and `mariadbd` is running. So a real engine is available without doing that
+  again: `mysql -h 127.0.0.1 -u ci -pci-pass`. The PILOT runs **11.4.2**, which apt here will not give, so a criterion
+  that names the pilot's engine version cannot be closed in this container and must say so instead of being closed on
+  10.11.
 - **A real engine can be run IN this container, and should be, before pushing a schema or collation test.**
   `service mariadb start`, then once: `mysql -u root -e "CREATE USER IF NOT EXISTS 'ci'@'%' IDENTIFIED BY 'ci-pass'; GRANT ALL
   PRIVILEGES ON *.* TO 'ci'@'%' WITH GRANT OPTION; FLUSH PRIVILEGES;"` -- root authenticates by unix socket, so a TCP connection as root is
@@ -274,3 +292,67 @@ criteria names more signals than are built -- which is the honest record and is 
   arranges a storefront by is a platform total, which no cache key can fix), and `total_spent` sums `order_amount` across orders
   carrying different `currency_code`s. Both are in coverage-gaps now. Where scoping a key would DISGUISE a defect rather than fix it,
   say so in the declaration instead of scoping it.
+
+### Learned on 2026-11-25, in the five-track batch
+
+- **A child class may not NARROW a parent's signature, and PHP refuses that at CLASS LOAD -- not as a failing test.**
+  `AuditLogger::record()` gained `?string $country`, and one test file still mirrored the old five-parameter signature in
+  an anonymous subclass. The result was exit 255 the moment PHPUnit loaded that file: ~20,000 tests never ran, in every
+  job that reached it -- both SQLite runs, the strict-mode run and the fulfillment group -- and a local full run reported
+  NO failures at all, because it had aborted. Two consequences worth keeping:
+  - `php vendor/bin/phpunit --list-tests` loads every test class without running one. It is the cheap detector for this
+    whole family of fault and it takes seconds.
+  - **Do not mirror a signature you do not use.** The suite already had `Tests\Support\BuildsAuditLogTable`: build the
+    real table, let the real service write, assert on the row. That also tests more than a double can, since a double
+    cannot catch a line the service failed to persist. `AuditTrailIsNotMirroredTest` now fails any test that
+    `extends AuditLogger`.
+- **When a deliberate change alters HOW MANY queries a security-sensitive read makes, grep for tests that COUNT its
+  queries -- not only for its callers.** `StaffCountryScope::resolve()` asks `admin_country_scopes` two different
+  questions on purpose (G1-14): has this employee any row, and which rows are still in force. An employee with NO row is
+  unrestricted here, so merging those into one "ignore the expired rows" query would make an employee whose every row has
+  expired read as unrestricted -- a privilege escalation on a timer. Two tests predating that change asserted ONE read
+  (`StaffLayoutTest`, `StaffSearchHitsTest`), and both failures arrived looking exactly like a performance regression
+  inviting precisely the repair that must not be made. Fix the expectation, pin it, and say in the test why the old
+  number was right when it was written.
+- **A handed-over diagnosis is a hypothesis, including one from another agent.** "Somebody added a second resolve on the
+  layout path" was wrong -- nothing was added; the read itself became two queries. Acting on the diagnosis instead of
+  measuring it would have removed a security property.
+- **A new test directory is invisible to the real engines until it is named in a CI group.**
+  `CiEveryTestDirectoryRunsOnARealEngineTest` catches it. `tests/Feature/Currency` is the sharpest case so far: it
+  measures which row an UNORDERED query returns first, which is exactly what SQLite and MySQL are free to answer
+  differently, so proving it on SQLite proved nothing about the server.
+- **Every new table needs an entry in `docs/gcc/table-ownership.json`.** That file conflicted in EVERY merge of this
+  batch, because every track adds tables and the register is one file. If you add a table, add the entry and name it in
+  your handback so the coordinator resolves it centrally. `TableOwnershipTest` needs no database -- run that one file
+  before each merge.
+- **Settle a classification disagreement on the register's own definitions, not by counting votes.** Four readings split
+  2-2 on `notification_channel_profiles`, and BOTH leading arguments were factually false: "it is `country` because it
+  names no legal entity" (`storefront_legal_documents` is `storefront` and names none either) and "`storefront` is what
+  every market column is filed as" (four tables are `country`). What decided it was A1-09 -- the ISO code is the
+  storefront key only FOR NOW, so the question is which owner the row follows once a storefront has an identity of its
+  own. A sending account follows the shop.
+- **Teeth must be measured on the engine where the assertion actually bites.** Swapping `dateTime()` for `timestamp()`
+  fails the past-2038 test on MariaDB and changes NOTHING on SQLite, which keeps dates as text. An assertion with no
+  teeth on the engine you ran is not evidence; say which engine proved it.
+- **A guard's own teeth can come back inert, and that is a finding, not a tidy-up.** Removing `narrowLayout`'s
+  `attributes->has()` guard failed nothing, because on that path nothing binds before the view composer runs. Written
+  into the test rather than left as false coverage.
+- **A narrowing that reads `boundCountries()` proves nothing until something on that route BINDS them**, and a test that
+  sets the request attribute by hand and calls the controller directly cannot tell the difference. That is how the audit
+  centre shipped a guard that read every market's trail while looking narrowed. Drive the real route.
+- **A refusal test alone cannot distinguish a guard from a wrong URL.** Every refusal test needs its unrestricted twin;
+  a track caught its own false pass that way, having asserted 404 against a URL that never existed.
+- **Check what a monitoring probe actually reports before describing a monitoring gap.**
+  `SystemHealthService::snapshot()` wraps each section in a try/catch, so a missing table reads `['error' => ...]` --
+  broken, and honestly broken. It does NOT report a reassuring zero. The dramatic reading was the wrong one, and
+  overstating a blast radius is not the safe direction: it is the kind of error that stops a real defect being fixed.
+- **In a secret scanner, interpolation must be STRIPPED, not excused.** `looksLikeSecret` judges a LITERAL, and PHP's
+  `{$name}` contributes no literal content, so `"gateways.{$name}"` -- a key path being read -- was refused as a
+  credential. Adding `{$` to the placeholder list is one character's work and measurably worse: it excuses the whole
+  value, so `"sk_live_...{$suffix}"` and `"{$prefix}Zq81-mailbox-pass-4417"` both pass. Stripping leaves the literal half
+  to be judged. Never silence such a finding with an allow-list entry: that silences the next real finding on that line
+  too.
+- **Do not run a full local suite while the parallel tracks are working.** Five tracks plus a full suite on four CPUs
+  stalled the suite at 43% for ten minutes and starved the tracks of the CPU the owner asked to be spent on them. CI's
+  own SQLite jobs run the same full suite on a clean tree for free; use those and keep the local box for targeted
+  directories.

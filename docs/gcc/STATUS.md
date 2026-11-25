@@ -47,6 +47,30 @@ missing), so nothing had drifted between the accounts.
   `lavkooappseller` run 66 on `1fca425` to `de5abfb`, each with `git diff <tested> HEAD --name-only` empty and, for the
   seller, `pubspec.yaml` confirmed to carry no version change. Backend stays on `gcc/development` pending run 673.
 
+- **Five tracks merged, and the merged tree found four defects that no single track could see.** Each track was green by
+  itself; the defects live only where their work meets. (1) A test spied on the audit trail by subclassing `AuditLogger`,
+  so when `record()` gained `?string $country` PHP refused the narrower declaration AT CLASS LOAD -- exit 255, ~20,000
+  tests never run, five red CI jobs in run 673 and a local run reporting no failures because it had aborted. Replaced
+  with the suite's own table builder; `AuditTrailIsNotMirroredTest` stops it returning, and
+  `phpunit --list-tests` (all classes loaded, none run) is now the cheap detector. (2) Four tables reached the tree with
+  no entry in `table-ownership.json` -- three from other tracks and one of my own. (3) `tests/Feature/Currency` ran on
+  SQLite only, and what it measures is which row an UNORDERED query returns first, which is exactly what the engines may
+  answer differently. (4) No migration created `failed_jobs`, while `config/queue.php` points the failed driver at the
+  database and three services read the table: a job that exhausted its tries could not even record that it had failed.
+- **The secret guard's one finding was a false positive, verified rather than assumed.**
+  `NotificationProfile.php:65` reads a credential BY ITS KEY PATH, `credential("gateways.{$name}")`; the notification
+  accounts are encrypted at rest with `Crypt::encryptString`, `visible()` hands out key NAMES only, and the
+  decrypt-failure log carries no value. `looksLikeSecret` already rejects every other reference form -- `$var`, `env(`,
+  `config(`, `${`, `{{`, `%s` -- and PHP's own `{$name}` was the missing member, so a 16-character key path reached the
+  length-and-entropy branch. Interpolation is now STRIPPED rather than excused, which is the stronger fix and was
+  measured as such: the one-character alternative lets `"sk_live_...{$suffix}"` through. No allow-list entry and nothing
+  disabled.
+- **Two stale expectations from one deliberate security design, found two different ways.**
+  `StaffCountryScope::resolve()` asks `admin_country_scopes` two questions on purpose (G1-14), because an employee with
+  no row is unrestricted and an employee whose rows have all expired must be restricted to NOTHING. `StaffLayoutTest`
+  (local suite) and `StaffSearchHitsTest` (CI 674) both predated it and asserted one read. Both arrived looking like a
+  performance regression inviting the one repair that must not be made. Expectations fixed and pinned, not loosened.
+
 Figures after this batch, from `count.php`: **968 of 1,753 criteria met (55%), 375 coded, 410 missing; 1,343 in code (77%)** -- against 963 / 377 / 413 / 1,340 at the handover.
 
 ## What happened on 2026-11-25
@@ -197,9 +221,11 @@ technical decisions are taken without asking. A brief report follows each stage:
 the last commit.
 
 **Where the live numbers are.** [`audits/2026-11-24-post-merge-assessment/README.md`](./audits/2026-11-24-post-merge-assessment/README.md),
-recomputed from the tracker files by the script quoted in it, and refreshed whenever a criterion moves. On 2026-11-24, of 359 requirements
-and 1,753 acceptance criteria: **938 met (54%)**, 372 coded but unproven (21%), 443 not implemented (25%) — **development 75%**, and
-**launch readiness 17 requirements of 359 (5%)**, which cannot rise past the owner's own G0 gate however much code lands.
+recomputed from the tracker files by the script quoted in it, and refreshed whenever a criterion moves. On 2026-11-25, after the
+five-track batch, of 359 requirements and 1,754 acceptance criteria (one G-09 criterion was split faithfully rather than claimed):
+**1,035 met (59%)**, 385 coded but unproven (22%), 334 not implemented (19%) — **development 81%**, **72 requirements fully closed**, and
+**launch readiness 18 requirements of 359 (5%)**, which cannot rise past the owner's own G0 gate however much code lands. At the handover
+earlier the same day the figures were 963 met (55%), 413 missing, 1,340 in code (76%) and 66 requirements fully closed.
 
 **The master storefront switch is not a kill switch** (owner decision of 2026-11-24, recorded in `DECISIONS.md`): with it off the platform
 is in legacy mode, a single market is closed through its own country settings and its lifecycle, and `LegacyModeSafety` refuses any action
