@@ -1087,6 +1087,9 @@ class OrderManager
                 'coupon_discount' => $couponInfo['discount'] ?? 0,
                 'discount_type' => $couponInfo['discount'] == 0 ? null : 'coupon_discount',
                 'shipping_cost' => $shippingCost,
+                // Which rule produced that charge (H1-08): a destination zone, the method the customer chose, or the lines themselves in
+                // a shop that charges per product or per category. CartManager answers all three, because all three land in one column.
+                'shipping_rate_source' => CartManager::getShippingRateSource(groupId: $groupId),
                 'shipping_address_id' => OrderManager::getOrderAddressId(type: 'shipping_address', id: $data['address_id'] ?? null),
                 'billing_address_id' => OrderManager::getOrderAddressId(type: 'billing_address', id: $data['billing_address_id'] ?? null),
                 'shipping_type' => isset($shippingType?->shipping_type) ? $shippingType->shipping_type : 'order_wise',
@@ -1195,7 +1198,14 @@ class OrderManager
     {
         $taxConfig = self::getTaxSystemType();
         $adminCommission = (float)str_replace(",", "", Helpers::sales_commission_before_order($cartData['cart_group_id'], $cartData['coupon_discount']));
-        return [
+
+        // Which rule produced the shipping charge (H1-08), added only where the column exists: a shop that has not run the migration must
+        // place orders exactly as it does today, so the key is absent rather than null.
+        $rateSource = \Illuminate\Support\Facades\Schema::hasColumn('orders', 'shipping_rate_source')
+            ? ['shipping_rate_source' => $cartData['shipping_rate_source'] ?? null]
+            : [];
+
+        return $rateSource + [
             'id' => $orderId,
             'verification_code' => random_int(100000, 999999),
             'customer_id' => $customerData['customer_id'],

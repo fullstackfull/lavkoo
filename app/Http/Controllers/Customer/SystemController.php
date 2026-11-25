@@ -7,6 +7,7 @@ use App\Utils\Helpers;
 use App\Http\Controllers\Controller;
 use App\Models\ShippingMethod;
 use App\Services\Shipping\DestinationShippingCost;
+use Illuminate\Support\Facades\Schema;
 use App\Models\CartShipping;
 use App\Services\Address\StorefrontAddressService;
 use App\Traits\CommonTrait;
@@ -57,11 +58,17 @@ class SystemController extends Controller
         }
         $shipping['cart_group_id'] = $request['cart_group_id'];
         $shipping['shipping_method_id'] = $request['id'];
-        $shipping['shipping_cost'] = app(DestinationShippingCost::class)->forCartGroup(
+        $quote = app(DestinationShippingCost::class)->quoteFor(
             cartGroupId: $request['cart_group_id'],
             methodCost: (float) ShippingMethod::find($request['id'])->cost,
             addressId: session('address_id'),
+            methodId: $request['id'],
         );
+        $shipping['shipping_cost'] = $quote['cost'];
+        // Which rule produced the charge (H1-08), so the order can carry it and the figure can be explained afterwards.
+        if (Schema::hasColumn('cart_shippings', 'rate_source')) {
+            $shipping['rate_source'] = $quote['source'];
+        }
         $shipping->save();
 
         if (session('coupon_code') && session('coupon_discount')) {

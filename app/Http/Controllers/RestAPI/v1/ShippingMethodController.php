@@ -9,6 +9,7 @@ use App\Models\ShippingMethod;
 use App\Models\ShippingType;
 use App\Utils\CartManager;
 use App\Services\Shipping\DestinationShippingCost;
+use Illuminate\Support\Facades\Schema;
 use App\Utils\Helpers;
 use App\Utils\OrderManager;
 use Illuminate\Http\JsonResponse;
@@ -70,11 +71,16 @@ class ShippingMethodController extends Controller
         $shipping['shipping_method_id'] = $request['id'];
         // The same destination rate the website charges (H1-08). The app sends the address it is checking out with; while it has not
         // chosen one the method's own cost stands, exactly as it did before this existed.
-        $shipping['shipping_cost'] = app(DestinationShippingCost::class)->forCartGroup(
+        $quote = app(DestinationShippingCost::class)->quoteFor(
             cartGroupId: $request['cart_group_id'],
             methodCost: (float) ShippingMethod::find($request['id'])->cost,
             addressId: $request['address_id'] ?? null,
+            methodId: $request['id'],
         );
+        $shipping['shipping_cost'] = $quote['cost'];
+        if (Schema::hasColumn('cart_shippings', 'rate_source')) {
+            $shipping['rate_source'] = $quote['source'];
+        }
         $shipping->save();
     }
 

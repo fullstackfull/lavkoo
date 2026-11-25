@@ -38,25 +38,46 @@ final class DestinationShippingCost
      *
      * @param int|string|null $addressId the destination address, or null while none has been chosen
      */
-    public function forCartGroup(string|int $cartGroupId, float $methodCost, int|string|null $addressId): float
+    public function forCartGroup(string|int $cartGroupId, float $methodCost, int|string|null $addressId, int|string|null $methodId = null): float
     {
+        return $this->quoteFor($cartGroupId, $methodCost, $addressId, $methodId)['cost'];
+    }
+
+    /**
+     * The cost AND the rule that produced it, as `zone:{id}` or `method:{id}`.
+     *
+     * The charge alone cannot be explained afterwards: a zone's rate and a method's own cost are different decisions that land in the same
+     * column, and once the zones change nobody can tell which one a past order was charged under. So whichever decided it says so, and the
+     * order keeps that beside the figure.
+     *
+     * @param int|string|null $addressId the destination address, or null while none has been chosen
+     * @param int|string|null $methodId the shipping method the customer chose, for the source when no zone applies
+     * @return array{cost: float, source: ?string}
+     */
+    public function quoteFor(string|int $cartGroupId, float $methodCost, int|string|null $addressId, int|string|null $methodId = null): array
+    {
+        $fromTheMethod = ['cost' => $methodCost, 'source' => $methodId === null ? null : 'method:' . $methodId];
+
         if (!self::isOn() || $addressId === null) {
-            return $methodCost;
+            return $fromTheMethod;
         }
 
         $address = Schema::hasTable('shipping_addresses') ? ShippingAddress::find($addressId) : null;
 
         if ($address === null) {
-            return $methodCost;
+            return $fromTheMethod;
         }
 
-        return $this->rates->checkoutCost(
-            $methodCost,
+        $rate = $this->rates->rateFor(
             $address->country,
             $this->basketWeightInKilograms($cartGroupId),
             $this->basketValue($cartGroupId),
             $address->state,
         );
+
+        return $rate === null
+            ? $fromTheMethod
+            : ['cost' => (float) $rate['cost'], 'source' => 'zone:' . $rate['zone']->id];
     }
 
     /**

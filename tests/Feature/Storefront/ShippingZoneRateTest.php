@@ -42,7 +42,7 @@ class ShippingZoneRateTest extends TestCase
 
     protected function tearDown(): void
     {
-        foreach (['shipping_zones', 'cart_shippings', 'shipping_methods', 'carts', 'products', 'shipping_addresses', 'business_settings'] as $table) {
+        foreach (['shipping_zones', 'cart_shippings', 'shipping_methods', 'carts', 'products', 'shipping_types', 'shipping_addresses', 'business_settings'] as $table) {
             Schema::dropIfExists($table);
         }
         Cache::flush();
@@ -52,7 +52,7 @@ class ShippingZoneRateTest extends TestCase
 
     private function buildShippingWorld(): void
     {
-        foreach (['shipping_zones', 'cart_shippings', 'shipping_methods', 'carts', 'products', 'shipping_addresses', 'business_settings'] as $table) {
+        foreach (['shipping_zones', 'cart_shippings', 'shipping_methods', 'carts', 'products', 'shipping_types', 'shipping_addresses', 'business_settings'] as $table) {
             Schema::dropIfExists($table);
         }
 
@@ -86,6 +86,7 @@ class ShippingZoneRateTest extends TestCase
             $table->string('cart_group_id')->nullable();
             $table->unsignedBigInteger('shipping_method_id')->nullable();
             $table->decimal('shipping_cost', 24, 2)->default(0);
+            $table->string('rate_source', 64)->nullable();
             $table->timestamps();
         });
         Schema::create('carts', function (Blueprint $table): void {
@@ -102,6 +103,12 @@ class ShippingZoneRateTest extends TestCase
             $table->id();
             $table->string('name')->nullable();
             $table->unsignedInteger('weight_grams')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('shipping_types', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('seller_id')->default(0);
+            $table->string('shipping_type')->default('order_wise');
             $table->timestamps();
         });
         Schema::create('shipping_addresses', function (Blueprint $table): void {
@@ -136,6 +143,7 @@ class ShippingZoneRateTest extends TestCase
 
     private function aBasketWorth(float $value, ?int $weightGrams = null, int $quantity = 1, int $productId = 1): void
     {
+        // `updateProductShippingCost` reads each line's product, so the row has to be there.
         DB::table('products')->insertOrIgnore([
             'id' => $productId, 'name' => 'Product ' . $productId, 'weight_grams' => $weightGrams,
         ]);
@@ -413,6 +421,85 @@ class ShippingZoneRateTest extends TestCase
         ShippingMethodController::insert_into_cart_shipping($this->chooseRequest(['address_id' => $addressId]));
 
         $this->assertSame(26.0, $this->writtenCost());
+    }
+
+    // ---- and which rule decided it, so the charge can be explained later ------------------------------------------------------------
+
+    /**
+     * H1-08's last criterion, the half that was missing: the order kept the figure and nothing about where it came from.
+     *
+     * A zone's rate and a method's own cost are different decisions that land in the same column, so once the zones change nobody can
+     * tell which one a past order was charged under. The order's currency it already kept (`orders.currency_code`); this is the rest.
+     */
+    public function test_the_zone_that_decided_the_charge_is_recorded_on_the_cart(): void
+    {
+        $this->zoneShippingIs(true);
+        $zone = $this->aZone(['name' => 'saudi', 'countries' => ['SA'], 'base_cost' => 5]);
+        $this->aBasketWorth(200.0);
+        session(['address_id' => $this->anAddressIn('SA')]);
+
+        SystemController::insertIntoCartShipping($this->chooseRequest());
+
+        $this->assertSame('zone:' . $zone->id, $this->writtenSource());
+    }
+
+    /** And where no zone decided it, the method did, which is every charge on the platform today. */
+    public function test_the_method_is_recorded_when_no_zone_decided_the_charge(): void
+    {
+        $this->zoneShippingIs(false);
+        $this->aZone(['name' => 'saudi', 'countries' => ['SA'], 'base_cost' => 5]);
+        $this->aBasketWorth(200.0);
+        session(['address_id' => $this->anAddressIn('SA')]);
+
+        SystemController::insertIntoCartShipping($this->chooseRequest());
+
+        $this->assertSame('method:' . self::METHOD, $this->writtenSource());
+    }
+
+    /** A free-over threshold is still the zone's decision: nought charged by a rule is not the same as nought charged by no rule. */
+    public function test_a_free_shipment_still_names_the_zone_that_made_it_free(): void
+    {
+        $this->zoneShippingIs(true);
+        $zone = $this->aZone(['name' => 'saudi', 'countries' => ['SA'], 'base_cost' => 20, 'free_over' => 100]);
+        $this->aBasketWorth(150.0);
+        session(['address_id' => $this->anAddressIn('SA')]);
+
+        SystemController::insertIntoCartShipping($this->chooseRequest());
+
+        $this->assertSame(0.0, $this->writtenCost());
+        $this->assertSame('zone:' . $zone->id, $this->writtenSource());
+    }
+
+    /** The app records it the same way. */
+    public function test_the_app_records_the_rule_that_decided_the_charge(): void
+    {
+        $this->zoneShippingIs(true);
+        $zone = $this->aZone(['name' => 'saudi', 'countries' => ['SA'], 'base_cost' => 5]);
+        $this->aBasketWorth(200.0);
+
+        ShippingMethodController::insert_into_cart_shipping($this->chooseRequest(['address_id' => $this->anAddressIn('SA')]));
+
+        $this->assertSame('zone:' . $zone->id, $this->writtenSource());
+    }
+
+    /** A shop whose column has not been created writes nothing and is unharmed. */
+    public function test_a_shop_without_the_column_still_charges_and_records_nothing(): void
+    {
+        Schema::table('cart_shippings', fn (Blueprint $table) => $table->dropColumn('rate_source'));
+        $this->zoneShippingIs(true);
+        $this->aZone(['name' => 'saudi', 'countries' => ['SA'], 'base_cost' => 5]);
+        $this->aBasketWorth(200.0);
+        session(['address_id' => $this->anAddressIn('SA')]);
+
+        SystemController::insertIntoCartShipping($this->chooseRequest());
+
+        $this->assertSame(5.0, $this->writtenCost());
+        $this->assertNull(\App\Utils\CartManager::getShippingRateSource(groupId: self::GROUP));
+    }
+
+    private function writtenSource(): ?string
+    {
+        return \App\Utils\CartManager::getShippingRateSource(groupId: self::GROUP);
     }
 
     private function chooseRequest(array $extra = []): Request

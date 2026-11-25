@@ -271,6 +271,74 @@ class ApiOrderPlacementTest extends ApiAddressTestCase
         \App\Services\Shipping\ProductDestinationPermission::forget();
     }
 
+    /**
+     * H1-08's last criterion end to end: the order keeps which rule produced its shipping charge.
+     *
+     * The cart records it when the method is chosen and the order copies it when it is placed, so the figure can still be explained after
+     * the zones have changed -- a zone's rate and a method's own cost land in the same column, and nothing else tells them apart.
+     */
+    public function test_the_order_keeps_which_rule_produced_its_shipping_charge(): void
+    {
+        $customer = $this->makeCustomer();
+        $address = $this->makeLegacyAddress($customer->id);
+        $this->putOneProductInTheCart($customer->id);
+        (require database_path('migrations/2026_12_20_100500_add_shipping_rate_source_to_orders_table.php'))->up();
+        // A shop that charges order-wise, which is what keeps a cart-shipping row at all: one that charges per product or per category
+        // keeps none, because the cost lives on each line.
+        DB::table('business_settings')->updateOrInsert(['type' => 'shipping_method'], ['value' => 'inhouse_shipping']);
+        \Illuminate\Support\Facades\Cache::flush();
+        DB::table('cart_shippings')->insert([
+            'cart_group_id' => 'group-' . $customer->id . 'c', 'shipping_method_id' => 1, 'shipping_cost' => 15,
+            'rate_source' => 'zone:4', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->asCustomer($customer)->getJson(self::COD . '?address_id=' . $address->id)->assertOk();
+
+        $this->assertSame('zone:4', DB::table('orders')->where('id', 100001)->value('shipping_rate_source'));
+    }
+
+    /**
+     * A shop whose `shipping_method` setting is missing is order-wise, and keeps the cost of the method the customer chose.
+     *
+     * It used not to be. The type that decides this started as an empty string and fell through both of the branches that set it, and an
+     * empty string is not `order_wise`, so such a shop had its cart-shipping row deleted -- the cost of the method just chosen -- and each
+     * line given a product or category cost instead, while the order it became still recorded `order_wise`. Two answers to "what kind of
+     * shipping is this", and the one that charged the customer was not the one the order kept.
+     */
+    public function test_a_shop_with_no_shipping_method_setting_keeps_the_chosen_methods_cost(): void
+    {
+        $customer = $this->makeCustomer();
+        $address = $this->makeLegacyAddress($customer->id);
+        $this->putOneProductInTheCart($customer->id);
+        (require database_path('migrations/2026_12_20_100500_add_shipping_rate_source_to_orders_table.php'))->up();
+        DB::table('business_settings')->where('type', 'shipping_method')->delete();
+        \Illuminate\Support\Facades\Cache::flush();
+        DB::table('cart_shippings')->insert([
+            'cart_group_id' => 'group-' . $customer->id . 'c', 'shipping_method_id' => 1, 'shipping_cost' => 15,
+            'rate_source' => 'method:1', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->asCustomer($customer)->getJson(self::COD . '?address_id=' . $address->id)->assertOk();
+
+        $order = DB::table('orders')->where('id', 100001)->first(['shipping_cost', 'shipping_type', 'shipping_rate_source']);
+        $this->assertSame('order_wise', $order->shipping_type);
+        $this->assertEquals(15, $order->shipping_cost, 'the method the customer chose still decides the charge');
+        $this->assertSame('method:1', $order->shipping_rate_source, 'and the order says so');
+    }
+
+    /** And an order placed on a shop that quoted no source says nothing rather than claiming a rule. */
+    public function test_an_order_quoted_without_a_source_records_none(): void
+    {
+        $customer = $this->makeCustomer();
+        $address = $this->makeLegacyAddress($customer->id);
+        $this->putOneProductInTheCart($customer->id);
+        (require database_path('migrations/2026_12_20_100500_add_shipping_rate_source_to_orders_table.php'))->up();
+
+        $this->asCustomer($customer)->getJson(self::COD . '?address_id=' . $address->id)->assertOk();
+
+        $this->assertNull(DB::table('orders')->where('id', 100001)->value('shipping_rate_source'));
+    }
+
     private function openTheDutyRules(array $routes): void
     {
         config([

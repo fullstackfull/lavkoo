@@ -15,6 +15,8 @@ use App\Models\Scopes\StorefrontCartScope;
 use App\Models\ShippingType;
 use App\Models\Shop;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Modules\TaxModule\app\Traits\VatTaxManagement;
 
@@ -193,6 +195,45 @@ class CartManager
             ->toArray();
     }
 
+    /**
+     * Which rule produced the shipping charge this cart group was quoted (H1-08).
+     *
+     * The charge alone cannot be explained afterwards, because three different things can produce it and they all land in the same column:
+     *
+     *   `zone:{id}`      a destination zone's rate decided it
+     *   `method:{id}`    the shipping method the customer chose decided it
+     *   `product_wise`   the lines decided it, each product carrying its own cost
+     *   `category_wise`  the same, by category
+     *
+     * The first two are recorded on the cart when the method is chosen. The last two are not recorded there at all and cannot be: a shop
+     * that charges per product or per category keeps NO cart-shipping row, because the cost lives on each line -- the same code that
+     * computes those line costs deletes the group's row and writes the type onto the lines, which is what this reads.
+     *
+     * Null for a group quoted before any of this existed, and null on a shop whose column has not been created.
+     */
+    public static function getShippingRateSource(string|int|null $groupId): ?string
+    {
+        if ($groupId === null) {
+            return null;
+        }
+
+        if (Schema::hasTable('cart_shippings') && Schema::hasColumn('cart_shippings', 'rate_source')) {
+            $source = DB::table('cart_shippings')->where('cart_group_id', $groupId)->value('rate_source');
+
+            if (is_string($source) && $source !== '') {
+                return $source;
+            }
+        }
+
+        if (!Schema::hasTable('carts') || !Schema::hasColumn('carts', 'shipping_type')) {
+            return null;
+        }
+
+        $type = (string) DB::table('carts')->where('cart_group_id', $groupId)->value('shipping_type');
+
+        return in_array($type, ['product_wise', 'category_wise'], true) ? $type : null;
+    }
+
     public static function get_shipping_cost($groupId = null, $type = null)
     {
         self::updateOrderSummaryShippingCost($groupId, $type);
@@ -274,7 +315,12 @@ class CartManager
         $cartListGroup = $cartList?->groupBy('cart_group_id');
 
         foreach($cartListGroup as $cartGroupItems) {
-            $shippingType = '';
+            // Order-wise unless the shop says otherwise. It used to start as an empty string, which is not 'order_wise', so a shop whose
+            // `shipping_method` setting was missing or held any other value fell through both branches and was then treated as NOT
+            // order-wise: its cart-shipping row -- the cost of the method the customer had chosen -- was deleted and each line was given a
+            // product or category cost instead, while the order it became still recorded `order_wise`. Two answers to "what kind of
+            // shipping is this", one of them charging the customer. The default now matches what the order records.
+            $shippingType = 'order_wise';
             if ($shippingMethod == 'inhouse_shipping') {
                 $shippingType = isset($adminShipping) ? $adminShipping->shipping_type : 'order_wise';
             } else if ($shippingMethod == 'sellerwise_shipping') {
