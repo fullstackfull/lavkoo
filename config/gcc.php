@@ -539,4 +539,20 @@ return [
         'point_value' => env('GCC_LOYALTY_POINT_VALUE', App\Services\Loyalty\WhatAPointIsWorth::AS_EACH_PATH_DOES_TODAY),
     ],
 
+    'tax' => [
+        // Whether the tax already inside a tax-included price is recorded on the order (D1-07). Off by default, and off is the platform of
+        // today: a store running the tax module in `is_included` mode writes `total_tax_amount` 0, every line's `tax` 0 and no row in
+        // `order_taxes`, while the order's `tax_model` says `include` -- so a taxed sale records no tax at all and nothing can answer what
+        // VAT was collected on it.
+        //
+        // When it is on, and only once `orders.included_tax_amount` and `order_details.included_tax` exist, the checkout computes the tax
+        // inside the gross price (`gross * rate / (100 + rate)`, App\Services\Tax\IncludedTax) and writes it into those two columns ALONE.
+        // No figure the customer was charged moves: `order_amount`, `total_tax_amount` and each line's `tax` are untouched, because the tax
+        // is already in the price and `total_tax_amount` is a figure the panel ADDS when it recomputes an order.
+        //
+        // Whether a tax-included order must store its tax, and under which country's rules, is the owner's and the finance review's. The
+        // mechanism is here so that answering it is a setting rather than a change to the checkout.
+        'record_included_amount' => filter_var(env('GCC_TAX_RECORD_INCLUDED_AMOUNT', false), FILTER_VALIDATE_BOOLEAN),
+    ],
+
 ];

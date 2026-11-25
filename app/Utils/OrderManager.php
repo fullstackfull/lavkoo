@@ -72,6 +72,8 @@ use App\Services\Customer\CustomerWalletWriter;
 use App\Services\Shipping\OrderCustomsQuote;
 use App\Services\Shipping\OrderShippingDecision;
 use App\Services\Shipping\ShippingEligibility;
+use App\Services\Tax\IncludedTax;
+use Illuminate\Support\Facades\Schema;
 
 
 class OrderManager
@@ -1114,6 +1116,11 @@ class OrderManager
         $taxConfig = self::getTaxSystemType();
         $cartItemsArray = [];
 
+        // Whether the tax already inside a tax-included price is recorded (D1-07). Read ONCE for the whole cart, not per line, and the
+        // keys below are absent rather than zero while it is off, so a cart of a store that has not answered that question carries
+        // exactly what it carries today. The presence of `included_tax_amount` is what tells the order writer to record it.
+        $recordIncludedTax = !empty($taxConfig['is_included']) && app(IncludedTax::class)->isRecorded();
+
         $vendorWiseCartList = OrderManager::getVendorWiseCartList(data: [
             'coupon_code' => $data['coupon_code'] ?? (session('coupon_code') ?? ''),
             'address_id' => $data['address_id'] ?? session('address_id'),
@@ -1141,6 +1148,7 @@ class OrderManager
             }
 
             $vendorWiseCartAppliedTax = 0;
+            $vendorWiseCartIncludedTax = 0;
             $vendorWiseCart['applied_tax_cart_list'] = [];
             foreach ($vendorWiseCart['cart_list'] as $cartItem) {
                 if ($cartItem->product) {
@@ -1169,7 +1177,31 @@ class OrderManager
 
                     $vendorWiseCartAppliedTax += $appliedTaxAmount;
                     $vendorWiseCartAppliedTax += $cartItem?->product?->product_type == 'digital' ? 0 : $appliedShippingTaxAmount;
-                    $vendorWiseCart['applied_tax_cart_list'][] = [
+
+                    // The tax already inside this line's gross price, and inside the share of the shipping charge it carries. Worked out
+                    // from the same figures the charged tax is -- the discounted price and the discount apportioned to this line -- so a
+                    // coupon reduces the tax inside a line exactly as it reduces the tax added to one.
+                    $includedTax = [];
+                    if ($recordIncludedTax) {
+                        $includedShippingTax = $cartItem?->product?->product_type == 'digital' ? 0 : CartManager::getIncludedShippingTaxAmount(
+                            taxConfig: $taxConfig,
+                            totalShippingCost: $vendorWiseCart['is_shipping_free'] == 1 ? $vendorWiseCart['shipping_cost'] - $vendorWiseCart['free_delivery_discount'] : $vendorWiseCart['shipping_cost'],
+                            totalDiscountedPrice: $totalDiscountPrice,
+                            applicableShippingAmount: $totalApplicableShippingAmount,
+                        );
+                        $includedTax = [
+                            'included_tax_amount' => CartManager::getIncludedTaxAmount(
+                                product: $cartItem->product,
+                                taxConfig: $taxConfig,
+                                totalDiscountedPrice: $totalDiscountPrice,
+                                appliedDiscountedAmount: $appliedDiscountAmount,
+                            ),
+                            'included_shipping_cost_tax' => $includedShippingTax,
+                        ];
+                        $vendorWiseCartIncludedTax += $includedTax['included_tax_amount'] + $includedShippingTax;
+                    }
+
+                    $vendorWiseCart['applied_tax_cart_list'][] = $includedTax + [
                         'cart_id' => $cartItem->id,
                         'cart_group_id' => $cartItem->cart_group_id,
                         'product_id' => $cartItem->product->id,
@@ -1190,6 +1222,12 @@ class OrderManager
             }
             $vendorWiseCart['total_tax_amount'] = $vendorWiseCartAppliedTax;
             $vendorWiseCart['order_amount_with_tax'] = $vendorWiseCart['order_amount'] + $vendorWiseCartAppliedTax;
+
+            // Recorded beside the order's amount and never added to it: the tax is already in the price the customer agreed to, so an
+            // order that records it costs the customer the same as one that does not.
+            if ($recordIncludedTax) {
+                $vendorWiseCart['included_tax_amount'] = $vendorWiseCartIncludedTax;
+            }
             $modifiedVendorWiseCartList[] = $vendorWiseCart;
         }
 
@@ -1207,7 +1245,14 @@ class OrderManager
             ? ['shipping_rate_source' => $cartData['shipping_rate_source'] ?? null]
             : [];
 
-        return $rateSource + [
+        // The tax already inside a tax-included order's price (D1-07). Added only where the cart worked it out -- which it does only while
+        // `gcc.tax.record_included_amount` is on -- and only where the column exists, so an order of a store that has answered neither
+        // question is written with neither key and the column stays NULL rather than claiming a zero.
+        $includedTax = (isset($cartData['included_tax_amount']) && \Illuminate\Support\Facades\Schema::hasColumn('orders', 'included_tax_amount'))
+            ? ['included_tax_amount' => $cartData['included_tax_amount']]
+            : [];
+
+        return $rateSource + $includedTax + [
             'id' => $orderId,
             'verification_code' => random_int(100000, 999999),
             'customer_id' => $customerData['customer_id'],
@@ -1444,6 +1489,12 @@ class OrderManager
 
             $orderDetails['tax'] = $appliedTaxAmount;
             $orderDetails['tax_model'] = $taxConfig['is_included'] ? 'include' : 'exclude';
+
+            // The share of the included tax this line carries (D1-07), mirroring `tax` above: the product's own tax and not the shipping
+            // tax, which only the order records. The key the cart carries is what says the recording is on.
+            if (isset($vendorCart['included_tax_amount']) && Schema::hasColumn('order_details', 'included_tax')) {
+                $orderDetails['included_tax'] = collect($vendorCart['applied_tax_cart_list'])->where('cart_id', $cartSingleItem['id'])->sum('included_tax_amount');
+            }
 
             $finalAmount = ($cartSingleItem['price'] - $productDiscount) * $cartSingleItem['quantity'];
             $totalPrice += $finalAmount;
