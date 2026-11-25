@@ -125,7 +125,47 @@ class AppLinkService
             $paths[] = $campaign;
         }
 
-        return array_values(array_unique($paths));
+        return array_values(array_unique(array_merge($paths, $this->underEachMarket(paths: $paths))));
+    }
+
+    /**
+     * The same paths under each market's own prefix (`/ae/product/*`), which a six-market shop serves (J-10, GCC-19).
+     *
+     * iOS reads this list out of the association file and opens the browser for anything absent from it, and Android's filters have to mirror
+     * it, so a market's pages reach the app only if they are published. Computed from the storefront configuration rather than written into
+     * `config/deeplinks.php`: a seventh market would otherwise mean thirty more lines to keep in step with the first seven.
+     *
+     * Nothing is added while storefronts are off -- the shop then serves no market's path -- which is the same switch the resolver reads
+     * before it strips a prefix, and the same one the app reads before it recognises one.
+     *
+     * @param list<string> $paths
+     *
+     * @return list<string>
+     */
+    private function underEachMarket(array $paths): array
+    {
+        if (config('gcc.storefronts.enabled') !== true) {
+            return [];
+        }
+
+        $prefixed = [];
+
+        foreach ((array) config('gcc.storefronts.countries', []) as $market) {
+            $prefix = strtolower(trim((string) ($market['path'] ?? '')));
+
+            if ($prefix === '') {
+                continue;
+            }
+
+            // The market's own home page, and then each published path beneath it.
+            $prefixed[] = '/' . $prefix;
+
+            foreach ($paths as $path) {
+                $prefixed[] = '/' . $prefix . ($path === '/' ? '' : $path);
+            }
+        }
+
+        return $prefixed;
     }
 
     /**
