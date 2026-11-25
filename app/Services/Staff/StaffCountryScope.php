@@ -3,6 +3,7 @@
 namespace App\Services\Staff;
 
 use App\Models\Admin;
+use App\Services\SalesChannels\Inventory\InventoryLocationMarket;
 use App\Services\Storefront\CouponCountry;
 use App\Services\Storefront\StorefrontCatalog;
 use App\Services\Storefront\StorefrontCategoryShippingCosts;
@@ -425,6 +426,30 @@ final class StaffCountryScope
         }
 
         return app(StorefrontShippingMethods::class)->allMethodsBelongTo(methodIds: $ids, countries: $bound);
+    }
+
+    /**
+     * Whether every one of these inventory locations is in a country the current request may work with (GCC-14c slice 5 and 6; G1-05).
+     *
+     * A warehouse is in a country, and since `inventory_locations.storefront_country` it says so. Before that the only country a stock
+     * screen could be asked about was the PRODUCT's, which answers for the units on the shelf and never for the shelf -- so a restricted
+     * employee could be shown another market's warehouse itself, with its code, its name and its figures.
+     *
+     * The rule of which market a location is in is `InventoryLocationMarket`'s and stays there: a location with no market is the default
+     * storefront's. A request that is not narrowed may work with every location, existing or not.
+     *
+     * @param list<int|string> $locationIds
+     */
+    public function coversEveryInventoryLocation(array $locationIds): bool
+    {
+        $bound = $this->boundCountries();
+        $ids = array_values(array_unique($locationIds));
+
+        if ($bound === null || $ids === []) {
+            return true;
+        }
+
+        return app(InventoryLocationMarket::class)->allLocationsBelongTo(locationIds: $ids, countries: $bound);
     }
 
     /**
