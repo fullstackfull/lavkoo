@@ -53,7 +53,7 @@ class OverviewTest extends PlatformAdminTestCase
             'sales' => self::NO_SALES,
             'pending_fulfilment' => ['count' => 3],
             'returns' => ['refund_requests' => 2, 'pending' => 1],
-            'stock' => ['zero' => 1, 'low' => 0],
+            'stock' => $this->stockFigures(zero: 1, low: 0),
             'reason' => 'no_single_market',
         ], $unattributed);
     }
@@ -78,6 +78,7 @@ class OverviewTest extends PlatformAdminTestCase
             'orders' => ['rule' => 'all_lines_one_market', 'via' => 'order_details.product_id > products.storefront_country'],
             'refund_requests' => ['rule' => 'product_market', 'via' => 'refund_requests.product_id > products.storefront_country'],
             'stock' => ['rule' => 'live_physical_products_by_market', 'via' => 'products.storefront_country'],
+            'inventory' => ['reservations' => null, 'allocation' => null, 'reason' => 'inventory_stack_is_not_installed'],
             'products_country' => 'column',
             'currency' => ['per_order' => false, 'reason' => 'order_currency_not_recorded'],
         ], $this->overview()->json('data.attribution'));
@@ -363,7 +364,7 @@ class OverviewTest extends PlatformAdminTestCase
             $expectedZero += $stock <= 0 ? 1 : 0;
         }
 
-        $this->assertSame(['zero' => $expectedZero, 'low' => $expectedLow], $this->overview('?market=SA')->json('data.markets.0.stock'));
+        $this->assertSame($this->stockFigures(zero: $expectedZero, low: $expectedLow), $this->overview('?market=SA')->json('data.markets.0.stock'));
     }
 
     public function test_without_the_platform_stock_limit_setting_the_threshold_is_one(): void
@@ -371,7 +372,144 @@ class OverviewTest extends PlatformAdminTestCase
         DB::table('business_settings')->where('type', 'stock_limit')->delete();
         Cache::flush();
 
-        $this->assertSame(['zero' => 1, 'low' => 2], $this->overview('?market=SA')->json('data.markets.0.stock'), 'stock 1 is low and 5 is not, and the seller limit of 2 still applies to its own product');
+        $this->assertSame($this->stockFigures(zero: 1, low: 2), $this->overview('?market=SA')->json('data.markets.0.stock'), 'stock 1 is low and 5 is not, and the seller limit of 2 still applies to its own product');
+    }
+
+    public function test_a_market_says_how_many_products_went_past_zero_and_by_how_many_units(): void
+    {
+        $this->product(id: 9001, country: 'SA', stock: -3);
+        $this->product(id: 9002, country: 'SA', stock: -1);
+        $this->product(id: 9003, country: 'AE', stock: -7);
+        $this->product(id: 9004, country: 'SA', stock: 0, status: 0);
+
+        $markets = collect($this->overview()->json('data.markets'))->keyBy('market');
+
+        $this->assertSame($this->stockFigures(zero: 3, low: 3, oversold: 2, oversoldUnits: 4), $markets['SA']['stock'], 'two Saudi products are past zero by four units in all, and both are counted in zero as well');
+        $this->assertSame($this->stockFigures(zero: 1, low: 1, oversold: 1, oversoldUnits: 7), $markets['AE']['stock']);
+        $this->assertSame(0, $markets['KW']['stock']['oversold'], 'a market with nothing past zero says zero, which is a figure and not an absence');
+    }
+
+    public function test_an_oversold_product_that_is_not_live_is_not_counted_and_nor_is_one_of_a_market_nobody_configured(): void
+    {
+        $this->product(id: 9101, country: 'SA', stock: -5, status: 0);
+        $this->product(id: 9102, country: 'SA', stock: -5, requestStatus: 0);
+        $this->product(id: 9103, country: 'SA', stock: -5, type: 'digital');
+        $this->product(id: 9104, country: 'EG', stock: -9);
+
+        $response = $this->overview();
+        $markets = collect($response->json('data.markets'))->keyBy('market');
+
+        $this->assertSame(0, $markets['SA']['stock']['oversold'], 'the oversell reads exactly the population the zero and low figures read: live physical products');
+        $this->assertSame(0, $markets['SA']['stock']['oversold_units']);
+        $this->assertSame(['oversold' => 1, 'oversold_units' => 9], [
+            'oversold' => $response->json('data.unattributed.stock.oversold'),
+            'oversold_units' => $response->json('data.unattributed.stock.oversold_units'),
+        ], 'a product of a country nobody configured is in the bucket, never read as Saudi');
+    }
+
+    public function test_held_stock_and_a_divided_pool_are_counted_in_the_market_of_their_product(): void
+    {
+        $this->buildInventoryTables();
+        $this->hold(product: 1, quantity: 4);
+        $this->hold(product: 1, quantity: 2);
+        $this->hold(product: 1, quantity: 50, state: 'committed');
+        $this->hold(product: 1, quantity: 90, state: 'released');
+        $this->hold(product: 15, quantity: 6);
+        $this->pool(product: 1, deficit: 0);
+        $this->pool(product: 1, deficit: 5);
+        $this->pool(product: 15, deficit: 2);
+
+        $markets = collect($this->overview()->json('data.markets'))->keyBy('market');
+
+        $this->assertSame(
+            ['holds' => 2, 'units' => 6],
+            $markets['SA']['stock']['reserved'],
+            'only a hold in state reserved holds anything: committed and released are the two ends of a hold life',
+        );
+        $this->assertSame(['pools' => 2, 'short' => 1, 'short_units' => 5], $markets['SA']['stock']['allocation']);
+        $this->assertSame(['holds' => 1, 'units' => 6], $markets['AE']['stock']['reserved']);
+        $this->assertSame(['pools' => 1, 'short' => 1, 'short_units' => 2], $markets['AE']['stock']['allocation']);
+        $this->assertSame(['holds' => 0, 'units' => 0], $markets['KW']['stock']['reserved'], 'a market that holds nothing says zero, because this installation does record holds');
+        $this->assertSame(['pools' => 0, 'short' => 0, 'short_units' => 0], $markets['KW']['stock']['allocation']);
+    }
+
+    public function test_a_hold_whose_product_is_gone_is_in_the_bucket_and_never_counted_as_saudi(): void
+    {
+        $this->buildInventoryTables();
+        $this->hold(product: 99999, quantity: 11);
+        $this->pool(product: 99999, deficit: 3);
+
+        $response = $this->overview();
+        $markets = collect($response->json('data.markets'))->keyBy('market');
+
+        $this->assertSame(['holds' => 0, 'units' => 0], $markets['SA']['stock']['reserved']);
+        $this->assertSame(['holds' => 1, 'units' => 11], $response->json('data.unattributed.stock.reserved'));
+        $this->assertSame(['pools' => 1, 'short' => 1, 'short_units' => 3], $response->json('data.unattributed.stock.allocation'));
+    }
+
+    public function test_the_answer_names_where_a_hold_and_a_pool_were_put_once_the_tables_exist(): void
+    {
+        $this->buildInventoryTables();
+
+        $this->assertSame([
+            'reservations' => ['rule' => 'product_market', 'via' => 'inventory_reservations.product_id > products.storefront_country', 'counted_when' => 'state = reserved'],
+            'allocation' => ['rule' => 'product_market', 'via' => 'inventory_pools.product_id > products.storefront_country', 'short_when' => 'deficit > 0'],
+            'reason' => null,
+        ], $this->overview()->json('data.attribution.inventory'));
+    }
+
+    public function test_an_installation_that_records_no_held_stock_says_so_rather_than_reporting_none_held(): void
+    {
+        $response = $this->overview();
+        $markets = collect($response->json('data.markets'))->keyBy('market');
+
+        foreach (['SA', 'AE', 'KW', 'QA', 'BH', 'OM'] as $code) {
+            $this->assertNull($markets[$code]['stock']['reserved'], "{$code} reports no figure at all, because a zero would say nothing is held when the truth is that nothing is recorded");
+            $this->assertNull($markets[$code]['stock']['allocation'], $code);
+        }
+        $this->assertNull($response->json('data.unattributed.stock.reserved'));
+        $this->assertSame('inventory_stack_is_not_installed', $response->json('data.attribution.inventory.reason'), 'the reason is given once, because it is a fact about the installation and not about a market');
+    }
+
+    public function test_one_table_of_the_two_is_enough_for_its_own_figure_and_says_nothing_about_the_other(): void
+    {
+        $this->buildInventoryTables();
+        Schema::drop('inventory_pools');
+
+        $response = $this->overview();
+        $stock = collect($response->json('data.markets'))->keyBy('market')['SA']['stock'];
+
+        $this->assertSame(['holds' => 0, 'units' => 0], $stock['reserved'], 'the holds are recorded here and are reported');
+        $this->assertNull($stock['allocation'], 'nothing divides a stock here, and that is not a pool without a deficit');
+        $this->assertSame('inventory_stack_is_not_installed', $response->json('data.attribution.inventory.reason'));
+        $this->assertNotNull($response->json('data.attribution.inventory.reservations'));
+        $this->assertNull($response->json('data.attribution.inventory.allocation'));
+    }
+
+    public function test_the_holds_and_the_pools_of_a_market_cost_one_grouped_read_each_however_many_there_are(): void
+    {
+        $this->buildInventoryTables();
+        $this->hold(product: 1, quantity: 1);
+        $this->pool(product: 1, deficit: 1);
+        // Warmed first, as the bounded-statements test above is: the count is of a request whose settings are already cached, not of the first one.
+        $this->readsOfOneFreshRequest();
+        $before = $this->readsOfOneFreshRequest();
+
+        $touchingHolds = array_values(array_filter($before, static fn (string $sql): bool => str_contains($sql, 'inventory_reservations')));
+        $touchingPools = array_values(array_filter($before, static fn (string $sql): bool => str_contains($sql, 'inventory_pools')));
+        $this->assertCount(1, $touchingHolds);
+        $this->assertCount(1, $touchingPools);
+        foreach (array_merge($touchingHolds, $touchingPools) as $sql) {
+            $this->assertStringContainsString('group by', strtolower($sql), 'summed in the database, not in PHP: ' . $sql);
+        }
+
+        for ($more = 1; $more <= 60; $more++) {
+            $this->product(id: 9200 + $more, country: ['SA', 'AE', 'KW', 'QA'][$more % 4], stock: $more % 3);
+            $this->hold(product: 9200 + $more, quantity: $more);
+            $this->pool(product: 9200 + $more, deficit: $more % 4);
+        }
+
+        $this->assertCount(count($before), $this->readsOfOneFreshRequest(), 'sixty more holds and sixty more pools, and not one statement more');
     }
 
     public function test_before_the_products_migration_every_product_belongs_to_the_default_storefront_and_the_answer_says_so(): void
@@ -384,7 +522,7 @@ class OverviewTest extends PlatformAdminTestCase
         $markets = collect($response->json('data.markets'))->keyBy('market');
         $this->assertSame(11, $markets['SA']['orders']['total'], 'every order with a line that is a product is now a Saudi one');
         $this->assertSame([0, 0, 0, 0, 0], [$markets['AE']['orders']['total'], $markets['KW']['orders']['total'], $markets['QA']['orders']['total'], $markets['BH']['orders']['total'], $markets['OM']['orders']['total']]);
-        $this->assertSame(['zero' => 4, 'low' => 5], $markets['SA']['stock']);
+        $this->assertSame($this->stockFigures(zero: 4, low: 5), $markets['SA']['stock']);
         $this->assertSame(['refund_requests' => 4, 'pending' => 2], $markets['SA']['returns']);
         $this->assertSame(2, $response->json('data.unattributed.orders.total'), 'an order with no line and one whose product is gone still have no market');
         $this->assertSame(['refund_requests' => 1, 'pending' => 1], $response->json('data.unattributed.returns'));
@@ -483,8 +621,64 @@ class OverviewTest extends PlatformAdminTestCase
             'sales' => self::NO_SALES,
             'pending_fulfilment' => ['count' => $backlog],
             'returns' => ['refund_requests' => $refunds[0], 'pending' => $refunds[1]],
-            'stock' => ['zero' => $stock[0], 'low' => $stock[1]],
+            'stock' => $this->stockFigures(zero: $stock[0], low: $stock[1]),
             'alerts' => ['critical' => $alerts[0], 'warning' => $alerts[1], 'info' => $alerts[2]],
+        ];
+    }
+
+    /**
+     * The two dormant inventory tables, built by their REAL migrations rather than by a shape inferred here, so that a column these figures read
+     * cannot drift away from the one the application creates. Both are additive and guarded by `hasTable`, so running them adds nothing else the
+     * world already has.
+     */
+    private function buildInventoryTables(): void
+    {
+        (require database_path('migrations/2026_11_07_100200_create_inventory_and_routing_tables.php'))->up();
+        (require database_path('migrations/2026_11_10_100000_add_stock_allocation.php'))->up();
+    }
+
+    private function hold(int $product, int $quantity, string $state = 'reserved'): void
+    {
+        DB::table('inventory_reservations')->insert([
+            'location_id' => 1,
+            'product_id' => $product,
+            'variant_key' => '',
+            'quantity' => $quantity,
+            'reservation_key' => 'hold-' . DB::table('inventory_reservations')->count() . '-' . $product . '-' . $state,
+            'state' => $state,
+            'reserved_at' => '2026-11-16 10:00:00',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    private function pool(int $product, int $deficit): void
+    {
+        DB::table('inventory_pools')->insert([
+            'location_id' => 1,
+            'product_id' => $product,
+            'variant_key' => 'v' . DB::table('inventory_pools')->count(),
+            'deficit' => $deficit,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    /**
+     * The stock half of a market's figures. `reserved` and `allocation` default to null because the world this test case builds has neither
+     * inventory table, which is the dormant installation the figures are written for: it reports the reason rather than a zero.
+     *
+     * @return array<string, mixed>
+     */
+    private function stockFigures(int $zero, int $low, int $oversold = 0, int $oversoldUnits = 0, ?array $reserved = null, ?array $allocation = null): array
+    {
+        return [
+            'zero' => $zero,
+            'low' => $low,
+            'oversold' => $oversold,
+            'oversold_units' => $oversoldUnits,
+            'reserved' => $reserved,
+            'allocation' => $allocation,
         ];
     }
 

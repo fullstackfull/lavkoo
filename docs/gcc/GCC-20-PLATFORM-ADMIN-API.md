@@ -20,7 +20,8 @@ market. While that switch is off, for the master admin and for an employee with 
 ## 1. What it is
 
 A small JSON API under `/api/platform-admin/v1` with which the platform owner, signed in to the seller app as an **admin**, watches all six markets: whether each market is
-open and legally ready, how many orders each has and in which state, what is waiting to be fulfilled, refund requests, stock at zero or low, alerts, and an audit trail of
+open and legally ready, how many orders each has and in which state, what is waiting to be fulfilled, refund requests, stock at zero, low or past zero, the stock held for orders and
+the division of a pooled stock, alerts, and an audit trail of
 what the API itself did.
 
 It is a **separate principal**. It is not a seller, a seller staff member, a seller API key, a customer, or an admin who happens to be signed in to the web panel:
@@ -378,6 +379,11 @@ ending today and is **never longer than 92 days** (longer is cut at the old end 
     "orders": {"rule": "all_lines_one_market", "via": "order_details.product_id > products.storefront_country"},
     "refund_requests": {"rule": "product_market", "via": "refund_requests.product_id > products.storefront_country"},
     "stock": {"rule": "live_physical_products_by_market", "via": "products.storefront_country"},
+    "inventory": {
+      "reservations": {"rule": "product_market", "via": "inventory_reservations.product_id > products.storefront_country", "counted_when": "state = reserved"},
+      "allocation": {"rule": "product_market", "via": "inventory_pools.product_id > products.storefront_country", "short_when": "deficit > 0"},
+      "reason": null
+    },
     "products_country": "column",
     "currency": {"per_order": false, "reason": "order_currency_not_recorded"}
   },
@@ -387,13 +393,14 @@ ending today and is **never longer than 92 days** (longer is cut at the old end 
     "sales": {"by_currency": null, "reason": "order_currency_not_recorded"},
     "pending_fulfilment": {"count": 1},
     "returns": {"refund_requests": 1, "pending": 1},
-    "stock": {"zero": 2, "low": 1},
+    "stock": {"zero": 2, "low": 1, "oversold": 1, "oversold_units": 4, "reserved": {"holds": 3, "units": 9}, "allocation": {"pools": 2, "short": 1, "short_units": 5}},
     "alerts": {"critical": 1, "warning": 1, "info": 1}
   }],
   "unattributed": {
     "orders": {"total": 4, "by_status": {"pending": 2, "...": 0}, "latest_at": "2026-11-13T07:00:00Z"},
     "sales": {"by_currency": null, "reason": "order_currency_not_recorded"},
-    "pending_fulfilment": {"count": 3}, "returns": {"refund_requests": 2, "pending": 1}, "stock": {"zero": 1, "low": 0},
+    "pending_fulfilment": {"count": 3}, "returns": {"refund_requests": 2, "pending": 1},
+    "stock": {"zero": 1, "low": 0, "oversold": 0, "oversold_units": 0, "reserved": {"holds": 1, "units": 11}, "allocation": null},
     "reason": "no_single_market"
   }
 }}
@@ -402,7 +409,9 @@ ending today and is **never longer than 92 days** (longer is cut at the old end 
 * `orders` and `returns` are **flows of the window**: orders created in it, refund requests created in it (and how many of those are still pending).
 * `pending_fulfilment` is a **state**: orders in `pending`, `confirmed` or `processing` (`SlaService::AWAITING_SELLER_STATUSES`) created within the last 92 days, whatever window was
   asked for, so an order that has waited longer than the window is still waiting. An order older than 92 days is not looked for.
-* `stock` is a state too: live physical products at zero stock, and at low stock. See section 6.
+* `stock` is a state too: live physical products at zero stock, at low stock and BELOW zero, what is held for orders and not yet shipped, and how a pooled stock is divided
+  between the channels that offer it. `oversold` is a SUBSET of `zero`, which has always counted `current_stock <= 0`; `reserved` and `allocation` are `null` rather than zero on
+  an installation that records neither, and `attribution.inventory` carries the reason once. See section 6.
 * `by_status` has every status the platform knows (`getOrderStatusList()`) in its order, with zero, then any other status found, by name.
 * `unattributed` is `null` unless the admin is the platform owner asking for `all`. A single market, and a restricted admin, never see it: those orders might belong to a market
   the admin may not see.
@@ -453,6 +462,16 @@ one country, `products.storefront_country` (default `SA`), and never changes it.
   status is `approved` and who is not deleted. How low is low is the rule of the seller's inventory screens (`InventoryService::stockLimitFor`): the seller's own `stock_limit` when
   it is a whole unit or more, otherwise the platform setting `stock_limit`, never below one; stock above zero and up to the limit is low. A test compares the SQL with
   `InventoryService` for six seller limits, fractions included. The brand and business-mode filters of `Product::active()` are not applied.
+* **Held stock and a divided pool.** `stock.reserved` is the stock promised to orders and not yet shipped: how many holds and how many units, counted in
+  `inventory_reservations` only while a hold is in state `reserved`, because `committed` and `released` are the two ends of a hold's life. `stock.allocation` is how the stock of a
+  pooled product is divided between the channels that offer it: how many pools, how many of them could not give every channel its share (`inventory_pools.deficit > 0`) and how
+  many units short those are -- the allocator's own record of what it could not satisfy, not a second opinion about it. Both are in the market of the product they are for, so a
+  hold or a pool whose product has been deleted, or whose country is not a configured market, is in the `unattributed` bucket and is **never counted as Saudi**.
+* **Both inventory tables are dormant and are reported as absent rather than as empty.** They arrive in two migrations of their own, so an installation can have run one and not
+  the other. While a table does not exist its figure is `null`, not zero, and `attribution.inventory` names the half that is missing with the reason
+  `inventory_stack_is_not_installed`: "nothing is held in this market" and "this platform does not record held stock" are different facts, and a zero would state the first while
+  meaning the second. **`oversold` is not dormant**: `products.current_stock` is a signed integer and stock below zero is a real state of the data that the monitoring page already
+  counts as a finding, so the figure is read from the same rows, in the same statement, as `zero` and `low`.
 * **While `products.storefront_country` does not exist** (the products migration of the storefront stack has not run) every product belongs to the default storefront, which is what
   the storefront code itself assumes before that migration, and the answer says `products_country: "default_storefront"`. An order with no line or a deleted product is still
   unattributed.
@@ -462,7 +481,8 @@ one country, `products.storefront_country` (default `SA`), and never changes it.
   currency of an order. The contract keeps a place for it: when orders record their market and currency, `sales.by_currency` will become a list grouped per market and currency, and
   `attribution.orders` will name the new rule. Nothing will ever be summed across currencies.
 * Every figure is a **grouped aggregate in the database over a bounded range** (the window, or at most the last 92 days); nothing is loaded row by row, and the number of statements
-  does not grow with the data (a test adds sixty of everything and counts again). An overview reads the orders twice, an alerts call once.
+  does not grow with the data (a test adds sixty of everything and counts again). An overview reads the orders twice, an alerts call once. The held stock and the pools cost one
+  grouped read each, and nothing at all on an installation whose tables are absent, where the figure is a reason instead.
 
 ## 7. Isolation and what is never done
 

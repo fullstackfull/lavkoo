@@ -2,6 +2,7 @@
 
 namespace App\Services\PlatformAdmin;
 
+use App\Models\InventoryReservation;
 use App\Services\Marketplace\SettlementTotals;
 use App\Services\Marketplace\SlaService;
 use Carbon\CarbonInterface;
@@ -20,7 +21,8 @@ use Illuminate\Support\Facades\Schema;
  *  - an order is in a market when it has at least one line, every line is a product that still exists, and all of them are of one configured
  *    market. Any other order has no market and is counted apart, never as Saudi;
  *  - a refund request is in the market of the product it was made for;
- *  - a product is in its own market, and counts as stock only while it is live: physical, active, approved, and its seller approved.
+ *  - a product is in its own market, and counts as stock only while it is live: physical, active, approved, and its seller approved;
+ *  - a stock hold and a stock pool are in the market of the product they are for.
  *
  * While the column is missing (the products migration of the storefront has not run) every product belongs to the default storefront, which is
  * what the storefront code itself assumes, and the answer says so.
@@ -40,6 +42,9 @@ final class PlatformMarketFigures
 
     /** @var array<string, bool> whether the orders table carries a column, asked once per column and per request */
     private array $orderColumns = [];
+
+    /** @var array<string, bool> whether one of the dormant inventory tables exists, asked once per table and per request */
+    private array $inventoryTables = [];
 
     public function __construct(
         private readonly PlatformMarkets $markets,
@@ -178,10 +183,17 @@ final class PlatformMarketFigures
     }
 
     /**
-     * The live physical products at no stock and at low stock, by market. How low is low is what the inventory screens use: the stock limit of the
-     * seller who owns the product when it is one whole unit or more, and otherwise the platform's, and never less than one.
+     * The live physical products at no stock, at low stock and BELOW zero, by market. How low is low is what the inventory screens use: the stock
+     * limit of the seller who owns the product when it is one whole unit or more, and otherwise the platform's, and never less than one.
      *
-     * @return list<array{market: ?string, zero: int, low: int}>
+     * `oversold` is a product whose stock has gone past zero: units were sold that were not there. `products.current_stock` is a signed integer, so
+     * this is a real state of the data and not a shape the schema forbids -- the monitoring page counts it as a finding of its own. It is a SUBSET of
+     * `zero`, which has always counted `current_stock <= 0`, and the two are deliberately not made to exclude one another: the oversell is the
+     * sharper reading of the same rows, and narrowing `zero` would move a figure the platform already reports.
+     *
+     * It costs no statement of its own: one more pair of conditional sums over exactly the population the zero and low figures already read.
+     *
+     * @return list<array{market: ?string, zero: int, low: int, oversold: int, oversold_units: int}>
      */
     public function stock(): array
     {
@@ -197,11 +209,88 @@ final class PlatformMarketFigures
             ->where('products.status', 1)
             ->where('products.request_status', 1)
             ->where(static fn (Builder $query) => $query->where('products.added_by', 'admin')->orWhere('sellers.status', 'approved'))
-            ->selectRaw("{$country} AS country, SUM(CASE WHEN products.current_stock <= 0 THEN 1 ELSE 0 END) AS zero, SUM(CASE WHEN products.current_stock > 0 AND products.current_stock <= {$limit} THEN 1 ELSE 0 END) AS low")
+            ->selectRaw(
+                "{$country} AS country,
+                SUM(CASE WHEN products.current_stock <= 0 THEN 1 ELSE 0 END) AS zero,
+                SUM(CASE WHEN products.current_stock > 0 AND products.current_stock <= {$limit} THEN 1 ELSE 0 END) AS low,
+                SUM(CASE WHEN products.current_stock < 0 THEN 1 ELSE 0 END) AS oversold,
+                SUM(CASE WHEN products.current_stock < 0 THEN -products.current_stock ELSE 0 END) AS oversold_units",
+            )
             ->groupBy(DB::raw($country))
             ->get();
 
-        return $this->inMarkets(rows: $rows, counts: ['zero', 'low']);
+        return $this->inMarkets(rows: $rows, counts: ['zero', 'low', 'oversold', 'oversold_units']);
+    }
+
+    /**
+     * The stock promised to orders and not yet shipped, by the market of the product it is held for: how many holds there are and how many units
+     * they hold. Only a hold in state `reserved` holds anything -- `committed` and `released` are the two ends of a hold's life
+     * (InventoryReservation, StockHoldReconciler: "Committed and released holds are the two correct ends") -- so a shop that fulfils its orders
+     * reports few of these, and a figure that keeps climbing is the finding.
+     *
+     * A hold whose product has been deleted, or whose product is of a country nobody configured, has no market and is counted apart, never as
+     * Saudi, exactly as a refund request of a deleted product is.
+     *
+     * @return list<array{market: ?string, holds: int, units: int}>
+     */
+    public function reservations(): array
+    {
+        if (!$this->inventoryTable(table: 'inventory_reservations')) {
+            return [];
+        }
+
+        $country = $this->productCountry();
+
+        $rows = DB::table('inventory_reservations')
+            ->leftJoin('products', 'products.id', '=', 'inventory_reservations.product_id')
+            ->where('inventory_reservations.state', InventoryReservation::RESERVED)
+            ->selectRaw("{$country} AS country, COUNT(*) AS holds, COALESCE(SUM(inventory_reservations.quantity), 0) AS units")
+            ->groupBy(DB::raw($country))
+            ->get();
+
+        return $this->inMarkets(rows: $rows, counts: ['holds', 'units']);
+    }
+
+    /**
+     * How the stock of a market is divided between the channels that offer it, by the market of the pool's product: how many pools there are, how
+     * many of them could not give every channel its share, and how many units short those are.
+     *
+     * `inventory_pools.deficit` is the division's own record of what it could not satisfy, written by the allocator rather than derived here, so
+     * this figure is the allocator's verdict and not a second opinion about it. A pool with no deficit is a market whose channels are all served.
+     *
+     * @return list<array{market: ?string, pools: int, short: int, short_units: int}>
+     */
+    public function allocations(): array
+    {
+        if (!$this->inventoryTable(table: 'inventory_pools')) {
+            return [];
+        }
+
+        $country = $this->productCountry();
+
+        $rows = DB::table('inventory_pools')
+            ->leftJoin('products', 'products.id', '=', 'inventory_pools.product_id')
+            ->selectRaw(
+                "{$country} AS country, COUNT(*) AS pools,
+                SUM(CASE WHEN inventory_pools.deficit > 0 THEN 1 ELSE 0 END) AS short,
+                COALESCE(SUM(inventory_pools.deficit), 0) AS short_units",
+            )
+            ->groupBy(DB::raw($country))
+            ->get();
+
+        return $this->inMarkets(rows: $rows, counts: ['pools', 'short', 'short_units']);
+    }
+
+    /** Whether this installation keeps the stock promised to orders, so that a reservation figure can be reported at all. */
+    public function reservationsRecorded(): bool
+    {
+        return $this->inventoryTable(table: 'inventory_reservations');
+    }
+
+    /** Whether this installation divides a stock between channels, so that an allocation figure can be reported at all. */
+    public function allocationsRecorded(): bool
+    {
+        return $this->inventoryTable(table: 'inventory_pools');
     }
 
     /**
@@ -269,6 +358,16 @@ final class PlatformMarketFigures
     private function orderColumn(string $column): bool
     {
         return $this->orderColumns[$column] ??= Schema::hasColumn('orders', $column);
+    }
+
+    /**
+     * Whether one of the inventory tables exists here, asked once per table and per request. They are the dormant half of the inventory stack: an
+     * installation whose migration has not run has no such table, and the answer reports that rather than a zero, because "no pool is short" and
+     * "nothing divides a stock here" are different facts about a market.
+     */
+    private function inventoryTable(string $table): bool
+    {
+        return $this->inventoryTables[$table] ??= Schema::hasTable($table);
     }
 
     /**
