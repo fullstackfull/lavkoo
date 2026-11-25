@@ -256,6 +256,10 @@
             "scope": "derived",
             "by": "account_id"
         },
+        "failed_jobs": {
+            "scope": "global",
+            "why": "One queue serves the whole platform, and the row carries no owner column: connection, queue, payload, exception, failed_at. The PAYLOAD of a failed job may well concern one market, but the sink deliberately is not narrowed by it -- whoever is on call must see every failure, and a per-market failure sink would hide one market's failures from the person reading another's. `jobs` beside it is `inherited`, which this register freezes, so a new companion cannot join that set."
+        },
         "fulfillment_routing_decisions": {
             "scope": "derived",
             "by": "order_id"
