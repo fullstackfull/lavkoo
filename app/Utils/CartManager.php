@@ -1012,12 +1012,12 @@ class CartManager
             }
 
             if ($shippingMethod == 'inhouse_shipping') {
-                $categoryShippingCost = CategoryShippingCost::where('seller_id', 0)->where('category_id', $categoryID)->first();
+                $categoryShippingCost = CategoryShippingCost::where('seller_id', 0)->where('category_id', $categoryID)->forStorefront()->first();
             } else {
                 if ($product['added_by'] == 'admin') {
-                    $categoryShippingCost = CategoryShippingCost::where('seller_id', 0)->where('category_id', $categoryID)->first();
+                    $categoryShippingCost = CategoryShippingCost::where('seller_id', 0)->where('category_id', $categoryID)->forStorefront()->first();
                 } else {
-                    $categoryShippingCost = CategoryShippingCost::where('seller_id', $product['user_id'])->where('category_id', $categoryID)->first();
+                    $categoryShippingCost = CategoryShippingCost::where('seller_id', $product['user_id'])->where('category_id', $categoryID)->forStorefront()->first();
                 }
             }
 

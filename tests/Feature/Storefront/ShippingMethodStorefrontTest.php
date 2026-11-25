@@ -218,8 +218,11 @@ class ShippingMethodStorefrontTest extends TestCase
         $this->assertSame('product_wise', $answered['type']);
     }
 
-    /** The exception covers the type that charges a METHOD and nothing else: a category cost has no market and is still the platform's money. */
-    public function test_a_category_cost_is_still_priced_from_the_product_even_where_the_market_owns_a_method(): void
+    /**
+     * Each type asks its OWN table. Owning a method says nothing about whether the per-category costs may be charged, and this world has none of those,
+     * so `category_wise` is priced from the product -- and `product_wise` already means that.
+     */
+    public function test_owning_a_method_does_not_make_a_category_cost_chargeable(): void
     {
         $this->moneyWorld();
         $this->methodsOf(['Kuwaiti standard' => self::KUWAIT]);
