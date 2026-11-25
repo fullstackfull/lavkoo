@@ -956,6 +956,55 @@ fails the day one reaches it.
 | `Admin\ProductStockReportController` | scoped in slice 3 | The stock report and its export list the products of the employee's countries and read no order (StaffOrderRoutes). |
 | `Admin\ProductWishlistReportController` | scoped in slice 3 | The wishlist report and its export list the products of the employee's countries and read no order (StaffOrderRoutes). |
 
+## The survey: every admin route that reads the panel's own governance
+
+`tests/Feature/StaffScope/StaffGovernanceScreensTest.php` is the THIRD scan, and it asks a different question from the other two. Those ask which market a row of the shop
+belongs to; this one asks who may change who may see it: the employees, their roles, the countries they work with, the audit trail, and the credentials of the integrations.
+These screens were in neither survey, so a screen that hands an employee the power to widen their own reach could have been added with nobody deciding so.
+
+It walks the real route table and fails for an admin controller that reads any of those and is not in `tests/Support/StaffGovernanceInventory.php` with a reason. Writing an
+audit line is NOT part of it -- forty controllers record one, and that is G1-08's business rather than a screen that shows one.
+
+**10 controllers: 2 master-only, 1 scoped, 5 not needed, 2 out.**
+
+| Controller | Admin routes | Routes that read it | Status |
+|---|---:|---:|---|
+| `Admin\Employee\EmployeeController` | 8 | 8 | master only |
+| `Admin\Employee\CustomRoleController` | 7 | 7 | master only |
+| `Admin\Marketplace\AuditLogController` | 1 | 1 | scoped |
+| `Admin\ProfileController` | 3 | 3 | not needed |
+| `Admin\Vendor\VendorController` | 17 | 1 | not needed |
+| `Admin\Settings\InhouseShopController` | 6 | 1 | not needed |
+| `Admin\OperationalCosts\ContractController` | 9 | 1 | not needed |
+| `Admin\OperationalCosts\CostEntryController` | 6 | 1 | not needed |
+| `Admin\ThirdParty\PaymentMethodController` | 3 | 3 | out (owner) |
+| `Admin\ThirdParty\SMSModuleController` | 3 | 2 | out (owner) |
+
+**`master_only` is a real answer, not an omission.** The employee and role groups carry `EnsureMasterAdmin`, so no restricted employee reaches them at all, and the three
+questions a delegated people manager would raise -- not reaching the master account, not creating an employee wider than oneself, not handing out a role one does not hold --
+are answered by that gate rather than by a country scope. It is only true while the middleware is there, so the guard asserts it on every one of those 15 routes: a route of
+such a controller that lost the gate would hand a restricted employee the one screen that can widen their own reach. `AdminService::isOutOfReachOfStaffManagement()` and
+`::assignableRoleId()` guard the actions underneath it, so the master ACCOUNT and the master ROLE stay out of reach even of the first admin's own screens
+(`tests/Feature/Security/MasterAccountInStaffManagementTest.php`).
+
+**The audit centre was the defect this survey found.** `AuditLogController` narrows both of its reads -- the listing and the module list of its filter -- by
+`StaffCountryScope::boundCountries()`, and NOTHING on its route bound anything. The shared admin layout binds a request that nothing else did, but it does so in a view
+composer, which runs after the controller has already read and paginated its rows. So the narrowing was dead code and a restricted employee with the system-settings module
+read every market's trail. `ScopeGovernanceToStaffCountries`, registered by the controller, is what binds it, and `App\Services\Staff\StaffGovernanceRoutes` holds the rule
+of its one action so a second action cannot be added unconsidered. The general lesson is the one slice 3 already learnt in another form: a screen that reads a market-owned
+table needs a middleware of its own, and a narrowing that reads the bound countries proves nothing until something binds them.
+
+| Route | Action | Rule | Permission |
+|---|---|---|---|
+| `GET admin/marketplace/audit-log` | `AuditLogController::index` | `list:audit` | module:system_settings |
+
+A line that names no market is nobody's: `AuditLogger` refuses to file a panel action as the default market's, so a reading that handed those lines to whoever holds the
+default market would invent the same fact at the other end. Every line written before `2026_12_29_100000` names no market, so a restricted employee sees none of them.
+
+**What is still out, and the question it waits on.** The payment-gateway and SMS credentials live in one global settings row each (`live_values`), so a restricted employee
+with the third-party setup module reads and writes every market's. Whether a gateway belongs to a market at all is the owner's to say (G1-13); the gateway ACCOUNTS of
+GCC-06 are the per-market design and these two screens are the legacy global ones.
+
 ## Out of slices 1 to 3: the rule that would apply
 
 | Area | Rule for the slice that takes it |

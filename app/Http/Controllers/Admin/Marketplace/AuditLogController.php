@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin\Marketplace;
 
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopeGovernanceToStaffCountries;
 use App\Models\AuditLog;
 use App\Services\Staff\StaffCountryScope;
 use Illuminate\Contracts\View\View;
@@ -22,6 +23,14 @@ use Illuminate\Support\Facades\Schema;
  */
 class AuditLogController extends BaseController
 {
+    public function __construct()
+    {
+        // G1-08: the narrowing below reads what the request was bound to, and nothing on this route bound anything -- the shared layout
+        // binds in a view composer, which runs after this controller has already paginated. So the trail showed a restricted employee
+        // every market's lines. This is what binds it; StaffGovernanceRoutes holds the rule.
+        $this->middleware(ScopeGovernanceToStaffCountries::class);
+    }
+
     public function index(Request|null $request, ?string $type = null): View
     {
         $entries = collect();
