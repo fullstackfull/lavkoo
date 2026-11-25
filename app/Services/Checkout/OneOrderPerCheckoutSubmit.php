@@ -92,6 +92,16 @@ final readonly class OneOrderPerCheckoutSubmit
         return is_array($orderIds) ? array_values(array_map(static fn ($orderId): int => (int) $orderId, $orderIds)) : [];
     }
 
+    /**
+     * Gives the key back, for a submit that placed nothing. Without this an empty cart, or a cart every line of which was refused, would
+     * burn the key: the row would stay with no orders on it and every later submit carrying it would be answered "that submit placed
+     * nothing" forever. A submit that placed nothing is not a submit that was already honoured.
+     */
+    public function release(): void
+    {
+        DB::table(self::TABLE)->where(['customer_scope' => $this->scope, 'idempotency_key' => $this->key])->delete();
+    }
+
     /** @param list<int|string> $orderIds */
     public function record(array $orderIds): void
     {

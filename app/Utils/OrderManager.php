@@ -72,6 +72,7 @@ use App\Services\Customer\CustomerWalletWriter;
 use App\Services\Shipping\OrderCustomsQuote;
 use App\Services\Shipping\OrderShippingDecision;
 use App\Services\Shipping\ShippingEligibility;
+use App\Services\Checkout\OneOrderPerCheckoutSubmit;
 use App\Services\Payments\OneOrderPerPayment;
 use App\Services\Tax\IncludedTax;
 use Illuminate\Support\Facades\Schema;
@@ -1859,6 +1860,16 @@ class OrderManager
             ]
             : null;
 
+        // Which submit of the customer's checkout this is (D1-14), read from the request before the transaction opens because the key is
+        // the client's header and the transaction is no place to read a request from. Null for every checkout of this platform today:
+        // no app sends the header and the table it is claimed in arrives empty.
+        $checkoutSubmit = OneOrderPerCheckoutSubmit::of(data: $data, customerInfo: $getCustomerInfo);
+
+        // Whether this call answered with an EARLIER submit's orders instead of writing its own. Such a call must leave nothing behind
+        // but the answer: it did not place the orders it is reporting, so it must not clear the cart it happened to read on the way in.
+        // A customer who added a line and retried a stale key would otherwise lose that line to an order that never contained it.
+        $answeredFromAnEarlierSubmit = false;
+
         // Order ids are chosen by generateNewOrderID(), not by the database, so two checkouts that
         // start together can pick the same number and the second insert dies on the primary key.
         // Observed on the running store: "Duplicate entry '100002' for key 'PRIMARY'" — a hard 500
@@ -1868,8 +1879,8 @@ class OrderManager
         for ($idCollisionAttempt = 1; ; $idCollisionAttempt++) {
         try {
             DB::transaction(function () use (
-                $vendorWiseCartList, $taxConfig, $getCustomerInfo, $orderGroupId, $data, $stockPolicy, $walletPayment,
-                &$orderPlacedIds, &$orderPlacedNotificationEvents, &$orderPlacedMailEvents
+                $vendorWiseCartList, $taxConfig, $getCustomerInfo, $orderGroupId, $data, $stockPolicy, $walletPayment, $checkoutSubmit,
+                &$orderPlacedIds, &$orderPlacedNotificationEvents, &$orderPlacedMailEvents, &$answeredFromAnEarlierSubmit
             ) {
                 // Reset per attempt. DB::transaction retries on deadlock, and these accumulate —
                 // without this a retried attempt would report each order twice.
@@ -1887,6 +1898,17 @@ class OrderManager
                     transactionRef: $data['transaction_ref'] ?? null,
                     paymentStatus: $data['payment_status'] ?? null,
                 )) {
+                    return;
+                }
+
+                // One submit of a checkout places one order, however many times that submit arrives (D1-14). The claim is an INSERT under
+                // a unique key, made here so that the row is the lock a second submit waits on, a failed order write frees the key, and the
+                // repeat is ANSWERED WITH the orders the first submit placed rather than refused: the customer who tapped twice meant one
+                // order, and one order is what they get back. OneOrderPerCheckoutSubmit says why none of that survives moving the claim.
+                if ($checkoutSubmit !== null && !$checkoutSubmit->claim()) {
+                    $orderPlacedIds = $checkoutSubmit->theOrdersItAlreadyPlaced();
+                    $answeredFromAnEarlierSubmit = true;
+
                     return;
                 }
 
@@ -2073,6 +2095,11 @@ class OrderManager
                         throw new WalletPaymentRefused(customerId: $walletPayment['customerId'], amount: $walletPayment['amount']);
                     }
                 }
+
+                // Last, inside the same transaction: the key now names the orders it placed, so a repeat is answered with them. Written
+                // after the wallet debit, because a refused debit throws and this submit then wrote no order to name. A submit that
+                // placed NOTHING gives the key back rather than burning it -- an empty cart is not a submit that was already honoured.
+                $orderPlacedIds === [] ? $checkoutSubmit?->release() : $checkoutSubmit?->record(orderIds: $orderPlacedIds);
             }, attempts: 3);
 
             break;
@@ -2448,7 +2475,9 @@ Log::warning('Delivery Syria: parcel saved successfully', [
             }
         }
 
-        CartManager::cartCleanByCartGroupIds(cartGroupIDs: collect($vendorWiseCartList)?->pluck('cart_group_id')->toArray() ?? []);
+        if (!$answeredFromAnEarlierSubmit) {
+            CartManager::cartCleanByCartGroupIds(cartGroupIDs: collect($vendorWiseCartList)?->pluck('cart_group_id')->toArray() ?? []);
+        }
 
         session()->forget('coupon_code');
         session()->forget('coupon_type');
