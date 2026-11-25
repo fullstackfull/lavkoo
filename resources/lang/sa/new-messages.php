@@ -2157,6 +2157,7 @@ ____________________________________________________on_search_engines_and_see_th
 	'fulfillment_failed_at' => 'وقت الفشل',
 	'fulfillment_integrations_disabled_by_environment' => 'تكاملات التنفيذ متوقفة في هذه البيئة (FULFILLMENT_INTEGRATIONS_ENABLED). لا يتم إجراء أي اتصال بأي مزوّد.',
 	'fulfillment_mapping_required' => 'يحتاج أولًا إلى مطابقة معتمدة مع منتج لدى المزوّد',
+	'fulfillment_provider_does_not_serve_the_products_market' => 'هذا المزوّد لا يخدم سوق المنتج. يجب تحديد السوق في مسارات المزوّد أولًا.',
 	'fulfillment_product_not_found' => 'المنتج غير موجود.',
 	'fulfillment_provider' => 'مزوّد تنفيذ الطلبات',
 	'fulfillment_provider_default' => 'داخلي / افتراضي',

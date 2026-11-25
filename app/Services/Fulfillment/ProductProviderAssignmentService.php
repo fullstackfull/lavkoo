@@ -10,6 +10,8 @@ use App\Models\ProviderFulfillmentItem;
 use App\Models\ProviderProductMapping;
 use App\Services\AuditLogger;
 use App\Services\Fulfillment\Data\AssignmentResult;
+use App\Services\Fulfillment\Support\ProviderRouteSupport;
+use App\Services\Storefront\StorefrontCatalog;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -202,6 +204,9 @@ class ProductProviderAssignmentService
             if (($missing = $this->variantsWithoutApprovedMapping($product, $target)) !== []) {
                 return AssignmentResult::refused('fulfillment_mapping_required', implode(', ', $missing));
             }
+            if (($outsideItsMarket = $this->marketRefusal($product, $target)) !== null) {
+                return $outsideItsMarket;
+            }
         }
 
         // Orders already placed keep the provider they were placed with, so work in flight does not stand in the way; an owner who wants the older, stricter rule switches it back on.
@@ -210,6 +215,38 @@ class ProductProviderAssignmentService
         }
 
         return null;
+    }
+
+    /**
+     * Whether this provider can serve the market the product itself belongs to (C-01).
+     *
+     * The rule is one execution source per product per country storefront, and the row has carried its country since
+     * `2026_11_25_100000_add_storefront_country_to_products`. Nothing compared the two, so a Kuwaiti product could be given a carrier that
+     * operates only in Saudi Arabia -- and the refusal would come from the CARRIER, after a customer had bought the thing and the
+     * dispatcher had tried to send it. H1-02 already wrote down where each carrier operates, so this asks the question the dispatcher
+     * already asks, at the one moment where the answer costs nothing.
+     *
+     * The DOMESTIC route is what is asked for: a product fulfilled from its own market needs that carrier to serve market-to-market.
+     * Where a parcel may then cross a border is a different question, asked per order against the destination, and H1-02 owns it.
+     *
+     * Two deliberate silences. A product that records NO market is not judged at all -- that is every row of a single-market
+     * installation and every row written before the column existed, so this cannot refuse an assignment that works today. And taking a
+     * provider away (`$target` null) never reaches here: in-house is not a carrier and has no coverage to have.
+     *
+     * Every provider's declared routes default to the Saudi one, so Saudi Arabia is unchanged and any other market is refused until
+     * somebody writes that carrier's real coverage down. Which carrier serves which country, under which contract and company id, is the
+     * owner's question Q-33.
+     */
+    private function marketRefusal(object $product, ProviderCode $target): ?AssignmentResult
+    {
+        $market = strtoupper(trim((string) ($product->{StorefrontCatalog::COLUMN} ?? '')));
+
+        if ($market === '' || ProviderRouteSupport::serves($target->value, $market, $market)) {
+            return null;
+        }
+
+        // The market is named in the detail, because an operator who sees only "not served" cannot tell what to declare.
+        return AssignmentResult::refused('fulfillment_provider_does_not_serve_the_products_market', $market);
     }
 
     /**

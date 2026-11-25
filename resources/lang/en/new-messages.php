@@ -8634,6 +8634,7 @@ return [
 	'fulfillment_failed_at' => 'Failed',
 	'fulfillment_integrations_disabled_by_environment' => 'Fulfillment integrations are switched off for this environment (FULFILLMENT_INTEGRATIONS_ENABLED). No call is made to any provider.',
 	'fulfillment_mapping_required' => 'Needs an approved match to a provider product first',
+	'fulfillment_provider_does_not_serve_the_products_market' => 'This provider does not serve the product\'s market. Declare the market in the provider\'s routes first.',
 	'fulfillment_product_not_found' => 'Product not found.',
 	'fulfillment_provider' => 'Fulfillment provider',
 	'fulfillment_provider_default' => 'In-house / Default',
