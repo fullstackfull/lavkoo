@@ -4,6 +4,7 @@ namespace App\Services\DeepLink;
 
 use App\Models\Brand;
 use App\Services\Analytics\CampaignService;
+use App\Services\Storefront\StorefrontPathPrefix;
 use Illuminate\Support\Str;
 
 /**
@@ -41,6 +42,7 @@ class DeepLinkResolver
      *     web_url: string,
      *     attribution: array<string, string>,
      *     campaign: ?array{code: string, name: string},
+     *     storefront: ?string,
      *     reason: ?string
      * }
      */
@@ -52,7 +54,15 @@ class DeepLinkResolver
             return $this->unresolved('/', 'that_link_does_not_belong_to_this_shop');
         }
 
-        $match = $this->match($path);
+        // The website answers each market under its own path (A1-05), so a link the Kuwaiti storefront generated for itself begins with
+        // the MARKET. Matched without it and reported with it: the pattern list stays one list -- `/kw/product/*` is not a second
+        // published path to keep in step -- and `path` and `web_url` keep the market, because a web view has to open the market's own
+        // address and not Saudi Arabia's. The same service the website and the theme's actions use, so the three cannot disagree about
+        // what a market segment is.
+        $storefront = app(StorefrontPathPrefix::class)->countryOf($path);
+        $matchable = $storefront === null ? $path : app(StorefrontPathPrefix::class)->withoutPrefix(path: $path, country: $storefront);
+
+        $match = $this->match($matchable);
 
         if ($match !== null && $match['target'] === self::CAMPAIGN_TARGET) {
             return $this->resolveCampaign($path, $url);
@@ -71,6 +81,7 @@ class DeepLinkResolver
                 'web_url' => $this->absolute($path, $url),
                 'attribution' => $attribution,
                 'campaign' => null,
+                'storefront' => $storefront,
                 'reason' => 'this_path_is_not_published_as_an_app_link',
             ];
         }
@@ -84,6 +95,7 @@ class DeepLinkResolver
             'web_url' => $this->absolute($path, $url),
             'attribution' => $attribution,
             'campaign' => null,
+            'storefront' => $storefront,
             'reason' => null,
         ];
     }
@@ -110,13 +122,17 @@ class DeepLinkResolver
                 'web_url' => rtrim((string) config('app.url'), '/') . '/',
                 'attribution' => [],
                 'campaign' => null,
+                'storefront' => null,
                 'reason' => $resolved['reason'] ?? 'unknown_code',
             ];
         }
 
         $destination = (string) $resolved['url'];
         $destinationPath = $this->pathOf($destination) ?? '/';
-        $match = $this->match($destinationPath);
+        $storefront = app(StorefrontPathPrefix::class)->countryOf($destinationPath);
+        $match = $this->match($storefront === null
+            ? $destinationPath
+            : app(StorefrontPathPrefix::class)->withoutPrefix(path: $destinationPath, country: $storefront));
         $campaign = $resolved['campaign'];
 
         $attribution = $this->utmOf($destination);
@@ -136,6 +152,7 @@ class DeepLinkResolver
             'web_url' => $destination,
             'attribution' => $attribution,
             'campaign' => ['code' => (string) $campaign->code, 'name' => (string) $campaign->name],
+            'storefront' => $storefront,
             'reason' => null,
         ];
     }
@@ -267,6 +284,7 @@ class DeepLinkResolver
             'web_url' => rtrim((string) config('app.url'), '/') . $path,
             'attribution' => [],
             'campaign' => null,
+            'storefront' => null,
             'reason' => $reason,
         ];
     }
