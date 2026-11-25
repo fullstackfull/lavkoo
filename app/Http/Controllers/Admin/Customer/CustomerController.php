@@ -42,6 +42,7 @@ use App\Contracts\Repositories\CurrencyRepositoryInterface;
 use App\Contracts\Repositories\CustomerRepositoryInterface;
 use App\Contracts\Repositories\TranslationRepositoryInterface;
 use App\Contracts\Repositories\SubscriptionRepositoryInterface;
+use App\Services\Notification\NewsletterMarkets;
 use App\Contracts\Repositories\PasswordResetRepositoryInterface;
 use App\Contracts\Repositories\RefundRequestRepositoryInterface;
 use App\Contracts\Repositories\BusinessSettingRepositoryInterface;
@@ -62,6 +63,7 @@ class CustomerController extends BaseController
         private readonly TranslationRepositoryInterface     $translationRepo,
         private readonly OrderRepositoryInterface           $orderRepo,
         private readonly SubscriptionRepositoryInterface    $subscriptionRepo,
+        private readonly NewsletterMarkets                  $newsletterMarkets,
         private readonly BusinessSettingRepositoryInterface $businessSettingRepo,
         private readonly RefundRequestRepositoryInterface   $refundRequestRepo,
         private readonly PasswordResetRepositoryInterface   $passwordResetRepo,
@@ -369,6 +371,10 @@ class CustomerController extends BaseController
             $startDate = Carbon::createFromFormat('m/d/Y', $dates[0])->startOfDay();
             $endDate = Carbon::createFromFormat('m/d/Y', $dates[1])->endOfDay();
         }
+        // The market this screen is working on, bound to the request so the list, its total and the export are narrowed by the one rule
+        // (I1-04). An operator restricted to Kuwait is narrowed to Kuwait whatever the chooser carries.
+        $this->newsletterMarkets->bind($request, $request->get('market'));
+
         $subscriberList = $this->subscriptionRepo->getListWhereBetween(
             orderBy: ['created_at' => $orderBy],
             searchValue: $this->searchValue($request),
@@ -379,7 +385,13 @@ class CustomerController extends BaseController
             appends: $request->all(),
         );
         $totalSubscribers = $this->subscriptionRepo->getListWhere(dataLimit: 'all')->count();
-        return view('admin-views.customer.subscriber-list', compact('subscriberList', 'totalSubscribers'));
+
+        return view('admin-views.customer.subscriber-list', compact('subscriberList', 'totalSubscribers') + [
+            'marketChoices' => $this->newsletterMarkets->choices(),
+            'mayChooseEveryMarket' => $this->newsletterMarkets->mayChooseEveryMarket(),
+            'market' => $this->newsletterMarkets->chosen($request->get('market')),
+            'newsletterMarkets' => $this->newsletterMarkets,
+        ]);
     }
 
     public function exportList(Request $request): BinaryFileResponse
@@ -448,6 +460,10 @@ class CustomerController extends BaseController
             $startDate = Carbon::createFromFormat('m/d/Y', $dates[0])->startOfDay();
             $endDate = Carbon::createFromFormat('m/d/Y', $dates[1])->endOfDay();
         }
+        // Narrowed exactly as the list is, and that is the half that must not be forgotten: an export that reaches every market is a
+        // file of every market's addresses leaving the building.
+        $this->newsletterMarkets->bind($request, $request->get('market'));
+
         $subscriptionList = $this->subscriptionRepo->getListWhereBetween(
             orderBy: ['created_at' => $orderBy],
             searchValue: $this->searchValue($request),

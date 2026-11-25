@@ -4,6 +4,7 @@ namespace App\Services\DeepLink;
 
 use App\Models\Brand;
 use App\Services\Analytics\CampaignService;
+use App\Services\Storefront\StorefrontPathPrefix;
 use Illuminate\Support\Str;
 
 /**
@@ -41,6 +42,7 @@ class DeepLinkResolver
      *     web_url: string,
      *     attribution: array<string, string>,
      *     campaign: ?array{code: string, name: string},
+     *     storefront: ?string,
      *     reason: ?string
      * }
      */
@@ -52,8 +54,15 @@ class DeepLinkResolver
             return $this->unresolved('/', 'that_link_does_not_belong_to_this_shop');
         }
 
-        [$storefront, $withoutTheMarket] = $this->splitMarketOff(path: $path);
-        $match = $this->match($withoutTheMarket);
+        // The website answers each market under its own path (A1-05), so a link the Kuwaiti storefront generated for itself begins with
+        // the MARKET. Matched without it and reported with it: the pattern list stays one list -- `/kw/product/*` is not a second
+        // published path to keep in step -- and `path` and `web_url` keep the market, because a web view has to open the market's own
+        // address and not Saudi Arabia's. The same service the website and the theme's actions use, so the three cannot disagree about
+        // what a market segment is.
+        $storefront = app(StorefrontPathPrefix::class)->countryOf($path);
+        $matchable = $storefront === null ? $path : app(StorefrontPathPrefix::class)->withoutPrefix(path: $path, country: $storefront);
+
+        $match = $this->match($matchable);
 
         if ($match !== null && $match['target'] === self::CAMPAIGN_TARGET) {
             return $this->resolveCampaign($path, $url, $storefront);
@@ -92,64 +101,11 @@ class DeepLinkResolver
     }
 
     /**
-     * The market a path belongs to and the path without it.
-     *
-     * A six-market shop publishes its pages under a market's own path (`/ae/product/x`), and the rest
-     * of the path then means exactly what the unprefixed one means -- so one list of published paths
-     * serves both and a prefixed link can never mean something a bare link does not.
-     *
-     * This is the same reading the APP does offline (`DeepLinkResolver.readLocally` in lavkooapp), and
-     * it is gated on the same switch: while storefronts are off a market's path is not a path this shop
-     * serves, so `/ae/product/x` resolves to `web` here exactly as it falls to the browser there. The two
-     * sides of J-10 criterion 3 agree in both states, which is the point.
-     *
-     * @return array{0: ?string, 1: string} the market's code, or null, and the path to match
-     */
-    private function splitMarketOff(string $path): array
-    {
-        if (config('gcc.storefronts.enabled') !== true) {
-            return [null, $path];
-        }
-
-        $segments = array_values(array_filter(explode('/', $path), static fn (string $segment): bool => $segment !== ''));
-
-        if ($segments === []) {
-            return [null, $path];
-        }
-
-        $code = $this->marketOfPathSegment(segment: $segments[0]);
-
-        if ($code === null) {
-            return [null, $path];
-        }
-
-        array_shift($segments);
-
-        return [$code, '/' . implode('/', $segments)];
-    }
-
-    /** The code of the market whose own path is this segment, or null when it is not one. */
-    private function marketOfPathSegment(string $segment): ?string
-    {
-        $segment = strtolower(trim($segment));
-
-        foreach ((array) config('gcc.storefronts.countries', []) as $code => $market) {
-            $marketPath = strtolower(trim((string) ($market['path'] ?? '')));
-
-            if ($marketPath !== '' && $marketPath === $segment) {
-                return strtoupper(trim((string) $code));
-            }
-        }
-
-        return null;
-    }
-
-    /**
      * A short link, followed all the way to the screen it points at.
      *
      * @return array<string, mixed>
      */
-    private function resolveCampaign(string $path, string $url, ?string $storefront): array
+    private function resolveCampaign(string $path, string $url, ?string $linkMarket): array
     {
         $code = trim(Str::after($path, '/go/'), '/');
         $resolved = $this->campaigns->resolve($code);
@@ -166,17 +122,22 @@ class DeepLinkResolver
                 'web_url' => rtrim((string) config('app.url'), '/') . '/',
                 'attribution' => [],
                 'campaign' => null,
-                'storefront' => $storefront,
+                'storefront' => null,
                 'reason' => $resolved['reason'] ?? 'unknown_code',
             ];
         }
 
         $destination = (string) $resolved['url'];
         $destinationPath = $this->pathOf($destination) ?? '/';
-        // The market of the page the code points AT, and the short link's own only when the destination names none: a code may be printed
-        // without a market and send the reader to one.
-        [$destinationMarket, $withoutTheMarket] = $this->splitMarketOff(path: $destinationPath);
-        $match = $this->match($withoutTheMarket);
+        $destinationMarket = app(StorefrontPathPrefix::class)->countryOf($destinationPath);
+        $match = $this->match($destinationMarket === null
+            ? $destinationPath
+            : app(StorefrontPathPrefix::class)->withoutPrefix(path: $destinationPath, country: $destinationMarket));
+
+        // The market of the page the code points AT, and the SHORT LINK's own only when the destination names none. A code printed on a
+        // Kuwaiti poster as `/kw/c/ABC` may send the reader to an unprefixed page, and the market they came through is then the only
+        // market anyone knows about -- answering null there would lose it and open the default storefront's page instead.
+        $storefront = $destinationMarket ?? $linkMarket;
         $campaign = $resolved['campaign'];
 
         $attribution = $this->utmOf($destination);
@@ -196,7 +157,7 @@ class DeepLinkResolver
             'web_url' => $destination,
             'attribution' => $attribution,
             'campaign' => ['code' => (string) $campaign->code, 'name' => (string) $campaign->name],
-            'storefront' => $destinationMarket ?? $storefront,
+            'storefront' => $storefront,
             'reason' => null,
         ];
     }

@@ -4,6 +4,7 @@
 
 @use('App\Services\Storefront\ProductCountry')
 @use('App\Services\Theme\StorefrontThemeResolver')
+@use('App\Services\Theme\ThemeCopyToMarket')
 
 @section('content')
     @php $storefrontThemes = app(StorefrontThemeResolver::class); @endphp
@@ -275,6 +276,26 @@
                                                 @if($exportable)
                                                     <a href="{{ route('admin.theme.version.export', ['version_id' => $exportable->id]) }}"
                                                        class="btn btn-sm btn-outline-secondary">{{ translate('export') }}</a>
+                                                    {{-- F-11: this market's theme becomes another market's draft, with its own section
+                                                         identities, banner rows and asset files. Offered only once themes belong to
+                                                         storefronts, and never for the market the theme already belongs to. --}}
+                                                    @php $copyMarkets = app(ThemeCopyToMarket::class)->marketsFor($exportable); @endphp
+                                                    @if(count($copyMarkets) > 0)
+                                                        <form action="{{ route('admin.theme.copy-to-market') }}" method="post" class="d-flex gap-1">
+                                                            @csrf
+                                                            <input type="hidden" name="version_id" value="{{ $exportable->id }}">
+                                                            <select name="market" class="form-control form-control-sm" style="max-width:7rem" required>
+                                                                <option value="">{{ translate('market') }}</option>
+                                                                @foreach($copyMarkets as $copyMarket)
+                                                                    <option value="{{ $copyMarket }}">{{ ProductCountry::label(country: $copyMarket) }}</option>
+                                                                @endforeach
+                                                            </select>
+                                                            <button type="submit" class="btn btn-sm btn-outline-primary"
+                                                                    title="{{ translate('the_copy_is_a_draft_of_that_market_and_changes_nothing_it_serves_today') }}">
+                                                                {{ translate('copy_to_market') }}
+                                                            </button>
+                                                        </form>
+                                                    @endif
                                                 @endif
                                                 @foreach($theme->versions->where('status', 'archived')->sortByDesc('id')->take(3) as $archived)
                                                     <form action="{{ route('admin.theme.version.restore') }}" method="post"

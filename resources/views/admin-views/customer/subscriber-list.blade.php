@@ -41,6 +41,20 @@
                             <input type="number" name="choose_first" min="1" value="{{ requestString('choose_first') }}" class="form-control" placeholder="{{translate('Ex')}} : {{translate('100')}}">
                         </div>
                     </div>
+                    @if (count($marketChoices ?? []) > 0)
+                        <div class="col-md-4">
+                            <div class="form-group">
+                                <label class="form-label" for="subscriber-market">{{ translate('market') }}</label>
+                                <select class="custom-select" name="market" id="subscriber-market">
+                                    <option value="">{{ $mayChooseEveryMarket ? translate('every_market') : translate('every_market_you_work_with') }}</option>
+                                    @foreach ($marketChoices as $marketChoice)
+                                        <option value="{{ $marketChoice }}" @selected($market === $marketChoice)>{{ $marketChoice }}</option>
+                                    @endforeach
+                                </select>
+                                <p class="fs-12 text-muted mb-0 mt-1">{{ translate('the_list_and_the_export_are_both_limited_to_this_market') }}</p>
+                            </div>
+                        </div>
+                    @endif
                 </div>
                 <div class="d-flex flex-wrap gap-3 justify-content-end mt-3">
                     <a href="{{ route('admin.customer.subscriber-list') }}"
@@ -60,7 +74,7 @@
 
                 <x-slot:actions>
                     <a class="k-btn k-btn--secondary"
-                       href="{{route('admin.customer.subscriber-list.export', ['sort_by' => request('sort_by'), 'choose_first' => request('choose_first'), 'subscription_date' => request('subscription_date'), 'searchValue' => request('searchValue')])}}">
+                       href="{{route('admin.customer.subscriber-list.export', ['sort_by' => request('sort_by'), 'choose_first' => request('choose_first'), 'subscription_date' => request('subscription_date'), 'searchValue' => request('searchValue'), 'market' => request('market')])}}">
                         <x-k.icon name="download" :size="15" /> {{ translate('export') }}
                     </a>
                 </x-slot:actions>
@@ -69,6 +83,7 @@
                     <thead>
                     <tr>
                         <th>{{ translate('email') }}</th>
+                        @if (count($marketChoices ?? []) > 0)<th>{{ translate('market') }}</th>@endif
                         <th>{{ translate('subscription_date') }}</th>
                     </tr>
                     </thead>
@@ -78,6 +93,9 @@
                             <td>
                                 <a href="mailto:{{ $item->email }}">{{ $item->email }}</a>
                             </td>
+                            @if (count($marketChoices ?? []) > 0)
+                                <td class="fs-12" dir="ltr">{{ $newsletterMarkets->of($item->storefront_country ?? null) }}</td>
+                            @endif
                             <td>
                                 <span class="k-num">{{ date('d M Y, h:i A', strtotime($item->created_at)) }}</span>
                             </td>

@@ -6,6 +6,7 @@ use App\Http\Controllers\BaseController;
 use App\Models\ExperienceCampaign;
 use App\Models\ExperiencePage;
 use App\Services\AuditLogger;
+use App\Services\Commerce\CampaignMarkets;
 use App\Services\Commerce\CampaignRules;
 use App\Services\Theme\Channel;
 use App\Services\Theme\ExperiencePageService;
@@ -30,6 +31,7 @@ class CampaignController extends BaseController
 {
     public function __construct(
         private readonly CampaignRules $rules,
+        private readonly CampaignMarkets $markets,
         private readonly ExperiencePageService $pages,
         private readonly ThemePermissionService $permissions,
         private readonly AuditLogger $audit,
@@ -51,14 +53,19 @@ class CampaignController extends BaseController
             // answers "did the campaign work" on the same screen that runs it.
             'reach'     => app(\App\Services\Theme\SectionReach::class),
             'campaigns' => $ready
-                ? ExperienceCampaign::query()->orderByDesc('id')->get()
+                ? $this->markets->listedFor(ExperienceCampaign::query()->orderByDesc('id')->get())
                 : collect(),
+            // The markets half (I1-15): which markets this operator may run a campaign in, which ones each
+            // campaign already runs in, and whether they may touch a platform-wide one at all.
+            'marketChoices' => $this->markets->choices(),
+            'mayChooseEveryMarket' => $this->markets->mayChooseEveryMarket(),
+            'campaignMarkets' => $this->markets,
             'pages'     => $theme
                 ? array_column($this->pages->forChannel($theme->id, Channel::CUSTOMER_APP), 'slug')
                 : ExperiencePage::SYSTEM_SLUGS,
             'slots'     => CampaignRules::SLOTS,
             'types'     => CampaignRules::OVERRIDE_TYPES,
-            'editable'  => $this->permissions->canEdit(),
+            'editable'  => $this->permissions->canEdit() && $this->markets->mayCreate(),
         ]);
     }
 
@@ -93,6 +100,11 @@ class CampaignController extends BaseController
             return back();
         }
 
+        if (!$this->markets->mayCreate()) {
+            ToastMagic::error(translate('your_countries_grant_no_market_to_run_a_campaign_in') . '!');
+            return back();
+        }
+
         $campaign = ExperienceCampaign::create([
             'name'      => trim($request->input('name')),
             'status'    => ExperienceCampaign::STATUS_DRAFT,
@@ -103,12 +115,17 @@ class CampaignController extends BaseController
             'overrides' => $checked['overrides'],
         ]);
 
+        // The markets the campaign runs in, taken from the form and then narrowed to what this employee's
+        // scope grants -- never the other way round, so the field cannot widen their reach.
+        $markets = $this->markets->accepted($request->input('storefront_countries'));
+        $this->markets->apply($campaign, $markets);
+
         $this->audit->record(
             action: 'commerce.campaign_created',
             subject: $campaign,
             after: ['name' => $campaign->name, 'page' => $campaign->page, 'priority' => $campaign->priority,
                     'window' => [$campaign->starts_at?->toIso8601String(), $campaign->ends_at?->toIso8601String()],
-                    'overrides' => count($checked['overrides'])],
+                    'overrides' => count($checked['overrides']), 'markets' => $markets],
         );
 
         ToastMagic::success(translate('campaign_created_as_a_draft'));
@@ -129,7 +146,13 @@ class CampaignController extends BaseController
             return back();
         }
 
+        if (!$this->markets->mayChange($campaign)) {
+            ToastMagic::error(translate('this_campaign_runs_in_a_market_you_do_not_work_with') . '!');
+            return back();
+        }
+
         $before = ['status' => $campaign->status, 'priority' => $campaign->priority,
+                   'markets' => $this->markets->of($campaign),
                    'window' => [$campaign->starts_at?->toIso8601String(), $campaign->ends_at?->toIso8601String()]];
 
         if ($request->has('name')) {
@@ -217,6 +240,11 @@ class CampaignController extends BaseController
         }
 
         $campaign->save();
+
+        if ($request->has('storefront_countries')) {
+            $this->markets->apply($campaign, $this->markets->accepted($request->input('storefront_countries')));
+        }
+
         $this->flushServing();
 
         $this->audit->record(
@@ -224,6 +252,7 @@ class CampaignController extends BaseController
             subject: $campaign,
             before: $before,
             after: ['status' => $campaign->status, 'priority' => $campaign->priority,
+                    'markets' => $this->markets->of($campaign),
                     'window' => [$campaign->starts_at?->toIso8601String(), $campaign->ends_at?->toIso8601String()]],
         );
 
@@ -245,13 +274,23 @@ class CampaignController extends BaseController
             return back();
         }
 
+        if (!$this->markets->mayChange($campaign)) {
+            ToastMagic::error(translate('this_campaign_runs_in_a_market_you_do_not_work_with') . '!');
+            return back();
+        }
+
+        $markets = $this->markets->of($campaign);
+
+        // The mapping is keyed by the campaign's id, so leaving it behind would hand the next campaign to
+        // take that id somebody else's markets.
+        $this->markets->apply($campaign, []);
         $campaign->delete();
         $this->flushServing();
 
         $this->audit->record(
             action: 'commerce.campaign_deleted',
             subject: $campaign,
-            before: ['name' => $campaign->name, 'status' => $campaign->status],
+            before: ['name' => $campaign->name, 'status' => $campaign->status, 'markets' => $markets],
         );
 
         ToastMagic::success(translate('campaign_deleted_and_the_base_page_is_simply_what_it_always_was'));

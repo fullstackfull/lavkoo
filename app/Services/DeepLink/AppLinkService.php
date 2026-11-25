@@ -2,6 +2,8 @@
 
 namespace App\Services\DeepLink;
 
+use App\Services\Storefront\StorefrontPathPrefix;
+use App\Services\Storefront\StorefrontResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 
@@ -125,47 +127,48 @@ class AppLinkService
             $paths[] = $campaign;
         }
 
-        return array_values(array_unique(array_merge($paths, $this->underEachMarket(paths: $paths))));
+        return array_values(array_unique([...$paths, ...$this->withinEachMarket($paths)]));
     }
 
     /**
-     * The same paths under each market's own prefix (`/ae/product/*`), which a six-market shop serves (J-10, GCC-19).
+     * The same paths under each market's own prefix (B-18, A1-05).
      *
-     * iOS reads this list out of the association file and opens the browser for anything absent from it, and Android's filters have to mirror
-     * it, so a market's pages reach the app only if they are published. Computed from the storefront configuration rather than written into
-     * `config/deeplinks.php`: a seventh market would otherwise mean thirty more lines to keep in step with the first seven.
+     * The website answers each market under `/kw`, `/ae` and the rest, and iOS treats the association file as AUTHORITATIVE: a path that
+     * is not in it opens the BROWSER. So while the markets' paths were unpublished, `/kw/product/aspirin-100mg` -- the address the
+     * Kuwaiti storefront generates for its own links, puts in its sitemap and prints in its canonical tag -- bounced the customer out of
+     * the app into Safari, while the bare `/product/aspirin-100mg` opened the app. One shop, two behaviours, decided by a prefix.
      *
-     * Nothing is added while storefronts are off -- the shop then serves no market's path -- which is the same switch the resolver reads
-     * before it strips a prefix, and the same one the app reads before it recognises one.
+     * Only the markets that are actually SERVED under a prefix, and only while that switch is on: with it off the association files are
+     * byte for byte the ones a phone has already cached, which matters because a published file is live app behaviour and not a page
+     * anybody can re-read. The campaign short link is deliberately not prefixed -- `StorefrontPathPrefix` never puts a market in front of
+     * a machine path, and a short link is one.
      *
-     * @param list<string> $paths
-     *
-     * @return list<string>
+     * @param array<int, string> $paths
+     * @return array<int, string>
      */
-    private function underEachMarket(array $paths): array
+    private function withinEachMarket(array $paths): array
     {
-        if (config('gcc.storefronts.enabled') !== true) {
+        $prefixes = app(StorefrontPathPrefix::class);
+
+        if (!$prefixes->isEnabled()) {
             return [];
         }
 
-        $prefixed = [];
+        $campaign = $this->campaignPathPattern();
+        $within = [];
 
-        foreach ((array) config('gcc.storefronts.countries', []) as $market) {
-            $prefix = strtolower(trim((string) ($market['path'] ?? '')));
-
-            if ($prefix === '') {
-                continue;
-            }
-
-            // The market's own home page, and then each published path beneath it.
-            $prefixed[] = '/' . $prefix;
-
+        foreach (StorefrontResolver::fromConfig()->reachableCountries() as $country) {
             foreach ($paths as $path) {
-                $prefixed[] = '/' . $prefix . ($path === '/' ? '' : $path);
+                if ($path === $campaign) {
+                    continue;
+                }
+
+                $prefixed = $prefixes->pathWithin(path: $path === '/' ? '/' : rtrim($path, '*'), country: $country);
+                $within[] = str_ends_with($path, '*') ? rtrim($prefixed, '/') . '/*' : $prefixed;
             }
         }
 
-        return $prefixed;
+        return $within;
     }
 
     /**

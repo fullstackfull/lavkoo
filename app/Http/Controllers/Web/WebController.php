@@ -33,6 +33,7 @@ use App\Models\ShippingMethod;
 use App\Models\ShippingType;
 use App\Models\Shop;
 use App\Models\Subscription;
+use App\Services\Notification\NewsletterMarkets;
 use App\Services\Marketing\MarketingConsent;
 use App\Services\Marketing\MarketingConsentGate;
 use App\Services\Marketing\MarketingConsentRecorder;
@@ -1678,13 +1679,18 @@ class WebController extends Controller
         $request->validate([
             'subscription_email' => 'required|email'
         ]);
-        $subscriptionEmail = Subscription::where('email', $request['subscription_email'])->first();
+        // The list belongs to the market the visitor is on (I1-04). The duplicate check moves with it, and that is the part that had
+        // to change: a GLOBAL check meant a Kuwaiti visitor whose address was already on the Saudi list was told they had already
+        // subscribed and no Kuwaiti row was written, so the Kuwaiti operator's list would never hold them. While storefronts are off
+        // the check is the global one and the row is the row this site has always written.
+        $markets = app(NewsletterMarkets::class);
 
-        if (isset($subscriptionEmail)) {
+        if ($markets->alreadySubscribed((string) $request['subscription_email'])) {
             Toastr::info(translate('You_already_subscribed_this_site'));
         } else {
             $newSubscription = new Subscription;
             $newSubscription->email = $request['subscription_email'];
+            $newSubscription->forceFill($markets->columnForThisSignup());
             $newSubscription->save();
             Toastr::success(translate('Your_subscription_successfully_done'));
         }

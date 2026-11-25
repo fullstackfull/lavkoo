@@ -10,6 +10,7 @@ use App\Services\AuditLogger;
 use App\Services\Theme\BuilderReadiness;
 use App\Services\Theme\PublishValidator;
 use App\Services\Theme\StorefrontThemeResolver;
+use App\Services\Theme\ThemeCopyToMarket;
 use App\Services\Theme\ThemeManager;
 use App\Services\Theme\ThemePermissionService;
 use App\Services\Theme\ThemePortabilityService;
@@ -42,6 +43,7 @@ class ThemeManagementController extends BaseController
         private readonly ThemeAssetService         $assets,
         private readonly BuilderReadiness          $readiness,
         private readonly StorefrontThemeResolver   $storefrontThemes,
+        private readonly ThemeCopyToMarket         $copies,
         private readonly AuditLogger               $audit,
     )
     {
@@ -476,6 +478,95 @@ class ThemeManagementController extends BaseController
         ToastMagic::success(translate('theme_imported_successfully'));
 
         return $this->backToIndex();
+    }
+
+    /**
+     * Copy a version into another market as that market's own draft (F-11).
+     *
+     * A merchant who has composed one storefront starts the next from it instead of from an empty draft. The copy is a DRAFT owned by
+     * the target market -- a plain export/import would have produced a second theme of the DEFAULT market, because an imported theme
+     * names no country and a theme that names none is the default storefront's.
+     *
+     * What could not be brought is reported rather than left for a shopper to find: a product, category, brand or deal the source
+     * theme names by id that the target market does not offer renders an empty rail.
+     */
+    public function copyToMarket(Request $request): RedirectResponse
+    {
+        if ($this->blockedOnDemo()) {
+            return $this->backToIndex();
+        }
+        if (!$this->permissions->canEdit()) {
+            ToastMagic::error(translate('you_do_not_have_permission_to_edit_a_theme') . '!');
+            return $this->backToIndex();
+        }
+
+        $request->validate([
+            'version_id' => ['required', 'integer'],
+            'market'     => ['required', 'string', 'size:2'],
+            'name'       => ['nullable', 'string', 'max:191'],
+        ]);
+
+        $version = ThemeVersion::query()->with('theme')->find($request->integer('version_id'));
+
+        if ($version === null) {
+            ToastMagic::error(translate('that_theme_version_was_not_found') . '!');
+            return $this->backToIndex();
+        }
+
+        $copied = $this->copies->copy($version, (string) $request->input('market'), $request->get('name'), auth('admin')->id());
+
+        if ($copied['refused'] !== null) {
+            ToastMagic::error(translate($copied['refused']) . '!');
+            return $this->backToIndex();
+        }
+
+        $this->audit->record(
+            action: 'theme.copied_to_market',
+            subject: $copied['theme'],
+            after: $copied['report'],
+        );
+
+        ToastMagic::success(translate('the_theme_was_copied_as_a_draft_of_that_market'));
+
+        foreach ($this->whatTheCopyCouldNotBring($copied['report']) as $warning) {
+            ToastMagic::warning($warning);
+        }
+
+        return $this->backToIndex();
+    }
+
+    /**
+     * The sentences an operator needs after a copy, each naming the ids rather than counting them: "three products are missing" sends
+     * them hunting, and a gate that prints a count and withholds the lines costs a round trip every time it fires.
+     *
+     * @param array<string, mixed> $report
+     * @return array<int, string>
+     */
+    private function whatTheCopyCouldNotBring(array $report): array
+    {
+        $warnings = [];
+
+        foreach ((array) ($report['catalogue_missing'] ?? []) as $kind => $ids) {
+            $warnings[] = translate('this_market_does_not_offer_these') . ' ' . translate(str_replace('_', ' ', (string) $kind))
+                . ': ' . implode(', ', (array) $ids);
+        }
+
+        foreach ((array) ($report['catalogue_not_checked'] ?? []) as $kind => $ids) {
+            $warnings[] = translate('nothing_on_this_platform_can_place_these_in_a_market_yet') . ' '
+                . translate(str_replace('_', ' ', (string) $kind)) . ': ' . implode(', ', (array) $ids);
+        }
+
+        if (($report['assets']['not_copied'] ?? []) !== []) {
+            $warnings[] = translate('these_images_could_not_be_copied_and_the_copy_has_none_of_its_own')
+                . ': ' . implode(', ', (array) $report['assets']['not_copied']);
+        }
+
+        if (($report['banners']['missing'] ?? []) !== []) {
+            $warnings[] = translate('these_banner_rows_are_gone_so_their_sections_point_at_nothing')
+                . ': ' . implode(', ', (array) $report['banners']['missing']);
+        }
+
+        return $warnings;
     }
 
     /** Create a theme from a built-in preset. */

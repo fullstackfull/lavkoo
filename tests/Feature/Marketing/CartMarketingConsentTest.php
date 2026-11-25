@@ -79,9 +79,20 @@ class CartMarketingConsentTest extends MarketingConsentTestCase
         $this->assertSame(['+966500000003'], $this->chatwoot->phonesSentTo());
         // Byte for byte, because the sentence an administrator reads is the only report they get of a skip, and
         // because an untranslated one was what the review found here.
+        //
+        // The skip clause is asked of `translate()` rather than spelled out, and that is the repair of a second defect in the
+        // same sentence: `skipped_for_lack_of_whatsapp_marketing_consent` was defined in NO locale, so the text pinned here was
+        // the placeholder `translate()` INVENTED from the key -- and it invented it by appending a line to
+        // `resources/lang/<locale>/new-messages.php` on every send. Spelling it out again would pin whatever the next
+        // placeholder happens to be; asking for the translation pins that the sentence is assembled from a real one.
         $this->assertSame(
-            'Cart marketing sent successfully to 1 customer(s). Skipped for lack of whatsapp marketing consent: 1.',
+            'Cart marketing sent successfully to 1 customer(s). ' . translate('skipped_for_lack_of_whatsapp_marketing_consent') . ': 1.',
             (string) $response->getSession()->get('success'),
+        );
+        $this->assertSame(
+            'Skipped for lack of WhatsApp marketing consent',
+            translate('skipped_for_lack_of_whatsapp_marketing_consent'),
+            'the English of the skip clause changed; an administrator reads this sentence',
         );
     }
 

@@ -4,6 +4,7 @@ namespace App\Services\Theme;
 
 use App\Models\Brand;
 use App\Models\Category;
+use App\Services\Storefront\StorefrontPathPrefix;
 
 /**
  * What a tap does, said once, in terms both clients understand.
@@ -90,11 +91,28 @@ class ActionResolver
         $path = trim((string) ($parts['path'] ?? ''), '/');
         parse_str((string) ($parts['query'] ?? ''), $query);
 
+        // A market's segment is taken off before the path is read, exactly as the request middleware takes it off before the path is
+        // routed (A1-05, StorefrontPathPrefix). `/kw/product/aspirin-100mg` is the PRODUCT screen of the Kuwaiti storefront, and
+        // without this it fell through to the default branch and became an ordinary external `url` -- so a merchant whose storefront
+        // lives under a market path composed a banner that opened a browser on top of the app instead of the product.
+        //
+        // The same service the website uses, so the two cannot disagree about what counts as a market segment: while the paths switch
+        // is off `/kw/...` is a 404 on the web, and an action that resolved it to a product would be answering for a page the website
+        // does not serve.
+        $prefixes = app(StorefrontPathPrefix::class);
+        $storefront = $prefixes->countryOf('/' . $path);
+
+        if ($storefront !== null) {
+            $path = trim($prefixes->withoutPrefix(path: '/' . $path, country: $storefront), '/');
+        }
+
         $segments = $path === '' ? [] : explode('/', $path);
         $head = $segments[0] ?? '';
         $tail = $segments[1] ?? null;
 
-        return match (true) {
+        // The market a prefix named travels with the action, so a client that holds several storefronts opens the destination in the
+        // one the link belongs to rather than in whichever it happens to be showing.
+        return $this->within(match (true) {
             $head === 'product'     && $tail !== null => $this->slugged(self::PRODUCT, $tail, $link),
             // Category and brand carry their id as well: the app's list screen opens on an id and
             // has no slug index, so a slug-only action would open an empty list.
@@ -122,7 +140,25 @@ class ActionResolver
                 => $this->collection($head, $query, $link),
 
             default => ['type' => self::URL, 'url' => $link],
-        };
+        }, $storefront);
+    }
+
+    /**
+     * The action with the market its link named, where it named one.
+     *
+     * Additive, and absent rather than null when the link named no market: a client that does not read the key is unaffected, and one
+     * that does can tell "this link belongs to Kuwait" from "this link belongs to wherever you are".
+     *
+     * @param  array<string, mixed>  $action
+     * @return array<string, mixed>
+     */
+    private function within(array $action, ?string $storefront): array
+    {
+        if ($storefront !== null && $action['type'] !== self::URL) {
+            $action['storefront'] = $storefront;
+        }
+
+        return $action;
     }
 
     /**

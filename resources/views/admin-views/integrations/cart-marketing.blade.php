@@ -1,17 +1,17 @@
 @extends('layouts.admin.app')
 
-@section('title', 'Cart Marketing')
+@section('title', translate('cart_marketing'))
 
 @section('content')
 <div class="content container-fluid">
 
     <div class="mb-4">
         <h1 class="page-header-title">
-            Cart Marketing
+            {{ translate('cart_marketing') }}
         </h1>
 
         <p class="text-muted">
-            Send a WhatsApp template to selected registered customers with active carts.
+            {{ translate('send_a_whatsapp_template_to_selected_registered_customers_with_active_carts') }}
         </p>
     </div>
 @if (session('success'))
@@ -46,7 +46,7 @@
 
                     <div class="col-md-6">
                         <label class="form-label">
-                            WhatsApp Template
+                            {{ translate('whatsapp_template') }}
                         </label>
 
                         <select
@@ -55,7 +55,7 @@
                             required
                         >
                             <option value="">
-                                Select Template
+                                {{ translate('select_template') }}
                             </option>
 
                             @foreach ($templates as $template)
@@ -68,12 +68,29 @@
                         </select>
                     </div>
 
-                    <div class="col-md-6">
+                    @if (count($marketChoices ?? []) > 0)
+                        <div class="col-md-3">
+                            <label class="form-label" for="cart-marketing-market">{{ translate('market') }}</label>
+                            <select name="market" id="cart-marketing-market" class="form-control"
+                                    data-index="{{ route('admin.integrations.cart-marketing.index') }}">
+                                <option value="">{{ $mayChooseEveryMarket ? translate('every_market') : translate('every_market_you_work_with') }}</option>
+                                @foreach ($marketChoices as $marketChoice)
+                                    <option value="{{ $marketChoice }}" @selected($market === $marketChoice)>{{ $marketChoice }}</option>
+                                @endforeach
+                            </select>
+                            <p class="fs-12 text-muted mb-0 mt-1">
+                                {{ translate('the_list_and_the_send_are_both_limited_to_this_market') }}
+                            </p>
+                        </div>
+                    @endif
+
+                    <div class="col-md-3">
                         <button
                             type="submit"
                             class="btn btn-primary"
+                            @disabled(!($mayMarket ?? true))
                         >
-                            Send To Selected
+                            {{ translate('send_to_selected') }}
                         </button>
                     </div>
 
@@ -89,7 +106,7 @@
                 @if (empty($customers))
 
                     <div class="text-center py-5 text-muted">
-                        No eligible carts found.
+                        {{ translate('no_eligible_carts_found') }}
                     </div>
 
                 @else
@@ -108,11 +125,11 @@
                                     >
                                 </th>
 
-                                <th>Customer</th>
-                                <th>Phone</th>
-                                <th>Items</th>
-                                <th>Cart Total</th>
-                                <th>Last Activity</th>
+                                <th>{{ translate('customer') }}</th>
+                                <th>{{ translate('phone') }}</th>
+                                <th>{{ translate('items') }}</th>
+                                <th>{{ translate('cart_total') }}</th>
+                                <th>{{ translate('last_activity') }}</th>
 
                             </tr>
                             </thead>
@@ -134,7 +151,7 @@
 
                                     <td>
                                         <strong>
-                                            {{ $customer['name'] ?: 'Customer #' . $customer['customer_id'] }}
+                                            {{ $customer['name'] ?: translate('customer') . ' #' . $customer['customer_id'] }}
                                         </strong>
                                     </td>
 
@@ -181,18 +198,34 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const selectAll = document.getElementById('select-all');
 
-    if (!selectAll) {
-        return;
+    if (selectAll) {
+
+        selectAll.addEventListener('change', function () {
+
+            document.querySelectorAll('.customer-checkbox')
+                .forEach(function (checkbox) {
+                    checkbox.checked = selectAll.checked;
+                });
+
+        });
+
     }
 
-    selectAll.addEventListener('change', function () {
+    // Choosing a market reloads the list for it. The same value posts with the send, so what the
+    // operator is looking at and what the button sends to are one choice and cannot diverge.
+    const market = document.getElementById('cart-marketing-market');
 
-        document.querySelectorAll('.customer-checkbox')
-            .forEach(function (checkbox) {
-                checkbox.checked = selectAll.checked;
-            });
+    if (market) {
 
-    });
+        market.addEventListener('change', function () {
+
+            window.location.assign(
+                market.getAttribute('data-index') + '?market=' + encodeURIComponent(market.value)
+            );
+
+        });
+
+    }
 
 });
 </script>

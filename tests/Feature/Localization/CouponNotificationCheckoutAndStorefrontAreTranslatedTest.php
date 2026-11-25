@@ -42,6 +42,15 @@ class CouponNotificationCheckoutAndStorefrontAreTranslatedTest extends TestCase
         'app/Http/Requests/Admin/Notification',
         'resources/views/admin-views/notification',
         'resources/views/admin-views/notification-accounts',
+        'app/Http/Controllers/Admin/CartMarketingController.php',
+        'resources/views/admin-views/integrations/cart-marketing.blade.php',
+        // The theme flow: the theme list, the section builder, the publish confirmation and the image library.
+        'app/Services/Theme',
+        'resources/views/admin-views/theme',
+        // The campaign and merchandising flow: the markets a campaign runs in, and everything else the commerce screens say.
+        'app/Services/Commerce',
+        'app/Http/Controllers/Admin/Commerce',
+        'resources/views/admin-views/commerce',
         // The coupon flow.
         'app/Http/Controllers/Admin/Promotion/CouponController.php',
         'resources/views/admin-views/coupon',
@@ -49,6 +58,16 @@ class CouponNotificationCheckoutAndStorefrontAreTranslatedTest extends TestCase
         'app/Services/Checkout',
         'resources/themes/default/web-views/checkout',
     ];
+
+    /**
+     * Keys whose value is an address or a code rather than a sentence, so an Arabic locale answering them in Arabic would be wrong.
+     *
+     * There is one, and it earns its place: `https_example_com_page` is the placeholder shown in the builder's link field, and its
+     * value IS `https://example.com/page`. A list of exemptions is a list of excuses, so each entry carries why it is not a sentence.
+     *
+     * @var list<string>
+     */
+    private const NOT_A_SENTENCE = ['https_example_com_page'];
 
     /** @var array<string, array<string, string>> */
     private array $catalogue = [];
@@ -87,6 +106,10 @@ class CouponNotificationCheckoutAndStorefrontAreTranslatedTest extends TestCase
 
             foreach ($keys as $key) {
                 $text = (string) ($this->catalogue[$locale][$key] ?? '');
+
+                if (in_array($key, self::NOT_A_SENTENCE, true)) {
+                    continue;
+                }
 
                 if (trim($text) !== '' && preg_match('/\p{Arabic}/u', $text) !== 1) {
                     $english[] = $key;

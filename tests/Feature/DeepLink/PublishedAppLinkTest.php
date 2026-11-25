@@ -143,9 +143,34 @@ class PublishedAppLinkTest extends TestCase
      * or the other way round, would send the customer to a different screen depending on whether the
      * network answered.
      */
+    /**
+     * Both switches, because a market's path only EXISTS when the website serves one.
+     *
+     * `gcc.storefronts.paths.enabled` ships off and `config/gcc.php` says what that means: "the web routes answer at the root only, as
+     * today, and a country path answers 404". So with the master switch on and this one off, `/ae/product/x` is a page the website
+     * REFUSES -- and a resolver that answered a screen for it would send an app user to a product page that is not there, while an
+     * association file claiming it would hand iOS a path nothing serves.
+     *
+     * These tests were written switching the master flag alone, which is a configuration in which the links they resolve cannot be
+     * generated. `StorefrontPathPrefix::isEnabled()` requires both, which is the condition under which a prefixed link is real, and it is
+     * the one definition the website, the theme's actions and these links now share.
+     */
+    private function switchMarketPathsOn(): void
+    {
+        config(['gcc.storefronts.enabled' => true, 'gcc.storefronts.paths.enabled' => true]);
+
+        // And the markets this exercises have to be REACHABLE, because only an active market has a path. Every market but Saudi Arabia
+        // ships `'active' => false` -- the six-market design is approved and not switched on, and switching one on is the owner's G0
+        // decision, not a test's. So the markets are made active HERE, in this test's own configuration, exactly as
+        // `BuildsCompanyGatewayAccounts` does: nothing that ships changes, and the test still exercises six markets.
+        foreach (array_keys((array) config('gcc.storefronts.countries', [])) as $country) {
+            config(["gcc.storefronts.countries.{$country}.active" => true]);
+        }
+    }
+
     public function test_a_market_prefix_resolves_to_the_same_screen_and_names_the_market(): void
     {
-        config(['gcc.storefronts.enabled' => true]);
+        $this->switchMarketPathsOn();
 
         $answer = $this->resolve('/ae/product/panadol-extra-24-tablets');
 
@@ -158,7 +183,7 @@ class PublishedAppLinkTest extends TestCase
 
     public function test_every_market_of_the_configuration_is_read_off_the_path(): void
     {
-        config(['gcc.storefronts.enabled' => true]);
+        $this->switchMarketPathsOn();
 
         foreach ((array) config('gcc.storefronts.countries') as $code => $market) {
             $answer = $this->resolve('/' . $market['path'] . '/products');
@@ -170,7 +195,7 @@ class PublishedAppLinkTest extends TestCase
 
     public function test_a_market_s_own_home_page_is_the_home_screen_of_that_market(): void
     {
-        config(['gcc.storefronts.enabled' => true]);
+        $this->switchMarketPathsOn();
 
         $answer = $this->resolve('/kw');
 
@@ -191,7 +216,7 @@ class PublishedAppLinkTest extends TestCase
 
     public function test_a_segment_that_is_not_a_market_is_not_stripped(): void
     {
-        config(['gcc.storefronts.enabled' => true]);
+        $this->switchMarketPathsOn();
 
         $this->assertSame('web', $this->resolve('/zz/product/x')['target']);
         $this->assertNull($this->resolve('/zz/product/x')['storefront']);
@@ -206,7 +231,7 @@ class PublishedAppLinkTest extends TestCase
 
         $this->assertNotContains('/ae/product/*', $service->paths('ios'), 'nothing of a market is published while the shop serves no market path');
 
-        config(['gcc.storefronts.enabled' => true]);
+        $this->switchMarketPathsOn();
         $ios = $service->paths('ios');
 
         foreach ((array) config('gcc.storefronts.countries') as $market) {

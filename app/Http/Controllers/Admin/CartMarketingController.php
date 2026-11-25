@@ -9,6 +9,7 @@ use App\Models\NotificationTemplateMapping;
 use App\Services\Marketing\MarketingConsent;
 use App\Services\Marketing\MarketingConsentGate;
 use App\Services\Marketing\MarketingMarket;
+use App\Services\Notification\CartMarketingMarkets;
 use App\Services\Notification\NotificationTypeRegistry;
 use App\Services\Storefront\StorefrontCatalog;
 use App\Services\Storefront\StorefrontCurrency;
@@ -22,16 +23,25 @@ class CartMarketingController extends Controller
     public function __construct(
         private readonly StorefrontMarketingStop $marketingStop,
         private readonly StorefrontCurrency $storefrontCurrency,
+        private readonly CartMarketingMarkets $markets,
     ) {
     }
 
-    public function index(): View
+    public function index(Request $request): View
     {
-        $carts = $this->withoutStoppedStorefronts(
-            Cart::query()
-                ->where('is_guest', 0)
-                ->whereNotNull('customer_id')
-                ->get()
+        // The market the screen is working on, decided once and used by both the list and the send: a list narrowed to Kuwait over a send
+        // that is not narrowed is a screen that shows one thing and does another.
+        $market = $this->markets->chosen($request->get('market'));
+        $marketsInForce = $this->markets->inForce($request->get('market'));
+
+        $carts = $this->markets->within(
+            $this->withoutStoppedStorefronts(
+                Cart::query()
+                    ->where('is_guest', 0)
+                    ->whereNotNull('customer_id')
+                    ->get()
+            ),
+            $marketsInForce,
         )->groupBy('customer_id');
 
         $customers = [];
@@ -77,7 +87,12 @@ class CartMarketingController extends Controller
 
         return view(
             'admin-views.integrations.cart-marketing',
-            compact('customers', 'templates')
+            compact('customers', 'templates') + [
+                'marketChoices' => $this->markets->choices(),
+                'mayChooseEveryMarket' => $this->markets->mayChooseEveryMarket(),
+                'market' => $market,
+                'mayMarket' => $this->markets->mayMarket(),
+            ]
         );
     }
 
@@ -120,6 +135,16 @@ if (!$mapping) {
             'Selected Cart Marketing template is not available or disabled.'
         );
 }
+
+    if (!$this->markets->mayMarket()) {
+        return redirect()
+            ->route('admin.integrations.cart-marketing.index')
+            ->with('error', translate('your_countries_grant_no_market_to_send_cart_marketing_in') . '.');
+    }
+
+    // The same market the list was narrowed by, so a customer id that the list never showed cannot be sent to by
+    // posting the form by hand. The chooser's value travels with the form for exactly this.
+    $marketsInForce = $this->markets->inForce($request->get('market'));
 
     $chatwoot = app(\App\Services\ChatwootService::class);
     $consentGate = app(MarketingConsentGate::class);
@@ -171,6 +196,14 @@ if (!$mapping) {
             if ($carts->isEmpty()) {
                 throw new \RuntimeException(
                     'Customer cart is in a storefront that may not sell.'
+                );
+            }
+
+            $carts = $this->markets->within($carts, $marketsInForce);
+
+            if ($carts->isEmpty()) {
+                throw new \RuntimeException(
+                    'Customer cart is not in the market this send is for.'
                 );
             }
 

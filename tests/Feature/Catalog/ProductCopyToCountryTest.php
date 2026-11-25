@@ -399,10 +399,37 @@ class ProductCopyToCountryTest extends TestCase
         $this->trackCountries();
         $source = $this->sourceProduct(extra: ['thumbnail' => 'gone.webp']);
 
-        $copy = $this->copier->copy(source: $source, targetCountry: 'KW')->product;
+        $made = $this->copier->copy(source: $source, targetCountry: 'KW');
 
-        $this->assertNull($copy->getAttributes()['thumbnail'], 'a copy never points at a file it could not copy');
+        $this->assertNull($made->product->getAttributes()['thumbnail'], 'a copy never points at a file it could not copy');
         $this->assertContains('thumbnail', $this->auditContext()['images_not_copied']);
+        // The seam the admin screen gates its warning on. A copy that lost an image and reports that it carried
+        // everything is a copy whose missing picture nobody is told about, which is how this was found in review.
+        $this->assertFalse($made->carriedEverythingItCould(), 'a copy that lost an image said it carried everything');
+    }
+
+    /** The happy path of the same seam, so the assertion above cannot be passing because the seam always says no. */
+    public function test_a_copy_that_carried_every_image_says_so(): void
+    {
+        $this->trackCountries();
+        Storage::disk('public')->put('product/thumbnail/source-thumb.webp', 'the bytes');
+        $source = $this->sourceProduct(extra: ['thumbnail' => 'source-thumb.webp']);
+
+        $this->assertTrue($this->copier->copy(source: $source, targetCountry: 'KW')->carriedEverythingItCould());
+    }
+
+    /**
+     * And the screen acts on it. Asserted from the source because this codebase has no toast collector, and because what was wrong
+     * before the review was precisely that the list existed and never reached the redirect: a copy on an s3 installation produced a
+     * product with NO images at all and the admin was told nothing.
+     */
+    public function test_the_admin_screen_warns_when_an_image_could_not_be_copied(): void
+    {
+        $controller = (string) file_get_contents(base_path('app/Http/Controllers/Admin/Product/ProductController.php'));
+
+        $this->assertStringContainsString('if (!$made->carriedEverythingItCould()) {', $controller);
+        $this->assertStringContainsString('ToastMagic::warning($this->whatTheCopyCouldNotCarry(made: $made));', $controller);
+        $this->assertStringContainsString("translate('an_image_file_could_not_be_read_and_was_not_copied') . ': ' . implode(', ', \$made->imagesNotCopied)", $controller);
     }
 
     // ---- the copy is audited -----------------------------------------------------------------------------------------------------

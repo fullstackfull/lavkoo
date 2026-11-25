@@ -50,6 +50,10 @@
                                                 <small class="text-muted">
                                                     {{ translate('page') }}: <code dir="ltr">{{ $campaign->page }}</code>
                                                     · {{ count($campaign->overrideRows()) }} {{ translate('overrides') }}
+                                                    @if (count($marketChoices ?? []) > 0)
+                                                        @php($campaignRunsIn = $campaignMarkets->of($campaign))
+                                                        · <span class="badge badge-soft-secondary">{{ $campaignRunsIn === [] ? translate('every_market') : implode(', ', $campaignRunsIn) }}</span>
+                                                    @endif
                                                     @if (($campaignReach = $reach->campaignVisitors($campaign->id)) !== null)
                                                         {{-- Measured, not promised: shoppers whose screens actually
                                                              showed this campaign's sections in the last month. --}}
@@ -83,6 +87,7 @@
                                                                     'starts_at' => $campaign->starts_at?->format('Y-m-d\TH:i'),
                                                                     'ends_at' => $campaign->ends_at?->format('Y-m-d\TH:i'),
                                                                     'overrides' => $campaign->overrideRows(),
+                                                                    'storefront_countries' => count($marketChoices ?? []) > 0 ? $campaignMarkets->of($campaign) : [],
                                                                 ]) }}">
                                                             {{ translate('edit') }}
                                                         </button>
@@ -153,6 +158,20 @@
                                             <input type="number" name="priority" class="form-control" min="1" max="100" value="30">
                                         </div>
                                     </div>
+                                    @if (count($marketChoices ?? []) > 0)
+                                        <div class="mb-2">
+                                            <label class="form-label" for="cp-markets">{{ translate('markets_this_campaign_runs_in') }}</label>
+                                            <select name="storefront_countries[]" id="cp-markets" class="form-control" multiple size="{{ min(count($marketChoices), 6) }}">
+                                                @foreach ($marketChoices as $market)
+                                                    <option value="{{ $market }}">{{ $market }}</option>
+                                                @endforeach
+                                            </select>
+                                            <p class="text-muted small mb-0 mt-1">
+                                                {{ $mayChooseEveryMarket ? translate('choose_none_to_run_in_every_market') : translate('choose_none_to_run_in_every_market_you_work_with') }}
+                                            </p>
+                                        </div>
+                                    @endif
+
                                     <div class="row g-2 mb-2">
                                         <div class="col-6">
                                             <label class="form-label">{{ translate('starts') }}</label>
@@ -341,6 +360,13 @@
                 form.querySelector('[name="name"]').value = data.name || '';
                 form.querySelector('[name="page"]').value = data.page || 'home';
                 form.querySelector('[name="priority"]').value = data.priority || 30;
+                var markets = form.querySelector('[name="storefront_countries[]"]');
+                if (markets) {
+                    var runsIn = data.storefront_countries || [];
+                    Array.prototype.forEach.call(markets.options, function (option) {
+                        option.selected = runsIn.indexOf(option.value) !== -1;
+                    });
+                }
                 form.querySelector('[name="starts_at"]').value = data.starts_at || '';
                 form.querySelector('[name="ends_at"]').value = data.ends_at || '';
                 (data.overrides || []).forEach(function (override) {
