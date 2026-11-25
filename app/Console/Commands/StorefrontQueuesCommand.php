@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Services\Storefront\StorefrontLifecycle;
 use App\Services\Storefront\StorefrontQueues;
 use App\Services\Storefront\StorefrontResolver;
 use Illuminate\Console\Command;
@@ -18,7 +19,15 @@ use Illuminate\Support\Facades\Schema;
  * whether it is paused, how many jobs are waiting and how many have failed, and the command to work it — so "is Kuwait being worked?" has an
  * answer before a customer asks it.
  *
- * It only reads: pausing is `queue:pause`, resuming is `queue:resume`, and both are Laravel's own.
+ * **Two different pauses, side by side on purpose.** Pausing a market's QUEUE (`queue:pause storefront-kw`) stops its work being reserved.
+ * Pausing the MARKET ({@see StorefrontLifecycle::pause()}) stops it SELLING and deliberately leaves its earlier obligations running, which
+ * is what GCC-12 requires: a stopped market still refunds, still answers a gateway callback and still tells a customer where a parcel is.
+ * Neither implies the other, so a market can be stopped while its queue is open -- which looks exactly like a stop that has not taken
+ * effect -- and a queue can be paused while the market still sells, which looks exactly like a market that is closed. An operator who
+ * cannot see both at once will read one as the other, so the report prints both and names which is which.
+ *
+ * It only reads: pausing a queue is `queue:pause`, resuming it is `queue:resume`, both Laravel's own, and stopping a market selling is the
+ * storefront lifecycle.
  */
 class StorefrontQueuesCommand extends Command
 {
@@ -26,7 +35,7 @@ class StorefrontQueuesCommand extends Command
 
     protected $description = "Each market's queue: its name, whether it is paused, what is waiting on it and the command to work it";
 
-    public function handle(QueueFactory $queues): int
+    public function handle(QueueFactory $queues, StorefrontLifecycle $lifecycle): int
     {
         $connection = (string) config('queue.default');
         $report = [
@@ -34,6 +43,10 @@ class StorefrontQueuesCommand extends Command
             'connection' => $connection,
             'default_storefront' => StorefrontResolver::fromConfig()->defaultCountry(),
             'markets' => $this->markets(queues: $queues, connection: $connection),
+            // A dimension of its own rather than a column of the rows above, because a market's lifecycle is not a property of its queue:
+            // it exists for a market that has no queue of its own, and it means a different thing. Keeping it apart also leaves the shape
+            // of a market row exactly as it was, which is what StorefrontQueuesTest reads.
+            'selling' => $this->selling(lifecycle: $lifecycle),
         ];
 
         if ($this->option('json')) {
@@ -61,6 +74,25 @@ class StorefrontQueuesCommand extends Command
         }
 
         return $rows;
+    }
+
+    /**
+     * What each configured market's lifecycle says: whether it is selling, and the mode it is stopped in when it is paused. Read for every
+     * configured market and not only the ones with a queue, because the default storefront has no queue of its own and can still be stopped.
+     *
+     * @return array<string, array{state: string, mode: string|null}>
+     */
+    private function selling(StorefrontLifecycle $lifecycle): array
+    {
+        $states = [];
+
+        foreach (StorefrontResolver::fromConfig()->configuredCountries() as $country) {
+            $status = $lifecycle->statusOf($country);
+
+            $states[$country] = ['state' => (string) $status['state'], 'mode' => $status['mode']];
+        }
+
+        return $states;
     }
 
     /**
@@ -101,19 +133,34 @@ class StorefrontQueuesCommand extends Command
         }
 
         $this->table(
-            ['market', 'queue', 'state', 'waiting', 'failed', 'work it with'],
-            array_map(static fn (array $market): array => [
+            ['market', 'queue', 'queue state', 'selling', 'waiting', 'failed', 'work it with'],
+            array_map(fn (array $market): array => [
                 $market['country'],
                 $market['queue'],
                 $market['paused'] ? 'PAUSED' : 'open',
+                $this->sellingLabel(selling: $report['selling'], country: (string) $market['country']),
                 $market['waiting'] ?? '—',
                 $market['failed'] ?? '—',
                 sprintf('php artisan queue:work %s --queue=%s', $connection, $market['queue']),
             ], $report['markets']),
         );
 
-        $this->line('Pause one market: php artisan queue:pause ' . $report['markets'][0]['queue'] . '   (queue:resume starts it again)');
+        $this->line('Pause one market\'s QUEUE: php artisan queue:pause ' . $report['markets'][0]['queue'] . '   (queue:resume starts it again)');
+        $this->line('Stopping a market SELLING is the storefront column, and a different thing: a stopped market still refunds, still');
+        $this->line('answers a gateway callback and still tells a customer where a parcel is, so its queue stays open on purpose.');
 
         return self::SUCCESS;
+    }
+
+    /** @param array<string, array{state: string, mode: string|null}> $selling */
+    private function sellingLabel(array $selling, string $country): string
+    {
+        $status = $selling[$country] ?? null;
+
+        if ($status === null) {
+            return '—';
+        }
+
+        return $status['state'] . ($status['mode'] === null ? '' : ' (' . $status['mode'] . ')');
     }
 }
