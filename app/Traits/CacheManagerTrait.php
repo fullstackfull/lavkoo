@@ -52,11 +52,34 @@ trait CacheManagerTrait
         return $banners;
     }
 
+    /**
+     * The currency list the apps are handed, with the currency the operator chose FIRST (J-05).
+     *
+     * `Currency::all()` states no order at all, and the customer app's splash controller walks this list and stops at the
+     * first entry that is either the system default OR the Syrian pound -- so on a shop whose table still carries the SYP
+     * row of the product this one was forked from, the money a customer sees on the default storefront is Syrian pounds
+     * whatever the operator set. That clause is the app's and is the app's to remove; the order it decides on is OURS, and
+     * it was an accident of insertion order.
+     *
+     * Deliberately NOT inside the cache: the list is cached for three hours and nothing clears that cache when
+     * `system_default_currency` changes, so an order computed inside it would go on naming the previous default for the
+     * rest of the window. Sorting is stable in PHP 8, so every other row keeps the order it had. `values()` is load
+     * bearing -- a sorted collection keeps its original keys, and a non-sequential one encodes as a JSON object instead of
+     * an array, which every client reading this field would break on.
+     *
+     * Through getWebConfig(), a request served by a storefront that trades in its own currency gets ITS currency first.
+     */
     public function cacheCurrencyTable()
     {
-        return Cache::remember(CACHE_FOR_CURRENCY_TABLE, CACHE_FOR_3_HOURS, function () {
+        $currencies = Cache::remember(CACHE_FOR_CURRENCY_TABLE, CACHE_FOR_3_HOURS, function () {
             return Currency::all();
         });
+
+        $operatorsDefault = (int) getWebConfig(name: 'system_default_currency');
+
+        return $currencies
+            ->sortBy(fn ($currency): int => (int) $currency->getKey() === $operatorsDefault ? 0 : 1)
+            ->values();
     }
 
     public function cacheColorsList()
