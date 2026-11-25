@@ -15,7 +15,17 @@ class InventoryLocationService
     public const M5AZN_CODE = 'm5azn-supplier';
     public const OWN_CODE = 'own-warehouse';
 
-    /** @return list<InventoryLocation> the three locations every installation has; safe to call again */
+    public function __construct(private readonly InventoryLocationMarket $market)
+    {
+    }
+
+    /**
+     * @return list<InventoryLocation> the three locations every installation has; safe to call again
+     *
+     * These three are the platform's own and are deliberately left UNMARKED (G1-05): they belong to the default storefront, which is what
+     * an empty market reads as, and stamping them with whichever market an operator happened to be serving would file the one Saudi
+     * warehouse as Kuwaiti.
+     */
     public function ensureDefaults(): array
     {
         return [
@@ -39,6 +49,7 @@ class InventoryLocationService
             accountId: (int) $account->id,
             marketplaceId: $marketplaceId,
             sellerId: (int) $account->seller_id,
+            market: $this->market->stampForAccount($account),
         );
     }
 
@@ -56,7 +67,7 @@ class InventoryLocationService
     /**
      * @param list<string> $publishableChannels
      */
-    private function ensure(string $code, string $name, string $type, ?string $provider, string $truth, bool $storefrontSellable, array $publishableChannels, ?int $accountId = null, ?string $marketplaceId = null, int $sellerId = 0): InventoryLocation
+    private function ensure(string $code, string $name, string $type, ?string $provider, string $truth, bool $storefrontSellable, array $publishableChannels, ?int $accountId = null, ?string $marketplaceId = null, int $sellerId = 0, ?string $market = null): InventoryLocation
     {
         return InventoryLocation::firstOrCreate(['code' => $code], [
             'name' => $name,
@@ -69,6 +80,7 @@ class InventoryLocationService
             'storefront_sellable' => $storefrontSellable,
             'publishable_channels' => $publishableChannels,
             'is_active' => true,
-        ]);
+            // Null while storefronts are off or the account names no country, which leaves the column as every existing row has it.
+        ] + ($market === null ? [] : [InventoryLocationMarket::COLUMN => $market]));
     }
 }

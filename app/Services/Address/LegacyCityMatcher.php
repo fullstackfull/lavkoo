@@ -27,7 +27,10 @@ class LegacyCityMatcher
             return $this->result(status: CityMatchStatus::None, city: null, candidates: collect(), reason: 'empty_city');
         }
 
-        $alias = AddressCityAlias::query()->where('normalized_alias', $key)->first();
+        // The alias is read in the namespace of the storefront being served (H1-10): a spelling confirmed for one country's city must not
+        // resolve a typed city to another country's. Every request of a one-country platform asks the default namespace, as before.
+        $aliasNamespace = app(CityAliasNamespace::class);
+        $alias = $aliasNamespace->narrow(AddressCityAlias::query(), $aliasNamespace->ofTheRequest())->where('normalized_alias', $key)->first();
         if ($alias !== null) {
             $city = AddressCity::query()->with('region')->find($alias->city_id);
 

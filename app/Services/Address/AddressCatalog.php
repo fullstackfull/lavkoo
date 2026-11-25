@@ -75,7 +75,10 @@ class AddressCatalog
             return $builder->orderByDesc('sort_order')->orderBy('name_en')->orderBy('id')->limit($limit)->get();
         }
 
-        $matchingAliases = AddressCityAlias::query()
+        // The spellings of the storefront being served (H1-10). One market has one namespace and a one-country platform asks the default
+        // one, so this is the same query it has always been; a second market's spellings are simply not its own.
+        $aliasNamespace = app(CityAliasNamespace::class);
+        $matchingAliases = $aliasNamespace->narrow(AddressCityAlias::query(), $aliasNamespace->ofTheRequest())
             ->where(static function (Builder $query) use ($keys): void {
                 foreach ($keys as $key) {
                     $query->orWhere('normalized_alias', 'like', '%' . $key . '%');

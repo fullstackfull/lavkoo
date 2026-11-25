@@ -47,25 +47,49 @@ class StaffCountryMigrationTest extends TestCase
         $this->assertFalse(Schema::hasTable('admin_country_scopes'));
     }
 
+    /**
+     * The scope table and the TRAIL it writes to are the only tables this set of migrations touches: no table of the shipped platform
+     * gains, loses or changes a column. `audit_logs` is the second of its own, created only where the installation dump has not already
+     * made it (G1-08), so it is removed from the comparison beside `admin_country_scopes` rather than counted as a change to somebody
+     * else's table.
+     */
     public function test_the_migration_changes_no_existing_table(): void
     {
         $before = $this->columnsOfEveryTable();
 
         $this->runStaffScopeMigration();
-        $withOwnTableRemoved = array_diff_key($this->columnsOfEveryTable(), ['admin_country_scopes' => true]);
+        $withItsOwnTablesRemoved = array_diff_key($this->columnsOfEveryTable(), ['admin_country_scopes' => true, 'audit_logs' => true]);
 
-        $this->assertSame($before, $withOwnTableRemoved);
+        $this->assertSame($before, $withItsOwnTablesRemoved);
 
         $this->rollBackStaffScopeMigration();
         $this->assertSame($before, $this->columnsOfEveryTable());
     }
 
+    /**
+     * `granted_by` and `expires_at` join the agreed columns with G1-14: a scope row records who decided it and when it ends. Both are
+     * nullable with no backfill -- an existing row is "granted on the console, until revoked" -- which the two tests below prove.
+     */
     public function test_the_table_has_the_agreed_columns_and_one_row_per_admin_and_country(): void
     {
         $this->runStaffScopeMigration();
 
-        $this->assertEqualsCanonicalizing(['id', 'admin_id', 'country', 'created_at', 'updated_at'], Schema::getColumnListing('admin_country_scopes'));
+        $this->assertEqualsCanonicalizing(
+            ['id', 'admin_id', 'country', 'granted_by', 'expires_at', 'created_at', 'updated_at'],
+            Schema::getColumnListing('admin_country_scopes'),
+        );
         $this->assertContains('admin_id,country', $this->uniqueIndexes('admin_country_scopes'));
+    }
+
+    public function test_a_row_written_without_a_grant_trail_keeps_both_empty(): void
+    {
+        $this->runStaffScopeMigration();
+        $this->giveCountries(adminId: 2, countries: ['KW']);
+
+        $row = DB::table('admin_country_scopes')->where('admin_id', 2)->first();
+
+        $this->assertNull($row->granted_by, 'an existing row was granted on the console before this was recorded');
+        $this->assertNull($row->expires_at, 'and it lasts until it is revoked');
     }
 
     public function test_the_same_country_twice_for_one_admin_is_refused_by_the_database_and_two_admins_may_share_a_country(): void

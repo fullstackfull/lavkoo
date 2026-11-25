@@ -3,6 +3,8 @@
 namespace App\Services\Staff;
 
 use App\Exceptions\StaffCountryScopeRefusedException;
+use App\Services\AuditLogger;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -15,7 +17,7 @@ final class StaffCountryAssignments
 {
     private const MASTER_ADMIN_ROLE_ID = 1;
 
-    public function __construct(private readonly StaffCountryScope $scope)
+    public function __construct(private readonly StaffCountryScope $scope, private readonly AuditLogger $audit)
     {
     }
 
@@ -67,19 +69,59 @@ final class StaffCountryAssignments
      *
      * @throws StaffCountryScopeRefusedException
      */
-    public function assign(int $adminId, array $countries): array
+    public function assign(int $adminId, array $countries, ?int $grantedBy = null, ?CarbonInterface $expiresAt = null): array
     {
         $admin = $this->adminOf(adminId: $adminId) ?? throw new StaffCountryScopeRefusedException("There is no admin {$adminId}.");
         if ((int) $admin->admin_role_id === self::MASTER_ADMIN_ROLE_ID) {
             throw new StaffCountryScopeRefusedException("Admin {$adminId} is the master admin. The master admin is never restricted, so a country on it would do nothing.");
         }
 
+        if ($grantedBy !== null && $this->adminOf(adminId: $grantedBy) === null) {
+            throw new StaffCountryScopeRefusedException("There is no admin {$grantedBy} to record as the granter.");
+        }
+
+        if ($expiresAt !== null && !$expiresAt->isFuture()) {
+            throw new StaffCountryScopeRefusedException('An expiry in the past would grant nothing. Name a time in the future, or leave it out for a scope that lasts until it is revoked.');
+        }
+
         $held = $this->scope->storedCountriesOf(adminId: $adminId);
         $added = array_values(array_diff($countries, $held));
         $now = now();
-        DB::table(StaffCountryScope::TABLE)->insertOrIgnore(array_map(static fn (string $country): array => ['admin_id' => $adminId, 'country' => $country, 'created_at' => $now, 'updated_at' => $now], $added));
+        $trail = $this->grantTrail(grantedBy: $grantedBy, expiresAt: $expiresAt);
+        DB::table(StaffCountryScope::TABLE)->insertOrIgnore(array_map(static fn (string $country): array => $trail + ['admin_id' => $adminId, 'country' => $country, 'created_at' => $now, 'updated_at' => $now], $added));
 
-        return ['admin' => $admin, 'added' => $added, 'held' => $this->scope->storedCountriesOf(adminId: $adminId)];
+        $outcome = ['admin' => $admin, 'added' => $added, 'held' => $this->scope->storedCountriesOf(adminId: $adminId)];
+
+        // A permission change whose line cannot be written is not a permission change this platform makes (G1-08): recordOrFail, not
+        // record. The rows and the trail are the whole record of who may see which country's customers.
+        if ($added !== []) {
+            $this->audit->recordOrFail(
+                action: 'staff_country_scope.granted',
+                subject: ['type' => 'admin', 'id' => $adminId],
+                before: ['countries' => $held],
+                after: ['countries' => $outcome['held']],
+                context: array_filter(['granted' => $added, 'granted_by' => $grantedBy, 'expires_at' => $expiresAt?->toIso8601String(), 'by' => 'console']),
+            );
+        }
+
+        return $outcome;
+    }
+
+    /**
+     * The two facts a grant records about itself, while the columns are there to hold them (G1-14).
+     *
+     * Before the migration this is empty and a grant is the row it has always been. `granted_by` left empty means "granted on the server
+     * console before this was recorded", which is what every existing row is.
+     *
+     * @return array<string, mixed>
+     */
+    private function grantTrail(?int $grantedBy, ?CarbonInterface $expiresAt): array
+    {
+        if (!$this->scope->rowsRecordTheirGrant()) {
+            return [];
+        }
+
+        return ['granted_by' => $grantedBy, 'expires_at' => $expiresAt];
     }
 
     /**
@@ -102,14 +144,42 @@ final class StaffCountryAssignments
 
             DB::table(StaffCountryScope::TABLE)->where('admin_id', $adminId)->whereIn('country', $removed)->delete();
 
-            return ['admin' => $this->adminOf(adminId: $adminId), 'removed' => $removed, 'absent' => array_values(array_diff($countries, $held)), 'held' => array_values(array_diff($held, $removed))];
+            $left = array_values(array_diff($held, $removed));
+
+            if ($removed !== []) {
+                $this->audit->recordOrFail(
+                    action: 'staff_country_scope.revoked',
+                    subject: ['type' => 'admin', 'id' => $adminId],
+                    before: ['countries' => $held],
+                    after: ['countries' => $left],
+                    context: ['revoked' => $removed, 'by' => 'console'],
+                );
+            }
+
+            return ['admin' => $this->adminOf(adminId: $adminId), 'removed' => $removed, 'absent' => array_values(array_diff($countries, $held)), 'held' => $left];
         });
     }
 
-    /** Takes back every country of an employee, or the rows an admin that was deleted left behind. The employee is unrestricted afterwards. */
+    /**
+     * Takes back every country of an employee, or the rows an admin that was deleted left behind. The employee is unrestricted afterwards,
+     * which is why this one is asked for by name -- and why its line names what it widened.
+     */
     public function revokeAll(int $adminId): int
     {
-        return DB::table(StaffCountryScope::TABLE)->where('admin_id', $adminId)->delete();
+        $held = $this->scope->storedCountriesOf(adminId: $adminId);
+        $removed = DB::table(StaffCountryScope::TABLE)->where('admin_id', $adminId)->delete();
+
+        if ($removed > 0) {
+            $this->audit->recordOrFail(
+                action: 'staff_country_scope.revoked_all',
+                subject: ['type' => 'admin', 'id' => $adminId],
+                before: ['countries' => $held],
+                after: ['countries' => [], 'restricted' => false],
+                context: ['rows' => $removed, 'by' => 'console', 'widens' => 'the employee holds no country afterwards, which makes them unrestricted'],
+            );
+        }
+
+        return $removed;
     }
 
     /**

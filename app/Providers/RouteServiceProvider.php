@@ -235,7 +235,7 @@ class RouteServiceProvider extends ServiceProvider
     }
     protected function mapBetaWebRoutes(): void
     {
-        Route::middleware(['web', 'storefront', 'logUserBrowsingNavigation'])
+        Route::middleware(['web', 'storefront', 'storefront.session', 'logUserBrowsingNavigation'])
             ->namespace($this->namespace)
             ->group(base_path('routes/web/routes.php'));
     }

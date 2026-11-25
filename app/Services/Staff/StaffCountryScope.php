@@ -3,6 +3,7 @@
 namespace App\Services\Staff;
 
 use App\Models\Admin;
+use App\Services\SalesChannels\Inventory\InventoryLocationMarket;
 use App\Services\Storefront\CouponCountry;
 use App\Services\Storefront\StorefrontCatalog;
 use App\Services\Storefront\StorefrontCategoryShippingCosts;
@@ -36,6 +37,13 @@ final class StaffCountryScope
     public const TABLE_DEFAULT_COUNTRY = 'SA';
 
     private const MASTER_ADMIN_ROLE_ID = 1;
+
+    public const GRANTED_BY = 'granted_by';
+
+    public const EXPIRES_AT = 'expires_at';
+
+    /** Whether a scope row carries its grant trail. Asked once per process: every bind of a request asks it. */
+    private static ?bool $rowsRecordTheirGrant = null;
 
     /** The orders a request lists: their lists, counters and exports. */
     public const SUBJECT_ORDERS = 'orders';
@@ -126,15 +134,54 @@ final class StaffCountryScope
             return null;
         }
 
+        // Read TWICE on purpose (G1-14). An employee with NO row is unrestricted on this platform, so "ignore the expired rows" written as
+        // one query would turn the last row's expiry into a privilege escalation on a timer: the employee would hold no country and be
+        // read as unrestricted. Whether the employee HAS rows and which of them are still in force are two different questions, and an
+        // employee whose every row has expired is restricted to NOTHING.
         $stored = $this->storedCountriesOf(adminId: $adminId);
         if ($stored === []) {
             return null;
         }
 
-        $granted = array_values(array_unique(array_intersect($stored, $this->configuredCountries())));
+        $granted = array_values(array_unique(array_intersect($this->countriesStillInForceFor(adminId: $adminId), $this->configuredCountries())));
         sort($granted);
 
         return $granted;
+    }
+
+    /** Whether a scope row can record who granted it and when it ends, and whether anything should read or write those. */
+    public function rowsRecordTheirGrant(): bool
+    {
+        return self::$rowsRecordTheirGrant ??= Schema::hasTable(self::TABLE)
+            && Schema::hasColumn(self::TABLE, self::GRANTED_BY)
+            && Schema::hasColumn(self::TABLE, self::EXPIRES_AT);
+    }
+
+    /**
+     * The countries of an employee whose grant has not ended: every row of theirs before the expiry column exists, which is the same
+     * answer, since a row that cannot record an end never ends.
+     *
+     * @return list<string>
+     */
+    public function countriesStillInForceFor(int $adminId): array
+    {
+        if (!$this->rowsRecordTheirGrant()) {
+            return $this->storedCountriesOf(adminId: $adminId);
+        }
+
+        return DB::table(self::TABLE)
+            ->where('admin_id', $adminId)
+            ->where(static fn (QueryBuilder $row) => $row->whereNull(self::EXPIRES_AT)->orWhere(self::EXPIRES_AT, '>', now()))
+            ->orderBy('country')
+            ->pluck('country')
+            ->map(static fn ($country): string => (string) $country)
+            ->all();
+    }
+
+    /** Forgets what was read about the scope table's shape, for a test that migrates it mid-run. */
+    public static function forgetTheSchema(): void
+    {
+        self::$rowsRecordTheirGrant = null;
     }
 
     private function isMasterAdmin(?int $roleId): bool
@@ -425,6 +472,30 @@ final class StaffCountryScope
         }
 
         return app(StorefrontShippingMethods::class)->allMethodsBelongTo(methodIds: $ids, countries: $bound);
+    }
+
+    /**
+     * Whether every one of these inventory locations is in a country the current request may work with (GCC-14c slice 5 and 6; G1-05).
+     *
+     * A warehouse is in a country, and since `inventory_locations.storefront_country` it says so. Before that the only country a stock
+     * screen could be asked about was the PRODUCT's, which answers for the units on the shelf and never for the shelf -- so a restricted
+     * employee could be shown another market's warehouse itself, with its code, its name and its figures.
+     *
+     * The rule of which market a location is in is `InventoryLocationMarket`'s and stays there: a location with no market is the default
+     * storefront's. A request that is not narrowed may work with every location, existing or not.
+     *
+     * @param list<int|string> $locationIds
+     */
+    public function coversEveryInventoryLocation(array $locationIds): bool
+    {
+        $bound = $this->boundCountries();
+        $ids = array_values(array_unique($locationIds));
+
+        if ($bound === null || $ids === []) {
+            return true;
+        }
+
+        return app(InventoryLocationMarket::class)->allLocationsBelongTo(locationIds: $ids, countries: $bound);
     }
 
     /**

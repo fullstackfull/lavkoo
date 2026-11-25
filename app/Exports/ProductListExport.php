@@ -11,6 +11,7 @@ use Maatwebsite\Excel\Concerns\WithEvents;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithStyles;
 use Maatwebsite\Excel\Events\AfterSheet;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Worksheet\Drawing;
@@ -21,9 +22,15 @@ class ProductListExport implements FromView, ShouldAutoSize, WithStyles, WithCol
 {
     use Exportable;
 
-    private const LAST_COLUMN = 'S';
+    /** The columns every sheet has, SL to status. */
+    private const BASE_COLUMNS = 18;
 
-    private const LAST_COLUMN_WITH_COUNTRY_AND_TAX = 'T';
+    /**
+     * The narrowest range this sheet has ever been styled over. Kept as a floor so that a sheet with no optional column is bordered
+     * exactly as it is today -- the arithmetic says R, the sheet has always said S, and widening a border range by one empty column is
+     * not worth a visible change to every existing export.
+     */
+    private const MINIMUM_LAST_COLUMN = 'S';
 
     protected $data;
 
@@ -32,10 +39,22 @@ class ProductListExport implements FromView, ShouldAutoSize, WithStyles, WithCol
         $this->data = $data;
     }
 
-    /** The country column follows the last column of the sheet, so every column that was there keeps its letter; it is only added while countries are told apart. */
+    /**
+     * The optional columns follow the last column of the sheet, so every column that was there keeps its letter. There are three of
+     * them now -- tax, country and execution source -- so this counts rather than enumerating the combinations: the old two-way test
+     * said T only when BOTH tax and country were on, and would have styled a sheet one column short as soon as a third was added.
+     */
     private function lastColumn(): string
     {
-        return ($this->data['countryColumn'] ?? false) && ($this->data['productWiseTax'] ?? false) ? self::LAST_COLUMN_WITH_COUNTRY_AND_TAX : self::LAST_COLUMN;
+        $optional = count(array_filter([
+            $this->data['productWiseTax'] ?? false,
+            $this->data['countryColumn'] ?? false,
+            $this->data['sourceColumn'] ?? false,
+        ]));
+
+        $last = Coordinate::stringFromColumnIndex(self::BASE_COLUMNS + $optional);
+
+        return strlen($last) === 1 && $last < self::MINIMUM_LAST_COLUMN ? self::MINIMUM_LAST_COLUMN : $last;
     }
 
     public function view(): View

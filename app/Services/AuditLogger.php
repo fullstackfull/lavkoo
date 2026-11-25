@@ -5,6 +5,8 @@ namespace App\Services;
 use App\Http\Middleware\SellerApiAuthMiddleware;
 use App\Models\AuditLog;
 use App\Services\Marketplace\SellerPrincipal;
+use App\Services\Storefront\LegalEntityRegistry;
+use App\Services\Storefront\StorefrontContext;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -25,6 +27,9 @@ use Illuminate\Support\Facades\Schema;
  */
 class AuditLogger
 {
+    /** Whether `audit_logs` carries the two columns that say which market and company a line concerns. Asked once per process. */
+    private static ?bool $trailNamesItsMarket = null;
+
     /**
      * Record an action.
      *
@@ -37,6 +42,7 @@ class AuditLogger
         ?array $before = null,
         ?array $after = null,
         ?array $context = null,
+        ?string $country = null,
     ): ?AuditLog {
         try {
             if (!Schema::hasTable('audit_logs')) {
@@ -46,7 +52,7 @@ class AuditLogger
             [$subjectType, $subjectId] = $this->resolveSubject($subject);
             [$actorType, $actorId, $actorName] = $this->resolveActor();
 
-            return AuditLog::create([
+            return AuditLog::create($this->marketOf($country) + [
                 'actor_type' => $actorType,
                 'actor_id' => $actorId,
                 'actor_name' => $actorName,
@@ -63,6 +69,63 @@ class AuditLogger
             // A missing audit line is never worth failing the audited action.
             return null;
         }
+    }
+
+    /**
+     * Which market, and which company, this line concerns (G1-08).
+     *
+     * Six markets share one trail, so a line that says only "coupon.updated" could be any market's coupon. The market is the one the
+     * CALLER names, or -- when it names none -- the storefront the request is bound to. A panel request is bound to none on purpose: an
+     * administrator sees every country, so a panel action is NOT filed as the default market's, which would be an invented fact in an
+     * audit trail. The company follows from the market, through the one registry that answers it.
+     *
+     * Nothing is written before the migration adds the columns, and the columns are read for their presence once per process, because a
+     * batch of a hundred lines must not ask the database a hundred times.
+     *
+     * @return array<string, mixed>
+     */
+    private function marketOf(?string $country): array
+    {
+        if (!$this->trailNamesItsMarket()) {
+            return [];
+        }
+
+        $market = strtoupper(trim((string) ($country ?? $this->storefrontOfTheRequest())));
+
+        if ($market === '') {
+            return [];
+        }
+
+        return ['storefront_country' => $market, 'legal_entity_id' => $this->companyOf($market)];
+    }
+
+    /** The storefront this request was narrowed to, or null where nothing narrowed it: a panel, a console command, a queued job. */
+    private function storefrontOfTheRequest(): ?string
+    {
+        return app()->bound(StorefrontContext::class) ? app(StorefrontContext::class)->country : null;
+    }
+
+    private function companyOf(string $market): ?int
+    {
+        try {
+            $entity = app(LegalEntityRegistry::class)->forCountry($market);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $entity === null ? null : (int) $entity->id;
+    }
+
+    private function trailNamesItsMarket(): bool
+    {
+        return self::$trailNamesItsMarket ??= Schema::hasColumn('audit_logs', 'storefront_country')
+            && Schema::hasColumn('audit_logs', 'legal_entity_id');
+    }
+
+    /** Forgets what was read about the trail's shape, for a test that migrates it mid-run. */
+    public static function forget(): void
+    {
+        self::$trailNamesItsMarket = null;
     }
 
     /**
@@ -83,12 +146,13 @@ class AuditLogger
         ?array $before = null,
         ?array $after = null,
         ?array $context = null,
+        ?string $country = null,
     ): AuditLog {
         if (!Schema::hasTable('audit_logs')) {
             throw new \RuntimeException('audit_logs has not been migrated, so this decision cannot be recorded: ' . $action);
         }
 
-        $line = $this->record($action, $subject, $before, $after, $context);
+        $line = $this->record($action, $subject, $before, $after, $context, $country);
         if ($line === null) {
             throw new \RuntimeException('The audit line for this decision could not be written: ' . $action);
         }

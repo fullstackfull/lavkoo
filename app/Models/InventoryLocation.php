@@ -17,6 +17,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string $source_of_truth
  * @property bool $storefront_sellable
  * @property array|null $publishable_channels
+ * @property string|null $storefront_country the market the warehouse is in; null is the default storefront's (G1-05)
+ * @property int|null $legal_entity_id the selling company whose stock it holds; null while no company has been named
  */
 class InventoryLocation extends Model
 {
@@ -42,6 +44,7 @@ class InventoryLocation extends Model
         'storefront_sellable' => 'boolean',
         'publishable_channels' => 'array',
         'is_active' => 'boolean',
+        'legal_entity_id' => 'integer',
     ];
 
     public function balances(): HasMany

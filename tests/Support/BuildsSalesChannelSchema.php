@@ -60,6 +60,9 @@ trait BuildsSalesChannelSchema
             '2026_11_18_100000_create_channel_package_splits_table.php',
             '2026_11_20_100000_create_channel_attention_reviews_table.php',
             '2026_11_22_100000_create_amazon_feed_submissions_table.php',
+            // The market and the selling company a warehouse belongs to (G1-05): nullable, so every location these suites build stays
+            // unmarked, which reads as the default storefront's.
+            '2026_12_27_100000_add_market_and_company_to_inventory_locations.php',
         ] as $file) {
             (require database_path('migrations/' . $file))->up();
         }

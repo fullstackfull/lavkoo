@@ -14,6 +14,7 @@ use App\Services\Address\AddressText;
 use App\Services\AuditLogger;
 use App\Services\Fulfillment\Data\CityCandidate;
 use App\Services\Fulfillment\Exceptions\CityMappingRefusedException;
+use App\Services\Storefront\StorefrontMarketRows;
 use Illuminate\Container\Attributes\Singleton;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -98,12 +99,19 @@ class ProviderCityMappingService
             return [];
         }
 
-        $names = $this->providerNameIndex($provider);
-        $regions = $this->regionIdsByKey();
-
+        // One index per COUNTRY, not one for the provider (H1-10). A city of ours is in a country, the carrier's city list is that
+        // country's, and the regions a provider region name may confirm are that country's regions -- so a Kuwaiti city of ours is never
+        // offered a candidate from the Saudi list, nor confirmed by a same-named Saudi region. With one country, which is the platform
+        // today, there is one index and one region map, exactly as before.
         $candidates = [];
-        foreach ($cities as $city) {
-            $candidates[$city->id] = $this->candidatesAmong(index: $names, regionIdsByKey: $regions, city: $city);
+        foreach ($cities->groupBy(fn (AddressCity $city): string => (string) self::countryOfCity($city)) as $country => $ofThatCountry) {
+            $code = $country === '' ? null : (string) $country;
+            $names = $this->providerNameIndex(provider: $provider, country: $code);
+            $regions = $this->regionIdsByKey(country: $code);
+
+            foreach ($ofThatCountry as $city) {
+                $candidates[$city->id] = $this->candidatesAmong(index: $names, regionIdsByKey: $regions, city: $city);
+            }
         }
 
         return $candidates;
@@ -190,7 +198,7 @@ class ProviderCityMappingService
             $city = $this->cityOrFail($cityId);
             $providerCity = $this->providerCityOrFail(provider: $provider, externalCityId: $externalCityId);
 
-            $mapping = $this->lockedRow(provider: $provider, cityId: $cityId, externalCityId: $externalCityId) ?? $this->newRow(provider: $provider, cityId: $cityId, externalCityId: $externalCityId);
+            $mapping = $this->lockedRow(provider: $provider, cityId: $cityId, externalCityId: $externalCityId) ?? $this->newRow(provider: $provider, city: $city, externalCityId: $externalCityId);
             if ($mapping->isApproved()) {
                 throw new CityMappingRefusedException('city_mapping_approved_is_retired_not_rejected');
             }
@@ -274,7 +282,7 @@ class ProviderCityMappingService
             if ($pending !== null) {
                 $approved += $this->approveWhileStillPending(pending: $pending, fields: $fields);
             } else {
-                $inserts[] = $this->insertRow(provider: $provider, cityId: $city->id, externalCityId: (string) $only->city->external_id, fields: $fields);
+                $inserts[] = $this->insertRow(provider: $provider, city: $city, externalCityId: (string) $only->city->external_id, fields: $fields);
             }
         }
 
@@ -377,7 +385,7 @@ class ProviderCityMappingService
             $this->retireRow(mapping: $approved, adminId: $adminId, adminName: $adminName);
         }
 
-        $mapping = $rows->first(static fn (ProviderCityMapping $row): bool => (string) $row->external_city_id === $externalCityId) ?? $this->newRow(provider: $provider, cityId: $cityId, externalCityId: $externalCityId);
+        $mapping = $rows->first(static fn (ProviderCityMapping $row): bool => (string) $row->external_city_id === $externalCityId) ?? $this->newRow(provider: $provider, city: $city, externalCityId: $externalCityId);
         $before = $mapping->exists ? ['status' => $mapping->status?->value] : null;
 
         $evidence = $this->withDecision(
@@ -430,13 +438,20 @@ class ProviderCityMappingService
         ];
     }
 
-    /** @return array<string, mixed> */
-    private function insertRow(string $provider, int $cityId, string $externalCityId, array $fields): array
+    /**
+     * An approval written straight in, for a pair that has no proposal row yet. It carries the country for the same reason a proposal
+     * does: a row written without one is a mapping that says nothing about where it applies, and the auto-approval of a city with exactly
+     * one candidate is the path that used to write them.
+     *
+     * @return array<string, mixed>
+     */
+    private function insertRow(string $provider, AddressCity $city, string $externalCityId, array $fields): array
     {
         return [
             'provider' => $provider,
-            'address_city_id' => $cityId,
+            'address_city_id' => $city->id,
             'external_city_id' => $externalCityId,
+            'country_code' => $this->mappingCountry(provider: $provider, city: $city),
             'created_at' => now(),
         ] + $this->columnsOf($fields);
     }
@@ -468,8 +483,8 @@ class ProviderCityMappingService
     /**
      * The country a provider serves, as its own configuration states it, or null when it states none.
      *
-     * A provider that names no country has its mappings written with none, which is how every mapping on this platform exists today: one
-     * country, never stated because there was no second one to tell it from.
+     * This is the FALLBACK for a mapping's country, not the answer: {@see countryOfCity()} is. It is reached only for a city of ours whose
+     * region names no country, which no shipped installation has -- `address_regions.country_code` defaults to SA.
      */
     public static function countryOf(string $provider): ?string
     {
@@ -479,8 +494,33 @@ class ProviderCityMappingService
     }
 
     /**
+     * The country OUR city is in, read from its region, or null when the region names none (H1-10).
+     *
+     * This is what a mapping is a fact ABOUT: "our Riyadh is the carrier's city 36189" says something about Saudi Arabia, and the same
+     * sentence about a Kuwaiti city of the same name says something about Kuwait. Until this was written the mapping recorded the country
+     * the PROVIDER declared instead, which is the same answer while a carrier serves one country and the wrong one as soon as it serves
+     * two: every mapping of both countries would carry one code.
+     */
+    public static function countryOfCity(AddressCity $city): ?string
+    {
+        $city->loadMissing('region');
+        $country = strtoupper(trim((string) $city->region?->country_code));
+
+        return $country === '' ? null : $country;
+    }
+
+    /** The country a mapping of this city is recorded under: the city's own, or the provider's declared one when the region names none. */
+    private function mappingCountry(string $provider, AddressCity $city): ?string
+    {
+        return self::countryOfCity($city) ?? self::countryOf($provider);
+    }
+
+    /**
      * The mappings of one provider that belong to a country: the ones that say so, and -- for the provider's own country -- the ones that
      * say nothing, because a mapping written before countries were stated is a mapping of the country the provider serves.
+     *
+     * Every mapping WRITTEN from now on names its city's country ({@see mappingCountry()}), so the unmarked rows this covers are the ones
+     * that were already in the table.
      *
      * @param \Illuminate\Database\Eloquent\Builder<ProviderCityMapping> $mappings
      */
@@ -508,11 +548,9 @@ class ProviderCityMappingService
             'address_city_id' => $city->id,
             'external_city_id' => (string) $candidate->city->external_id,
             'external_region_id' => $candidate->city->region_external_id,
-            // The country this mapping is about (H1-02). It is the country the PROVIDER serves: its city directory is that country's, so a
-            // mapping of one of its cities is a fact about that country and not about any other. Until our own cities carry a country of
-            // their own (H1-10, the address system going beyond one country) this is the only country either side of the pair knows, and
-            // writing it is what lets a second provider's mappings be told apart from the first's instead of pooling them.
-            'country_code' => self::countryOf($provider),
+            // The country this mapping is about (H1-02, H1-10): the country OUR CITY is in, which is what the pair is a fact about.
+            // The provider's declared country is the fallback, for a city whose region names none.
+            'country_code' => $this->mappingCountry(provider: $provider, city: $city),
             'status' => MappingStatus::Pending->value,
             'method' => $method,
             'approved_slot' => null,
@@ -595,9 +633,18 @@ class ProviderCityMappingService
             ->first();
     }
 
-    private function newRow(string $provider, int $cityId, string $externalCityId): ProviderCityMapping
+    /**
+     * A row for a pair nobody has proposed, which an approval or a rejection of a candidate chosen by hand makes. It carries the country
+     * too: this is the path a person takes from the matching screen, and it wrote nothing at all before.
+     */
+    private function newRow(string $provider, AddressCity $city, string $externalCityId): ProviderCityMapping
     {
-        return new ProviderCityMapping(['provider' => $provider, 'address_city_id' => $cityId, 'external_city_id' => $externalCityId]);
+        return new ProviderCityMapping([
+            'provider' => $provider,
+            'address_city_id' => $city->id,
+            'external_city_id' => $externalCityId,
+            'country_code' => $this->mappingCountry(provider: $provider, city: $city),
+        ]);
     }
 
     /** @return Collection<int, Collection<int, ProviderCityMapping>> every mapping row of the provider, by city */
@@ -622,10 +669,10 @@ class ProviderCityMappingService
     }
 
     /** @return array<string, array<string, ProviderCity>> provider cities by name key, then by the provider's id */
-    private function providerNameIndex(string $provider): array
+    private function providerNameIndex(string $provider, ?string $country = null): array
     {
         $index = [];
-        foreach ($this->liveCities($provider)->cursor() as $providerCity) {
+        foreach ($this->liveCities(provider: $provider, country: $country)->cursor() as $providerCity) {
             foreach ($this->keysOf($providerCity->name_ar, $providerCity->name_en) as $key) {
                 $index[$key][(string) $providerCity->external_id] = $providerCity;
             }
@@ -634,19 +681,56 @@ class ProviderCityMappingService
         return $index;
     }
 
-    /** @return Builder<ProviderCity> the cities the provider still lists */
-    private function liveCities(string $provider): Builder
+    /**
+     * @return Builder<ProviderCity> the cities the provider still lists, from the one list that country reads
+     *
+     * Which list that is -- the country's own once it has imported one, the platform-wide list until then -- is `ProviderCityCountry`'s
+     * rule and stays there: a carrier numbering its cities from 1 in every country gives two countries the same external ids.
+     */
+    private function liveCities(string $provider, ?string $country = null): Builder
     {
         $columns = ['id', 'provider', 'external_id', 'name_ar', 'name_en', 'region_external_id'];
 
-        return ProviderCity::query()->select([...$columns, ...AddressSchema::DIRECTORY_COLUMNS])->where('provider', $provider)->whereNull('missing_since');
+        $cities = ProviderCity::query()->select([...$columns, ...AddressSchema::DIRECTORY_COLUMNS])->where('provider', $provider)->whereNull('missing_since');
+
+        if ($country === null) {
+            return $cities;
+        }
+
+        $lists = app(ProviderCityCountry::class);
+
+        // The PLATFORM-WIDE list is the one list every installation imported before a carrier served a second market, so it is the
+        // DEFAULT storefront's -- the same rule `StorefrontMarketRows` states for every other table of market-owning rows. Another
+        // country that has not imported a list of its own therefore has NO candidates, which is the correct answer and not an
+        // oversight: offering it the default market's cities is the pooling this filter exists to stop, and it would propose a Saudi
+        // city for a Kuwaiti address with nothing on the row to say so.
+        if ($lists->applies()
+            && $lists->listFor(provider: $provider, country: $country) === ProviderCityCountry::PLATFORM_WIDE
+            && strtoupper(trim($country)) !== self::defaultStorefrontCountry()) {
+            return $cities->whereRaw('1 = 0');
+        }
+
+        return $lists->narrow($cities, $provider, $country);
     }
 
-    /** @return array<string, list<int>> our regions' ids by name key */
-    private function regionIdsByKey(): array
+    /** The market whose rows the unmarked ones are. Asked of `StorefrontMarketRows`, which is the one place that answers it. */
+    private static function defaultStorefrontCountry(): string
+    {
+        return app(StorefrontMarketRows::class)->defaultCountry();
+    }
+
+    /**
+     * @return array<string, list<int>> our regions' ids by name key, of one country when one is given
+     *
+     * Narrowed by country because a provider region name is checked against OUR regions: two countries with a same-named region would
+     * otherwise have each one's name confirm the other's city.
+     */
+    private function regionIdsByKey(?string $country = null): array
     {
         $regions = [];
-        foreach (AddressRegion::query()->get(['id', 'name_ar', 'name_en']) as $region) {
+        $rows = AddressRegion::query()->when($country !== null, static fn ($query) => $query->where('country_code', $country));
+
+        foreach ($rows->get(['id', 'name_ar', 'name_en']) as $region) {
             foreach ($this->keysOf($region->name_ar, $region->name_en) as $key) {
                 $regions[$key][] = (int) $region->id;
             }
