@@ -188,6 +188,17 @@ criteria names more signals than are built -- which is the honest record and is 
   made the charge ZERO for those shops, because nothing writes a cart-shipping row for them. Thirty-nine tests across
   the address and storefront groups said so, and they were right. Before changing a default that money passes through,
   run the groups that touch money; a targeted test passing proves only that the new behaviour is self-consistent.
+- **CORRECTION (2026-11-25): MariaDB is NOT installed in this container and `service mariadb start` answers "unrecognized
+  service".** The recipe below was written in a container that had it. To get a real engine here:
+  `apt-get update && apt-get install -y --no-install-recommends mariadb-server mariadb-client`, then start `mariadbd` BY
+  HAND (`invoke-rc.d` is policy-denied), then create the user as below. Two defects in one batch were found only by doing
+  this and would have passed CI's SQLite jobs: `DB::table()->whereKey()` is the MODEL's method and compiles to
+  `where('key', 1)`, which MariaDB rejects as an unknown column while SQLite read the unknown name as a string, returned
+  nothing, and let a byte-for-byte assertion pass FOR THE WRONG REASON; and `expires_at` as TIMESTAMP silently stored
+  `2099-01-31` as `0000-00-00` because MySQL's TIMESTAMP range ends in 2038, so a far-future expiry read back as already
+  expired, while SQLite stored it happily. Use DATETIME for a date that may be beyond 2038.
+  Where two tracks share this container, give each its own DATABASE (`pharmacy_testing_de` and so on) so one suite cannot
+  clobber another's.
 - **A real engine can be run IN this container, and should be, before pushing a schema or collation test.**
   `service mariadb start`, then once: `mysql -u root -e "CREATE USER IF NOT EXISTS 'ci'@'%' IDENTIFIED BY 'ci-pass'; GRANT ALL
   PRIVILEGES ON *.* TO 'ci'@'%' WITH GRANT OPTION; FLUSH PRIVILEGES;"` -- root authenticates by unix socket, so a TCP connection as root is
