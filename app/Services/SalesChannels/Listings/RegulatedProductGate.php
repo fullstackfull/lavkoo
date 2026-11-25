@@ -4,6 +4,7 @@ namespace App\Services\SalesChannels\Listings;
 
 use App\Models\Admin;
 use App\Models\ChannelListingDraft;
+use App\Services\SalesChannels\Support\ChannelAccountCountry;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -20,7 +21,18 @@ use Illuminate\Support\Facades\Schema;
  *    `--admin=` on a command line is not that, and neither is a request that merely carries an admin id;
  *  - the person who records a clearance must hold the `sales_channels` module, which is checked against their role, not taken on trust.
  *
- * Rules are per channel as well as global, because what Amazon closes and what Trendyol closes are different lists.
+ * Rules are per channel as well as global, because what Amazon closes and what Trendyol closes are different lists -- and per MARKET
+ * since H2-09, because what a regulator closes is a country's decision and not a marketplace's: the Saudi list is not the Emirati one,
+ * and one product may need a licence on noon Saudi Arabia and none on noon in the Emirates.
+ *
+ * The market of a listing is the country the ACCOUNT sells in ({@see ChannelAccountCountry}), because a regulator cares where a thing is
+ * sold, not where it came from. An account that names no country is judged by the global and per-channel rules alone, which is every
+ * account of this installation today -- and the gate still fails closed in `strict` mode for all of them, so no rule is weakened by a
+ * market nobody named.
+ *
+ * A mode is the most specific one anybody set: (market, channel), then market, then channel, then global. A MARKET's mode beats a
+ * CHANNEL's, because a country's regulator outranks a marketplace's policy. The four lists are ADDED together, so naming a market never
+ * loses a global rule.
  */
 class RegulatedProductGate
 {
@@ -37,7 +49,8 @@ class RegulatedProductGate
     public function refusalFor(ChannelListingDraft $draft): ?string
     {
         $channel = (string) $draft->sales_channel;
-        if ($this->modeFor($channel) !== self::MODE_STRICT) {
+        $market = $this->marketOf($draft);
+        if ($this->modeFor($channel, $market) !== self::MODE_STRICT) {
             return null;
         }
 
@@ -46,22 +59,34 @@ class RegulatedProductGate
             // Fail closed: a product nobody has put in a category cannot be judged against the owner's list.
             return self::CLASSIFICATION_MISSING;
         }
-        if (!$this->matchesTheOwnersRules($product, $channel)) {
+        if (!$this->matchesTheOwnersRules($product, $channel, $market)) {
             return null;
         }
 
         return $draft->hasRecordedClearance() ? null : self::NEEDS_CLEARANCE;
     }
 
-    /** Does this product need a clearance before it may be listed on this channel? For a screen, so that the clearance is asked for before the attempt. */
-    public function needsClearance(int $productId, string $channel): bool
+    /**
+     * Does this product need a clearance before it may be listed on this channel, in this market? For a screen, so that the clearance is
+     * asked for before the attempt. The market is the account's own; a caller that does not know it asks the global and channel rules,
+     * which is what this answered before markets existed.
+     */
+    public function needsClearance(int $productId, string $channel, ?string $market = null): bool
     {
-        if ($this->modeFor($channel) !== self::MODE_STRICT) {
+        if ($this->modeFor($channel, $market) !== self::MODE_STRICT) {
             return false;
         }
         $product = $this->productOf($productId);
 
-        return $product === null || !$this->isClassified($product) || $this->matchesTheOwnersRules($product, $channel);
+        return $product === null || !$this->isClassified($product) || $this->matchesTheOwnersRules($product, $channel, $market);
+    }
+
+    /** The market a draft is judged in: the country its account sells in, or null when the account names none (or is gone). */
+    public function marketOf(ChannelListingDraft $draft): ?string
+    {
+        $account = $draft->account;
+
+        return $account === null ? null : app(ChannelAccountCountry::class)->of($account);
     }
 
     /** May this admin record a clearance? Their role has to carry the module; an id that is not an admin's never may. */
@@ -82,14 +107,24 @@ class RegulatedProductGate
         return (int) ($role->status ?? 0) === 1 && in_array(self::MODULE, (array) json_decode((string) ($role->module_access ?? ''), true), true);
     }
 
-    /** `off` or `strict`, the channel's own setting first. */
-    public function modeFor(string $channel): string
+    /**
+     * `off` or `strict`: the most specific setting anybody made, which is (market, channel), then market, then channel, then global.
+     *
+     * A market's setting outranks a channel's on purpose. A country's regulator decides what may be sold in that country, and a
+     * marketplace's policy cannot open what the regulator closed -- so an operator who puts one market in `strict` has put it in
+     * `strict` on every channel, including one whose own entry says `off`.
+     */
+    public function modeFor(string $channel, ?string $market = null): string
     {
-        $perChannel = (string) (config('sales_channels.listing.regulated.channels.' . $channel . '.mode') ?? '');
+        foreach ([$this->marketKey($market) . '.channels.' . $channel, $this->marketKey($market), 'channels.' . $channel] as $path) {
+            $mode = (string) (config('sales_channels.listing.regulated.' . $path . '.mode') ?? '');
 
-        return in_array($perChannel, [self::MODE_OFF, self::MODE_STRICT], true)
-            ? $perChannel
-            : (config('sales_channels.listing.regulated.mode') === self::MODE_STRICT ? self::MODE_STRICT : self::MODE_OFF);
+            if (in_array($mode, [self::MODE_OFF, self::MODE_STRICT], true)) {
+                return $mode;
+            }
+        }
+
+        return config('sales_channels.listing.regulated.mode') === self::MODE_STRICT ? self::MODE_STRICT : self::MODE_OFF;
     }
 
     private function productOf(int $productId): ?object
@@ -103,24 +138,39 @@ class RegulatedProductGate
         return $this->categoryIdsOf($product) !== [];
     }
 
-    private function matchesTheOwnersRules(object $product, string $channel): bool
+    private function matchesTheOwnersRules(object $product, string $channel, ?string $market = null): bool
     {
-        return $this->inARegulatedCategory($product, $this->rule('category_ids', $channel))
-            || $this->nameMatches((string) ($product->name ?? ''), $this->rule('name_patterns', $channel))
-            || in_array((string) ($product->brand_id ?? ''), $this->rule('brand_ids', $channel), true);
+        return $this->inARegulatedCategory($product, $this->rule('category_ids', $channel, $market))
+            || $this->nameMatches((string) ($product->name ?? ''), $this->rule('name_patterns', $channel, $market))
+            || in_array((string) ($product->brand_id ?? ''), $this->rule('brand_ids', $channel, $market), true);
     }
 
     /**
-     * One rule list: the channel's own entries and the global ones together, so a global rule is never lost by naming a channel.
+     * One rule list: the global entries, the channel's own, the market's own and the market's own for that channel, all together -- so
+     * naming a channel never loses a global rule and naming a market never loses either.
      *
      * @return list<string>
      */
-    private function rule(string $name, string $channel): array
+    private function rule(string $name, string $channel, ?string $market = null): array
     {
-        $global = (array) config('sales_channels.listing.regulated.' . $name, []);
-        $perChannel = (array) config('sales_channels.listing.regulated.channels.' . $channel . '.' . $name, []);
+        $entries = [];
+        foreach (['', 'channels.' . $channel . '.', $this->marketKey($market) . '.', $this->marketKey($market) . '.channels.' . $channel . '.'] as $path) {
+            $entries = [...$entries, ...(array) config('sales_channels.listing.regulated.' . $path . $name, [])];
+        }
 
-        return array_values(array_unique(array_filter(array_map('strval', [...$global, ...$perChannel]), static fn (string $value): bool => $value !== '')));
+        return array_values(array_unique(array_filter(array_map('strval', $entries), static fn (string $value): bool => $value !== '')));
+    }
+
+    /**
+     * The configuration path of a market's own rules. A caller that names no market gets a path that cannot exist -- `markets.` with
+     * nothing after it -- so `config()` answers null for it and the market level is simply skipped, rather than every market's rules
+     * being read for an account that belongs to none.
+     */
+    private function marketKey(?string $market): string
+    {
+        $code = strtoupper(trim((string) $market));
+
+        return 'markets.' . ($code === '' ? '-' : $code);
     }
 
     /**

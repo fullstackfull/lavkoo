@@ -396,6 +396,18 @@ return [
         |
         | `channels` carries the same four keys per channel, because what Amazon closes and what Trendyol closes are different lists; a channel's mode overrides the global one
         | and its lists are added to the global ones.
+        |
+        | `markets` carries the same four keys per STOREFRONT COUNTRY, and a `channels` list of its own inside, because what a regulator closes is a country's decision and not
+        | a marketplace's (H2-09): the Saudi FDA's list is not the Emirati one, and the same product may need a licence on noon Saudi Arabia and none on noon in the Emirates.
+        | The market of a listing is the country the ACCOUNT sells in (`ChannelAccountCountry`: Trendyol names its storefront, noon its country, an Amazon account its
+        | marketplace ids), because a regulator cares where a thing is sold. An account that names no country keeps the global and per-channel rules, which is every account of
+        | this installation today.
+        |
+        | A mode is the most specific one anybody set: (market, channel), then market, then channel, then global -- and a MARKET's beats a CHANNEL's, because a country's
+        | regulator outranks a marketplace's policy. The four lists are ADDED together, so naming a market never loses a global rule.
+        |
+        | It ships with no market entries at all. WHICH products are regulated in each of the six markets, and what clearance a listing needs there, is a legal question and
+        | nothing in this repository decides it: this is the seam those answers are written into.
         */
         'regulated' => [
             'mode' => in_array(env('SALES_CHANNELS_LISTING_REGULATED_MODE', 'off'), ['off', 'strict'], true) ? env('SALES_CHANNELS_LISTING_REGULATED_MODE', 'off') : 'off',
@@ -405,7 +417,9 @@ return [
             'channels' => [
                 'amazon' => ['mode' => null, 'category_ids' => [], 'name_patterns' => [], 'brand_ids' => []],
                 'trendyol' => ['mode' => null, 'category_ids' => [], 'name_patterns' => [], 'brand_ids' => []],
+                'noon' => ['mode' => null, 'category_ids' => [], 'name_patterns' => [], 'brand_ids' => []],
             ],
+            'markets' => [],
         ],
     ],
 
