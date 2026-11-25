@@ -42,6 +42,8 @@ class CouponNotificationCheckoutAndStorefrontAreTranslatedTest extends TestCase
         'app/Http/Requests/Admin/Notification',
         'resources/views/admin-views/notification',
         'resources/views/admin-views/notification-accounts',
+        'app/Http/Controllers/Admin/CartMarketingController.php',
+        'resources/views/admin-views/integrations/cart-marketing.blade.php',
         // The theme flow: the theme list, the section builder, the publish confirmation and the image library.
         'app/Services/Theme',
         'resources/views/admin-views/theme',

@@ -71,6 +71,8 @@ class TranslateDoesNotRewriteALanguageFileTest extends TestCase
         'resources/views/admin-views/storefronts',
         'resources/views/admin-views/notification',
         'resources/views/admin-views/notification-accounts',
+        'app/Http/Controllers/Admin/CartMarketingController.php',
+        'resources/views/admin-views/integrations/cart-marketing.blade.php',
         'resources/views/admin-views/commerce',
         'resources/views/admin-views/theme',
     ];
