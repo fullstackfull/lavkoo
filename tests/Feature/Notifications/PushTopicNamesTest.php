@@ -143,8 +143,7 @@ class PushTopicNamesTest extends ApiAddressTestCase
             }
             if (preg_match_all('/\$topics\s*=\s*\[(?<list>[^\]]*)\]/', $source, $lists) > 0) {
                 foreach ($lists['list'] as $list) {
-                    preg_match_all('/([\'"])(?<name>[\w.~%-]+)\1/', $list, $matches);
-                    $names = [...$names, ...$matches['name']];
+                    $names = [...$names, ...$this->completeTopicsOf(list: $list)];
                 }
             }
             foreach ($names as $name) {
@@ -175,6 +174,38 @@ class PushTopicNamesTest extends ApiAddressTestCase
     }
 
     /** @return array<string, string> source by path relative to the project, for every PHP file of the scanned directories */
+    /**
+     * The topics written as TEXT inside a `$topics = [...]` list, ignoring the pieces of one that is BUILT.
+     *
+     * A quoted string touching a `.` is a fragment, not a topic: `[self::PREFIX . 'level_' . $principal->level()]` names no topic
+     * called `level_`, and the platform admin's topics are assembled exactly that way -- a prefix, then the grant's level or one of its
+     * markets. Reporting `level_` as an unlisted topic asked for a decision about a string that is not a topic, while the real admin
+     * topics are pinned where they are built (`DevicesAndTopicsTest`, which also asserts they are disjoint from the seller, customer
+     * and marketing ones). That is the same division this test's own second assertion already records: `demo_reset` and the restock
+     * topics are built and "pinned on the wire below".
+     *
+     * The scan keeps all of its teeth. A complete topic written as text inside such a list is still read and still has to be declared,
+     * which the teeth below prove by adding one.
+     *
+     * @return list<string>
+     */
+    private function completeTopicsOf(string $list): array
+    {
+        preg_match_all('/([\'"])(?<name>[\w.~%-]+)\1/', $list, $matches, PREG_OFFSET_CAPTURE);
+        $complete = [];
+
+        foreach ($matches['name'] as [$name, $offset]) {
+            $before = rtrim(substr($list, 0, $offset - 1));
+            $after = ltrim(substr($list, $offset + strlen($name) + 1));
+
+            if (!str_ends_with($before, '.') && !str_starts_with($after, '.')) {
+                $complete[] = $name;
+            }
+        }
+
+        return $complete;
+    }
+
     private function phpFilesOfTheCode(): array
     {
         $sources = [];
