@@ -5,12 +5,10 @@ namespace App\Http\Controllers\Customer;
 use App\Models\User;
 use App\Utils\Helpers;
 use App\Http\Controllers\Controller;
-use App\Models\Cart;
-use App\Models\ShippingAddress;
 use App\Models\ShippingMethod;
+use App\Services\Shipping\DestinationShippingCost;
 use App\Models\CartShipping;
 use App\Services\Address\StorefrontAddressService;
-use App\Services\Marketplace\ShippingRateService;
 use App\Traits\CommonTrait;
 use App\Utils\CartManager;
 use App\Utils\OrderManager;
@@ -59,7 +57,11 @@ class SystemController extends Controller
         }
         $shipping['cart_group_id'] = $request['cart_group_id'];
         $shipping['shipping_method_id'] = $request['id'];
-        $shipping['shipping_cost'] = self::zoneShippingCost($request['cart_group_id'], (float) ShippingMethod::find($request['id'])->cost);
+        $shipping['shipping_cost'] = app(DestinationShippingCost::class)->forCartGroup(
+            cartGroupId: $request['cart_group_id'],
+            methodCost: (float) ShippingMethod::find($request['id'])->cost,
+            addressId: session('address_id'),
+        );
         $shipping->save();
 
         if (session('coupon_code') && session('coupon_discount')) {
@@ -86,23 +88,6 @@ class SystemController extends Controller
      * (the catalogue has no per-product weight), so only a zone's flat base cost and free-over threshold
      * apply; where no zone matches the destination, the chosen method's cost is used unchanged.
      */
-    private static function zoneShippingCost(string|int $cartGroupId, float $methodCost): float
-    {
-        if (!getWebConfig(name: 'zone_wise_shipping')) {
-            return $methodCost;
-        }
-
-        $address = session('address_id') ? ShippingAddress::find(session('address_id')) : null;
-        if (!$address) {
-            return $methodCost;
-        }
-
-        $orderValue = (float) Cart::where('cart_group_id', $cartGroupId)->get()
-            ->sum(fn ($item) => ((float) $item->price - (float) $item->discount) * (int) $item->quantity);
-
-        return (new ShippingRateService())->checkoutCost($methodCost, $address->country, 0.0, $orderValue, $address->state);
-    }
-
     /**
      * The older name of the address step. Nothing on the site posts to it any more, but the route stays; it answers exactly like
      * getChooseShippingAddressOther, so it cannot be used to skip the address rules or to name an address that is not the caller's.
