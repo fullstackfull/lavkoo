@@ -69,10 +69,23 @@ class ThemeCopyToMarketTest extends TestCase
 
     protected function tearDown(): void
     {
+        Schema::dropIfExists('storages');
         Schema::dropIfExists('theme_assets');
         Schema::dropIfExists(StorefrontVisibility::TABLE);
         Schema::dropIfExists('banners');
         Schema::dropIfExists('products');
+        // The table `Banner`'s own `saved` hook writes the disk of a photo into. Built rather than left out, because left out it makes
+        // every `Banner::create()` throw INSIDE the hook, AFTER the insert -- see the orphan-row test.
+        Schema::dropIfExists('storages');
+        Schema::create('storages', static function (Blueprint $table): void {
+            $table->id();
+            $table->string('data_type')->nullable();
+            $table->unsignedBigInteger('data_id')->nullable();
+            $table->string('key')->nullable();
+            $table->string('value')->nullable();
+            $table->timestamps();
+        });
+
         Schema::dropIfExists('categories');
         $this->dropThemeWorld();
 
@@ -174,6 +187,34 @@ class ThemeCopyToMarketTest extends TestCase
 
         $this->assertSame([404], $copied['report']['banners']['missing']);
         $this->assertSame(404, (int) $this->blockSettingsOf($copied['version'])['banner_id'], 'a replacement banner was invented');
+    }
+
+    /**
+     * A banner copy that cannot be completed leaves NO row behind.
+     *
+     * `Banner`'s `saved` hook writes into `storages`, and on an installation where that table is absent the hook throws AFTER the insert
+     * has happened. Without a transaction the copy's `catch` would report the banner as "missing" while a row for it existed in
+     * `banners` -- assigned to no market, pointing at nothing, and invisible to the operator who was told the copy was fine. That is the
+     * defect shape this programme has hit before: a hook failing after the write, a caller's try/catch eating it, and everything after
+     * the create silently skipped.
+     *
+     * The root cause is in the model and is reported rather than fixed here; what is fixed is that this copy cannot be the one that
+     * leaves the orphan.
+     */
+    public function test_a_banner_copy_that_cannot_finish_leaves_no_row_behind(): void
+    {
+        $banner = $this->giveBanner(title: 'Saudi hero');
+        StorefrontVisibility::set(entityType: StorefrontVisibility::BANNER, entityId: $banner->id, countries: ['SA']);
+        $this->giveBannerBackedSection($this->saudiVersion, $banner->id);
+
+        // The state an installation that has not run the storages migration is in.
+        Schema::dropIfExists('storages');
+
+        $copied = $this->copier()->copy($this->saudiVersion, 'AE');
+
+        $this->assertSame([$banner->id], $copied['report']['banners']['missing'], 'the copy claimed a banner it could not write');
+        $this->assertSame(1, Banner::query()->count(), 'the copy left a banner row nobody owns');
+        $this->assertSame($banner->id, (int) $this->blockSettingsOf($copied['version'])['banner_id'], 'the copied block was pointed at a row that does not exist');
     }
 
     /**
@@ -292,10 +333,19 @@ class ThemeCopyToMarketTest extends TestCase
             ->settings ?? [];
     }
 
+    /**
+     * A banner WITH A PHOTO, and that is not decoration.
+     *
+     * `Banner::boot()` hangs a `saved` hook on the model that writes the disk of `photo` into `storages` whenever that attribute is
+     * dirty and non-empty. A banner with no photo never fires it, so a test that made one would prove the copy works on a row no real
+     * installation has -- every real banner has a picture. With one, the copy's `save()` runs the hook for real, which is how the
+     * orphan-row case below is reachable at all.
+     */
     private function giveBanner(string $title): Banner
     {
         $id = (int) DB::table('banners')->insertGetId([
             'title' => $title,
+            'photo' => '2026-11-25-hero.webp',
             'banner_type' => 'Theme Banner',
             'theme' => 'default',
             'published' => 1,
@@ -364,6 +414,18 @@ class ThemeCopyToMarketTest extends TestCase
             $table->string('title')->nullable();
             $table->string('sub_title')->nullable();
             $table->string('button_text')->nullable();
+            $table->timestamps();
+        });
+
+        // The table `Banner`'s own `saved` hook writes the disk of a photo into. Built rather than left out, because left out it makes
+        // every `Banner::create()` throw INSIDE the hook, AFTER the insert -- see the orphan-row test.
+        Schema::dropIfExists('storages');
+        Schema::create('storages', static function (Blueprint $table): void {
+            $table->id();
+            $table->string('data_type')->nullable();
+            $table->unsignedBigInteger('data_id')->nullable();
+            $table->string('key')->nullable();
+            $table->string('value')->nullable();
             $table->timestamps();
         });
 

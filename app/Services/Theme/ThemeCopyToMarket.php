@@ -233,14 +233,22 @@ class ThemeCopyToMarket
      *
      * The stored photo is referenced, not re-uploaded: `banners.photo` is a file name under the banner directory and nothing deletes it
      * when a row goes, so two rows naming one picture is safe in a way two `theme_assets` rows naming one file is not.
+     *
+     * **In a transaction, and that is a fix rather than a habit.** `Banner::boot()` hangs a `saved` hook on the model that writes the
+     * disk of `photo` into `storages`, and on an installation where that table is absent the hook THROWS AFTER THE INSERT HAS HAPPENED.
+     * Without the transaction the `catch` below would report the banner as not copied while a row for it existed in `banners` --
+     * assigned to no market, pointing at nothing, and invisible to the operator who was told the copy was fine. Rolled back, "not
+     * copied" is true. The hook itself is the root cause and is not this service's to repair.
      */
     private function duplicateBanner(Banner $banner): ?Banner
     {
         try {
-            $copy = $banner->replicate(['id', 'created_at', 'updated_at']);
-            $copy->save();
+            return DB::transaction(static function () use ($banner): Banner {
+                $copy = $banner->replicate(['id', 'created_at', 'updated_at']);
+                $copy->save();
 
-            return $copy;
+                return $copy;
+            });
         } catch (\Throwable) {
             return null;
         }
