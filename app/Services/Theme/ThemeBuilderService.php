@@ -14,20 +14,32 @@ use Illuminate\Support\Facades\DB;
  * Guard rail: every mutation refuses to touch a published version. Editing is always done on a
  * draft, and going live is an explicit publish — that is what makes the
  * draft -> preview -> publish workflow safe (the live storefront can never be edited by accident).
+ *
+ * Second guard rail (F-V1): and only a draft of the storefront being edited. Every mutator takes a
+ * version, a section or a block the controller loaded BY ID from the request, and nothing compared
+ * it with a market — so once themes belong to storefronts (F-01), one admin's open builder could
+ * reorder, retype or delete the sections of another country's draft, and the autosave that posts
+ * the whole form would do it without anybody pressing anything. Both guards meet in isEditable(),
+ * which all 13 mutators already return on, rather than being repeated 13 times.
  */
 class ThemeBuilderService
 {
     public function __construct(
         private readonly SectionRegistry $registry,
         private readonly SectionReadiness $readiness,
+        private readonly ThemeStorefrontSelection $selection,
     )
     {
     }
 
-    /** Thrown-free guard: is this version editable? */
+    /**
+     * Thrown-free guard: is this version editable HERE? A draft, and a draft of the theme of the storefront being edited.
+     *
+     * The second half is true of every version while themes do not belong to storefronts, so a single-market installation is unchanged.
+     */
     public function isEditable(ThemeVersion $version): bool
     {
-        return $version->status === ThemeVersion::STATUS_DRAFT;
+        return $version->status === ThemeVersion::STATUS_DRAFT && $this->selection->covers(theme: $version->theme);
     }
 
     /** Append a section to a page, at the end of the current order. */

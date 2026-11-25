@@ -204,7 +204,7 @@ final class StorefrontThemeResolver
     }
 
     /** The themes of a storefront: those of the default storefront include the ones that name no country. */
-    private function themesOf(string $storefront): Builder
+    public function themesOf(string $storefront): Builder
     {
         $default = $this->defaultStorefront();
 

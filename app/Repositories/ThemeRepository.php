@@ -43,6 +43,9 @@ class ThemeRepository implements ThemeRepositoryInterface
         $query = $this->theme->with($relations)
             ->when(isset($filters['id']), fn ($q) => $q->where(['id' => $filters['id']]))
             ->when(isset($filters['is_active']), fn ($q) => $q->where(['is_active' => $filters['is_active']]))
+            // F-15: the theme index lists one storefront's themes, and the admin's selector says which. The rule that the default
+            // storefront also owns every theme naming no country stays in the resolver this repository already holds.
+            ->when(isset($filters['storefront']), fn ($q) => $q->whereIn('id', $this->themes->themesOf(storefront: (string) $filters['storefront'])->select('id')))
             ->when(!empty($searchValue), function ($q) use ($searchValue) {
                 return $q->where(function ($sub) use ($searchValue) {
                     $sub->where('name', 'like', "%{$searchValue}%")

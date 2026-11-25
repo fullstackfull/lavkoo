@@ -145,7 +145,13 @@ class ThemePortabilityService
      *
      * @return array{theme:?Theme, version:?ThemeVersion, result:array}
      */
-    public function import(mixed $payload, ?string $nameOverride = null, ?int $adminId = null): array
+    /**
+     * @param string|null $storefront the market the imported theme belongs to; the default storefront's when nothing names one (F-15).
+     *                                An import used to create a theme that named no country, i.e. the default storefront's, whichever
+     *                                market's list it was started from -- so a file imported on the Emirati screen arrived in Saudi
+     *                                Arabia and was invisible where it was imported.
+     */
+    public function import(mixed $payload, ?string $nameOverride = null, ?int $adminId = null, ?string $storefront = null): array
     {
         $result = $this->validate($payload);
         if (!$result['valid']) {
@@ -156,7 +162,7 @@ class ThemePortabilityService
             ?: (string) ($payload['theme']['name'] ?? 'Imported theme');
         $name = trim($name) !== '' ? trim($name) : 'Imported theme';
 
-        return DB::transaction(function () use ($payload, $name, $adminId, $result) {
+        return DB::transaction(function () use ($payload, $name, $adminId, $result, $storefront) {
             $theme = Theme::create([
                 'name'            => $name,
                 'slug'            => $this->uniqueSlug($name),
@@ -166,6 +172,8 @@ class ThemePortabilityService
                 'is_system'       => false,   // never let a payload claim system status
                 'created_by_type' => 'admin',
                 'created_by_id'   => $adminId,
+                // Never from the payload: a file must not claim a market, only the screen it is imported on may say which.
+                ...app(StorefrontThemeResolver::class)->newThemeAttributes(requestedCountry: $storefront),
             ]);
 
             $version = ThemeVersion::create([

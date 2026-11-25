@@ -345,9 +345,9 @@
              data-url-duplicate="{{ route('admin.theme.builder.section.duplicate') }}"
              data-url-delete="{{ route('admin.theme.builder.section.delete') }}"
              data-url-schema="{{ route('admin.theme.builder.section-schema') }}"
-             data-url-resources="{{ route('admin.theme.builder.resources') }}"
+             data-url-resources="{{ route('admin.theme.builder.resources', ['storefront' => $selectedStorefront ?? null]) }}"
              data-url-preview-link="{{ route('admin.theme.builder.preview.link') }}"
-             data-url-resource-labels="{{ route('admin.theme.builder.resource-labels') }}"
+             data-url-resource-labels="{{ route('admin.theme.builder.resource-labels', ['storefront' => $selectedStorefront ?? null]) }}"
              data-url-link-compose="{{ route('admin.theme.builder.link.compose') }}"
              data-url-block-schema="{{ route('admin.theme.builder.block-schema') }}"
              data-url-block-add="{{ route('admin.theme.builder.block.add') }}"
@@ -372,6 +372,21 @@
                             {{ $editable ? translate('draft') : translate('published') }} #{{ $version->id }}
                         </span>
                     </span>
+                    {{-- F-15: which storefront is being composed for. Links rather than buttons, for the same reason the channel
+                         switcher below is links: the storefront decides which theme, which draft and which catalogue exist, and those
+                         are the server's answers. It deliberately carries no `version` -- another market's version is not this one's.
+                         Rendered only where there is more than one storefront to choose, so a single-market installation is unchanged. --}}
+                    @if (!empty($storefrontChoices))
+                        <div class="tb-seg" role="group" aria-label="{{ translate('storefront') }}">
+                            @foreach ($storefrontChoices as $storefrontCode => $storefrontLabel)
+                                <a class="{{ $storefrontCode === $selectedStorefront ? 'is-active' : '' }}"
+                                   title="{{ $storefrontLabel }}"
+                                   href="{{ route('admin.theme.builder.index', ['page' => $page, 'channel' => $channel, 'storefront' => $storefrontCode]) }}">
+                                    {{ $storefrontCode }}
+                                </a>
+                            @endforeach
+                        </div>
+                    @endif
                 </div>
 
                 <div class="tb-bar__group is-grow justify-content-center">

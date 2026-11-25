@@ -26,9 +26,16 @@ use Tests\TestCase;
  *  - **the surfaces this programme owns must be at zero**, and are. A key added to them without its three locales fails here with its
  *    own name, which is the only thing that stops the class coming back one key at a time.
  *  - **the inherited platform is a RATCHET, not a pass.** The figures below are the state of the upstream application and they are
- *    large: of 11,972 distinct literal keys, 1,327 are defined in NO locale, and the Saudi locale -- the locale this platform actually
- *    runs -- is short of 4,206. Fixing those is a programme of its own and is not pretended to be done here. What this does is stop
+ *    large: of 11,996 distinct literal keys, 1,073 are defined in NO locale, and the Saudi locale -- the locale this platform actually
+ *    runs -- is short of 3,122. Fixing those is a programme of its own and is not pretended to be done here. What this does is stop
  *    the number growing: anyone who adds a key without its locales pushes a count past its baseline and is told which keys to look at.
+ *
+ *    **Worked down on 2026-11-25**, and only with real text. `sa` was 4,172 and `ae` 1,505: 915 and 241 keys were filled from the
+ *    Arabic the OTHER Arabic locales of this repository already hold, taking a value only where it actually contains Arabic script so
+ *    that an English placeholder one locale carries is never copied into another as though it were a translation; and the 136 keys the
+ *    CUSTOMER-FACING trees (`resources/themes`, `resources/views/web-views`, `Modules`) were short of were written by hand, because
+ *    those are the only ones a shopper reads. Nothing was filled by humanising a key into the locale it was missing from: that would
+ *    move these four numbers without changing a word anybody sees, which is the one thing they must not be allowed to measure.
  *
  * The figures are expected to FALL as the backlog is worked, and lowering them here is the whole point of the `<=`; a run that finds
  * fewer than the baseline is green and the baseline should then be lowered to the new figure.
@@ -44,14 +51,14 @@ class TranslateDoesNotRewriteALanguageFileTest extends TestCase
      * `no_locale` is the worst case -- the key is absent everywhere, so every shop writes a file for it. The per-locale figures are
      * what one shop writes: a Saudi shop is short of `sa`, and that is the figure with the operational weight.
      */
-    private const BASELINE = ['no_locale' => 1311, 'en' => 1336, 'sa' => 4172, 'ae' => 1505];
+    private const BASELINE = ['no_locale' => 1073, 'en' => 1216, 'sa' => 3122, 'ae' => 1137];
 
     /**
      * The surfaces this programme wrote or extended, which must hold no such key at all.
      *
      * Kept apart from `CouponNotificationCheckoutAndStorefrontAreTranslatedTest`'s own list on purpose: that test also demands ARABIC
      * in the Arabic locales, which the upstream screens below could not pass yet. This one asks only the cheaper question -- does the
-     * key exist at all -- so it can cover more ground without being blocked on 4,206 translations.
+     * key exist at all -- so it can cover more ground without being blocked on the remaining translations.
      */
     private const OWNED = [
         'app/Services/Storefront',
