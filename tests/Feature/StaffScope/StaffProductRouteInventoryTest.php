@@ -157,7 +157,7 @@ class StaffProductRouteInventoryTest extends TestCase
             foreach ($rules as $action => $rule) {
                 $this->assertNotSame([], $rule, $controller . '@' . $action . ': an empty rule refuses the request, so it is never what a screen wants');
                 foreach ($rule as $part) {
-                    $this->assertMatchesRegularExpression('/^(none|list|list:orders|banner_form|(product|deal_of_the_day|most_demanded)\.(route|input|inputs):[A-Za-z_]+\??)$/', $part, $controller . '@' . $action);
+                    $this->assertMatchesRegularExpression('/^(none|list|list:orders|unavailable|banner_form|link_form|seo_entity:[A-Za-z_]+,[A-Za-z_]+|(product|deal_of_the_day|most_demanded|theme_version|theme_section|theme_block|theme_asset)\.(route|input|inputs):[A-Za-z_]+\??)$/', $part, $controller . '@' . $action);
                 }
             }
         }

@@ -137,8 +137,8 @@ class StaffScopeDocTest extends TestCase
         // 45 since the product-identity lane added POST admin/products/copy-to-country/{id}.
         $this->assertStringContainsString('The rules of the 45 routes', $this->doc);
         $this->assertStringContainsString('The rules of the 49 routes', $this->doc);
-        $this->assertStringContainsString('The rules of the 47 routes', $this->doc);
-        $this->assertSame(47, array_sum(array_map(static fn (string $controller): int => count(StaffPromotionRoutes::rulesOf($controller)), StaffPromotionRoutes::controllers())));
+        $this->assertStringContainsString('The rules of the 87 routes', $this->doc);
+        $this->assertSame(87, array_sum(array_map(static fn (string $controller): int => count(StaffPromotionRoutes::rulesOf($controller)), StaffPromotionRoutes::controllers())));
         $this->assertSame(49, array_sum(array_map(static fn (string $controller): int => count(StaffOrderRoutes::rulesOf($controller)), StaffOrderRoutes::orderScreenControllers())));
     }
 

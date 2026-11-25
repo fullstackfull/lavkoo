@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin\Commerce;
 
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopePromotionsToStaffCountries;
 use App\Models\ProductCollection;
 use App\Models\ProductMetric;
 use App\Services\AuditLogger;
@@ -33,6 +34,9 @@ class CollectionController extends BaseController
         private readonly ThemePermissionService $permissions,
         private readonly AuditLogger $audit,
     ) {
+        // Slice 4 of the staff country scopes (GCC-14c): a restricted employee reaches only the products of their own countries on
+        // these screens, and only the themes of their own markets. Inert while the switch is off.
+        $this->middleware(ScopePromotionsToStaffCountries::class);
     }
 
     public function index(?Request $request, ?string $type = null): View

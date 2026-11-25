@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin\Settings;
 
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopePromotionsToStaffCountries;
 use App\Models\Theme;
 use App\Models\ThemeAsset;
 use App\Models\ThemeBlock;
@@ -45,7 +46,10 @@ class ThemeBuilderController extends BaseController
         private readonly StorefrontThemeResolver $themes,
     )
     {
-    }
+            // Slice 4 of the staff country scopes (GCC-14c): a restricted employee reaches only the products of their own countries on
+        // these screens, and only the themes of their own markets. Inert while the switch is off.
+        $this->middleware(ScopePromotionsToStaffCountries::class);
+}
 
     public function index(Request|null $request, ?string $type = null): View
     {

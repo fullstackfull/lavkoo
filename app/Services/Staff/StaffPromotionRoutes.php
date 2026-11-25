@@ -7,13 +7,19 @@ use App\Http\Controllers\Admin\Promotion\ClearanceSaleController;
 use App\Http\Controllers\Admin\Promotion\DealOfTheDayController;
 use App\Http\Controllers\Admin\Promotion\FlashDealController;
 use App\Http\Controllers\Admin\Promotion\MostDemandedController;
+use App\Http\Controllers\Admin\Commerce\CollectionController;
 use App\Http\Controllers\Admin\Settings\InhouseShopController;
+use App\Http\Controllers\Admin\Settings\SeoHealthController;
+use App\Http\Controllers\Admin\Settings\SeoTranslationController;
+use App\Http\Controllers\Admin\Settings\SiteMapController;
+use App\Http\Controllers\Admin\Settings\ThemeBuilderController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 /**
- * The promotion screens of the admin panel that a staff country scope covers (GCC-14c, slice 4), and what each of their actions names or
- * lists: the flash deals, the deal of the day, the clearance sale, the most-demanded entries, the banners and the in-house shop page.
+ * The promotion and storefront-content screens of the admin panel that a staff country scope covers (GCC-14c, slice 4), and what each of
+ * their actions names or lists: the flash deals, the deal of the day, the clearance sale, the most-demanded entries, the banners, the
+ * in-house shop page, the theme builder, the two SEO screens, the site map and the collection preview.
  *
  * Every action of these controllers has a rule: a list of parts, as the order screens' rules are. The middleware of the controllers
  * (`ScopePromotionsToStaffCountries`) reads it for an employee who is restricted to some countries, and a route without a rule is REFUSED to
@@ -33,6 +39,15 @@ use Illuminate\Support\Facades\DB;
  *                            one row id of a table that belongs to a product, in the request: the product the row names must be in scope
  *   most_demanded.route:{n}  the same, in the path
  *   banner_form              the product a banner form posts, which is a product only when `resource_type` says `product`
+ *   link_form                the product a composed link points at, which is a product only when `kind` says `product`
+ *   seo_entity:{t},{i}       the polymorphic row an SEO screen is about: the id in `{i}` is a PRODUCT id only when `{t}` says `product`
+ *   theme_version.input:{n}, theme_section.input:{n}, theme_block.input:{n}, theme_asset.input:{n}
+ *                            a theme version, section, block or asset in the request: the MARKET of the theme it belongs to must be one the
+ *                            employee holds. A theme has a market of its own (`themes.storefront_country`, F-01), so unlike a promotion it
+ *                            is judged directly; a theme that names none is the default storefront's
+ *   unavailable              it reads or writes a platform-wide artefact that no market owns a part of (the site-map files): a restricted
+ *                            employee is answered like for something that does not exist, rather than being shown or allowed to overwrite
+ *                            every market's at once
  *
  * What is NOT narrowed, and why: the promotion itself has no market. A flash deal, a banner, a clearance setup and the most-demanded section
  * are platform rows (GCC-17 has to give promotions a market before that can change), so editing a deal's name or its dates, or publishing a
@@ -106,6 +121,68 @@ final class StaffPromotionRoutes
             'updateStatus' => ['none'],
             'delete' => ['none'],
         ],
+        ThemeBuilderController::class => [
+            // A theme belongs to a storefront (F-01), so the builder is judged by the market of the theme the version, section, block or
+            // asset in hand belongs to -- not by the products it can pick, which the product scope narrows on top of that.
+            'index' => ['theme_version.input:version?'],
+            'resources' => ['list'],
+            'resourceLabels' => ['list'],
+            'sectionSchema' => ['theme_section.input:section_id?'],
+            'addSection' => ['theme_version.input:version_id'],
+            'updateSection' => ['theme_section.input:section_id'],
+            'reorderSections' => ['theme_version.input:version_id'],
+            'toggleSection' => ['theme_section.input:section_id'],
+            'duplicateSection' => ['theme_section.input:section_id'],
+            'deleteSection' => ['theme_section.input:section_id'],
+            'updateDeliveryRules' => ['theme_section.input:section_id'],
+            'blockSchema' => ['theme_block.input:block_id'],
+            'addBlock' => ['theme_section.input:section_id'],
+            'updateBlock' => ['theme_block.input:block_id'],
+            'toggleBlock' => ['theme_block.input:block_id'],
+            'reorderBlocks' => ['theme_section.input:section_id'],
+            'duplicateBlock' => ['theme_block.input:block_id'],
+            'deleteBlock' => ['theme_block.input:block_id'],
+            'uploadMedia' => ['theme_version.input:version_id'],
+            'mediaLibrary' => ['theme_version.input:version_id'],
+            'deleteMedia' => ['theme_asset.input:id'],
+            'composeLink' => ['link_form'],
+            'startPreview' => ['theme_version.input:version_id'],
+            'previewLink' => ['theme_version.input:version_id'],
+            // Stops previewing whatever this employee's own session was previewing. It names nothing and reads nothing of anybody else's.
+            'stopPreview' => ['none'],
+        ],
+        SeoTranslationController::class => [
+            // The screen is polymorphic: `entity_type` says what kind of row `entity_id` is, and only `product` makes it a product id. The
+            // list of the twenty most recent translations is narrowed by `StaffCountryProductRowScope` on the model, which leaves the rows
+            // of the other kinds alone.
+            'index' => ['seo_entity:entity_type,entity_id', 'list'],
+            'save' => ['seo_entity:entity_type,entity_id'],
+            'delete' => ['seo_entity:entity_type,entity_id'],
+        ],
+        SeoHealthController::class => [
+            'index' => ['list'],
+        ],
+        SiteMapController::class => [
+            // A site map is a platform-wide artefact: the bare file lists the DEFAULT storefront's product addresses and the rest is one
+            // file per live market. There is no part of it a restricted employee owns -- generating it rewrites every market's file, and
+            // downloading it hands over another market's product addresses -- so the whole screen is unavailable to them. Scoping it by
+            // market is the storefront lane's to build (one file per storefront, generated for the markets the employee holds).
+            'index' => ['unavailable'],
+            'getGenerateAndDownload' => ['unavailable'],
+            'getGenerateAndUpload' => ['unavailable'],
+            'getDownload' => ['unavailable'],
+            'getUpload' => ['unavailable'],
+            'getDelete' => ['unavailable'],
+        ],
+        CollectionController::class => [
+            // The scan does not see this one: the preview resolves a collection's products through CollectionResolver, which reads them
+            // with the model, so the product scope narrows the preview as soon as the request is bound. A collection itself has no market.
+            'index' => ['none'],
+            'store' => ['none'],
+            'update' => ['none'],
+            'delete' => ['none'],
+            'preview' => ['list'],
+        ],
         InhouseShopController::class => [
             // The page counts the in-house products and the reviews of those products, and it counts ORDERS -- a different subject, which
             // is why the rule names it: a Kuwait employee was shown the number of every market's in-house orders.
@@ -123,6 +200,22 @@ final class StaffPromotionRoutes
         'deal_of_the_day' => ['table' => 'deal_of_the_days', 'column' => 'product_id'],
         'most_demanded' => ['table' => 'most_demandeds', 'column' => 'product_id'],
     ];
+
+    /**
+     * How a theme row reaches its theme. Each step is a table and the column of it that points at the next one, ending at `themes.id`: a
+     * block hangs off a section, a section off a version, a version and an asset off the theme itself.
+     *
+     * @var array<string, list<array{table: string, column: string}>>
+     */
+    private const THEME_CHAINS = [
+        'theme_version' => [['table' => 'theme_versions', 'column' => 'theme_id']],
+        'theme_section' => [['table' => 'theme_sections', 'column' => 'theme_version_id'], ['table' => 'theme_versions', 'column' => 'theme_id']],
+        'theme_block' => [['table' => 'theme_blocks', 'column' => 'theme_section_id'], ['table' => 'theme_sections', 'column' => 'theme_version_id'], ['table' => 'theme_versions', 'column' => 'theme_id']],
+        'theme_asset' => [['table' => 'theme_assets', 'column' => 'theme_id']],
+    ];
+
+    /** The entity the SEO screens call a product; every other kind of row they handle names no product. */
+    private const SEO_PRODUCT_ENTITY = 'product';
 
     /** @return list<class-string> the controllers whose actions a staff country scope covers in slice 4 */
     public static function controllers(): array
@@ -155,9 +248,13 @@ final class StaffPromotionRoutes
         }
 
         foreach ($rule as $part) {
-            $productIds = self::productIdsOf(request: $request, part: $part);
+            $named = self::whatAPartNames(request: $request, part: $part);
 
-            if ($productIds === null || !$scope->coversEveryProduct(productIds: $productIds)) {
+            if ($named === null) {
+                return false;
+            }
+
+            if (!$scope->coversEveryProduct(productIds: $named['products']) || !$scope->coversEveryTheme(themeIds: $named['themes'])) {
                 return false;
             }
         }
@@ -178,19 +275,36 @@ final class StaffPromotionRoutes
     }
 
     /**
-     * The product ids one part of a rule says a request names.
+     * What one part of a rule says this request names, by subject.
      *
-     * @return list<int>|null null when what the part asks for is missing, is not an id at all, or names a row that does not exist, which is
-     *                        answered like an unknown product
+     * @return array{products: list<int>, themes: list<int>}|null null when what the part asks for is missing, is not an id at all, names a
+     *                      row that does not exist, is a part nobody understands, or is `unavailable` -- each of which is answered like
+     *                      something that does not exist
      */
-    public static function productIdsOf(Request $request, string $part): ?array
+    public static function whatAPartNames(Request $request, string $part): ?array
     {
         if ($part === 'none' || $part === 'list' || $part === 'list:orders') {
-            return [];
+            return self::nothing();
+        }
+
+        if ($part === 'unavailable') {
+            return null;
         }
 
         if ($part === 'banner_form') {
-            return self::productOfABannerForm(request: $request);
+            return self::named(products: self::productOfAFormThatNamesItsKind(request: $request, kindField: 'resource_type', idField: 'product_id'));
+        }
+
+        if ($part === 'link_form') {
+            return self::named(products: self::productOfAFormThatNamesItsKind(request: $request, kindField: 'kind', idField: 'reference'));
+        }
+
+        if (str_starts_with($part, 'seo_entity:')) {
+            [$kindField, $idField] = array_pad(explode(',', substr($part, strlen('seo_entity:')), 2), 2, '');
+
+            return $kindField === '' || $idField === ''
+                ? null
+                : self::named(products: self::productOfAFormThatNamesItsKind(request: $request, kindField: $kindField, idField: $idField));
         }
 
         [$subject, $where] = array_pad(explode('.', $part, 2), 2, '');
@@ -198,43 +312,69 @@ final class StaffPromotionRoutes
         $optional = str_ends_with($name, '?');
         $name = rtrim($name, '?');
 
-        $value = match ($kind) {
-            'route' => $request->route($name),
-            'input' => $request->input($name),
-            'inputs' => $request->input($name),
-            default => null,
-        };
-
-        if ($kind === '' || $name === '') {
+        if ($name === '' || !in_array($kind, ['route', 'input', 'inputs'], true)) {
             return null;
         }
 
+        $value = $kind === 'route' ? $request->route($name) : $request->input($name);
+
         if ($subject === 'product') {
-            return match (true) {
+            return self::named(products: match (true) {
                 $kind === 'inputs' => StaffRouteIds::many(value: $value),
                 $optional && StaffRouteIds::blank(value: $value) => [],
                 default => StaffRouteIds::one(value: $value),
-            };
+            });
         }
 
-        return isset(self::ROW_TABLES[$subject]) && in_array($kind, ['route', 'input'], true)
-            ? self::productOfARow(subject: $subject, rowId: $value)
-            : null;
+        if ($kind === 'inputs') {
+            return null;
+        }
+
+        if (isset(self::ROW_TABLES[$subject])) {
+            return self::named(products: self::productOfARow(subject: $subject, rowId: $value));
+        }
+
+        if (isset(self::THEME_CHAINS[$subject])) {
+            if ($optional && StaffRouteIds::blank(value: $value)) {
+                return self::nothing();
+            }
+
+            return self::named(themes: self::themeOfARow(subject: $subject, rowId: $value));
+        }
+
+        return null;
+    }
+
+    /** @return array{products: list<int>, themes: list<int>} */
+    private static function nothing(): array
+    {
+        return ['products' => [], 'themes' => []];
     }
 
     /**
-     * The product a banner points at. A banner form posts `resource_type` and one id per kind of resource, so `product_id` is a product id
-     * only when the type says `product`: a banner that heads a category page names a category there and no product at all.
+     * @param list<int>|null $products
+     * @param list<int>|null $themes
+     * @return array{products: list<int>, themes: list<int>}|null
+     */
+    private static function named(?array $products = [], ?array $themes = []): ?array
+    {
+        return $products === null || $themes === null ? null : ['products' => $products, 'themes' => $themes];
+    }
+
+    /**
+     * The product a form points at when the form says what KIND of thing it points at. A banner posts `resource_type` and one id per kind of
+     * resource, a composed link posts `kind` and a `reference`, and the SEO screens post `entity_type` and an `entity_id`: in all three the
+     * id is a PRODUCT id only when the kind says so, and a form that heads a category page names a category there and no product at all.
      *
      * @return list<int>|null
      */
-    private static function productOfABannerForm(Request $request): ?array
+    private static function productOfAFormThatNamesItsKind(Request $request, string $kindField, string $idField): ?array
     {
-        if ((string) $request->input('resource_type') !== 'product') {
+        if ((string) $request->input($kindField) !== self::SEO_PRODUCT_ENTITY) {
             return [];
         }
 
-        return StaffRouteIds::one(value: $request->input('product_id'));
+        return StaffRouteIds::one(value: $request->input($idField));
     }
 
     /** @return list<int>|null */
@@ -248,5 +388,30 @@ final class StaffPromotionRoutes
         $productId = DB::table(self::ROW_TABLES[$subject]['table'])->where('id', $row[0])->value(self::ROW_TABLES[$subject]['column']);
 
         return $productId === null ? null : [(int) $productId];
+    }
+
+    /**
+     * The theme a theme row belongs to, followed one table at a time. A step that finds nothing ends the walk: a row that is gone, or hangs
+     * off one that is, belongs to no theme and so to no market, and is answered like something that does not exist.
+     *
+     * @return list<int>|null
+     */
+    private static function themeOfARow(string $subject, mixed $rowId): ?array
+    {
+        $row = StaffRouteIds::one(value: $rowId);
+        if ($row === null) {
+            return null;
+        }
+
+        $id = $row[0];
+        foreach (self::THEME_CHAINS[$subject] as $step) {
+            $id = DB::table($step['table'])->where('id', $id)->value($step['column']);
+
+            if ($id === null) {
+                return null;
+            }
+        }
+
+        return [(int) $id];
     }
 }

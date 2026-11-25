@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin\Settings;
 
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopePromotionsToStaffCountries;
 use App\Models\Product;
 use App\Services\Seo\SeoAuditService;
 use App\Services\Seo\SeoMetaResolver;
@@ -22,6 +23,9 @@ class SeoHealthController extends BaseController
         private readonly SeoAuditService $audit,
         private readonly SeoMetaResolver $resolver,
     ) {
+        // Slice 4 of the staff country scopes (GCC-14c): a restricted employee reaches only the products of their own countries on
+        // these screens, and only the themes of their own markets. Inert while the switch is off.
+        $this->middleware(ScopePromotionsToStaffCountries::class);
     }
 
     public function index(?Request $request = null, ?string $type = null): View

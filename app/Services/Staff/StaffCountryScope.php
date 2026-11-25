@@ -7,6 +7,7 @@ use App\Services\SalesChannels\Inventory\InventoryLocationMarket;
 use App\Services\Storefront\CouponCountry;
 use App\Services\Storefront\StorefrontCatalog;
 use App\Services\Storefront\StorefrontCategoryShippingCosts;
+use App\Services\Storefront\StorefrontMarketRows;
 use App\Services\Storefront\StorefrontShippingMethods;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Http\Request;
@@ -496,6 +497,29 @@ final class StaffCountryScope
         }
 
         return app(InventoryLocationMarket::class)->allLocationsBelongTo(locationIds: $ids, countries: $bound);
+    }
+
+    /**
+     * Whether every one of these themes belongs to a market the current request may work with (GCC-14c slice 4; F-01).
+     *
+     * A theme has a market of its own (`themes.storefront_country`, the `2026_12_04` migration), so unlike a deal or a banner it can be
+     * judged directly. The rule of which market a theme belongs to is `StorefrontMarketRows`' and stays there: a theme that names no market
+     * is the DEFAULT storefront's, which is every theme that exists today, and before the column exists every theme is that storefront's --
+     * the same answer, not a special case. A theme that does not exist is not covered, so which ids are themes is not something an employee
+     * can find out by asking.
+     *
+     * @param list<int|string> $themeIds
+     */
+    public function coversEveryTheme(array $themeIds): bool
+    {
+        $bound = $this->boundCountries();
+        $ids = array_values(array_unique($themeIds));
+
+        if ($bound === null || $ids === []) {
+            return true;
+        }
+
+        return app(StorefrontMarketRows::class)->allRowsBelongTo(table: 'themes', ids: $ids, countries: $bound);
     }
 
     /**

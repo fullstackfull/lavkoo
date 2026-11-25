@@ -117,8 +117,8 @@ final class StaffProductInventory
             'reason' => 'The only route that mentions a product is the Noon product group of a channel account, a setting of the account. It reads no product row.',
         ],
         SeoTranslationController::class => [
-            'class' => self::OUT, 'slice' => 'slice 4',
-            'reason' => 'Lists the products whose SEO text can be translated: every country\'s.',
+            'class' => self::SCOPED, 'slice' => 'slice 4',
+            'reason' => 'Lists the products whose SEO text can be translated. Narrowed in slice 4: the screen is polymorphic, so `entity_id` is judged as a product id only when `entity_type` says `product`, and the twenty most recent overrides are narrowed through the product each hangs off (StaffCountryProductRowScope on SeoMetaTranslation, which leaves the overrides of a category, a brand, a shop or a page alone -- they have no market).',
         ],
         FlashDealController::class => [
             'class' => self::SCOPED, 'slice' => 'slice 4',
@@ -145,16 +145,16 @@ final class StaffProductInventory
             'reason' => 'The in-house shop page counts the in-house products, the reviews of those products and the in-house ORDERS. Narrowed in slice 4: the product and review counts by the product scope, the order count by the order subject the rule names (`list:orders`).',
         ],
         ThemeBuilderController::class => [
-            'class' => self::OUT, 'slice' => 'slice 4',
-            'reason' => 'The pickers of the theme builder list and name products of every country.',
+            'class' => self::SCOPED, 'slice' => 'slice 4',
+            'reason' => 'The pickers of the theme builder list and name products. Narrowed in slice 4 twice over: the pickers hold the employee\'s countries\' products, and every version, section, block and asset the builder names is judged by the MARKET of the theme it belongs to -- a theme has one of its own (`themes.storefront_country`, F-01), so unlike a promotion it does not wait for GCC-17.',
         ],
         SeoHealthController::class => [
-            'class' => self::OUT, 'slice' => 'slice 4',
-            'reason' => 'Audits the SEO of the products a storefront shows, of every country.',
+            'class' => self::SCOPED, 'slice' => 'slice 4',
+            'reason' => 'Audits the SEO of the products a storefront shows. Narrowed in slice 4: it reads them with the model, so the product scope holds the whole audit.',
         ],
         SiteMapController::class => [
-            'class' => self::OUT, 'slice' => 'slice 4',
-            'reason' => 'The site map lists the active products of every country.',
+            'class' => self::SCOPED, 'slice' => 'slice 4',
+            'reason' => 'The site map lists the active products of every country, and generating it rewrites every market\'s file. Settled in slice 4 by a REFUSAL, not a narrowing: a site map is a platform-wide artefact with no part a restricted employee owns, so every action of the screen is `unavailable` to them. Generating one file per storefront for the markets an employee holds is the storefront lane\'s to build.',
         ],
         OrderController::class => [
             'class' => self::SCOPED, 'slice' => 'slice 2',
@@ -291,7 +291,7 @@ final class StaffProductInventory
     public const READ_THROUGH_SERVICES = [
         'App\Http\Controllers\Admin\AdvancedSearchController' => ['class' => self::SCOPED, 'slice' => 'slice 3', 'by' => 'the search', 'reason' => 'The header search of the classic layout finds a product only when it is one of the employee\'s countries\' (StaffSearchHits), with no middleware: it fills a cache every employee shares.'],
         'App\Http\Controllers\Admin\V2AdvancedSearchController' => ['class' => self::SCOPED, 'slice' => 'slice 3', 'by' => 'the search', 'reason' => 'The header search of the new layout is the same search (StaffSearchHits).'],
-        'App\Http\Controllers\Admin\Commerce\CollectionController' => ['slice' => 'slice 4', 'reason' => 'The preview of a collection resolves its products through CollectionResolver.'],
+        'App\Http\Controllers\Admin\Commerce\CollectionController' => ['class' => self::SCOPED, 'slice' => 'slice 4', 'reason' => 'The preview of a collection resolves its products through CollectionResolver, which reads them with the model, so the product scope narrows the preview as soon as the request is bound. Scoped in slice 4; a collection itself has no market.'],
         'App\Http\Controllers\Admin\Order\RefundController' => ['class' => self::SCOPED, 'slice' => 'slice 2', 'reason' => 'A refund request follows the country of the product of the order line it is about. The refund lists, their exports, the details and the decision on a request go through the scope of the refund requests and the rules of StaffOrderRoutes.'],
         'App\Http\Controllers\Admin\Telemetry\AnalyticsController' => ['class' => self::SCOPED, 'slice' => 'slice 3', 'reason' => 'The analytics export by product counts the products of every country, so it is unavailable to a restricted employee (StaffOrderRoutes).'],
     ];

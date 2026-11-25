@@ -26,6 +26,10 @@ use Illuminate\Database\Query\Builder as QueryBuilder;
  * A row whose `product_id` is null, or names a product that is gone, belongs to no market and so to no employee: it FAILS CLOSED and a
  * restricted employee does not see it. `stock_clearance_products.product_id` is the one nullable column of the four.
  *
+ * `onlyWhen` is for a POLYMORPHIC table, where the column points at a product only on some rows: the SEO translations hang off a product, a
+ * category, a brand, a shop or a page, so they are narrowed only where `seoable_type` says `Product` and the rows of the other kinds are
+ * left exactly as they were. A row of another kind is NOT hidden -- it has no market to be hidden by.
+ *
  * It does nothing for a request that is not narrowed, which is every request while the staff country scopes are off, every request of a
  * master admin or an unrestricted employee, and every request of the storefront and the apps -- nothing binds a country there, so a shop's
  * own deal listing is untouched by this.
@@ -35,7 +39,8 @@ use Illuminate\Database\Query\Builder as QueryBuilder;
  */
 final class StaffCountryProductRowScope implements Scope
 {
-    public function __construct(private readonly string $column = 'product_id')
+    /** @param array<string, string>|null $onlyWhen the column and value that say this row points at a product at all */
+    public function __construct(private readonly string $column = 'product_id', private readonly ?array $onlyWhen = null)
     {
     }
 
@@ -48,10 +53,26 @@ final class StaffCountryProductRowScope implements Scope
         }
 
         $productIdColumn = $model->qualifyColumn($this->column);
+        $onlyWhen = $this->onlyWhen;
 
-        $builder->whereExists(static fn (QueryBuilder $products): QueryBuilder => $products->selectRaw('1')
-            ->from('products', 'row_products')
-            ->whereColumn('row_products.id', $productIdColumn)
-            ->whereIn('row_products.' . StorefrontCatalog::COLUMN, $countries));
+        $ofTheCountries = static fn (Builder|QueryBuilder $query): Builder|QueryBuilder => $query->whereExists(
+            static fn (QueryBuilder $products): QueryBuilder => $products->selectRaw('1')
+                ->from('products', 'row_products')
+                ->whereColumn('row_products.id', $productIdColumn)
+                ->whereIn('row_products.' . StorefrontCatalog::COLUMN, $countries)
+        );
+
+        if ($onlyWhen === null) {
+            $ofTheCountries($builder);
+
+            return;
+        }
+
+        $builder->where(static function (Builder $row) use ($onlyWhen, $ofTheCountries, $model): void {
+            foreach ($onlyWhen as $column => $value) {
+                $row->where($model->qualifyColumn($column), '!=', $value);
+            }
+            $row->orWhere(static fn (Builder $product) => $ofTheCountries($product));
+        });
     }
 }

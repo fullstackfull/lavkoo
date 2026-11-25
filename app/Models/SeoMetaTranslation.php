@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\StaffCountryProductRowScope;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 
@@ -23,6 +24,18 @@ class SeoMetaTranslation extends Model
         'is_indexable'  => 'boolean',
         'is_followable' => 'boolean',
     ];
+
+    /**
+     * The twenty most recent overrides are listed on the SEO translations screen. The ones that hang off a PRODUCT are narrowed to the
+     * countries of a restricted employee (GCC-14c, slice 4), so the screen does not name another market's products; the overrides of a
+     * category, a brand, a shop or a page have no market and are left exactly as they were. Inert for every request that binds no country.
+     */
+    protected static function boot(): void
+    {
+        parent::boot();
+
+        static::addGlobalScope(new StaffCountryProductRowScope(column: 'seoable_id', onlyWhen: ['seoable_type' => Product::class]));
+    }
 
     public function seoable(): MorphTo
     {
