@@ -197,6 +197,7 @@ trait OrderEditManager
         if (empty($order) || empty($editedOrder)) {
             return;
         }
+        $this->lockTheLinesThisEditGivesBack($order);
         foreach (collect($order->details ?? []) as $detail) {
             $this->adjustProductStock($detail['product_id'] ?? null, $detail['variant'] ?? null, $this->unitsThisEditMayGiveBack($detail), 'increment');
         }
@@ -292,6 +293,30 @@ trait OrderEditManager
                 );
             }
         }
+    }
+
+    /**
+     * The order's lines, locked for the rest of the edit's transaction before any budget is read.
+     *
+     * The other three writers of this shelf lock the line they are about to spend from before they read the
+     * budget, so a return receipt cannot spend the same units between the reading and the write; this one
+     * read the budget unlocked, so a receipt racing an edit could put the same unit back twice.
+     *
+     * ALL of them, in id order, and before the first product row is locked: `adjustProductStock` holds each
+     * product lock until the edit's own transaction commits, so locking a line after a product would let an
+     * edit hold a product another writer wants while waiting for a line that writer holds. Taking every line
+     * first means this writer never waits for a line while holding a product, which is what rules the cycle
+     * out rather than making it unlikely.
+     */
+    private function lockTheLinesThisEditGivesBack(object|array $order): void
+    {
+        $lineIds = collect($order->details ?? [])->pluck('id')->filter()->sort()->values()->all();
+
+        if ($lineIds === []) {
+            return;
+        }
+
+        DB::table('order_details')->whereIn('id', $lineIds)->orderBy('id')->lockForUpdate()->get();
     }
 
     /**
