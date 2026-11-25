@@ -167,8 +167,10 @@ class ThemeManager
         app(ThemeDelivery::class)->flush(storefronts: $storefronts);
 
         // Announced AFTER the commit, never inside it: a client woken by the beacon must find the
-        // new revision, and a rolled-back transaction must announce nothing.
-        app(ThemeSyncBeacon::class)->announce((int) ($published->revision ?: 1));
+        // new revision, and a rolled-back transaction must announce nothing. The beacon's topic is
+        // global on purpose (see ThemeSyncBeacon), so the markets this publish is for travel in the
+        // payload instead: a client of another market can then ignore a revision that is not its own.
+        app(ThemeSyncBeacon::class)->announce(revision: (int) ($published->revision ?: 1), storefronts: $storefronts);
 
         // The system-wide trail (spec §49). Publishing is the action that changes what every
         // customer sees, so it is the one that must always answer "who, and when".

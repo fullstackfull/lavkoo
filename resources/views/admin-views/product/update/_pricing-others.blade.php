@@ -1,3 +1,10 @@
+@php
+    use App\Services\Catalog\ProductFormPrefill;
+
+    // The gallery's "use this product info" submits THIS form as a new product, and the country partial below offers a chooser when it does,
+    // so a figure pre-filled from the source would cross a border: see ProductFormPrefill. Nothing changes while countries are not tracked.
+    $prefill = app(ProductFormPrefill::class);
+@endphp
 <div class="price_wrapper mt-3">
     <div class="outline-wrapper">
         <div class="card rest-part bg-animate">
@@ -45,7 +52,7 @@
                                 <input type="number" min="0" step="0.01"
                                        placeholder="{{ translate('unit_price') }}" name="unit_price" id="unit_price"
                                        data-required-msg="{{ translate('unit_price_is_required') }}"
-                                       value="{{ usdToDefaultCurrency($product->unit_price) }}" class="form-control" required>
+                                       value="{{ $prefill->amount($product->unit_price) }}" class="form-control" required>
                             </div>
                         </div>
                         <div class="col-md-6 col-lg-4" id="minimum_order_qty">
@@ -80,7 +87,7 @@
                                     </span>
                                 </label>
 
-                                <input type="number" min="0" value="{{ $product->current_stock }}" step="1"
+                                <input type="number" min="0" value="{{ $prefill->figure($product->current_stock) }}" step="1"
                                        placeholder="{{ translate('quantity') }}" name="current_stock" id="current_stock"
                                        data-required-msg="{{ translate('current_stock_is_required') }}"
                                        class="form-control only-number-input" required>
@@ -104,7 +111,7 @@
                                 </label>
                                 <div class="input-group">
                                     <input type="number" min="0"
-                                           value="{{ $product->discount_type == 'flat' ? usdToDefaultCurrency($product->discount) : $product->discount }}"
+                                           value="{{ $product->discount_type == 'flat' ? $prefill->amount($product->discount) : $prefill->figure($product->discount) }}"
                                            step="any"
                                            placeholder="{{ translate('ex: 5') }}"
                                            data-required-msg="{{ translate('discount_is_required') }}"
@@ -156,7 +163,7 @@
                                         <i class="fi fi-sr-info"></i>
                                     </span>
                                 </label>
-                                <input type="number" min="0" value="{{ usdToDefaultCurrency($product->shipping_cost) }}" step="any"
+                                <input type="number" min="0" value="{{ $prefill->amount($product->shipping_cost) }}" step="any"
                                        placeholder="{{ translate('shipping_cost') }}" name="shipping_cost" id="shipping_cost_input"
                                        data-required-msg="{{ translate('shipping_cost_is_required') }}"
                                        class="form-control" required>

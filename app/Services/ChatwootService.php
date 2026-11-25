@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\IntegrationSetting;
+use App\Services\Notification\NotificationProfiles;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
@@ -14,8 +15,30 @@ class ChatwootService
     protected int $accountId;
     protected int $inboxId;
 
-    public function __construct()
+    /**
+     * The WhatsApp account this message leaves through: the market's own where it has one (I1-02), and otherwise the one shared Chatwoot
+     * integration, read exactly as it always was.
+     *
+     * A template send is approved per SENDER NUMBER at the provider, so a market with its own number has its own inbox and its own approved
+     * template names, and sending a Kuwaiti message through the Saudi inbox is both wrong and, for a template the Saudi number has not had
+     * approved, impossible. The market is the one in force, so a message about an order takes the market the order was sold in.
+     *
+     * @param string|null $storefront the market whose account to use, or null for the market in force
+     */
+    public function __construct(?string $storefront = null)
     {
+        $market = app(NotificationProfiles::class)->for(channel: NotificationProfiles::WHATSAPP, country: $storefront);
+
+        if ($market !== null) {
+            $this->baseUrl = rtrim((string) $market->setting('base_url'), '/');
+            $this->token = (string) $market->credential('api_access_token', '');
+            $this->accountId = (int) $market->setting('account_id', 0);
+            $this->inboxId = (int) $market->setting('inbox_id', 0);
+            $this->refuseAnIncompleteAccount();
+
+            return;
+        }
+
         $integration = IntegrationSetting::where('provider', 'chatwoot')
             ->where('enabled', true)
             ->first();
@@ -41,7 +64,13 @@ class ChatwootService
             $integration->settings['inbox_id'] ?? 0
         );
 
-        if (!$this->token || !$this->accountId || !$this->inboxId) {
+        $this->refuseAnIncompleteAccount();
+    }
+
+    /** An account that cannot address a conversation refuses rather than sending through whichever account can. */
+    private function refuseAnIncompleteAccount(): void
+    {
+        if (!$this->baseUrl || !$this->token || !$this->accountId || !$this->inboxId) {
             throw new RuntimeException(
                 'Chatwoot integration configuration is incomplete.'
             );

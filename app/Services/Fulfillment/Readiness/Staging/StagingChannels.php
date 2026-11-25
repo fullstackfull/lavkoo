@@ -34,6 +34,7 @@ final class StagingChannels
             self::deliverySyria(),
             self::fulfillmentProviders(),
             self::chatwoot(),
+            self::notificationProfiles(),
             self::sellerWebhooks(),
             self::remoteStorage(),
             self::analytics(),
@@ -282,6 +283,29 @@ final class StagingChannels
                 ),
                 new SinkTarget(table: 'notification_template_mappings', columns: ['enabled'], armed: static fn (): string => 'enabled = 1', set: static fn (): string => 'enabled = 0'),
             ],
+        );
+    }
+
+    /**
+     * The per-market notification accounts (I1-01, I1-02). One row per market and channel, holding that market's mail host and password,
+     * SMS gateway tokens, WhatsApp token and Firebase service account -- so a restored copy of production carries six companies' sending
+     * credentials, and the senders read this table BEFORE the shared settings the channels above neutralise. Switching the row off is enough
+     * to take it out of every reader (`NotificationProfiles` requires `active`), and the credentials are emptied as well because a staging
+     * copy has no business holding them.
+     */
+    private static function notificationProfiles(): OutboundChannel
+    {
+        return new OutboundChannel(
+            key: 'notification_profiles',
+            label: 'Per-market notification accounts (mail, SMS, WhatsApp, push)',
+            risk: OutboundChannel::CRITICAL,
+            why: 'Each active row is one market\'s own sending account, and the senders read it before the shared settings, so neutralising those alone leaves a market able to send.',
+            targets: [new SinkTarget(
+                table: 'notification_channel_profiles',
+                columns: ['active', 'credentials'],
+                armed: static fn (SqlDialect $sql): string => 'active = 1 OR ' . $sql->nonBlank('credentials'),
+                set: static fn (): string => 'active = 0, credentials = NULL',
+            )],
         );
     }
 

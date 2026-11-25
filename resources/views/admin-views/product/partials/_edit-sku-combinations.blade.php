@@ -1,3 +1,10 @@
+@php
+    use App\Services\Catalog\ProductFormPrefill;
+
+    // The gallery's "use this product info" submits THIS form as a new product, and the country partial below offers a chooser when it does,
+    // so a figure pre-filled from the source would cross a border: see ProductFormPrefill. Nothing changes while countries are not tracked.
+    $prefill = app(ProductFormPrefill::class);
+@endphp
 @if(count($combinations) > 0)
     <div>
         <table class="k-table physical_product_show">
@@ -48,7 +55,7 @@
                     </td>
                     <td>
                         <input type="number" name="price_{{ $combination['type'] }}"
-                               value="{{ usdToDefaultCurrency(amount: $combination['price']) }}" min="0"
+                               value="{{ $prefill->amount($combination['price']) }}" min="0"
                                step="0.01"
                                class="form-control min-w-max-content" required placeholder="{{ translate('ex').': 100'}}">
                     </td>
@@ -58,7 +65,7 @@
                     </td>
                     <td>
                         <input type="number" name="qty_{{ $combination['type'] }}"
-                               value="{{ $combination['qty'] }}" min="0" max="100000" step="1"
+                               value="{{ $prefill->figure($combination['qty']) }}" min="0" max="100000" step="1"
                                class="form-control min-w-max-content" placeholder="{{ translate('ex') }}: {{ translate('5') }}"
                                required>
                     </td>

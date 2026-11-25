@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\ZenderSetting;
+use App\Services\Notification\NotificationProfiles;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -10,7 +11,7 @@ class ZenderOtpService
 {
     public function send(string $phone, string|int $otp): bool
     {
-        $settings = ZenderSetting::first();
+        $settings = $this->accountOfTheMarketInForce() ?? ZenderSetting::first();
 
         if (!$settings || !$settings->enabled) {
             return false;
@@ -53,6 +54,30 @@ class ZenderOtpService
         return false;
     }
 
+    /**
+     * The Zender account of the market this code belongs to (I1-02), or null when that market has none of its own and the one shared
+     * account stands -- which is every market until an operator writes a row, and every market while the switch is off.
+     *
+     * The account is built as an UNSAVED ZenderSetting rather than as a second shape, so that everything below it -- the two senders, their
+     * refusals and the encrypted `secret` cast -- reads one kind of object and nothing had to be retyped. It is never saved: `first()` is
+     * still what a platform with one account reads, by the same query.
+     *
+     * A market whose profile names no Zender account at all is NOT sent through the shared one: its profile answers an account with nothing
+     * in it, so the send refuses for want of configuration rather than going out through another market's gateway.
+     */
+    private function accountOfTheMarketInForce(): ?ZenderSetting
+    {
+        $profile = app(NotificationProfiles::class)->for(channel: NotificationProfiles::SMS);
+        $account = $profile?->setting('zender');
+
+        if (!is_array($account)) {
+            return $profile === null || !$profile->namesGateways() ? null : new ZenderSetting(['enabled' => false]);
+        }
+
+        $secret = $profile->credential('zender.secret');
+
+        return new ZenderSetting($account + (is_string($secret) ? ['secret' => $secret] : []));
+    }
 
     private function sendSms(
         ZenderSetting $settings,

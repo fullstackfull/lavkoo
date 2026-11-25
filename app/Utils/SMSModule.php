@@ -2,6 +2,7 @@
 
 namespace App\Utils;
 
+use App\Services\Notification\NotificationProfiles;
 use Exception;
 use Illuminate\Support\Facades\DB;
 use Twilio\Rest\Client;
@@ -9,10 +10,18 @@ use Modules\Gateways\Traits\SmsGateway;
 
 class SMSModule
 {
+    /**
+     * A one-time code leaves through the gateway of the market the request is being served from, where that market has an account of its own
+     * (I1-02): the published gateway module reads the one shared `sms_config` and knows nothing about markets, so a market with its own
+     * account is sent through the gateway chain below, which does. Every market without one, and every market while the switch is off, goes
+     * exactly where it goes today.
+     */
     public static function sendCentralizedSMS($phone, $token)
     {
         $paymentPublishedStatus = config('get_payment_publish_status') ?? 0;
-        return $paymentPublishedStatus == 1 ? SmsGateway::send($phone, $token) : SMSModule::send($phone, $token);
+        $marketHasItsOwnGateways = app(NotificationProfiles::class)->for(channel: NotificationProfiles::SMS) !== null;
+
+        return $paymentPublishedStatus == 1 && !$marketHasItsOwnGateways ? SmsGateway::send($phone, $token) : SMSModule::send($phone, $token);
     }
 
     public static function send($receiver, $otp): string
@@ -237,8 +246,24 @@ class SMSModule
         return $response;
     }
 
+    /**
+     * One gateway's configuration for the market this message belongs to (I1-02).
+     *
+     * Where the market has an account of its own, that account is the WHOLE answer for this channel: a gateway it does not name answers
+     * nothing, and the shared `addon_settings` row is not read. A Kuwaiti one-time code going out through whichever gateway the Saudi
+     * account happens to have enabled is the leak this exists to close, and it would be exactly what a per-gateway fallback did.
+     *
+     * A market with no account of its own -- which is every market until an operator writes a row, and every market while the switch is off
+     * -- reads the shared row, by the same query, with the same result.
+     */
     public static function get_settings($name)
     {
+        $market = app(NotificationProfiles::class)->for(channel: NotificationProfiles::SMS);
+
+        if ($market !== null && $market->namesGateways()) {
+            return $market->gateway($name);
+        }
+
         try {
             $config = DB::table('addon_settings')->where('key_name', $name)
                 ->where('settings_type', 'sms_config')->first();

@@ -2,6 +2,7 @@
 
 namespace App\Traits;
 
+use App\Services\Notification\NotificationProfiles;
 use App\Services\Storefront\OrderNotificationContext;
 use App\Models\NotificationMessage;
 use App\Models\Order;
@@ -506,10 +507,28 @@ trait PushNotificationTrait
         return $this->sendNotificationToHttp($postData);
     }
 
+    /**
+     * Sends one push through the Firebase credentials of the market this message belongs to (I1-02), and otherwise through the one shared
+     * `push_notification_key`, exactly as before.
+     *
+     * The market is the one in force, so a push about an order goes out with the credentials of the market the order was sold in. The access
+     * token is already cached per `client_email`, so a second credential gets a token of its own without anything else changing.
+     *
+     * **What a second credential does NOT buy, and it has to be said here:** an FCM device token belongs to the Firebase PROJECT of the app
+     * build that registered it, so a market's own credentials reach that market's devices only where that market's app build uses that
+     * market's project. Until the owner decides that (A1-17, Q-18 and Q-32), a per-market credential for the same project is the same
+     * project with a second service account -- useful for separating quota and audit, not for separating devices.
+     *
+     * **That is also why push falls back where the SMS and WhatsApp accounts deliberately do not.** A market whose profile names no service
+     * account is sent on the platform's project, because a device token only works with the project it was registered in: refusing would
+     * silence that market's pushes and gain nothing, since the safer account does not exist. A shared SMS gateway or WhatsApp inbox is the
+     * opposite case -- it really would send, from another company's sender number -- so those refuse instead of falling back.
+     */
     protected function sendNotificationToHttp(array|null $data): bool|string|null
     {
         try {
-            $key = (array)getWebConfig('push_notification_key');
+            $market = app(NotificationProfiles::class)->for(channel: NotificationProfiles::PUSH)?->credential('service_account');
+            $key = is_array($market) ? $market : (array) getWebConfig('push_notification_key');
             if (isset($key['project_id'])) {
                 $url = 'https://fcm.googleapis.com/v1/projects/' . $key['project_id'] . '/messages:send';
                 $headers = [
