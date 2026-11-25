@@ -264,6 +264,7 @@ class AddressImporter
         $citySource = (string) ($file['_meta']['city_source'] ?? '');
         $cityIds = AddressCity::query()->where('source', $citySource)->pluck('id', 'source_ref')->all();
         $plannedCityRefs = [];
+        $aliasNamespace = app(CityAliasNamespace::class);
 
         foreach ($file['aliases'] as $row) {
             $alias = $this->name($row['alias'] ?? null);
@@ -278,11 +279,15 @@ class AddressImporter
                 continue;
             }
 
-            $existing = AddressCityAlias::query()->where('normalized_alias', $key)->first();
+            // An alias belongs to the namespace of ITS CITY's country (H1-10), so a second country importing the same spelling of its own
+            // city neither collides with the first nor is read for it. Every city of a one-country platform answers `''`, the default
+            // storefront's namespace, which is where every alias already is.
+            $namespace = $aliasNamespace->forCity($cityId ?: null);
+            $existing = $aliasNamespace->narrow(AddressCityAlias::query(), $namespace)->where('normalized_alias', $key)->first();
             if ($existing === null && !array_key_exists($key, $plannedCityRefs)) {
                 $counts['created']++;
                 if ($apply) {
-                    AddressCityAlias::create(['city_id' => $cityId, 'alias' => $alias, 'normalized_alias' => $key, 'source' => 'curated']);
+                    AddressCityAlias::create($aliasNamespace->stamp($namespace) + ['city_id' => $cityId, 'alias' => $alias, 'normalized_alias' => $key, 'source' => 'curated']);
                 } else {
                     $plannedCityRefs[$key] = $cityRef;
                 }

@@ -94,7 +94,10 @@ class LegacyReview
     private function confirmWithin(string $typedText, string $key, AddressCity $city, ?int $adminId): int
     {
         return DB::transaction(function () use ($typedText, $key, $city, $adminId): int {
-            $alias = AddressCityAlias::query()->where('normalized_alias', $key)->lockForUpdate()->first();
+            // The spelling is confirmed FOR THIS CITY, so it is locked and written in that city's own country namespace (H1-10).
+            $aliasNamespace = app(CityAliasNamespace::class);
+            $namespace = $aliasNamespace->forCity($city);
+            $alias = $aliasNamespace->narrow(AddressCityAlias::query(), $namespace)->where('normalized_alias', $key)->lockForUpdate()->first();
             if ($alias !== null && (int) $alias->city_id !== $city->id) {
                 throw ValidationException::withMessages(['city_id' => [translate('address_legacy_alias_elsewhere')]]);
             }
@@ -105,7 +108,7 @@ class LegacyReview
             }
 
             $created = $alias === null;
-            $alias ??= AddressCityAlias::create([
+            $alias ??= AddressCityAlias::create($aliasNamespace->stamp($namespace) + [
                 'city_id' => $city->id,
                 'alias' => mb_substr(trim($typedText), 0, self::ALIAS_MAX_LENGTH),
                 'normalized_alias' => $key,

@@ -23,6 +23,9 @@ trait BuildsAddressSchema
         '2026_11_07_100100_add_unified_address_columns_to_shipping_addresses_table.php',
         '2026_11_07_100200_create_provider_city_mapping_tables.php',
         '2026_11_07_100300_add_directory_columns_to_provider_cities_table.php',
+        // A city alias belongs to one country's namespace (H1-10): nullable in effect ('' is the default storefront's), so every alias
+        // these suites write stays where it was.
+        '2026_12_28_100000_add_country_to_address_city_aliases.php',
     ];
 
     protected function resetAddressTestDatabase(): void
