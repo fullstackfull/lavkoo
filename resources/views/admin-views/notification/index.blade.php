@@ -33,6 +33,19 @@
                                                    for="exampleFormControlInput1">{{translate('description')}} </label>
                                             <textarea name="description" class="form-control text-area-max-min" rows="4" required></textarea>
                                         </div>
+                                        @if (count($marketChoices ?? []) > 0)
+                                            <div class="form-group">
+                                                <label class="form-label" for="broadcast-markets">{{ translate('markets_this_notification_is_for') }}</label>
+                                                <select name="storefront_countries[]" id="broadcast-markets" class="form-control" multiple size="{{ min(count($marketChoices), 6) }}">
+                                                    @foreach ($marketChoices as $market)
+                                                        <option value="{{ $market }}">{{ $market }}</option>
+                                                    @endforeach
+                                                </select>
+                                                <p class="fs-12 text-muted mb-0 mt-1">
+                                                    {{ $mayChooseEveryMarket ? translate('choose_none_to_send_to_every_market') : translate('choose_none_to_send_to_every_market_you_work_with') }}
+                                                </p>
+                                            </div>
+                                        @endif
                                     </div>
                                 </div>
                                 <div class="col-md-6">
@@ -98,6 +111,7 @@
                             <th>{{ translate('title') }}</th>
                             <th>{{ translate('description') }}</th>
                             <th>{{ translate('image') }}</th>
+                            @if (count($marketChoices ?? []) > 0)<th>{{ translate('markets') }}</th>@endif
                             <th class="k-table__num">{{ translate('notification_count') }}</th>
                             <th>{{ translate('status') }}</th>
                             <th></th>
@@ -121,6 +135,10 @@
                                          style="border-radius:6px;object-fit:cover;border:1px solid var(--k-border)"
                                          src="{{ getStorageImages(path: $notification->image_full_url, type: 'backend-basic') }}">
                                 </td>
+                                @if (count($marketChoices ?? []) > 0)
+                                    @php($sentTo = $broadcastMarkets->of($notification['storefront_countries'] ?? null))
+                                    <td class="fs-12">{{ $sentTo === [] ? translate('every_market') : implode(', ', $sentTo) }}</td>
+                                @endif
                                 <td class="k-table__num">
                                     <span class="k-num" id="count-{{$notification->id}}">{{ $notification['notification_count'] }}</span>
                                 </td>

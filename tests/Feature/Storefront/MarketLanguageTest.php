@@ -4,6 +4,7 @@ namespace Tests\Feature\Storefront;
 
 use App\Events\OrderStatusEvent;
 use App\Models\Order;
+use App\Services\Notification\MessageLanguage;
 use App\Services\Storefront\MarketLanguage;
 
 /**
@@ -15,6 +16,11 @@ use App\Services\Storefront\MarketLanguage;
  * one market and the wrong one for six.
  *
  * The map ships EMPTY, so the first test here is the one that matters most: with nothing configured, nothing changes.
+ *
+ * I1-16 adds the other half: a market may name the LANGUAGES IT PRESENTS, and a market never writes to a customer in a language its own
+ * storefront is not translated into. A customer whose stored `app_language` is one the market does not present is written to in the market's
+ * own language instead, because a message in a language the links in it do not lead to is worse than one in the market's language. A market
+ * that names no list presents whatever the platform presents, which is every market today and the state the lists ship in.
  *
  * Every assertion reads the title of the push that would have left the server, in the language it was written in.
  */
@@ -123,6 +129,134 @@ class MarketLanguageTest extends OrderNotificationTestCase
         event(new OrderStatusEvent(key: 'new_order_assigned_message', type: 'delivery_man', order: Order::findOrFail(self::SA_ORDER)));
 
         $this->assertSame(self::TITLE_IN_ARABIC, $this->titleSent(), "the default market's language, which is what a legacy order belongs to");
+    }
+
+    /** The switch of the second half: the lists ship empty, so a market presents whatever the shop presents and nothing changes. */
+    public function test_the_lists_ship_empty_so_every_market_presents_what_the_shop_presents(): void
+    {
+        $this->assertSame([], config('gcc.storefronts.language.lists_by_country'), 'no market names a language list until somebody decides one');
+
+        $this->switchStorefrontsOn();
+        $this->setStoreLanguages(default: self::ENGLISH);
+
+        $this->assertSame([], MarketLanguage::listOf('KW'), 'an unlisted market has no list of its own');
+        $this->assertTrue(MarketLanguage::presents(country: 'KW', locale: self::ARABIC), 'and presents everything the shop does');
+        $this->assertTrue(MarketLanguage::presents(country: 'KW', locale: self::ENGLISH));
+        $this->assertFalse(MarketLanguage::presents(country: 'KW', locale: self::NOT_INSTALLED), 'but not a locale the shop has not installed');
+    }
+
+    public function test_a_markets_list_is_its_own_and_drops_a_locale_the_shop_has_not_installed(): void
+    {
+        $this->switchStorefrontsOn();
+        $this->setStoreLanguages(default: self::ENGLISH);
+        $this->marketPresents(country: 'KW', languages: [self::ARABIC, self::NOT_INSTALLED, self::ARABIC]);
+
+        $this->assertSame([self::ARABIC], MarketLanguage::listOf('KW'), 'the locale the shop has not installed, and the repeat, are dropped');
+        $this->assertTrue(MarketLanguage::presents(country: 'KW', locale: self::ARABIC));
+        $this->assertFalse(MarketLanguage::presents(country: 'KW', locale: self::ENGLISH), 'a language the market does not present');
+    }
+
+    /** A market that names a list but no default writes in the first of its list: one decision rather than two. */
+    public function test_a_market_with_a_list_and_no_default_writes_in_the_first_of_its_list(): void
+    {
+        $this->switchStorefrontsOn();
+        $this->setStoreLanguages(default: self::ENGLISH);
+        $this->marketPresents(country: 'KW', languages: [self::ARABIC, self::ENGLISH]);
+
+        $this->assertSame(self::ARABIC, MarketLanguage::of('KW'));
+        $this->assertSame('rtl', MarketLanguage::directionOf('KW'), "the direction the shop's own list declares for that locale");
+    }
+
+    /** The direction is the language list entry's and is never derived from the code, which is the rule the website already follows. */
+    public function test_the_direction_is_the_one_the_shops_language_list_declares(): void
+    {
+        $this->setStoreLanguages(default: self::ENGLISH);
+
+        $this->assertSame('rtl', MarketLanguage::directionOfLocale(self::ARABIC));
+        $this->assertSame('ltr', MarketLanguage::directionOfLocale(self::ENGLISH));
+        $this->assertSame('ltr', MarketLanguage::directionOfLocale(self::NOT_INSTALLED), 'a locale the list does not name reads left to right');
+    }
+
+    /**
+     * The criterion itself, end to end through the real event and the queued listener: a rider who READS English is written to in Arabic
+     * because the Kuwaiti storefront presents Arabic only.
+     */
+    public function test_a_recipient_whose_language_the_market_does_not_present_is_written_to_in_the_markets_own(): void
+    {
+        $this->switchStorefrontsOn();
+        $this->setStoreLanguages(default: self::ENGLISH);
+        $this->marketPresents(country: 'KW', languages: [self::ARABIC]);
+
+        $order = $this->sellOrderIn(country: 'KW', orderId: self::KW_ORDER, orderColumns: [
+            'customer_id' => $this->customerWhoReadsArabic()->id,
+            'delivery_man_id' => $this->deliveryMan(id: 1, token: 'kw-rider', language: self::ENGLISH)->id,
+            'deliveryman_charge' => self::CHARGE_STORED,
+        ]);
+        event(new OrderStatusEvent(key: 'new_order_assigned_message', type: 'delivery_man', order: $order));
+
+        $this->assertSame(self::TITLE_IN_ARABIC, $this->titleSent(), 'the rider was written to in a language the Kuwaiti storefront does not present');
+    }
+
+    /** And a recipient whose language the market DOES present keeps it, which is the behaviour this must not break. */
+    public function test_a_recipient_whose_language_the_market_presents_keeps_it(): void
+    {
+        $this->switchStorefrontsOn();
+        $this->setStoreLanguages(default: self::ENGLISH);
+        $this->marketPresents(country: 'KW', languages: [self::ARABIC, self::ENGLISH]);
+
+        $order = $this->sellOrderIn(country: 'KW', orderId: self::KW_ORDER, orderColumns: [
+            'customer_id' => $this->customerWhoReadsArabic()->id,
+            'delivery_man_id' => $this->deliveryMan(id: 1, token: 'kw-rider', language: self::ENGLISH)->id,
+            'deliveryman_charge' => self::CHARGE_STORED,
+        ]);
+        event(new OrderStatusEvent(key: 'new_order_assigned_message', type: 'delivery_man', order: $order));
+
+        $this->assertSame(self::TITLE_IN_ENGLISH, $this->titleSent());
+    }
+
+    /**
+     * The other sender, which is a different code path: a message that is about NO order (a registration, a password reset) reaches
+     * `MessageLanguage::asTheRecipientReads()` with nothing but an address, and the market in force is the request's.
+     */
+    public function test_a_message_about_no_order_also_respects_the_markets_list(): void
+    {
+        $this->switchStorefrontsOn();
+        $this->setStoreLanguages(default: self::ENGLISH);
+        $this->marketPresents(country: 'KW', languages: [self::ARABIC]);
+        $this->serveRequestFrom('KW');
+        $customer = $this->makeCustomer(['app_language' => self::ENGLISH, 'email' => 'reader@example.test']);
+
+        $chosen = app(MessageLanguage::class)->asTheRecipientReads(
+            userType: 'customer',
+            sentTo: $customer->email,
+            callback: static fn (): string => getDefaultLanguage(),
+        );
+
+        $this->assertSame(self::ARABIC, $chosen, 'a customer who reads English was written to in English by a Kuwaiti storefront that does not present it');
+    }
+
+    /** And the market in force decides it: the same customer, served from a market that presents English, keeps English. */
+    public function test_a_message_about_no_order_keeps_a_language_the_market_presents(): void
+    {
+        $this->switchStorefrontsOn();
+        $this->setStoreLanguages(default: self::ENGLISH);
+        $this->marketPresents(country: 'KW', languages: [self::ARABIC, self::ENGLISH]);
+        $this->serveRequestFrom('KW');
+        $customer = $this->makeCustomer(['app_language' => self::ENGLISH, 'email' => 'reader@example.test']);
+
+        $chosen = app(MessageLanguage::class)->asTheRecipientReads(
+            userType: 'customer',
+            sentTo: $customer->email,
+            callback: static fn (): string => getDefaultLanguage(),
+        );
+
+        $this->assertSame(self::ENGLISH, $chosen);
+    }
+
+    /** @param list<string> $languages */
+    private function marketPresents(string $country, array $languages): void
+    {
+        config(['gcc.storefronts.language.lists_by_country' => [$country => $languages]]);
     }
 
     public function test_a_market_nobody_named_and_no_market_at_all_answer_nothing(): void

@@ -201,7 +201,9 @@ Route::get('/cash', function () {
         Route::get('fulfillments', [FulfillmentController::class, 'orderFulfillments']);
     });
 
-    Route::group(['prefix' => 'notifications'], function () {
+    // `storefront` so that the app's X-Storefront header reaches the inbox: a broadcast limited to one market must not be listed by
+    // another market's app, and a reader that is never told which market it is serving cannot narrow anything (I1-04).
+    Route::group(['prefix' => 'notifications', 'middleware' => ['storefront']], function () {
         Route::controller(NotificationController::class)->group(function () {
             Route::get('/', 'list');
             Route::get('/seen', 'notification_seen')->middleware('auth:api');
@@ -496,6 +498,13 @@ Route::get('/cash', function () {
              */
             Route::get('home', 'home')->name('api.v1.theme.home');
             Route::get('version', 'version')->name('api.v1.theme.version');
+
+            /*
+             * The marketing name, logos and favicon of this storefront (F-13). It lives in this group rather than on
+             * /api/v1/config because that route deliberately resolves no storefront -- an app asks it before it knows
+             * which storefront it is in -- so a storefront's brand asked for there would always be the default's.
+             */
+            Route::get('brand', 'brand')->name('api.v1.theme.brand');
         });
     });
 

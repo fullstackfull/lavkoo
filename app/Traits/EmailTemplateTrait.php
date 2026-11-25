@@ -70,8 +70,11 @@ trait EmailTemplateTrait
      * that raised it, carried to the worker by ServeInItsStorefront. The default market, and a platform with storefronts off, get the bare
      * address they have today.
      *
-     * The NAME is still the platform's one marketing name: a brand a market can override is requirement F-13 and has no record to read yet.
-     * When it gets one, this is the single place that changes.
+     * The NAME is the market's own where it has one (F-13) and the platform's otherwise, which is every market today. It is read through
+     * `getWebConfig()` deliberately rather than through the brand service directly: that accessor is where a market's override is applied for
+     * every one of the hundred-odd places that ask for the company name, so an e-mail cannot be signed with a name the website does not show.
+     * And because the market in force here is the ORDER's (bound by OrderNotificationContext), a Kuwaiti order's confirmation is signed with
+     * the Kuwaiti brand even though it is written by a worker that booted in another market.
      *
      * Text that holds none of the three is left exactly as it is, which is every template row an installation already has.
      *

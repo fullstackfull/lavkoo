@@ -335,8 +335,8 @@
         },
         "notification_channel_profiles": {
             "scope": "country",
-            "by": "country, '' being the platform-wide row",
-            "why": "One sending account per channel per market (I1-01, I1-02), unique on (channel, country) as integration_settings is keyed. Country rather than storefront: it names no legal entity beside it, unlike payment_gateway_accounts. The column defaults to '' rather than NULL for the platform-wide row, because two NULLs differ in a unique key, and is ascii_bin on MySQL and MariaDB so a market is compared byte for byte."
+            "by": "country, '' being the shared row every market falls back to",
+            "why": "One sending account per channel per market (I1-01, I1-02), unique on (channel, country). The '' row is the account every market falls back to and NOT a seventh market, which is the convention integration_settings already uses for the carriers (H1-11); it defaults to '' rather than NULL because two NULLs differ in a unique key, and is ascii_bin on MySQL and MariaDB so a market is compared byte for byte. A JUDGEMENT, recorded with its alternative: `storefront` is arguable by analogy with payment_gateway_accounts, which is also an account per market. Three readings of the schema said `country` and one said `storefront`. The discriminator first offered for `country` -- that it names no legal entity beside it -- is WRONG and is withdrawn here: storefront_legal_documents is `storefront` by country_code with no legal entity either. The closest structural twin is integration_settings, keyed (provider, country) with '' as the shared row, which this register calls `provider_account`; there is no channel_account scope for notification channels, and inventing one is a larger change than classifying. Nothing enforces scope semantics, so this entry guides readers rather than code, and either value is one line to revise."
         },
         "notification_messages": {
             "scope": "inherited"

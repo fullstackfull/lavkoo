@@ -5,6 +5,7 @@ namespace Tests\Feature\Storefront;
 use App\Enums\EmailTemplateKey;
 use App\Models\EmailTemplate;
 use App\Services\EmailTemplateService;
+use App\Services\Theme\StorefrontBrand;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -21,14 +22,18 @@ use Illuminate\Support\Facades\DB;
  * already running in -- the order's own for a message about an order, the dispatching request's for every other -- so nothing new has to be
  * threaded through to get it.
  *
- * What is NOT here: a brand a market can override is F-13 and has no record to read yet, so `{companyName}` resolves to the platform's one
- * marketing name in every market. That is the single place that changes when F-13 lands.
+ * F-13 has since landed, so `{companyName}` resolves to the MARKET's own marketing name where that market has one and to the platform's
+ * otherwise, which is every market until an operator writes an override. The last two tests are that criterion: a Kuwaiti order's
+ * confirmation is signed with the Kuwaiti brand although the market was never threaded into the sender, because the market in force here is
+ * the order's own (OrderNotificationContext), and the default market's is signed with the platform's name exactly as before.
  */
 class EmailTemplateBrandTest extends OrderNotificationTestCase
 {
     private const PLATFORM_NAME = 'Lavkoo';
 
     private const RENAMED = 'Lavkoo Gulf';
+
+    private const KUWAITI_NAME = 'Lavkoo Kuwait';
 
     public function test_a_default_template_stores_no_company_name_and_no_website_address(): void
     {
@@ -131,6 +136,44 @@ class EmailTemplateBrandTest extends OrderNotificationTestCase
         $this->assertStringNotContainsString(rtrim(url('/'), '/') . '/kw', $body);
     }
 
+    /** F-13: the market's own marketing name signs its own order's e-mail, with nothing threaded through the sender to make it so. */
+    public function test_an_order_of_a_market_with_its_own_brand_is_signed_with_that_brand(): void
+    {
+        $this->captureTheEmailsTheMailerRenders();
+        $this->switchStorefrontsOn();
+        $this->seedTheRegistrationTemplateFromTheDefaults();
+        $this->nameThePlatform(self::PLATFORM_NAME);
+        $this->giveKuwaitItsOwnBrand(self::KUWAITI_NAME);
+        $order = $this->sellOrderIn(country: 'KW', orderId: self::KW_ORDER, orderColumns: [
+            'customer_id' => $this->makeCustomer(['app_language' => 'en', 'f_name' => 'Noura', 'l_name' => 'Al Sabah'])->id,
+        ]);
+
+        $this->placeOrderMailFor($order, templateName: 'registration');
+
+        $body = $this->bodyOfTheEmailTheMailerSent();
+        $this->assertStringContainsString('visit the ' . self::KUWAITI_NAME . ' Shop Website', $body, 'the Kuwaiti brand signs the Kuwaiti order');
+        $this->assertStringNotContainsString('visit the ' . self::PLATFORM_NAME . ' Shop Website', $body, 'and the platform\'s name does not');
+    }
+
+    /** And the default market's order is signed with the platform's name, which is what the platform does today. */
+    public function test_an_order_of_the_default_market_is_signed_with_the_platforms_name(): void
+    {
+        $this->captureTheEmailsTheMailerRenders();
+        $this->switchStorefrontsOn();
+        $this->seedTheRegistrationTemplateFromTheDefaults();
+        $this->nameThePlatform(self::PLATFORM_NAME);
+        $this->giveKuwaitItsOwnBrand(self::KUWAITI_NAME);
+        $order = $this->sellOrderIn(country: 'SA', orderId: self::SA_ORDER, orderColumns: [
+            'customer_id' => $this->makeCustomer(['app_language' => 'en', 'f_name' => 'Sara', 'l_name' => 'Alharbi'])->id,
+        ]);
+
+        $this->placeOrderMailFor($order, templateName: 'registration');
+
+        $body = $this->bodyOfTheEmailTheMailerSent();
+        $this->assertStringContainsString('visit the ' . self::PLATFORM_NAME . ' Shop Website', $body);
+        $this->assertStringNotContainsString(self::KUWAITI_NAME, $body, 'another market\'s brand did not leak into this one\'s e-mail');
+    }
+
     /** A template row an installation already has holds text with none of the three placeholders in it, and is sent exactly as it is stored. */
     public function test_a_template_that_names_no_placeholder_is_sent_as_it_is_stored(): void
     {
@@ -177,5 +220,16 @@ class EmailTemplateBrandTest extends OrderNotificationTestCase
     {
         DB::table('business_settings')->updateOrInsert(['type' => 'company_name'], ['value' => $name]);
         \Illuminate\Support\Facades\Cache::flush();
+        app(StorefrontBrand::class)->flush();
+    }
+
+    private function giveKuwaitItsOwnBrand(string $name): void
+    {
+        DB::table('business_settings')->updateOrInsert(
+            ['type' => StorefrontBrand::SETTING_PREFIX . 'KW'],
+            ['value' => json_encode(['company_name' => $name])],
+        );
+        \Illuminate\Support\Facades\Cache::flush();
+        app(StorefrontBrand::class)->flush();
     }
 }

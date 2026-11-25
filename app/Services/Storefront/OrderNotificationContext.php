@@ -108,7 +108,12 @@ final class OrderNotificationContext
             default => null,
         };
 
-        return is_string($language) && trim($language) !== '' ? $language : MarketLanguage::of($country);
+        $language = is_string($language) && trim($language) !== '' ? trim($language) : null;
+
+        // A language the ORDER'S MARKET does not present is not used (I1-16): writing to a customer in a language that market's own
+        // storefront is not translated into sends them a message whose links do not lead where it reads. A market that lists nothing
+        // presents whatever the platform presents, which is every market today.
+        return $language !== null && MarketLanguage::presents(country: $country, locale: $language) ? $language : MarketLanguage::of($country);
     }
 
     /**

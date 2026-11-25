@@ -26,6 +26,8 @@ class Notification extends Model
     protected $fillable = [
         'sent_by',
         'sent_to',
+        // The markets one broadcast is for (I1-04). Empty means every market, which is every row an installation already has.
+        'storefront_countries',
         'title',
         'description',
         'notification_count',

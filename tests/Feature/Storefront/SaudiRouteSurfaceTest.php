@@ -144,6 +144,21 @@ class SaudiRouteSurfaceTest extends TestCase
         // platform serves one market, so the Saudi platform of today serves nothing new at it.
         'POST storefront | storefront.choose',
 
+        // The marketing name, logos and favicon one storefront shows (F-13). It is in the theme group, which already resolves a storefront,
+        // because /api/v1/config deliberately resolves none -- an app asks it before it knows which storefront it is in -- so a brand asked
+        // for there would always be the default storefront's. It answers every field resolved, so a client never merges two payloads, and it
+        // serves the Saudi platform the platform-wide identity it already serves: the default storefront has no brand record of its own.
+        'GET api/v1/theme/brand | api.v1.theme.brand',
+
+        // Each market's own notification accounts and the test send that proves one works (I1-01). The one shared mail configuration main
+        // serves is untouched and still at admin/third-party/mail; these three sit behind the same module:3rd_party_setup permission, and
+        // the markets any given employee is offered are narrowed again by their country scope. They serve the Saudi platform nothing new:
+        // the screen says plainly that accounts per market are switched off, and a save is refused while they are, so until
+        // GCC_NOTIFICATION_PROFILES is on the only mail account on the platform is the one it has today.
+        'GET admin/notification-accounts | admin.notification-accounts.index',
+        'POST admin/notification-accounts/mail | admin.notification-accounts.mail.save',
+        'POST admin/notification-accounts/mail/test | admin.notification-accounts.mail.test',
+
         // A company's own notification address (D2-09), beside the platform-wide one main already serves. The token in the path names one
         // gateway account of one company and the delivery is authenticated with that account's own secret, so the address answers nothing
         // until a company has an account with a token: while per-company accounts are off it resolves no account and refuses every

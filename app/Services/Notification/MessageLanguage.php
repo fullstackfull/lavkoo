@@ -2,6 +2,8 @@
 
 namespace App\Services\Notification;
 
+use App\Services\Storefront\MarketLanguage;
+use App\Services\Storefront\StorefrontContext;
 use Closure;
 use Illuminate\Container\Attributes\Singleton;
 use Illuminate\Support\Facades\App;
@@ -102,6 +104,14 @@ final class MessageLanguage
      *
      * An administrator is deliberately not listed: they read the platform's own panel, not a market's, so their messages stay in the
      * platform's language -- the same rule the order notifications follow.
+     *
+     * **A chosen language the recipient's MARKET does not present is not used** (I1-16). A market may list the languages it offers, and
+     * writing to a customer in a language that market's own storefront is not translated into is worse than writing in the market's own:
+     * the message arrives in a language the links in it do not lead to. So such a recipient is written to in the market's language
+     * ({@see MarketLanguage::of()}), and a market that lists nothing presents whatever the platform presents, which is every market today.
+     *
+     * The market is the one IN FORCE, which is the order's own for a message about an order and the dispatching request's for every other,
+     * so nothing had to be threaded through a sender to get it.
      */
     public function of(string $userType, mixed $sentTo): ?string
     {
@@ -113,8 +123,14 @@ final class MessageLanguage
         }
 
         $language = DB::table($where['table'])->where($where['address'], $address)->value(self::LANGUAGE_COLUMN);
+        $language = is_string($language) && trim($language) !== '' ? trim($language) : null;
+        $market = StorefrontContext::current()->country;
 
-        return is_string($language) && trim($language) !== '' ? trim($language) : null;
+        if ($language !== null && !MarketLanguage::presents(country: $market, locale: $language)) {
+            return MarketLanguage::of($market);
+        }
+
+        return $language ?? MarketLanguage::of($market);
     }
 
     /**

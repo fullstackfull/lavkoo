@@ -5,7 +5,10 @@ namespace Tests\Feature\Storefront;
 use App\Http\Controllers\RestAPI\v1\ConfigController;
 use App\Http\Controllers\RestAPI\v1\StorefrontController;
 use App\Http\Middleware\ResolveStorefront;
+use App\Services\Theme\LocalisedSettings;
 use Illuminate\Routing\Route as RoutingRoute;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use Tests\Support\ApprovesStorefrontTax;
@@ -39,6 +42,45 @@ class StorefrontListApiTest extends TestCase
             ]);
     }
 
+    /**
+     * I1-16: each listed storefront says which languages it presents, which it writes in and which way that one reads.
+     *
+     * A market with no list of its own is listed with the PLATFORM's languages and not with an empty list: an app that read an empty list
+     * would offer no language at all, and "this market has not been given a list yet" means "it presents what the shop presents".
+     */
+    public function test_each_storefront_is_listed_with_the_languages_it_presents(): void
+    {
+        config([
+            'gcc.storefronts.enabled' => true,
+            'gcc.storefronts.countries.AE.active' => true,
+            'gcc.storefronts.language.lists_by_country' => ['AE' => ['ar']],
+            'gcc.storefronts.language.by_country' => ['AE' => 'ar'],
+        ]);
+        // This class deliberately builds no `business_settings`, so the shop's language list has to be built here for this one test.
+        Schema::dropIfExists('business_settings');
+        Schema::create('business_settings', static function (\Illuminate\Database\Schema\Blueprint $table): void {
+            $table->id();
+            $table->string('type')->nullable();
+            $table->longText('value')->nullable();
+            $table->timestamps();
+        });
+        DB::table('business_settings')->insert(['type' => 'language', 'value' => json_encode([
+            ['id' => 1, 'name' => 'English', 'direction' => 'ltr', 'code' => 'en', 'status' => 1, 'default' => true],
+            ['id' => 2, 'name' => 'Arabic', 'direction' => 'rtl', 'code' => 'ar', 'status' => 1, 'default' => false],
+        ])]);
+        Cache::flush();
+        LocalisedSettings::forget();
+        $this->beforeApplicationDestroyed(static fn () => Schema::dropIfExists('business_settings'));
+
+        $listed = collect($this->getJson('/api/v1/storefronts')->assertOk()->json('storefronts'))->keyBy('country');
+
+        $this->assertSame(['ar'], $listed['AE']['languages'], 'the market presents its own list');
+        $this->assertSame('ar', $listed['AE']['default_language']);
+        $this->assertSame('rtl', $listed['AE']['direction'], "the direction the shop's language list declares, not one read off the code");
+        $this->assertSame(['en', 'ar'], $listed['SA']['languages'], "a market with no list of its own is listed with the platform's languages");
+        $this->assertSame('ltr', $listed['SA']['direction']);
+    }
+
     public function test_flag_on_lists_active_countries(): void
     {
         config([
@@ -52,10 +94,16 @@ class StorefrontListApiTest extends TestCase
             ->assertExactJson([
                 'enabled' => true,
                 'default_country' => 'SA',
+                // The three language keys are additive (I1-16) and describe a shop whose language list cannot be read here -- this test
+                // builds no `business_settings`, so the platform names no installed locale and no market can present one. On an installed
+                // shop a market with no list of its own is listed with the PLATFORM's languages, which the language test asserts.
                 'storefronts' => [
-                    ['country' => 'SA', 'path' => 'sa', 'currency' => 'SAR', 'is_default' => true, 'sellable' => true, 'state' => 'active'],
-                    ['country' => 'AE', 'path' => 'ae', 'currency' => 'AED', 'is_default' => false, 'sellable' => false, 'state' => 'draft'],
-                    ['country' => 'OM', 'path' => 'om', 'currency' => 'OMR', 'is_default' => false, 'sellable' => false, 'state' => 'draft'],
+                    ['country' => 'SA', 'path' => 'sa', 'currency' => 'SAR', 'is_default' => true, 'sellable' => true, 'state' => 'active',
+                     'languages' => [], 'default_language' => null, 'direction' => 'ltr'],
+                    ['country' => 'AE', 'path' => 'ae', 'currency' => 'AED', 'is_default' => false, 'sellable' => false, 'state' => 'draft',
+                     'languages' => [], 'default_language' => null, 'direction' => 'ltr'],
+                    ['country' => 'OM', 'path' => 'om', 'currency' => 'OMR', 'is_default' => false, 'sellable' => false, 'state' => 'draft',
+                     'languages' => [], 'default_language' => null, 'direction' => 'ltr'],
                 ],
             ]);
     }

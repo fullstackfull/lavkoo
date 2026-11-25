@@ -5156,7 +5156,7 @@ return [
 	"popular_tags" => "العلامات الشعبية",
 	"popularity_show_most_clicked_first" => "عرض الشعبية الأكثر نقرًا أولاً",
 	"popup_Banner" => "لافتة منبثقة",
-	"port" => "ميناء",
+	"port" => "المنفذ",
 	"port_field_is_required" => "حقل المنفذ مطلوب",
 	"pos_management" => "إدارة نقاط البيع",
 	"positive" => "إيجابي",

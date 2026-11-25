@@ -2908,4 +2908,9 @@ return [
 	'Please_add_item_to_cart' => 'Please add item to cart',
 	'when_discount_type_percentage,discount_amount_will_be_less_than_100' => 'When discount type percentage,discount amount will be less than 100',
 	'this_payment_method_cannot_take_payments_in_your_currency' => 'وسيلة الدفع هذه لا تقبل الدفع بعملتك',
+	'Test_Email_Sender' => 'رسالة اختبار',
+	'test_Mail' => 'بريد اختبار',
+	'mail_configuration_check' => 'التحقق من إعدادات البريد',
+	'in_house_fulfillment' => 'تنفيذ داخلي',
+	'unknown_fulfillment_source' => 'مصدر التنفيذ غير معروف',
 ];

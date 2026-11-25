@@ -30,6 +30,11 @@ class ResolveStorefrontMiddlewareTest extends TestCase
      * answered null on every one, and the per-market read was wired and unreachable. They are named one by one here, and the rest of the
      * customer group is deliberately NOT bound: binding the group would also narrow the wish list, the comparison and the addresses, and
      * whether those belong to a market is not settled, so a wide bind could hide rows a customer already has.
+     *
+     * `notifications/*` is bound for the same reason as the money routes and is named here for the same reason: an admin broadcast may be
+     * limited to markets (I1-04) and the app's inbox must list its own market's and the unmarked ones only, so `BroadcastMarkets` has to be
+     * told which market is being served. Without this binding the header never reaches the controller and the narrowing is wired and
+     * unreachable -- which is exactly how the three money routes came to be wired and unreachable.
      */
     public function test_the_alias_resolves_the_storefront_only_on_storefront_facing_routes(): void
     {
@@ -61,17 +66,20 @@ class ResolveStorefrontMiddlewareTest extends TestCase
         $answersCustomerMoney = static fn (string $uri): bool => $uri === 'api/v1/customer/info'
             || str_starts_with($uri, 'api/v1/customer/wallet')
             || str_starts_with($uri, 'api/v1/customer/loyalty');
+        // The app's inbox of broadcasts, named the same way and for the same reason.
+        $listsTheMarketsBroadcasts = static fn (string $uri): bool => str_starts_with($uri, 'api/v1/notifications');
         $this->assertContains('api/v1/customer/info', $resolving, 'the profile answers the market\'s two balances');
         $this->assertNotEmpty(array_filter($resolving, fn (string $uri) => str_starts_with($uri, 'api/v1/customer/wallet')));
         $this->assertNotEmpty(array_filter($resolving, fn (string $uri) => str_starts_with($uri, 'api/v1/customer/loyalty')));
+        $this->assertNotEmpty(array_filter($resolving, $listsTheMarketsBroadcasts), 'the app inbox lists this market\'s broadcasts');
         $this->assertNotContains('api/v1/storefronts', $resolving);
         $this->assertNotContains('api/v1/config', $resolving);
         foreach ($resolving as $uri) {
             $isApi = str_starts_with($uri, 'api/');
             $isStorefrontFacing = str_starts_with($uri, 'api/v1/products') || str_starts_with($uri, 'api/v1/theme') || str_starts_with($uri, 'api/v1/cart');
             $this->assertTrue(
-                !$isApi || $isStorefrontFacing || $answersCustomerMoney($uri) || in_array($uri, $startingASale, true),
-                "API route [{$uri}] must not resolve a storefront unless it starts a new sale or answers the customer's own money.",
+                !$isApi || $isStorefrontFacing || $answersCustomerMoney($uri) || $listsTheMarketsBroadcasts($uri) || in_array($uri, $startingASale, true),
+                "API route [{$uri}] must not resolve a storefront unless it starts a new sale, answers the customer's own money or lists this market's broadcasts.",
             );
         }
     }

@@ -16,6 +16,8 @@ final readonly class NotificationProfile
      * @param string $country the market this account belongs to, or '' for the shared account every installation has
      * @param array<string, mixed> $settings values a screen may show
      * @param array<string, mixed> $credentials values no screen, response or log may show
+     * @param bool $active whether the senders use this account; a row an operator has switched off is still READ by the admin screen, which
+     *                     has to show what is stored, and by nothing else -- {@see NotificationProfiles::for()} only ever answers an active row
      */
     public function __construct(
         public string $channel,
@@ -23,6 +25,7 @@ final readonly class NotificationProfile
         public ?string $label,
         private array $settings,
         private array $credentials,
+        public bool $active = true,
     ) {
     }
 
@@ -76,7 +79,7 @@ final readonly class NotificationProfile
      * The names are given because an operator has to be able to see that a password is set without being shown it -- the same answer the
      * carrier settings screen gives.
      *
-     * @return array{channel: string, country: string, label: ?string, settings: array<string, mixed>, credentials_present: list<string>}
+     * @return array{channel: string, country: string, label: ?string, active: bool, settings: array<string, mixed>, credentials_present: list<string>}
      */
     public function visible(): array
     {
@@ -84,6 +87,7 @@ final readonly class NotificationProfile
             'channel' => $this->channel,
             'country' => $this->country,
             'label' => $this->label,
+            'active' => $this->active,
             'settings' => $this->settings,
             'credentials_present' => array_keys($this->credentials),
         ];
