@@ -94,7 +94,12 @@ class OrderController extends Controller
             $filters['has_order_edit_settlement'] = $orderAmountSettlement;
         }
 
-        $storefront = $this->orderStorefront->requestedBy(request: $request);
+        // The market this list is of: the one the request names in its body, and otherwise the one the seller app is working in
+        // (A1-06). The app names its market in the `X-Storefront` header, which this filter never read, so a seller working in
+        // Dubai was answered every market of their grant and the header they sent changed nothing. The working market has
+        // already been checked against the grant by the `seller_market` middleware, and the grant below bounds it either way,
+        // so naming a market can only narrow this list and never widen it.
+        $storefront = $this->orderStorefront->requestedBy(request: $request) ?? $this->sellerMarkets->workingMarket();
         if ($storefront !== null) {
             $filters['storefront_country'] = $storefront;
         }

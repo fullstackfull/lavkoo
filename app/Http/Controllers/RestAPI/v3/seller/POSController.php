@@ -243,9 +243,10 @@ class POSController extends Controller
         $search = $request['name'];
         $categoryIds = $request->has('category_id') && $request['category_id'] != 0 ? json_decode($request['category_id'], true) : [];
 
-        // Held to the markets the token was granted, as the product list is (K-09). Without it the till served a product of a
-        // market the token could not read anywhere else, in full, price and stock included.
-        $products = $this->markets->narrowQuery(Product::active()->with(['digitalVariation', 'clearanceSale' => function ($query) {
+        // Held to the market the app is working in, inside the markets the token was granted, as the product list is (A1-06,
+        // K-09). Without the bound the till served a product of a market the token could not read anywhere else, in full, price
+        // and stock included; without the choice inside it, a till open in Dubai offered Riyadh's shelf.
+        $products = $this->markets->narrowToTheWorkingMarket(Product::active()->with(['digitalVariation', 'clearanceSale' => function ($query) {
             return $query->active();
         }])
             ->withCount('reviews')
