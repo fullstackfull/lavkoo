@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Mail;
 use App\Services\EmailTemplateService;
 use App\Services\Notification\MessageLanguage;
 use App\Services\Storefront\StorefrontCurrency;
+use App\Services\Storefront\StorefrontUrl;
 
 trait EmailTemplateTrait
 {
@@ -54,6 +55,36 @@ trait EmailTemplateTrait
         );
     }
 
+    /**
+     * The brand, the website and the year as they are when the message is WRITTEN, rather than as they were when the template row was
+     * created (I1-03).
+     *
+     * A template row is written once, the first time its screen is opened, and read by every market and every year afterwards, so the
+     * company name, the website address and the copyright year baked into the stored text went stale the moment the platform was renamed,
+     * moved to another address, or simply carried on into the next January -- and a Kuwaiti customer was sent to the default market's
+     * address. The three are now placeholders in the default text and are resolved here.
+     *
+     * The address is the market's own ({@see StorefrontUrl::of()}), which answers for the storefront in force: for a message about an order
+     * that is the market the order was sold in, bound by OrderNotificationContext, and for every other message the market of the request
+     * that raised it, carried to the worker by ServeInItsStorefront. The default market, and a platform with storefronts off, get the bare
+     * address they have today.
+     *
+     * The NAME is still the platform's one marketing name: a brand a market can override is requirement F-13 and has no record to read yet.
+     * When it gets one, this is the single place that changes.
+     *
+     * Text that holds none of the three is left exactly as it is, which is every template row an installation already has.
+     *
+     * @return array<string, string> each placeholder and what it stands for in this message
+     */
+    private function brandOfThisMessage(): array
+    {
+        return [
+            '{companyName}' => (string) getWebConfig(name: 'company_name'),
+            '{websiteUrl}' => app(StorefrontUrl::class)->of(url: url('/')),
+            '{currentYear}' => date('Y'),
+        ];
+    }
+
     private function writeAndSendMail($sendMailTo, $userType, $templateName, $data): void
     {
         $template = EmailTemplate::with('translationCurrentLanguage')->where(['user_type' => $userType, 'template_name' => $templateName])->first();
@@ -93,6 +124,11 @@ trait EmailTemplateTrait
                 deliveryManName: $data['deliveryManName'] ?? null,
                 orderId: $data['orderId'] ?? null
             );
+            $brand = $this->brandOfThisMessage();
+            foreach (self::TRANSLATED_TEMPLATE_FIELDS as $field) {
+                $text = $template[$field] ?? null;
+                $template[$field] = is_string($text) && $text !== '' ? strtr($text, $brand) : $text;
+            }
             $data['send-mail'] = true;
             if ($template['status'] == 1) {
                 try {
