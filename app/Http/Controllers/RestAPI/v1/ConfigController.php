@@ -8,6 +8,9 @@ use App\Http\Requests\Request;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\NationalAddress;
 use App\Services\DigitalFileAddressService;
+use App\Services\Storefront\GatewayCurrencyPolicy;
+use App\Services\Storefront\StorefrontCatalog;
+use App\Services\Storefront\StorefrontContext;
 use App\Services\Storefront\StorefrontCurrency;
 use App\Services\Storefront\StorefrontLifecycle;
 use App\Traits\CacheManagerTrait;
@@ -218,6 +221,9 @@ $metaAppTracking = MetaAppIntegration::where('app_type', 'customer')
             // sees before they buy. Through getWebConfig it is the MARKET's rate wherever a market has its own programme.
             'loyalty_point_item_purchase_point' => (float)getWebConfig(name: 'loyalty_point_item_purchase_point'),
             'payment_methods' => $paymentMethods,
+            // The methods THIS storefront may offer (J-09.4), beside the global list and never in place of it: a client that reads only
+            // `payment_methods` is answered exactly what it was answered before this existed.
+            'storefront_payment_methods' => $this->paymentMethodsOfTheStorefront(paymentMethods: $paymentMethods),
             'offline_payment' => $offlinePayment,
             'payment_method_image_path' => dynamicStorage(path: 'storage/app/public/payment_modules/gateway_image'),
             'ref_earning_status' => getWebConfig(name: 'ref_earning_status') ?? 0,
@@ -337,6 +343,47 @@ $metaAppTracking = MetaAppIntegration::where('app_type', 'customer')
         });
 
         return $paymentMethods;
+    }
+
+    /**
+     * The payment methods the storefront of this request may offer (J-09.4).
+     *
+     * `payment_methods` cannot answer this and must not try. It is the GLOBAL list, and it applies only routing rules that name neither an
+     * amount band nor a country, for the reason `PaymentRoutingService::resolveWithoutAnOrder` gives: there is no order yet, so hiding a
+     * method on a maybe would hide a method the customer is entitled to. A client that reads only that key keeps the answer it has always
+     * had.
+     *
+     * What this key adds is the part the market DOES settle. The app says which storefront it is asking for, so:
+     *
+     *   - a hide rule bound to that country can be judged, which the global list has to skip. A rule bound to an amount band still cannot
+     *     be, and is still left alone;
+     *   - the currency is known, so `GatewayCurrencyPolicy` can be asked the same question the customer's checkout asks it at the moment a
+     *     payment starts. That is where a method that cannot take this market's money is refused today -- after the customer has chosen
+     *     it. A gateway with no currency list for this market, and a three-decimal market whose gateway nobody has verified, are both
+     *     absent here instead.
+     *
+     * While storefronts are off, and for the default storefront, this is the global list with the everywhere-rules applied -- the same
+     * list, because the currency policy refuses nothing when no storefront trades in its own money and a country rule of the one market
+     * there is was already an everywhere rule in effect.
+     *
+     * @param \Illuminate\Support\Collection $paymentMethods
+     * @return \Illuminate\Support\Collection
+     */
+    private function paymentMethodsOfTheStorefront($paymentMethods)
+    {
+        $policy = app(GatewayCurrencyPolicy::class);
+        $currency = (string) (app(StorefrontCurrency::class)->currencyCodeInForce() ?? '');
+
+        // StorefrontCatalog::country(), not StorefrontContext::current(): this route binds no storefront context, and the catalog's
+        // reader is the one that falls back to resolving the REQUEST -- which is where the app's `X-Storefront` header is. Asking the
+        // bound context would have answered the default market for every market, which is the trap this platform has paid for before.
+        // Null while storefronts are off, where the one storefront there is answers.
+        $country = StorefrontCatalog::country() ?? StorefrontContext::current()->country;
+
+        return (new PaymentRoutingService())
+            ->applyToModelsForStorefront($paymentMethods, $country)
+            ->filter(static fn ($method): bool => $policy->accepts(gateway: (string) ($method->key_name ?? ''), currencyCode: $currency))
+            ->values();
     }
 
     public function unifiedAddressConfig(): array

@@ -72,6 +72,10 @@ use App\Services\Customer\CustomerWalletWriter;
 use App\Services\Shipping\OrderCustomsQuote;
 use App\Services\Shipping\OrderShippingDecision;
 use App\Services\Shipping\ShippingEligibility;
+use App\Services\Checkout\OneOrderPerCheckoutSubmit;
+use App\Services\Payments\OneOrderPerPayment;
+use App\Services\Tax\IncludedTax;
+use Illuminate\Support\Facades\Schema;
 
 
 class OrderManager
@@ -1114,6 +1118,11 @@ class OrderManager
         $taxConfig = self::getTaxSystemType();
         $cartItemsArray = [];
 
+        // Whether the tax already inside a tax-included price is recorded (D1-07). Read ONCE for the whole cart, not per line, and the
+        // keys below are absent rather than zero while it is off, so a cart of a store that has not answered that question carries
+        // exactly what it carries today. The presence of `included_tax_amount` is what tells the order writer to record it.
+        $recordIncludedTax = !empty($taxConfig['is_included']) && app(IncludedTax::class)->isRecorded();
+
         $vendorWiseCartList = OrderManager::getVendorWiseCartList(data: [
             'coupon_code' => $data['coupon_code'] ?? (session('coupon_code') ?? ''),
             'address_id' => $data['address_id'] ?? session('address_id'),
@@ -1141,6 +1150,7 @@ class OrderManager
             }
 
             $vendorWiseCartAppliedTax = 0;
+            $vendorWiseCartIncludedTax = 0;
             $vendorWiseCart['applied_tax_cart_list'] = [];
             foreach ($vendorWiseCart['cart_list'] as $cartItem) {
                 if ($cartItem->product) {
@@ -1169,7 +1179,31 @@ class OrderManager
 
                     $vendorWiseCartAppliedTax += $appliedTaxAmount;
                     $vendorWiseCartAppliedTax += $cartItem?->product?->product_type == 'digital' ? 0 : $appliedShippingTaxAmount;
-                    $vendorWiseCart['applied_tax_cart_list'][] = [
+
+                    // The tax already inside this line's gross price, and inside the share of the shipping charge it carries. Worked out
+                    // from the same figures the charged tax is -- the discounted price and the discount apportioned to this line -- so a
+                    // coupon reduces the tax inside a line exactly as it reduces the tax added to one.
+                    $includedTax = [];
+                    if ($recordIncludedTax) {
+                        $includedShippingTax = $cartItem?->product?->product_type == 'digital' ? 0 : CartManager::getIncludedShippingTaxAmount(
+                            taxConfig: $taxConfig,
+                            totalShippingCost: $vendorWiseCart['is_shipping_free'] == 1 ? $vendorWiseCart['shipping_cost'] - $vendorWiseCart['free_delivery_discount'] : $vendorWiseCart['shipping_cost'],
+                            totalDiscountedPrice: $totalDiscountPrice,
+                            applicableShippingAmount: $totalApplicableShippingAmount,
+                        );
+                        $includedTax = [
+                            'included_tax_amount' => CartManager::getIncludedTaxAmount(
+                                product: $cartItem->product,
+                                taxConfig: $taxConfig,
+                                totalDiscountedPrice: $totalDiscountPrice,
+                                appliedDiscountedAmount: $appliedDiscountAmount,
+                            ),
+                            'included_shipping_cost_tax' => $includedShippingTax,
+                        ];
+                        $vendorWiseCartIncludedTax += $includedTax['included_tax_amount'] + $includedShippingTax;
+                    }
+
+                    $vendorWiseCart['applied_tax_cart_list'][] = $includedTax + [
                         'cart_id' => $cartItem->id,
                         'cart_group_id' => $cartItem->cart_group_id,
                         'product_id' => $cartItem->product->id,
@@ -1190,6 +1224,12 @@ class OrderManager
             }
             $vendorWiseCart['total_tax_amount'] = $vendorWiseCartAppliedTax;
             $vendorWiseCart['order_amount_with_tax'] = $vendorWiseCart['order_amount'] + $vendorWiseCartAppliedTax;
+
+            // Recorded beside the order's amount and never added to it: the tax is already in the price the customer agreed to, so an
+            // order that records it costs the customer the same as one that does not.
+            if ($recordIncludedTax) {
+                $vendorWiseCart['included_tax_amount'] = $vendorWiseCartIncludedTax;
+            }
             $modifiedVendorWiseCartList[] = $vendorWiseCart;
         }
 
@@ -1207,7 +1247,14 @@ class OrderManager
             ? ['shipping_rate_source' => $cartData['shipping_rate_source'] ?? null]
             : [];
 
-        return $rateSource + [
+        // The tax already inside a tax-included order's price (D1-07). Added only where the cart worked it out -- which it does only while
+        // `gcc.tax.record_included_amount` is on -- and only where the column exists, so an order of a store that has answered neither
+        // question is written with neither key and the column stays NULL rather than claiming a zero.
+        $includedTax = (isset($cartData['included_tax_amount']) && \Illuminate\Support\Facades\Schema::hasColumn('orders', 'included_tax_amount'))
+            ? ['included_tax_amount' => $cartData['included_tax_amount']]
+            : [];
+
+        return $rateSource + $includedTax + [
             'id' => $orderId,
             'verification_code' => random_int(100000, 999999),
             'customer_id' => $customerData['customer_id'],
@@ -1444,6 +1491,12 @@ class OrderManager
 
             $orderDetails['tax'] = $appliedTaxAmount;
             $orderDetails['tax_model'] = $taxConfig['is_included'] ? 'include' : 'exclude';
+
+            // The share of the included tax this line carries (D1-07), mirroring `tax` above: the product's own tax and not the shipping
+            // tax, which only the order records. The key the cart carries is what says the recording is on.
+            if (isset($vendorCart['included_tax_amount']) && Schema::hasColumn('order_details', 'included_tax')) {
+                $orderDetails['included_tax'] = collect($vendorCart['applied_tax_cart_list'])->where('cart_id', $cartSingleItem['id'])->sum('included_tax_amount');
+            }
 
             $finalAmount = ($cartSingleItem['price'] - $productDiscount) * $cartSingleItem['quantity'];
             $totalPrice += $finalAmount;
@@ -1807,6 +1860,16 @@ class OrderManager
             ]
             : null;
 
+        // Which submit of the customer's checkout this is (D1-14), read from the request before the transaction opens because the key is
+        // the client's header and the transaction is no place to read a request from. Null for every checkout of this platform today:
+        // no app sends the header and the table it is claimed in arrives empty.
+        $checkoutSubmit = OneOrderPerCheckoutSubmit::of(data: $data, customerInfo: $getCustomerInfo);
+
+        // Whether this call answered with an EARLIER submit's orders instead of writing its own. Such a call must leave nothing behind
+        // but the answer: it did not place the orders it is reporting, so it must not clear the cart it happened to read on the way in.
+        // A customer who added a line and retried a stale key would otherwise lose that line to an order that never contained it.
+        $answeredFromAnEarlierSubmit = false;
+
         // Order ids are chosen by generateNewOrderID(), not by the database, so two checkouts that
         // start together can pick the same number and the second insert dies on the primary key.
         // Observed on the running store: "Duplicate entry '100002' for key 'PRIMARY'" — a hard 500
@@ -1816,14 +1879,38 @@ class OrderManager
         for ($idCollisionAttempt = 1; ; $idCollisionAttempt++) {
         try {
             DB::transaction(function () use (
-                $vendorWiseCartList, $taxConfig, $getCustomerInfo, $orderGroupId, $data, $stockPolicy, $walletPayment,
-                &$orderPlacedIds, &$orderPlacedNotificationEvents, &$orderPlacedMailEvents
+                $vendorWiseCartList, $taxConfig, $getCustomerInfo, $orderGroupId, $data, $stockPolicy, $walletPayment, $checkoutSubmit,
+                &$orderPlacedIds, &$orderPlacedNotificationEvents, &$orderPlacedMailEvents, &$answeredFromAnEarlierSubmit
             ) {
                 // Reset per attempt. DB::transaction retries on deadlock, and these accumulate —
                 // without this a retried attempt would report each order twice.
                 $orderPlacedIds = [];
                 $orderPlacedNotificationEvents = [];
                 $orderPlacedMailEvents = [];
+
+                // One paid payment builds one order, even when two deliveries of its callback are in flight (D1-328). The settlement
+                // hook's own check is a read, and two deliveries both pass a read before either writes. The claim is made HERE, in the
+                // transaction the order is written in, so the lock is released the moment the order is committed and a build that fails
+                // gives it back: OneOrderPerPayment says why neither property survives taking it anywhere else. It is a no-op for every
+                // checkout that carries no gateway reference, which is every unpaid path.
+                if (!app(OneOrderPerPayment::class)->mayBuild(
+                    paymentId: $data['payment_record_id'] ?? null,
+                    transactionRef: $data['transaction_ref'] ?? null,
+                    paymentStatus: $data['payment_status'] ?? null,
+                )) {
+                    return;
+                }
+
+                // One submit of a checkout places one order, however many times that submit arrives (D1-14). The claim is an INSERT under
+                // a unique key, made here so that the row is the lock a second submit waits on, a failed order write frees the key, and the
+                // repeat is ANSWERED WITH the orders the first submit placed rather than refused: the customer who tapped twice meant one
+                // order, and one order is what they get back. OneOrderPerCheckoutSubmit says why none of that survives moving the claim.
+                if ($checkoutSubmit !== null && !$checkoutSubmit->claim()) {
+                    $orderPlacedIds = $checkoutSubmit->theOrdersItAlreadyPlaced();
+                    $answeredFromAnEarlierSubmit = true;
+
+                    return;
+                }
 
                 // The customer row is locked before any product row, and the wallet writer locks the same row again. Every wallet
                 // checkout therefore takes its locks in one order, customer then stock, and two of them cannot wait on each other.
@@ -2008,6 +2095,11 @@ class OrderManager
                         throw new WalletPaymentRefused(customerId: $walletPayment['customerId'], amount: $walletPayment['amount']);
                     }
                 }
+
+                // Last, inside the same transaction: the key now names the orders it placed, so a repeat is answered with them. Written
+                // after the wallet debit, because a refused debit throws and this submit then wrote no order to name. A submit that
+                // placed NOTHING gives the key back rather than burning it -- an empty cart is not a submit that was already honoured.
+                $orderPlacedIds === [] ? $checkoutSubmit?->release() : $checkoutSubmit?->record(orderIds: $orderPlacedIds);
             }, attempts: 3);
 
             break;
@@ -2383,7 +2475,9 @@ Log::warning('Delivery Syria: parcel saved successfully', [
             }
         }
 
-        CartManager::cartCleanByCartGroupIds(cartGroupIDs: collect($vendorWiseCartList)?->pluck('cart_group_id')->toArray() ?? []);
+        if (!$answeredFromAnEarlierSubmit) {
+            CartManager::cartCleanByCartGroupIds(cartGroupIDs: collect($vendorWiseCartList)?->pluck('cart_group_id')->toArray() ?? []);
+        }
 
         session()->forget('coupon_code');
         session()->forget('coupon_type');
@@ -2632,13 +2726,22 @@ Log::warning('Delivery Syria: parcel saved successfully', [
             if (WalletOverdraft::refuses($currentBalance, $debitAmount)) {
                 return false;
             }
+            // The row carries the balance the account ENDS with, bonus included (E-16). All four copies of this write set the
+            // account to `previous + bonus + credit - debit` and wrote `previous + credit - debit` on the row, so an `add_fund`
+            // row that earned a bonus understated the account by exactly the bonus it was printing in the next column -- on the
+            // admin wallet report, which prints both on one line, and in the add-fund email, which prints the row's balance as
+            // the customer's new balance. One figure, used twice, is why the two cannot disagree again
+            // (App\Services\Customer\CustomerWalletWriter already writes it this way). Rows written before this are NOT
+            // rewritten and keep the understated figure; they stay reconcilable, because `admin_bonus` is on the row in both
+            // eras.
+            $balanceAfter = $currentBalance + $addFundToWalletBonus + $creditAmount - $debitAmount;
             $walletTransaction->credit = $creditAmount;
             $walletTransaction->debit = $debitAmount;
-            $walletTransaction->balance = $currentBalance + $creditAmount - $debitAmount;
+            $walletTransaction->balance = $balanceAfter;
             $walletTransaction->created_at = now();
             $walletTransaction->updated_at = now();
             $walletTransaction->fill(app(LedgerAttribution::class)->of(table: $walletTransaction->getTable(), origin: $origin));
-            $user->wallet_balance = $currentBalance + $addFundToWalletBonus + $creditAmount - $debitAmount;
+            $user->wallet_balance = $balanceAfter;
 
             $user->save();
             $walletTransaction->save();

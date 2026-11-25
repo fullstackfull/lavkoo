@@ -135,6 +135,58 @@ class PaymentRoutingService
     }
 
     /**
+     * The same list, judged for a STOREFRONT rather than for an order (J-09.4).
+     *
+     * This sits between `resolve()` and `resolveWithoutAnOrder()`, and the difference is what is known. The config answer of a market
+     * knows its COUNTRY -- the app says which storefront it is asking for -- so a rule bound to a country can be judged there, which is
+     * exactly what `resolveWithoutAnOrder()` had to skip. What is still unknown is the AMOUNT: there is no cart yet, so a rule bound to an
+     * amount band might or might not apply to the order the customer goes on to place, and hiding a method on that maybe would hide a
+     * method the customer is entitled to. Such a rule is left alone here too.
+     *
+     * A rule naming no country covers every destination (`countryMatches`), so the everywhere-rules `resolveWithoutAnOrder()` applies are
+     * applied here as well: this list is never wider than that one.
+     *
+     * @param array<int, string> $availableGateways
+     * @return array<int, string>
+     */
+    public function resolveForStorefront(array $availableGateways, string $country): array
+    {
+        $available = array_values(array_unique($availableGateways));
+        if ($available === [] || !Schema::hasTable('payment_routing_rules')) {
+            return $available;
+        }
+
+        $hidden = [];
+        foreach ($this->activeRules() as $rule) {
+            $boundToAnAmount = $rule->min_amount !== null || $rule->max_amount !== null;
+
+            if ($rule->action === PaymentRoutingRule::ACTION_HIDE && !$boundToAnAmount && $rule->countryMatches($country) && in_array($rule->gateway_code, $available, true)) {
+                $hidden[$rule->gateway_code] = true;
+            }
+        }
+
+        return array_values(array_filter($available, static fn ($gateway) => !isset($hidden[$gateway])));
+    }
+
+    /**
+     * Apply the storefront judgement to gateway MODELS, keeping the caller's own models.
+     *
+     * @return \Illuminate\Support\Collection
+     */
+    public function applyToModelsForStorefront($models, string $country, string $codeAttribute = 'key_name')
+    {
+        $models = collect($models);
+        if ($models->isEmpty()) {
+            return $models;
+        }
+
+        $kept = $this->resolveForStorefront($models->pluck($codeAttribute)->filter()->values()->all(), $country);
+        $byCode = $models->keyBy($codeAttribute);
+
+        return collect($kept)->map(fn ($code) => $byCode->get($code))->filter()->values();
+    }
+
+    /**
      * Is this gateway hidden for an order of this amount going to this destination?
      *
      * The payment START asks this. A customer who was offered a method before a rule was written, or

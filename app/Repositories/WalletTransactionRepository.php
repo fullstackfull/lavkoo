@@ -131,9 +131,18 @@ class WalletTransactionRepository implements WalletTransactionRepositoryInterfac
             if (WalletOverdraft::refuses($currentBalance, $debit_amount)) {
                 return false;
             }
+            // The row carries the balance the account ENDS with, bonus included (E-16). All four copies of this write set the
+            // account to `previous + bonus + credit - debit` and wrote `previous + credit - debit` on the row, so an `add_fund`
+            // row that earned a bonus understated the account by exactly the bonus it was printing in the next column -- on the
+            // admin wallet report, which prints both on one line, and in the add-fund email, which prints the row's balance as
+            // the customer's new balance. One figure, used twice, is why the two cannot disagree again
+            // (App\Services\Customer\CustomerWalletWriter already writes it this way). Rows written before this are NOT
+            // rewritten and keep the understated figure; they stay reconcilable, because `admin_bonus` is on the row in both
+            // eras.
+            $balanceAfter = $currentBalance + $addFundToWalletBonus + $credit_amount - $debit_amount;
             $wallet_transaction['credit'] = $credit_amount;
             $wallet_transaction['debit'] = $debit_amount;
-            $wallet_transaction['balance'] = $currentBalance + $credit_amount - $debit_amount;
+            $wallet_transaction['balance'] = $balanceAfter;
             $wallet_transaction['created_at'] = now();
             $wallet_transaction['updated_at'] = now();
             // What stands behind the row (E-05). Dormant until its migration runs: of() answers [] while none of the
@@ -141,9 +150,7 @@ class WalletTransactionRepository implements WalletTransactionRepositoryInterfac
             // records the write rather than deciding it.
             $wallet_transaction->fill(app(LedgerAttribution::class)->of(table: $wallet_transaction->getTable(), origin: $origin));
 
-            $this->user->where('id', $user_id)->update([
-                'wallet_balance' => $currentBalance + $addFundToWalletBonus + $credit_amount - $debit_amount,
-            ]);
+            $this->user->where('id', $user_id)->update(['wallet_balance' => $balanceAfter]);
             $wallet_transaction->save();
 
             if (in_array($transactionType, ['loyalty_point', 'order_place', 'add_fund_by_admin'])) return $wallet_transaction;

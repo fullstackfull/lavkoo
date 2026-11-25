@@ -175,9 +175,12 @@ class WalletLedgerCharacterizationTest extends TestCase
     }
 
     /**
-     * Not endorsed. The customer's wallet includes the add-fund bonus, but the ledger's running balance column does not.
+     * FLIPPED ON PURPOSE (E-16). This pinned the defect: the customer's wallet included the add-fund bonus and the ledger's running
+     * balance column did not, so the row understated the account by exactly the bonus it was printing in the next column. All four
+     * copies of the write now put the balance the account ENDS with on the row, as App\Services\Customer\CustomerWalletWriter
+     * already did, and the figure main wrote is asserted beside the new one so the difference is visible rather than described.
      */
-    public function test_current_behaviour_the_ledger_balance_leaves_out_an_add_fund_bonus_the_wallet_includes(): void
+    public function test_the_ledger_balance_now_includes_an_add_fund_bonus_as_the_wallet_does(): void
     {
         $this->customerWithBalance(0.0);
         DB::table('add_fund_bonus_categories')->insert([
@@ -204,7 +207,8 @@ class WalletLedgerCharacterizationTest extends TestCase
         $this->assertTrue($result);
         $this->assertSame(220.0, $this->walletOf(self::CUSTOMER_ID));
         $this->assertSame(20.0, (float) $ledger->admin_bonus);
-        $this->assertSame(200.0, (float) $ledger->balance);
+        $this->assertSame(220.0, (float) $ledger->balance, 'the row says what the account holds');
+        $this->assertSame(200.0, (float) $ledger->balance - (float) $ledger->admin_bonus, 'main wrote this figure on the row');
     }
 
     private function repository(): WalletTransactionRepository

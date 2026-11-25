@@ -27,10 +27,27 @@ final class GatewayCurrencyPolicy
 
     public function assertAcceptable(string $gateway, string $currencyCode): void
     {
+        if ($this->accepts(gateway: $gateway, currencyCode: $currencyCode)) {
+            return;
+        }
+
+        throw new StorefrontPaymentNotSupportedException(
+            gateway: PaymentGatewayCatalog::canonicalKey($gateway),
+            currencyCode: strtoupper($currencyCode),
+        );
+    }
+
+    /**
+     * The same question as an answer rather than an exception, for the callers that LIST what a storefront may offer instead of starting
+     * one payment (the config answer of the customer app, J-09.4). One rule, asked two ways: a method the list offers is a method
+     * `assertAcceptable` would let through, and a method it hides is one that would have been refused at the customer's checkout.
+     */
+    public function accepts(string $gateway, string $currencyCode): bool
+    {
         $storefrontCurrency = $this->storefrontCurrency->currencyCodeInForce();
 
         if ($storefrontCurrency === null) {
-            return;
+            return true;
         }
 
         // The spellings of one gateway are declared in one place, so a check here and a route there can never disagree about which
@@ -38,11 +55,9 @@ final class GatewayCurrencyPolicy
         $gateway = PaymentGatewayCatalog::canonicalKey($gateway);
         $currency = strtoupper($currencyCode);
 
-        if ($currency === $storefrontCurrency && $this->isSupported(gateway: $gateway, currency: $currency) && $this->hasUsableDecimals(gateway: $gateway, currency: $currency)) {
-            return;
-        }
-
-        throw new StorefrontPaymentNotSupportedException(gateway: $gateway, currencyCode: $currency);
+        return $currency === $storefrontCurrency
+            && $this->isSupported(gateway: $gateway, currency: $currency)
+            && $this->hasUsableDecimals(gateway: $gateway, currency: $currency);
     }
 
     private function isSupported(string $gateway, string $currency): bool

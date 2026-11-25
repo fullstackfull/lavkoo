@@ -40,10 +40,12 @@ use Illuminate\Support\Carbon;
  * fixed thirty days regardless of the range, because being stuck is a standing condition rather
  * than an event inside a window.
  *
- * What this page cannot know is published as readings too, at the foot: there is no idempotency key
- * on checkout, so "duplicate" is a heuristic over customer, amount and seconds; and the status
- * ledger is written by hand at three call sites, so a status that moved without one leaves no trail
- * to check against.
+ * What this page cannot know is published as readings too, at the foot. A checkout now CAN name its
+ * submit -- `checkout_idempotency_keys` holds one row per submit with the orders it placed (D1-14) --
+ * but only when the client sends the header, and no app of this platform sends one yet, so
+ * "duplicate" is still a heuristic over customer, amount and seconds and the reading says which of
+ * the two states this deployment is in. The status ledger is written by hand at three call sites, so
+ * a status that moved without one still leaves no trail to check against.
  */
 class OrderIntegrityPanel implements Panel
 {
@@ -1372,11 +1374,12 @@ class OrderIntegrityPanel implements Panel
             'source' => self::ORDERS_SOURCE . ', ' . self::LEDGER_SOURCE,
             'note' => 'Nothing on this deployment records these, so the checks above work around their absence. They are drawn as readings rather than left out, because a caveat nobody states is a caveat nobody applies.',
             'fields' => [
-                'checkout_idempotency_key' => Metric::notConfigured(
-                    source: self::ORDERS_SOURCE,
-                    remedy: 'Add orders.checkout_token char(36) with a unique index and set it from the cart group in app/Utils/OrderManager.php::generateOrder, then duplicates become exact instead of inferred.',
-                    note: 'There is no key that says two orders came from one submit. order_group_id defaults to the literal def-order-group and separates the vendor split of one basket, not one checkout from the next.',
-                ),
+                // D1-14: there IS a key now, and the panel says which state the deployment is actually in rather than the state it was in
+                // when this page was written. `checkout_idempotency_keys` carries one row per submit with the orders it placed, so two
+                // orders of one submit are an exact fact instead of an inferred one -- but only for a submit whose client SENT a key, and
+                // no app of this platform sends one yet. Both halves are reported, because "configured" would overstate it and "not
+                // configured" is no longer true.
+                'checkout_idempotency_key' => $this->checkoutIdempotencyKey(),
                 'status_ledger_index' => Metric::notConfigured(
                     source: self::LEDGER_SOURCE,
                     remedy: 'ALTER TABLE order_status_histories ADD INDEX osh_order_created_idx (order_id, created_at);',
@@ -1407,6 +1410,39 @@ class OrderIntegrityPanel implements Panel
                 ),
             ],
         ];
+    }
+
+    /**
+     * What this deployment records about which submit an order came from (D1-14).
+     *
+     * There IS a key now, so the page says which state the deployment is actually in rather than the state it was in when this panel was
+     * written. `checkout_idempotency_keys` carries one row per submit, naming the orders that submit placed, so two orders of one submit
+     * are an exact fact instead of an inferred one -- but only for a submit whose client SENT a key, and no app of this platform sends
+     * one yet. Both halves are reported, because "configured" would overstate it and "not configured" is no longer true.
+     */
+    private function checkoutIdempotencyKey(): Metric
+    {
+        return Metric::probe(
+            source: 'checkout_idempotency_keys',
+            probe: function (): Metric {
+                $connection = $this->connection();
+
+                if (!$connection->getSchemaBuilder()->hasTable('checkout_idempotency_keys')) {
+                    return Metric::notConfigured(
+                        source: self::ORDERS_SOURCE,
+                        remedy: 'Run the migration that creates checkout_idempotency_keys. The order writer already claims the client\'s Idempotency-Key in it, and does nothing while the table is absent.',
+                        note: 'There is no key that says two orders came from one submit. order_group_id defaults to the literal def-order-group and separates the vendor split of one basket, not one checkout from the next.',
+                    );
+                }
+
+                return Metric::of(
+                    value: (int) $connection->table('checkout_idempotency_keys')->count(),
+                    source: 'checkout_idempotency_keys',
+                    unit: 'submits',
+                    note: 'One row per submit that named itself with an Idempotency-Key, claimed inside the order transaction and naming the orders it placed (App\Services\Checkout\OneOrderPerCheckoutSubmit). Zero means no client has sent one, which is how the platform ships: the apps have to send the header before a repeated submit can be recognised.',
+                );
+            },
+        );
     }
 
     // ---------------------------------------------------------------------------------------------

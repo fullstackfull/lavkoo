@@ -119,6 +119,10 @@ if (!function_exists('digital_payment_place_orders')) {
                 'payment_method' => $paymentData['payment_method'],
                 'payment_status' => 'paid',
                 'transaction_ref' => $paymentData['transaction_id'],
+
+                // The payment's own row, whose lock is what stops two deliveries of this callback building two orders
+                // (App\Services\Payments\OneOrderPerPayment, claimed inside the order's transaction).
+                'payment_record_id' => $paymentData['id'] ?? null,
                 'new_customer_id' => $newCustomer ? $newCustomer['id'] : ($additionalData['new_customer_id'] ?? null),
                 'newCustomerRegister' => $newCustomer,
 
@@ -139,7 +143,11 @@ if (!function_exists('digital_payment_place_orders')) {
                 'stock_policy' => 'allow_oversell',
             ]);
 
-            if ($orderIds === []) {
+            // Nothing built AND an order carrying this reference exists: another delivery of this callback built it while this one was
+            // waiting on the payment's row, which is the guard doing its job and not a failure. Without this distinction the critical
+            // log would fire on every simultaneous delivery and the one case it was written for -- a paid payment whose order could not
+            // be built at all -- would be lost among them.
+            if ($orderIds === [] && !PaymentSettlementScope::hasOrderFor(transactionId: $paymentData['transaction_id'] ?? null)) {
                 Log::critical('A paid payment was settled without building an order.', ['transaction_id' => $paymentData['transaction_id'], 'customer_id' => $customerId]);
             }
             foreach ($orderIds as $orderId) {

@@ -79,15 +79,24 @@ class CustomerManager
                 return false;
             }
             $settle = static fn (float $balance): float => $amountInUsd ? round($balance, 2) : $balance;
+            // The row carries the balance the account ENDS with, bonus included (E-16). All four copies of this write set the
+            // account to `previous + bonus + credit - debit` and wrote `previous + credit - debit` on the row, so an `add_fund`
+            // row that earned a bonus understated the account by exactly the bonus it was printing in the next column -- on the
+            // admin wallet report, which prints both on one line, and in the add-fund email, which prints the row's balance as
+            // the customer's new balance. One figure, used twice, is why the two cannot disagree again
+            // (App\Services\Customer\CustomerWalletWriter already writes it this way). Rows written before this are NOT
+            // rewritten and keep the understated figure; they stay reconcilable, because `admin_bonus` is on the row in both
+            // eras.
+            $balanceAfter = $settle($balance_before + $add_fund_to_wallet_bonus + $credit_amount - $debit_amount);
             $wallet_transaction->credit = $credit_amount;
             $wallet_transaction->debit = $debit_amount;
-            $wallet_transaction->balance = $settle($balance_before + $credit_amount - $debit_amount);
+            $wallet_transaction->balance = $balanceAfter;
             $wallet_transaction->created_at = now();
             $wallet_transaction->updated_at = now();
             // What stands behind the row (E-05); dormant until its migration runs, written inside the balance lock and
             // after the overdraft guard, so it records the write rather than deciding it.
             $wallet_transaction->fill(app(LedgerAttribution::class)->of(table: $wallet_transaction->getTable(), origin: $origin));
-            $user->wallet_balance = $settle($balance_before + $add_fund_to_wallet_bonus + $credit_amount - $debit_amount);
+            $user->wallet_balance = $balanceAfter;
 
             $user->save();
             $wallet_transaction->save();

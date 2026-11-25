@@ -4,6 +4,7 @@ namespace App\Utils;
 
 use App\Services\Analytics\Analytics;
 use App\Services\Storefront\StorefrontCatalog;
+use App\Services\Tax\IncludedTax;
 use App\Models\DigitalProductVariation;
 use App\Models\ShippingMethod;
 use App\Models\Cart;
@@ -1134,32 +1135,8 @@ class CartManager
         if (!isset($taxConfig['is_included']) || $taxConfig['is_included']) {
             return 0;
         }
-        $taxPercent = 0;
-        $taxType = $taxConfig['SystemTaxVatType'] ?? 'order_wise';
 
-        if ($taxType == 'product_wise') {
-            if (isset($product['taxVats']) && count($product['taxVats']) > 0) {
-                foreach ($product['taxVats'] as $taxVat) {
-                    if ($taxVat?->tax?->tax_rate) {
-                        $taxPercent += $taxVat?->tax?->tax_rate;
-                    }
-                }
-            }
-        } elseif ($taxType == 'category_wise') {
-            if (isset($product['category']['taxVats']) && count($product['category']['taxVats']) > 0) {
-                foreach ($product['category']['taxVats'] as $taxVat) {
-                    if ($taxVat?->tax?->tax_rate) {
-                        $taxPercent += $taxVat?->tax?->tax_rate;
-                    }
-                }
-            }
-        } else {
-            if (is_array($taxConfig['taxVats'])) {
-                $taxPercent = collect($taxConfig['taxVats'])->whereIn('id', $taxConfig['SystemTaxVat']['tax_ids'])->sum('tax_rate');
-            } else {
-                $taxPercent = $taxConfig['taxVats']->whereIn('id', $taxConfig['SystemTaxVat']['tax_ids'])->sum('tax_rate');
-            }
-        }
+        $taxPercent = self::applicableTaxPercent(product: $product, taxConfig: $taxConfig);
 
         return (($totalDiscountedPrice - $appliedDiscountedAmount) * $taxPercent) / 100;
     }
@@ -1170,20 +1147,108 @@ class CartManager
             return 0;
         }
 
-        $allTaxIds = collect($taxConfig['SystemTaxVat']['additionalData'])
-            ->pluck('tax_ids')->flatten()->toArray();
-
-        if (is_array($taxConfig['taxVats'])) {
-            $taxRate = collect($taxConfig['taxVats'])->whereIn('id', $allTaxIds)->sum('tax_rate');
-        } else {
-            $taxRate = $taxConfig['taxVats']->whereIn('id', $allTaxIds)->sum('tax_rate');
-        }
+        $taxRate = self::applicableShippingTaxPercent(taxConfig: $taxConfig);
 
         if ($totalShippingCost <= 0 || $applicableShippingAmount <= 0) {
             return 0;
         }
 
         return ((($totalShippingCost * $totalDiscountedPrice) / $applicableShippingAmount) * $taxRate) / 100;
+    }
+
+    /**
+     * The tax inside one line of a TAX-INCLUDED order (D1-07): zero on every other order, and zero until
+     * `gcc.tax.record_included_amount` is on.
+     *
+     * The rates come from `applicableTaxPercent`, the same resolver the charged tax uses, so there is one answer to "which rates apply
+     * to this line" and not a second one written for included prices. What differs is only the arithmetic: the rate was already applied
+     * to a smaller number, so the tax is a share of the gross rather than an addition to it (App\Services\Tax\IncludedTax).
+     *
+     * Nothing the customer pays changes: the caller records this in a column of its own.
+     */
+    public static function getIncludedTaxAmount($product = null, $taxConfig = [], $totalDiscountedPrice = 0, $appliedDiscountedAmount = 0): float|int
+    {
+        if (empty($taxConfig['is_included'])) {
+            return 0;
+        }
+
+        return app(IncludedTax::class)->withinGross(
+            gross: $totalDiscountedPrice - $appliedDiscountedAmount,
+            percent: self::applicableTaxPercent(product: $product, taxConfig: $taxConfig),
+        );
+    }
+
+    /** The tax inside the share of the shipping charge this line carries, on a tax-included order (D1-07). */
+    public static function getIncludedShippingTaxAmount($taxConfig = [], $totalShippingCost = 0, $totalDiscountedPrice = 0, $applicableShippingAmount = 0): float|int
+    {
+        if (empty($taxConfig['is_included']) || $totalShippingCost <= 0 || $applicableShippingAmount <= 0) {
+            return 0;
+        }
+
+        return app(IncludedTax::class)->withinGross(
+            gross: ($totalShippingCost * $totalDiscountedPrice) / $applicableShippingAmount,
+            percent: self::applicableShippingTaxPercent(taxConfig: $taxConfig),
+        );
+    }
+
+    /**
+     * Which rates apply to one line, added up, by the type of the setup in force. Extracted from `getAppliedTaxAmount` unchanged so that
+     * the included-tax figure is worked out from the same rates as the charged one.
+     *
+     * @param array<string, mixed> $taxConfig
+     */
+    private static function applicableTaxPercent($product, array $taxConfig): float|int
+    {
+        $taxType = $taxConfig['SystemTaxVatType'] ?? 'order_wise';
+
+        if ($taxType == 'product_wise') {
+            $taxPercent = 0;
+            if (isset($product['taxVats']) && count($product['taxVats']) > 0) {
+                foreach ($product['taxVats'] as $taxVat) {
+                    if ($taxVat?->tax?->tax_rate) {
+                        $taxPercent += $taxVat?->tax?->tax_rate;
+                    }
+                }
+            }
+
+            return $taxPercent;
+        }
+
+        if ($taxType == 'category_wise') {
+            $taxPercent = 0;
+            if (isset($product['category']['taxVats']) && count($product['category']['taxVats']) > 0) {
+                foreach ($product['category']['taxVats'] as $taxVat) {
+                    if ($taxVat?->tax?->tax_rate) {
+                        $taxPercent += $taxVat?->tax?->tax_rate;
+                    }
+                }
+            }
+
+            return $taxPercent;
+        }
+
+        if (is_array($taxConfig['taxVats'])) {
+            return collect($taxConfig['taxVats'])->whereIn('id', $taxConfig['SystemTaxVat']['tax_ids'])->sum('tax_rate');
+        }
+
+        return $taxConfig['taxVats']->whereIn('id', $taxConfig['SystemTaxVat']['tax_ids'])->sum('tax_rate');
+    }
+
+    /**
+     * The rates charged on shipping, added up. Extracted from `getAppliedShippingTaxAmount` unchanged, for the same reason.
+     *
+     * @param array<string, mixed> $taxConfig
+     */
+    private static function applicableShippingTaxPercent(array $taxConfig): float|int
+    {
+        $allTaxIds = collect($taxConfig['SystemTaxVat']['additionalData'])
+            ->pluck('tax_ids')->flatten()->toArray();
+
+        if (is_array($taxConfig['taxVats'])) {
+            return collect($taxConfig['taxVats'])->whereIn('id', $allTaxIds)->sum('tax_rate');
+        }
+
+        return $taxConfig['taxVats']->whereIn('id', $allTaxIds)->sum('tax_rate');
     }
 
     public static function getCartListTaxAmount(array $data  = [], ?string $cartGroupId = null): array
