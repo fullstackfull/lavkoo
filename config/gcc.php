@@ -607,6 +607,31 @@ return [
             'GCC_WHAT_A_PAYMENT_IS_WORTH',
             App\Services\Payments\WhatAPaymentIsWorth::AS_TODAY,
         ),
+
+        // Finding the payments a gateway TOOK and this shop never heard about (D2-12, D2-16).
+        //
+        // Every Paymob payment here is settled by the customer's browser coming back, and the callback reads
+        // `session('payment_id')` to know which payment it is about -- so a customer who paid and then closed the tab,
+        // lost signal or was timed out of their session leaves the money with Paymob and the payment row unpaid for
+        // ever: no order, no wallet credit, and nothing on the platform that notices. The sweep asks Paymob, with the
+        // reference the payment start already sends it (`special_reference`, the payment's own id), and settles
+        // through the same service a confirmed browser return settles through.
+        //
+        // OFF AS IT SHIPS, and the command says so and stops: it creates orders and credits wallets on the strength
+        // of what a gateway says, so a schedule written before an operator has decided to run it moves no money. It
+        // never fails a payment -- a refusal is reported and the row is left exactly as it was.
+        'recovery_sweep' => [
+            'enabled' => filter_var(env('GCC_PAYMENT_RECOVERY_SWEEP', false), FILTER_VALIDATE_BOOLEAN),
+            // A customer still at the gateway is not an abandoned payment, and settling one under them would have the
+            // shop and the browser settling at once. Fifteen minutes is longer than any checkout and shorter than any
+            // reconciliation window.
+            'minimum_age_minutes' => (int) env('GCC_PAYMENT_RECOVERY_SWEEP_MIN_AGE', 15),
+            // How far back a run looks. Beyond this a payment is a reconciliation question for a person, not something
+            // a sweep should settle into an order whose stock, prices and coupons have all moved on.
+            'oldest_days' => (int) env('GCC_PAYMENT_RECOVERY_SWEEP_OLDEST_DAYS', 7),
+            // Payments considered per run, oldest first: the oldest unsettled payment has been owed longest.
+            'batch' => (int) env('GCC_PAYMENT_RECOVERY_SWEEP_BATCH', 200),
+        ],
     ],
 
     'tax' => [
