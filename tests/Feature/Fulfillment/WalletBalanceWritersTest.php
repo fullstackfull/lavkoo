@@ -59,6 +59,15 @@ class WalletBalanceWritersTest extends TestCase
      * @var array<string, list<string>> file => the kind of each write-shaped form reported in it
      */
     private const WALLET_READS_THE_SCANNER_REPORTS = [
+        // In the scanner's own order, which is the order the file paths sort in: the comparison below is an assertSame, so a list written
+        // in another order fails on the order and says nothing about the files.
+        //
+        // The customer profile answer (J-09, E-01): `array_replace($user->toArray(), ['wallet_balance' => ..., 'loyalty_point' => ...])`
+        // puts the two market balances into the RESPONSE and deliberately not onto the model -- `$user` is the authenticated instance for
+        // the whole request, and writing a market's figure onto it would leave the wrong number in the one column every movement is still
+        // written to, for anything later in the request that saved it. Read and confirmed against the commit that introduced it
+        // (7e8386f4), which says exactly that in its own comment. Nothing here reaches the database.
+        'app/Http/Controllers/RestAPI/v1/CustomerController.php' => ['array key given a value'],
         // The POS customer lookup (E-04): 'wallet_balance' => the market balance MarketBalanceReader answered. A payload key, not a column.
         'app/Http/Resources/Seller/PosCustomerResource.php' => ['array key given a value'],
     ];
@@ -67,6 +76,17 @@ class WalletBalanceWritersTest extends TestCase
     private const LOYALTY_WRITERS = [
         'app/Repositories/LoyaltyPointTransactionRepository.php' => ['assignment'],
         'app/Utils/CustomerManager.php' => ['assignment'],
+    ];
+
+    /**
+     * The same thing for the points, and it needed its own list rather than a share of the wallet's: the profile answer replaces BOTH
+     * balances in one `array_replace`, so the scanner reports the file once per column and the loyalty assertion had no reads allowance at
+     * all. A file on neither list still fails, which is the whole point of both.
+     *
+     * @var array<string, list<string>> file => the kind of each write-shaped form reported in it
+     */
+    private const LOYALTY_READS_THE_SCANNER_REPORTS = [
+        'app/Http/Controllers/RestAPI/v1/CustomerController.php' => ['array key given a value'],
     ];
 
     /**
@@ -228,7 +248,7 @@ class WalletBalanceWritersTest extends TestCase
 
     public function test_the_loyalty_points_are_written_by_their_two_writers_and_nothing_else(): void
     {
-        $this->assertOnlyTheseWrite(column: 'loyalty_point', allowed: self::LOYALTY_WRITERS);
+        $this->assertOnlyTheseWrite(column: 'loyalty_point', allowed: self::LOYALTY_WRITERS + self::LOYALTY_READS_THE_SCANNER_REPORTS);
     }
 
     public function test_the_scan_reads_every_root_it_names_so_a_narrowed_root_cannot_make_it_pass(): void
