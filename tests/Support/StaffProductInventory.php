@@ -59,7 +59,7 @@ use Modules\AI\app\Http\Controllers\API\V3\AIAuctionProductController;
  * does an entry without a reason or with a slice nobody named. The same table is in docs/gcc/GCC-14C-STAFF-COUNTRY-SCOPES.md, and a test keeps the two in step.
  *
  * `scoped`: a slice narrows it, slice 1 when it names none (App\Services\Staff\StaffProductRoutes holds the rules of the product screens) and slice 2 for the order, POS and
- * refund screens (App\Services\Staff\StaffOrderRoutes). `not_needed`: it must keep seeing every country, or it has no product rows. `out`: it still shows every country's
+ * refund screens (App\Services\Staff\StaffOrderRoutes) and slice 4 for the promotion screens (App\Services\Staff\StaffPromotionRoutes). `not_needed`: it must keep seeing every country, or it has no product rows. `out`: it still shows every country's
  * products to a restricted employee; the slice that takes it is named.
  */
 final class StaffProductInventory
@@ -121,28 +121,28 @@ final class StaffProductInventory
             'reason' => 'Lists the products whose SEO text can be translated: every country\'s.',
         ],
         FlashDealController::class => [
-            'class' => self::OUT, 'slice' => 'slice 4',
-            'reason' => 'The deal pages pick products and list the ones in a deal: every country\'s. A promotion has no country yet (GCC-17).',
+            'class' => self::SCOPED, 'slice' => 'slice 4',
+            'reason' => 'The deal pages pick products and list the ones in a deal. Narrowed in slice 4: the pickers and the search list the employee\'s countries\' products, a deal\'s product list and the count the deal list prints beside each deal hold only theirs (StaffCountryProductRowScope on FlashDealProduct), and adding or removing a product is judged by its id. The DEAL row itself still has no country (GCC-17), so its name, dates and status are the module permission\'s business.',
         ],
         DealOfTheDayController::class => [
-            'class' => self::OUT, 'slice' => 'slice 4',
-            'reason' => 'Picks the product of the day among every country\'s products.',
+            'class' => self::SCOPED, 'slice' => 'slice 4',
+            'reason' => 'Picks the product of the day. Narrowed in slice 4: the picker lists the employee\'s countries\' products, the deal rows are narrowed through the product each names (StaffCountryProductRowScope), and an edit is judged at both ends -- the row\'s product and the product it is being changed to.',
         ],
         ClearanceSaleController::class => [
-            'class' => self::OUT, 'slice' => 'slice 4',
-            'reason' => 'Picks, lists and removes clearance products of every country.',
+            'class' => self::SCOPED, 'slice' => 'slice 4',
+            'reason' => 'Picks, lists and removes clearance products. Narrowed in slice 4: every picker, search and list holds the employee\'s countries\' products, and because these screens name their rows by `product_id` rather than by the row\'s own id -- the delete of every admin offer at once included -- what keeps the writes inside their countries is StaffCountryProductRowScope on the offers. The clearance SETUP and its SEO text are platform settings and stay so.',
         ],
         MostDemandedController::class => [
-            'class' => self::OUT, 'slice' => 'slice 4',
-            'reason' => 'Picks the products of the most demanded section among every country\'s.',
+            'class' => self::SCOPED, 'slice' => 'slice 4',
+            'reason' => 'The most-demanded screens were retired with the fashion theme and redirect to the dashboard; the writes still name a product, and in slice 4 they are judged by it at both ends, the row and the posted product.',
         ],
         BannerController::class => [
-            'class' => self::OUT, 'slice' => 'slice 4',
-            'reason' => 'A banner can point at a product, picked among every country\'s.',
+            'class' => self::SCOPED, 'slice' => 'slice 4',
+            'reason' => 'A banner can point at a product. Narrowed in slice 4: the product picker of the list and of the edit form holds the employee\'s countries\' products, and a form that says `resource_type=product` is judged by the product id it posts. The BANNER row has no country (GCC-17), so publishing or deleting one is the module permission\'s business.',
         ],
         InhouseShopController::class => [
-            'class' => self::OUT, 'slice' => 'slice 4',
-            'reason' => 'The in-house shop page lists the in-house products of every country.',
+            'class' => self::SCOPED, 'slice' => 'slice 4',
+            'reason' => 'The in-house shop page counts the in-house products, the reviews of those products and the in-house ORDERS. Narrowed in slice 4: the product and review counts by the product scope, the order count by the order subject the rule names (`list:orders`).',
         ],
         ThemeBuilderController::class => [
             'class' => self::OUT, 'slice' => 'slice 4',
@@ -314,10 +314,10 @@ final class StaffProductInventory
         'App\Http\Controllers\Admin\Customer\CustomerLoyaltyController' => ['slice' => 'slice 3', 'reason' => 'A customer\'s loyalty movements, narrowed the same way (StaffCountryLedgerScope; StaffOrderRoutes). It reads no product.'],
     ];
 
-    /** @return array<string, int> how many controllers there are of each status: scoped in slice 1, 2 and 3, not needed, out */
+    /** @return array<string, int> how many controllers there are of each status: scoped in slice 1, 2, 3 and 4, not needed, out */
     public static function countsByStatus(): array
     {
-        $counts = ['slice 1' => 0, 'slice 2' => 0, 'slice 3' => 0, self::NOT_NEEDED => 0, self::OUT => 0];
+        $counts = ['slice 1' => 0, 'slice 2' => 0, 'slice 3' => 0, 'slice 4' => 0, self::NOT_NEEDED => 0, self::OUT => 0];
         foreach (self::CONTROLLERS as $entry) {
             $counts[self::statusKeyOf($entry)]++;
         }

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Scopes\StaffCountryProductRowScope;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 
@@ -41,6 +42,17 @@ class FlashDealProduct extends Model
     protected $casts = [
         'discount' => 'decimal:2',
     ];
+
+    /**
+     * The products of a deal are narrowed to the countries of a restricted employee (GCC-14c, slice 4), so a deal's product list and the
+     * count the deal list prints beside it hold only the products that employee may see. Inert for every request that binds no country.
+     */
+    protected static function boot(): void
+    {
+        parent::boot();
+
+        static::addGlobalScope(new StaffCountryProductRowScope());
+    }
 
     public function product(): BelongsTo
     {

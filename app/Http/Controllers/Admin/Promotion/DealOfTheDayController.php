@@ -6,6 +6,7 @@ use App\Contracts\Repositories\DealOfTheDayRepositoryInterface;
 use App\Contracts\Repositories\ProductRepositoryInterface;
 use App\Contracts\Repositories\TranslationRepositoryInterface;
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopePromotionsToStaffCountries;
 use App\Http\Requests\Admin\ProductIDRequest;
 use App\Services\DealOfTheDayService;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
@@ -27,7 +28,12 @@ class DealOfTheDayController extends BaseController
         private readonly ProductRepositoryInterface          $productRepo,
         private readonly TranslationRepositoryInterface      $translationRepo,
         private readonly DealOfTheDayRepositoryInterface     $dealOfTheDayRepo
-    ){}
+    )
+    {
+        // Slice 4 of the staff country scopes (GCC-14c): a restricted employee reaches only the products of their own countries
+        // on these screens -- the pickers, the lists, the counters and every write that names a product. Inert while the switch is off.
+        $this->middleware(ScopePromotionsToStaffCountries::class);
+    }
 
     public function index(?Request $request, ?string $type = null): View|Collection|LengthAwarePaginator|null|callable|RedirectResponse
     {
