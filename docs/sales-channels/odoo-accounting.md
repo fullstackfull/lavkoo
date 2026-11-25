@@ -1,6 +1,6 @@
 # Odoo — القيد المعماري الملزم (قبل أي شيفرة)
 
-**الحالة: غير مبني.** الموجود اليوم عقد `App\Services\SalesChannels\Accounting\AccountingDestination` ووجهة `NullAccountingDestination` لا تُرسل شيئًا (مربوطة في `SalesChannelsServiceProvider`). هذا الملف يسجّل القرار الذي يحكم بناءه، لأن كتابته بعد البناء تأتي متأخرة.
+**الحالة: مبني جزئيًا، ومغلق بالكامل.** عقد `App\Services\SalesChannels\Accounting\AccountingDestination` ووجهة `NullAccountingDestination` التي لا تُرسل شيئًا ما زالا مربوطين في `SalesChannelsServiceProvider`، وإلى جانبهما بُني `App\Services\Accounting\Odoo` (نقل XML-RPC، فحص مسبق، بانٍ للقيود، تشغيل نشر، روابط تراجع، ومطابقة ثلاثية) خلف أربعة مفاتيح `ODOO_*` كلها مُطفأة. ما لم يُبنَ بعد مذكور باسمه في [../gcc/INTEGRATION_MAP.md](../gcc/INTEGRATION_MAP.md): لا شيء في `app/` يُدرج تكلفة في طابور النشر، وشركة واحدة لكل اتصال، والمبالغ تُكتب بخانتين عشريتين. هذا الملف يسجّل القرار الذي يحكم بناءه، لأن كتابته بعد البناء تأتي متأخرة.
 
 ## القاعدة
 

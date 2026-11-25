@@ -23,6 +23,7 @@ use App\Services\Address\CheckoutAddressGuard;
 use App\Services\Address\OrderAddressService;
 use App\Services\Marketplace\SellerMarketScope;
 use App\Services\PasswordResetService;
+use App\Services\Pos\PosSaleGate;
 use App\Services\Storefront\OrderStorefrontSnapshot;
 use App\Services\Storefront\StorefrontCurrency;
 use App\Services\Storefront\OneSellingCompanyPerOrder;
@@ -349,6 +350,14 @@ class POSController extends Controller
                 'product_not_available' => true,
                 'message' => translate('a_sale_needs_at_least_one_product'),
             ]);
+        }
+
+        // C-16 / I2-09: a till sale follows the market of its PRODUCTS and respects that market's state. The web checkout has asked the
+        // selling gate since GCC-11 and this till asked nothing, so a paused market went on selling across the counter. Dormant while
+        // storefronts are off, when the gate refuses nothing. Asked before the idempotency key is claimed, so a refused sale leaves no
+        // key behind that a retry would then be answered from.
+        if (app(PosSaleGate::class)->refusalFor(collect($request['modified_cart'] ?? [])->pluck('id')->all()) !== null) {
+            return response()->json(['message' => translate('that_market_is_not_selling_right_now')], 403);
         }
 
         $deliveryShippingAddress = $fulfillment == 'delivery' ? $this->orderAddresses->latestSavedAddress(customerId: $customerId) : null;

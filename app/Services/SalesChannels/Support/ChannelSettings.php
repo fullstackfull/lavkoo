@@ -11,10 +11,65 @@ use InvalidArgumentException;
 final class ChannelSettings
 {
     public const AMAZON_REGIONS = ['na', 'eu', 'fe'];
+
+    /**
+     * The Gulf storefronts a Trendyol account may name.
+     *
+     * The list it shipped with, kept as the DEFAULT and no longer as the answer: `sales_channels.markets.trendyol.serves` is the answer
+     * (H2-07), so opening Qatar is a list to edit rather than a constant to change, and the configuration also records where the list came
+     * from and that nobody has checked it against Trendyol's own documentation.
+     */
     public const TRENDYOL_STOREFRONTS = ['SA', 'AE', 'KW'];
+    /**
+     * The countries a noon account may name.
+     *
+     * noon's own notes in this integration name three, and `country_code` was validated against NOTHING: the default `sa` was accepted,
+     * anything else was stored as typed, and `NoonConnector::publishPrices()` refused only an EMPTY value -- so a typo became a price
+     * published against a country noon does not serve, or against no country at all. The configuration is the answer
+     * (`sales_channels.markets.noon.serves`); this is what it falls back to.
+     */
+    public const NOON_COUNTRIES = ['SA', 'AE', 'EG'];
+
     /** unset: nobody said (nothing is ever created); app: this application creates the shipments; provider_direct: the provider imports the channel's orders itself (Trendyol connected straight to Torod), so the application only follows them. */
     public const SHIPMENT_CREATION = ['unset', 'app', 'provider_direct'];
     public const DISPATCH_MODES = ['manual', 'auto'];
+
+    /**
+     * The markets a channel serves, from the configuration, falling back to the list the integration shipped with (H2-07).
+     *
+     * @return list<string>
+     */
+    public static function marketsOf(string $channel): array
+    {
+        $listed = config('sales_channels.markets.' . $channel . '.serves');
+        $codes = [];
+
+        foreach (is_array($listed) ? $listed : self::shippedMarketsOf($channel) as $code) {
+            $code = strtoupper(trim((string) $code));
+
+            if ($code !== '' && !in_array($code, $codes, true)) {
+                $codes[] = $code;
+            }
+        }
+
+        return $codes;
+    }
+
+    /** Whether anybody has checked a channel's market list against the vendor's own documentation. False everywhere, honestly. */
+    public static function marketsAreVerified(string $channel): bool
+    {
+        return (bool) config('sales_channels.markets.' . $channel . '.verified', false);
+    }
+
+    /** @return list<string> */
+    private static function shippedMarketsOf(string $channel): array
+    {
+        return match ($channel) {
+            'trendyol' => self::TRENDYOL_STOREFRONTS,
+            'noon' => self::NOON_COUNTRIES,
+            default => [],
+        };
+    }
 
     /** @return array<string, mixed> */
     public static function defaults(string $channel): array
@@ -98,10 +153,22 @@ final class ChannelSettings
             $merged['marketplace_ids'] = $ids;
         }
 
+        if ($channel === 'noon') {
+            // Lower case, because that is how noon writes a country and how every call of this connector sends it; the list is compared
+            // in upper case, as every market code on this platform is.
+            $country = strtolower(trim((string) $merged['country_code']));
+            $serves = self::marketsOf('noon');
+            if (!in_array(strtoupper($country), $serves, true)) {
+                throw new InvalidArgumentException('The noon country must be one of: ' . implode(', ', array_map('strtolower', $serves)) . '.');
+            }
+            $merged['country_code'] = $country;
+        }
+
         if ($channel === 'trendyol') {
             $storefront = strtoupper(trim((string) $merged['storefront_code']));
-            if ($storefront !== '' && !in_array($storefront, self::TRENDYOL_STOREFRONTS, true)) {
-                throw new InvalidArgumentException('The storefront code must be one of: ' . implode(', ', self::TRENDYOL_STOREFRONTS) . ', or empty for the Turkish marketplace.');
+            $serves = self::marketsOf('trendyol');
+            if ($storefront !== '' && !in_array($storefront, $serves, true)) {
+                throw new InvalidArgumentException('The storefront code must be one of: ' . implode(', ', $serves) . ', or empty for the Turkish marketplace.');
             }
             $merged['storefront_code'] = $storefront;
             $name = trim((string) $merged['integration_name']);

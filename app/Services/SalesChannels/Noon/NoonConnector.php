@@ -30,6 +30,7 @@ use App\Services\SalesChannels\Exceptions\ChannelPermissionDenied;
 use App\Services\SalesChannels\Exceptions\ChannelUnavailableException;
 use App\Services\SalesChannels\Exceptions\RecipientUnavailable;
 use App\Services\SalesChannels\Support\ChannelMoney;
+use App\Services\SalesChannels\Support\ChannelSettings;
 use App\Services\SalesChannels\Support\ChannelOperations;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -511,9 +512,17 @@ class NoonConnector implements ChannelConnector, ConfirmsShipments, CreatesListi
      */
     public function publishPrices(SalesChannelAccount $account, array $updates): PublishResult
     {
+        // H2-07: the country has to be one noon SERVES and not merely non-empty. A stored value nobody checked -- a typo, an import, a
+        // country noon has no marketplace in -- used to be sent as the key a price is set under, so the price was set against nothing.
         $country = mb_strtolower(trim((string) $account->setting('country_code', '')));
-        if ($country === '') {
-            return new PublishResult([], array_fill_keys(array_map(static fn (PublishUpdate $u): int => $u->mappingId, $updates), 'No noon country is chosen for this account, and a noon price belongs to a country.'), null, false, []);
+        $refusal = $country === ''
+            ? 'No noon country is chosen for this account, and a noon price belongs to a country.'
+            : (in_array(strtoupper($country), ChannelSettings::marketsOf('noon'), true)
+                ? null
+                : "noon does not serve '{$country}', so a price cannot be set against it.");
+
+        if ($refusal !== null) {
+            return new PublishResult([], array_fill_keys(array_map(static fn (PublishUpdate $u): int => $u->mappingId, $updates), $refusal), null, false, []);
         }
 
         $items = [];
@@ -1306,8 +1315,11 @@ class NoonConnector implements ChannelConnector, ConfirmsShipments, CreatesListi
     {
         $wanted = $quantity;
         $country = mb_strtolower(trim($countryCode ?? (string) $account->setting('country_code', '')));
-        if ($wanted < 1 || $wanted > 1000 || $country === '') {
-            throw new RuntimeException('noon issues between 1 and 1 000 waybills for one named country, and this call would have asked for ' . $wanted . ($country === '' ? ' with no country' : ' for ' . $country) . '.');
+        $served = $country !== '' && in_array(strtoupper($country), ChannelSettings::marketsOf('noon'), true);
+        if ($wanted < 1 || $wanted > 1000 || !$served) {
+            // This call MINTS numbers, so a country noon does not serve is refused before it is asked rather than after: a refused
+            // request that still burned a thousand waybill numbers is the one failure here that cannot be undone.
+            throw new RuntimeException('noon issues between 1 and 1 000 waybills for one country it serves, and this call would have asked for ' . $wanted . ($served ? ' for ' . $country : ($country === '' ? ' with no country' : " for '{$country}', which noon does not serve")) . '.');
         }
 
         $response = $this->client->call(

@@ -275,6 +275,43 @@ return [
         'jwt_lifetime_seconds' => 120,
     ],
 
+    /*
+    | H2-07: WHICH markets each channel serves, as data rather than as constants inside a class.
+    |
+    | The lists were `ChannelSettings::TRENDYOL_STOREFRONTS` and `ChannelAccountCountry::AMAZON_MARKETPLACES`, which made "does this
+    | channel serve Qatar" a code change and left nothing to say where the answer came from. They are here now, each with the SOURCE of
+    | its list and whether anybody has checked it against the vendor's own documentation.
+    |
+    | `verified` is FALSE on every entry and that is not a placeholder: no vendor documentation has been read for this platform, and a
+    | list nobody has checked must not be presentable as one that has been. The values are exactly the ones the code shipped with, so
+    | nothing about an existing account changes; opening QA, BH or OM is adding a code to the list it belongs to, once somebody has read
+    | that the vendor serves it. That reading is the owner's market-entry fact, not a developer's guess.
+    */
+    'markets' => [
+        'trendyol' => [
+            // Trendyol's Gulf storefronts as the integration was written against them. An EMPTY storefront code is the Turkish
+            // marketplace, which is not a GCC market and is why `''` is accepted separately rather than listed here.
+            'serves' => ['SA', 'AE', 'KW'],
+            'source' => 'the list the integration shipped with (ChannelSettings::TRENDYOL_STOREFRONTS); no vendor document read',
+            'verified' => false,
+        ],
+        'noon' => [
+            // noon writes a country in lower case, and a price belongs to a COUNTRY rather than to an account: the same SKU carries a
+            // different price per marketplace. These three are the ones the integration's own notes name.
+            'serves' => ['SA', 'AE', 'EG'],
+            'source' => 'the countries the integration\'s own notes name (NoonConnector, ChannelSettings defaults); no vendor document read',
+            'verified' => false,
+        ],
+        'amazon' => [
+            // Amazon names a marketplace by an id, so its list is a map and not a set of codes. Only the two Gulf marketplaces are
+            // markets of this platform; the rest are listed in ChannelAccountCountry so that an account of one of them reads as
+            // "sells where we have no catalogue" rather than as "country unknown".
+            'serves' => ['SA', 'AE'],
+            'source' => 'the Gulf marketplace ids in ChannelAccountCountry::AMAZON_MARKETPLACES; no vendor document read',
+            'verified' => false,
+        ],
+    ],
+
     'stock' => [
         // A quantity the source has not confirmed for this long is stale and is not published.
         'stale_after_minutes' => 180,

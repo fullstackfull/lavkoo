@@ -20,6 +20,7 @@ use App\Services\CartService;
 use App\Services\Marketplace\InventoryService;
 use App\Services\OrderDetailsService;
 use App\Services\OrderService;
+use App\Services\Pos\PosSaleGate;
 use App\Services\POSService;
 use App\Services\Storefront\LedgerOrigin;
 use App\Services\Storefront\OneSellingCompanyPerOrder;
@@ -147,6 +148,16 @@ class POSOrderController extends BaseController
         // so an exception out of this action shows the cashier a stopped spinner and nothing else. That is a
         // pre-existing hole this lane does not widen: every refusal it adds answers in a shape the panel displays.
         $cartProducts = $this->getCartProductsForPricing(cartId: $cartId);
+        // C-16 / I2-09: a till sale follows the market of its PRODUCTS and respects that market's state. The web checkout has asked the
+        // selling gate since GCC-11 and the tills asked nothing, so a paused market went on selling across the counter all afternoon.
+        // Dormant while storefronts are off, when the gate refuses nothing.
+        $stoppedMarket = app(PosSaleGate::class)->refusalFor($cartProducts->pluck('id')->all());
+        if ($stoppedMarket !== null) {
+            ToastMagic::error(translate('that_market_is_not_selling_right_now'));
+
+            return response()->json();
+        }
+
         try {
             $saleTotal = $this->cartService->getPosSaleTotal(
                 cartName: $cartId,

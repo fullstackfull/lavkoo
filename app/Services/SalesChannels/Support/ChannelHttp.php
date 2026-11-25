@@ -34,8 +34,10 @@ class ChannelHttp
     /** cURL errors that prove the request never reached the channel. */
     private const NOT_SENT_CURL_ERRORS = [3, 5, 6, 7, 35, 51, 53, 54, 58, 59, 60, 77, 83];
 
-    public function __construct(private readonly ChannelRateLimiter $limiter)
-    {
+    public function __construct(
+        private readonly ChannelRateLimiter $limiter,
+        private readonly ChannelAccountMarketStop $marketStop,
+    ) {
     }
 
     /**
@@ -312,6 +314,14 @@ class ChannelHttp
         }
         if (!$account->enabled) {
             throw new ChannelUnavailableException(ChannelUnavailableException::ACCOUNT_OFF, 'This channel account is disabled; nothing was sent.');
+        }
+        // H2-12: a PER-MARKET stop, which the chain had no notion of -- the only stops were global and per account, so a paused country
+        // went on publishing prices and confirming shipments on three marketplaces. Read here, with the account's other gates, because
+        // this is the one place every call passes and because a run that has been holding the account for an hour must still stop at the
+        // next call after somebody pauses a market.
+        $stopped = $this->marketStop->reasonFor($account);
+        if ($stopped !== null) {
+            throw new ChannelUnavailableException(ChannelUnavailableException::MARKET_STOPPED, $stopped);
         }
 
         $kind = ChannelOperations::kindOf($operation, $method);
