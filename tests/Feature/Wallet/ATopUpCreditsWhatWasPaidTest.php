@@ -149,6 +149,49 @@ class ATopUpCreditsWhatWasPaidTest extends TestCase
         $this->assertSame(375.0, round((float) Convert::default($stored), 2), 'so putting the stored figure back into riyals gives 375 for a 100 riyal payment');
     }
 
+    /**
+     * NOT ENDORSED, and a defect of its own that nothing had recorded: the credit of a top-up is cut to the number of decimals
+     * the operator chose to DISPLAY amounts with.
+     *
+     * The hook converts the payment into the default currency and the writer converts it back (`usdToDefaultCurrency` then
+     * `Convert::usd` inside `create_wallet_transaction`), which is the double conversion E04-F05 names. The pair is an exact
+     * identity at `decimal_point_settings` of 2, because `payment_requests.payment_amount` is `decimal(24,2)` and there is
+     * nothing finer to lose -- which is why this has never shown. The admin field's minimum is 0
+     * (resources/views/admin-views/business-settings/website-info.blade.php:388), and at 0 the floor in the middle of the
+     * pair takes the halalas off every top-up: a customer charged 100.50 riyals is credited 100.
+     *
+     * It is measured and not fixed here. The figure the writer rounds is the same figure both point-of-sale tills, the admin
+     * panel and the checkout debit hand it, `amountInUsd` changes what it rounds and what it compares the balance at, and
+     * what a stored unit is worth is open financial decision 1. A repair that moves one of those four writers and not the
+     * others would be worse than the defect.
+     */
+    public function test_current_behaviour_a_top_up_loses_the_halalas_when_the_operator_displays_no_decimals(): void
+    {
+        DB::table('business_settings')->updateOrInsert(['type' => 'decimal_point_settings'], ['value' => '0', 'updated_at' => now()]);
+        Cache::flush();
+        session()->flush();
+
+        add_fund_to_wallet_success($this->aPaidTopUp(customer: $this->customer, amount: 100.5));
+
+        $this->assertSame(
+            100.0,
+            round((float) DB::table('users')->where('id', $this->customer)->value('wallet_balance'), 2),
+            'the customer was charged 100.50 and the account holds 100: the display setting took fifty halalas',
+        );
+    }
+
+    /** The same payment at the two decimals the platform runs on, which is the control: nothing is lost. */
+    public function test_at_two_decimals_the_same_payment_keeps_its_halalas(): void
+    {
+        DB::table('business_settings')->updateOrInsert(['type' => 'decimal_point_settings'], ['value' => '2', 'updated_at' => now()]);
+        Cache::flush();
+        session()->flush();
+
+        add_fund_to_wallet_success($this->aPaidTopUp(customer: $this->customer, amount: 100.5));
+
+        $this->assertSame(100.5, round((float) DB::table('users')->where('id', $this->customer)->value('wallet_balance'), 2));
+    }
+
     /** A customer of their own per amount, so each credit is read from an account that started at nothing. */
     private function aCustomerFor(float $amount): int
     {

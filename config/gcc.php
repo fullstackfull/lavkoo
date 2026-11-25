@@ -558,6 +558,22 @@ return [
         // Changing it changes what a customer is paid for points they already hold, in one direction or the other, so it is the owner's
         // decision and nobody else's: docs/gcc/OPEN-FINANCIAL-DECISIONS.md section 1. An unrecognised value is read as the default.
         'point_value' => env('GCC_LOYALTY_POINT_VALUE', App\Services\Loyalty\WhatAPointIsWorth::AS_EACH_PATH_DOES_TODAY),
+
+        // What happens when a refund takes back more points than the customer still holds (E-14). Today the balance goes
+        // NEGATIVE: both writers check a `point_to_wallet` debit against the balance and neither checks a `refund_order`
+        // debit at all, so a customer holding 10 points whose order is refunded for 30 ends on -20 and the next order they
+        // place starts by paying that off. The criterion itself names the three answers and says the choice is the owner's.
+        //
+        //   'allow_as_today'  the default: the debit is written in full and the balance goes negative, to the point
+        //   'refuse'          the points row is refused and nothing is written; the refund's MONEY is unaffected
+        //   'clamp_to_zero'   the refund takes what is there and no more, and the row records the debit actually taken
+        //
+        // It decides what a customer owes for points they have already spent, so it is the owner's and nobody else's:
+        // docs/gcc/OPEN-FINANCIAL-DECISIONS.md section 5. An unrecognised value is read as the default.
+        'when_a_refund_would_take_points_below_zero' => env(
+            'GCC_REFUND_POINTS_BELOW_ZERO',
+            App\Services\Loyalty\WhenARefundWouldTakePointsBelowZero::ALLOW_AS_TODAY,
+        ),
     ],
 
     'payments' => [
