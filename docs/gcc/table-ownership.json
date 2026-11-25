@@ -331,9 +331,9 @@
       "why": "an inbound event is stored before its owner is known; the attempt it dedupes to carries the storefront"
     },
     "notification_channel_profiles": {
-      "scope": "country",
-      "by": "country, empty string for the platform-wide row",
-      "why": "I1-01, I1-02: the account a market's messages leave through, one per channel and country. EMPTY STRING rather than NULL for the row that belongs to no country in particular, because MySQL counts two NULLs as different in a unique key and a channel could then have two platform-wide accounts; the column is ascii_bin on a real engine so a stored `kw` is never read as `KW`. The table ships empty and its readers are off unless GCC_NOTIFICATION_PROFILES is on."
+      "scope": "storefront",
+      "by": "country",
+      "why": "I1-01, I1-02: the account a market's messages leave through, one per channel and country. The shared account every market falls back to is the row whose `country` is the EMPTY STRING -- the convention integration_settings already uses for the carriers (H1-11) -- and it is not a seventh market: MySQL counts two NULLs as different in a unique key, so a NULL there would let a channel have two platform-wide accounts. The column is ascii_bin on a real engine so a stored `kw` is never read as `KW`. The table ships empty and its readers are off unless GCC_NOTIFICATION_PROFILES is on."
     },
     "notification_messages": {
       "scope": "inherited"
