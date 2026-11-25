@@ -96,12 +96,18 @@ class Helpers
         return $config;
     }
 
+    /**
+     * The shipping methods on offer, narrowed to the storefront being served (H1-14).
+     *
+     * `forStorefront` narrows nothing while storefronts are off or before the migration has run, so a one-market
+     * platform is offered exactly what it was offered before, by the same query.
+     */
     public static function getShippingMethods($seller_id, $type)
     {
         if ($type == 'admin') {
-            return ShippingMethod::where(['status' => 1])->where(['creator_type' => 'admin'])->get();
+            return ShippingMethod::where(['status' => 1])->where(['creator_type' => 'admin'])->forStorefront()->get();
         } else {
-            return ShippingMethod::where(['status' => 1])->where(['creator_id' => $seller_id, 'creator_type' => $type])->get();
+            return ShippingMethod::where(['status' => 1])->where(['creator_id' => $seller_id, 'creator_type' => $type])->forStorefront()->get();
         }
     }
 

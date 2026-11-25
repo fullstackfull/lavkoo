@@ -864,15 +864,15 @@ class CartManager
         $sellerShippingList = null;
         if ($shippingMethod == 'inhouse_shipping') {
             $shippingType = isset($adminShipping) ? $adminShipping->shipping_type : 'order_wise';
-            $sellerShippingList = $shippingType == 'order_wise' ? ShippingMethod::where(['status' => 1])->where(['creator_type' => 'admin'])->get() : null;
+            $sellerShippingList = $shippingType == 'order_wise' ? ShippingMethod::where(['status' => 1])->where(['creator_type' => 'admin'])->forStorefront()->get() : null;
         } else {
             if ($product['added_by'] == 'admin') {
                 $shippingType = isset($adminShipping) ? $adminShipping->shipping_type : 'order_wise';
-                $sellerShippingList = $shippingType == 'order_wise' ? ShippingMethod::where(['status' => 1])->where(['creator_type' => 'admin'])->get() : null;
+                $sellerShippingList = $shippingType == 'order_wise' ? ShippingMethod::where(['status' => 1])->where(['creator_type' => 'admin'])->forStorefront()->get() : null;
             } else {
                 $sellerShipping = ShippingType::where('seller_id', $product['user_id'])->first();
                 $shippingType = isset($sellerShipping) ? $sellerShipping->shipping_type : 'order_wise';
-                $sellerShippingList = ShippingMethod::where(['status' => 1])->where(['creator_id' => $product['user_id'], 'creator_type' => 'seller'])->get();
+                $sellerShippingList = ShippingMethod::where(['status' => 1])->where(['creator_id' => $product['user_id'], 'creator_type' => 'seller'])->forStorefront()->get();
             }
         }
 

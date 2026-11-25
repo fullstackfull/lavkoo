@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Models\Seller;
+use App\Services\Storefront\StorefrontShippingMethods;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
@@ -36,6 +38,9 @@ class ShippingMethod extends Model
         'cost',
         'duration',
         'status',
+        // The market this method belongs to (H1-14). Written only while storefronts are on AND the column
+        // exists; empty on every method of a one-market platform, which is read as the default storefront's.
+        'storefront_country',
     ];
 
     /**
@@ -51,5 +56,20 @@ class ShippingMethod extends Model
     public function seller():BelongsTo
     {
         return $this->belongsTo(Seller::class,'creator_id');
+    }
+
+    /**
+     * Only the methods of a storefront (H1-14).
+     *
+     * The rule lives in `App\Services\Storefront\StorefrontShippingMethods`, which narrows nothing while storefronts
+     * are off or before the migration has run, so a listing of a one-market platform is the listing it always was.
+     *
+     * @param Builder<self> $query
+     *
+     * @return Builder<self>
+     */
+    public function scopeForStorefront(Builder $query, ?string $country = null): Builder
+    {
+        return app(StorefrontShippingMethods::class)->narrow($query, $country);
     }
 }
