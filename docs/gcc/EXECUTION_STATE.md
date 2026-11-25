@@ -15,8 +15,8 @@ or financial control. A pending owner decision stops its own task, never the pro
 | repository | branch | tip | merged to main |
 |---|---|---|---|
 | `fullstackfull/lavkoo` | `gcc/development` | see `git log -1` | up to `ca4f68e0`, whose tree is byte-identical to `bc39790` -- the SHA CI run 655 proved green. Everything after it waits on a green run of its own |
-| `fullstackfull/lavkooapp` | `gcc/development` | see `git log -1` | up to `45ebfad`, whose tree is byte-identical to `0d91632` -- the SHA CI run 52 proved green (the customs-duty line at checkout) |
-| `fullstackfull/lavkooappseller` | `gcc/development` | see `git log -1` | up to `5fc4411`, whose tree is byte-identical to `596ed26` -- the SHA CI run 52 proved green |
+| `fullstackfull/lavkooapp` | `gcc/development` | see `git log -1` | up to `0981b9d`, whose tree is byte-identical to `c6d8ea6` -- the SHA CI run 54 proved green (the central address catalogue client, J-14) |
+| `fullstackfull/lavkooappseller` | `gcc/development` | see `git log -1` | up to `d948b49`, whose tree is byte-identical to `fecce0b` -- the SHA CI run 56 proved green (the Super Admin health screen, L-09) |
 
 The customer app's CI has no `workflow_dispatch`: it runs on a push to `gcc/**`, so every push to that branch is its own
 run and no dispatch is needed. The backend's runs ONLY on dispatch for a branch, so a push there has to be followed by
