@@ -93,6 +93,74 @@ class HealthTest extends PlatformAdminTestCase
         $this->assertSame(4, $total, 'the wallet top-up is not counted in any market, nor in the unattributed bucket');
     }
 
+    /**
+     * The cost reconciliations nobody has settled, by the market the cost belongs to.
+     *
+     * A backlog rather than a window: a variance from last month that nobody has accepted is still money the platform cannot account for, so this figure
+     * does not fall when the window moves. The states a person has reached -- matched, resolved, disputed -- are not breaks; a dispute is open with the
+     * supplier, not on this platform's desk.
+     */
+    /**
+     * The company that sells in a market, from `legal_entities`, which is keyed by country.
+     *
+     * Not the one configured platform-wide: repeating that under every market would say six markets are sold by one company, which is the opposite of the
+     * plan's decision that each country has its own.
+     */
+    public function test_each_market_names_its_own_selling_company_and_the_unattributed_row_names_none(): void
+    {
+        $this->giveLegalEntities();
+
+        $body = $this->health()->json('data');
+        $markets = collect($body['markets'])->keyBy('market');
+
+        $this->assertSame('Lavkoo Trading Company', $markets['SA']['legal_entity']);
+        $this->assertSame('Lavkoo Kuwait', $markets['KW']['legal_entity']);
+        $this->assertNull($markets['AE']['legal_entity'], 'a market with no company recorded says so rather than borrowing one');
+        $this->assertNull($body['unattributed']['legal_entity'], 'rows nobody attributed belong to no company');
+    }
+
+    public function test_the_unsettled_reconciliations_are_counted_by_the_market_of_the_cost(): void
+    {
+        $this->giveReconciliations();
+
+        $body = $this->health()->json('data');
+        $markets = collect($body['markets'])->keyBy('market');
+
+        $this->assertSame(2, $markets['SA']['payments']['reconciliation_breaks'], 'the variance and the unmatched invoice of the Saudi order');
+        $this->assertSame(1, $markets['KW']['payments']['reconciliation_breaks'], 'the Kuwaiti channel account\'s');
+        $this->assertSame(0, $markets['AE']['payments']['reconciliation_breaks']);
+        $this->assertSame(1, $body['unattributed']['payments']['reconciliation_breaks'], 'a cost with neither an account nor an order');
+    }
+
+    public function test_a_reconciliation_somebody_has_settled_is_not_a_break(): void
+    {
+        $this->giveReconciliations();
+        DB::table('operational_cost_reconciliations')->where('status', 'variance')->update(['status' => 'resolved']);
+
+        $markets = collect($this->health()->json('data.markets'))->keyBy('market');
+
+        $this->assertSame(1, $markets['SA']['payments']['reconciliation_breaks'], 'the unmatched invoice is still a break');
+    }
+
+    public function test_a_dispute_is_open_with_the_supplier_and_not_a_break_here(): void
+    {
+        $this->giveReconciliations();
+        DB::table('operational_cost_reconciliations')->update(['status' => 'disputed']);
+
+        $body = $this->health()->json('data');
+
+        $this->assertSame(0, collect($body['markets'])->sum(fn (array $market): int => $market['payments']['reconciliation_breaks']));
+        $this->assertSame(0, $body['unattributed']['payments']['reconciliation_breaks']);
+    }
+
+    public function test_the_answer_says_that_the_reconciliation_figure_is_a_backlog(): void
+    {
+        $means = $this->health()->json('data.means');
+
+        $this->assertStringContainsString('BACKLOG', $means['payments.reconciliation_breaks']);
+        $this->assertStringContainsString('does not fall when the window moves', $means['payments.reconciliation_breaks']);
+    }
+
     public function test_the_integrations_of_each_market_report_their_accounts_failures_and_lateness(): void
     {
         $markets = collect($this->health()->json('data.markets'))->keyBy('market');
@@ -261,6 +329,80 @@ class HealthTest extends PlatformAdminTestCase
                     'transaction_id' => 'txn-' . $id, 'created_at' => $when, 'updated_at' => $when,
                 ],
             );
+        }
+    }
+
+    /**
+     * Four unsettled reconciliations and one settled: two of a Saudi order, one of a Kuwaiti channel account, one of a cost that names neither.
+     *
+     * The cost entry tables have migrations of their own, which the platform-admin world does not run.
+     */
+    private function giveReconciliations(): void
+    {
+        if (!Schema::hasTable('operational_cost_entries')) {
+            (require database_path('migrations/2026_11_07_100000_create_operational_cost_tables.php'))->up();
+            (require database_path('migrations/2026_11_09_100300_add_basis_to_operational_cost_reconciliations.php'))->up();
+        }
+
+        $kuwaitiAccount = (int) DB::table('sales_channel_accounts')->where('market', 'KW')->value('id');
+
+        $entries = [];
+
+        foreach ([
+            ['account_id' => null, 'order_id' => 901],
+            ['account_id' => null, 'order_id' => 902],
+            ['account_id' => $kuwaitiAccount, 'order_id' => null],
+            ['account_id' => null, 'order_id' => null],
+        ] as $index => $link) {
+            $entries[] = DB::table('operational_cost_entries')->insertGetId($link + [
+                'seller_id' => 0,
+                'dedupe_key' => 'entry-' . $index,
+                'slot_key' => 'slot',
+                'subject_type' => 'order',
+                'subject_id' => 1,
+                'variant_key' => '',
+                'period_date' => now()->toDateString(),
+                'cost_component' => 'shipping',
+                'cost_class' => 'direct',
+                'state' => 'estimated',
+                'currency' => 'SAR',
+                'source' => 'estimate',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
+        foreach ([
+            [$entries[0], 'variance'],
+            [$entries[1], 'unmatched_invoice'],
+            [$entries[2], 'unmatched_estimate'],
+            [$entries[3], 'variance'],
+        ] as $index => [$entryId, $status]) {
+            DB::table('operational_cost_reconciliations')->insert([
+                'invoice_item_id' => $index + 1,
+                'estimated_entry_id' => $entryId,
+                'status' => $status,
+                'currency' => 'SAR',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+    }
+
+    /** The selling company of two of the six markets; the other four have none recorded. */
+    private function giveLegalEntities(): void
+    {
+        if (!Schema::hasTable('legal_entities')) {
+            (require database_path('migrations/2026_11_27_100000_create_legal_entities_table.php'))->up();
+        }
+
+        foreach ([['SA', 'Lavkoo Trading Company'], ['KW', 'Lavkoo Kuwait']] as [$country, $name]) {
+            DB::table('legal_entities')->insert([
+                'country' => $country,
+                'legal_name' => $name,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
         }
     }
 

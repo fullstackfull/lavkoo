@@ -2,6 +2,7 @@
 
 namespace App\Services\PlatformAdmin;
 
+use App\Models\OperationalCostReconciliation;
 use App\Services\Fulfillment\Contracts\ProviderIdentity;
 use App\Services\Fulfillment\ProviderRegistry;
 use App\Services\Fulfillment\ProviderStorefrontCountry;
@@ -47,6 +48,13 @@ final class PlatformHealthService
     /** The column an order keeps its market in. */
     private const MARKET_COLUMN = 'storefront_country';
 
+    /** The reconciliation states somebody has reached, none of which is a break. A dispute is open with the supplier, not on this platform's desk. */
+    private const SETTLED_RECONCILIATIONS = [
+        OperationalCostReconciliation::MATCHED,
+        OperationalCostReconciliation::RESOLVED,
+        OperationalCostReconciliation::DISPUTED,
+    ];
+
     public function __construct(
         private readonly PlatformMarkets $markets,
         private readonly ProviderRegistry $carriers,
@@ -58,6 +66,7 @@ final class PlatformHealthService
     public function build(MarketSelection $selection, PlatformWindow $window): array
     {
         $stuck = $this->stuckPaymentsByMarket(window: $window);
+        $breaks = $this->reconciliationBreaksByMarket();
         $syncs = $this->channelSyncByMarket(window: $window);
         $carriers = $this->carrierSyncByMarket(window: $window);
 
@@ -69,23 +78,24 @@ final class PlatformHealthService
             'freshness' => ['mode' => 'live', 'cached' => false],
             'means' => $this->whatTheFiguresMean(),
             'markets' => array_map(
-                fn (string $market): array => $this->healthOf(market: $market, stuck: $stuck, syncs: $syncs, carriers: $carriers),
+                fn (string $market): array => $this->healthOf(market: $market, stuck: $stuck, breaks: $breaks, syncs: $syncs, carriers: $carriers),
                 $selection->markets,
             ),
             'unattributed' => $selection->includesUnattributed
-                ? $this->healthOf(market: null, stuck: $stuck, syncs: $syncs, carriers: $carriers) + ['reason' => 'no_market_recorded']
+                ? $this->healthOf(market: null, stuck: $stuck, breaks: $breaks, syncs: $syncs, carriers: $carriers) + ['reason' => 'no_market_recorded']
                 : null,
         ];
     }
 
     /**
      * @param array<string, int> $stuck
+     * @param array<string, int> $breaks
      * @param array<string, array{accounts: int, failing: int, late: int, last_success_at: ?string}> $syncs
      * @param array<string, array{connections: int, failing: int, late: int, last_success_at: ?string}> $carriers
      *
      * @return array<string, mixed>
      */
-    private function healthOf(?string $market, array $stuck, array $syncs, array $carriers): array
+    private function healthOf(?string $market, array $stuck, array $breaks, array $syncs, array $carriers): array
     {
         $key = $market ?? '';
         $sync = $syncs[$key] ?? ['accounts' => 0, 'failing' => 0, 'late' => 0, 'last_success_at' => null];
@@ -93,8 +103,11 @@ final class PlatformHealthService
 
         return [
             'market' => $market,
-            'legal_entity' => $market === null ? null : $this->markets->legalEntity(),
-            'payments' => ['stuck_attempts' => $stuck[$key] ?? 0],
+            'legal_entity' => $this->legalEntityOf(market: $market),
+            'payments' => [
+                'stuck_attempts' => $stuck[$key] ?? 0,
+                'reconciliation_breaks' => $breaks[$key] ?? 0,
+            ],
             'integrations' => [
                 'channels' => [
                     'accounts' => $sync['accounts'],
@@ -172,6 +185,84 @@ final class PlatformHealthService
         }
 
         return $health;
+    }
+
+    /**
+     * The cost reconciliations that are not settled, by the market the cost belongs to.
+     *
+     * A BREAK is a reconciliation whose state is not one somebody has closed: a variance nobody has accepted, an invoice line with no estimate behind it,
+     * an estimate with no invoice line against it. `matched`, `resolved` and `disputed` are all states a person has reached -- a dispute is open with the
+     * supplier, not open on this platform's desk -- so none of them is a break.
+     *
+     * The window does NOT bound this one, and that is on purpose: a reconciliation break does not age out of being a break. A variance from last month that
+     * nobody has accepted is still money this platform cannot account for, and dropping it out of the figure when the window moved would make the number
+     * fall by itself. Every other figure here is about a window; this one is about a backlog, and the sentence beside it says so.
+     *
+     * The market comes from the cost entry the reconciliation is for: its sales-channel account carries one, and its order carries one. An entry with
+     * neither is counted apart, never as the default market.
+     *
+     * @return array<string, int>
+     */
+    private function reconciliationBreaksByMarket(): array
+    {
+        if (!Schema::hasTable('operational_cost_reconciliations') || !Schema::hasTable('operational_cost_entries')) {
+            return [];
+        }
+
+        $counts = [];
+
+        $rows = DB::table('operational_cost_reconciliations as r')
+            ->leftJoin('operational_cost_entries as e', 'e.id', '=', 'r.estimated_entry_id')
+            ->whereNotIn('r.status', self::SETTLED_RECONCILIATIONS)
+            ->select(['e.account_id', 'e.order_id'])
+            ->get();
+
+        foreach ($rows as $row) {
+            $key = $this->marketKeyOf($this->marketOfCostEntry($row));
+            $counts[$key] = ($counts[$key] ?? 0) + 1;
+        }
+
+        return $counts;
+    }
+
+    /**
+     * The legal company that sells in this market, as `legal_entities` records it (D1-03).
+     *
+     * Named here rather than taken from `gcc.storefronts.legal.legal_entity`, which is ONE value for the whole platform: repeating it under every market
+     * would say that six markets are sold by one company, which is the opposite of the plan's own decision that each country has a selling company of
+     * its own. A market with no entity recorded answers null, and so does the unattributed row -- rows nobody attributed belong to no company.
+     */
+    private function legalEntityOf(?string $market): ?string
+    {
+        if ($market === null || !Schema::hasTable('legal_entities')) {
+            return null;
+        }
+
+        $name = DB::table('legal_entities')->where('country', $market)->value('legal_name');
+
+        return is_string($name) && trim($name) !== '' ? trim($name) : null;
+    }
+
+    /** The market a cost entry belongs to: its sales-channel account's, or its order's, or none. */
+    private function marketOfCostEntry(object $entry): ?string
+    {
+        $account = $entry->account_id ?? null;
+
+        if ($account !== null && Schema::hasTable('sales_channel_accounts')) {
+            $market = DB::table('sales_channel_accounts')->where('id', $account)->value('market');
+
+            if ($market !== null && trim((string) $market) !== '') {
+                return (string) $market;
+            }
+        }
+
+        $order = $entry->order_id ?? null;
+
+        if ($order !== null && Schema::hasTable('orders') && Schema::hasColumn('orders', self::MARKET_COLUMN)) {
+            return DB::table('orders')->where('id', $order)->value(self::MARKET_COLUMN);
+        }
+
+        return null;
     }
 
     /**
@@ -262,6 +353,7 @@ final class PlatformHealthService
     private function whatTheFiguresMean(): array
     {
         return [
+            'payments.reconciliation_breaks' => 'cost reconciliations nobody has settled -- a variance not accepted, an invoice line with no estimate, an estimate with no invoice line. A BACKLOG and not a window: one from last month is still money this platform cannot account for, so this figure does not fall when the window moves',
             'payments.stuck_attempts' => 'started, never confirmed, and older than ' . self::STUCK_AFTER_MINUTES . ' minutes; a shopper who closed the tab leaves the same row, so watch it for a change rather than reading it as failures',
             'integrations.channels.failing_resources' => 'resources that have failed ' . self::FAILING_AFTER_ATTEMPTS . ' times in a row',
             'integrations.channels.late_resources' => 'resources with no success inside this window',
