@@ -42,7 +42,7 @@ class AuthorizationMatrixTest extends PlatformAdminTestCase
 
     public function test_a_valid_token_is_accepted_by_every_route_that_only_reads(): void
     {
-        $admin = $this->platformAdmin();
+        $admin = $this->platformAdminWithEveryCapability();
         $token = $this->mintToken($admin);
         $reads = array_filter($this->platformRoutes(), static fn ($route): bool => in_array('GET', $route->methods(), true));
         $this->assertNotEmpty($reads);

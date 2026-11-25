@@ -17,6 +17,8 @@ use Illuminate\Support\Str;
  */
 trait BuildsMyFatoorahSchema
 {
+    use BuildsPaymentRequestsTable;
+
     use RefusesToTouchALiveDatabase;
 
     protected function buildMyFatoorahSchema(): void
@@ -38,28 +40,7 @@ trait BuildsMyFatoorahSchema
             $t->timestamps();
         });
 
-        // The gateway-agnostic payment ledger every gateway in this codebase writes to.
-        Schema::dropIfExists('payment_requests');
-        Schema::create('payment_requests', function (Blueprint $t): void {
-            $t->string('id', 36)->primary();
-            $t->string('payer_id')->nullable();
-            $t->string('receiver_id')->nullable();
-            $t->decimal('payment_amount', 24, 2)->default(0);
-            $t->string('currency_code', 8)->nullable();
-            $t->string('payment_method')->nullable();
-            $t->string('success_hook')->nullable();
-            $t->string('failure_hook')->nullable();
-            $t->text('additional_data')->nullable();
-            $t->text('payer_information')->nullable();
-            $t->text('receiver_information')->nullable();
-            $t->text('external_redirect_link')->nullable();
-            $t->string('attribute')->nullable();
-            $t->string('attribute_id')->nullable();
-            $t->string('payment_platform')->nullable();
-            $t->boolean('is_paid')->default(false);
-            $t->string('transaction_id')->nullable();
-            $t->timestamps();
-        });
+        $this->createPaymentRequestsTable(fresh: true);
 
         if (!Schema::hasTable('currencies')) {
             Schema::create('currencies', function (Blueprint $t): void {

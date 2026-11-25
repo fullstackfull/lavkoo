@@ -83,12 +83,23 @@ the shelf of the market that SOLD it and records the currency the customer paid 
 the whole way -- checkout, decision, duty quote, dispatch, return, shelf -- because two tests that each assume the
 other's half prove no span.
 
-1. **H1-11** — carrier adapters open to other countries (4 missing), the largest remaining H1 gap. **H1-14** — local
-   shipping rules belong to a storefront and are never inherited (3 missing).
-2. **H1-02 remainder** — filtering candidate cities by the country of OUR city. Blocked on H1-10 / the address system
+Done since: **H1-11's first three criteria**. The closed `ProviderCode` enum is no longer the gate -- a carrier is one
+adapter class plus one configuration entry, resolved by `ProviderRegistry` through a `ProviderIdentity` the enum
+implements, so all 827 places that name a case are untouched. The same pass fixed the H1-13 family of defect again: the
+four places that tell a carrier where a parcel goes were asking which market SOLD the order.
+
+Done since: **L-09's endpoint**, its capability and two of its four signals. Nothing in the tracker's count moves, because each of its
+criteria names more signals than are built -- which is the honest record and is written out in the card.
+
+1. **H1-11's remainder** — one carrier code serving two countries with separate credentials (`integration_settings` is
+   unique on `provider` alone, so it needs a row keyed by code AND country). Delivery Syria waits on H1-14.
+2. **H1-14** — local shipping rules belong to a storefront and are never inherited (3 missing).
+3. **H1-02 remainder** — filtering candidate cities by the country of OUR city. Blocked on H1-10 / the address system
    going multi-country; recorded as blocked rather than faked.
-3. **H2-06, H2-07 and H2-10** are the largest remaining gaps in H2 (the marketplace integrations).
-4. Then the axes with the most missing, by dependency rather than by ease: L (GCC-20 super admin), K and J (the two
+4. **L-09's remaining signals** — the carrier half (`provider_sync_states` already carries the figures; it needs the provider mapped to a
+   market), then reconciliation breaks, then staff and seller issues, then an alert per signal.
+5. **H2-06, H2-07 and H2-10** are the largest remaining gaps in H2 (the marketplace integrations).
+6. Then the axes with the most missing, by dependency rather than by ease: L (GCC-20 super admin), K and J (the two
    apps), B, F, G.
 
 ## Rules this work follows, learned the hard way

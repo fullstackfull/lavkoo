@@ -20,6 +20,7 @@ class CapabilitiesTest extends PlatformAdminTestCase
         'platform_admin.markets.view' => 'markets',
         'platform_admin.alerts.view' => 'alerts',
         'platform_admin.audit_logs.view' => 'audit',
+        'platform_admin.health.view' => 'health',
         'platform_admin.sessions.list' => 'sessions',
         'platform_admin.sessions.end_others' => 'sessions',
         'platform_admin.session.revoke' => 'sessions',
@@ -88,21 +89,54 @@ class CapabilitiesTest extends PlatformAdminTestCase
         }
     }
 
-    public function test_a_grant_with_every_capability_or_none_named_is_refused_nothing(): void
+    public function test_a_grant_that_names_every_capability_is_refused_nothing(): void
     {
         $this->mintToken($this->platformAdmin());
-        $everything = $this->mintToken($this->platformAdmin());
-        $explicit = $this->mintToken($this->platformAdmin(grantOverrides: ['capabilities' => json_encode(PlatformAdminGrant::CAPABILITIES)]));
+        $token = $this->mintToken($this->platformAdmin(grantOverrides: ['capabilities' => json_encode(PlatformAdminGrant::CAPABILITIES)]));
 
-        foreach ([$everything, $explicit] as $token) {
-            foreach ($this->routesToWalk() as $route) {
-                [$method, $uri] = $this->requestTo($route);
+        foreach ($this->routesToWalk() as $route) {
+            [$method, $uri] = $this->requestTo($route);
 
-                $status = $this->json($method, $uri, [], $this->bearer($token))->getStatusCode();
+            $status = $this->json($method, $uri, [], $this->bearer($token))->getStatusCode();
 
-                $this->assertNotContains($status, [401, 403], "{$method} {$uri}");
+            $this->assertNotContains($status, [401, 403], "{$method} {$uri}");
+        }
+    }
+
+    /**
+     * A grant that names NO capability has every one of them except those added after the first grant was made
+     * (`PlatformAdminGrant::NOT_GIVEN_BY_DEFAULT`).
+     *
+     * This used to be "refused nothing", and it was true while the list was fixed. It stopped being the rule the moment the list grew: a
+     * capability added to the code would otherwise have been given to every such grant retroactively, the moment it shipped. So the rule is
+     * written out here, both ways round -- the capabilities a naming-none grant does get, and the ones it does not -- because a silent widening
+     * of what an existing operator may read is exactly the kind of change that has to fail a test.
+     */
+    public function test_a_grant_that_names_no_capability_is_refused_exactly_the_ones_added_later(): void
+    {
+        $this->mintToken($this->platformAdmin());
+        $token = $this->mintToken($this->platformAdmin());
+        $refused = [];
+
+        foreach ($this->routesToWalk() as $route) {
+            [$method, $uri] = $this->requestTo($route);
+            $needs = self::CAPABILITY_OF[$route->getName()] ?? null;
+
+            $status = $this->json($method, $uri, [], $this->bearer($token))->getStatusCode();
+
+            $this->assertNotSame(401, $status, "{$method} {$uri}");
+
+            if ($status === 403) {
+                $refused[] = $needs;
             }
         }
+
+        $this->assertSame(
+            PlatformAdminGrant::NOT_GIVEN_BY_DEFAULT,
+            array_values(array_unique(array_filter($refused))),
+            'a grant naming no capability is refused exactly the capabilities that are not given by default',
+        );
+        $this->assertNotSame([], PlatformAdminGrant::NOT_GIVEN_BY_DEFAULT, 'if that list is ever emptied, this test must be rewritten rather than left to pass trivially');
     }
 
     /** @return array<string, array{string}> */

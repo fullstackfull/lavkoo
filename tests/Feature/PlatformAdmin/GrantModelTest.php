@@ -23,9 +23,27 @@ class GrantModelTest extends TestCase
         DB::table('admins')->insert(['id' => 7, 'name' => 'Owner', 'email' => 'owner@example.test', 'password' => 'x']);
     }
 
-    public function test_the_capabilities_that_exist_are_these_five_in_this_order(): void
+    public function test_the_capabilities_that_exist_are_these_six_in_this_order(): void
     {
-        $this->assertSame(['overview', 'markets', 'alerts', 'audit', 'sessions'], PlatformAdminGrant::CAPABILITIES);
+        $this->assertSame(['overview', 'markets', 'alerts', 'audit', 'sessions', 'health'], PlatformAdminGrant::CAPABILITIES);
+    }
+
+    /**
+     * Which of them a grant that names none does NOT get.
+     *
+     * The first five were there when the first grant was made, so naming none meant all of them and still does. `health` was added afterwards,
+     * and giving it to every existing grant the moment the code shipped would have widened what an operator may read without anybody deciding.
+     */
+    public function test_a_capability_added_after_the_first_grant_is_not_given_by_a_grant_that_names_none(): void
+    {
+        $this->assertSame(['health'], PlatformAdminGrant::NOT_GIVEN_BY_DEFAULT);
+        $this->assertSame([], array_diff(PlatformAdminGrant::NOT_GIVEN_BY_DEFAULT, PlatformAdminGrant::CAPABILITIES), 'a capability that is not given by default has to be a capability');
+
+        $namesNone = new PlatformAdminGrant();
+
+        $this->assertSame(['overview', 'markets', 'alerts', 'audit', 'sessions'], $namesNone->capabilityList());
+        $this->assertFalse($namesNone->allows(capability: 'health'));
+        $this->assertTrue($namesNone->allows(capability: 'overview'));
     }
 
     /** @return array<string, array{0: ?string, 1: list<string>}> */

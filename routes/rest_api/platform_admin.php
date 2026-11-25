@@ -3,6 +3,7 @@
 use App\Http\Controllers\RestAPI\PlatformAdmin\v1\AlertController;
 use App\Http\Controllers\RestAPI\PlatformAdmin\v1\AuditLogController;
 use App\Http\Controllers\RestAPI\PlatformAdmin\v1\AuthController;
+use App\Http\Controllers\RestAPI\PlatformAdmin\v1\HealthController;
 use App\Http\Controllers\RestAPI\PlatformAdmin\v1\MarketController;
 use App\Http\Controllers\RestAPI\PlatformAdmin\v1\MeController;
 use App\Http\Controllers\RestAPI\PlatformAdmin\v1\OverviewController;
@@ -38,5 +39,6 @@ Route::prefix('platform-admin/v1')->middleware('platform_admin')->name('platform
         Route::get('overview', OverviewController::class)->middleware('platform_admin_can:overview')->name('overview.view');
         Route::get('alerts', AlertController::class)->middleware('platform_admin_can:alerts')->name('alerts.view');
         Route::get('audit-logs', AuditLogController::class)->middleware('platform_admin_can:audit')->name('audit_logs.view');
+        Route::get('health', HealthController::class)->middleware('platform_admin_can:health')->name('health.view');
     });
 });

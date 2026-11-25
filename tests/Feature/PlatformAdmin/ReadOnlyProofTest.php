@@ -22,7 +22,7 @@ class ReadOnlyProofTest extends PlatformAdminTestCase
 
     public function test_reads_change_only_the_last_use_of_a_session_and_the_audit_trail(): void
     {
-        foreach ([$this->platformAdmin(), $this->platformAdmin(countries: ['KW'])] as $admin) {
+        foreach ([$this->platformAdminWithEveryCapability(), $this->platformAdminWithEveryCapability(countries: ['KW'])] as $admin) {
             $token = $this->mintToken($admin);
             $before = $this->snapshot();
             $statements = $this->statementsRunBy(function () use ($token): void {
