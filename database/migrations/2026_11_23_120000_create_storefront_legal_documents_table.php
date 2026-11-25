@@ -12,6 +12,10 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void
     {
+        if (Schema::hasTable('storefront_legal_documents')) {
+            return;
+        }
+
         Schema::create('storefront_legal_documents', function (Blueprint $table) {
             $table->id();
             $table->char('country_code', 2);

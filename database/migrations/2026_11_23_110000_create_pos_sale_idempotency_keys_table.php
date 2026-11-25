@@ -11,6 +11,10 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void
     {
+        if (Schema::hasTable('pos_sale_idempotency_keys')) {
+            return;
+        }
+
         Schema::create('pos_sale_idempotency_keys', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('seller_id');

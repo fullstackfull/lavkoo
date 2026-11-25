@@ -28,6 +28,13 @@ return new class extends Migration {
 
     public function up(): void
     {
+        // A run that stopped half way leaves the table behind and `migrate` runs this file again from the top: the table it already made is
+        // the one thing it must not make twice. The foreign key is attempted only with the table, so the deploy ends either with both or with
+        // the table and the warning below, which is the state the key being optional already allows for.
+        if (Schema::hasTable('platform_admin_grants')) {
+            return;
+        }
+
         Schema::create('platform_admin_grants', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('admin_id')->unique();

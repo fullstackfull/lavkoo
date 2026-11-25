@@ -12,6 +12,10 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void
     {
+        if (Schema::hasTable('platform_admin_audit_logs')) {
+            return;
+        }
+
         Schema::create('platform_admin_audit_logs', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('admin_id')->nullable()->index();

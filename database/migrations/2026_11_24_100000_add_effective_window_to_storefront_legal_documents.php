@@ -12,6 +12,10 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void
     {
+        if (!Schema::hasTable('storefront_legal_documents') || Schema::hasColumn('storefront_legal_documents', 'effective_from')) {
+            return;
+        }
+
         Schema::table('storefront_legal_documents', function (Blueprint $table) {
             $table->timestamp('effective_from')->nullable()->after('published_at');
             $table->timestamp('revoked_at')->nullable()->after('effective_from');

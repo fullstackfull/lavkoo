@@ -20,6 +20,10 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void
     {
+        if (Schema::hasTable('platform_admin_mfa_factors')) {
+            return;
+        }
+
         Schema::create('platform_admin_mfa_factors', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('admin_id')->unique();

@@ -29,7 +29,7 @@ class CiEveryTestDirectoryRunsOnARealEngineTest extends TestCase
         'tests/Feature/DeepLink' => 'resolves paths against configuration; it reads no table',
         'tests/Feature/ExampleTest.php' => 'the framework stub, skipped without the installation dump',
         'tests/Unit/ExampleTest.php' => 'the framework stub; no database',
-        'tests/Unit/Ci' => 'reads workflow and test files; no database',
+        'tests/Unit/Ci' => 'reads the workflow, the test files and the migration source; no database',
         'tests/Unit/Deploy' => 'deployment tooling on the file system; it needs strace and, once more, root, which only the SQLite job installs and runs',
     ];
 
