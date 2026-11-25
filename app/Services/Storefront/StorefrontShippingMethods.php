@@ -75,6 +75,27 @@ final class StorefrontShippingMethods
         return $this->rows->allRowsBelongTo(self::TABLE, $methodIds, $countries);
     }
 
+    /**
+     * Whether a market may be served by this method (H1-11's Delivery Syria criterion).
+     *
+     * The same decision as the listing, asked AFTER the fact: a market lists only methods that are its own, so a market being served by one
+     * that is not is an order that should not exist -- a stored id from before storefronts, or an id an API caller chose for itself. A courier
+     * hook that keys only on the method's NAME would dispatch such an order to a courier that does not serve that country at all.
+     *
+     * It answers TRUE whenever the question does not apply, because that is the platform as it is today: storefronts off, the column not
+     * there, or an order that records no market. Only a market that is recorded AND disagrees with the method's is refused.
+     */
+    public function mayBeUsedBy(int|string|null $methodId, ?string $market): bool
+    {
+        $country = strtoupper(trim((string) $market));
+
+        if ($methodId === null || $country === '' || !$this->applies()) {
+            return true;
+        }
+
+        return $this->allMethodsBelongTo(methodIds: [$methodId], countries: [$country]);
+    }
+
     public function forget(): void
     {
         $this->rows->forget();

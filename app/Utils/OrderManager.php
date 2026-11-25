@@ -66,6 +66,7 @@ use App\Services\Storefront\OneSellingCompanyPerOrder;
 
 
 use App\Services\DeliverySyria\DeliverySyriaConfigService;
+use App\Services\Storefront\StorefrontShippingMethods;
 use App\Services\Customer\CustomerWalletWriter;
 use App\Services\Shipping\OrderCustomsQuote;
 use App\Services\Shipping\OrderShippingDecision;
@@ -2073,6 +2074,27 @@ foreach ($orderPlacedIds as $deliverySyriaOrderId) {
          * الربط حسب name وليس ID حسب ما اتفقنا.
          */
         if ((string) $shippingMethod->name !== 'DeliverySyria') {
+            continue;
+        }
+
+        /*
+        | H1-11: a market is served only by a shipping method that belongs to it.
+        |
+        | Delivery Syria is a Syrian courier, and a Gulf order reaching this hook would be handed to a company that does not deliver in
+        | that country. A market lists only its own methods (H1-14), so such an order should not exist -- but an id stored before
+        | storefronts, or one an API caller chose for itself, would arrive here with nothing to stop it, because the test above is the
+        | method's NAME and says nothing about where the parcel is going.
+        |
+        | It refuses only a DISAGREEMENT: with storefronts off, before the market column exists, or for an order that records no market --
+        | which is every order of the platform as it stands -- this passes and the hook runs exactly as it always has.
+        */
+        if (!app(StorefrontShippingMethods::class)->mayBeUsedBy(methodId: $order->shipping_method_id, market: $order->storefront_country)) {
+            Log::warning('Delivery Syria: the order belongs to a market this shipping method does not', [
+                'order_id' => $order->id,
+                'shipping_method_id' => $order->shipping_method_id,
+                'market' => $order->storefront_country,
+            ]);
+
             continue;
         }
 
