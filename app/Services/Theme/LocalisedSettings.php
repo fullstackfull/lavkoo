@@ -2,6 +2,9 @@
 
 namespace App\Services\Theme;
 
+use App\Services\Storefront\MarketLanguage;
+use App\Services\Storefront\StorefrontCatalog;
+
 /**
  * One section, two languages, no second section.
  *
@@ -151,6 +154,34 @@ class LocalisedSettings
     }
 
     /** Tests swap languages mid-process; a memo that outlives the shop's language list lies. */
+    /**
+     * The language a visitor of the market in force may actually be served, or null when this market has no opinion (I1-16).
+     *
+     * **The rule that was missing, in the one place both callers can read it.** The website's language switch
+     * ({@see \App\Http\Controllers\SharedController::changeLanguage()}) and the API's `lang` header
+     * ({@see \App\Http\Middleware\APILocalizationMiddleware}) both checked the requested code against THE SHOP'S list -- the languages
+     * the installation has -- and never against the MARKET'S. So a visitor on a storefront whose operator had listed Arabic only could
+     * still switch it to English and be served an English page from a market that does not present English, and an app could ask for the
+     * same in a header. The market's list existed and nothing on either visitor path read it.
+     *
+     * Null means "this market names no list", which is every market today and every market while storefronts are off, and then the two
+     * callers keep exactly the answer they give now. A market WITH a list gets the requested locale when it presents it, and the market's
+     * own language when it does not -- never an empty answer, because a visitor who asked for something unavailable still has to be served
+     * a page.
+     */
+    public static function localeOfferedToVisitor(string $requested): ?string
+    {
+        $market = StorefrontCatalog::country();
+
+        if (MarketLanguage::listOf($market) === []) {
+            return null;
+        }
+
+        return MarketLanguage::presents(country: $market, locale: $requested)
+            ? $requested
+            : MarketLanguage::of($market);
+    }
+
     public static function forget(): void
     {
         self::$activeLocales = null;

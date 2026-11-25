@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Http\Requests\Admin\LanguageRequest;
+use App\Services\Theme\LocalisedSettings;
 use App\Utils\Helpers;
 use Closure;
 use Illuminate\Http\Request;
@@ -30,7 +31,13 @@ class APILocalizationMiddleware
         // letting an installed app fall out of its own language.
         $requested = ['sa' => 'ar', 'us' => 'en'][$requested] ?? $requested;
         $local = $requested !== '' ? $requested : Helpers::default_lang();
-        App::setLocale($this->resolveAgainstStoreLanguages(requested: $local));
+        $resolved = $this->resolveAgainstStoreLanguages(requested: $local);
+
+        // The store's languages are the INSTALLATION'S; the market's are a subset an operator chose (I1-16). An app could ask for a
+        // language its market does not present and be answered in it, which is the same hole the website's own switch had. The market's
+        // own language answers instead, and a market that names no list -- every market today -- keeps the answer resolved above.
+        App::setLocale(LocalisedSettings::localeOfferedToVisitor(requested: $resolved) ?? $resolved);
+
         return $next($request);
     }
 

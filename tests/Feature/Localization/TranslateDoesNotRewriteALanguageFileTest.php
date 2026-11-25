@@ -44,7 +44,7 @@ class TranslateDoesNotRewriteALanguageFileTest extends TestCase
      * `no_locale` is the worst case -- the key is absent everywhere, so every shop writes a file for it. The per-locale figures are
      * what one shop writes: a Saudi shop is short of `sa`, and that is the figure with the operational weight.
      */
-    private const BASELINE = ['no_locale' => 1327, 'en' => 1352, 'sa' => 4206, 'ae' => 1524];
+    private const BASELINE = ['no_locale' => 1311, 'en' => 1336, 'sa' => 4172, 'ae' => 1505];
 
     /**
      * The surfaces this programme wrote or extended, which must hold no such key at all.
@@ -80,6 +80,37 @@ class TranslateDoesNotRewriteALanguageFileTest extends TestCase
     /** Where a literal key can be written. */
     private const TREES = ['app', 'resources/views', 'resources/themes', 'Modules'];
 
+    /**
+     * Files whose message keys travel as VALUES rather than as the argument of `translate()`.
+     *
+     * The scan above cannot see these, and that blind spot cost 48 keys. The theme builder's readiness panel and its publish check hand
+     * a `reason_key` and a `fix_key` around as data and the Blade renders `translate($finding['reason_key'])`, so every one of them is a
+     * string an operator reads and NONE of them looks like a key to a scanner that matches `translate('literal')`. Measured when the
+     * coordinator sent three of them over: all 48 were missing from at least one locale, which is the whole diagnostic vocabulary a
+     * merchant reads before publishing a storefront, rewriting a language file as it rendered.
+     *
+     * Read as "every sentence-shaped literal in these files is a message key", which is true of them and is the only rule a scanner can
+     * apply to a value whose use is three files away.
+     */
+    private const KEYS_THAT_TRAVEL_AS_VALUES = [
+        'app/Services/Theme/ComponentCapabilityRegistry.php',
+        'app/Services/Theme/SectionReadiness.php',
+        'app/Services/Theme/PublishValidator.php',
+    ];
+
+    /**
+     * The sentence-shaped literals in those files that are NOT message keys, each with why.
+     *
+     * Six are section TYPES, which name a renderer rather than a sentence; two are internals. A list of exemptions is a list of excuses,
+     * so it is short, it is specific, and anything added to those files is covered by default.
+     */
+    private const NOT_A_MESSAGE_KEY = [
+        // Section types: the identifier of a renderer. The label an operator reads comes from the registry's own `label` field.
+        'brand_showcase', 'recently_viewed', 'trending_searches', 'interest_tiles', 'vendor_slider', 'shipping_cutoff',
+        // The prefix of an audit action, and a column name.
+        'theme_publish_check_', 'theme_version_id',
+    ];
+
     /** @var array<string, array<string, string>> */
     private array $catalogue = [];
 
@@ -106,6 +137,53 @@ class TranslateDoesNotRewriteALanguageFileTest extends TestCase
 
             $this->assertSame([], $missing, "these keys would make translate() rewrite resources/lang/{$locale}: " . implode(', ', $missing));
         }
+    }
+
+    /**
+     * The theme builder's readiness and publish-check vocabulary exists in all three locales.
+     *
+     * Zero, not a ratchet: these are the sentences a merchant reads to find out why a section will not appear, and this programme owns
+     * every one of them.
+     */
+    public function test_every_message_key_that_travels_as_a_value_exists_in_all_three_locales(): void
+    {
+        $keys = $this->sentenceShapedLiteralsIn(self::KEYS_THAT_TRAVEL_AS_VALUES);
+
+        $this->assertGreaterThan(40, count($keys), 'the scan found far fewer keys than these files hold: a file has moved or a shape changed');
+
+        foreach (self::LOCALES as $locale) {
+            $missing = $this->keysMissingFrom($keys, $locale);
+
+            $this->assertSame([], $missing, "a reason or fix key the builder renders is missing from resources/lang/{$locale}: " . implode(', ', $missing));
+        }
+    }
+
+    /**
+     * Every literal in these files long enough to be a sentence rather than an identifier, minus the ones that are not keys.
+     *
+     * @param list<string> $paths
+     * @return list<string>
+     */
+    private function sentenceShapedLiteralsIn(array $paths): array
+    {
+        $keys = [];
+
+        foreach ($this->filesUnder($paths) as $file) {
+            if (preg_match_all('/\x27([a-z][a-z0-9_]{12,})\x27/', (string) file_get_contents($file), $matches) === 0) {
+                continue;
+            }
+
+            foreach ($matches[1] as $key) {
+                if (!in_array($key, self::NOT_A_MESSAGE_KEY, true)) {
+                    $keys[$key] = true;
+                }
+            }
+        }
+
+        $found = array_keys($keys);
+        sort($found);
+
+        return $found;
     }
 
     public function test_the_number_of_keys_defined_in_no_locale_at_all_has_not_grown(): void

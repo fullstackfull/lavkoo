@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\Request;
 use App\Traits\ActivationClass;
+use App\Services\Theme\LocalisedSettings;
 use App\Utils\Helpers;
 use App\Models\BusinessSetting;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
@@ -24,6 +25,16 @@ class SharedController extends Controller
         $selectedLanguage = is_string($languageCode) ? collect(getWebConfig('language') ?? [])->firstWhere('code', $languageCode) : null;
         if (!$selectedLanguage) {
             return response()->json(['message' => translate('the_language_code_is_not_valid')], 422);
+        }
+
+        // And the MARKET has to present it, which this never asked (I1-16). The list above is the INSTALLATION'S languages, so a visitor
+        // on a storefront whose operator listed Arabic only could still switch it to English and read an English page from a market that
+        // does not offer English. The rule lives in one place because the API's `lang` header had the same hole.
+        // Null means this market names no list -- every market today and every market while storefronts are off -- and then this is the
+        // switch it has always been.
+        $offered = LocalisedSettings::localeOfferedToVisitor(requested: (string) $languageCode);
+        if ($offered !== null && $offered !== $languageCode) {
+            return response()->json(['message' => translate('this_market_does_not_present_that_language')], 422);
         }
 
         session()->forget('language_settings');
