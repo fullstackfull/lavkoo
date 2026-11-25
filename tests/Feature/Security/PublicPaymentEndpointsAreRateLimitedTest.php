@@ -69,6 +69,45 @@ class PublicPaymentEndpointsAreRateLimitedTest extends TestCase
         }
     }
 
+    /**
+     * The one case the two tests above cannot see: a gateway route registered OUTSIDE the `payment/` prefix.
+     *
+     * Both of them find their routes by that prefix, so a gateway whose routes are declared somewhere else -- another route
+     * file, another prefix, a module -- is simply not in their scope and they would stay green while it went unlimited. This
+     * one finds the routes by the controller NAMESPACE every gateway's controller lives in, which a new gateway's controller
+     * joins the day it is written, and it reads the middleware the router RESOLVES so a limit declared through a group or by
+     * class name counts as one.
+     *
+     * Public here means what it says: a route behind an authentication gate is bounded by that gate and by the `global`
+     * limiter, and is not what this is about.
+     */
+    public function test_a_gateway_endpoint_declared_outside_the_payment_prefix_is_limited_too(): void
+    {
+        $authentication = ['Illuminate\\Auth\\Middleware\\Authenticate', 'App\\Http\\Middleware\\AdminMiddleware', 'App\\Http\\Middleware\\SellerMiddleware'];
+        $unlimited = [];
+        $found = 0;
+
+        foreach (Route::getRoutes() as $route) {
+            if (!str_starts_with((string) $route->getActionName(), 'App\\Http\\Controllers\\Payment_Methods\\')) {
+                continue;
+            }
+
+            $resolved = array_filter(Route::resolveMiddleware($route->middleware(), $route->excludedMiddleware()), 'is_string');
+            if (array_intersect($authentication, array_map(static fn (string $middleware): string => strtok($middleware, ':'), $resolved)) !== []) {
+                continue;
+            }
+
+            $found++;
+            $throttled = array_filter($resolved, static fn (string $middleware): bool => str_starts_with($middleware, 'Illuminate\\Routing\\Middleware\\ThrottleRequests'));
+            if ($throttled === []) {
+                $unlimited[] = implode(',', $route->methods()) . ' /' . $route->uri();
+            }
+        }
+
+        $this->assertGreaterThanOrEqual(40, $found, 'the scan found ' . $found . ' gateway controller routes, which is too few for it to be reaching the gateway controllers at all');
+        $this->assertSame([], $unlimited, 'these gateway endpoints are public and unbounded');
+    }
+
     public function test_the_limiter_is_registered_and_counts_per_source_address_only(): void
     {
         $limiter = RateLimiter::limiter('public-payment-endpoints');
