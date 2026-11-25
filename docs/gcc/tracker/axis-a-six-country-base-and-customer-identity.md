@@ -771,7 +771,7 @@ PR 163 (DRAFT) head 1f1b80866b63d7f691e007f25252073c24596fed, base main c5c04b7b
 
 #### A2-V1. A local admin or employee of one market cannot see the customer's transactions of other markets with...
 
-- **State: DONE (3 of 3 criteria)**
+- **State: DONE (3 of 3 criteria)** | plan lines 355 | added by the independent verifier: the assessor of this unit omitted it | reviews: none
 - **(2) Functional requirement.** A local admin or employee of one market cannot see the customer's transactions of other markets without permission: orders, refunds and POS sales of other countries and per-customer counts in the admin screens, reports and exports, and the customer wallet and loyalty transaction screens
 - **(3) Exists now in code (main).** A2 has line 355 only as a cross_axis_note routed to unit G, but the unit's brief lists it, so it needs a requirement here (or G must carry it). Code exists in the GCC chain, default off behind GCC_STAFF_COUNTRY_SCOPES: PR 74 (712509a, products), PR 77 (81a2836, orders, POS, refunds), PR 82 (d1fc5f4, layout, people, dashboard, reports, header search); StaffCountryOrderScope on Order and StaffOrderVisibility (an order follows the countries of its lines). tests/Feature/StaffScope (25 files) ran green in PR 83 8ff3410 (Staff scope tests MySQL 8 and MariaDB 11.4.2, Tests SQLite). Gaps: the customer lists are not narrowed by design ('they belong to no country'); customers' wallet and loyalty reports and the wallet bonus tab carry no country and are not narrowed (PR 82 owner decision 15); money that cannot be told apart by country is hidden, not split. The code touches Admin/Order/OrderControll
 - **(4) Done in the draft PRs.** See the evidence note above.
