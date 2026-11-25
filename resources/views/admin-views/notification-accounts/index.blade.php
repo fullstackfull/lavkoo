@@ -63,6 +63,9 @@
                                             <th>{{ translate('channel') }}</th>
                                             <th>{{ translate('settings') }}</th>
                                             <th>{{ translate('secrets_stored') }}</th>
+                                            {{-- I1-09: an account can be configured, active and WRONG, and that used to read here exactly
+                                                 like a working one, because both senders swallowed their failure where it happened. --}}
+                                            <th>{{ translate('undelivered') }}</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -86,6 +89,15 @@
                                                         @endforeach
                                                     @else
                                                         <span class="text-muted">{{ translate('nothing_is_stored') }}</span>
+                                                    @endif
+                                                </td>
+                                                <td class="fs-12">
+                                                    @if (!($row['recording_attempts'] ?? false))
+                                                        <span class="text-muted">{{ translate('not_recorded_yet') }}</span>
+                                                    @elseif (($account['undelivered'] ?? 0) > 0)
+                                                        <span class="badge badge-soft-danger">{{ $account['undelivered'] }}</span>
+                                                    @else
+                                                        <span class="text-muted">0</span>
                                                     @endif
                                                 </td>
                                             </tr>
@@ -165,6 +177,48 @@
                     </div>
                 </div>
             @endforeach
+
+            {{-- The messages that used up the whole attempt budget and still did not go, narrowed to this employee's own markets. It
+                 names a template key and the provider's own words, and never an address: the log stores a digest of the recipient. --}}
+            @if (!empty($undelivered))
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">{{ translate('messages_that_were_never_delivered') }}</h5>
+                        </div>
+                        <div class="card-body p-0">
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th>{{ translate('storefront') }}</th>
+                                            <th>{{ translate('channel') }}</th>
+                                            <th>{{ translate('template') }}</th>
+                                            <th>{{ translate('recipient') }}</th>
+                                            <th>{{ translate('attempts') }}</th>
+                                            <th>{{ translate('provider_answer') }}</th>
+                                            <th>{{ translate('when') }}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach ($undelivered as $attempt)
+                                            <tr>
+                                                <td>{{ $attempt['storefront_country'] ?? translate('every_storefront') }}</td>
+                                                <td class="text-capitalize">{{ translate($attempt['channel']) }}</td>
+                                                <td class="fs-12">{{ $attempt['template_key'] }}</td>
+                                                <td class="fs-12 text-capitalize">{{ $attempt['recipient_type'] ?? '-' }}</td>
+                                                <td>{{ $attempt['attempt'] }}</td>
+                                                <td class="fs-12">{{ $attempt['provider_error'] ?? '-' }}</td>
+                                                <td class="fs-12">{{ $attempt['created_at'] ?? '-' }}</td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            @endif
         </div>
     </div>
 @endsection

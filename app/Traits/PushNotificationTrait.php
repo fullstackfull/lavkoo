@@ -2,7 +2,9 @@
 
 namespace App\Traits;
 
+use App\Services\Notification\NotificationAttemptLog;
 use App\Services\Notification\NotificationProfiles;
+use App\Services\Notification\SendsWithinABudget;
 use App\Services\Storefront\OrderNotificationContext;
 use App\Models\NotificationMessage;
 use App\Models\Order;
@@ -525,6 +527,34 @@ trait PushNotificationTrait
      * opposite case -- it really would send, from another company's sender number -- so those refuse instead of falling back.
      */
     protected function sendNotificationToHttp(array|null $data): bool|string|null
+    {
+        // Every attempt is stored and, where the operator has raised the budget, retried (I1-09). This method used to catch `Exception`
+        // and return false, so a market whose Firebase service account had been revoked sent nothing and told nobody: there was no row,
+        // no screen and no counter, and the only way to find out was for a customer to say the push never arrived. What FAILED is this
+        // channel's own judgement rather than an exception -- FCM answers an HTTP 401 for a revoked account without throwing anything --
+        // so the predicate below is what decides, and whatever it calls a failure is logged and retried as one.
+        return app(SendsWithinABudget::class)->send(
+            channel: NotificationAttemptLog::CHANNEL_PUSH,
+            templateKey: is_array($data) ? (string) ($data['message']['data']['type'] ?? 'push') : 'push',
+            recipientType: is_array($data) ? (isset($data['message']['topic']) ? 'topic' : 'device') : null,
+            sentTo: is_array($data) ? (string) ($data['message']['topic'] ?? $data['message']['token'] ?? '') : null,
+            send: fn (): mixed => $this->postOnePush($data),
+            succeeded: static fn (mixed $answer): bool => is_object($answer) && method_exists($answer, 'successful')
+                ? (bool) $answer->successful()
+                : $answer !== false && $answer !== null,
+        );
+    }
+
+    /**
+     * One attempt at the FCM call, exactly as it was before the budget was put in front of it -- except that it hands back the RESPONSE.
+     *
+     * `sendNotificationToHttp()` is declared `bool|string|null`, and PHP honours that by coercing the `Response` through `__toString()`
+     * into its body. So the status code of an FCM refusal has never left this trait: every caller has been handed a body string, and a 401
+     * for a revoked service account arrived looking exactly like a successful send. That is why the predicate above could not judge
+     * anything until this method's own return type stopped throwing the answer away. The public method keeps its declared type, so every
+     * existing caller is handed the same string it has always been handed.
+     */
+    private function postOnePush(array|null $data): mixed
     {
         try {
             $market = app(NotificationProfiles::class)->for(channel: NotificationProfiles::PUSH)?->credential('service_account');

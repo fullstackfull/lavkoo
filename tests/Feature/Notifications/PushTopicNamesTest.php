@@ -159,11 +159,20 @@ class PushTopicNamesTest extends ApiAddressTestCase
      * @param array<string, string> $sources
      * @return array<string, list<string>> the arguments of every call of the method as written (its own definition is not a call), by the file that calls it
      */
+    /**
+     * Every CALL of a method, with its arguments, by file.
+     *
+     * Comments are stripped first, and that is the point rather than a tidy-up: a docblock that EXPLAINS what `sendNotificationToHttp()`
+     * does names it in a shape the regex cannot tell from a call, so three files that send nothing to FCM -- the attempt log, the attempt
+     * budget and a comment in `config/gcc.php` -- were reported as senders, and the trait's own count rose by one for the docblock that
+     * says why its return type changed. A register of senders that a sentence can join is a register nobody can keep. What a file SAYS
+     * about the push service does not count; what it CALLS does.
+     */
     private function callsOf(string $method, array $sources): array
     {
         $calls = [];
         foreach ($sources as $file => $source) {
-            preg_match_all('/(?<!function )\b' . $method . '\s*(?<arguments>\((?:[^()]++|(?&arguments))*\))/', $source, $matches);
+            preg_match_all('/(?<!function )\b' . $method . '\s*(?<arguments>\((?:[^()]++|(?&arguments))*\))/', self::withoutComments($source), $matches);
             if ($matches['arguments'] !== []) {
                 $calls[$file] = array_map(static fn (string $arguments): string => trim((string) preg_replace('/\s+/', ' ', substr($arguments, 1, -1))), $matches['arguments']);
             }
@@ -171,6 +180,22 @@ class PushTopicNamesTest extends ApiAddressTestCase
         ksort($calls);
 
         return $calls;
+    }
+
+    /**
+     * A file's code with its comments taken out, and nothing else changed: every comment becomes a space, so offsets shift but no two
+     * tokens are joined into one.
+     */
+    private static function withoutComments(string $source): string
+    {
+        $code = '';
+        foreach (token_get_all($source) as $token) {
+            $code .= is_array($token)
+                ? (in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true) ? ' ' : $token[1])
+                : $token;
+        }
+
+        return $code;
     }
 
     /** @return array<string, string> source by path relative to the project, for every PHP file of the scanned directories */

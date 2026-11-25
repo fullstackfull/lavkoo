@@ -11779,4 +11779,10 @@ return [
 	'you_have_no_digital_products_in_your_order' => 'You have no digital products in your order',
 	'you_will_no_longer_receive_marketing_messages_of_this_kind' => 'You will no longer receive marketing messages of this kind',
 	'your_personal_code' => 'Your personal code',
+	'undelivered' => 'Undelivered',
+	'not_recorded_yet' => 'Not recorded yet',
+	'messages_that_were_never_delivered' => 'Messages that were never delivered',
+	'template' => 'Template',
+	'recipient' => 'Recipient',
+	'provider_answer' => 'Provider answer',
 ];

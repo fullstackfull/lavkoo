@@ -6437,4 +6437,10 @@ ____________________________________________________on_search_engines_and_see_th
 	'you_have_no_digital_products_in_your_order' => 'لا توجد منتجات رقمية في طلبك',
 	'you_will_no_longer_receive_marketing_messages_of_this_kind' => 'لن تتلقى بعد الآن رسائل تسويقية من هذا النوع',
 	'your_personal_code' => 'رمزك الشخصي',
+	'undelivered' => 'غير مُسلَّمة',
+	'not_recorded_yet' => 'لم يُسجَّل بعد',
+	'messages_that_were_never_delivered' => 'رسائل لم تُسلَّم أبداً',
+	'template' => 'القالب',
+	'recipient' => 'المستلم',
+	'provider_answer' => 'رد المزوّد',
 ];

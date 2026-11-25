@@ -613,6 +613,17 @@ return [
 
     'notifications' => [
         'profiles' => filter_var(env('GCC_NOTIFICATION_PROFILES', false), FILTER_VALIDATE_BOOLEAN),
+
+        // How many attempts ONE message gets (I1-09). It ships at 1 -- one attempt, no retry, which is exactly what this platform does
+        // today: `PushNotificationTrait::sendNotificationToHttp()` catches and returns false, and `EmailTemplateTrait`'s catch block is
+        // EMPTY, so a transient failure (an SMTP connection reset, an FCM 503, a token minted a second before it expired) simply lost the
+        // message. Raising it is the operator's decision; the first test asserts that at 1 nothing changed. Capped at 5, because a
+        // notification is often sent inside a web request.
+        'attempts' => (int) env('GCC_NOTIFICATION_ATTEMPTS', 1),
+
+        // Milliseconds to wait before each further attempt, multiplied by the attempt number. ZERO by default and deliberately: a backoff
+        // that holds a web request open is a worse failure than the one it is recovering from. A queue worker may set one.
+        'retry_delay_ms' => (int) env('GCC_NOTIFICATION_RETRY_DELAY_MS', 0),
     ],
 
     'loyalty' => [
