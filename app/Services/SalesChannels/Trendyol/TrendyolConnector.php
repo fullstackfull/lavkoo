@@ -25,6 +25,7 @@ use App\Services\SalesChannels\Data\ChannelResponse;
 use App\Services\SalesChannels\Data\ConnectionTestResult;
 use App\Services\SalesChannels\Data\ListingRequirements;
 use App\Services\SalesChannels\Data\ListingSubmission;
+use App\Services\SalesChannels\Support\ChannelMoney;
 use App\Services\SalesChannels\Support\ChannelOperations;
 use App\Services\SalesChannels\Data\Pages;
 use App\Services\SalesChannels\Data\PublishResult;
@@ -589,7 +590,12 @@ class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders,
         return new PublishResult($accepted, $failed, $accepted === [] ? null : (string) reset($accepted), $dryRun, $transient);
     }
 
-    /** @return array<string, mixed>|string the item to send, or the reason it cannot be sent */
+    /**
+     * @return array<string, mixed>|string the item to send, or the reason it cannot be sent
+     *
+     * A price is rounded at the decimals of the currency the update carries, which the publisher resolves from the account and
+     * its market: three for KWD, BHD and OMR, two for everything else, as before (H2-08).
+     */
     private function publishItem(PublishUpdate $update, bool $isPrice): array|string
     {
         if ($update->barcode === null || $update->barcode === '') {
@@ -608,14 +614,16 @@ class TrendyolConnector implements ChannelConnector, ReadsListings, ReadsOrders,
         if ($update->price === null) {
             return 'No price to publish.';
         }
-        if (!$update->price->round(scale: 2)->isPositive()) {
+        $salePrice = ChannelMoney::round($update->price, $update->currency);
+        if (!$salePrice->isPositive()) {
             return 'A price of zero or less (or one that rounds to zero) is refused: Trendyol treats a zero price as removing the listing.';
         }
         if ($update->listPrice !== null && $update->listPrice->compareTo($update->price) < 0) {
             return 'The list price may not be lower than the sale price.';
         }
+        $listPrice = $update->listPrice === null ? null : ChannelMoney::round($update->listPrice, $update->currency);
 
-        return array_filter(['barcode' => $update->barcode, 'salePrice' => round($update->price->toFloat(), 2), 'listPrice' => $update->listPrice === null ? null : round($update->listPrice->toFloat(), 2)], static fn ($value): bool => $value !== null);
+        return array_filter(['barcode' => $update->barcode, 'salePrice' => $salePrice->toFloat(), 'listPrice' => $listPrice?->toFloat()], static fn ($value): bool => $value !== null);
     }
 
     /**

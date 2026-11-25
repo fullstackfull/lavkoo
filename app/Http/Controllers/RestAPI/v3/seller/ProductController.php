@@ -91,7 +91,11 @@ class ProductController extends Controller
     public function getProductList(Request $request): JsonResponse
     {
         $seller = $request->seller;
-        $products = $this->sellerMarkets->narrowQuery(Product::with(['clearanceSale' => function ($query) {
+        // The market the seller app is working in, inside the markets the token was granted (A1-06, K-09). The grant is the
+        // bound and the market the app names is the choice inside it, which is how the order list has always read a market: a
+        // seller working in Dubai is answered their Dubai catalogue, not their Dubai catalogue with Riyadh's mixed into it. A
+        // token with no grant -- every seller while the switch is off -- reads the whole shop exactly as before.
+        $products = $this->sellerMarkets->narrowToTheWorkingMarket(Product::with(['clearanceSale' => function ($query) {
                 return $query->active();
             }])
             ->withCount('reviews')
@@ -215,9 +219,9 @@ class ProductController extends Controller
 
         $productIdsForUnknownAuthor = Product::active()->where(['product_type' => 'digital'])->whereNotIn('id', $productIdsForAuthor)->pluck('id')->toArray();
 
-        // Held to the markets the token was granted, as the product list is (K-09). Two more lists of the shop's own catalogue,
-        // reached by naming the shop's own id, which the market bound had not been put on.
-        $products = $this->sellerMarkets->narrowQuery(Product::when($request['offer_type'] == 'clearance_sale', function ($query) {
+        // Held to the market the app is working in, inside the markets the token was granted, as the product list is (A1-06,
+        // K-09). Two more lists of the shop's own catalogue, reached by naming the shop's own id.
+        $products = $this->sellerMarkets->narrowToTheWorkingMarket(Product::when($request['offer_type'] == 'clearance_sale', function ($query) {
                 return $query->active();
             }))->with(['brand', 'category', 'rating', 'tags', 'reviews', 'seoInfo', 'digitalVariation', 'digitalProductAuthors' => function ($query) {
                 return $query->with(['author']);
@@ -470,9 +474,9 @@ class ProductController extends Controller
 
         $productIdsForUnknownAuthor = Product::active()->where(['product_type' => 'digital'])->whereNotIn('id', $productIdsForAuthor)->pluck('id')->toArray();
 
-        // Held to the markets the token was granted, as the product list is (K-09). Two more lists of the shop's own catalogue,
-        // reached by naming the shop's own id, which the market bound had not been put on.
-        $products = $this->sellerMarkets->narrowQuery(Product::when($request['offer_type'] == 'clearance_sale', function ($query) {
+        // Held to the market the app is working in, inside the markets the token was granted, as the product list is (A1-06,
+        // K-09). Two more lists of the shop's own catalogue, reached by naming the shop's own id.
+        $products = $this->sellerMarkets->narrowToTheWorkingMarket(Product::when($request['offer_type'] == 'clearance_sale', function ($query) {
             return $query->active();
         }))->with(['brand', 'category', 'rating', 'tags', 'reviews', 'seoInfo', 'digitalVariation', 'digitalProductAuthors' => function ($query) {
             return $query->with(['author']);

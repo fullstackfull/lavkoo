@@ -406,13 +406,22 @@ final class SellerMarketScope
      *
      * The same choice-inside-a-bound for a table that keeps the market on its own row, so a report of products answers the market
      * the token named exactly as a report of orders does.
+     *
+     * A table that has no market column is answered by the bound alone, which already keeps nothing of it. Naming the column
+     * again would put `where products.storefront_country = 'KW'` into a statement whose table has no such column: MariaDB
+     * refuses the whole statement with an unknown column, while SQLite reads the name as a string and returns the empty answer
+     * the bound was going to give anyway. So the engines disagreed, and the one that disagreed is the one production runs.
      */
     public function narrowToTheWorkingMarket(Builder $query, string $column = StorefrontCatalog::COLUMN): Builder
     {
         $market = $this->workingMarket();
-        $query = $this->narrowQuery($query, $column);
+        $bound = $this->narrowQuery($query, $column);
 
-        return $market === null || $this->boundGrant() === null ? $query : $query->where($query->qualifyColumn($column), $market);
+        if ($market === null || $this->boundGrant() === null || !Schema::hasColumn($query->getModel()->getTable(), $column)) {
+            return $bound;
+        }
+
+        return $bound->where($query->qualifyColumn($column), $market);
     }
 
     /**

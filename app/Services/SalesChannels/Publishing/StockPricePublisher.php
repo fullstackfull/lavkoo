@@ -11,6 +11,7 @@ use App\Services\SalesChannels\Contracts\ReportsPublishResults;
 use App\Services\SalesChannels\Data\PublishResult;
 use App\Services\SalesChannels\Data\PublishUpdate;
 use App\Services\SalesChannels\Inventory\PoolKey;
+use App\Services\SalesChannels\Support\ChannelMoney;
 use App\Services\SalesChannels\Sync\ChannelSyncRunner;
 use App\Services\SalesChannels\Sync\SyncLease;
 use Carbon\CarbonImmutable;
@@ -42,9 +43,6 @@ class StockPricePublisher
     /** How many stock quantities go out between two checks of the pools they were planned from. */
     private const STOCK_CHUNK = 50;
 
-    /** Both channels take prices with two decimals: a price is judged (and sent) as the channel will read it. */
-    private const PRICE_SCALE = 2;
-
     /** Trendyol keeps a batch result for four hours; a little less is trusted. */
     private const BATCH_KEPT_MINUTES = 230;
 
@@ -55,6 +53,7 @@ class StockPricePublisher
         private readonly ChannelSyncRunner $runner,
         private readonly StockPlanner $stock,
         private readonly PublishPolicyResolver $policies,
+        private readonly ChannelMarketMatch $markets,
     ) {
     }
 
@@ -193,7 +192,7 @@ class StockPricePublisher
         }
         $plans[$mapping->id] = $plan;
 
-        return new PublishUpdate((int) $mapping->id, $mapping->listing_key, $mapping->external_sku, $mapping->external_barcode, quantity: $plan->quantity, currency: $account->currency, fulfillmentMode: $mapping->fulfillment_mode);
+        return new PublishUpdate((int) $mapping->id, $mapping->listing_key, $mapping->external_sku, $mapping->external_barcode, quantity: $plan->quantity, currency: ChannelMoney::currencyOf($account), fulfillmentMode: $mapping->fulfillment_mode);
     }
 
     /** A drop is sent at once when the quantity left is small (that is where overselling happens) or the drop is a real part of what is shown. */
@@ -218,16 +217,27 @@ class StockPricePublisher
         if (!is_string($manual) && !is_numeric($manual)) {
             return 'no_manual_price';
         }
-        $price = Money::of((string) $manual)->round(scale: self::PRICE_SCALE);
+        // A price is judged, and sent, as the channel will read it -- at the decimals its own currency has, which is three for the
+        // dinar and the rial (H2-08). Rounding a Kuwaiti price to two published a figure nobody set.
+        $currency = ChannelMoney::currencyOf($account);
+        $price = ChannelMoney::round(Money::of((string) $manual), $currency);
         if (!$price->isPositive()) {
             return 'price_not_positive';
+        }
+
+        // The market is asked after the refusals about the price itself, so the reason a person is shown is the plainest true one,
+        // and BEFORE the skips, which answer "there is nothing to do": a price of another market's product must never be sent, and
+        // a skip would hide one that already had been (H2-16).
+        $market = $this->markets->refusal($account, $mapping, null);
+        if ($market !== null) {
+            return $market;
         }
         $skip = $this->skipReason($mapping, 'price', $price->toStorage(), $mapping->last_published_price, $mapping->remote_price);
         if ($skip !== null) {
             return $skip;
         }
 
-        return new PublishUpdate((int) $mapping->id, $mapping->listing_key, $mapping->external_sku, $mapping->external_barcode, price: $price, currency: $account->currency, fulfillmentMode: $mapping->fulfillment_mode);
+        return new PublishUpdate((int) $mapping->id, $mapping->listing_key, $mapping->external_sku, $mapping->external_barcode, price: $price, currency: $currency, fulfillmentMode: $mapping->fulfillment_mode);
     }
 
     /**

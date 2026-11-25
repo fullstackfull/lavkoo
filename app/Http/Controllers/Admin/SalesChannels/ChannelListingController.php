@@ -18,6 +18,7 @@ use App\Services\SalesChannels\Listings\ListingOutcome;
 use App\Services\SalesChannels\Listings\ListingPublisher;
 use App\Services\SalesChannels\Listings\ProductChannelPanel;
 use App\Services\SalesChannels\Listings\RegulatedProductGate;
+use App\Services\SalesChannels\Support\ChannelAccountCountry;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
@@ -53,6 +54,7 @@ class ChannelListingController extends Controller
         private readonly ListingCatalogLookup $catalog,
         private readonly ProductChannelPanel $panel,
         private readonly RegulatedProductGate $regulated,
+        private readonly ChannelAccountCountry $accountCountry,
         private readonly ProductDirectory $products,
         private readonly ListingLabels $labels,
     ) {
@@ -220,7 +222,8 @@ class ChannelListingController extends Controller
             'problems' => array_values(array_map('strval', [...(array) ($draft?->problems ?? []), ...(array) ($draft?->channel_problems ?? [])])),
             'canCreate' => $row['canCreate'],
             'writeState' => WriteState::of($account),
-            'needsClearance' => $draft !== null && $this->regulated->needsClearance((int) $draft->product_id, (string) $account->channel),
+            // In the market this account sells in, since what a regulator closes is a country's decision (H2-09).
+            'needsClearance' => $draft !== null && $this->regulated->needsClearance((int) $draft->product_id, (string) $account->channel, $this->accountCountry->of($account)),
             'requirements' => array_values(array_map('strval', (array) ($requirements['required'] ?? []))),
             'requirementsFromTheOwner' => ($requirements['source'] ?? null) === ListingRequirements::DECLARED_BY_THE_OWNER,
             'sku' => (string) (($draft->payload ?? [])['sku'] ?? ''),
