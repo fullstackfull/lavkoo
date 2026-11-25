@@ -8,10 +8,12 @@ use App\Contracts\Repositories\MarketAccounts\MarketAccountRepositoryInterface;
 use App\Enums\Wallet\MarketBalanceKind;
 use App\Enums\Wallet\MarketBalanceRefusal;
 use App\Models\User;
+use App\Services\Storefront\LegalEntityRegistry;
 use App\Services\Storefront\StorefrontCurrency;
 use App\Services\Storefront\StorefrontResolver;
 use Illuminate\Container\Attributes\Singleton;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -56,6 +58,7 @@ final class CustomerMarketBalances
         private readonly CustomerMarketWalletAccountRepositoryInterface $walletAccounts,
         private readonly CustomerMarketLoyaltyAccountRepositoryInterface $loyaltyAccounts,
         private readonly StorefrontCurrency $storefrontCurrency,
+        private readonly LegalEntityRegistry $legalEntities,
     ) {
     }
 
@@ -177,7 +180,7 @@ final class CustomerMarketBalances
         }
 
         if (!$isDebit && $openWhenMissing) {
-            $accounts->open(customerId: $customerId, market: $code, currencyCode: $currencyCode, legalEntity: $this->legalEntity());
+            $accounts->open(customerId: $customerId, market: $code, currencyCode: $currencyCode, legalEntity: $this->legalEntity(market: $code));
         }
 
         return DB::transaction(function () use ($accounts, $customerId, $code, $currencyCode, $amount, $isDebit, $openWhenMissing): MarketBalanceChange {
@@ -241,17 +244,120 @@ final class CustomerMarketBalances
         return $this->storefrontCurrency->isEnabled() ? $this->storefrontCurrency->currencyOfSales($market)?->code : null;
     }
 
+    /** The column an account's company is recorded in is 64 characters wide, where `legal_entities.legal_name` is 191. */
+    public const COMPANY_NAME_LIMIT = 64;
+
     /**
-     * The company that sells in these markets, recorded on an account as it is opened. It is ONE platform-wide value
-     * (`gcc.storefronts.legal.legal_entity`), so every market's account carries the same string until per-market entities exist: it records
-     * which company the platform was selling as when the account was opened, not which company sells in that market. Null while none is
-     * configured, which is how the Saudi market has always traded.
+     * The company that sells in THIS market, recorded on an account as it is opened (GCC-13).
+     *
+     * It used to be ONE platform-wide value (`gcc.storefronts.legal.legal_entity`) for every market, above a comment saying it would be
+     * until per-market entities existed. They exist: `legal_entities` holds one row per country, `country` is UNIQUE on it, and the
+     * platform-admin market list, the health answer and the per-market reports all read it that way. The company on a money account is
+     * who the customer's balance is a liability OF, so stamping one company onto six markets' accounts is a false statement about whose
+     * money it is -- and a Kuwaiti balance labelled with the Saudi company is the kind of record a regulator reads.
+     *
+     * Three answers, and the middle one is the one worth stating:
+     *
+     *  - **the registry is in force and names this market's company**: that company's legal name;
+     *  - **the registry is in force and this market has NO row**: NOTHING is recorded. Not the platform-wide value -- labelling this
+     *    market's account with another company would look correct and be wrong, and an absent answer is better than a guessed one. The
+     *    account still opens: refusing a customer's credit over a missing company record would move a bookkeeping gap onto their money,
+     *    and whether a market may trade without a registered company is already asked, once, by `StorefrontPreflight`;
+     *  - **the registry is off or not migrated**: the one platform-wide value, exactly as before. That is today's platform, so nothing
+     *    about a Saudi account changes.
+     *
+     * NOTHING IS BACK-FILLED. Accounts already open keep the company they were stamped with, right or wrong: changing a stored legal
+     * entity on live balance rows has legal meaning and is the owner's, not a code fix. {@see companiesThatDoNotMatchTheirMarket()} counts
+     * them without touching one.
      */
-    private function legalEntity(): ?string
+    private function legalEntity(string $market): ?string
+    {
+        $entity = $this->legalEntities->forCountry($market);
+
+        if ($entity !== null) {
+            return $this->companyNameThatFits(market: $market, name: (string) $entity->legal_name);
+        }
+
+        if ($this->legalEntities->isEnabled() && $this->legalEntities->isMigrated()) {
+            return null;
+        }
+
+        return $this->theOnePlatformWideCompany();
+    }
+
+    /**
+     * The company's name, or nothing when it does not fit the column.
+     *
+     * A truncated company name is a DIFFERENT COMPANY as far as any reader is concerned, and MySQL truncates silently while the
+     * application's connection is not strict -- so a 70-character company would be recorded as a 64-character one that does not exist.
+     * Recording nothing and saying so is the honest answer. The width itself is a schema question: the account column is 64 and
+     * `legal_entities.legal_name` is 191.
+     */
+    private function companyNameThatFits(string $market, string $name): ?string
+    {
+        $name = trim($name);
+
+        if ($name === '') {
+            return null;
+        }
+
+        if (mb_strlen($name) > self::COMPANY_NAME_LIMIT) {
+            Log::warning('wallet.market_account_company_too_long_to_record', [
+                'market' => $market,
+                'characters' => mb_strlen($name),
+                'limit' => self::COMPANY_NAME_LIMIT,
+            ]);
+
+            return null;
+        }
+
+        return $name;
+    }
+
+    /** The one value every market's account used to carry, which is still the answer while the per-market registry is off. */
+    private function theOnePlatformWideCompany(): ?string
     {
         $entity = config('gcc.storefronts.legal.legal_entity');
 
         return is_string($entity) && trim($entity) !== '' ? trim($entity) : null;
+    }
+
+    /**
+     * How many accounts are stamped with a company that is not the one their market's row names, per market and per kind -- read only.
+     *
+     * The count the owner needs to decide what happens to rows opened before the registry was read. It writes nothing and it never
+     * compares against the platform-wide value: an account whose market HAS no row is counted apart, because nothing says what it should
+     * have carried.
+     *
+     * @return array<string, array<string, array{expected: ?string, accounts: int, mismatched: int, market_has_no_company: bool}>>
+     */
+    public function companiesThatDoNotMatchTheirMarket(): array
+    {
+        $found = [];
+
+        foreach (MarketBalanceKind::cases() as $kind) {
+            if (!$this->tableReady($kind->accountsTable())) {
+                continue;
+            }
+
+            foreach (DB::table($kind->accountsTable())->select('market')->distinct()->pluck('market') as $market) {
+                $code = strtoupper(trim((string) $market));
+                $entity = $this->legalEntities->forCountry($code);
+                $expected = $entity === null ? null : trim((string) $entity->legal_name);
+                $rows = DB::table($kind->accountsTable())->where('market', $market);
+
+                $found[$kind->value][$code] = [
+                    'expected' => $expected,
+                    'accounts' => (clone $rows)->count(),
+                    'mismatched' => $expected === null ? 0 : (clone $rows)->where(function ($query) use ($expected): void {
+                        $query->whereNull('legal_entity')->orWhere('legal_entity', '!=', $expected);
+                    })->count(),
+                    'market_has_no_company' => $expected === null,
+                ];
+            }
+        }
+
+        return $found;
     }
 
     /**

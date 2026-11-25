@@ -364,6 +364,46 @@ conversion guard is unreachable from this setting, which is asserted too.
 **What is deliberately NOT done, and is part of adopting an option:** the "report" half of option A -- no screen shows an
 operator that a balance is negative -- and nothing restates a balance that is negative already.
 
+---
+
+## 6. What happens to the market accounts stamped with the wrong company (GCC-13, E-01)
+
+### What the platform did, and what it does now
+
+`App\Services\Wallet\CustomerMarketBalances` recorded the single platform-wide
+`gcc.storefronts.legal.legal_entity` on EVERY market's wallet and loyalty account as it was opened, above a comment saying it would do so
+until per-market entities existed. **They exist**: `legal_entities` holds one row per country, `country` is UNIQUE on it, and the
+platform-admin market list, the health answer and the per-market reports all read it that way. The company on a money account is who the
+customer's balance is a **liability of**, so one company's name on six markets' accounts is a false statement about whose money it is.
+
+**The writer is corrected and nothing is back-filled.** From now on an account opened in a market the registry names carries that market's
+own company; a market the registry does NOT name records **nothing**, rather than another company's name, because an absent answer is better
+than a guessed one and the account still has to open (refusing a customer's credit over a missing company record would move a bookkeeping gap
+onto their money). While the registry is off or not migrated — today's platform — the one platform-wide value is still recorded, so no Saudi
+account changes. Proved in `tests/Feature/Wallet/AMarketAccountCarriesItsOwnCompanyTest` (9 tests), teeth at 5, 2 and 1 of 9.
+
+### The decision
+
+Accounts opened before this carry the platform-wide company whatever market they belong to. **Changing a stored legal entity on live balance
+rows has legal meaning and is not a code fix**, so nothing here touches one. The figure the decision needs is read, not estimated:
+`CustomerMarketBalances::companiesThatDoNotMatchTheirMarket()` counts, per market and per account kind, how many accounts carry a company
+that is not the one their market's row names — and counts apart the accounts of a market the registry names no company for, because nothing
+says what those should have carried. It writes nothing.
+
+| | What it means | What it costs |
+|---|---|---|
+| **A. Leave them** | Every account keeps the company it was opened under. | The record then says that a Kuwaiti balance is a liability of the Saudi company, which is what it said when the account was opened and is not what anybody intended. Cheapest, and the one that leaves a wrong label on a money account. |
+| **B. Restate them, per market** | Each account's `legal_entity` is set to the company its market's row names, in one migration, with the before and after recorded. | The record becomes true. It is a write to live balance rows with legal meaning, so it needs the owner's signature, a count taken first, and a statement of what happens to an account whose market still has no company. |
+| **C. Restate only where the market has a company, and report the rest** | B for the markets the registry names; the others are listed for a person. | Splits the difference and leaves no guessed value behind. Two states to keep track of instead of one. |
+
+### One schema question that comes with it
+
+The account column is `legal_entity varchar(64)`; `legal_entities.legal_name` is `varchar(191)`. A company whose name is longer than 64
+characters therefore **cannot be recorded faithfully**, and MySQL truncates silently while this application's connection is not strict — a
+truncated company name is a different company to any reader. The writer now records **nothing** in that case and logs the market and the
+length (`wallet.market_account_company_too_long_to_record`) rather than inventing a company. Widening the column is a migration on a money
+table and is not done here.
+
 ## How to answer
 
 One line each is enough, e.g. *"1A with no back-credit"*, *"2B"*, *"3A"*, *"4B, new payments only"*, *"5C"*. Each answer is written into
