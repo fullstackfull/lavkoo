@@ -4,6 +4,7 @@ namespace App\Services\Storefront;
 
 use Illuminate\Container\Attributes\Singleton;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -52,7 +53,7 @@ final class StorefrontMarketRows
             return false;
         }
 
-        return $this->columnReady[$table] ??= Schema::hasTable($table) && Schema::hasColumn($table, self::COLUMN);
+        return $this->tableCarriesAMarket($table);
     }
 
     /**
@@ -115,10 +116,76 @@ final class StorefrontMarketRows
         return $market === '' ? null : $market;
     }
 
+    /**
+     * Whether every one of these rows exists and belongs to one of these countries (GCC-14c slice 6; H1-14).
+     *
+     * The same rule as {@see narrow()}, asked of the countries a STAFF MEMBER works with rather than of the storefront a request is served
+     * from: a row that names no market is the DEFAULT storefront's, so holding the default market covers the unmarked rows and holding any
+     * other does not. It does NOT ask whether storefronts are switched on, because the question is who may change a row rather than which
+     * rows a shop offers: before the table has the column every row is the default storefront's, since that is the only market this platform
+     * has ever had rows for, and an employee who does not hold it holds none of them.
+     *
+     * A row that does not exist is not covered, so which ids are rows is not something an employee can find out by asking.
+     *
+     * @param list<int|string> $ids
+     * @param list<string> $countries
+     */
+    public function allRowsBelongTo(string $table, array $ids, array $countries, string $idColumn = 'id'): bool
+    {
+        $ids = array_values(array_unique($ids));
+
+        if ($ids === [] || $countries === []) {
+            return $ids === [];
+        }
+
+        $holdsTheDefault = in_array($this->defaultCountry(), $countries, true);
+        $rows = DB::table($table)->whereIn($idColumn, $ids);
+
+        if (!$this->tableCarriesAMarket($table)) {
+            return $holdsTheDefault && $rows->count() === count($ids);
+        }
+
+        $rows->where(static function (QueryBuilder $inner) use ($countries, $holdsTheDefault): void {
+            $inner->whereIn(self::COLUMN, $countries);
+
+            if ($holdsTheDefault) {
+                $inner->orWhereNull(self::COLUMN);
+            }
+        });
+
+        return $rows->count() === count($ids);
+    }
+
+    /**
+     * The market of one row, as a key a writer can add to the row it means to change, or an empty array while the table has no market column.
+     *
+     * A writer that keys a row by anything else -- a category and a seller, say -- would match the row of whichever market the database
+     * happened to answer with, so a market's own cost could be overwritten from another market's screen. An id that names no row answers
+     * NULL, which is the default storefront's row and is what such a write made before there were markets.
+     *
+     * @return array<string, string|null>
+     */
+    public function marketKeyOf(string $table, int|string|null $id): array
+    {
+        if (!$this->tableCarriesAMarket($table)) {
+            return [];
+        }
+
+        $market = $id === null ? null : DB::table($table)->where('id', $id)->value(self::COLUMN);
+
+        return [self::COLUMN => is_string($market) && $market !== '' ? $market : null];
+    }
+
     public function forget(): void
     {
         $this->columnReady = [];
         $this->ownRows = [];
+    }
+
+    /** Whether the table is there and carries the market column. Asked without the switch, because who may CHANGE a row is not a question about which shop is open. */
+    private function tableCarriesAMarket(string $table): bool
+    {
+        return $this->columnReady[$table] ??= Schema::hasTable($table) && Schema::hasColumn($table, self::COLUMN);
     }
 
     /** The storefront whose rows are the ones that name no market. */

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin\Marketplace;
 
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopeShippingToStaffCountries;
 use App\Models\BusinessSetting;
 use App\Models\ShippingZone;
 use App\Services\Marketplace\ShippingRateService;
@@ -24,6 +25,10 @@ class ShippingZoneController extends BaseController
         private readonly ShippingRateService $shipping,
         private readonly AuditLogger $audit,
     ) {
+        // A zone records the countries it SERVES and not the market that owns it, so no scope can judge whose it is yet (H1-14's open
+        // question, the owner's Q-24). The middleware is registered so that an action added here is refused to a restricted employee until
+        // somebody gives it a rule, rather than let through unnoticed.
+        $this->middleware(ScopeShippingToStaffCountries::class);
     }
 
     public function index(Request|null $request, ?string $type = null): View

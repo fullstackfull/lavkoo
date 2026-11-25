@@ -53,6 +53,31 @@ final class StorefrontCategoryShippingCosts
         return $this->rows->stampFor(self::TABLE, $country);
     }
 
+    /**
+     * Whether every one of these cost rows exists and belongs to one of these countries: what a staff member restricted to some countries may change.
+     *
+     * @param list<int|string> $costIds
+     * @param list<string> $countries
+     */
+    public function allCostsBelongTo(array $costIds, array $countries): bool
+    {
+        return $this->rows->allRowsBelongTo(self::TABLE, $costIds, $countries);
+    }
+
+    /**
+     * The market of one cost row, as a key the admin writer adds to the row it means to change.
+     *
+     * The writer keys a row by its seller and its category, which names one row per category and not one per market: without this a cost
+     * typed for Kuwait could be overwritten from the Saudi screen, because the database would answer with whichever of the two rows it
+     * reached first.
+     *
+     * @return array<string, string|null>
+     */
+    public function marketKeyOf(int|string|null $costId): array
+    {
+        return $this->rows->marketKeyOf(self::TABLE, $costId);
+    }
+
     public function forget(): void
     {
         $this->rows->forget();

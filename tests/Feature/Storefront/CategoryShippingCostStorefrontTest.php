@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use RuntimeException;
 use Tests\Support\BuildsStorefrontMoneyWorld;
+use Tests\Support\RestoresCategoryShippingCostsTable;
 use Tests\TestCase;
 
 /**
@@ -26,6 +27,7 @@ use Tests\TestCase;
 class CategoryShippingCostStorefrontTest extends TestCase
 {
     use BuildsStorefrontMoneyWorld;
+    use RestoresCategoryShippingCostsTable;
 
     private const SAUDI = 'SA';
 
@@ -42,7 +44,7 @@ class CategoryShippingCostStorefrontTest extends TestCase
     protected function tearDown(): void
     {
         $this->dropStorefrontMoneyWorld();
-        Schema::dropIfExists('category_shipping_costs');
+        $this->restoreCategoryShippingCostsTable();
         parent::tearDown();
     }
 

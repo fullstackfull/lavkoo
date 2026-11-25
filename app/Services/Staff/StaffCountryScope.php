@@ -5,6 +5,8 @@ namespace App\Services\Staff;
 use App\Models\Admin;
 use App\Services\Storefront\CouponCountry;
 use App\Services\Storefront\StorefrontCatalog;
+use App\Services\Storefront\StorefrontCategoryShippingCosts;
+use App\Services\Storefront\StorefrontShippingMethods;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -360,6 +362,43 @@ final class StaffCountryScope
         StaffOrderVisibility::constrainRefunds(query: $refunds, orderLineIdColumn: 'refund_requests.order_details_id', countries: $bound);
 
         return $refunds->count() === count($ids);
+    }
+
+    /**
+     * Whether every one of these shipping methods belongs to a country the current request may work with (GCC-14c slice 6; H1-14).
+     *
+     * The rule of which market a method belongs to is `StorefrontShippingMethods`' and stays there -- a method with none is the default
+     * storefront's. A request that is not narrowed may work with every method, existing or not.
+     *
+     * @param list<int|string> $methodIds
+     */
+    public function coversEveryShippingMethod(array $methodIds): bool
+    {
+        $bound = $this->boundCountries();
+        $ids = array_values(array_unique($methodIds));
+
+        if ($bound === null || $ids === []) {
+            return true;
+        }
+
+        return app(StorefrontShippingMethods::class)->allMethodsBelongTo(methodIds: $ids, countries: $bound);
+    }
+
+    /**
+     * Whether every one of these per-category shipping costs belongs to a country the current request may work with (GCC-14c slice 6; H1-14).
+     *
+     * @param list<int|string> $costIds
+     */
+    public function coversEveryCategoryShippingCost(array $costIds): bool
+    {
+        $bound = $this->boundCountries();
+        $ids = array_values(array_unique($costIds));
+
+        if ($bound === null || $ids === []) {
+            return true;
+        }
+
+        return app(StorefrontCategoryShippingCosts::class)->allCostsBelongTo(costIds: $ids, countries: $bound);
     }
 
     /**

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin\Shipping;
 
 use App\Contracts\Repositories\ShippingTypeRepositoryInterface;
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopeShippingToStaffCountries;
 use App\Http\Requests\Admin\ShippingTypeRequest;
 use App\Services\ShippingTypeService;
 use Illuminate\Http\Request;
@@ -23,6 +24,9 @@ class ShippingTypeController extends BaseController
         private readonly ShippingTypeService             $shippingTypeService
     )
     {
+        // The shipping type is one row for the whole platform, so there is nothing per market to narrow; the middleware is registered all the
+        // same, so that a NEW action of this screen is refused to a restricted employee until somebody gives it a rule.
+        $this->middleware(ScopeShippingToStaffCountries::class);
     }
 
     /**

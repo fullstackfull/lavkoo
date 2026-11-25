@@ -64,6 +64,17 @@ final class StorefrontShippingMethods
         return $this->rows->stampFor(self::TABLE, $country);
     }
 
+    /**
+     * Whether every one of these methods exists and belongs to one of these countries: what a staff member restricted to some countries may change.
+     *
+     * @param list<int|string> $methodIds
+     * @param list<string> $countries
+     */
+    public function allMethodsBelongTo(array $methodIds, array $countries): bool
+    {
+        return $this->rows->allRowsBelongTo(self::TABLE, $methodIds, $countries);
+    }
+
     public function forget(): void
     {
         $this->rows->forget();
