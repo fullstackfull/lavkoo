@@ -152,6 +152,23 @@ criteria names more signals than are built -- which is the honest record and is 
   BYTE for byte built its own `char(2)` column, which takes the engine's own case-INSENSITIVE collation, so `kw` matched `KW` on MariaDB and
   MySQL 8 and did not on SQLite. The repair is the shape to copy -- the test creates the table WITHOUT the column and runs the real migration
   to add it, so the column is exactly what production gets, `ascii_bin` and all.
+- **This platform has TWO user models, and the guards hand over the one the services do not use.** `App\Models\User` is what the
+  panels and the services take; `config/auth.php` gives the `api` and `customer` guards `App\User`. So `$request->user()` and
+  `auth('customer')->user()` answer the second one. A service typed on the first is a TypeError on every customer-facing caller, and
+  `actingAs($customer, 'api')` HIDES it, because it injects the instance the test made. `MarketBalanceReader` shipped that way and was a
+  500 on the wallet list, the loyalty list and both web pages for every real customer. Type such a parameter on both, and write at least
+  one test that loads the model the guard would.
+- **A per-market read is unreachable until a route resolves a storefront.** The `storefront` middleware is applied per sub-group in
+  `routes/rest_api/v1/api.php`, not to the `v1` group: `customer/info`, `customer/wallet/*` and `customer/loyalty/*` carried `auth:api`
+  and nothing else, so the app's `X-Storefront` header never reached three controllers that had already been wired to
+  `MarketBalanceReader`. Wiring a reader is half the job; grep the route file for the group before claiming the read happens.
+- **A balance column can be NULL, and a declared `float|int` return makes that a TypeError** rather than the null every surface has
+  always shown. Widen the type and cast where the number is spent, not where it is read.
+- **A rate or a switch that belongs to a MARKET must be read for the market of the ORDER, not of the request.** Every writer that credits
+  an order's points is reached from a panel or a seller API, where `StorefrontCatalog::country()` is null -- correctly, because a panel
+  sees every market. `StorefrontCurrency::withinOrder($order, ...)` is the way in, and the order must be read with the QUERY BUILDER:
+  `App\Models\Order` carries `StaffCountryOrderScope`, so a restricted employee marking an order delivered finds no row through the
+  model and the rate falls back to the platform's with nothing saying so. That trap is now a test.
 - **The platform-admin area may not name the seller world at all.** `ReverseIsolationTest` scans every file under
   `app/Services/PlatformAdmin`, the platform middleware, controllers and commands for `Seller`, `seller_`, `auth_token`,
   `Passport`, `Sanctum`, `Auth::` and `auth(` -- comments stripped first, so what a file SAYS about what it refuses does

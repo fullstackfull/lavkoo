@@ -2,6 +2,7 @@
 
 namespace App\Utils;
 
+use App\Services\Loyalty\LoyaltyEarning;
 use Carbon\Carbon;
 use App\Models\User;
 use App\Models\Wishlist;
@@ -97,21 +98,20 @@ class CustomerManager
     }
     public static function create_loyalty_point_transaction($user_id, $reference, $amount, $transaction_type, ?LedgerOrigin $origin = null): bool
     {
-        // Read through getWebConfig, not off the row, so that a market with its own loyalty programme earns at ITS rate and not the
-        // platform's (E-02). getWebConfig asks StorefrontCurrency::override() first, which answers for the market the request is in and
-        // answers nothing for the platform's own market and for a panel, a queue or a console command -- so Saudi earns what it always has.
-        $settings = [];
-        foreach (['loyalty_point_status', 'loyalty_point_exchange_rate', 'loyalty_point_item_purchase_point'] as $key) {
-            $settings[$key] = getWebConfig(name: $key);
-        }
-        if ($settings['loyalty_point_status'] != 1) {
+        // Read for the MARKET THE ORDER WAS SOLD IN (E-02, J-V2). Reading through getWebConfig was the first half of it: that answers for
+        // the market of the REQUEST, and every caller of this is a seller API where the request serves no storefront, so it still earned
+        // at the platform rate for an order of any market. Only the order knows which market it was sold in, and LoyaltyEarning asks it --
+        // the same rule the repository writer now reads, in one place, because two writers of the same money must not disagree about it.
+        $earning = app(LoyaltyEarning::class);
+
+        if (!$earning->programmeIsOn(origin: $origin)) {
             return true;
         }
 
         $credit = 0;
         $debit = 0;
         if ($transaction_type == 'order_place') {
-            $credit = (int)($amount * $settings['loyalty_point_item_purchase_point'] / 100);
+            $credit = $earning->pointsForAnOrder(amount: $amount, origin: $origin);
         } else if ($transaction_type == 'point_to_wallet' || $transaction_type == 'refund_order') {
             $debit = $amount;
         }

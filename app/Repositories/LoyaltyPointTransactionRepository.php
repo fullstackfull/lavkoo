@@ -2,6 +2,7 @@
 
 namespace App\Repositories;
 
+use App\Services\Loyalty\LoyaltyEarning;
 use App\Contracts\Repositories\LoyaltyPointTransactionRepositoryInterface;
 use App\Models\BusinessSetting;
 use App\Models\LoyaltyPointTransaction;
@@ -103,15 +104,20 @@ class LoyaltyPointTransactionRepository implements LoyaltyPointTransactionReposi
 
     public function addLoyaltyPointTransaction(string|int $userId, string $reference, string|int|float $amount, string $transactionType, ?LedgerOrigin $origin = null): bool
     {
-        $settings = array_column($this->businessSetting->whereIn('type', ['loyalty_point_status', 'loyalty_point_exchange_rate', 'loyalty_point_item_purchase_point'])->get()->toArray(), 'value', 'type');
-        if ($settings['loyalty_point_status'] != 1) {
+        // Read for the MARKET THE ORDER WAS SOLD IN, not off the business_settings row (E-02, J-V2). This writer is reached from the admin
+        // and the vendor order pages, where the request serves no storefront, so it read the platform's rate for every order of every
+        // market -- and the sibling writer in CustomerManager read the rate of the request's market, which for those pages is the same
+        // platform rate. Neither asked the order. A market whose programme is switched off earned points anyway.
+        $earning = app(LoyaltyEarning::class);
+
+        if (!$earning->programmeIsOn(origin: $origin)) {
             return true;
         }
 
         $credit = 0;
         $debit = 0;
         if ($transactionType == 'order_place') {
-            $credit = (int)($amount * $settings['loyalty_point_item_purchase_point'] / 100);
+            $credit = $earning->pointsForAnOrder(amount: $amount, origin: $origin);
         } else if ($transactionType == 'point_to_wallet' || $transactionType == 'refund_order') {
             $debit = $amount;
         }
