@@ -68,10 +68,18 @@ final class CrossBorderPairs
 
         $was = CrossBorderPolicy::allows($from, $to);
 
-        DB::table(CrossBorderPolicy::TABLE)->updateOrInsert(
-            ['source_country' => $from, 'destination_country' => $to],
-            ['is_open' => $open, 'recorded_by' => $adminId, 'recorded_at' => now(), 'updated_at' => now(), 'created_at' => now()],
-        );
+        // `created_at` is written only when the row is MADE. `updateOrInsert()` applies its second argument on an update too, so putting
+        // it there would move the row's birthday every time somebody opened or closed the pair -- the same mistake the address book made
+        // (docs/address/README.md, change 6) and the same reason it is called out here.
+        $key = ['source_country' => $from, 'destination_country' => $to];
+        $values = ['is_open' => $open, 'recorded_by' => $adminId, 'recorded_at' => now(), 'updated_at' => now()];
+        $existing = DB::table(CrossBorderPolicy::TABLE)->where($key)->exists();
+
+        if ($existing) {
+            DB::table(CrossBorderPolicy::TABLE)->where($key)->update($values);
+        } else {
+            DB::table(CrossBorderPolicy::TABLE)->insert($key + $values + ['created_at' => now()]);
+        }
 
         CrossBorderPolicy::forget();
 
