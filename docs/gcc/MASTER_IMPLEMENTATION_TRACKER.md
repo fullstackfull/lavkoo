@@ -24,14 +24,14 @@ again** from the per-requirement records: `docs/gcc/audits/2026-11-24-post-merge
 |---|---:|
 | requirements | 359 |
 | acceptance criteria | 1,753 |
-| met (implemented, with a named test) | 932 — 53% |
+| met (implemented, with a named test) | 933 — 53% |
 | coded (implemented, not proven) | 374 — 21% |
-| missing | 447 — 26% |
+| missing | 446 — 25% |
 | **development progress** (met + coded) | **75%** |
 | **proven progress** (met) | **53%** |
-| requirements proven end to end | 58 |
+| requirements proven end to end | 59 |
 | requirements with every criterion addressed but something unproven | 76 |
-| partially implemented | 212 |
+| partially implemented | 211 |
 | not started | 13 |
 | waiting on an owner decision | 260 |
 | waiting on a review (finance, security, legal, Arabic) | 267 |
