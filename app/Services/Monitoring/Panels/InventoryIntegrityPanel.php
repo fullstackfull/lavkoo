@@ -716,7 +716,7 @@ class InventoryIntegrityPanel implements Panel
             $this->stockNeverReturned($shop, $standingSince),
             $this->warehouseOverAllocation($shop),
             $this->expiredBatches($shop),
-            $this->reservations(),
+            $this->reservations($shop),
         ];
     }
 
@@ -1560,31 +1560,109 @@ class InventoryIntegrityPanel implements Panel
     }
 
     /**
-     * Stuck reservations, which this build cannot have.
+     * Holds on stock that have stood for longer than the standing window.
      *
-     * Not an empty table — no table. Nothing in this codebase reserves stock: a cart holds a quantity
-     * and no hold on it, and stock is taken at order generation. An empty list here would read as
-     * "no reservation is stuck", which is a finding, and nothing looked.
+     * This check USED to answer "this build cannot have one": the shopper's cart holds a quantity and no
+     * claim on stock, so there was nothing to be stuck. That is no longer true and saying it was the worse
+     * failure of the two — `inventory_reservations` exists (2026_11_07, the inventory and routing tables)
+     * and carries `state`, `reserved_at`, `committed_at` and `released_at`. A hold is taken when a channel
+     * order arrives against a provider's shelf; it ends `committed` or `released`, and one left `reserved`
+     * holds units of a shelf that six markets share.
      *
+     * A deployment whose migrations have not run still gets the honest "no table" answer, because an empty
+     * list there would read as "no hold is stuck" when nothing looked.
+     *
+     * WHAT THIS CANNOT SAY, and where to get it. Age is not justification: a hold whose order was cancelled
+     * is wrong at any age, and one of a busy open order is right at any age. Answering that needs the hold
+     * joined to its order and to its channel-order mapping, which is not a read this page can afford.
+     * `monitoring:reconcile-stock` does exactly that join, read-only, and reports the holds nothing
+     * justifies.
+     *
+     * @param  array<string, mixed>  $shop
      * @return array<string, mixed>
      */
-    private function reservations(): array
+    private function reservations(array $shop): array
     {
+        $meaning = 'A hold keeps units of a provider\'s shelf for an order that has arrived and is not dispatched. It is supposed to end as committed or released. One left reserved holds the units for ever, and on a shelf that several markets share those units are taken from whoever would have sold them next.';
+        $action = 'Open each one and finish the order it was taken for, or release it through the sales-channel hub, which records the reason. Run `php artisan monitoring:reconcile-stock` for the stronger question: which of these the order no longer justifies at all.';
+        $source = 'inventory_reservations';
+        $index = 'inventory_reservations.state, read as `state = reserved` and ordered by the oldest first';
+
+        $unavailable = $this->tableCheck('stuck_stock_reservations', 'major', $shop, 'inventory_reservations', $meaning, $action, $source, $index,
+            'This deployment has no inventory_reservations table, so no hold on stock exists to be stuck. Nothing else in this codebase holds stock either: a cart carries a quantity and no claim, and stock is taken at order generation.',
+            'Run `php artisan migrate` — the table is created by database/migrations/2026_11_07_100200_create_inventory_and_routing_tables.php.');
+        if ($unavailable !== null) {
+            return $unavailable;
+        }
+
+        try {
+            $held = $this->connection()->table('inventory_reservations')
+                ->where('state', 'reserved')
+                ->where('reserved_at', '<', $this->shopBound(Clock::daysAgo($this->agedHoldDays())))
+                ->orderBy('reserved_at')
+                ->limit(self::MAX_FINDING_ROWS + 1)
+                ->get(['id', 'product_id', 'variant_key', 'quantity', 'order_id', 'external_order_mapping_id', 'reserved_at']);
+        } catch (\Throwable $exception) {
+            return $this->finding(
+                key: 'stuck_stock_reservations',
+                severity: 'major',
+                rows: [],
+                meaning: $meaning,
+                action: $action,
+                source: $source,
+                index: $index,
+                scope: 'standing',
+                population: null,
+                emptyNote: null,
+                state: 'failed',
+                note: $this->failureNote($exception),
+            );
+        }
+
+        $rows = [];
+        foreach ($held->take(self::MAX_FINDING_ROWS) as $hold) {
+            // The shared row shape: `named()` fills `product` from `product_id` for every finding, so a row that leaves either out
+            // breaks the whole page rather than only this check. The hold's own facts ride beside them.
+            $rows[] = [
+                ...$this->row(
+                    productId: $this->integerOrNull($hold->product_id ?? null),
+                    name: null,
+                    stock: null,
+                    counted: null,
+                    units: $this->integerOrNull($hold->quantity ?? null),
+                    detail: 'held since ' . ($this->shopStamp($hold->reserved_at ?? null) ?? 'a time that could not be read'),
+                    at: $this->shopStamp($hold->reserved_at ?? null),
+                ),
+                'hold_id' => (int) $hold->id,
+                'variant_key' => $this->shortText($hold->variant_key ?? null, 60),
+                'order_id' => $this->integerOrNull($hold->order_id ?? null),
+                'channel_order_id' => $this->integerOrNull($hold->external_order_mapping_id ?? null),
+            ];
+        }
+
         return $this->finding(
             key: 'stuck_stock_reservations',
             severity: 'major',
-            rows: [],
-            meaning: 'A reservation holds stock for a shopper between the cart and the payment, and a stuck one holds it forever. This build has no reservation of any kind: carts hold a quantity with no expiry and no claim on stock, and stock is taken at order generation — so there is nothing that can be stuck, and equally nothing preventing two shoppers from buying the last unit at once.',
-            action: 'Nothing to do about stuck reservations, because none can exist. The gap this leaves is oversell at checkout, which the negative-stock check above is the only evidence of.',
-            source: 'no table',
-            index: '',
-            scope: 'unsupported',
+            rows: $rows,
+            meaning: $meaning,
+            action: $action,
+            source: $source,
+            index: $index,
+            scope: 'standing',
             population: null,
-            emptyNote: null,
-            state: 'not_supported',
-            note: 'There is no stock-reservation system in this codebase. carts carries quantity, is_checked and cart_group_id and no reserved_until, expires_at or reserved_qty; the only reserved column in the schema is jobs.reserved_at, which belongs to the queue.',
-            remedy: 'A reservation needs a stock_reservations table (product_id, variant, qty, cart_group_id, order_id, expires_at, released_at, status) written in app/Utils/CartManager.php::add_to_cart and released on order generation or expiry. Only then does "stuck" become a question with an answer.',
+            emptyNote: 'No hold on stock has stood unfinished for longer than ' . $this->agedHoldDays() . ' day(s).',
+            truncated: $held->count() > self::MAX_FINDING_ROWS,
+            caveat: 'Age only: a hold is listed for having stood longer than ' . $this->agedHoldDays() . ' day(s), which is not the same as a hold the order no longer justifies. `monitoring:reconcile-stock` answers that, by joining each hold to its order.',
         );
+    }
+
+    /**
+     * After how many days a hold is called aged. The sales-channel hub's own setting, so this page and that hub cannot
+     * disagree about which holds are old (`config/sales_channels.php`, seven days by default).
+     */
+    private function agedHoldDays(): int
+    {
+        return max(1, (int) config('sales_channels.stock.allocation.aged_hold_days', 7));
     }
 
     // ---------------------------------------------------------------------------------------------

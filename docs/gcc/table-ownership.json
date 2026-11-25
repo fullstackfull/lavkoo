@@ -335,8 +335,8 @@
         },
         "notification_channel_profiles": {
             "scope": "country",
-            "by": "country",
-            "why": "One sending account per channel per market (I1-01, I1-02), unique on (channel, country). Country rather than storefront: it names no legal entity beside it, unlike payment_gateway_accounts."
+            "by": "country, '' being the platform-wide row",
+            "why": "One sending account per channel per market (I1-01, I1-02), unique on (channel, country) as integration_settings is keyed. Country rather than storefront: it names no legal entity beside it, unlike payment_gateway_accounts. The column defaults to '' rather than NULL for the platform-wide row, because two NULLs differ in a unique key, and is ascii_bin on MySQL and MariaDB so a market is compared byte for byte."
         },
         "notification_messages": {
             "scope": "inherited"

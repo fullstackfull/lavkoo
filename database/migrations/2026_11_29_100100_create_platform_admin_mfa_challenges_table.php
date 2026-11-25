@@ -15,6 +15,10 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void
     {
+        if (Schema::hasTable('platform_admin_mfa_challenges')) {
+            return;
+        }
+
         Schema::create('platform_admin_mfa_challenges', function (Blueprint $table) {
             $table->id();
             $table->char('token_hash', 64)->unique();
