@@ -17959,4 +17959,6 @@ return [
 	'update_Notification' => 'تحديث الإشعار',
 	'in_house_fulfillment' => 'تنفيذ داخلي',
 	'unknown_fulfillment_source' => 'مصدر التنفيذ غير معروف',
+	'destination_country' => 'بلد التوصيل',
+	'every_storefront' => 'كل المتاجر',
 ];
