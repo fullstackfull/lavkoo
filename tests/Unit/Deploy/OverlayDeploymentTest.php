@@ -293,8 +293,13 @@ class OverlayDeploymentTest extends TestCase
         return [
             'a deleted file' => [['app/Services/Unchanged.php' => null], 'is deleted by the release'],
             'a changed dependency list' => [['composer.json' => '{"require": {}}'], 'needs `composer install`'],
-            'a changed public asset' => [['public/js/app.js' => 'x'], 'outside app, bootstrap, config, database, resources, routes'],
-            'a changed module' => [['Modules/Gateways/x.php' => '<?php'], 'Deploy it by hand'],
+            // These two were refused OUTRIGHT until the tool learned to carry them, and the old expectations ('outside app, bootstrap,
+            // ...' and 'Deploy it by hand') were right while an overlay could not install a module or a public asset at all. It can now,
+            // with `--outside`, so the refusal is no longer "never" but "not until somebody says so" -- and that is still a refusal, which
+            // is what this case is here to hold: a release that quietly starts writing to the document root must not install itself.
+            'a changed public asset nobody said to carry' => [['public/js/app.js' => 'x'], 'Add --outside=public'],
+            'a changed module nobody said to carry' => [['Modules/Gateways/x.php' => '<?php'], 'Add --outside=Modules'],
+            'a file outside every directory an overlay may carry' => [['storage/app/thing.txt' => 'x'], 'Deploy it by hand'],
         ];
     }
 
@@ -309,6 +314,144 @@ class OverlayDeploymentTest extends TestCase
         $this->assertSame(1, $process->getExitCode());
         $this->assertStringContainsString($reason, $process->getErrorOutput());
         $this->assertFileDoesNotExist($this->overlay . '/MANIFEST.json', 'nothing is produced for a release that cannot be deployed');
+    }
+
+
+    // ── the files outside the application directories (M1-11) ───────────────────────────────────────────────────
+
+    /**
+     * The 17 files of the security release that went by a shell loop and two sha256 lists -- the one step of a deployment with no verify
+     * and no rollback, where a mistyped path was undetectable and unrecoverable. They are part of the package now, and the flag is what
+     * says a person read what the release does there.
+     */
+    private function releaseWithFilesOutsideTheApplication(array $build = ['--outside=Modules', '--outside=public']): void
+    {
+        $this->put($this->live . '/Modules/Gateways/Config/config.php', "<?php
+return ['live' => false];
+");
+        $this->commit(['Modules/Gateways/Config/config.php' => "<?php
+return ['live' => false];
+"], 'the module as the server has it');
+        $this->release([
+            'Modules/Gateways/Config/config.php' => "<?php
+return ['live' => true];
+",
+            'public/css/theme.css' => ".brand { color: red }\n",
+        ], build: $build);
+    }
+
+    public function test_a_module_or_a_public_file_is_carried_only_when_outside_names_it_and_the_manifest_says_which(): void
+    {
+        $this->releaseWithFilesOutsideTheApplication();
+
+        $manifest = $this->manifest();
+        $byPath = array_column($manifest['files'], null, 'path');
+
+        $this->assertSame(['Modules/Gateways/Config/config.php', 'public/css/theme.css'], $manifest['outside']);
+        $this->assertTrue($byPath['Modules/Gateways/Config/config.php']['outside']);
+        $this->assertTrue($byPath['public/css/theme.css']['outside']);
+        $this->assertArrayNotHasKey('outside', $byPath['app/Utils/OrderManager.php'], 'a file of the application directories is not marked');
+        $this->assertSame('M', $byPath['Modules/Gateways/Config/config.php']['status']);
+        $this->assertSame(hash('sha256', "<?php\nreturn ['live' => false];\n"), $byPath['Modules/Gateways/Config/config.php']['base_sha256'], 'checked against the baseline like everything else');
+        $this->assertSame("<?php\nreturn ['live' => false];\n", file_get_contents($this->overlay . '/base/Modules/Gateways/Config/config.php'), 'and its baseline is in the package to read a hotfix against');
+    }
+
+    public function test_an_outside_flag_that_names_nothing_the_release_changes_builds_nothing(): void
+    {
+        $this->put($this->live . '/Modules/Gateways/Config/config.php', "<?php\nreturn ['live' => false];\n");
+        $this->commit(['Modules/Gateways/Config/config.php' => "<?php\nreturn ['live' => false];\n"], 'the module as the server has it');
+        $this->commit([
+            'Modules/Gateways/Config/config.php' => "<?php\nreturn ['live' => true];\n",
+            'public/css/theme.css' => '.brand { color: red }',
+        ], 'release');
+
+        $process = $this->build(['--outside=Modules', '--outside=public', '--outside=public/js/typo.js']);
+
+        $this->assertSame(1, $process->getExitCode());
+        $this->assertStringContainsString('--outside names something the release does not change', $process->getErrorOutput());
+        $this->assertStringContainsString('public/js/typo.js', $process->getErrorOutput());
+    }
+
+    public function test_naming_one_file_carries_that_file_and_refuses_the_rest_of_its_directory(): void
+    {
+        $this->put($this->live . '/Modules/Gateways/Config/config.php', "<?php
+return ['live' => false];
+");
+        $this->commit(['Modules/Gateways/Config/config.php' => "<?php
+return ['live' => false];
+"], 'the module as the server has it');
+        $this->commit([
+            'Modules/Gateways/Config/config.php' => "<?php
+return ['live' => true];
+",
+            'public/css/theme.css' => '.brand { color: red }',
+        ], 'release');
+
+        $process = $this->build(['--outside=Modules/Gateways/Config/config.php']);
+
+        $this->assertSame(1, $process->getExitCode(), 'the public file was not named, so the build stops');
+        $this->assertStringContainsString('Add --outside=public', $process->getErrorOutput());
+        $this->assertStringNotContainsString('Modules/Gateways/Config/config.php is outside', $process->getErrorOutput(), 'the one that was named is not complained about');
+    }
+
+    public function test_the_tool_says_which_files_it_would_write_outside_the_application_before_anything_is_applied(): void
+    {
+        $this->releaseWithFilesOutsideTheApplication();
+
+        $verify = $this->deploy('verify');
+
+        $this->assertSame(0, $verify->getExitCode(), $verify->getOutput() . $verify->getErrorOutput());
+        $this->assertStringContainsString('Outside the application directories (Modules, public): Modules/Gateways/Config/config.php, public/css/theme.css', $verify->getOutput());
+    }
+
+    public function test_a_module_file_the_server_changed_since_the_release_was_built_stops_the_deployment(): void
+    {
+        $this->releaseWithFilesOutsideTheApplication();
+        $this->put($this->live . '/Modules/Gateways/Config/config.php', "<?php
+return ['live' => false, 'hotfixed' => true];
+");
+
+        $apply = $this->deploy('apply', ['--yes', '--backup-dir=' . $this->backups]);
+
+        $this->assertSame(1, $apply->getExitCode());
+        $this->assertStringContainsString('DRIFT', $apply->getOutput());
+        $this->assertStringContainsString('Modules/Gateways/Config/config.php', $apply->getOutput());
+        $this->assertStringContainsString("'hotfixed' => true", (string) file_get_contents($this->live . '/Modules/Gateways/Config/config.php'), 'nothing was written');
+        $this->assertFileDoesNotExist($this->live . '/public/css/theme.css');
+    }
+
+    public function test_the_files_outside_the_application_are_applied_and_a_rollback_puts_them_back_exactly(): void
+    {
+        $this->releaseWithFilesOutsideTheApplication();
+        $before = $this->treeHash($this->live);
+
+        $apply = $this->deploy('apply', ['--yes', '--backup-dir=' . $this->backups]);
+
+        $this->assertSame(0, $apply->getExitCode(), $apply->getOutput() . $apply->getErrorOutput());
+        $this->assertSame("<?php\nreturn ['live' => true];\n", file_get_contents($this->live . '/Modules/Gateways/Config/config.php'));
+        $this->assertSame('.brand { color: red }' . "\n", file_get_contents($this->live . '/public/css/theme.css'));
+
+        $rollback = $this->deploy('rollback', ['--yes', '--backup-dir=' . $this->backups]);
+
+        $this->assertSame(0, $rollback->getExitCode(), $rollback->getOutput() . $rollback->getErrorOutput());
+        $this->assertSame($before, $this->treeHash($this->live), 'the module file is back and the public file the release added is gone');
+        $this->assertFileDoesNotExist($this->live . '/public/css/theme.css');
+        $this->assertFileDoesNotExist($this->live . '/public', 'the directory the deployment created is gone too');
+    }
+
+    public function test_a_rollback_refuses_to_destroy_a_module_file_that_was_changed_after_the_deployment(): void
+    {
+        $this->releaseWithFilesOutsideTheApplication();
+        $this->deploy('apply', ['--yes', '--backup-dir=' . $this->backups]);
+        $this->put($this->live . '/Modules/Gateways/Config/config.php', "<?php
+return ['live' => true, 'and then someone edited it' => true];
+");
+
+        $rollback = $this->deploy('rollback', ['--yes', '--backup-dir=' . $this->backups]);
+
+        $this->assertSame(1, $rollback->getExitCode());
+        $this->assertStringContainsString('Modules/Gateways/Config/config.php', $rollback->getOutput() . $rollback->getErrorOutput());
+        $this->assertStringContainsString('and then someone edited it', (string) file_get_contents($this->live . '/Modules/Gateways/Config/config.php'), 'what a person wrote after the deployment is not thrown away');
     }
 
     // ── verifying ────────────────────────────────────────────────────────────────────────────────────────────
@@ -392,7 +535,10 @@ class OverlayDeploymentTest extends TestCase
     {
         $this->release();
         $genuine = $this->manifest();
-        foreach (['../outside.php', '.env', 'storage/logs/laravel.log', 'vendor/autoload.php', '/etc/passwd', 'public/index.php', 'app/../.env'] as $path) {
+        // `public/index.php` is in this list on purpose, and stays in it now that a package CAN carry a public file: the widening belongs
+        // to the manifest's own `outside` flag, which the builder writes only for a file `--outside` named, so an entry that merely names a
+        // path under the document root is refused exactly as it was before.
+        foreach (['../outside.php', '.env', 'storage/logs/laravel.log', 'vendor/autoload.php', '/etc/passwd', 'public/index.php', 'Modules/Gateways/x.php', 'app/../.env'] as $path) {
             $manifest = $genuine;
             $manifest['files'][] = ['path' => $path, 'status' => 'A', 'strategy' => 'replace', 'mode' => '0644', 'new_sha256' => str_repeat('0', 64)];
             $this->writeManifest($manifest);

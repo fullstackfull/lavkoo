@@ -28,6 +28,13 @@ declare(strict_types=1);
 
 const FORMAT = 1;
 const ALLOWED_TOP_LEVEL = ['app', 'bootstrap', 'config', 'database', 'resources', 'routes'];
+/**
+ * Directories a package may touch beyond the application's own, and only for the files the manifest marks `outside`: the builder packages
+ * one of these only when `--outside` named it, which is a person saying they read what the release does there. They hold code and assets
+ * that run -- `Modules/` is loaded exactly as `app/` is, `public/` is the document root -- and they are the files the release runbook used
+ * to move with a shell loop and two sha256 lists, the one step of a deployment with no verify and no rollback.
+ */
+const OUTSIDE_TOP_LEVEL = ['Modules', 'public'];
 const LANGUAGE_FILE = '#^resources/lang/[a-z_]+/new-messages\.php$#';
 
 exit((new Deploy())->run($argv));
@@ -517,7 +524,7 @@ final class Deploy
             if (!$complete) {
                 throw new RuntimeException("The record in {$backup}/applied.json has an entry this deploy.php did not write. Nothing was changed.");
             }
-            $this->assertSafePath($file['path']);
+            $this->assertSafePath($file['path'], in_array(explode('/', (string) $file['path'])[0], OUTSIDE_TOP_LEVEL, true));
         }
         foreach ($applied['created_directories'] as $directory) {
             if (!is_string($directory) || !str_starts_with($directory, $app . '/') || in_array('..', explode('/', $directory), true)) {
@@ -774,7 +781,7 @@ final class Deploy
         }
 
         foreach ($manifest['files'] as $entry) {
-            $this->assertSafePath($entry['path'] ?? '');
+            $this->assertSafePath($entry['path'] ?? '', ($entry['outside'] ?? false) === true);
             $source = $package . '/files/' . $entry['path'];
             if (!is_file($source) || hash_file('sha256', $source) !== $entry['new_sha256']) {
                 throw new RuntimeException("The package is damaged: files/{$entry['path']} is missing or does not match its checksum. Upload it again.");
@@ -799,11 +806,18 @@ final class Deploy
         }
     }
 
-    private function assertSafePath(string $path): void
+    /**
+     * `$outside` is the manifest entry's own `outside` flag, which the builder writes only for a file `--outside` named. A path under
+     * `Modules/` or `public/` is allowed only WITH it, so a manifest that merely names `public/index.php` is refused exactly as it was
+     * before these two directories could be carried at all: the widening is the flag's, not the directory's.
+     */
+    private function assertSafePath(string $path, bool $outside = false): void
     {
         $segments = explode('/', $path);
-        if ($path === '' || str_starts_with($path, '/') || in_array('..', $segments, true) || !in_array($segments[0], ALLOWED_TOP_LEVEL, true) || str_starts_with(basename($path), '.env')) {
-            throw new RuntimeException("The package names a path it may not touch: '{$path}'. It may only contain files under " . implode(', ', ALLOWED_TOP_LEVEL) . '.');
+        $allowed = $outside ? [...ALLOWED_TOP_LEVEL, ...OUTSIDE_TOP_LEVEL] : ALLOWED_TOP_LEVEL;
+        if ($path === '' || str_starts_with($path, '/') || in_array('..', $segments, true) || str_starts_with(basename($path), '.env')
+            || !in_array($segments[0], $allowed, true)) {
+            throw new RuntimeException("The package names a path it may not touch: '{$path}'. It may only contain files under " . implode(', ', ALLOWED_TOP_LEVEL) . ' and, where the manifest marks an entry as outside the application directories, ' . implode(', ', OUTSIDE_TOP_LEVEL) . '.');
         }
     }
 
@@ -937,6 +951,12 @@ final class Deploy
             }
         }
         echo 'Summary: ' . implode(', ', array_map(static fn (string $state, int $count): string => "{$count} {$state}", array_keys($report['counts']), $report['counts'])) . "\n";
+        // Named on their own, because these are the files that are not under app/, config/ and the rest, and whoever runs this must see
+        // that the package writes to the document root or to a module before they add --yes.
+        $outside = array_values(array_filter(array_column($report['files'], 'path'), static fn (string $path): bool => in_array(explode('/', $path)[0], OUTSIDE_TOP_LEVEL, true)));
+        if ($outside !== []) {
+            echo 'Outside the application directories (' . implode(', ', OUTSIDE_TOP_LEVEL) . '): ' . implode(', ', $outside) . "\n";
+        }
         echo $report['ok'] ? "Result: every file can be applied.\n" : "Result: NOT SAFE to apply.\n";
     }
 
