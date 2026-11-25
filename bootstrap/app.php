@@ -148,6 +148,9 @@ return Application::configure(basePath: dirname(__DIR__))
             // Adopted only by the new-sale routes the storefront legal gate covers (GCC-11). Elsewhere the Saudi storefront is untouched.
             'storefront' => \App\Http\Middleware\ResolveStorefront::class,
             'storefront.vary' => \App\Http\Middleware\VaryByStorefront::class,
+            // Files the visitor's coupon, currency, address and cart-checkout session keys under the market they were chosen in (A1-12).
+            // Only the website carries a session, so only the web group adopts it; it writes nothing while storefronts are off.
+            'storefront.session' => \App\Http\Middleware\FileSessionPerStorefront::class,
             'storefront.sellable' => \App\Http\Middleware\EnsureStorefrontMaySell::class,
             // The platform admin API (GCC-20): the door in front of every route of it, and the check of its own bearer token.
             'platform_admin' => \App\Http\Middleware\PlatformAdminGate::class,
