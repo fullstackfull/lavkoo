@@ -82,6 +82,54 @@ class CiEveryTestDirectoryRunsOnARealEngineTest extends TestCase
         $this->assertSame([], $missing, "The workflow names test paths that do not exist (a typo makes a job run nothing):\n  " . implode("\n  ", $missing));
     }
 
+    /**
+     * Every group runs on BOTH engines, and nothing takes one out of the matrix.
+     *
+     * The paths above say a real engine runs a directory; they do not say WHICH, and the two engines refuse different things. MySQL 8
+     * refuses a bare GROUP BY under ONLY_FULL_GROUP_BY; MariaDB 11.4.2 is what the pilot server runs, and it is the one that rejected an
+     * index name of 69 characters and read `kw` as equal to `KW` under its own collation. A group that ran on one of them would look
+     * exactly as green as a group that ran on both.
+     *
+     * The engine lists are what `matrix.engine` holds, and a `matrix.exclude` is the one thing that can drop a cell silently -- in this
+     * workflow the cell would be a whole test directory on the pilot's engine. There is none, and this is what says so.
+     */
+    public function test_each_engine_matrix_holds_two_engines_and_drops_no_cell(): void
+    {
+        $workflow = file($this->repositoryRoot() . '/' . self::WORKFLOW, FILE_IGNORE_NEW_LINES);
+        $this->assertIsArray($workflow, 'the CI workflow could not be read');
+
+        $engineLists = [];
+        $excludes = [];
+        foreach ($this->jobBlocks(lines: $workflow) as $name => $block) {
+            foreach ($block as $line) {
+                if (str_starts_with(ltrim($line), '#')) {
+                    continue;
+                }
+                if (preg_match("/^\s*engine:\s*\[(.+)\]\s*$/", $line, $match) === 1) {
+                    $engineLists[$name] = array_map(static fn (string $engine): string => trim($engine, " '\""), explode(',', $match[1]));
+                }
+                if (preg_match('/^\s*exclude:\s*$/', $line) === 1) {
+                    $excludes[] = $name;
+                }
+            }
+        }
+
+        $this->assertNotEmpty($engineLists, 'no engine matrix was found, so this guard proved nothing');
+        $this->assertSame([], $excludes, 'A matrix `exclude:` drops a cell of the engine matrix, which here means a test directory that no longer runs on one of the two engines: ' . implode(', ', $excludes));
+
+        foreach ($engineLists as $job => $engines) {
+            $this->assertCount(2, $engines, "`{$job}` must run its groups on two engines, and it names: " . implode(', ', $engines));
+            $this->assertNotEmpty(
+                array_filter($engines, static fn (string $engine): bool => str_contains($engine, 'MySQL')),
+                "`{$job}` must run on MySQL, which refuses a bare GROUP BY that SQLite accepts",
+            );
+            $this->assertNotEmpty(
+                array_filter($engines, static fn (string $engine): bool => str_contains($engine, 'MariaDB 11.4.2')),
+                "`{$job}` must run on MariaDB 11.4.2, which is what the pilot server runs",
+            );
+        }
+    }
+
     /** @return list<string> the test paths the jobs that run `phpunit -c phpunit.mysql.xml` are given */
     private function realEnginePaths(): array
     {
@@ -107,7 +155,7 @@ class CiEveryTestDirectoryRunsOnARealEngineTest extends TestCase
         return array_values(array_unique($paths));
     }
 
-    /** @return list<list<string>> the lines of each job, split at the two-space keys under `jobs:` */
+    /** @return array<string, list<string>> the lines of each job, by name, split at the two-space keys under `jobs:` */
     private function jobBlocks(array $lines): array
     {
         $blocks = [];
@@ -121,8 +169,8 @@ class CiEveryTestDirectoryRunsOnARealEngineTest extends TestCase
             if (!$inJobs) {
                 continue;
             }
-            if (preg_match('/^  [A-Za-z0-9_-]+:\s*$/', $line) === 1) {
-                $current = count($blocks);
+            if (preg_match('/^  ([A-Za-z0-9_-]+):\s*$/', $line, $match) === 1) {
+                $current = $match[1];
                 $blocks[$current] = [];
             }
             if ($current !== null) {
