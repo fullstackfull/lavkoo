@@ -94,14 +94,30 @@ final class StorefrontSession
             return false;
         }
 
-        if ($filedUnder !== '') {
-            $this->putAway($filedUnder);
+        if ($filedUnder === '') {
+            // NOTHING HAS EVER BEEN FILED, so the market-dependent keys in hand are the ones this visitor arrived with and they belong
+            // to the market being served right now. Adopt them: write down which market they are filed under and bring nothing out.
+            //
+            // The alternative is what this did at first, and it was a Saudi behaviour change: `bringOut()` FORGETS every key the
+            // filed bucket does not carry, and a first bucket is empty, so the first website request of a visitor who already held a
+            // currency pick threw that pick away -- and the default market's cash order then stored no currency where it had always
+            // stored the shopper's own. Three test classes said so (`StorefrontCodOrderCurrencyTest`,
+            // `StorefrontPurchaseCurrencyTest`, `StorefrontPaymentMethodCheckoutTest`), and they were right.
+            //
+            // A1-12's rule is untouched by this. What must not cross a border is a choice made in ANOTHER market, and that still
+            // cannot: the next change of market puts this market's keys away and brings the other's out, so a Kuwaiti pick is only
+            // ever in Kuwait's file. What is adopted here was never another market's -- it is what the visitor was already carrying
+            // before this platform had markets at all.
+            $this->session->put(self::FILED_UNDER, $country);
+
+            return false;
         }
 
+        $this->putAway($filedUnder);
         $this->bringOut($country);
         $this->session->put(self::FILED_UNDER, $country);
 
-        return $filedUnder !== '';
+        return true;
     }
 
     /** What is filed for one market, as it was put away. @return array<string, mixed> */
