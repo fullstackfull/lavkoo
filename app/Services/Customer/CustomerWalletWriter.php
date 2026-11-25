@@ -73,7 +73,8 @@ final class CustomerWalletWriter
             // switched over, and this same column for every other market and for every write no storefront serves -- a queue worker, a
             // panel, a console command (E-01). What is WRITTEN is unchanged either way: the column below, mirrored into the account of the
             // market the row names.
-            if (WalletOverdraft::refuses(app(MarketBalanceReader::class)->wallet($customer), $posting->debit)) {
+            // Cast because the balance of a customer whose column was never filled is null, and nothing recorded is nothing to spend.
+            if (WalletOverdraft::refuses((float) app(MarketBalanceReader::class)->wallet($customer), $posting->debit)) {
                 return false;
             }
 

@@ -345,7 +345,12 @@ Route::get('/cash', function () {
     });
 
     Route::group(['prefix' => 'customer', 'middleware' => 'auth:api'], function () {
-        Route::controller(CustomerController::class)->group(function () {
+        // `storefront` on the profile alone, and not on the whole customer group: the two balances it answers are the market's
+        // (J-09, E-04), and the app names that market in its `X-Storefront` header. Binding the context for the whole group would
+        // also narrow the lists under it -- the wish list, the comparison, the addresses -- and whether those belong to a market is
+        // not settled, so a wide bind could hide rows a customer already has. The middleware only READS the request, and while
+        // storefronts are off it answers the default storefront, so this is the Saudi platform as it stands.
+        Route::controller(CustomerController::class)->middleware('storefront')->group(function () {
             Route::get('info', 'info');
             Route::put('update-profile', 'update_profile');
             Route::get('account-delete/{id}', 'account_delete');
@@ -419,8 +424,10 @@ Route::get('/cash', function () {
             });
         });
 
+        // The balance and the statement these two answer are the market's: both controllers already ask MarketBalanceReader, and
+        // without this the header never reached them, so the per-market read was unreachable (E-01, E-04).
         //wallet
-        Route::group(['prefix' => 'wallet'], function () {
+        Route::group(['prefix' => 'wallet', 'middleware' => 'storefront'], function () {
             Route::controller(UserWalletController::class)->group(function () {
                 Route::get('list', 'list');
                 Route::get('bonus-list', 'bonus_list');
@@ -428,7 +435,7 @@ Route::get('/cash', function () {
         });
 
         //loyalty
-        Route::group(['prefix' => 'loyalty'], function () {
+        Route::group(['prefix' => 'loyalty', 'middleware' => 'storefront'], function () {
             Route::controller(UserLoyaltyController::class)->group(function () {
                 Route::get('list', 'list');
                 Route::post('loyalty-exchange-currency', 'loyalty_exchange_currency');

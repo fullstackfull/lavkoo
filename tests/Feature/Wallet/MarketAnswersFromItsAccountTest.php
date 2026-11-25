@@ -6,6 +6,7 @@ use App\Enums\Wallet\MarketBalanceKind;
 use App\Http\Resources\Seller\PosCustomerResource;
 use App\Models\User;
 use App\Models\WalletTransaction;
+use App\User as GuardUser;
 use App\Services\Storefront\LedgerAttribution;
 use App\Services\Storefront\StorefrontResolver;
 use App\Services\Wallet\CustomerMarketBalances;
@@ -211,6 +212,54 @@ class MarketAnswersFromItsAccountTest extends TestCase
             array_keys($inKuwait),
             'and only the fields the app reads, whichever market it is',
         );
+    }
+
+    /**
+     * The reader takes the user model the GUARDS hand over, which is not the one the services use.
+     *
+     * This platform has two: `App\Models\User` for the panels and the services, and `App\User`, which `config/auth.php` gives the `api`
+     * and `customer` guards. So `$request->user()` and `auth('customer')->user()` answer the second one, and every customer-facing caller
+     * of this reader is one of those -- the wallet list, the loyalty list, both web pages and the profile. Typed on the first model alone
+     * it was a TypeError on each of them for a real request, and nothing here saw it, because `actingAs($customer, 'api')` injects the
+     * instance the test made.
+     */
+    public function test_the_reader_takes_the_user_model_the_guards_hand_over(): void
+    {
+        $this->theAccountOf('KW', wallet: 12.345, points: 9);
+        $this->marketsAnsweringFromTheirAccount('KW');
+        // `App\User` carries the storage trait, which eager-loads its images; this schema holds the money and nothing else.
+        Schema::create('storages', static function (Blueprint $table): void {
+            $table->id();
+            $table->string('data_type');
+            $table->unsignedBigInteger('data_id');
+            $table->string('key')->nullable();
+            $table->string('value')->nullable();
+            $table->timestamps();
+        });
+        $asTheGuardHandsItOver = GuardUser::query()->findOrFail(self::CUSTOMER);
+
+        $this->assertSame(12.345, $this->servedBy('KW', fn (): float|int|null => $this->reader->wallet($asTheGuardHandsItOver)));
+        $this->assertSame(9, $this->servedBy('KW', fn (): float|int|null => $this->reader->points($asTheGuardHandsItOver)));
+        $this->assertSame(
+            self::IN_THE_USERS_ROW,
+            $this->servedBy('SA', fn (): float|int|null => $this->reader->wallet($asTheGuardHandsItOver)),
+            'and the one column for a market that has not been switched over, whichever model it was read from',
+        );
+    }
+
+    /**
+     * A customer whose balance column was never filled is answered as such, and not as a zero.
+     *
+     * Every one of these surfaces has shown that customer a null since the platform had one market, so inventing a 0 here would change
+     * what they are told. The declared return type said `float|int`, which made it a TypeError instead -- on the wallet list, for a real
+     * customer, with no way for them to see their statement at all.
+     */
+    public function test_a_customer_with_no_balance_recorded_is_answered_as_such_and_not_as_a_zero(): void
+    {
+        DB::table('users')->where('id', self::CUSTOMER)->update(['wallet_balance' => null, 'loyalty_point' => null]);
+
+        $this->assertNull($this->reader->wallet($this->customer()));
+        $this->assertNull($this->reader->points($this->customer()));
     }
 
     // ---- the statement behind the balance ------------------------------------------------------------------------------------

@@ -2,11 +2,17 @@
 
 namespace Tests\Feature\Storefront;
 
+use App\Enums\Wallet\MarketBalanceKind;
 use App\Models\User;
+use App\Services\Storefront\StorefrontResolver;
+use App\Services\Wallet\CustomerMarketBalances;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsApiAddressSchema;
+use Tests\Support\BuildsMarketAccountSchema;
 use Tests\Support\BuildsWalletAndVendorLedgerSchema;
 use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
@@ -28,6 +34,8 @@ use Tests\TestCase;
 class CustomerBalanceAnswersTest extends TestCase
 {
     use BuildsApiAddressSchema;
+    // For runMarketAccountMigration() and withMarketAccountsOn() only: the schema this test needs is the API's, built above.
+    use BuildsMarketAccountSchema;
     use BuildsWalletAndVendorLedgerSchema;
     use RestoresLanguageFiles;
 
@@ -129,6 +137,81 @@ class CustomerBalanceAnswersTest extends TestCase
         $this->assertSame(340, $answer['loyalty_point']);
         $this->assertStringContainsString('"wallet_balance":125.5,', $response->getContent());
         $this->assertStringContainsString('"loyalty_point":340,', $response->getContent());
+    }
+
+    /**
+     * J-09 and E-01: the profile answers the balance of the MARKET being served, as every other customer-facing balance read already does.
+     *
+     * This was the one read that did not. The wallet list, the loyalty list, both web pages, the till's customer lookup and the overdraft
+     * check that judges a wallet payment all ask MarketBalanceReader; the profile returned the `users` row, so a customer with a hundred
+     * dinars in Kuwait and nothing in Riyadh was shown a number here that was neither -- beside a wallet screen that had it right.
+     *
+     * The test above is the one that protects what exists: with no market switched over, which is the platform as it ships, this answer is
+     * the `users` column to the last decimal and to the shape of the JSON.
+     */
+    public function test_the_profile_answers_the_balance_of_the_market_being_served(): void
+    {
+        $this->runMarketAccountMigration();
+        $this->withMarketAccountsOn();
+        config(['gcc.storefronts.market_accounts.answers_for' => ['KW']]);
+        $this->theDinarOfKuwaitIsMoneyThePlatformKnows();
+        $accounts = app(CustomerMarketBalances::class);
+        $this->assertTrue($accounts->credit(kind: MarketBalanceKind::Wallet, customerId: $this->customer->id, market: 'KW', amount: 12.345)->applied, 'the Kuwaiti wallet account was opened');
+        $this->assertTrue($accounts->credit(kind: MarketBalanceKind::Loyalty, customerId: $this->customer->id, market: 'KW', amount: 9)->applied, 'and the Kuwaiti points account');
+
+        $inKuwait = $this->profileServedBy('KW');
+        $inSaudiArabia = $this->profileServedBy('SA');
+
+        $this->assertSame(12.345, $inKuwait['wallet_balance'], 'the Kuwaiti account, in the third decimal the dinar is written with');
+        $this->assertSame(9, $inKuwait['loyalty_point'], 'a point has never had a decimal, whichever side it is read from');
+        $this->assertSame(125.5, $inSaudiArabia['wallet_balance'], 'a market that has not been switched over answers the one column');
+        $this->assertSame(340, $inSaudiArabia['loyalty_point']);
+    }
+
+    /** And nothing else about the answer moves: the keys the app reads are all still there, balances replaced in the payload and not on the model. */
+    public function test_the_profile_keeps_every_key_it_carried_while_the_balances_follow_the_market(): void
+    {
+        $answer = $this->profileServedBy('SA');
+
+        $this->assertHasKeys(
+            keys: ['id', 'f_name', 'l_name', 'email', 'phone', 'wallet_balance', 'loyalty_point', 'referral_user_count', 'orders_count', 'is_phone_verified', 'email_verified_at', 'show_auction_menu_for_customer'],
+            answer: $answer,
+        );
+        $this->assertSame(
+            (float) DB::table('users')->where('id', $this->customer->id)->value('wallet_balance'),
+            125.5,
+            'the one column every movement is still written to was not overwritten by the market it was read for',
+        );
+    }
+
+    /**
+     * An account is opened in the money the market SELLS in, so the platform has to know that currency. This test's schema has no
+     * currencies at all: without the row the credit is refused `currency_unknown`, the account stays empty, and the test would pass while
+     * reading nothing.
+     */
+    private function theDinarOfKuwaitIsMoneyThePlatformKnows(): void
+    {
+        if (!Schema::hasTable('currencies')) {
+            Schema::create('currencies', static function (Blueprint $table): void {
+                $table->id();
+                $table->string('name')->nullable();
+                $table->string('symbol')->nullable();
+                $table->string('code')->nullable();
+                $table->decimal('exchange_rate', 20, 8)->default(1);
+                $table->boolean('status')->default(true);
+                $table->timestamps();
+            });
+        }
+
+        DB::table('currencies')->insert(['name' => 'Kuwaiti Dinar', 'code' => 'KWD', 'symbol' => 'KWD', 'exchange_rate' => 1, 'status' => 1]);
+    }
+
+    /** @return array<string, mixed> the profile, read as a request that market is serving */
+    private function profileServedBy(string $market): array
+    {
+        $this->actingAs($this->customer, 'api');
+
+        return $this->withHeader(StorefrontResolver::HEADER, $market)->getJson(self::PROFILE)->assertOk()->json();
     }
 
     public function test_the_wallet_list_answers_the_balance_the_count_and_the_rows_of_the_customer_newest_first(): void

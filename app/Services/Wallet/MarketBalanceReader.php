@@ -4,6 +4,7 @@ namespace App\Services\Wallet;
 
 use App\Enums\Wallet\MarketBalanceKind;
 use App\Models\User;
+use App\User as GuardUser;
 use App\Services\Storefront\LedgerAttribution;
 use App\Services\Storefront\StorefrontCatalog;
 use Illuminate\Container\Attributes\Singleton;
@@ -27,6 +28,13 @@ use Illuminate\Database\Eloquent\Model;
  * **The writes are not changed by this.** Every movement still goes to the `users` column and is mirrored into the account of the market
  * it names. Once a second market holds money the two legitimately part company, which is what the mirror's divergence line is for
  * ({@see MarketShadowWrite}); this class decides which of the two a reader is shown, and nothing else.
+ *
+ * **Either user model.** This platform has TWO: `App\Models\User`, which the panels and the services use, and `App\User`, which the
+ * `api` and `customer` guards are configured with (`config/auth.php`, provider `users`). So `$request->user()` and
+ * `auth('customer')->user()` hand over the SECOND one, and every customer-facing caller here is one of those -- the wallet list, the
+ * loyalty list, both web pages and the profile. Typing the parameter on `App\Models\User` alone was a TypeError on each of them for a
+ * real request, and the tests did not see it because `actingAs($customer, 'api')` injects the instance the test made, which is the first
+ * one. Both classes read the same two columns off the same row, so both are accepted and the type says so.
  *
  * **A market nobody is serving keeps the column.** `StorefrontCatalog::country()` answers null for a panel, a seller API, a queue, a
  * console command and every request while storefronts are off. Such a reader sees every market at once or none, so the one global balance
@@ -72,8 +80,12 @@ final class MarketBalanceReader
      * the apps read `wallet_balance` as a number with decimals and `loyalty_point` as a whole number, and a cast here would change the
      * shape of an answer that is under contract (E-04). On the account path the points are rounded to a whole number for the same reason,
      * because an account column holds decimals and a point has never had any.
+     *
+     * Which is also why NULL is answered and not turned into a zero: a customer whose column was never filled has always been shown a
+     * null by every one of these surfaces, and inventing a 0 here would change that answer for them. A caller that has to do arithmetic
+     * on it casts it at its own door -- the overdraft check does, because "nothing recorded" is nothing to spend.
      */
-    public function balance(MarketBalanceKind $kind, User $customer, ?string $market = null): float|int
+    public function balance(MarketBalanceKind $kind, User|GuardUser $customer, ?string $market = null): float|int|null
     {
         $code = strtoupper(trim((string) ($market ?? StorefrontCatalog::country())));
 
@@ -111,7 +123,7 @@ final class MarketBalanceReader
     }
 
     /** The wallet money of the market being served. */
-    public function wallet(User $customer, ?string $market = null): float|int
+    public function wallet(User|GuardUser $customer, ?string $market = null): float|int|null
     {
         return $this->balance(kind: MarketBalanceKind::Wallet, customer: $customer, market: $market);
     }
@@ -123,7 +135,7 @@ final class MarketBalanceReader
      * this switch existed -- casting it would quietly floor a fractional balance that the column can hold. The account path rounds to a
      * whole point, because an account column holds decimals and a point has never had any.
      */
-    public function points(User $customer, ?string $market = null): float|int
+    public function points(User|GuardUser $customer, ?string $market = null): float|int|null
     {
         return $this->balance(kind: MarketBalanceKind::Loyalty, customer: $customer, market: $market);
     }

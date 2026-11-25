@@ -45,6 +45,7 @@ use Modules\Auction\app\Models\AuctionProduct;
 use Modules\Auction\app\Models\AuctionSavedProduct;
 use Modules\Auction\app\Services\AuctionAccountDeletionGuardService;
 use App\Services\Storefront\StorefrontCurrency;
+use App\Services\Wallet\MarketBalanceReader;
 
 class CustomerController extends Controller
 {
@@ -91,7 +92,25 @@ class CustomerController extends Controller
             $user->show_auction_menu_for_customer = $hasEngagement ? 1 : 0;
         }
 
-        return response()->json($user, 200);
+        // The two balances of the market being served, which the app names in its `X-Storefront` header (E-01, E-04, J-09). Every other
+        // customer-facing balance read already asks MarketBalanceReader -- the wallet list, the loyalty list, both web pages, the till's
+        // customer lookup and the overdraft check that judges a wallet payment -- and this profile was the one that did not, so a customer
+        // with a hundred dinars in Kuwait and nothing in Riyadh was shown one number here that was neither, beside a wallet screen that had
+        // it right. The reader answers the `users` column untouched for a market that has not been switched over and for a request that
+        // names no market, which is every request as the platform ships, so the shape of this answer does not move: a whole number of
+        // points still reaches the app without a decimal point.
+        //
+        // Replaced in the payload rather than on the model, deliberately: `$user` is the authenticated instance for the whole request, and
+        // writing a market's balance onto it would leave the wrong figure in the one column every movement is still written to, for anything
+        // later in the request that saved it.
+        // `$user` and not `$getUser`: this answer has always been `$user` serialised, so the two balances are replaced in THAT payload and
+        // every other field keeps the shape the app has always read. The guards hand over `App\User`, which the reader takes.
+        $balances = app(MarketBalanceReader::class);
+
+        return response()->json(array_replace($user->toArray(), [
+            'wallet_balance' => $balances->wallet($user),
+            'loyalty_point' => $balances->points($user),
+        ]), 200);
     }
 
     public function create_support_ticket(SupportTicketRequest $request)
