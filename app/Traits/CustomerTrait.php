@@ -11,6 +11,7 @@ use Illuminate\Support\Carbon;
 use App\Utils\Helpers;
 use App\Utils\Convert;
 use App\Services\Customer\CustomerBalanceLock;
+use App\Services\Loyalty\WhatAPointIsWorth;
 use App\Services\Wallet\WalletOverdraft;
 use App\Services\Storefront\LedgerAttribution;
 use App\Services\Storefront\LedgerOrigin;
@@ -65,7 +66,10 @@ trait CustomerTrait
                     $walletTransaction->admin_bonus = Helpers::add_fund_to_wallet_bonus(Convert::usd($amount ?? 0));
                     $addFundToWalletBonus = Helpers::add_fund_to_wallet_bonus(Convert::usd($amount ?? 0));
                 } else if ($transaction_type == 'loyalty_point') {
-                    $credit = localToDefaultCurrency(amount: loyaltyPointToLocalCurrency(amount: $amount));
+                    // The one place that answers what a point is worth (E-14, LF-1), which this writer did not ask: the
+                    // seam was reachable only from `WalletPosting`, and nothing calls that, so the setting moved no
+                    // money. This is the class's WEB reading, which is this expression to the digit.
+                    $credit = WhatAPointIsWorth::creditFor((float) $amount, WhatAPointIsWorth::WEB);
                 }
             } else if ($transaction_type == 'order_place') {
                 $debit = $amount;

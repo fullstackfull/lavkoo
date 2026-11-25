@@ -3,6 +3,7 @@
 namespace App\Utils;
 
 use App\Services\Loyalty\LoyaltyEarning;
+use App\Services\Loyalty\WhatAPointIsWorth;
 use App\Services\Loyalty\WhenARefundWouldTakePointsBelowZero;
 use Carbon\Carbon;
 use App\Models\User;
@@ -62,7 +63,21 @@ class CustomerManager
                     $wallet_transaction->admin_bonus = Helpers::add_fund_to_wallet_bonus(Convert::usd($amount ?? 0));
                     $add_fund_to_wallet_bonus = Helpers::add_fund_to_wallet_bonus(Convert::usd($amount ?? 0));
                 } else if ($transaction_type == 'loyalty_point') {
-                    $credit = (($amount / BusinessSetting::where('type', 'loyalty_point_exchange_rate')->first()->value) * Convert::default(1));
+                    /*
+                     * THE ONE PLACE THAT ANSWERS WHAT A POINT IS WORTH (E-14, LF-1), which this writer did not ask.
+                     *
+                     * `App\Services\Loyalty\WhatAPointIsWorth` was built to hold both of the platform's formulas so
+                     * that answering LF-1 would be one setting rather than a hunt through the call sites -- and the only
+                     * thing reading it was `WalletPosting`, which NOTHING CALLS. The REST conversion
+                     * (RestAPI\v1\UserLoyaltyController) comes here, so the setting moved no money at all.
+                     *
+                     * The formula is the same one to the digit -- `points / rate * Convert::default(1)`, which is the
+                     * class's API reading -- with one difference that is a repair: the rate comes from `getWebConfig`
+                     * and not straight off `business_settings`, so a market with its own exchange rate converts at ITS
+                     * rate (E-02). A market with no override, and every market while storefronts are off, reads the same
+                     * platform value this line read before.
+                     */
+                    $credit = WhatAPointIsWorth::creditFor((float) $amount, WhatAPointIsWorth::API);
                 } else if ($transaction_type == "due_payment_for_order") {
                     $debit = $amount;
                     $credit = 0;

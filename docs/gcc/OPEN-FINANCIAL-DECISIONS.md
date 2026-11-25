@@ -57,6 +57,17 @@ of the label, the website path is the one that does not do what the setting says
 The divergence is pinned by tests, so whichever answer is given, the change is one line in each formula and the tests fail loudly if a
 third formula appears. `App\Services\Loyalty\PointsToWalletConversion` is the one place both paths already go through for the debit side.
 
+Since 2026-11-25 the credit side goes through one place too, and the REST writer reads the exchange rate the way every other reader of the
+four loyalty settings reads it — through `getWebConfig`, so a market with its own rate converts at ITS rate rather than at the platform's.
+That was a straight defect and needed no decision: on a market with no rate of its own, and on every market while storefronts are off, the
+figure is the one that line read before.
+
+**One thing this uncovered, and it is not a decision either — it is a gap.** A per-market exchange rate cannot yet be observed through a
+conversion at all, because the switch that makes a market answer its own loyalty settings (`gcc.storefronts.currency.enabled`) is the same
+switch that CLOSES THE WALLET in a market trading in its own currency (GCC-05 slice 5b). Both loyalty controllers read `wallet_status`
+through the storefront seam, which answers 0 there, so they refuse with 422 before any rate is read. Measured at 0 for Kuwait. Nothing about
+this decision depends on it; it is why the per-market half of E-02 is tested at the writer and not at the endpoint.
+
 ### One more thing this decision holds up
 
 `Convert::default()` rounds every amount it converts to **two** decimals, in both currency models. Both loyalty formulas read it
@@ -67,11 +78,23 @@ function, was separable and is fixed.
 
 ---
 
-### Prepared, and waiting only on the answer — `4f349593`
+### Prepared, and waiting only on the answer — `4f349593`, **and a correction of 2026-11-25 that matters to the owner**
 
 `App\Services\Loyalty\WhatAPointIsWorth` holds both formulas and hands each path its own. The setting
 `gcc.loyalty.point_value` (`GCC_LOYALTY_POINT_VALUE`) names the three answers, and an unrecognised value is read as today's
 behaviour, so a typo in an environment file cannot move money.
+
+> **CORRECTION.** Until 2026-11-25 this section said the answer was one setting away. **It was not: the setting reached no
+> customer.** `WhatAPointIsWorth` was read only by `App\Services\Customer\WalletPosting`, and nothing in the application
+> calls that class — both loyalty controllers even import it and then use the older writers. The REST conversion went to
+> `CustomerManager::create_wallet_transaction` and the website's to `CustomerTrait::createWalletTransaction`, each carrying its
+> own copy of a formula. Answering LF-1 and setting the value would have changed nothing anybody was paid.
+>
+> Both writers now ask the one class, with the default rule reproducing each path's own formula to the digit — measured, not
+> asserted: `PointsToWalletFormulaCharacterizationTest` still reads the same two figures through the real controllers.
+> `TheLoyaltyDecisionReachesTheRealEndpointsTest` (9 tests) drives both endpoints and shows that option A makes both credit one
+> dollar's worth, option B makes both credit one unit in force, and the two agree under either answer — which is the criterion
+> this decision unblocks. So the answer IS now one setting, and the claim can be relied on.
 
 - **Default, as it ships:** `as_each_path_does_today` — the apps keep the app formula, the website keeps the website's, to the digit.
   `PointsToWalletFormulaCharacterizationTest` still measures the same two figures, which is the proof that nothing was adopted.
