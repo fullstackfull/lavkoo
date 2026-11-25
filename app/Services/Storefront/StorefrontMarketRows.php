@@ -256,7 +256,12 @@ final class StorefrontMarketRows
     }
 
     /** The storefront whose rows are the ones that name no market. */
-    private function defaultCountry(): string
+    /**
+     * The market the unmarked rows of every table belong to. Public because it is the ONE answer to "which market is the default one" that
+     * every other market-owning rule has to agree with: a second copy of it, spelt `'SA'` at another call site, is how two tables come to
+     * disagree, and it is also another Saudi literal for SaudiLiteralsAllowListTest to carry.
+     */
+    public function defaultCountry(): string
     {
         $configured = strtoupper(trim((string) config('gcc.storefronts.default_country')));
 

@@ -4,6 +4,7 @@ namespace App\Services\Address;
 
 use App\Models\AddressCity;
 use App\Services\Storefront\StorefrontContext;
+use App\Services\Storefront\StorefrontMarketRows;
 use Illuminate\Container\Attributes\Scoped;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Schema;
@@ -103,11 +104,10 @@ final class CityAliasNamespace
         $this->columnReady = null;
     }
 
+    /** Asked of `StorefrontMarketRows`, which is the one place that answers which market the unmarked rows of any table belong to. */
     private function defaultCountry(): string
     {
-        $configured = strtoupper(trim((string) config('gcc.storefronts.default_country')));
-
-        return $configured === '' ? 'SA' : $configured;
+        return app(StorefrontMarketRows::class)->defaultCountry();
     }
 
     /** @return list<string> */

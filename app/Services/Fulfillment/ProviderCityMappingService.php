@@ -14,6 +14,7 @@ use App\Services\Address\AddressText;
 use App\Services\AuditLogger;
 use App\Services\Fulfillment\Data\CityCandidate;
 use App\Services\Fulfillment\Exceptions\CityMappingRefusedException;
+use App\Services\Storefront\StorefrontMarketRows;
 use Illuminate\Container\Attributes\Singleton;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -712,12 +713,10 @@ class ProviderCityMappingService
         return $lists->narrow($cities, $provider, $country);
     }
 
-    /** The market whose rows the unmarked ones are, read as `StorefrontMarketRows` reads it: the configured default, else Saudi Arabia. */
+    /** The market whose rows the unmarked ones are. Asked of `StorefrontMarketRows`, which is the one place that answers it. */
     private static function defaultStorefrontCountry(): string
     {
-        $configured = strtoupper(trim((string) config('gcc.storefronts.default_country')));
-
-        return $configured === '' ? 'SA' : $configured;
+        return app(StorefrontMarketRows::class)->defaultCountry();
     }
 
     /**
