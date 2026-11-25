@@ -21,6 +21,46 @@ env:
   PHP_EXTENSIONS: curl, dom, fileinfo, gd, intl, json, libxml, mbstring, mysqli, openssl, pdo_mysql, pdo_sqlite, sqlite3, zip, bcmath, exif
 
 jobs:
+  # Is this change documentation ONLY? Four of the engine groups take between fifty minutes and the whole 110-minute ceiling, on two
+  # engines each, and a pull request that rewrites one Markdown file under docs/ pays for all of them. The rule is in
+  # scripts/ci/documentation-only-change.php rather than in a `paths-ignore:` here, for three reasons: `paths-ignore` would skip the
+  # syntax check and the secret scan too, which must never be skipped; a skipped workflow and a workflow whose heavy jobs were skipped
+  # read differently to anyone looking at the run; and a rule in a file can be TESTED, which tests/Unit/Ci/DocumentationOnlyChangeTest
+  # does, down to asserting that every job starting a database carries the condition. The rule is deliberately one-sided: it answers
+  # "documentation only" only when EVERY changed path is documentation, and anything it cannot read runs the whole suite.
+  decide:
+    name: What this change can affect
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      documentation_only: ${{ steps.scope.outputs.documentation_only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The merge-base needs both sides; a shallow clone of the head alone cannot name what changed.
+          fetch-depth: 0
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+      - name: Read the changed paths and ask whether they are documentation only
+        id: scope
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+        run: |
+          # Only a pull request has a base to compare with. A push to main, a dispatch of a branch and anything else answer `false`,
+          # which runs everything: there is no safe way to tell what a dispatch is for.
+          if [ -z "$BASE" ]; then
+            echo "not a pull request: every job runs"
+            echo "documentation_only=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git diff --name-only "$BASE...HEAD" > /tmp/changed-paths.txt || { echo "the diff could not be read: every job runs"; echo "documentation_only=false" >> "$GITHUB_OUTPUT"; exit 0; }
+          echo "changed paths:"; cat /tmp/changed-paths.txt
+          answer=$(php scripts/ci/documentation-only-change.php < /tmp/changed-paths.txt)
+          echo "documentation only: $answer"
+          echo "documentation_only=$answer" >> "$GITHUB_OUTPUT"
+
   lint:
     name: PHP syntax (${{ matrix.php }})
     runs-on: ubuntu-latest
@@ -85,6 +125,8 @@ jobs:
   # on a runner; each set takes about 15 to 20). A MariaDB image answers to the MARIADB_* names; both sets are given so the same service block serves both.
   tests-mysql:
     name: ${{ matrix.group }}, ${{ matrix.engine }}
+    needs: decide
+    if: needs.decide.outputs.documentation_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
@@ -279,6 +321,8 @@ jobs:
   # in two groups side by side, with a timeout of their own; the job above is left as the Fulfillment workstream set it up.
   tests-mysql-sales-channels:
     name: Sales-channel and cost tests, ${{ matrix.engine }} (${{ matrix.group }})
+    needs: decide
+    if: needs.decide.outputs.documentation_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 110
     strategy:
@@ -411,6 +455,8 @@ jobs:
   # MariaDB with the test connection in strict mode (DB_STRICT_TESTS=1: tests/CreatesApplication.php), which proves the new code writes nothing strict mode would refuse.
   tests-strict-mode:
     name: Strict-mode tests, MariaDB 11.4.2
+    needs: decide
+    if: needs.decide.outputs.documentation_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 110
     services:
@@ -461,6 +507,8 @@ jobs:
 
   tests-strict-mode-wallet:
     name: Strict-mode wallet tests, MariaDB 11.4.2
+    needs: decide
+    if: needs.decide.outputs.documentation_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     services:
