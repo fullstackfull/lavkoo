@@ -168,6 +168,19 @@ return [
             // until the themes migration has run, and it needs no other switch: while storefronts are off the only storefront a request can reach is the default one.
             // Read docs/gcc/F-01-STOREFRONT-THEME.md before turning it on.
             'enabled' => filter_var(env('GCC_STOREFRONT_THEMES', false), FILTER_VALIDATE_BOOLEAN),
+
+            // What copying one market's theme into another does with the banner rows its sections point at (F-11). `banners` is shared
+            // by every storefront but ASSIGNED per market, so a copied block pointing at the source market's row renders nothing in the
+            // target market. `duplicate` (the default) gives the copy a row of its own, so editing the Emirati banner leaves the Saudi
+            // one alone; `share` assigns the ONE row to both markets, so a single edit reaches both. This is the open owner decision
+            // Q-19, and it is a setting so answering it is not a code change.
+            //
+            // There is deliberately NO setting for the assets: `theme_assets.theme_id` is a single column, so sharing cannot be
+            // expressed without a schema change, and a shared FILE cannot be offered because deleting an asset deletes its file --
+            // the copy's logo would take the source market's logo with it. An asset is copied bytes and all, or reported as not copied.
+            'copy' => [
+                'banners' => env('GCC_STOREFRONT_THEME_COPY_BANNERS', 'duplicate'),
+            ],
         ],
         'market_accounts' => [
             // Off by default, and off means the platform of today: a customer has the one wallet balance and the one point balance the `users` row keeps

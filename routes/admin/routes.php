@@ -1724,6 +1724,9 @@ Route::get(
             Route::get('version/export', 'exportVersion')->name('version.export');
             Route::get('example', 'downloadExample')->name('example');
             Route::post('import', 'importTheme')->name('import');
+            // F-11: one market's theme becomes another market's DRAFT, with fresh section identities,
+            // its own banner rows and its own asset files.
+            Route::post('copy-to-market', 'copyToMarket')->name('copy-to-market');
             Route::post('import-preset', 'importPreset')->name('import-preset');
             Route::post('asset/upload', 'uploadAsset')->name('asset.upload');
             // POST, not GET: deleting is state-changing, and a GET delete is reachable by any
