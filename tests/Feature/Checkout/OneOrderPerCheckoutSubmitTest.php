@@ -217,6 +217,41 @@ class OneOrderPerCheckoutSubmitTest extends ApiAddressTestCase
         $this->assertSame(0, DB::table('checkout_idempotency_keys')->count(), 'and does not burn the key: it was not a submit that was honoured');
     }
 
+    /**
+     * The order-integrity panel's own reading, which is where this gap has been reported from all along. Read through `gaps()`, the method
+     * that builds what the page renders, rather than through the one figure: a reading nothing renders is not a reading.
+     */
+    public function test_the_order_integrity_panel_stops_reporting_the_key_as_not_configured(): void
+    {
+        $customer = $this->aCustomerWithACart();
+        $this->submit($customer);
+
+        $reading = $this->theIdempotencyReadingOfThePanel();
+
+        $this->assertSame('ok', $reading['state'], 'the page said not_configured while the table was absent, and that is no longer the deployment it is on');
+        $this->assertSame(1, $reading['value'], 'one submit named itself');
+        $this->assertStringContainsString('Idempotency-Key', (string) $reading['note']);
+    }
+
+    public function test_the_panel_still_reports_not_configured_on_a_database_without_the_table(): void
+    {
+        Schema::dropIfExists('checkout_idempotency_keys');
+
+        $reading = $this->theIdempotencyReadingOfThePanel();
+
+        $this->assertSame('not_configured', $reading['state']);
+        $this->assertStringContainsString('checkout_idempotency_keys', (string) $reading['remedy'], 'and names the migration that fixes it');
+    }
+
+    /** @return array<string, mixed> what the panel publishes about the checkout key */
+    private function theIdempotencyReadingOfThePanel(): array
+    {
+        $panel = app(\App\Services\Monitoring\Panels\OrderIntegrityPanel::class);
+        $gaps = (new \ReflectionMethod($panel, 'gaps'))->invoke($panel);
+
+        return $gaps['fields']['checkout_idempotency_key']->jsonSerialize();
+    }
+
     public function test_a_database_that_has_not_run_the_migration_behaves_exactly_as_today(): void
     {
         Schema::dropIfExists('checkout_idempotency_keys');
