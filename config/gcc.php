@@ -616,6 +616,17 @@ return [
     |
     */
 
+    // How long the records of this programme are kept (I2-01, I2-05). The rules themselves, and why each one is what it is, are in
+    // App\Services\Retention\LegalRecordRetention; only the budgets are settings.
+    'retention' => [
+        'legal' => [
+            // Days after which a legal text that is still a DRAFT and was NEVER approved may be removed. Zero means never, which is what
+            // it ships as and what every installation keeps until somebody chooses otherwise. A text that was ever approved, published,
+            // archived or revoked is kept for good whatever this says: an acceptance row points at it by id, version and hash.
+            'draft_days' => (int) env('GCC_LEGAL_DRAFT_RETENTION_DAYS', 0),
+        ],
+    ],
+
     'notifications' => [
         'profiles' => filter_var(env('GCC_NOTIFICATION_PROFILES', false), FILTER_VALIDATE_BOOLEAN),
 
