@@ -523,6 +523,27 @@ return [
         ),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Notification accounts per market (I1-01, I1-02)
+    |--------------------------------------------------------------------------
+    |
+    | Off by default: every e-mail, one-time code, WhatsApp message and push leaves through the one account this installation has, exactly as
+    | today. When it is on, and only once `notification_channel_profiles` exists, a market with an ACTIVE row of its own for a channel sends
+    | that channel's messages through that account -- its own mail host and from address, its own SMS gateways, its own WhatsApp inbox, its
+    | own push credentials -- and a market with no row of its own uses the shared row, which is what every market does until an operator
+    | writes one. The table ships empty, so turning the switch on alone changes nothing either.
+    |
+    | A market's own account is the WHOLE answer for its channel: a Kuwaiti one-time code may not go out through a gateway the Saudi account
+    | happens to have enabled. Credentials are stored encrypted and are never in a response or a log; `php artisan gcc:notification-readiness`
+    | reports what each market would send through and what is missing, without printing a secret.
+    |
+    */
+
+    'notifications' => [
+        'profiles' => filter_var(env('GCC_NOTIFICATION_PROFILES', false), FILTER_VALIDATE_BOOLEAN),
+    ],
+
     'loyalty' => [
         // What a loyalty point is worth in wallet money (E-14, finding LF-1), and the one setting that settles a disagreement older than
         // this work: the mobile apps credit `rate` points as ONE DOLLAR and the website credits them as ONE UNIT OF THE CURRENCY IN FORCE,

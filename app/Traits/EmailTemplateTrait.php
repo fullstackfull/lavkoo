@@ -8,6 +8,7 @@ use App\Models\EmailTemplate;
 use Exception;
 use Illuminate\Support\Facades\Mail;
 use App\Services\EmailTemplateService;
+use App\Services\Notification\MailAccount;
 use App\Services\Notification\MessageLanguage;
 use App\Services\Storefront\StorefrontCurrency;
 use App\Services\Storefront\StorefrontUrl;
@@ -135,9 +136,14 @@ trait EmailTemplateTrait
                     // A mail about an order is written by a queue worker, which has no storefront and no session, so every figure in it would
                     // otherwise be the platform's default currency at today's rate. The order's own record says what it was sold in; a mail that
                     // is about no order (a password reset, a registration) carries none and is written exactly as it was.
-                    app(StorefrontCurrency::class)->withinOrderCurrency(
-                        order: $data['order'] ?? [],
-                        callback: fn (): mixed => Mail::to($sendMailTo)->send(new SendMail($data, $template, $socialMedia)),
+                    // And through the mail account of the market this message belongs to (I1-01), which is the market in force: the order's own
+                    // for a message about an order, the dispatching request's for every other one. A market with no account of its own, and
+                    // every market while the switch is off, leaves through the one account the platform has always used.
+                    app(MailAccount::class)->forThisMessage(
+                        callback: fn (): mixed => app(StorefrontCurrency::class)->withinOrderCurrency(
+                            order: $data['order'] ?? [],
+                            callback: fn (): mixed => Mail::to($sendMailTo)->send(new SendMail($data, $template, $socialMedia)),
+                        ),
                     );
                 } catch (Exception $exception) {
                 }
