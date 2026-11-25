@@ -3,6 +3,7 @@
 namespace App\Utils;
 
 use App\Services\Loyalty\LoyaltyEarning;
+use App\Services\Loyalty\WhenARefundWouldTakePointsBelowZero;
 use Carbon\Carbon;
 use App\Models\User;
 use App\Models\Wishlist;
@@ -126,6 +127,16 @@ class CustomerManager
         }
 
         return CustomerBalanceLock::apply($user_id, function (User $user) use ($reference, $transaction_type, $credit, $debit, $origin) {
+            // The same question as the repository writer's, asked in the same place and answered by the same rule: two
+            // writers of one customer's points must not disagree about whether a refund may take them below zero (E-14).
+            if ($transaction_type == 'refund_order') {
+                $allowed = WhenARefundWouldTakePointsBelowZero::debitFor(held: (float) $user->loyalty_point, debit: (float) $debit);
+                if ($allowed === null) {
+                    return false;
+                }
+                $debit = $allowed;
+            }
+
             $current_balance = $user->loyalty_point + $credit - $debit;
             if ($transaction_type == 'point_to_wallet' && $current_balance < 0) {
                 return false;

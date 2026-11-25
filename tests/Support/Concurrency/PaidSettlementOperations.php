@@ -2,8 +2,10 @@
 
 namespace Tests\Support\Concurrency;
 
+use App\Models\PaymentRequest;
 use App\Models\User;
 use App\Utils\OrderManager;
+use Illuminate\Support\Facades\DB;
 use Tests\Support\BuildsApiAddressSchema;
 
 /**
@@ -33,6 +35,31 @@ final class PaidSettlementOperations
             'requestObj' => request(), 'address_id' => $args['address'], 'enforce_address_rules' => false,
             'stock_policy' => 'allow_oversell',
         ]);
+    }
+
+    /**
+     * The whole settlement hook, for the guest who asks to be registered while paying: the find-or-create of the customer
+     * AND the order, in the order and the scope the real callback runs them in.
+     *
+     * The hook rather than the writer, this time, because the subject is the step the hook takes BEFORE it reaches the
+     * writer. `digital_payment_place_orders` creates the customer outside and ahead of any transaction, so the claim that
+     * makes one order per payment cannot answer for it.
+     *
+     * @param array{payment: string, reference: string, guest: int, address: int, email: string, phone: string} $args
+     * @return array{orders: list<int>, customers: int} what this delivery built, and how many customers now carry that e-mail
+     */
+    public static function registerAndSettle(array $args): array
+    {
+        self::useTaxIncludedPrices();
+
+        $payment = PaymentRequest::findOrFail($args['payment']);
+
+        digital_payment_place_orders($payment);
+
+        return [
+            'orders' => DB::table('orders')->where('transaction_ref', $args['reference'])->pluck('id')->all(),
+            'customers' => DB::table('users')->where('email', $args['email'])->count(),
+        ];
     }
 
     /** The tax set-up lives in the cache, which is private to each process: every worker puts in the one the test process uses. */

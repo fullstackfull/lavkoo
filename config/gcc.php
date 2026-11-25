@@ -558,6 +558,43 @@ return [
         // Changing it changes what a customer is paid for points they already hold, in one direction or the other, so it is the owner's
         // decision and nobody else's: docs/gcc/OPEN-FINANCIAL-DECISIONS.md section 1. An unrecognised value is read as the default.
         'point_value' => env('GCC_LOYALTY_POINT_VALUE', App\Services\Loyalty\WhatAPointIsWorth::AS_EACH_PATH_DOES_TODAY),
+
+        // What happens when a refund takes back more points than the customer still holds (E-14). Today the balance goes
+        // NEGATIVE: both writers check a `point_to_wallet` debit against the balance and neither checks a `refund_order`
+        // debit at all, so a customer holding 10 points whose order is refunded for 30 ends on -20 and the next order they
+        // place starts by paying that off. The criterion itself names the three answers and says the choice is the owner's.
+        //
+        //   'allow_as_today'  the default: the debit is written in full and the balance goes negative, to the point
+        //   'refuse'          the points row is refused and nothing is written; the refund's MONEY is unaffected
+        //   'clamp_to_zero'   the refund takes what is there and no more, and the row records the debit actually taken
+        //
+        // It decides what a customer owes for points they have already spent, so it is the owner's and nobody else's:
+        // docs/gcc/OPEN-FINANCIAL-DECISIONS.md section 5. An unrecognised value is read as the default.
+        'when_a_refund_would_take_points_below_zero' => env(
+            'GCC_REFUND_POINTS_BELOW_ZERO',
+            App\Services\Loyalty\WhenARefundWouldTakePointsBelowZero::ALLOW_AS_TODAY,
+        ),
+    ],
+
+    'payments' => [
+        // What a payment a gateway took is worth in the unit this platform STORES money in (E-V1). `Convert::usdPaymentModule`
+        // converts a payment into the store's DEFAULT currency and stops, so on a store whose default is not the dollar its answer
+        // is `default_rate` times the stored figure. Under `multi_currency` on a Saudi store a customer who pays 100 riyals into
+        // the wallet has 100 stored where 26.67 is what 100 riyals is worth, and every screen that puts a stored figure back into
+        // riyals shows 375: the customer paid 100 and the account reads 375. The same conversion sets the amount a top-up hands the
+        // gateway, the minimum and maximum top-up checks, and the catalogue's price-range filter on the website and in the seller API.
+        //
+        //   'as_today'                       the default: the module's own arithmetic, branch for branch, to the digit
+        //   'the_rate_of_the_currency_paid'  the correction: `amount * usd_rate / rate_paid`, the inverse of what charged the gateway
+        //
+        // Today's platform is single-currency, where both readings are the identity and nothing can differ. Switching it changes what
+        // a stored unit is worth -- the same question as what a loyalty point is worth -- and a platform that has already run
+        // `multi_currency` holds balances written at the old reading, so what happens to those is part of the answer. The owner's
+        // decision and nobody else's: docs/gcc/OPEN-FINANCIAL-DECISIONS.md section 4. An unrecognised value is read as the default.
+        'what_a_payment_is_worth' => env(
+            'GCC_WHAT_A_PAYMENT_IS_WORTH',
+            App\Services\Payments\WhatAPaymentIsWorth::AS_TODAY,
+        ),
     ],
 
     'tax' => [

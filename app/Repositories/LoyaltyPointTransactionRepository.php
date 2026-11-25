@@ -3,6 +3,7 @@
 namespace App\Repositories;
 
 use App\Services\Loyalty\LoyaltyEarning;
+use App\Services\Loyalty\WhenARefundWouldTakePointsBelowZero;
 use App\Contracts\Repositories\LoyaltyPointTransactionRepositoryInterface;
 use App\Models\BusinessSetting;
 use App\Models\LoyaltyPointTransaction;
@@ -127,6 +128,18 @@ class LoyaltyPointTransactionRepository implements LoyaltyPointTransactionReposi
         }
 
         return CustomerBalanceLock::apply($userId, function (User $user) use ($reference, $transactionType, $credit, $debit, $origin) {
+            // A refund takes back more points than the customer still holds and the balance goes NEGATIVE: the conversion
+            // debit below has always been checked against the balance and the refund debit never was (E-14). What should
+            // happen instead -- refuse, clamp, or allow and report -- is the owner's, so the rule is a setting that ships
+            // as today's behaviour and this call returns $debit unchanged while it does.
+            if ($transactionType == 'refund_order') {
+                $allowed = WhenARefundWouldTakePointsBelowZero::debitFor(held: (float) $user['loyalty_point'], debit: (float) $debit);
+                if ($allowed === null) {
+                    return false;
+                }
+                $debit = $allowed;
+            }
+
             $currentBalance = $user['loyalty_point'] + $credit - $debit;
             if ($transactionType == 'point_to_wallet' && $currentBalance < 0) {
                 return false;

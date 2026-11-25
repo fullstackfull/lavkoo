@@ -8,7 +8,9 @@ use App\Models\OrderEditHistory;
 use App\Models\ShippingAddress;
 use App\Models\User;
 use App\Services\Address\OrderAddressService;
+use App\Services\Payments\OneAccountPerRegistration;
 use App\Services\Payments\PaymentSettlementScope;
+use App\Services\Payments\WhatWasPaidMatchesTheOrder;
 use App\Services\Payments\WalletTopUpRegister;
 use App\Services\Storefront\LedgerOrigin;
 use App\Services\Storefront\PaymentStorefront;
@@ -53,8 +55,16 @@ if (!function_exists('digital_payment_place_orders')) {
         $newCustomerInfo = $additionalData['new_customer_info'] ?? null;
 
         if ($newCustomerInfo) {
-            $newCustomer = User::where(['email' => $newCustomerInfo['email']])->orWhere(['phone' => $newCustomerInfo['phone']])->first()
-                ?? User::create([
+            // One guest asking to be registered while paying gets ONE account. This find-or-create sits before and outside
+            // every transaction of the settlement, so two deliveries of one callback both missed the lookup and both
+            // inserted: the orders of a payment were already single (App\Services\Payments\OneOrderPerPayment, claimed
+            // inside the order's transaction) while the customer was still double. The claim is dormant until its own
+            // migration has run, and both closures below are the lookup and the insert exactly as they stood.
+            $newCustomer = app(OneAccountPerRegistration::class)->registerOnce(
+                email: $newCustomerInfo['email'] ?? null,
+                phone: $newCustomerInfo['phone'] ?? null,
+                find: static fn () => User::where(['email' => $newCustomerInfo['email']])->orWhere(['phone' => $newCustomerInfo['phone']])->first(),
+                create: static fn () => User::create([
                     'name' => $newCustomerInfo['name'],
                     'f_name' => $newCustomerInfo['name'],
                     'l_name' => $newCustomerInfo['l_name'],
@@ -63,7 +73,8 @@ if (!function_exists('digital_payment_place_orders')) {
                     'is_active' => 1,
                     'password' => bcrypt($newCustomerInfo['password']),
                     'referral_code' => $newCustomerInfo['referral_code'],
-                ]);
+                ]),
+            );
 
             if ($additionalData['is_guest']) {
                 foreach ([$additionalData['address_id'] ?? null, $additionalData['billing_address_id'] ?? null] as $guestAddressId) {
@@ -150,6 +161,17 @@ if (!function_exists('digital_payment_place_orders')) {
             if ($orderIds === [] && !PaymentSettlementScope::hasOrderFor(transactionId: $paymentData['transaction_id'] ?? null)) {
                 Log::critical('A paid payment was settled without building an order.', ['transaction_id' => $paymentData['transaction_id'], 'customer_id' => $customerId]);
             }
+            // What the gateway took against what the orders add up to (D2). Nothing compared them, so a basket that moved
+            // between the payment starting and the callback arriving produced an order whose total is not the figure the
+            // customer was charged, with both records saying `paid`. It REPORTS and never refuses: the money has already
+            // moved, and refusing would leave the customer paid with nothing to show for it.
+            app(WhatWasPaidMatchesTheOrder::class)->report(
+                paymentId: $paymentData['id'] ?? null,
+                paymentAmount: $paymentData['payment_amount'] ?? null,
+                currencyCode: isset($paymentData['currency_code']) ? (string) $paymentData['currency_code'] : null,
+                orderIds: $orderIds,
+            );
+
             foreach ($orderIds as $orderId) {
                 OrderManager::generateReferBonusForFirstOrder(orderId: $orderId);
             }

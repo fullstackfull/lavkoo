@@ -1,6 +1,6 @@
 # The money questions that are the owner's, with what each answer costs
 
-**Status:** nothing in this file has been implemented. It exists because three parts of the plan cannot be finished without an answer that
+**Status:** nothing in this file has been implemented. It exists because five parts of the plan cannot be finished without an answer that
 is not a technical one: each option moves real money in a different direction, and picking one myself would be deciding what the platform
 pays its customers and its couriers. Every figure below is **measured**, with the test or the line of code that produced it named, so the
 decision can be taken on numbers rather than on description.
@@ -195,7 +195,153 @@ and deciding what happens to orders already cancelled and never refunded.
 
 ---
 
+---
+
+## 4. What a payment a gateway took is worth in the unit the platform stores money in (E-V1)
+
+### What the platform does today
+
+Under `multi_currency`, a customer who pays **100 riyals** into the wallet has **100** stored, and every screen reads that account back as
+**375 riyals**. Measured end to end in `tests/Feature/Payments/WhatAPaymentIsWorthTest.php` and
+`tests/Feature/Wallet/ATopUpCreditsWhatWasPaidTest.php`, with the riyal at 3.75 to the dollar.
+
+The stored unit is the dollar: `usdToDefaultCurrency()` multiplies a stored figure by `default_rate / usd_rate` to show it, and
+`usdToAnotherCurrencyConverter()` multiplies it by `code_rate / usd_rate` to charge it. The inverse of both is
+`amount * usd_rate / rate_of_the_currency_paid`, and **26.67** is what 100 riyals is worth.
+
+`Convert::usdPaymentModule()` does not compute that. It converts the payment into the store's **default currency** and stops:
+
+```php
+// app/Utils/Convert.php, before this work; now App\Services\Payments\WhatAPaymentIsWorth::asTheModuleHasAlwaysDoneIt()
+$defaultAmount = ... ;                       // the amount in the DEFAULT currency, which this part gets right
+$value = $defaultAmount * $usdRate;          // and here the division by the default rate is missing
+```
+
+So its answer is `default_rate` times the figure that should be stored — 3.75 times on a Saudi store, 3.67 in the Emirates, 0.31 in Kuwait.
+A store whose default currency **is** the dollar takes an earlier branch and is correct, which is the shape of a missing final division
+rather than of a deliberate rule.
+
+The remaining two conversions of the top-up cancel each other exactly (`usdToDefaultCurrency` multiplies by `default/usd`,
+`Convert::usd` inside `create_wallet_transaction` divides by it again), so the stored figure is `usdPaymentModule`'s answer and nothing
+else.
+
+### Where that conversion is actually read — a correction to the earlier record
+
+An earlier note in `docs/gcc/tracker/coverage-gaps.md` and in E-V1 said this conversion is on the path of **every** gateway payment. It is
+not, and the difference matters to the size of the decision. Every caller, measured:
+
+| caller | what it converts |
+|---|---|
+| `app/Utils/module-helper.php:258` | the wallet top-up's credit — the figure above |
+| `app/Http/Controllers/Customer/PaymentController.php:577` | the amount a wallet top-up hands the gateway |
+| `app/Http/Controllers/Customer/PaymentController.php:587` | the minimum and maximum top-up checks |
+| `app/Utils/ProductManager.php:2390`, `:2394` | the website catalogue's price-range filter bounds |
+| `app/Http/Controllers/RestAPI/v3/seller/ProductController.php:314`, `:318`, `:569`, `:573` | the same filter in the seller API |
+
+An **order** payment does not go through it: `PaymentController::payment()` converts the already-stored order total with
+`usdToAnotherCurrencyConverter()` (line 478), which is the correct arithmetic. So the money at stake is the wallet top-up; the filter
+bounds are a search range and not a figure anybody is charged.
+
+### The options
+
+| | What it means | What it costs |
+|---|---|---|
+| **A. Keep today's reading** | A payment is stored as its value in the default currency, under a function named for dollars. | No code changes. But a top-up credits `default_rate` times what the customer paid — 3.75× on a Saudi store — so the day a market is switched to `multi_currency` the wallet becomes a money printer, and the price filter asks for a range 3.75× wider than the one that was typed. Workable only while the platform stays single-currency, where both readings are the identity. |
+| **B. Correct the conversion** (recommended) | `amount * usd_rate / rate_paid`, the exact inverse of the conversion that charged the gateway. A 100 riyal top-up stores 26.67 and reads back as 100 riyals. | One setting, already built and tested. It changes **what a stored unit is worth to a payment**, which is the same question as section 1 (what a loyalty point is worth), so the two should be answered together. **Historical question:** a platform that has already run `multi_currency` holds balances written at the old reading, and whether those are restated is a second decision; `wallet_transactions` carries `credit`, `balance` and, for rows written since E-05, the payment behind each one, so the difference is computable. |
+| **C. Correct it and stop calling it dollars** | B, plus renaming the stored unit in the code so the next reader is not told a figure is in dollars when it is in the default currency. | The clearest, and the largest diff: `usd`, `usdPaymentModule`, `usdToDefaultCurrency`, `usdAmountInDefaultCurrency` and `bdtTousd` all carry the same assumption, and four of them are read from Blade. Not worth doing before B is answered, and not worth doing as part of it. |
+
+### What is blocked until it is answered
+
+- E-V1's criterion "a conversion credits what was paid" — its floor half is closed and measured; this is the other half.
+- Switching any market to `multi_currency`. While the platform is single-currency both readings are the identity, which is why this has
+  cost nothing so far; it is a precondition of the first multi-currency market, not a live defect.
+
+### Done already, needing no decision
+
+The defect is pinned in two places and the dormant default is proved rather than assumed: a matrix of 60 cases — five amounts × four paid
+currencies × three default currencies — compares the conversion in force against a frozen copy of the arithmetic as it stood, with
+`assertSame` on the floats, so a figure differing in its last bit fails. The same matrix asserts that the two readings agree **only** where
+the dollar is the default or the dollar was paid, so it is measuring the difference it claims to measure.
+
+### Prepared, and waiting only on the answer
+
+`App\Services\Payments\WhatAPaymentIsWorth` holds both readings and `Convert::usdPaymentModule()` is one line into it, so all nine call
+sites move together or not at all. The setting is `gcc.payments.what_a_payment_is_worth` (`GCC_WHAT_A_PAYMENT_IS_WORTH`), and an
+unrecognised value reads as today's behaviour.
+
+- **Default, as it ships:** `as_today` — the module's own arithmetic, branch for branch, to the digit.
+- **Option B:** `the_rate_of_the_currency_paid` — the correction. On a Saudi store a 100 riyal top-up then stores 26.67 and reads back as
+  100 riyals.
+
+**What is deliberately NOT done:** nothing restates a balance, and nothing is converted on a schedule. Turning the setting on changes new
+payments only; existing balances keep the figure they were written with, and deciding what happens to those is part of adopting it.
+
+---
+
+## 5. What happens when a refund takes back more loyalty points than the customer still holds (E-14)
+
+### What the platform does today
+
+The balance goes **negative**. A customer holding 10 points whose order is refunded for 30 points ends on **-20**, and the next
+order they place starts by paying that off. Pinned since this work began, in
+`tests/Feature/Loyalty/LoyaltyPointCharacterizationTest::test_current_behaviour_a_refund_can_take_the_points_below_zero`.
+
+Both writers of a point balance refuse a debit above the balance for a **conversion** -- a customer cannot convert points they
+have not got -- and neither checks a **refund** debit at all:
+
+```php
+// app/Repositories/LoyaltyPointTransactionRepository.php and app/Utils/CustomerManager.php, the same two lines in each
+$currentBalance = $user['loyalty_point'] + $credit - $debit;
+if ($transactionType == 'point_to_wallet' && $currentBalance < 0) {
+    return false;        // and `refund_order` falls straight through
+}
+```
+
+It is a reachable state and not a theoretical one: a customer earns points on an order, converts them to wallet money, and the
+order is then refunded. The points are already spent and the refund reclaims them anyway.
+
+The criterion itself was written with the three answers in it -- *"refuse, clamp or allow and report: owner choice"* -- so this
+section is the costing of those three rather than a new question.
+
+### The options
+
+| | What it means | What it costs |
+|---|---|---|
+| **A. Allow and report** | Today's behaviour, kept on purpose, with the negative balance made visible to an operator rather than left to be discovered. | No money and no points move. But a customer with a negative balance earns nothing from their next orders until it is paid off, which no screen explains to them, and nothing distinguishes a balance that went negative from one that was never earned. |
+| **B. Refuse** | The points row is refused and nothing is written. The refund's **money** is unaffected -- only the points side is refused. | The customer keeps points they were paid for goods they returned, which is a cost to the platform and the one case where it cannot reclaim them. It is also the shape the conversion guard already has, so the code is consistent with itself. The refund's money still moves, so an operator never sees a refund blocked by this. |
+| **C. Clamp to zero** (recommended) | The refund takes what is there and no more; the balance lands on zero and the row records the debit that was **actually taken**. | The platform reclaims everything it still can, no customer is ever in debt for points, and the ledger still adds up to the balance -- which a negative balance does too, but only if every reader expects one. The cost is that the figure on the points row is no longer the figure the refund asked for, so a reconciliation between a refund and its points has to read the row rather than recompute it. |
+
+### What is blocked until it is answered
+
+E-14's criterion "a refund cannot take points below zero", and nothing else. No money figure depends on it: the wallet credit of
+a refund is computed and paid separately.
+
+### Done already, needing no decision
+
+The one question is asked in one place for both writers. Before this, the admin and vendor refund screens (the repository) and
+the seller API (`CustomerManager`) each carried their own copy of the guard, and a repair applied to one and not the other
+would have been a worse defect than the one it fixed -- which the teeth check measures: removing the call from one writer turns
+exactly that writer's three cases red and no others.
+
+### Prepared, and waiting only on the answer
+
+`App\Services\Loyalty\WhenARefundWouldTakePointsBelowZero` holds all three answers and both writers ask it, inside the
+customer's balance lock and with the balance that lock read, so two refunds of one customer cannot both clamp against the same
+figure. The setting is `gcc.loyalty.when_a_refund_would_take_points_below_zero` (`GCC_REFUND_POINTS_BELOW_ZERO`), and an
+unrecognised value reads as today's behaviour.
+
+- **Default, as it ships:** `allow_as_today` -- the debit is written in full and the balance goes negative, to the point. The
+  characterization test still measures -20, which is the proof that nothing was adopted.
+- **Option B:** `refuse` -- no points row at all.
+- **Option C:** `clamp_to_zero` -- the balance lands on zero and the row carries the debit that was taken.
+
+A refund the customer **can** afford behaves identically under all three, which is asserted rather than assumed, and the
+conversion guard is unreachable from this setting, which is asserted too.
+
+**What is deliberately NOT done, and is part of adopting an option:** the "report" half of option A -- no screen shows an
+operator that a balance is negative -- and nothing restates a balance that is negative already.
+
 ## How to answer
 
-One line each is enough, e.g. *"1A with no back-credit"*, *"2B"*, *"3A"*. Each answer is written into
+One line each is enough, e.g. *"1A with no back-credit"*, *"2B"*, *"3A"*, *"4B, new payments only"*, *"5C"*. Each answer is written into
 `docs/gcc/DECISIONS.md` with the date, and the work it unblocks is listed above it.

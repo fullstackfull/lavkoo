@@ -7,3 +7,4 @@ use Tests\Support\Concurrency\Operations;
 use Tests\Support\Concurrency\PaidSettlementOperations;
 
 Operations::register('paid_settlement.settle', [PaidSettlementOperations::class, 'settle']);
+Operations::register('paid_settlement.register_and_settle', [PaidSettlementOperations::class, 'registerAndSettle']);
