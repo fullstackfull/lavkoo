@@ -164,7 +164,12 @@ abstract class QueuedMarketTestCase extends TestCase
      */
     protected function storedEventOf(int $fulfillmentId, ?int $eventId = null): int
     {
+        // `provider`, `source` and `event_type` are NOT NULL and have no default. Leaving them out INSERTED ANYWAY on MariaDB, because
+        // config/database.php sets `strict` => false, and was refused by SQLite -- the usual engine trap running the other way round.
         $row = [
+            'provider' => 'm5azn',
+            'source' => 'webhook',
+            'event_type' => 'status',
             'provider_fulfillment_id' => $fulfillmentId,
             'dedupe_key' => 'dedupe-' . $fulfillmentId . '-' . ($eventId ?? 'next'),
             'received_at' => now(),
