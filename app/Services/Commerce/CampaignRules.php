@@ -127,7 +127,7 @@ class CampaignRules
         $conflicts = [];
 
         foreach ($rivals as $rival) {
-            if (!$this->windowsOverlap($campaign, $rival)) {
+            if (!$this->windowsOverlap($campaign, $rival) || !$this->marketsOverlap($campaign, $rival)) {
                 continue;
             }
 
@@ -139,6 +139,24 @@ class CampaignRules
         }
 
         return $conflicts;
+    }
+
+    /**
+     * Whether the two campaigns are ever served together at all (I1-15).
+     *
+     * Two campaigns in different markets cannot contest a slot, because no page ever carries both: the Ramadan hero of Kuwait and the
+     * Ramadan hero of the Emirates are one campaign per market, at the same priority, in the same window, and refusing the second is a
+     * refusal that reads as a bug and whose only workaround is to make one market's campaign lower priority than the other's for no reason.
+     * A campaign naming no market runs everywhere, so it overlaps everything -- which keeps the platform's own answer for every installation
+     * that has never named a market.
+     */
+    private function marketsOverlap(ExperienceCampaign $first, ExperienceCampaign $second): bool
+    {
+        $markets = app(CampaignMarkets::class);
+        $ours = $markets->of($first);
+        $theirs = $markets->of($second);
+
+        return $ours === [] || $theirs === [] || array_intersect($ours, $theirs) !== [];
     }
 
     private function windowsOverlap(ExperienceCampaign $first, ExperienceCampaign $second): bool
