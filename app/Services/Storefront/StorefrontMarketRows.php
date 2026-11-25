@@ -79,6 +79,30 @@ final class StorefrontMarketRows
     }
 
     /**
+     * Whether ONE row, already in hand, is served in the market given, or in the one the request is being served from.
+     *
+     * The same decision `narrow()` makes in SQL, for a caller that holds the rows rather than a query: a set small enough to be cached whole
+     * and filtered per request, which is what the SEO redirect rules are. It is here and not written out at the caller for the reason the
+     * rest of this class exists -- there is one rule about which market a row belongs to, and an unmarked row is the default storefront's.
+     */
+    public function rowIsServedIn(string $table, ?string $rowMarket, ?string $country = null): bool
+    {
+        if (!$this->applies($table)) {
+            return true;
+        }
+
+        $market = $this->stampFor($table, $country);
+
+        if ($market === null) {
+            return true;
+        }
+
+        $row = trim((string) $rowMarket) === '' ? null : strtoupper(trim((string) $rowMarket));
+
+        return $row === $market || ($row === null && $market === $this->defaultCountry());
+    }
+
+    /**
      * Whether this market has rows of its OWN in this table -- rows that name it, not the unmarked rows of the default storefront.
      *
      * Asked of the money: a market whose rows are its own has costs typed in its own currency, and the unmarked ones never are.

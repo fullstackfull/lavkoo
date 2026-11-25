@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property string $match_type
  * @property bool   $is_active
  * @property int    $hits
+ * @property string|null $storefront_country the market the rule applies in; null is the default storefront's, which is every rule today
  */
 class Redirect extends Model
 {
@@ -32,6 +33,9 @@ class Redirect extends Model
         'note',
         'created_by_type',
         'created_by_id',
+        // The market the rule applies in (A1-V2). Nothing in the admin screens sets it yet, so every rule a person writes is still the
+        // default storefront's; it is fillable so that whatever sets it next does not have to force it past the model.
+        'storefront_country',
     ];
 
     protected $casts = [

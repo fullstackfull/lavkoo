@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Services\Storefront\StorefrontMarketRows;
 use App\Models\Redirect;
 use App\Services\Seo\RedirectResolverService;
 use Closure;
@@ -71,28 +72,56 @@ class ApplySeoRedirects
         return false;
     }
 
-    /** @return array<int, array<string, mixed>> */
+    /**
+     * The active rules that apply to the storefront being served (A1-V2).
+     *
+     * A redirect maps one path of the shop to another, and with six markets the same path means a different page in each: `/offers` in
+     * Kuwait is not `/offers` in Riyadh, and one rule applied to every market sends a shopper of another market to a page that is not theirs
+     * -- with a 301, which a search engine and a browser both remember.
+     *
+     * ONE cache entry still holds every active rule, and the market is chosen from it per request. Keying the cache per market instead would
+     * have been faster and wrong: the admin screens forget this one key when a rule is saved, so a per-market key would leave five markets
+     * serving a rule an operator had just deleted. The rule set is small and read as a whole, so filtering it in PHP costs nothing worth
+     * measuring.
+     *
+     * Which market a rule belongs to is `StorefrontMarketRows`' rule and is not restated here: a rule that names no market is the DEFAULT
+     * storefront's, which is every rule written before this column existed, and while storefronts are off every rule applies as it always
+     * has.
+     *
+     * @return array<int, array<string, mixed>>
+     */
     protected function loadRules(): array
     {
-        return Cache::remember(Redirect::ACTIVE_CACHE_KEY, self::CACHE_TTL, function () {
+        $rows = app(StorefrontMarketRows::class);
+        $active = Cache::remember(Redirect::ACTIVE_CACHE_KEY, self::CACHE_TTL, function () use ($rows): array {
             if (!Schema::hasTable('redirects')) {
                 return [];
             }
-            return Redirect::query()
-                ->where('is_active', true)
-                ->get(['from_path', 'to_path', 'status_code', 'match_type', 'is_active'])
-                ->toArray();
+
+            $columns = ['from_path', 'to_path', 'status_code', 'match_type', 'is_active'];
+
+            if ($rows->tableHasTheColumn('redirects')) {
+                $columns[] = StorefrontMarketRows::COLUMN;
+            }
+
+            return Redirect::query()->where('is_active', true)->get($columns)->toArray();
         });
+
+        return array_values(array_filter(
+            $active,
+            static fn (array $rule): bool => app(StorefrontMarketRows::class)->rowIsServedIn('redirects', $rule[StorefrontMarketRows::COLUMN] ?? null),
+        ));
     }
 
     protected function recordHit(string $path): void
     {
         try {
-            Redirect::query()
-                ->where('is_active', true)
-                ->where('from_path', $path)
-                ->limit(1)
-                ->update(['hits' => DB::raw('hits + 1'), 'last_hit_at' => now()]);
+            // Narrowed to the market being served as well: with six markets two rules can share a path, and the hit of one market would
+            // otherwise be counted against another market's rule -- the one an operator reads to decide whether a rule is still used.
+            app(StorefrontMarketRows::class)->narrow(
+                Redirect::query()->where('is_active', true)->where('from_path', $path),
+                'redirects',
+            )->limit(1)->update(['hits' => DB::raw('hits + 1'), 'last_hit_at' => now()]);
         } catch (\Throwable $e) {
             // hit accounting is best-effort; never affects the redirect itself
         }
