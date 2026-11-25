@@ -16,8 +16,11 @@
                 // Its own settings, not the banner-shaped card blockCards()
                 // builds: a price band is a number pair, not a picture.
                 $band = $bandBlock['settings'] ?? [];
-                $min = max(0, (int) ($band['min'] ?? 0));
-                $max = max(0, (int) ($band['max'] ?? 0));
+                // Not (int): three of the six currencies are thousandths (KWD, BHD, OMR), so a band of half a dinar truncated to 0 made the
+                // tile say "0+" and filtered the listing at nothing. The label and the query now use the same typed value, and a whole
+                // number is unchanged -- 100.0 builds the same URL and formats the same way 100 did (F-10).
+                $min = max(0, (float) ($band['min'] ?? 0));
+                $max = max(0, (float) ($band['max'] ?? 0));
                 $query = ['min_price' => $min] + ($max > 0 ? ['max_price' => $max] : []);
                 $label = ($band['label'] ?? '') ?: ($max > 0
                     ? webCurrencyConverter(amount: $min) . ' - ' . webCurrencyConverter(amount: $max)
