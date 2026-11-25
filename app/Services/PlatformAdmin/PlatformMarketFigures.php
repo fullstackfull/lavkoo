@@ -2,6 +2,7 @@
 
 namespace App\Services\PlatformAdmin;
 
+use App\Services\Marketplace\SettlementTotals;
 use App\Services\Marketplace\SlaService;
 use Carbon\CarbonInterface;
 use Illuminate\Container\Attributes\Scoped;
@@ -31,12 +32,42 @@ final class PlatformMarketFigures
 {
     private const COUNTRY_COLUMN = 'storefront_country';
 
+    /** What an order records of the money it was sold in and the company that sold it (GCC-05, GCC-13); nullable and empty on every order today. */
+    private const ORDER_CURRENCY_COLUMN = 'currency_code';
+
+    private const ORDER_ENTITY_COLUMN = 'legal_entity_id';
+
     private const DATE_FORMAT = 'Y-m-d H:i:s';
 
     private ?bool $countryColumn = null;
 
-    public function __construct(private readonly PlatformMarkets $markets, private readonly PlatformAdminSettings $settings)
+    /** @var array<string, bool> */
+    private array $orderColumns = [];
+
+    public function __construct(
+        private readonly PlatformMarkets $markets,
+        private readonly PlatformAdminSettings $settings,
+        private readonly SettlementTotals $settlements,
+    ) {
+    }
+
+    /**
+     * What the platform settled in the window, by the company that owes it and the currency it is drawn in (E-17).
+     *
+     * Read through `App\Services\Marketplace\SettlementTotals` and not here, because the settlement table names the shop it pays in a column
+     * this area of the application may not mention at all -- the same indirection, and for the same reason, as the shop issue counts.
+     *
+     * @return list<array{entity: ?int, currency: ?string, status: string, settlements: int, net: ?string}>
+     */
+    public function settlements(CarbonInterface $from, CarbonInterface $before): array
     {
+        return $this->settlements->byCompanyAndCurrency(from: $from, before: $before);
+    }
+
+    /** Whether a settlement of this installation says which currency it is drawn in. */
+    public function settlementsRecordTheirCurrency(): bool
+    {
+        return $this->settlements->recordTheirCurrency();
     }
 
     /** `column` when products carry a country of their own, `default_storefront` while they do not. */
@@ -55,6 +86,55 @@ final class PlatformMarketFigures
     public function orders(CarbonInterface $from, CarbonInterface $before, ?array $statuses = null): array
     {
         return $this->groupedOrders(from: $from, before: $before, statuses: $statuses, olderThan: null);
+    }
+
+    /**
+     * What the orders of the range came to, by market, by the COMPANY that sold them and by the CURRENCY they were sold in (E-17).
+     *
+     * **Two currencies are never added, and that is the whole shape of this figure.** A platform of six markets prices in six currencies whose
+     * amounts are not interchangeable, so there is no such thing as "sales" without a currency beside it: every row here names one, and an
+     * order that records none is NOT in any row. It is counted apart, with the reason, so a reader is told what is missing instead of being
+     * handed a total that quietly leaves it out -- and on today's platform, where no order records a currency, that is EVERY order, which is
+     * why this answers exactly what the overview answered before: no figure, and the reason why.
+     *
+     * The amount is summed in the database and read back as text, never as a float: `orders.order_amount` is a wide decimal and turning each
+     * one into a float to add them is how a financial total comes to differ from the rows it was made of.
+     *
+     * The company is the one the order FROZE, not one re-derived now: a company edited, renamed or deleted since the sale does not move what
+     * the sale was. An order recording none is reported under a null company rather than under the platform's, because "we do not know" and
+     * "the platform's own" are different answers and only one of them is true of a legacy order.
+     *
+     * @return list<array{market: ?string, entity: ?int, currency: ?string, orders: int, amount: ?string}>
+     */
+    public function sales(CarbonInterface $from, CarbonInterface $before): array
+    {
+        $also = ['orders.order_amount'];
+
+        foreach ([self::ORDER_CURRENCY_COLUMN, self::ORDER_ENTITY_COLUMN] as $column) {
+            if ($this->orderRecords(column: $column)) {
+                $also[] = 'orders.' . $column;
+            }
+        }
+
+        $currency = $this->orderColumn(column: self::ORDER_CURRENCY_COLUMN);
+        $entity = $this->orderColumn(column: self::ORDER_ENTITY_COLUMN);
+
+        return DB::query()
+            ->fromSub($this->ordersWithTheirMarket(from: $from, before: $before, statuses: null, also: $also), 'attributed')
+            ->selectRaw(
+                "attributed.market AS market, {$entity} AS entity, {$currency} AS currency,
+                COUNT(*) AS orders, SUM(attributed.order_amount) AS amount",
+            )
+            ->groupBy(DB::raw("attributed.market, {$entity}, {$currency}"))
+            ->get()
+            ->map(static fn (object $row): array => [
+                'market' => $row->market,
+                'entity' => $row->entity === null ? null : (int) $row->entity,
+                'currency' => ($row->currency ?? '') === '' ? null : (string) $row->currency,
+                'orders' => (int) $row->orders,
+                'amount' => $row->amount === null ? null : (string) $row->amount,
+            ])
+            ->all();
     }
 
     /**
@@ -143,27 +223,55 @@ final class PlatformMarketFigures
             ->all();
     }
 
-    /** One row per order of the range, with the market the order belongs to or null. An order without a line has no country to compare, so it has no market. */
-    private function ordersWithTheirMarket(CarbonInterface $from, CarbonInterface $before, ?array $statuses): Builder
+    /**
+     * One row per order of the range, with the market the order belongs to or null. An order without a line has no country to compare, so it has
+     * no market.
+     *
+     * `$also` names further columns of `orders` a caller needs on each row. They are SELECTED and GROUPED BY, both: grouping by `orders.id`
+     * already determines them, but MySQL 8 runs with ONLY_FULL_GROUP_BY and refuses a selected column it was not told is determined. A caller
+     * that passes nothing gets the query that was here before, statement for statement.
+     *
+     * @param list<string>|null $statuses
+     * @param list<string> $also
+     */
+    private function ordersWithTheirMarket(CarbonInterface $from, CarbonInterface $before, ?array $statuses, array $also = []): Builder
     {
         $country = $this->productCountry();
         $codes = $this->markets->codes();
         $configured = $codes === [] ? 'NULL' : implode(', ', array_fill(0, count($codes), '?'));
+        $extra = $also === [] ? '' : ', ' . implode(', ', $also);
 
         $orders = DB::table('orders')
             ->leftJoin('order_details', 'order_details.order_id', '=', 'orders.id')
             ->leftJoin('products', 'products.id', '=', 'order_details.product_id')
             ->where('orders.created_at', '>=', $from->format(self::DATE_FORMAT))
             ->where('orders.created_at', '<', $before->format(self::DATE_FORMAT))
-            ->groupBy('orders.id', 'orders.order_status', 'orders.created_at')
+            ->groupBy('orders.id', 'orders.order_status', 'orders.created_at', ...$also)
             ->selectRaw(
-                "orders.id AS order_id, orders.order_status AS status, orders.created_at AS created_at,
+                "orders.id AS order_id, orders.order_status AS status, orders.created_at AS created_at{$extra},
                 CASE WHEN COUNT(products.id) = COUNT(order_details.id) AND MIN({$country}) = MAX({$country}) AND MIN({$country}) IN ({$configured})
                     THEN MIN({$country}) END AS market",
                 $codes,
             );
 
         return $statuses === null ? $orders : $orders->whereIn('orders.order_status', $statuses);
+    }
+
+    /**
+     * The SQL for one of the order's own snapshot columns, or the literal NULL while its migration has not run.
+     *
+     * NULL rather than a guess, and this is the one place it matters most: a market's own currency is what makes a sales figure mean anything,
+     * and standing the platform's currency in for an order that records none would turn six markets' money into one total that is true of no
+     * market. "Not recorded" is the honest answer and the overview prints it as a reason.
+     */
+    private function orderColumn(string $column): string
+    {
+        return $this->orderRecords(column: $column) ? 'attributed.' . $column : 'NULL';
+    }
+
+    private function orderRecords(string $column): bool
+    {
+        return $this->orderColumns[$column] ??= Schema::hasColumn('orders', $column);
     }
 
     /**

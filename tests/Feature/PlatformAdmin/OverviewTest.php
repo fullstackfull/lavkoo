@@ -408,7 +408,13 @@ class OverviewTest extends PlatformAdminTestCase
 
         $touchingOrders = array_filter($reads, static fn (string $sql): bool => str_contains($sql, 'orders'));
         $touchingRefunds = array_filter($reads, static fn (string $sql): bool => str_contains($sql, 'refund_requests'));
-        $this->assertCount(2, $touchingOrders, 'the orders of the window, and the backlog, which also says how many of its orders are stuck, for the alerts');
+        // THREE, and the third is the sales figure (E-17): the orders of the window by market and status, the
+        // backlog -- which also says how many of its orders are stuck, for the alerts -- and the sales of the
+        // window by selling company and currency. The number matters and is pinned rather than loosened,
+        // because what this test exists to catch is a read PER MARKET, ORDER OR PRODUCT; each of the three is
+        // one grouped aggregate over a bounded range, which the loop below proves by adding sixty of
+        // everything and asserting the count does not move.
+        $this->assertCount(3, $touchingOrders, 'the orders of the window, the backlog with its stuck count, and the sales by company and currency');
         $this->assertCount(1, $touchingRefunds);
         foreach (array_merge($touchingOrders, $touchingRefunds) as $sql) {
             $this->assertStringContainsString('created_at', $sql, 'a read of orders or refund requests is bounded by a date: ' . $sql);

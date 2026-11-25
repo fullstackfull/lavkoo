@@ -248,7 +248,9 @@ class StaffScopeEffectiveMarketsTest extends PlatformAdminTestCase
             $this->assertSame(['admin_id', 'name', 'level', 'scope', 'markets', 'token_expires_at', 'capabilities', 'grant_expires_at', 'mfa'], array_keys($me));
             $this->assertSame(['enrolled', 'verified', 'method'], array_keys($me['mfa']));
             $this->assertSame(['scope', 'generated_at', 'markets'], array_keys($this->getJson(self::PREFIX . '/markets', $this->bearer($token))->json('data')));
-            $this->assertSame(['scope', 'market', 'generated_at', 'window', 'freshness', 'attribution', 'markets', 'unattributed'], array_keys($this->getJson(self::PREFIX . '/overview', $this->bearer($token))->json('data')));
+            // `settlements` is one key, added by E-17: what the platform settled in the window, per company and per
+            // currency. It sits beside `markets` rather than inside one because a settlement has no market.
+            $this->assertSame(['scope', 'market', 'generated_at', 'window', 'freshness', 'attribution', 'settlements', 'markets', 'unattributed'], array_keys($this->getJson(self::PREFIX . '/overview', $this->bearer($token))->json('data')));
             $this->assertSame(['scope', 'market', 'severity', 'generated_at', 'page', 'per_page', 'total', 'has_more'], array_keys($this->getJson(self::PREFIX . '/alerts', $this->bearer($token))->json('meta')));
             $this->assertSame(['scope', 'page', 'per_page', 'has_more'], array_keys($this->getJson(self::PREFIX . '/audit-logs', $this->bearer($token))->json('meta')));
         }

@@ -169,6 +169,19 @@ return [
             // Read docs/gcc/F-01-STOREFRONT-THEME.md before turning it on.
             'enabled' => filter_var(env('GCC_STOREFRONT_THEMES', false), FILTER_VALIDATE_BOOLEAN),
         ],
+        // What a storefront must have before it may sell, beyond its legal texts, its currency and its selling company (D2-05, D1-16).
+        //
+        // `needs_a_payment_account` adds one prerequisite to `StorefrontPreflight`: a market that takes ONLINE payments must have a gateway
+        // that could actually take one -- switched on, its credentials in the column its own mode reads, able to take the market's own
+        // currency, and with the provider's support for that market CONFIRMED (gcc.payments.capabilities). A market selling
+        // cash-on-delivery only needs no gateway and is ready without one.
+        //
+        // OFF BY DEFAULT, and it has to be: what "ready to sell" includes beyond the legal texts is the owner's open decision on D1-16, and
+        // the provider confirmations the check reads are the owner's open Q-33. A market must not be refused for the absence of a record
+        // nobody has been asked for yet. With it off the gate answers exactly what it answers today, and the check costs one config read.
+        'sale_gate' => [
+            'needs_a_payment_account' => filter_var(env('GCC_SALE_GATE_NEEDS_A_PAYMENT_ACCOUNT', false), FILTER_VALIDATE_BOOLEAN),
+        ],
         'market_accounts' => [
             // Off by default, and off means the platform of today: a customer has the one wallet balance and the one point balance the `users` row keeps
             // (`wallet_balance`, `loyalty_point`), every read answers from those two columns whatever market is asked for, and no account table is read —
@@ -607,6 +620,30 @@ return [
             'GCC_WHAT_A_PAYMENT_IS_WORTH',
             App\Services\Payments\WhatAPaymentIsWorth::AS_TODAY,
         ),
+
+        // WHICH PROVIDER SUPPORT HAS ACTUALLY BEEN CONFIRMED, per gateway, market, currency and method (D2-05).
+        //
+        // The foundation rule is that a country named in documentation counts for nothing. A gateway's own currency list says what the
+        // GATEWAY can do in general; it says nothing about whether this merchant's account with that provider is live in Kuwait, in
+        // dinars, for cards. That is a fact somebody obtains from the provider and writes down with a date -- the owner's open Q-33, for
+        // every cell.
+        //
+        // An entry grants nothing unless it carries `confirmed` STRICTLY TRUE (not 1, not 'yes'), a `provider` naming who confirmed it, a
+        // readable `confirmed_on` that is not in the future, and a non-empty `currencies` list. `methods` is optional and absent means
+        // every method, because a provider confirmation that does not break down by method is the ordinary case.
+        //
+        //   'gateways' => ['paymob_accept' => ['SA' => [
+        //       'confirmed' => true, 'provider' => 'Paymob', 'confirmed_on' => '2026-01-15', 'currencies' => ['SAR'],
+        //   ]]],
+        //
+        // MODE SHIPS `off`, where the registry is not consulted and refuses nothing, because a default-deny registry switched on with an
+        // empty table is a platform that cannot take a payment anywhere. `enforce` is default deny and is a deliberate act, taken once the
+        // cells are written down. The register itself ships EMPTY: every cell is a question for the provider, and this file is not the
+        // place to answer it on their behalf.
+        'capabilities' => [
+            'mode' => env('GCC_PAYMENT_CAPABILITIES_MODE', App\Services\Payments\GatewayCapabilityRegistry::OFF),
+            'gateways' => [],
+        ],
 
         // Finding the payments a gateway TOOK and this shop never heard about (D2-12, D2-16).
         //
