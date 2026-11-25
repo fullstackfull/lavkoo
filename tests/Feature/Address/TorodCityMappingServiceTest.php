@@ -516,29 +516,152 @@ class TorodCityMappingServiceTest extends TorodAddressTestCase
     }
 
     /**
-     * H1-02: a mapping says which country it is about.
+     * H1-02 and H1-10: a mapping says which country it is about, and that is the country OUR CITY is in.
      *
-     * It is the country the PROVIDER serves, because its city directory is that country's: a mapping of one of its cities is a fact about
-     * that country and about no other. Until our own cities carry a country (H1-10) this is the only country either side of the pair knows,
-     * and writing it is what lets a second provider's mappings be told apart from the first's instead of pooling them.
+     * The first version of this recorded the country the PROVIDER declared, which is the same answer while a carrier serves one country and
+     * the wrong one as soon as it serves two -- every mapping of both countries would carry one code. Our city's region is what the pair is
+     * a fact about: "our Riyadh is the carrier's 36189" says something about Saudi Arabia, and the same sentence about a Kuwaiti city of the
+     * same name says something about Kuwait.
      */
-    public function test_a_proposed_mapping_records_the_country_the_provider_serves(): void
-    {
-        config(['fulfillment.providers.torod_point.default_country' => 'SA']);
-
-        $this->service()->proposeCandidates(self::PROVIDER, collect([$this->city('riyadh')]));
-
-        $this->assertSame(['SA'], \Illuminate\Support\Facades\DB::table('provider_city_mappings')->distinct()->pluck('country_code')->all());
-    }
-
-    /** A provider that names no country writes none, which is how every mapping on this platform exists today. */
-    public function test_a_provider_that_names_no_country_writes_none(): void
+    public function test_a_proposed_mapping_records_the_country_of_our_city(): void
     {
         config(['fulfillment.providers.torod_point.default_country' => null]);
 
         $this->service()->proposeCandidates(self::PROVIDER, collect([$this->city('riyadh')]));
 
-        $this->assertSame([null], \Illuminate\Support\Facades\DB::table('provider_city_mappings')->distinct()->pluck('country_code')->all());
+        $this->assertSame(
+            ['SA'],
+            \Illuminate\Support\Facades\DB::table('provider_city_mappings')->distinct()->pluck('country_code')->all(),
+            'the provider declares no country, and the mapping still knows it is about Saudi Arabia, because our city is',
+        );
+    }
+
+    /**
+     * The fallback, which is what the earlier rule was: a city whose region names no country takes the country the provider declares. No
+     * shipped installation has such a city -- `address_regions.country_code` defaults to SA -- so this is the empty-region case and not the
+     * normal one.
+     */
+    public function test_a_city_whose_region_names_no_country_falls_back_to_the_providers(): void
+    {
+        config(['fulfillment.providers.torod_point.default_country' => 'SA']);
+        \Illuminate\Support\Facades\DB::table('address_regions')->where('id', $this->ids['region_RUH'])->update(['country_code' => '']);
+
+        $this->service()->proposeCandidates(self::PROVIDER, collect([$this->city('riyadh')]));
+        $this->assertSame(['SA'], \Illuminate\Support\Facades\DB::table('provider_city_mappings')->distinct()->pluck('country_code')->all());
+
+        \Illuminate\Support\Facades\DB::table('provider_city_mappings')->delete();
+        config(['fulfillment.providers.torod_point.default_country' => null]);
+
+        $this->service()->proposeCandidates(self::PROVIDER, collect([$this->city('riyadh')]));
+        $this->assertSame([null], \Illuminate\Support\Facades\DB::table('provider_city_mappings')->distinct()->pluck('country_code')->all(), 'neither side knows a country, so none is invented');
+    }
+
+    /** The two paths that used to write NO country: a person's decision on a pair nobody proposed, and the automatic approval. */
+    public function test_a_decision_on_a_pair_nobody_proposed_records_the_country_too(): void
+    {
+        $approved = $this->service()->approve(provider: self::PROVIDER, cityId: $this->ids['riyadh'], externalCityId: '36189');
+
+        $this->assertSame('SA', \Illuminate\Support\Facades\DB::table('provider_city_mappings')->where('id', $approved->id)->value('country_code'));
+
+        $rejected = $this->service()->reject(provider: self::PROVIDER, cityId: $this->ids['jeddah'], externalCityId: '41126');
+        $this->assertSame('SA', \Illuminate\Support\Facades\DB::table('provider_city_mappings')->where('id', $rejected->id)->value('country_code'));
+    }
+
+    public function test_an_automatically_approved_mapping_records_the_country_too(): void
+    {
+        $this->completeSync();
+
+        $this->assertGreaterThan(0, $this->service()->autoApproveUnique(self::PROVIDER)['approved']);
+        $this->assertSame(
+            ['SA'],
+            \Illuminate\Support\Facades\DB::table('provider_city_mappings')->distinct()->pluck('country_code')->all(),
+            'the auto-approval inserts straight in, and that row used to carry no country at all',
+        );
+    }
+
+    /**
+     * The filter itself (H1-10): a city of ours is offered candidates from its OWN country's list, and from no other.
+     *
+     * A Kuwaiti city of ours named exactly like a Saudi one is the case that matters -- the candidates are found by comparing place-name
+     * keys, so without the filter the Kuwaiti city would be offered the Saudi carrier's Riyadh and a person could approve it.
+     */
+    public function test_a_city_is_offered_candidates_only_from_its_own_countrys_list(): void
+    {
+        $kuwaiti = $this->aKuwaitiCityNamed('الرياض', 'Riyadh');
+
+        // Before the carrier's city lists can be told apart there is nothing to filter ON, and the behaviour is the one this platform has
+        // always had: the one imported list answers every city's name. That is the dormant state and it is asserted first.
+        $this->assertSame(['36189', '230194'], $this->candidateIdsOf($kuwaiti), 'without the country column nothing can be told apart');
+
+        $this->carrierListsCanCarryACountry();
+
+        $this->assertSame(['36189', '230194'], $this->candidateIds('riyadh'), 'our Saudi Riyadh keeps the two candidates it has always had');
+        $this->assertSame(
+            [],
+            $this->candidateIdsOf($kuwaiti),
+            'Kuwait has imported no list of its own, so the carrier offers it nothing: the one imported list is the default market\'s',
+        );
+
+        // Once Kuwait HAS a list of its own, the Kuwaiti city is matched against that list and the Saudi city is untouched by it.
+        $this->torodCity('900001', 'الرياض', 'Riyadh', '2001', 'Kuwait', 'الكويت', true, 'KWI');
+        \Illuminate\Support\Facades\DB::table('provider_cities')->where('external_id', '900001')->update(['country' => 'KW']);
+        app(\App\Services\Fulfillment\ProviderCityCountry::class)->forget();
+
+        $this->assertSame(['900001'], $this->candidateIdsOf($kuwaiti));
+        $this->assertSame(['36189', '230194'], $this->candidateIds('riyadh'), 'and the Saudi city is still matched against the Saudi list only');
+    }
+
+    /** A proposal for a city of another country records THAT country, so two same-named cities never pool their mappings. */
+    public function test_two_same_named_cities_of_two_countries_keep_their_mappings_apart(): void
+    {
+        $kuwaiti = $this->aKuwaitiCityNamed('الرياض', 'Riyadh');
+        $this->carrierListsCanCarryACountry();
+        $this->torodCity('900001', 'الرياض', 'Riyadh', '2001', 'Kuwait', 'الكويت', true, 'KWI');
+        \Illuminate\Support\Facades\DB::table('provider_cities')->where('external_id', '900001')->update(['country' => 'KW']);
+        app(\App\Services\Fulfillment\ProviderCityCountry::class)->forget();
+
+        $this->service()->proposeCandidates(self::PROVIDER, collect([$this->city('riyadh'), $kuwaiti]));
+
+        $this->assertSame(
+            ['KW' => 1, 'SA' => 2],
+            \Illuminate\Support\Facades\DB::table('provider_city_mappings')->selectRaw('country_code, COUNT(*) as n')->groupBy('country_code')->pluck('n', 'country_code')->map(static fn ($n): int => (int) $n)->sortKeys()->all(),
+        );
+        $this->assertSame(
+            ['900001'],
+            \Illuminate\Support\Facades\DB::table('provider_city_mappings')->where('address_city_id', $kuwaiti->id)->pluck('external_city_id')->all(),
+            'the Kuwaiti city is mapped to the Kuwaiti list and to nothing of the Saudi one',
+        );
+    }
+
+    /** @return list<string> the provider ids this city's candidates are */
+    private function candidateIdsOf(AddressCity $city): array
+    {
+        return $this->service()->candidatesFor(self::PROVIDER, $city)->map(static fn (CityCandidate $candidate): string => (string) $candidate->city->external_id)->all();
+    }
+
+    /** The migration that gives one carrier code a city list per country (H1-11). Until it has run, the lists cannot be told apart. */
+    private function carrierListsCanCarryACountry(): void
+    {
+        (require database_path('migrations/2026_12_23_100000_add_country_to_provider_credentials_and_cities.php'))->up();
+        app(\App\Services\Fulfillment\ProviderCityCountry::class)->forget();
+    }
+
+    /** A region and a city in Kuwait, test-only rows: the address importer writes Saudi Arabia only (H1-10's third criterion). */
+    private function aKuwaitiCityNamed(string $arabic, string $english): AddressCity
+    {
+        $region = \Illuminate\Support\Facades\DB::table('address_regions')->insertGetId([
+            'country_code' => 'KW', 'code' => 'KW-KU', 'name_ar' => 'الكويت', 'name_en' => 'Kuwait',
+            'normalized_ar' => \App\Services\Address\AddressText::key('الكويت'), 'normalized_en' => \App\Services\Address\AddressText::key('Kuwait'),
+            'sort_order' => 9, 'is_active' => true, 'source' => 'test', 'source_ref' => 'kw', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $id = \Illuminate\Support\Facades\DB::table('address_cities')->insertGetId([
+            'region_id' => $region, 'name_ar' => $arabic, 'name_en' => $english,
+            'normalized_ar' => \App\Services\Address\AddressText::key($arabic), 'normalized_en' => \App\Services\Address\AddressText::key($english),
+            'sort_order' => 50, 'is_active' => true, 'source' => 'test', 'source_ref' => 'kw-city', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        return AddressCity::query()->with('region')->findOrFail($id);
     }
 
     /**
