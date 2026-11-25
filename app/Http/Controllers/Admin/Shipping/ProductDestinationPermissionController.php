@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin\Shipping;
 
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\ScopeProductsToStaffCountries;
 use App\Models\Product;
 use App\Models\ProductDestinationPermission;
 use Illuminate\Support\Facades\DB;
@@ -30,6 +31,10 @@ class ProductDestinationPermissionController extends Controller
 {
     public function __construct(private readonly AuditLogger $audit, private readonly RegulatedShippingGate $regulated)
     {
+        // An employee restricted to some countries may not grant another country's product permission to leave it (GCC-14c): the product
+        // id arrives in the request on both actions and StaffProductRoutes judges it, answering a product outside their countries like a
+        // product that does not exist.
+        $this->middleware(ScopeProductsToStaffCountries::class);
     }
 
     public function index(Request $request): View

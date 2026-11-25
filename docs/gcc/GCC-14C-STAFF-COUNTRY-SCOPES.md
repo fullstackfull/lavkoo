@@ -158,6 +158,8 @@ anybody. The rules of the 45 routes:
 | `GET admin/marketplace/product-moderation/history/{productId}` | `ProductModerationController::history` | `route:productId` | module:marketplace |
 | `POST admin/marketplace/product-moderation/moderate` | `ProductModerationController::moderate` | `input:product_id` | module:marketplace |
 | `POST admin/marketplace/product-moderation/bulk` | `ProductModerationController::bulk` | `inputs:product_ids` | module:marketplace |
+| `GET admin/shipping/destination-permissions` | `ProductDestinationPermissionController::index` | `input:product_id?` | module:catalog |
+| `POST admin/shipping/destination-permissions` | `ProductDestinationPermissionController::record` | `input:product_id` | module:catalog |
 
 ### (c) Adding a product and importing a sheet
 
@@ -525,8 +527,8 @@ slice, and the scoped controllers are exactly the ones that have rules. A second
 each action, its path and its parameters, and the file of each controller (so a route that delegates to a helper of its controller is not missed): the repository, the model, the
 product manager, the products table, and a product id in a request.
 
-**49 controllers: 2 scoped in slice 1, 5 scoped in slice 2, 9 scoped in slice 3, 6 not needed, 27 out of slice 3.**
-**156 routes read or name a product: 45 scoped in slice 1, 16 scoped in slice 2, 13 scoped in slice 3, 22 not needed, 60 out of slice 3.**
+**50 controllers: 3 scoped in slice 1, 5 scoped in slice 2, 9 scoped in slice 3, 6 not needed, 27 out of slice 3.**
+**158 routes read or name a product: 47 scoped in slice 1, 16 scoped in slice 2, 13 scoped in slice 3, 22 not needed, 60 out of slice 3.**
 
 The slices that follow slice 3 (the people, the dashboard, the reports and the shared layout), in the order proposed:
 
@@ -540,6 +542,7 @@ The slices that follow slice 3 (the people, the dashboard, the reports and the s
 |---|---:|---:|---|---|
 | `Admin\Product\ProductController` | 41 | 41 | scoped in slice 1 | The product screens: lists, counters, pickers, exports, the add and edit forms, and every action on a product. Every action has a rule in StaffProductRoutes. |
 | `Admin\Marketplace\ProductModerationController` | 4 | 4 | scoped in slice 1 | Approve, reject or suspend a seller product by its id, singly or in bulk, and read its history: an id route like the product screens. |
+| `Admin\Shipping\ProductDestinationPermissionController` | 2 | 2 | scoped in slice 1 | Which countries one product may be shipped to, and on whose authority (H1-03, H1-04). Reads the product by the id in the request and writes or withdraws its permissions, so both actions are judged by that id: granting another country's product permission to leave it is not a restricted employee's to do. |
 | `Admin\Product\BrandController` | 9 | 1 | not needed | Reads the products of a brand only to refuse deleting a brand that is in use. The answer must count every country's products, or a brand a product of another country uses could be deleted. |
 | `Admin\Product\CategoryController` | 7 | 2 | not needed | As the brands: the products of a category are read only to refuse deleting or moving a category that is in use, and that count must include every country. |
 | `Admin\Settings\BusinessSettingsController` | 15 | 2 | not needed | The product settings page is a setting of the shop (brands, digital products, approval). It reads no product row. |

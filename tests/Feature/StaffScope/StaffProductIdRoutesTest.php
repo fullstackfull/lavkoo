@@ -3,6 +3,7 @@
 namespace Tests\Feature\StaffScope;
 
 use App\Http\Controllers\Admin\Marketplace\ProductModerationController;
+use App\Http\Controllers\Admin\Shipping\ProductDestinationPermissionController;
 use App\Http\Controllers\Admin\Product\ProductController;
 use App\Http\Middleware\ActivationCheckMiddleware;
 use App\Http\Middleware\ApplySeoRedirects;
@@ -175,10 +176,15 @@ class StaffProductIdRoutesTest extends TestCase
         sort($controllers);
 
         $this->assertSame(['input', 'inputs', 'list', 'new', 'none', 'restock', 'route', 'variation'], $kinds);
-        $this->assertSame([ProductModerationController::class, ProductController::class], $controllers);
+        $this->assertSame(
+            [ProductModerationController::class, ProductController::class, ProductDestinationPermissionController::class],
+            $controllers,
+        );
         // 45 since the product-identity lane added POST admin/products/copy-to-country/{id}, which is a route of a covered controller and so
-        // must carry a rule (route:id, the product it copies named by its route parameter).
-        $this->assertCount(45, $this->coveredRoutes());
+        // must carry a rule (route:id, the product it copies named by its route parameter). 47 since the shipping destination permissions
+        // (H1-03, H1-04) joined slice 1: its two actions take the product id in the request, so the walk below exercises both with a
+        // foreign product and proves each answers like a product that does not exist.
+        $this->assertCount(47, $this->coveredRoutes());
     }
 
     // ---- a restricted employee ---------------------------------------------------------------------------------------------------

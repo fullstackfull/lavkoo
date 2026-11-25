@@ -89,7 +89,9 @@ class StaffScopeDocTest extends TestCase
 
         $this->assertStringContainsString(sprintf('**%d controllers: %d scoped in slice 1, %d scoped in slice 2, %d scoped in slice 3, %d not needed, %d out of slice 3.**', array_sum($counts), $counts['slice 1'], $counts['slice 2'], $counts['slice 3'], $counts['not_needed'], $counts['out']), $this->doc);
         $this->assertStringContainsString(sprintf('**%d routes read or name a product: %d scoped in slice 1, %d scoped in slice 2, %d scoped in slice 3, %d not needed, %d out of slice 3.**', array_sum($routes), $routes['slice 1'], $routes['slice 2'], $routes['slice 3'], $routes['not_needed'], $routes['out']), $this->doc);
-        $this->assertSame([2, 5], [$counts['slice 1'], $counts['slice 2']], 'the product screens and the five order and POS controllers the scan finds');
+        // Slice 1 is three: the product screens, the moderation screen and the shipping destination permissions (H1-03, H1-04), whose
+        // two actions take a product id in the request and so are judged by it. Slice 2 is the five order and POS controllers.
+        $this->assertSame([3, 5], [$counts['slice 1'], $counts['slice 2']], 'the product screens and the five order and POS controllers the scan finds');
     }
 
     public function test_every_route_that_reads_products_or_names_one_is_in_the_doc(): void
