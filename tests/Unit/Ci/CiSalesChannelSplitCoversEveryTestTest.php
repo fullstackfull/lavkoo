@@ -5,7 +5,7 @@ namespace Tests\Unit\Ci;
 use PHPUnit\Framework\TestCase;
 
 /**
- * The CI matrix runs `tests/Feature/SalesChannels` in two halves, and this proves the halves cover all of it.
+ * The CI matrix runs `tests/Feature/SalesChannels` in three parts, and this proves they cover all of it, each class exactly once.
  *
  * ## Why the split exists
  *
@@ -35,15 +35,24 @@ use PHPUnit\Framework\TestCase;
  */
 class CiSalesChannelSplitCoversEveryTestTest extends TestCase
 {
-    /** The two `--filter` regexes the matrix gives the `sales channels A-M` and `sales channels N-Z` jobs. */
+    /**
+     * The `--filter` regexes the matrix gives the three sales-channel jobs. They must be a partition of the directory: every concrete test
+     * class matched by exactly one.
+     *
+     * Three, not two, since the cut moved INSIDE A. The letters are not where the weight is: A-M held 1,115 test methods and A alone held
+     * 715 of them, so a cut at any further letter left A whole and left the job at the 110-minute ceiling it had already been killed at.
+     * The classes beginning `Ad` -- the admin screens of the sales channels, the operational costs and the returns -- hold 488, which is
+     * where the cut is.
+     */
     private const HALVES = [
-        '/^Tests.Feature.SalesChannels.[A-M]/',
+        '/^Tests.Feature.SalesChannels.Ad/',
+        '/^Tests.Feature.SalesChannels.(A[^d]|[B-M])/',
         '/^Tests.Feature.SalesChannels.[N-Z]/',
     ];
 
     private const DIRECTORY = 'tests/Feature/SalesChannels';
 
-    public function test_the_two_halves_cover_every_test_class_exactly_once(): void
+    public function test_the_halves_cover_every_test_class_exactly_once(): void
     {
         $classes = $this->testClassNames();
         $this->assertNotEmpty($classes, 'no test classes were found, so this guard proved nothing');
@@ -71,11 +80,12 @@ class CiSalesChannelSplitCoversEveryTestTest extends TestCase
             "These test classes run in NEITHER half of the CI matrix, so they run on no real engine and nothing else would "
             . "have said so:\n  " . implode("\n  ", $uncovered)
             . "\n\nThe halves are " . implode(' and ', self::HALVES) . ' — a class whose name starts with a digit, an '
-            . 'underscore or a lower-case letter falls outside both.',
+            . 'underscore or a lower-case letter -- or a class named exactly `A`, with no second character -- falls outside all of '
+            . 'them.',
         );
         // Overlap wastes a runner rather than losing coverage, but it also means the halves are not a partition — and the
         // next edit could turn the overlap into a gap.
-        $this->assertSame([], $doubled, 'These test classes run in BOTH halves: ' . implode(', ', $doubled));
+        $this->assertSame([], $doubled, 'These test classes run in MORE THAN ONE half: ' . implode(', ', $doubled));
     }
 
     public function test_the_workflow_still_asks_for_the_halves_this_guard_checks(): void

@@ -34,7 +34,7 @@ Recommended minimum, from the jobs of `.github/workflows/ci.yml` on `main`:
 - `Strict-mode tests, MariaDB 11.4.2`
 - `No secret or personal data added`
 
-Add when the owner accepts the cost: the ten `Sales-channel and cost tests, <engine> (<group>)` jobs (engines `MySQL 8.0` and `MariaDB 11.4.2`; groups `sales channels A-M`, `sales channels N-Z`, `concurrency`, `myfatoorah`, `costs`). They run the longest and prove the most about real engines.
+Add when the owner accepts the cost: the twelve `Sales-channel and cost tests, <engine> (<group>)` jobs (engines `MySQL 8.0` and `MariaDB 11.4.2`; groups `sales channels Ad`, `sales channels A-M except Ad`, `sales channels N-Z`, `concurrency`, `myfatoorah`, `costs`). They run the longest and prove the most about real engines.
 
 **Never required: `Deployment overlay (artifact, deploys nothing)`.** It compares a head with the server baseline and is red by design for every branch that is not the baseline hotfix line (it lists the files an overlay never deploys, such as `robots.txt` and `firebase-messaging-sw.js`, which already differ between the baseline and `main`). It decides how a release is packaged, not whether a change is correct.
 
@@ -88,6 +88,6 @@ Repeat for the customer app (`lavkooapp`) and the seller app (`lavkooappseller`)
 
 ## What stays open
 
-- DR-3 and DR-5 (a private repository costs runner minutes; a path filter for documentation-only changes and a three-way split of `sales channels A-M` are drafts still to write, M1-16 step 3).
+- DR-3 and DR-5 (a private repository costs runner minutes). The path filter for documentation-only changes is built (`scripts/ci/documentation-only-change.php`, `d7d7cfb8`) and `sales channels A-M` is now two jobs cut at `Ad`, so M1-16 step 3 is done in the workflow; what is still open is the owner's answer on the minutes.
 - Whether an administrator may bypass the rule.
 - Auto-merge and merge queues, which are not turned on and not recommended before the rule has held for some time.
