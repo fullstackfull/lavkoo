@@ -302,6 +302,20 @@ final class Scanner
     private function looksLikeSecret(string $value): bool
     {
         $value = trim($value, " \t'\"");
+
+        // PHP's own interpolation contributes NO literal content, so it must contribute neither length nor entropy. Without this,
+        // `$this->credential("gateways.{$name}")` was refused as a credential literal: reading a credential by its key path, flagged as
+        // if the key path were the secret. It survived only the length-and-entropy branch below -- exactly 16 characters, no digits, no
+        // capitals -- which is what that branch is for and what a key path should never reach.
+        //
+        // STRIPPED rather than added to PLACEHOLDER, which is the sibling fix and the weaker one: a placeholder entry would excuse the
+        // whole value, so `"sk_live_abcdef1234567890{$suffix}"` would stop being refused. Stripping leaves the half that IS literal to
+        // be judged, so a partly assembled secret is still caught. There is a test for each direction.
+        //
+        // Brace interpolation only. A bare `"$name"` is deliberately left alone, because `$` is an ordinary character in a real password
+        // and one of this guard's own test secrets contains two of them; stripping it would hide them.
+        $value = (string) preg_replace('/\{\$[^}]*\}/', '', $value);
+
         if (strlen($value) < 8 || preg_match(self::PLACEHOLDER, $value) === 1 || preg_match(self::RULE_GRAMMAR, $value) === 1) {
             return false;
         }

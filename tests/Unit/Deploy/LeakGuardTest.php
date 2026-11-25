@@ -112,6 +112,9 @@ class LeakGuardTest extends TestCase
             'a camel case key' => ['app/Leaky.php', "['dbPassword' => 'Zq81-mailbox-pass-4417']", 'credential-literal'],
             'define of a constant' => ['config/db.php', "define('DB_PASSWORD', 'Zq81-mailbox-pass-4417');", 'credential-literal'],
             'a setter' => ['app/Leaky.php', "\$client->setPassword('Zq81-mailbox-pass-4417');", 'credential-literal'],
+            // Interpolation must not become a way to smuggle one past the guard: the literal half is still judged, so this stays refused.
+            'a secret assembled around an interpolated tail' => ['app/Leaky.php', "'api_key' => \"sk_live_" . "abcdef1234567890{\$suffix}\",", 'credential-literal'],
+            'a secret assembled around an interpolated head' => ['app/Leaky.php', "'password' => \"{\$prefix}" . "Zq81-mailbox-pass-4417\",", 'credential-literal'],
             'a bearer value' => ['app/Leaky.php', "'Authorization' => 'Bearer abcdefghijklmnopqrstuvwxyz0123456789',", 'credential-literal'],
             'dotenv style, quoted' => ['deploy/app.conf', 'MAIL_PASSWORD="Zq81-mailbox-pass-4417"', 'credential-literal'],
             'dotenv style, bare' => ['deploy/.env.production', 'MAIL_PASSWORD=Zq81mailboxpass4417', 'credential-literal'],
@@ -148,6 +151,11 @@ class LeakGuardTest extends TestCase
             'a constant that names a route' => ['app/Http/Controllers/Auth.php', "const FORGET_PASSWORD = 'forgot-password';"],
             'a constant that names a key' => ['app/Services/Hooks.php', "const SECRET_KEY_NAME = 'webhook_secret_key';"],
             'reading a secret' => ['app/Services/Thing.php', "\$password = \$config->secret('webhook_secret');"],
+            // The finding that sent me here: CI 674 refused this line of app/Services/Notification/NotificationProfile.php. It reads a
+            // credential BY ITS KEY PATH -- the argument is `gateways.sms`, not a secret -- and it reached the length-and-entropy branch
+            // only because the interpolation made it exactly 16 characters.
+            'reading a credential by an interpolated key path' => ['app/Services/Notification/NotificationProfile.php', "\$secrets = \$this->credential(\"gateways.{\$name}\");"],
+            'an interpolated key path in an array' => ['app/Services/Thing.php', "['token' => \"gateways.{\$channel}.{\$account}\"]"],
             'a variable as the value' => ['app/Services/Thing.php', "['secret' => \$value]"],
             'a short value' => ['app/Services/Thing.php', "['token' => 'short']"],
             'a placeholder' => ['app/Services/Thing.php', "['password' => 'changeme-please-now']"],
