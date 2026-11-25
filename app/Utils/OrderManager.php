@@ -72,6 +72,7 @@ use App\Services\Customer\CustomerWalletWriter;
 use App\Services\Shipping\OrderCustomsQuote;
 use App\Services\Shipping\OrderShippingDecision;
 use App\Services\Shipping\ShippingEligibility;
+use App\Services\Payments\OneOrderPerPayment;
 use App\Services\Tax\IncludedTax;
 use Illuminate\Support\Facades\Schema;
 
@@ -1875,6 +1876,19 @@ class OrderManager
                 $orderPlacedIds = [];
                 $orderPlacedNotificationEvents = [];
                 $orderPlacedMailEvents = [];
+
+                // One paid payment builds one order, even when two deliveries of its callback are in flight (D1-328). The settlement
+                // hook's own check is a read, and two deliveries both pass a read before either writes. The claim is made HERE, in the
+                // transaction the order is written in, so the lock is released the moment the order is committed and a build that fails
+                // gives it back: OneOrderPerPayment says why neither property survives taking it anywhere else. It is a no-op for every
+                // checkout that carries no gateway reference, which is every unpaid path.
+                if (!app(OneOrderPerPayment::class)->mayBuild(
+                    paymentId: $data['payment_record_id'] ?? null,
+                    transactionRef: $data['transaction_ref'] ?? null,
+                    paymentStatus: $data['payment_status'] ?? null,
+                )) {
+                    return;
+                }
 
                 // The customer row is locked before any product row, and the wallet writer locks the same row again. Every wallet
                 // checkout therefore takes its locks in one order, customer then stock, and two of them cannot wait on each other.
