@@ -22,6 +22,7 @@ use App\Models\Seller;
 use App\Models\User;
 use App\Services\Storefront\StorefrontContext;
 use App\Services\Storefront\StorefrontLifecycle;
+use App\Services\Storefront\StorefrontPushTopics;
 use App\Services\Storefront\StorefrontPreflight;
 use App\Services\Storefront\StorefrontTaxApproval;
 use Illuminate\Database\Schema\Blueprint;
@@ -437,8 +438,35 @@ class StorefrontStopNotificationsTest extends ApiAddressTestCase
         }
 
         $this->assertTheStorefrontIsInTheState(country: $country, state: $state);
+        $this->readAwayTheMaintenanceEdge(country: $country, state: $state);
 
         return $shopper;
+    }
+
+    /**
+     * The one push the STATE itself sends, read away before the step under test runs: a storefront paused in maintenance tells that market's
+     * sellers so their app can show the maintenance screen (K-11), and that message belongs to StorefrontMaintenancePushTest, not to any
+     * assertion here about what a step tells a device.
+     *
+     * Asserted rather than discarded, in both directions: the maintenance state sends exactly that one message to exactly that market's
+     * topic, and every other state sends nothing at all. Reading it away silently would let the message change, or reach another market,
+     * with eighteen tests here staying green.
+     */
+    private function readAwayTheMaintenanceEdge(string $country, ?string $state): void
+    {
+        $sent = $this->takeThePushes();
+
+        if ($state !== StorefrontLifecycle::MAINTENANCE) {
+            $this->assertSame([], $sent, 'a state that is not a maintenance tells the sellers nothing');
+
+            return;
+        }
+
+        $this->assertSame(
+            [[StorefrontPushTopics::sellerMaintenance(country: $country), translate('Maintenance_Mode_start')]],
+            array_map(static fn (array $push) => [$push['topic'] ?? null, $push['data']['title'] ?? null], $sent),
+            'the maintenance of a market is told to that market\'s sellers, and to no device and no other market',
+        );
     }
 
     private function putTheStorefrontIn(string $country, string $state): void
@@ -560,7 +588,9 @@ class StorefrontStopNotificationsTest extends ApiAddressTestCase
 
         foreach ($told as $device => $expected) {
             $text = str_replace('{orderId}', (string) $orderId, $expected['text']);
-            $toTheDevice = array_values(array_filter($sent, fn (array $push) => $push['token'] === $device));
+            // A push to a TOPIC carries no token, so it is not a push to any device (K-11). Reading the key outright used to end the test with
+            // "Undefined array key" the moment such a message was in the batch.
+            $toTheDevice = array_values(array_filter($sent, fn (array $push) => ($push['token'] ?? null) === $device));
 
             $this->assertCount(1, $toTheDevice, "{$device} is told once: {$text}");
             $this->assertSame(
