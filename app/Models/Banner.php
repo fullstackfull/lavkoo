@@ -5,10 +5,12 @@ namespace App\Models;
 use App\Services\Storefront\StorefrontVisibility;
 use App\Traits\HasStorefrontVisibility;
 use App\Traits\StorageTrait;
+use App\Utils\InstallationDisk;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Class YourModel
@@ -100,7 +102,22 @@ class Banner extends Model
         static::saved(function ($model) {
             cacheRemoveByType(type: 'banners');
 
-            $storage = config('filesystems.disks.default') ?? 'public';
+            // This block ANNOTATES which disk a banner's picture is on. It must never be able to fail the write it annotates, and it
+            // could twice over:
+            //
+            //  - it asked `config('filesystems.disks.default')`, a key this application never sets, so on an s3 installation it recorded
+            //    `public` for a file that is on s3 and `storageLink()` then built an address nothing serves (InstallationDisk);
+            //  - and `storages` is a table of the installation dump that no migration creates, so where it is absent the `updateOrInsert`
+            //    THREW -- inside a `saved` hook, i.e. AFTER the insert. `Banner::create()` raised an exception having already written the
+            //    row, and a caller with its own try/catch swallowed it and silently skipped everything after the create. That is how an
+            //    orphan banner row got past a test: the row existed and nothing downstream had run.
+            //
+            // So the disk comes from the one place that knows it, and a missing table means the annotation is simply not written.
+            if (!Schema::hasTable('storages')) {
+                return;
+            }
+
+            $storage = InstallationDisk::name();
             foreach (['photo', 'mobile_photo'] as $file) {
                 if ($model->isDirty($file) && !empty($model->{$file})) {
                     $value = $storage;

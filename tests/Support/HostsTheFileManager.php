@@ -20,6 +20,26 @@ final class HostsTheFileManager
         return $this->fileUpload($dir, $format, $file, $disk);
     }
 
+    /**
+     * A file's code with its comments taken out, and nothing else changed: every comment becomes a space, so offsets shift but no two
+     * tokens are joined into one.
+     *
+     * Here rather than in the test because a source scan that counts a key must not count the docblock that explains it -- the same fault
+     * `PushTopicNamesTest`'s register of FCM senders had, where a sentence about a method joined the register of the files that call it.
+     */
+    public static function withoutComments(string $code): string
+    {
+        $out = '';
+
+        foreach (token_get_all($code) as $token) {
+            $out .= is_array($token)
+                ? (in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true) ? ' ' : $token[1])
+                : $token;
+        }
+
+        return $out;
+    }
+
     /** @return array{name: string, storage: string}|null */
     public function copyFile(string $dir, ?string $fileName, ?string $storageType = null, ?string $format = null): ?array
     {

@@ -3,6 +3,7 @@
 namespace App\Traits;
 
 use App\Services\DigitalProductFileService;
+use App\Utils\InstallationDisk;
 use App\Utils\PlainFileName;
 use App\Utils\SharedProductFile;
 use App\Utils\StoredFileExtension;
@@ -256,27 +257,11 @@ trait FileManagerTrait
     }
 
     /**
-     * The disk this installation stores an uploaded file ON, which is the answer `config('filesystems.disks.default')` was asked for in five
-     * places and never gave.
-     *
-     * There is no `disks.default` entry in `config/filesystems.php` and nothing writes one, so every one of those reads was `null ?? 'public'`
-     * -- i.e. the local public disk, whatever the shop had configured. For a shop on the public disk that is the right answer by accident; for a
-     * shop on s3 it meant the DESTINATION of every upload and every copy was the local disk and the `disk` recorded against the row was always
-     * `public`, so the file was written where nothing serves it from and the record pointed at the wrong disk as well.
-     *
-     * What the installation actually chose is `filesystems.default`: `setStorageConnectionEnvironment()` copies the `storage_connection_type`
-     * setting into it at boot, and `config/filesystems.php` seeds it from `FILESYSTEM_DRIVER`.
-     *
-     * `local` is not an answer. It is Laravel's shipped default for that env var, this application has never stored an upload there (every
-     * record's `*_storage_type` is `public` or `s3`), and its root is outside the directory the `storage` symlink publishes -- so a file written
-     * there has no address. A disk the configuration does not define is not an answer either. Both fall back to `public`, which is what the five
-     * reads effectively returned, so a shop that has not chosen s3 behaves exactly as it did.
+     * The disk this installation stores an uploaded file ON. {@see InstallationDisk} holds the answer and the reason, because the question
+     * is asked from model hooks as well as from here and two copies of it would drift.
      */
     private function storageDisk(): string
     {
-        $chosen = config('filesystems.default');
-        $chosen = is_string($chosen) ? trim($chosen) : '';
-
-        return $chosen !== '' && $chosen !== 'local' && config('filesystems.disks.' . $chosen) !== null ? $chosen : 'public';
+        return InstallationDisk::name();
     }
 }
