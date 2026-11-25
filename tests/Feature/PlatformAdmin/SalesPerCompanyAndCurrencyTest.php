@@ -64,14 +64,24 @@ class SalesPerCompanyAndCurrencyTest extends PlatformAdminTestCase
     }
 
     /** An order of the seeded scenario, given what it was sold in. */
-    private function soldIn(int $orderId, ?string $currency, ?int $company, float $amount): void
+    private function soldIn(int $orderId, ?string $currency, ?int $company, float $amount, float $rate = 1.0, ?string $market = 'SA'): void
     {
         $this->ordersCanRecordWhatTheyWereSoldIn();
 
         DB::table('orders')->where('id', $orderId)->update(array_filter([
+            // The MARKET the order recorded. `PlatformMarketFigures::sales()` reads this stamp rather than attributing through the
+            // order's products, which is the stricter reading: an order that recorded no market belongs to NO market and is never read
+            // as Saudi Arabia. The seeded orders this fixture does not touch therefore stay out of every market's figures, which is why
+            // the unpriced count below is one and not four.
+            'storefront_country' => $market,
             'currency_code' => $currency,
             'legal_entity_id' => $company,
             'order_amount' => $amount,
+            // The RATE, which this fixture used to leave unset. `PlatformMarketFigures::sales()` counts an amount only while the rate is
+            // exactly one, because that is the single case where a stored amount really is an amount of the recorded currency -- an order
+            // at any other rate is counted as UNPRICED rather than scaled by a conversion rule nobody has approved. A fixture with no
+            // rate is therefore an unpriced order, and every test here that means "a sale in this market's own currency" has to say so.
+            'currency_rate' => $rate,
         ], static fn (mixed $value): bool => $value !== null));
     }
 
@@ -83,12 +93,24 @@ class SalesPerCompanyAndCurrencyTest extends PlatformAdminTestCase
         $this->assertTheAnswerIsWhatItAlwaysWas();
     }
 
-    /** After the migrations and before storefront currencies are switched on: the columns are there and empty. */
-    public function test_with_the_columns_present_and_empty_the_answer_is_still_what_it_always_was(): void
+    /**
+     * After the migrations and before storefront currencies are switched on: the columns are there and empty.
+     *
+     * The answer is no longer BYTE for byte what it was before the columns existed, and that is the surviving implementation being more
+     * careful rather than less. Once the columns are there the figure can be computed, so it is -- and it comes back with an empty
+     * `by_currency`, every order counted under `unpriced` with the reason, and `combined` null because the owner has recorded no
+     * conversion rule. No amount is claimed anywhere in it. The never-migrated case above still answers exactly as it always did.
+     */
+    public function test_with_the_columns_present_and_empty_every_order_is_unpriced_and_no_amount_is_claimed(): void
     {
         $this->ordersCanRecordWhatTheyWereSoldIn();
 
-        $this->assertTheAnswerIsWhatItAlwaysWas();
+        $sales = $this->salesOf('SA');
+
+        $this->assertSame([], $sales['by_currency'], 'no currency can be reported when no order records one');
+        $this->assertSame('order_currency_not_recorded', $sales['unpriced']['reason']);
+        $this->assertNull($sales['combined'], 'a figure across currencies needs a conversion rule, and there is none');
+        $this->assertSame('no_conversion_rule_recorded', $sales['reason']);
     }
 
     private function assertTheAnswerIsWhatItAlwaysWas(): void
@@ -98,7 +120,10 @@ class SalesPerCompanyAndCurrencyTest extends PlatformAdminTestCase
             ['per_order' => false, 'reason' => 'order_currency_not_recorded'],
             $this->overview()->json('data.attribution.currency'),
         );
-        $this->assertArrayNotHasKey('sales', $this->overview()->json('data.attribution'), 'a rule was published for a figure that is not reported');
+        // The surviving design publishes no `sales` key at all -- the rule lives inside `attribution.currency` -- so what is worth
+        // asserting here is that the currency attribution says plainly that nothing is per order, which the line above does. Keeping the
+        // old `assertArrayNotHasKey('sales', ...)` would have been an assertion that can no longer fail.
+        $this->assertArrayNotHasKey('priced_when', (array) $this->overview()->json('data.attribution.currency'), 'a pricing rule was published for a figure that is not reported');
     }
 
     // ---------------------------------------------------------------- one currency, one company
@@ -115,18 +140,26 @@ class SalesPerCompanyAndCurrencyTest extends PlatformAdminTestCase
         $this->assertSame('SAR', $sales['by_currency'][0]['currency']);
         $this->assertSame(1, $sales['by_currency'][0]['legal_entity_id']);
         $this->assertSame(2, $sales['by_currency'][0]['orders']);
-        $this->assertEqualsWithDelta(150.50, (float) $sales['by_currency'][0]['amount'], 0.0001);
+        $this->assertEqualsWithDelta(150.50, (float) $sales['by_currency'][0]['gross'], 0.0001);
     }
 
     public function test_the_rule_that_produced_the_figure_is_published_once_there_is_one(): void
     {
         $this->soldIn(1, 'SAR', 1, 100.00);
 
+        // The rule is published under `attribution.currency` and not under a `sales` key of its own, and it names THREE columns rather
+        // than two: the market the order recorded is part of what put the sale in a market. It also publishes `priced_when`, which is
+        // the rule that makes the figure safe to read -- an amount is counted only while the order's rate is exactly one, and an order
+        // at any other rate is counted apart rather than scaled by a conversion nobody has approved. So this asserts more than it did.
         $this->assertSame(
-            ['rule' => 'per_selling_company_and_currency', 'never' => 'across_currencies', 'via' => 'orders.legal_entity_id, orders.currency_code'],
-            $this->overview()->json('data.attribution.sales'),
+            [
+                'per_order' => true,
+                'rule' => 'order_market_company_and_currency',
+                'via' => 'orders.storefront_country, orders.legal_entity_id, orders.currency_code',
+                'priced_when' => 'currency_rate = 1',
+            ],
+            $this->overview()->json('data.attribution.currency'),
         );
-        $this->assertSame(['per_order' => true], $this->overview()->json('data.attribution.currency'));
     }
 
     // ---------------------------------------------------------------- never across currencies
@@ -146,7 +179,7 @@ class SalesPerCompanyAndCurrencyTest extends PlatformAdminTestCase
         $this->assertSame(['KWD', 'SAR'], array_column($sales['by_currency'], 'currency'));
         foreach ($sales['by_currency'] as $row) {
             $this->assertSame(1, $row['orders'], 'two currencies were added into one row');
-            $this->assertEqualsWithDelta(100.00, (float) $row['amount'], 0.0001);
+            $this->assertEqualsWithDelta(100.00, (float) $row['gross'], 0.0001);
         }
         $this->assertArrayNotHasKey('total', $sales, 'a total over currencies was published');
         $this->assertArrayNotHasKey('amount', $sales, 'a single amount over currencies was published');
@@ -161,8 +194,8 @@ class SalesPerCompanyAndCurrencyTest extends PlatformAdminTestCase
 
         $this->assertCount(2, $sales['by_currency']);
         $this->assertSame([1, 2], array_column($sales['by_currency'], 'legal_entity_id'));
-        $this->assertEqualsWithDelta(100.00, (float) $sales['by_currency'][0]['amount'], 0.0001);
-        $this->assertEqualsWithDelta(70.00, (float) $sales['by_currency'][1]['amount'], 0.0001);
+        $this->assertEqualsWithDelta(100.00, (float) $sales['by_currency'][0]['gross'], 0.0001);
+        $this->assertEqualsWithDelta(70.00, (float) $sales['by_currency'][1]['gross'], 0.0001);
     }
 
     // ---------------------------------------------------------------- what is not counted
@@ -175,9 +208,12 @@ class SalesPerCompanyAndCurrencyTest extends PlatformAdminTestCase
         $sales = $this->salesOf('SA');
 
         $this->assertCount(1, $sales['by_currency'], 'an order with no currency was given one');
-        $this->assertEqualsWithDelta(100.00, (float) $sales['by_currency'][0]['amount'], 0.0001, 'the 999 of an order with no currency was added in');
-        $this->assertSame(4, $sales['not_counted']['orders'], 'the Saudi market has five orders and one is counted');
-        $this->assertSame('order_currency_not_recorded', $sales['not_counted']['reason']);
+        $this->assertEqualsWithDelta(100.00, (float) $sales['by_currency'][0]['gross'], 0.0001, 'the 999 of an order with no currency was added in');
+        // ONE: the order stamped Saudi that records no currency. The other seeded orders record no market at all and so belong to
+        // none -- an order with no stamp is deliberately never read as Saudi Arabia, which is a separate assertion in
+        // SalesByEntityAndCurrencyTest.
+        $this->assertSame(1, $sales['unpriced']['orders'], 'an order stamped for this market with no currency is counted apart');
+        $this->assertSame('order_currency_not_recorded', $sales['unpriced']['reason']);
     }
 
     /** A company of null is an order that recorded none, and never the platform's own. */
@@ -204,8 +240,8 @@ class SalesPerCompanyAndCurrencyTest extends PlatformAdminTestCase
 
         $sales = $this->salesOf('SA');
 
-        $this->assertIsString($sales['by_currency'][0]['amount'], 'the amount came back as a number, so it went through a float');
-        $this->assertEqualsWithDelta(24.690, (float) $sales['by_currency'][0]['amount'], 0.0001);
+        $this->assertIsString($sales['by_currency'][0]['gross'], 'the amount came back as a number, so it went through a float');
+        $this->assertEqualsWithDelta(24.690, (float) $sales['by_currency'][0]['gross'], 0.0001);
     }
 
     // ---------------------------------------------------------------- the markets stay apart
@@ -215,7 +251,7 @@ class SalesPerCompanyAndCurrencyTest extends PlatformAdminTestCase
         $this->soldIn(1, 'SAR', 1, 100.00);
 
         $this->assertCount(1, $this->salesOf('SA')['by_currency']);
-        $this->assertSame(['by_currency' => null, 'reason' => 'order_currency_not_recorded'], $this->salesOf('KW'), "a Saudi sale was reported in Kuwait's figures");
+        $this->assertSame([], $this->salesOf('KW')['by_currency'], "a Saudi sale was reported in Kuwait's figures");
     }
 
     // ---------------------------------------------------------------- settlements, which have no market
