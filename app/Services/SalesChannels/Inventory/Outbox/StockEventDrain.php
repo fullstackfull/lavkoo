@@ -6,6 +6,7 @@ use App\Models\ChannelStockEvent;
 use App\Models\SalesChannelAccount;
 use App\Services\Fulfillment\StorefrontStockRefresher;
 use App\Services\SalesChannels\Inventory\Allocation\DirtyPools;
+use App\Services\SalesChannels\Inventory\Allocation\PoolMarket;
 use App\Services\SalesChannels\Inventory\PoolKey;
 use App\Services\SalesChannels\Publishing\DirtyPoolRun;
 use App\Services\SalesChannels\Sync\ChannelSyncRunner;
@@ -52,6 +53,7 @@ class StockEventDrain
         private readonly DirtyPools $dirtyPools,
         private readonly DirtyPoolRun $run,
         private readonly StorefrontStockRefresher $storefront,
+        private readonly PoolMarket $market,
     ) {
     }
 
@@ -218,7 +220,13 @@ class StockEventDrain
     {
         $keys = [];
         foreach ($events as $event) {
-            $key = new PoolKey((int) $event->location_id, (int) $event->product_id, (string) $event->variant_key);
+            // The event row names the three columns every stock table shares; the market of the pool it affects is the product's (PoolMarket).
+            $key = new PoolKey(
+                locationId: (int) $event->location_id,
+                productId: (int) $event->product_id,
+                variantKey: (string) $event->variant_key,
+                market: $this->market->ofProduct($event->product_id),
+            );
             $keys[(string) $key] = $key;
         }
 

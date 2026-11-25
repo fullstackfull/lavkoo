@@ -6,6 +6,7 @@ use App\Enums\Fulfillment\ProviderCode;
 use App\Models\ChannelStockEvent;
 use App\Models\InventoryLocation;
 use App\Services\Fulfillment\Contracts\NotesStockChanged;
+use App\Services\SalesChannels\Inventory\Allocation\PoolMarket;
 use App\Services\SalesChannels\Inventory\PoolKey;
 
 /**
@@ -22,6 +23,7 @@ class ProviderFigureNotes implements NotesStockChanged
     public function __construct(
         private readonly StockEventOutbox $outbox,
         private readonly StockEventNudge $nudge,
+        private readonly PoolMarket $market,
     ) {
     }
 
@@ -31,8 +33,9 @@ class ProviderFigureNotes implements NotesStockChanged
             return;
         }
 
+        $market = $this->market->ofProduct($productId);
         $pools = array_map(
-            static fn (int $locationId): PoolKey => new PoolKey($locationId, $productId, $variantKey),
+            static fn (int $locationId): PoolKey => new PoolKey(locationId: $locationId, productId: $productId, variantKey: $variantKey, market: $market),
             $this->locationsOf($provider),
         );
         if ($pools === []) {

@@ -11,6 +11,7 @@ use App\Models\InventoryReservation;
 use App\Models\SalesChannelProductMapping;
 use App\Services\Fulfillment\Contracts\WritesStorefrontStock;
 use App\Services\SalesChannels\Inventory\Allocation\DirtyPools;
+use App\Services\SalesChannels\Inventory\Allocation\PoolMarket;
 use App\Services\SalesChannels\Inventory\Outbox\StockEventNudge;
 use App\Services\SalesChannels\Inventory\Outbox\StockEventOutbox;
 use App\Services\SalesChannels\Publishing\PublishPolicyResolver;
@@ -55,6 +56,7 @@ class ChannelOrderReservations
         private readonly WritesStorefrontStock $storefront,
         private readonly StockEventOutbox $outbox,
         private readonly StockEventNudge $nudge,
+        private readonly PoolMarket $market,
     ) {
     }
 
@@ -84,7 +86,7 @@ class ChannelOrderReservations
                 return [];
             }
 
-            $pools = $before->merge($after)->map(static fn (array $hold): PoolKey => new PoolKey(locationId: $hold['location_id'], productId: $hold['product_id'], variantKey: $hold['variant_key']))->unique(static fn (PoolKey $key): string => (string) $key)->values();
+            $pools = $before->merge($after)->map(fn (array $hold): PoolKey => new PoolKey(locationId: $hold['location_id'], productId: $hold['product_id'], variantKey: $hold['variant_key'], market: $this->market->ofProduct($hold['product_id'])))->unique(static fn (PoolKey $key): string => (string) $key)->values();
             $this->dirtyPools->mark($pools);
             // The row is written HERE, with the holds, so the intention to correct our own number and to ask the channels cannot be lost. The correcting itself happens below.
             $this->outbox->record($pools, $reason, subjectType: 'external_order_mapping', subjectId: (int) $mapping->id);

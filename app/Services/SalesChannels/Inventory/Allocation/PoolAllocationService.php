@@ -44,7 +44,7 @@ class PoolAllocationService
     {
         $this->ensureRow($key);
 
-        return DB::transaction(fn (): PoolAllocation => $this->divide($key, InventoryPool::where($key->columns())->lockForUpdate()->firstOrFail()), attempts: 3);
+        return DB::transaction(fn (): PoolAllocation => $this->divide($key, InventoryPool::where($key->poolColumns())->lockForUpdate()->firstOrFail()), attempts: 3);
     }
 
     /**
@@ -53,8 +53,8 @@ class PoolAllocationService
      */
     private function ensureRow(PoolKey $key): void
     {
-        if (!InventoryPool::where($key->columns())->exists()) {
-            DB::table('inventory_pools')->insertOrIgnore($key->columns() + ['created_at' => now(), 'updated_at' => now()]);
+        if (!InventoryPool::where($key->poolColumns())->exists()) {
+            DB::table('inventory_pools')->insertOrIgnore($key->poolColumns() + ['created_at' => now(), 'updated_at' => now()]);
         }
     }
 

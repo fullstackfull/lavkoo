@@ -8,6 +8,7 @@ use App\Models\InventoryLocationBalance;
 use App\Models\InventoryPool;
 use App\Models\ProviderProductMapping;
 use App\Services\SalesChannels\Inventory\Allocation\PoolListings;
+use App\Services\SalesChannels\Inventory\Allocation\PoolMarket;
 use Illuminate\Pagination\LengthAwarePaginator;
 
 /**
@@ -22,6 +23,7 @@ class LocationStockPage
         private readonly PoolNet $pools,
         private readonly ReservationService $reservations,
         private readonly PoolListings $listings,
+        private readonly PoolMarket $market,
     ) {
     }
 
@@ -45,13 +47,13 @@ class LocationStockPage
     private function withPools(InventoryLocation $location, LengthAwarePaginator $page): LengthAwarePaginator
     {
         $keys = $page->getCollection()->filter(static fn (array $row): bool => $row['product_id'] !== null)
-            ->map(static fn (array $row): PoolKey => new PoolKey((int) $location->id, (int) $row['product_id'], $row['variant_key']))->values();
+            ->map(fn (array $row): PoolKey => $this->keyFor($location, (int) $row['product_id'], $row['variant_key']))->values();
         $buffers = InventoryPool::where('location_id', $location->id)->whereIn('product_id', $keys->map(static fn (PoolKey $key): int => $key->productId)->unique()->all())->get()
-            ->mapWithKeys(static fn (InventoryPool $pool): array => [(string) new PoolKey($location->id, $pool->product_id, $pool->variant_key) => (int) $pool->safety_buffer]);
+            ->mapWithKeys(static fn (InventoryPool $pool): array => [(string) new PoolKey(locationId: (int) $location->id, productId: (int) $pool->product_id, variantKey: (string) $pool->variant_key, market: (string) ($pool->storefront_country ?? PoolKey::DEFAULT_MARKET)) => (int) $pool->safety_buffer]);
         $members = $this->listings->of($keys->all());
 
         return $page->setCollection($page->getCollection()->map(function (array $row) use ($location, $buffers, $members): array {
-            $key = new PoolKey((int) $location->id, (int) $row['product_id'], $row['variant_key']);
+            $key = $this->keyFor($location, (int) $row['product_id'], $row['variant_key']);
 
             return $row + [
                 'pool' => $this->pools->of($location, $key->productId, $key->variantKey, $row['availability'], buffer: $buffers[(string) $key] ?? 0),
@@ -59,6 +61,12 @@ class LocationStockPage
                 'members' => $members[(string) $key] ?? [],
             ];
         }));
+    }
+
+    /** The pool one row of the page belongs to, market included, so that the buffer and the members found for it are that pool's. */
+    private function keyFor(InventoryLocation $location, int $productId, string $variantKey): PoolKey
+    {
+        return new PoolKey(locationId: (int) $location->id, productId: $productId, variantKey: $variantKey, market: $this->market->ofProduct($productId));
     }
 
     private function providerRows(InventoryLocation $location, ?string $sku, int $perPage): LengthAwarePaginator

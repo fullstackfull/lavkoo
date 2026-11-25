@@ -33,10 +33,10 @@ class PoolSettings
     public function save(PoolKey $key, array $input, ?int $adminId): InventoryPool
     {
         $values = $this->validator->pool($input);
-        DB::table('inventory_pools')->insertOrIgnore($key->columns() + ['created_at' => now(), 'updated_at' => now()]);
+        DB::table('inventory_pools')->insertOrIgnore($key->poolColumns() + ['created_at' => now(), 'updated_at' => now()]);
 
         $pool = DB::transaction(function () use ($key, $values, $adminId): InventoryPool {
-            $pool = InventoryPool::where($key->columns())->lockForUpdate()->firstOrFail();
+            $pool = InventoryPool::where($key->poolColumns())->lockForUpdate()->firstOrFail();
             $before = $pool->only(array_keys($values));
             $pool->forceFill($values)->save();
             $this->audit->record(action: 'sales_channel.pool_settings_changed', subject: $pool, before: $before, after: $pool->only(array_keys($values)), context: ['by' => $adminId, 'pool' => (string) $key]);
