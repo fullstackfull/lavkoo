@@ -49,6 +49,15 @@ final class PlatformAdminSettings
 
     private const DEFAULT_MAX_WINDOW_DAYS = 92;
 
+    private const DEFAULT_STEP_UP_MINUTES = 5;
+
+    /** A step-up older than this is not a step-up, whatever the configuration says. */
+    private const MAX_STEP_UP_MINUTES = 15;
+
+    private const DEFAULT_EXPORTS_PER_HOUR = 3;
+
+    private const MAX_EXPORTS_PER_HOUR = 20;
+
     private const DEFAULT_ZERO_STOCK_WARNING_COUNT = 10;
 
     private const DEFAULT_ZERO_STOCK_CRITICAL_COUNT = 50;
@@ -137,6 +146,21 @@ final class PlatformAdminSettings
     public function failedLoginAuditsPerHour(): int
     {
         return $this->positiveInteger(key: 'failed_login_audit_per_hour', default: self::DEFAULT_FAILED_LOGIN_AUDITS_PER_HOUR);
+    }
+
+    /**
+     * How long a proof of the second factor stays fresh for an action that asks for one again (L-15). At most 15: the point of a step-up is that it
+     * was made minutes ago, and a window long enough to cover a coffee break is not one.
+     */
+    public function stepUpMinutes(): int
+    {
+        return min($this->positiveInteger(key: 'step_up_minutes', default: self::DEFAULT_STEP_UP_MINUTES), self::MAX_STEP_UP_MINUTES);
+    }
+
+    /** How many exports one admin may ask for in an hour. At most 20: an export is a bounded read of a market, not a way to walk the platform. */
+    public function exportsPerHour(): int
+    {
+        return min($this->positiveInteger(key: 'exports_per_hour', default: self::DEFAULT_EXPORTS_PER_HOUR), self::MAX_EXPORTS_PER_HOUR);
     }
 
     /** The longest span of days any query of the API may read. */

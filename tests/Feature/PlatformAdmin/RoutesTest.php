@@ -30,13 +30,21 @@ class RoutesTest extends PlatformAdminTestCase
     private const WRITING_ROUTES = [
         'platform_admin.auth.login' => 'POST',
         'platform_admin.auth.mfa' => 'POST',
+        // A step-up stamps the moment the session proved the second factor again, on the session's own row, and changes nothing else (L-15).
+        'platform_admin.auth.step_up' => 'POST',
         'platform_admin.auth.logout' => 'POST',
         'platform_admin.sessions.end_others' => 'DELETE',
         'platform_admin.session.revoke' => 'DELETE',
+        // A device of this session, and never business data: the row says which phone the admin is alerted on (L-16).
+        'platform_admin.devices.register' => 'POST',
+        'platform_admin.device.forget' => 'DELETE',
     ];
 
     /** The two steps of the sign-in: the only routes that are not behind a token, because they are how one is got. */
     private const SIGN_IN_ROUTES = ['platform_admin.auth.login', 'platform_admin.auth.mfa'];
+
+    /** The routes that ask for the second factor again, minutes before the request, on top of the token (L-15). */
+    private const STEP_UP_ROUTES = ['platform_admin.exports.orders'];
 
     public function test_the_aliases_point_at_the_three_middleware(): void
     {
@@ -63,7 +71,14 @@ class RoutesTest extends PlatformAdminTestCase
     public function test_every_route_runs_the_gate_first_and_only_the_two_steps_of_the_sign_in_run_without_the_authentication(): void
     {
         foreach ($this->platformRoutes() as $route) {
-            $expected = in_array($route->getName(), self::SIGN_IN_ROUTES, true) ? ['platform_admin'] : ['platform_admin', 'platform_admin_auth'];
+            $expected = match (true) {
+                in_array($route->getName(), self::SIGN_IN_ROUTES, true) => ['platform_admin'],
+                // The export is the one route that also asks for a second factor proved minutes ago, because it takes a market's rows OFF
+                // the platform. It is named here rather than allowed everywhere, so a route that acquires the step-up is noticed, and a
+                // route that LOSES it is noticed too.
+                in_array($route->getName(), self::STEP_UP_ROUTES, true) => ['platform_admin', 'platform_admin_auth', 'platform_admin_step_up'],
+                default => ['platform_admin', 'platform_admin_auth'],
+            };
             $withoutCapability = array_values(array_filter($route->gatherMiddleware(), static fn ($middleware): bool => !(is_string($middleware) && str_starts_with($middleware, 'platform_admin_can:'))));
 
             $this->assertSame($expected, $withoutCapability, $route->uri());

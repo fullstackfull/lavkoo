@@ -2,6 +2,7 @@
 
 namespace App\Exceptions;
 
+use App\Models\PlatformAdminDevice;
 use App\Services\PlatformAdmin\PlatformAdminResponses;
 use Illuminate\Contracts\Debug\ShouldntReport;
 use Illuminate\Http\JsonResponse;
@@ -44,6 +45,53 @@ class PlatformAdminApiException extends RuntimeException implements ShouldntRepo
     public static function invalidSeverity(array $valid): self
     {
         return new self(errorCode: 'invalid_severity', message: 'The severity must be info, warning or critical.', status: 422, extra: ['valid' => $valid]);
+    }
+
+    /** The session holds a good token and has not proved the second factor again within the minutes an export asks for (L-15). */
+    public static function stepUpRequired(int $withinMinutes): self
+    {
+        return new self(
+            errorCode: 'step_up_required',
+            message: 'This action needs the second factor proved again.',
+            status: 403,
+            extra: ['within_minutes' => $withinMinutes],
+        );
+    }
+
+    /** An export of a market's orders cannot be made on an installation where an order records no market (the GCC-05 migration has not run). */
+    public static function orderMarketNotRecorded(): self
+    {
+        return new self(
+            errorCode: 'order_market_not_recorded',
+            message: 'Orders do not record which market they were sold in on this installation, so there is nothing to export by market.',
+            status: 409,
+        );
+    }
+
+    /** An export was asked for of every market at once. One export is one market's rows, so that what left the platform is a recorded fact. */
+    public static function oneMarketOnly(): self
+    {
+        return new self(errorCode: 'one_market_only', message: 'An export is of one market. Name it with the market parameter.', status: 422);
+    }
+
+    public static function invalidDevicePlatform(): self
+    {
+        return new self(
+            errorCode: 'invalid_device_platform',
+            message: 'The platform must be android or ios.',
+            status: 422,
+            extra: ['valid' => PlatformAdminDevice::PLATFORMS],
+        );
+    }
+
+    public static function invalidPushToken(): self
+    {
+        return new self(errorCode: 'invalid_push_token', message: 'The push token is missing or is not one.', status: 422);
+    }
+
+    public static function deviceNotFound(): self
+    {
+        return new self(errorCode: 'device_not_found', message: 'No such device of this session.', status: 404);
     }
 
     public static function invalidWindow(string $message): self

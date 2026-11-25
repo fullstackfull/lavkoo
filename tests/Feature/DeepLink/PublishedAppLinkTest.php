@@ -131,6 +131,92 @@ class PublishedAppLinkTest extends TestCase
         }
     }
 
+    // ---- a market's own prefix (J-10) --------------------------------------------------------------
+
+    /**
+     * `/ae/product/x` means what `/product/x` means, in the Emirates.
+     *
+     * The app reads a market off the first segment the same way and under the same switch
+     * (`DeepLinkResolver.readLocally` in lavkooapp), so the two sides agree in both states: while
+     * storefronts are off a market's path is not a path this shop serves, and the link opens the web.
+     * That agreement is the criterion -- a shop that resolved a prefixed link while the app did not,
+     * or the other way round, would send the customer to a different screen depending on whether the
+     * network answered.
+     */
+    public function test_a_market_prefix_resolves_to_the_same_screen_and_names_the_market(): void
+    {
+        config(['gcc.storefronts.enabled' => true]);
+
+        $answer = $this->resolve('/ae/product/panadol-extra-24-tablets');
+
+        $this->assertTrue($answer['resolved']);
+        $this->assertSame('product', $answer['target']);
+        $this->assertSame('panadol-extra-24-tablets', $answer['parameter']);
+        $this->assertSame('AE', $answer['storefront']);
+        $this->assertSame('/ae/product/panadol-extra-24-tablets', $answer['path'], 'the path is the one that was asked for, so the web fallback opens the real page');
+    }
+
+    public function test_every_market_of_the_configuration_is_read_off_the_path(): void
+    {
+        config(['gcc.storefronts.enabled' => true]);
+
+        foreach ((array) config('gcc.storefronts.countries') as $code => $market) {
+            $answer = $this->resolve('/' . $market['path'] . '/products');
+
+            $this->assertSame('product_list', $answer['target'], (string) $code);
+            $this->assertSame((string) $code, $answer['storefront'], (string) $code);
+        }
+    }
+
+    public function test_a_market_s_own_home_page_is_the_home_screen_of_that_market(): void
+    {
+        config(['gcc.storefronts.enabled' => true]);
+
+        $answer = $this->resolve('/kw');
+
+        $this->assertSame('home', $answer['target']);
+        $this->assertSame('KW', $answer['storefront']);
+    }
+
+    public function test_while_storefronts_are_off_a_market_s_path_is_not_a_path_this_shop_serves(): void
+    {
+        $this->assertFalse(config('gcc.storefronts.enabled'), 'the switch ships off, so this is the shipped behaviour');
+
+        $answer = $this->resolve('/ae/product/panadol-extra-24-tablets');
+
+        $this->assertSame('web', $answer['target']);
+        $this->assertNull($answer['storefront']);
+        $this->assertSame('this_path_is_not_published_as_an_app_link', $answer['reason']);
+    }
+
+    public function test_a_segment_that_is_not_a_market_is_not_stripped(): void
+    {
+        config(['gcc.storefronts.enabled' => true]);
+
+        $this->assertSame('web', $this->resolve('/zz/product/x')['target']);
+        $this->assertNull($this->resolve('/zz/product/x')['storefront']);
+        // And an unprefixed link is untouched by any of this.
+        $this->assertSame('product', $this->resolve('/product/x')['target']);
+        $this->assertNull($this->resolve('/product/x')['storefront']);
+    }
+
+    public function test_the_published_paths_cover_each_market_once_storefronts_are_on_and_not_before(): void
+    {
+        $service = app(DeepLinkResolver::class)->appLinks();
+
+        $this->assertNotContains('/ae/product/*', $service->paths('ios'), 'nothing of a market is published while the shop serves no market path');
+
+        config(['gcc.storefronts.enabled' => true]);
+        $ios = $service->paths('ios');
+
+        foreach ((array) config('gcc.storefronts.countries') as $market) {
+            $this->assertContains('/' . $market['path'], $ios);
+            $this->assertContains('/' . $market['path'] . '/product/*', $ios);
+            $this->assertContains('/' . $market['path'] . '/products', $ios);
+        }
+        $this->assertContains('/product/*', $ios, 'the unprefixed paths are still published');
+    }
+
     public function test_the_published_ios_paths_cover_every_route_the_app_can_open(): void
     {
         // iOS reads its path list out of the association file and opens the browser for anything

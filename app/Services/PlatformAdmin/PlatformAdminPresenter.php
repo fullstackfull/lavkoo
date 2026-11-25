@@ -8,6 +8,9 @@ use Carbon\CarbonInterface;
 /** The arrays the API answers with for an admin and a session. Timestamps are UTC, in ISO 8601 with a trailing Z. */
 final class PlatformAdminPresenter
 {
+    /** The fewest decimal places an amount is written with. The most is whatever the sum itself holds. */
+    private const AMOUNT_DECIMALS = 2;
+
     /** @return array{admin_id: int, name: string, level: int, scope: string, markets: list<string>, token_expires_at: ?string} */
     public static function me(PlatformAdminPrincipal $principal): array
     {
@@ -55,5 +58,32 @@ final class PlatformAdminPresenter
     public static function timestamp(?CarbonInterface $moment): ?string
     {
         return $moment?->copy()->utc()->toIso8601ZuluString();
+    }
+
+    /**
+     * A sum of money as text, exactly as the database added it up, with the trailing zeros of the column's twenty decimal places taken off and
+     * two always kept. Text and not a number: a JSON number of an amount is read back as a float, and the fractions of six currencies are not a
+     * thing to lose a digit of. Nothing is rounded here -- a digit that is not a zero stays, however far out it is, because a figure that is not
+     * what the engine summed is a figure nobody can check.
+     */
+    public static function amount(mixed $sum): ?string
+    {
+        if (!is_numeric($sum)) {
+            return null;
+        }
+
+        $text = is_string($sum) ? trim($sum) : (string) $sum;
+
+        if (stripos($text, 'e') !== false) {
+            $text = number_format((float) $text, self::AMOUNT_DECIMALS, '.', '');
+        }
+
+        if (!str_contains($text, '.')) {
+            return $text . '.' . str_repeat('0', self::AMOUNT_DECIMALS);
+        }
+
+        [$whole, $fraction] = explode('.', $text, 2);
+
+        return $whole . '.' . str_pad(rtrim($fraction, '0'), self::AMOUNT_DECIMALS, '0');
     }
 }

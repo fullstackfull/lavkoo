@@ -78,11 +78,4 @@ final class PlatformMarkets
     {
         return config('gcc.storefronts.enabled') === true;
     }
-
-    public function legalEntity(): ?string
-    {
-        $entity = config('gcc.storefronts.legal.legal_entity');
-
-        return is_string($entity) && trim($entity) !== '' ? $entity : null;
-    }
 }

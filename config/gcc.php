@@ -370,6 +370,25 @@ return [
         'window_days_default' => 30,
         'window_days_max' => 92,
 
+        // How long a proof of the second factor stays fresh for an action that asks for one again (L-15), and how many exports one admin may ask for in
+        // an hour. Each has a ceiling the configuration cannot pass: 15 minutes and 20 exports.
+        'step_up_minutes' => (int) env('GCC_PLATFORM_ADMIN_STEP_UP_MINUTES', 5),
+        'exports_per_hour' => (int) env('GCC_PLATFORM_ADMIN_EXPORTS_PER_HOUR', 3),
+
+        'reports' => [
+            // Turning six currencies into one figure. It ships EMPTY, so no combined figure is ever produced and every answer says why
+            // (App\Services\PlatformAdmin\PlatformSalesCombination). Writing rates here is a finance decision and not a code change: name the
+            // currency to convert into, a rate for every currency a window can hold, where the rates came from and the day they are from, and the
+            // combined figure is then sent WITH that rate, source and date so a reader can check it. Leave any of the four out and there is no
+            // combined figure at all -- an unlabelled total of six currencies looks like money and is not.
+            'conversion' => [
+                'currency' => null,
+                'source' => null,
+                'as_of' => null,
+                'rates' => [],
+            ],
+        ],
+
         // When a market raises an alert. A count at or above the number is enough; the critical number replaces the warning of the same alert.
         'alerts' => [
             'zero_stock_warning_count' => 10,

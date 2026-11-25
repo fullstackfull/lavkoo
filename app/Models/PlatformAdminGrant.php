@@ -17,20 +17,27 @@ class PlatformAdminGrant extends Model
      * listed as not given by default: adding a capability to this list would otherwise give it to every such grant, retroactively, the moment the code
      * shipped -- an operator trusted with yesterday's API acquiring tomorrow's without anybody deciding.
      */
-    public const CAPABILITIES = ['overview', 'markets', 'alerts', 'audit', 'sessions', self::CAPABILITY_HEALTH];
+    public const CAPABILITIES = ['overview', 'markets', 'alerts', 'audit', 'sessions', self::CAPABILITY_HEALTH, self::CAPABILITY_REPORTS, self::CAPABILITY_EXPORT];
 
     /** Operational health: payment attempts that never came back, and integrations that have stopped syncing (L-09). */
     public const CAPABILITY_HEALTH = 'health';
+
+    /** A market's own summary over a window: its orders, its returns and what it sold, by the company that sold it and the currency (L-14). */
+    public const CAPABILITY_REPORTS = 'reports';
+
+    /** Taking a market's rows out of the platform as a file (L-14). The only capability behind which a fresh second factor is also asked for. */
+    public const CAPABILITY_EXPORT = 'export';
 
     /**
      * Capabilities a grant has only when it NAMES them.
      *
      * The rule for everything above is that naming none means all, which is right for a list that was fixed when the first grant was made and wrong for a
      * list that grows. A capability added later goes in here, so that an existing grant keeps exactly what it was given and an operator who should have
-     * the new part is given it on purpose. Health is the first: it reads payment and integration failures, and whether a particular operator should see
-     * those is a decision, not an inheritance.
+     * the new part is given it on purpose. Health was the first: it reads payment and integration failures, and whether a particular operator should see
+     * those is a decision, not an inheritance. Reports and exports are here for a stronger reason -- an export takes a market's rows OFF the platform,
+     * and nobody should acquire that because a release shipped.
      */
-    public const NOT_GIVEN_BY_DEFAULT = [self::CAPABILITY_HEALTH];
+    public const NOT_GIVEN_BY_DEFAULT = [self::CAPABILITY_HEALTH, self::CAPABILITY_REPORTS, self::CAPABILITY_EXPORT];
 
     protected $fillable = ['admin_id', 'admin_fingerprint', 'level', 'countries', 'capabilities', 'granted_by', 'granted_at', 'revoked_at', 'expires_at'];
 

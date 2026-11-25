@@ -13,7 +13,7 @@ class PlatformAdminToken extends Model
 {
     protected $fillable = [
         'admin_id', 'grant_id', 'token_hash', 'password_fingerprint', 'device_name', 'ip', 'user_agent', 'mfa_method',
-        'last_used_at', 'expires_at', 'revoked_at',
+        'last_used_at', 'expires_at', 'revoked_at', 'stepped_up_at',
     ];
 
     protected $casts = [
@@ -22,6 +22,7 @@ class PlatformAdminToken extends Model
         'last_used_at' => 'datetime',
         'expires_at' => 'datetime',
         'revoked_at' => 'datetime',
+        'stepped_up_at' => 'datetime',
     ];
 
     protected $hidden = ['token_hash', 'password_fingerprint'];
@@ -38,6 +39,18 @@ class PlatformAdminToken extends Model
     public function mfaMethod(): ?MfaMethod
     {
         return MfaMethod::tryFrom((string) ($this->getAttributes()['mfa_method'] ?? ''));
+    }
+
+    /**
+     * Whether this session proved the second factor again within the last [$minutes] (L-15), which an action that takes something out of the platform
+     * asks for. A session that never did has not, and so has one whose step-up is older than that: the window closes at the very moment the time is
+     * up, as a session ends at its expiry.
+     */
+    public function isSteppedUp(int $minutes): bool
+    {
+        $provedAt = $this->stepped_up_at;
+
+        return $provedAt !== null && $provedAt->copy()->addMinutes($minutes)->isFuture();
     }
 
     /**

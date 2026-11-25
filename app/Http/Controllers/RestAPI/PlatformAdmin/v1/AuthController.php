@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Services\DeveloperPortal\ApiDoc;
 use App\Services\PlatformAdmin\LoginAttempt;
 use App\Services\PlatformAdmin\MfaAttempt;
+use App\Services\PlatformAdmin\PlatformAdminAudit;
 use App\Services\PlatformAdmin\PlatformAdminAuthenticator;
 use App\Services\PlatformAdmin\PlatformAdminLoginThrottle;
 use App\Services\PlatformAdmin\PlatformAdminMfaThrottle;
@@ -14,6 +15,8 @@ use App\Services\PlatformAdmin\PlatformAdminPresenter;
 use App\Services\PlatformAdmin\PlatformAdminPrincipal;
 use App\Services\PlatformAdmin\PlatformAdminResponses;
 use App\Services\PlatformAdmin\PlatformAdminSecondStep;
+use App\Services\PlatformAdmin\PlatformAdminSettings;
+use App\Services\PlatformAdmin\PlatformAdminStepUp;
 use App\Services\PlatformAdmin\PlatformAdminTokenService;
 use App\Services\PlatformAdmin\SignInOutcome;
 use Illuminate\Http\JsonResponse;
@@ -27,6 +30,8 @@ class AuthController extends Controller
         private readonly PlatformAdminAuthenticator $authenticator,
         private readonly PlatformAdminSecondStep $secondStep,
         private readonly PlatformAdminTokenService $tokens,
+        private readonly PlatformAdminStepUp $stepUp,
+        private readonly PlatformAdminSettings $settings,
     ) {
     }
 
@@ -70,6 +75,37 @@ class AuthController extends Controller
         $this->mfaThrottle->hit(attempt: $attempt);
 
         return $this->answerOf(outcome: $this->secondStep->verify(attempt: $attempt));
+    }
+
+    #[ApiDoc(
+        audience: ApiDoc::ADMIN, visibility: ApiDoc::INTERNAL, stability: ApiDoc::BETA, since: 'v1', group: 'platform_admin',
+        summary: 'Prove the second factor again inside this session',
+        description: 'Six digits of the authenticator app, or a recovery code. A session that has signed in may last hours; an action that takes something out of the platform asks for the factor again within minutes, and this is how it is given. Answers with the moment the proof stops being fresh. Nothing else about the session changes, no business data is touched, and a code can be used once. Every failure is the same 401 and counts towards the same lockout a failed sign-in counts towards. While the platform-wide second factor is switched off there is no factor to prove and the answer says so.',
+        idempotent: false,
+    )]
+    public function stepUp(Request $request): JsonResponse
+    {
+        $principal = PlatformAdminPrincipal::fromRequest(request: $request);
+
+        if (!$this->stepUp->isRequired()) {
+            return PlatformAdminResponses::data(data: ['stepped_up' => true, 'fresh_until' => null, 'reason' => 'second_factor_not_required']);
+        }
+
+        $outcome = $this->stepUp->confirm(principal: $principal, attempt: MfaAttempt::fromRequest(request: $request));
+
+        if ($outcome->retryAfterSeconds !== null) {
+            return PlatformAdminResponses::throttled(retryAfterSeconds: $outcome->retryAfterSeconds);
+        }
+
+        if (!$outcome->accepted) {
+            return PlatformAdminResponses::unauthenticated();
+        }
+
+        // The trail's line for this request is written by the authentication middleware; how the factor was proved goes on it rather than on a
+        // second line of the same event.
+        $request->attributes->set(PlatformAdminAudit::DETAIL_ATTRIBUTE, ['method' => $outcome->method?->value, 'fresh_minutes' => $this->settings->stepUpMinutes()]);
+
+        return PlatformAdminResponses::data(data: ['stepped_up' => true, 'fresh_until' => PlatformAdminPresenter::timestamp(moment: $outcome->freshUntil), 'reason' => null]);
     }
 
     #[ApiDoc(audience: ApiDoc::ADMIN, visibility: ApiDoc::INTERNAL, stability: ApiDoc::BETA, since: 'v1', group: 'platform_admin', summary: 'Sign out: end the session this token belongs to', description: 'The other sessions of the admin are not touched.', idempotent: false)]

@@ -20,6 +20,7 @@ return [
     App\Providers\AnalyticsServiceProvider::class,
     App\Providers\FulfillmentServiceProvider::class,
     App\Providers\SalesChannelsServiceProvider::class,
+    App\Providers\PlatformAdminServiceProvider::class,
 
     // Third-party packages
     Intervention\Image\ImageServiceProvider::class,
