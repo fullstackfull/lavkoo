@@ -31,6 +31,10 @@ use Illuminate\Container\Attributes\Singleton;
  *
  * The gateway refund path does NOT read this yet (D2-16): it still goes to the one platform settings row, so a refund of a company's payment is not
  * drawn on that company's account. This is the single reader of the stamp that is missing, and it is named here rather than implied.
+ *
+ * WHICH account is stamped is App\Services\Payments\AccountOfTheSellingCompany's answer and not the registry's raw one: the market's account has to
+ * belong to the company that sells in that market, which is the company the order of those same lines is stamped with. Its switch ships off, so the
+ * answer is the registry's own until an operator turns it on.
  */
 #[Singleton]
 final class PaymentAccountBinding
@@ -40,6 +44,7 @@ final class PaymentAccountBinding
 
     public function __construct(
         private readonly GatewayAccountRegistry $registry,
+        private readonly AccountOfTheSellingCompany $accountOfTheSellingCompany,
         private readonly GatewayAccountDirectory $addresses,
         private readonly LegalEntityRegistry $companies,
         private readonly StorefrontCurrency $currencies,
@@ -66,7 +71,10 @@ final class PaymentAccountBinding
             return $additionalData;
         }
 
-        $account = $this->registry->forStorefront(country: $market, gateway: $gateway, environment: $this->environmentFor(gateway: $gateway));
+        // Not the registry's own answer: the account a market's money goes through has to be the account of the company that SELLS in that
+        // market, which is the company the order of those same lines is stamped with (AccountOfTheSellingCompany). The two readers answer
+        // from one place so that an order can never name one company while its money is drawn on another's merchant account.
+        $account = $this->accountOfTheSellingCompany->of(country: $market, gateway: $gateway, environment: $this->environmentFor(gateway: $gateway));
 
         if ($account === null) {
             return $additionalData;
