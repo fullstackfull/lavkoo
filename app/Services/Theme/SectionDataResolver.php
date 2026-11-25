@@ -7,8 +7,11 @@ use App\Services\BannerPlacementService;
 use App\Services\BannerService;
 use App\Models\Brand;
 use App\Models\Category;
+use App\Models\Order;
 use App\Models\Product;
+use App\Services\Storefront\OrderStorefront;
 use App\Services\Storefront\StorefrontCatalog;
+use App\Services\Storefront\StorefrontResolver;
 use Illuminate\Support\Collection;
 
 /**
@@ -875,16 +878,66 @@ class SectionDataResolver
 
     // --- Storytelling & trust -------------------------------------------------------------
 
-    /** Live counts for the store-stats bar; every number is a real row count. */
+    /**
+     * Live counts for the store-stats bar; every number is a real row count, and every one of them is THIS market's (F-10).
+     *
+     * The bar is marketing copy a visitor reads as a statement about the shop they are in, so a Kuwaiti visitor told the platform's total
+     * order count is being told a figure about six countries. Products already followed the market (`Product::active()` ends with
+     * `inCurrentStorefront()`); orders and customers did not.
+     *
+     * Brands and categories are deliberately left platform-wide: they are shared by design -- there is no country on either table and a
+     * category is the same category in every market -- so a count of them is not a figure of one market's that happens to be wrong, it is a
+     * figure that has no market.
+     *
+     * Nothing changes while storefronts are off: the resolver answers no market then, and both counts are the counts the platform has always
+     * shown.
+     */
     public function storeStats(): array
     {
+        $market = StorefrontCatalog::country();
+
         return $this->safely(fn () => collect([
             'products'   => Product::active()->count(),
             'brands'     => Brand::where('status', 1)->count(),
             'categories' => Category::where('position', 0)->count(),
-            'customers'  => \App\Models\User::count(),
-            'orders'     => \App\Models\Order::count(),
+            'customers'  => $this->customersOf(market: $market),
+            'orders'     => $this->ordersOf(market: $market),
         ]))->all();
+    }
+
+    /**
+     * The orders this market sold. `OrderStorefront::narrow()` is the one place that rule lives, so the bar counts the same orders the
+     * seller API and the panel narrow to -- including its rule that an order with no record is the default market's, which is every order
+     * placed before the snapshot existed.
+     */
+    private function ordersOf(?string $market): int
+    {
+        return $market === null
+            ? Order::query()->count()
+            : app(OrderStorefront::class)->narrow(Order::query(), $market)->count();
+    }
+
+    /**
+     * The customers this market has.
+     *
+     * One rule, and it is the platform's own rule about anything that records no market: what records none is the DEFAULT market's. A
+     * customer account records no market -- there is one identity across the six, by design -- so every account is the default market's, and
+     * `User::count()` is the right answer there and is byte for byte the answer the bar has always given. Another market has the accounts
+     * that have shopped in it, which is the only thing that makes a shared account that market's.
+     *
+     * A figure a market has not earned is worse than a smaller one: a market that has sold nothing says so.
+     *
+     * **An open question for the owner rather than a coding decision:** a guest checkout records a customer id that is not an account, so a
+     * market's figure counts a guest buyer as a customer, and a customer who shops in two markets is counted in both. Both are defensible
+     * for a marketing bar and neither is defensible silently, so they are written here and in the card.
+     */
+    private function customersOf(?string $market): int
+    {
+        if ($market === null || $market === StorefrontResolver::fromConfig()->defaultCountry()) {
+            return \App\Models\User::count();
+        }
+
+        return app(OrderStorefront::class)->narrow(Order::query(), $market)->distinct()->count('customer_id');
     }
 
     /** The newest published blog posts (Blog module), or an empty list when the module is off. */
