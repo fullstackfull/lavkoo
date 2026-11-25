@@ -3,6 +3,7 @@
 namespace Tests\Unit\Architecture;
 
 use PHPUnit\Framework\TestCase;
+use Tests\Support\ReadsCitedTests;
 
 /**
  * `docs/gcc/THREAT_MODEL.md` names a real control for each of the nine classes, and every test it cites exists (M3-08).
@@ -24,6 +25,8 @@ use PHPUnit\Framework\TestCase;
  */
 class ThreatModelTest extends TestCase
 {
+    use ReadsCitedTests;
+
     private const DOCUMENT = 'docs/gcc/THREAT_MODEL.md';
 
     /** The nine classes of the requirement (plan lines 625-637), as the headings must spell them. */
@@ -88,15 +91,8 @@ class ThreatModelTest extends TestCase
 
         $missing = [];
         foreach ($citations as $citation => $slug) {
-            [$class, $method] = explode('::', $citation);
-
-            $file = $this->fileOfTestClass($class);
-            if ($file === null) {
-                $missing[] = "{$slug}: {$class} is in no file under tests/";
-                continue;
-            }
-            if (!str_contains((string) file_get_contents($file), 'function ' . $method . '(')) {
-                $missing[] = "{$slug}: {$class} has no method {$method}() (" . $this->relative($file) . ')';
+            foreach ($this->citationsThatAreNotInTheTree([$citation => $slug]) as $fault) {
+                $missing[] = "{$slug}: {$fault}";
             }
         }
 
@@ -181,13 +177,6 @@ class ThreatModelTest extends TestCase
         return $citations;
     }
 
-    private function fileOfTestClass(string $class): ?string
-    {
-        $found = glob($this->repositoryRoot() . '/tests/{,*/,*/*/,*/*/*/}' . $class . '.php', GLOB_BRACE) ?: [];
-
-        return $found[0] ?? null;
-    }
-
     private function document(): string
     {
         $path = $this->repositoryRoot() . '/' . self::DOCUMENT;
@@ -196,13 +185,8 @@ class ThreatModelTest extends TestCase
         return (string) file_get_contents($path);
     }
 
-    private function relative(string $path): string
-    {
-        return str_replace($this->repositoryRoot() . '/', '', $path);
-    }
-
     private function repositoryRoot(): string
     {
-        return dirname(__DIR__, 3);
+        return $this->testTreeRoot();
     }
 }
