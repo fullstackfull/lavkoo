@@ -17,6 +17,7 @@ use App\Services\Theme\LinkComposer;
 use App\Services\Theme\SectionRegistry;
 use App\Services\Theme\StorefrontThemeRenderer;
 use App\Services\Theme\StorefrontThemeResolver;
+use App\Services\Theme\ThemeStorefrontSelection;
 use App\Services\Theme\ThemeAssetService;
 use App\Services\Theme\ThemePermissionService;
 use App\Services\Theme\ThemePreviewToken;
@@ -44,6 +45,7 @@ class ThemeBuilderController extends BaseController
         private readonly ThemeAssetService   $assets,
         private readonly ExperiencePageService $pages,
         private readonly StorefrontThemeResolver $themes,
+        private readonly ThemeStorefrontSelection $selection,
     )
     {
             // Slice 4 of the staff country scopes (GCC-14c): a restricted employee reaches only the products of their own countries on
@@ -53,10 +55,27 @@ class ThemeBuilderController extends BaseController
 
     public function index(Request|null $request, ?string $type = null): View
     {
+        // Before anything is resolved: an explicit `storefront` parameter is honoured and remembered, so the draft, the pages and the
+        // pickers below are all about one market rather than about whichever row the database answered first (F-15).
+        if ($request !== null) {
+            $this->selection->current(request: $request);
+        }
+
         $versionId = $request?->get('version');
         $version = $versionId
             ? ThemeVersion::find($versionId)
-            : $this->resolveEditableDraft();
+            : $this->resolveEditableDraft($request);
+
+        // Opening a named version IS choosing its storefront (F-15): the selector follows, so the page the admin asked for is the page
+        // they get and the mutations of that page are not refused for working on a market the session still remembered. A version of a
+        // market this employee may not reach never arrives here -- the staff scope answers 404 before the controller runs.
+        if ($version?->theme && $request !== null) {
+            $opened = $this->themes->storefrontOf(theme: $version->theme);
+            if ($this->selection->mayReach($opened)) {
+                $request->merge([ThemeStorefrontSelection::REQUEST_KEY => $opened]);
+                $this->selection->current(request: $request);
+            }
+        }
 
         // Which channel this builder session is composing for. The App Builder opens on the
         // customer app; the theme editor keeps opening on the web, and both drive the same engine.
@@ -123,6 +142,10 @@ class ThemeBuilderController extends BaseController
                 : [],
             'editable'      => $version ? $this->builder->isEditable($version) : false,
             'uploadAccept'  => '.' . implode(',.', ThemeAssetService::acceptedExtensions()),
+            // Which storefront this builder session is composing for, and the other ones the admin may switch to. Empty while themes do
+            // not belong to storefronts, which is what the view renders no selector for.
+            'storefrontChoices' => $this->selection->isOffered() ? $this->selection->options() : [],
+            'selectedStorefront' => $this->selection->current(request: $request),
         ]);
     }
 
@@ -362,15 +385,26 @@ class ThemeBuilderController extends BaseController
      *
      * Read-only and admin-scoped like the rest of the builder. The list is capped and filtered by
      * an optional search term so a store with fifty thousand products still answers instantly.
+     *
+     * Narrowed to the storefront being composed for (F-15, criterion 2). It offered every country's
+     * rows, so a section composed in the Emirati builder could be pointed at a Saudi product that
+     * the Emirati storefront does not sell and would render nothing there. Products are narrowed by
+     * the country that OWNS them (B-01); categories, brands and flash deals are central rows whose
+     * visibility differs per market (GCC-08, GCC-18), so they are narrowed by the visibility mapping
+     * that already answers for a named country.
      */
     public function resources(Request $request): JsonResponse
     {
+        // The pickers are asked for by the builder's own script, which carries the storefront it is composing for; an older page that
+        // carries none falls back to the one remembered in the session, which is what the screen it was opened from chose.
+        $this->selection->current(request: $request);
+
         $term = $this->queryString($request, 'q');
         $like = '%' . $term . '%';
         $limit = 40;
 
         $rows = match ($this->queryString($request, 'resource')) {
-            'category' => \App\Models\Category::query()
+            'category' => $this->selection->narrowOffered(\App\Models\Category::query(), \App\Services\Storefront\StorefrontVisibility::CATEGORY)
                 ->when($term !== '', fn ($query) => $query->where('name', 'like', $like))
                 ->orderBy('position')->orderBy('priority')
                 ->take($limit)->get(['id', 'name', 'position'])
@@ -379,26 +413,28 @@ class ThemeBuilderController extends BaseController
                     // The level tells a merchant why two categories share a name.
                     'label' => $category->name . ($category->position ? ' · ' . translate('sub_category') : ''),
                 ]),
-            'brand' => \App\Models\Brand::query()
+            'brand' => $this->selection->narrowOffered(\App\Models\Brand::query(), \App\Services\Storefront\StorefrontVisibility::BRAND)
                 ->when($term !== '', fn ($query) => $query->where('name', 'like', $like))
                 ->where('status', 1)->orderBy('name')
                 ->take($limit)->get(['id', 'name'])
                 ->map(fn ($brand) => ['value' => $brand->id, 'label' => $brand->name]),
-            'product' => \App\Models\Product::active()
+            'product' => $this->selection->narrowProducts(\App\Models\Product::active())
                 ->when($term !== '', fn ($query) => $query->where('name', 'like', $like))
                 ->latest('id')
                 ->take($limit)->get(['id', 'name'])
                 ->map(fn ($product) => ['value' => $product->id, 'label' => $product->name]),
+            // A shop belongs to no market yet (B-09), so every shop is still offered; what is narrowed is the figure beside it, which an
+            // operator reads as "how much of this storefront's catalogue this shop fills" and which used to be the platform's total.
             'shop' => \App\Models\Shop::active()
                 ->when($term !== '', fn ($query) => $query->where('name', 'like', $like))
-                ->withCount(['products' => fn ($query) => $query->active()])
+                ->withCount(['products' => fn ($query) => $this->selection->narrowProducts($query->active())])
                 ->orderBy('name')
                 ->take($limit)->get()
                 ->map(fn ($shop) => [
                     'value' => $shop->id,
                     'label' => $shop->name . ' · ' . $shop->products_count . ' ' . translate('products'),
                 ]),
-            'flash_deal' => \App\Models\FlashDeal::where('deal_type', 'flash_deal')
+            'flash_deal' => $this->selection->narrowOffered(\App\Models\FlashDeal::where('deal_type', 'flash_deal'), \App\Services\Storefront\StorefrontVisibility::FLASH_DEAL)
                 ->when($term !== '', fn ($query) => $query->where('title', 'like', $like))
                 ->orderByDesc('id')
                 ->take($limit)->get(['id', 'title', 'status', 'end_date'])
@@ -462,6 +498,8 @@ class ThemeBuilderController extends BaseController
     /** Labels for already-picked ids, so the inspector can show names instead of numbers. */
     public function resourceLabels(Request $request): JsonResponse
     {
+        $this->selection->current(request: $request);
+
         $ids = array_values(array_filter(array_map('intval', explode(',', $this->queryString($request, 'ids'))), fn ($id) => $id > 0));
         if ($ids === []) {
             return $this->ok(['options' => []]);
@@ -857,19 +895,42 @@ class ThemeBuilderController extends BaseController
         return $labels;
     }
 
-    /** The active theme's draft, creating one from the published version when needed. */
-    private function resolveEditableDraft(): ?ThemeVersion
+    /**
+     * The draft the builder opens on: the one belonging to the SELECTED storefront's active theme, created from its published version
+     * when it has none (F-15).
+     *
+     * It used to open on `activeThemePublishedVersion()` -- THE active theme -- and, failing that, on the newest draft row in the table.
+     * Once themes belong to storefronts both of those are "whichever of six the database answered first", so an admin working on the
+     * Emirati storefront could be handed a Saudi draft and compose into it. The fallbacks are kept, each narrowed to the selection, and
+     * the last of them is a draft of that storefront rather than of the table.
+     */
+    private function resolveEditableDraft(?Request $request = null): ?ThemeVersion
     {
-        $published = $this->themeManager->activeThemePublishedVersion();
-        if ($published) {
-            $draft = ThemeVersion::where('theme_id', $published->theme_id)
-                ->where('status', ThemeVersion::STATUS_DRAFT)
-                ->latest('id')->first();
+        if (!$this->themes->keepsThemesByStorefront()) {
+            $published = $this->themeManager->activeThemePublishedVersion();
 
-            return $draft ?: $this->themeManager->createDraftFrom($published);
+            return $published
+                ? ($this->draftOf($published->theme_id) ?: $this->themeManager->createDraftFrom($published))
+                : ThemeVersion::where('status', ThemeVersion::STATUS_DRAFT)->latest('id')->first();
         }
 
-        return ThemeVersion::where('status', ThemeVersion::STATUS_DRAFT)->latest('id')->first();
+        $themes = $this->selection->narrowThemes(\App\Models\Theme::query())->pluck('id');
+        if ($themes->isEmpty()) {
+            return null;
+        }
+
+        $published = ThemeVersion::query()->whereIn('theme_id', $themes)->published()->latest('id')->first();
+        if ($published) {
+            return $this->draftOf($published->theme_id) ?: $this->themeManager->createDraftFrom($published);
+        }
+
+        return ThemeVersion::query()->whereIn('theme_id', $themes)
+            ->where('status', ThemeVersion::STATUS_DRAFT)->latest('id')->first();
+    }
+
+    private function draftOf(int|string $themeId): ?ThemeVersion
+    {
+        return ThemeVersion::where('theme_id', $themeId)->where('status', ThemeVersion::STATUS_DRAFT)->latest('id')->first();
     }
 
     private function ok(array $data = []): JsonResponse

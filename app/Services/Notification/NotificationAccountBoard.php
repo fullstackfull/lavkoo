@@ -23,6 +23,7 @@ final class NotificationAccountBoard
     public function __construct(
         private readonly NotificationProfiles $profiles,
         private readonly StaffCountryScope $staff,
+        private readonly NotificationAttemptLog $attempts,
     ) {
     }
 
@@ -60,21 +61,58 @@ final class NotificationAccountBoard
     }
 
     /**
-     * One market's row: whether it is the shared account, and what each channel holds.
+     * One market's row: whether it is the shared account, what each channel holds, and how many of its messages were never delivered.
      *
-     * @return array{country: string, is_shared: bool, channels: array<string, array{configured: bool, active: bool, settings: array<string, mixed>, credentials_present: list<string>}>}
+     * The last of those is I1-09's other half. An account can be configured, active and WRONG -- a changed password, a revoked service
+     * account -- and until now that read on this screen exactly like a working one, because both senders swallowed their failure where it
+     * happened. The figure beside a channel is the number of messages that used up the whole attempt budget and still did not go, which is
+     * the only count an operator can act on: a first failure a retry fixed is noise.
+     *
+     * @return array{country: string, is_shared: bool, channels: array<string, array{configured: bool, active: bool, settings: array<string, mixed>, credentials_present: list<string>, undelivered: int}>, recording_attempts: bool}
      */
     public function row(string $country): array
     {
         $market = strtoupper(trim($country));
         $isShared = $market === StorefrontResolver::fromConfig()->defaultCountry();
+        // The shared row answers for every market that has no account of its own, and an attempt of such a market is stored against the
+        // market itself, so its undelivered figures are the ones with no market at all -- the platform of today.
+        $undelivered = $this->attempts->finalFailureCountsByChannel(country: $isShared ? null : $market);
         $channels = [];
 
         foreach (NotificationProfiles::CHANNELS as $channel) {
-            $channels[$channel] = $this->channel(channel: $channel, market: $market, isShared: $isShared);
+            $channels[$channel] = $this->channel(channel: $channel, market: $market, isShared: $isShared)
+                + ['undelivered' => (int) ($undelivered[$channel] ?? 0)];
         }
 
-        return ['country' => $market, 'is_shared' => $isShared, 'channels' => $channels];
+        return ['country' => $market, 'is_shared' => $isShared, 'channels' => $channels, 'recording_attempts' => $this->attempts->isRecording()];
+    }
+
+    /**
+     * The messages of a market that were never delivered, newest first, for that market's admin to read (I1-09).
+     *
+     * Narrowed by {@see markets()}, so a restricted employee reads their own markets' failures and nobody else's -- the list names a
+     * template key and a provider error, which says which of another company's messages failed and why.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function undeliveredMessages(int $limit = 25): array
+    {
+        $markets = $this->markets();
+        $default = StorefrontResolver::fromConfig()->defaultCountry();
+        $allowed = $this->staff->countriesOf(admin: auth('admin')->user());
+
+        $rows = $this->attempts->finalFailuresOf(country: null, limit: $allowed === null ? $limit : $limit * 4);
+
+        if ($allowed === null) {
+            return array_slice($rows, 0, $limit);
+        }
+
+        $readable = array_values(array_filter(
+            $rows,
+            static fn (array $row): bool => in_array((string) ($row['storefront_country'] ?? $default), $markets, true),
+        ));
+
+        return array_slice($readable, 0, $limit);
     }
 
     /**

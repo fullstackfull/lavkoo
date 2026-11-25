@@ -129,10 +129,20 @@ class StorefrontThemeScheduledPublishTest extends TestCase
         $this->artisan('theme:publish-due')->assertExitCode($exitCode);
     }
 
-    /** The moment as the datetime-local field of the schedule form sends it. */
-    private function asFormMoment(Carbon $moment): string
+    /**
+     * The moment as the datetime-local field of the schedule form sends it: the wall clock of the market whose theme it is (F-08).
+     *
+     * The field carries no zone, and since F-08 the server reads it on that market's own clock rather than on the platform's single
+     * `Asia/Dhaka`. So a test that wants to schedule the ABSOLUTE moment `$moment` has to type that moment as the operator of that market
+     * would see it on their own clock -- and then everything these tests already assert about the stored moment and the audit line holds
+     * unchanged. Typing the platform's wall clock instead silently shifted every one of them by the market's offset, and turned "an hour
+     * ago" in Dhaka into an hour from now in Dubai.
+     */
+    private function asFormMoment(Carbon $moment, ?string $storefront = 'SA'): string
     {
-        return $moment->format('Y-m-d\TH:i');
+        $zone = ($storefront === null ? null : config("gcc.storefronts.countries.{$storefront}.timezone")) ?? config('app.timezone');
+
+        return $moment->copy()->setTimezone((string) $zone)->format('Y-m-d\TH:i');
     }
 
     private function masterAdmin(): Admin
@@ -495,7 +505,7 @@ class StorefrontThemeScheduledPublishTest extends TestCase
         $draft = $this->draftOf(theme: $theme);
         $moment = now()->addDay()->startOfMinute();
 
-        $this->postedSchedule(input: ['version_id' => $draft->id, 'publish_at' => $this->asFormMoment(moment: $moment)])->assertRedirect(route('admin.theme.index'));
+        $this->postedSchedule(input: ['version_id' => $draft->id, 'publish_at' => $this->asFormMoment(moment: $moment, storefront: $storefront)])->assertRedirect(route('admin.theme.index'));
 
         $line = $this->auditLine(action: 'theme.scheduled_publish_set', version: $draft);
         $this->assertEquals(['theme_id' => $theme->id, 'storefront' => $storefront], $line['context']);
@@ -513,7 +523,7 @@ class StorefrontThemeScheduledPublishTest extends TestCase
         $later = now()->addDays(3)->startOfMinute();
         $draft = $this->draftOf(theme: $theme, publishAt: $earlier);
 
-        $this->postedSchedule(input: ['version_id' => $draft->id, 'publish_at' => $this->asFormMoment(moment: $later)])->assertRedirect(route('admin.theme.index'));
+        $this->postedSchedule(input: ['version_id' => $draft->id, 'publish_at' => $this->asFormMoment(moment: $later, storefront: 'AE')])->assertRedirect(route('admin.theme.index'));
 
         $line = $this->auditLine(action: 'theme.scheduled_publish_set', version: $draft);
         $this->assertSame(['publish_at' => $earlier->toIso8601String()], $line['before']);
@@ -555,11 +565,11 @@ class StorefrontThemeScheduledPublishTest extends TestCase
         $draft = $this->draftOf(theme: $theme);
         $blocked = $this->draftOf(theme: $theme);
         $this->giveBlockingSection(draft: $blocked);
-        $tomorrow = $this->asFormMoment(moment: now()->addDay());
+        $tomorrow = $this->asFormMoment(moment: now()->addDay(), storefront: 'AE');
         $before = $this->rowsOf($published, $draft, $blocked);
 
         $refused = [
-            'a moment in the past' => ['version_id' => $draft->id, 'publish_at' => $this->asFormMoment(moment: now()->subHour())],
+            'a moment in the past' => ['version_id' => $draft->id, 'publish_at' => $this->asFormMoment(moment: now()->subHour(), storefront: 'AE')],
             'something that is not a moment' => ['version_id' => $draft->id, 'publish_at' => 'not a moment'],
             'no moment' => ['version_id' => $draft->id],
             'a published version' => ['version_id' => $published->id, 'publish_at' => $tomorrow],
@@ -582,7 +592,7 @@ class StorefrontThemeScheduledPublishTest extends TestCase
         $unscheduled = $this->draftOf(theme: $theme);
         $before = $this->rowsOf($scheduled, $unscheduled);
 
-        $this->postedSchedule(input: ['version_id' => $unscheduled->id, 'publish_at' => $this->asFormMoment(moment: now()->addDays(2))], admin: $admin)->assertRedirect();
+        $this->postedSchedule(input: ['version_id' => $unscheduled->id, 'publish_at' => $this->asFormMoment(moment: now()->addDays(2), storefront: 'AE')], admin: $admin)->assertRedirect();
         $this->postedSchedule(input: ['version_id' => $scheduled->id, 'cancel' => 1], admin: $admin)->assertRedirect();
 
         $this->assertEquals($before, $this->rowsOf($scheduled, $unscheduled));
@@ -609,8 +619,8 @@ class StorefrontThemeScheduledPublishTest extends TestCase
         $saudiDraft = $this->draftOf(theme: $themes['SA']);
         $moment = now()->addDay()->startOfMinute();
 
-        $this->postedSchedule(input: ['version_id' => $emiratiDraft->id, 'publish_at' => $this->asFormMoment(moment: $moment)]);
-        $this->postedSchedule(input: ['version_id' => $saudiDraft->id, 'publish_at' => $this->asFormMoment(moment: $moment)]);
+        $this->postedSchedule(input: ['version_id' => $emiratiDraft->id, 'publish_at' => $this->asFormMoment(moment: $moment, storefront: 'AE')]);
+        $this->postedSchedule(input: ['version_id' => $saudiDraft->id, 'publish_at' => $this->asFormMoment(moment: $moment, storefront: 'SA')]);
         $this->postedSchedule(input: ['version_id' => $emiratiDraft->id, 'cancel' => 1]);
 
         $this->assertNull($emiratiDraft->fresh()->publish_at);
@@ -636,7 +646,9 @@ class StorefrontThemeScheduledPublishTest extends TestCase
         $this->failTheReadOfEveryTheme();
         Exceptions::fake();
 
-        $this->postedSchedule(input: ['version_id' => $draft->id, 'publish_at' => $this->asFormMoment(moment: $moment)])->assertRedirect(route('admin.theme.index'));
+        // `storefront: null` because the theme read FAILS here, so the server has no market whose clock to read the typed value on and
+        // falls back to the platform's -- which is the clock this screen used for every market before F-08.
+        $this->postedSchedule(input: ['version_id' => $draft->id, 'publish_at' => $this->asFormMoment(moment: $moment, storefront: null)])->assertRedirect(route('admin.theme.index'));
 
         $this->assertTrue($draft->fresh()->publish_at->equalTo($moment));
         $this->assertEquals(['theme_id' => $theme->id], $this->auditContext(action: 'theme.scheduled_publish_set', version: $draft));

@@ -121,6 +121,18 @@
                     <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
                         <h5 class="mb-0">{{ translate('Themes') }} <span class="badge badge-soft-primary">{{ $themes->total() }}</span></h5>
                         <form action="{{ route('admin.theme.index') }}" method="get" class="d-flex gap-2">
+                            {{-- F-15: which storefront's themes this list is about. Rendered only where there is a choice to make, so a
+                                 single-market installation sees the form it always saw. --}}
+                            @if (!empty($storefrontChoices))
+                                <select name="storefront" class="form-control form-control-sm" onchange="this.form.submit()"
+                                    aria-label="{{ translate('storefront') }}">
+                                    @foreach ($storefrontChoices as $storefrontCode => $storefrontLabel)
+                                        <option value="{{ $storefrontCode }}" @selected($storefrontCode === $selectedStorefront)>
+                                            {{ $storefrontLabel }}
+                                        </option>
+                                    @endforeach
+                                </select>
+                            @endif
                             <input type="text" name="searchValue" class="form-control form-control-sm" value="{{ $search }}" placeholder="{{ translate('search') }}">
                             <button type="submit" class="btn btn-sm btn-primary">{{ translate('search') }}</button>
                         </form>
@@ -192,8 +204,14 @@
                                             @if($latestDraft)
                                                 <span class="badge badge-soft-warning">{{ translate('draft') }} #{{ $latestDraft->id }}</span>
                                                 @if($latestDraft->isScheduled())
+                                                    {{-- F-08: on the clock of the theme's own market, with the zone beside it, because a
+                                                         time with no zone can be read as the wrong one. The stored moment is absolute and
+                                                         in the platform's zone; this is the operator's wall clock. --}}
+                                                    @php $clock = app(\App\Services\Theme\ThemeScheduleClock::class); @endphp
                                                     <span class="badge badge-soft-info" dir="auto">
-                                                        {{ translate('publishes') }} {{ $latestDraft->publish_at->toDayDateTimeString() }}
+                                                        {{ translate('publishes') }}
+                                                        {{ $clock->onTheMarketsClock($theme, $latestDraft->publish_at)?->toDayDateTimeString() }}
+                                                        ({{ $clock->labelOf($theme) }})
                                                     </span>
                                                 @endif
                                                 @php $report = $compatibility[$theme->id] ?? null; @endphp
@@ -263,6 +281,7 @@
                                                                 @csrf
                                                                 <input type="hidden" name="version_id" value="{{ $latestDraft->id }}">
                                                                 <input type="datetime-local" name="publish_at" class="form-control form-control-sm">
+                                                                <small class="text-muted">{{ app(\App\Services\Theme\ThemeScheduleClock::class)->labelOf($theme) }}</small>
                                                                 <button type="submit" class="btn btn-sm btn-outline-info">{{ translate('publish_later') }}</button>
                                                             </form>
                                                         @else

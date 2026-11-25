@@ -73,8 +73,16 @@ abstract class OrderNotificationTestCase extends ApiAddressTestCase
 
     protected const CAPTURING_MAILER = 'array';
 
-    /** Measured on the base branch, with the listeners unwrapped: what a customer order push costs the database. */
-    protected const QUERIES_OF_A_CUSTOMER_PUSH = 5;
+    /**
+     * Measured on the base branch, with the listeners unwrapped: what a customer order push costs the database.
+     *
+     * It was 5 until I1-09, and 5 was right when it was written. The sixth is the attempt log asking ONCE whether its table exists
+     * (`NotificationAttemptLog::tableReady()`). In production that is one probe per worker process -- the service is a singleton and
+     * remembers the answer -- so it is not one query per message; a test gets a fresh container per case, which is why it shows up here
+     * and only here. Raised rather than worked around, because the alternative is a notification path that cannot say whether it
+     * delivered anything.
+     */
+    protected const QUERIES_OF_A_CUSTOMER_PUSH = 6;
 
     protected function setUp(): void
     {

@@ -44,6 +44,9 @@ class NotificationAccountController extends Controller
             'rows' => array_map(fn (string $country): array => $this->board->row(country: $country), $markets),
             'channels' => NotificationProfiles::CHANNELS,
             'mailChannel' => NotificationProfiles::MAIL,
+            // I1-09: the messages this employee's markets failed to deliver. An account can be configured, active and WRONG, and until
+            // this list existed that read on this screen exactly like a working one.
+            'undelivered' => $this->board->undeliveredMessages(),
         ]);
     }
 

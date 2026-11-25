@@ -10,6 +10,8 @@ use App\Services\AuditLogger;
 use App\Services\Theme\BuilderReadiness;
 use App\Services\Theme\PublishValidator;
 use App\Services\Theme\StorefrontThemeResolver;
+use App\Services\Theme\ThemeScheduleClock;
+use App\Services\Theme\ThemeStorefrontSelection;
 use App\Services\Theme\ThemeCopyToMarket;
 use App\Services\Theme\ThemeManager;
 use App\Services\Theme\ThemePermissionService;
@@ -43,6 +45,7 @@ class ThemeManagementController extends BaseController
         private readonly ThemeAssetService         $assets,
         private readonly BuilderReadiness          $readiness,
         private readonly StorefrontThemeResolver   $storefrontThemes,
+        private readonly ThemeStorefrontSelection  $selection,
         private readonly ThemeCopyToMarket         $copies,
         private readonly AuditLogger               $audit,
     )
@@ -55,9 +58,15 @@ class ThemeManagementController extends BaseController
         // not all migrations must still render this page rather than 500 on a missing table.
         $relations = Schema::hasTable('theme_assets') ? ['versions', 'assets'] : ['versions'];
 
+        // F-15: one storefront's themes at a time, chosen by the selector this page now carries. While themes do not belong to
+        // storefronts the selection is the default storefront, `isOffered()` is false, no selector renders and no filter is passed --
+        // so a single-market installation lists exactly what it listed.
+        $selected = $this->selection->current(request: $request);
+
         $themes = $this->themeRepo->getListWhere(
             orderBy: ['id' => 'desc'],
             searchValue: requestString('searchValue') ?: null,
+            filters: $this->selection->isOffered() ? [ThemeStorefrontSelection::REQUEST_KEY => $selected] : [],
             relations: $relations,
             dataLimit: 20,
         );
@@ -93,6 +102,9 @@ class ThemeManagementController extends BaseController
             'presets'      => $this->portability->presets(),
             'assetsReady'  => Schema::hasTable('theme_assets'),
             'maxAssetSize' => ThemeAssetService::maxBytes(),
+            // The selector, and what it is set to. Empty while there is no choice to make, which is what the view renders nothing for.
+            'storefrontChoices' => $this->selection->isOffered() ? $this->selection->options() : [],
+            'selectedStorefront' => $selected,
         ]);
     }
 
@@ -122,7 +134,11 @@ class ThemeManagementController extends BaseController
             'is_system'       => false,
             'created_by_type' => 'admin',
             'created_by_id'   => auth('admin')->id(),
-            ...$this->storefrontThemes->newThemeAttributes(requestedCountry: $validated[StorefrontThemeResolver::COLUMN] ?? null),
+            // A theme created from a storefront's own list belongs to that storefront unless the form says otherwise, so the admin does
+            // not have to say twice which market they are working on.
+            ...$this->storefrontThemes->newThemeAttributes(
+                requestedCountry: $validated[StorefrontThemeResolver::COLUMN] ?? $this->selection->current(request: $request),
+            ),
         ]);
 
         ToastMagic::success(translate('theme_created_successfully'));
@@ -147,6 +163,10 @@ class ThemeManagementController extends BaseController
             return $this->backToIndex();
         }
 
+        if ($refusal = $this->refuseAnotherMarket($theme)) {
+            return $refusal;
+        }
+
         $this->themeManager->activate($theme);
         ToastMagic::success(translate('theme_activated_successfully'));
 
@@ -169,6 +189,10 @@ class ThemeManagementController extends BaseController
         if (!$theme instanceof Theme) {
             ToastMagic::error(translate('theme_not_found') . '!');
             return $this->backToIndex();
+        }
+
+        if ($refusal = $this->refuseAnotherMarket($theme)) {
+            return $refusal;
         }
 
         if ($theme->is_active || $theme->is_system) {
@@ -214,6 +238,10 @@ class ThemeManagementController extends BaseController
             return $this->backToIndex();
         }
 
+        if ($refusal = $this->refuseAnotherMarket($version)) {
+            return $refusal;
+        }
+
         // The last check before a draft becomes the shop. A section the merchant never finished
         // configuring does not render, and until now the only place that showed was the live site.
         $findings = app(PublishValidator::class)->inspect($version);
@@ -257,6 +285,10 @@ class ThemeManagementController extends BaseController
             return $this->backToIndex();
         }
 
+        if ($refusal = $this->refuseAnotherMarket($version)) {
+            return $refusal;
+        }
+
         // Only a draft can go live later: scheduling an already-published or archived version
         // stored a date the runner ignores forever — a promise the product quietly never kept.
         if (!$request->boolean('cancel') && $version->status !== ThemeVersion::STATUS_DRAFT) {
@@ -278,9 +310,19 @@ class ThemeManagementController extends BaseController
             return $this->backToIndex();
         }
 
-        $moment = $this->parseMoment($request['publish_at'] ?? null);
+        // On the clock of the theme's own market (F-08). The form sends a `datetime-local` value, which carries no zone, and this platform
+        // has ONE zone for every market -- `Asia/Dhaka` -- so "publish at nine" typed on the Emirati screen used to mean nine in Dhaka,
+        // i.e. six in the morning in Dubai.
+        $clock = app(ThemeScheduleClock::class);
+        // Read with a rescue, because this path tolerates a theme read that throws on purpose (StorefrontThemeScheduledPublishTest) and a
+        // clock that made the read load-bearing would turn a tolerated failure into a 500. No theme means the platform's own clock, which
+        // is the clock this screen used for every market until now.
+        $themeOfTheVersion = rescue(callback: fn () => $version->theme, rescue: null, report: false);
+        $moment = $clock->momentTyped(theme: $themeOfTheVersion, typed: $request['publish_at'] ?? null);
         if ($moment === null) {
-            ToastMagic::error(translate('choose_a_date_and_time_in_the_future') . '!');
+            // Two different refusals share this one place: a moment that has passed, and a moment beyond what the column can hold -- which
+            // MySQL stores as `0000-00-00` and the runner then reads as already due, publishing IMMEDIATELY.
+            ToastMagic::error(translate($clock->whyItCannotBeScheduled(theme: $themeOfTheVersion, typed: $request['publish_at'] ?? null) ?? ThemeScheduleClock::NOT_IN_THE_FUTURE) . '!');
             return $this->backToIndex();
         }
 
@@ -340,21 +382,6 @@ class ThemeManagementController extends BaseController
      */
 
     /** A future moment from the form, or null when it is unparseable or already past. */
-    private function parseMoment(mixed $input): ?\Illuminate\Support\Carbon
-    {
-        if (!is_string($input) || trim($input) === '') {
-            return null;
-        }
-
-        try {
-            $moment = \Illuminate\Support\Carbon::parse($input);
-        } catch (\Throwable) {
-            return null;
-        }
-
-        return $moment->isFuture() ? $moment : null;
-    }
-
     /** Duplicate a version into a fresh draft (revision / edit-a-copy workflow). */
     public function duplicateVersion(Request $request): RedirectResponse
     {
@@ -371,6 +398,10 @@ class ThemeManagementController extends BaseController
         if (!$version) {
             ToastMagic::error(translate('theme_version_not_found') . '!');
             return $this->backToIndex();
+        }
+
+        if ($refusal = $this->refuseAnotherMarket($version)) {
+            return $refusal;
         }
 
         $this->themeManager->createDraftFrom($version);
@@ -398,6 +429,10 @@ class ThemeManagementController extends BaseController
             return $this->backToIndex();
         }
 
+        if ($refusal = $this->refuseAnotherMarket($version)) {
+            return $refusal;
+        }
+
         $draft = $this->themeManager->restoreVersion($version);
         ToastMagic::success(translate('version_restored_into_a_new_draft') . ' #' . $draft->id);
 
@@ -416,6 +451,12 @@ class ThemeManagementController extends BaseController
         if (!$version) {
             ToastMagic::error(translate('theme_version_not_found') . '!');
             return $this->backToIndex();
+        }
+
+        // An export is a complete copy of a market's storefront in one file -- its sections, its settings and the ids it points at. A
+        // read of another market's theme is exactly what the staff scopes exist to refuse, so it is refused here as well as the writes.
+        if ($refusal = $this->refuseAnotherMarket($version)) {
+            return $refusal;
         }
 
         $payload = $this->portability->export($version);
@@ -463,7 +504,12 @@ class ThemeManagementController extends BaseController
             return $this->backToIndex();
         }
 
-        $imported = $this->portability->import($decoded, $request->get('name'), auth('admin')->id());
+        $imported = $this->portability->import(
+            payload: $decoded,
+            nameOverride: $request->get('name'),
+            adminId: auth('admin')->id(),
+            storefront: $this->selection->current(request: $request),
+        );
 
         if (!$imported['theme']) {
             ToastMagic::error(translate('import_failed') . ': ' . implode(', ', $imported['result']['errors']));
@@ -510,6 +556,17 @@ class ThemeManagementController extends BaseController
 
         if ($version === null) {
             ToastMagic::error(translate('that_theme_version_was_not_found') . '!');
+            return $this->backToIndex();
+        }
+
+        // The SOURCE has to be a theme this employee may work on. The destination is the copier's own rule, and a restricted employee
+        // may not send a copy to a market they do not hold either.
+        if ($refusal = $this->refuseAnotherMarket($version)) {
+            return $refusal;
+        }
+
+        if (!$this->selection->mayReach((string) $request->input('market'))) {
+            ToastMagic::error(translate('this_theme_belongs_to_another_market') . '!');
             return $this->backToIndex();
         }
 
@@ -620,6 +677,10 @@ class ThemeManagementController extends BaseController
             return $this->backToIndex();
         }
 
+        if ($refusal = $this->refuseAnotherMarket($theme)) {
+            return $refusal;
+        }
+
         $result = $this->assets->upload($theme, $request->file('asset'), $request->get('label'), auth('admin')->id());
         $result['asset']
             ? ToastMagic::success(translate('asset_uploaded_successfully'))
@@ -639,10 +700,33 @@ class ThemeManagementController extends BaseController
         }
 
         $asset = ThemeAsset::find($request['id']);
+        if ($asset && ($refusal = $this->refuseAnotherMarket($asset))) {
+            return $refusal;
+        }
+
         if ($asset) {
             $this->assets->delete($asset);
             ToastMagic::success(translate('asset_deleted_successfully'));
         }
+
+        return $this->backToIndex();
+    }
+
+    /**
+     * Refuses an action on a theme of a market this employee does not hold (F-15, criterion 3).
+     *
+     * The capability check above each of these actions says whether the employee may publish, edit or restore AT ALL; this says whether
+     * they may do it HERE. Both are needed: an employee scoped to AE who holds `theme_publish` passed every check in this controller and
+     * could publish, activate, delete, schedule, restore or re-skin the SAUDI storefront. Returns null when the action may proceed, so a
+     * caller reads as `if ($refusal = ...) { return $refusal; }` and cannot forget the early return.
+     */
+    private function refuseAnotherMarket(Theme|ThemeVersion|ThemeAsset|null $subject): ?RedirectResponse
+    {
+        if ($this->permissions->mayWorkOnTheThemeOf($subject)) {
+            return null;
+        }
+
+        ToastMagic::error(translate('this_theme_belongs_to_another_market') . '!');
 
         return $this->backToIndex();
     }

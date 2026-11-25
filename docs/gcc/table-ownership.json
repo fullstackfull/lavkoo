@@ -336,6 +336,11 @@
             "by": "external_identifier -> myfatoorah_payment_attempts",
             "why": "an inbound event is stored before its owner is known; the attempt it dedupes to carries the storefront"
         },
+        "notification_send_attempts": {
+            "scope": "storefront",
+            "by": "storefront_country, NULL being a message that belongs to no market",
+            "why": "Every attempt to send one notification (I1-09): the channel, the market, the template key, the recipient's KIND, the status, which attempt it was and the provider's error. It holds no message and no address -- `recipient_digest` is a SHA-256 of the address so one recipient's attempts can be counted together without the table becoming a second copy of the customer list, and `provider_error` has addresses and long digit runs removed, because an SMTP or FCM error quotes the address it failed on. Scope storefront rather than country on the same A1-09 reading settled for notification_channel_profiles: an attempt belongs to the SHOP whose message it was, as the sending account it left through does, and not to the country as a jurisdiction. NULL means the message belonged to no market -- the platform of today, with storefronts off -- and NOT every market: an undelivered message was addressed to one recipient of one shop."
+        },
         "notification_channel_profiles": {
             "scope": "storefront",
             "by": "country, '' being the shared row every market falls back to",

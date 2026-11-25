@@ -91,13 +91,18 @@ return [
 
         'default_country' => env('GCC_DEFAULT_COUNTRY', 'SA'),
 
+        // `timezone` is the market's own clock, for the times an operator of that market TYPES (F-08). `config/app.php` sets one zone for
+        // the whole platform (`Asia/Dhaka`, which is the upstream vendor's), so "publish at nine" entered on the Emirati screen meant nine
+        // o'clock in Dhaka -- six in the morning in Dubai. The stored moment stays absolute and in the platform's zone, as every other
+        // timestamp of this database is; what the market's zone decides is how the operator's wall clock is read and written back to them.
+        // The six are the GCC's, none of which observes daylight saving, so no market's schedule moves twice a year.
         'countries' => [
-            'SA' => ['path' => 'sa', 'currency' => 'SAR', 'active' => true, 'name' => 'Saudi Arabia'],
-            'AE' => ['path' => 'ae', 'currency' => 'AED', 'active' => false, 'name' => 'United Arab Emirates'],
-            'KW' => ['path' => 'kw', 'currency' => 'KWD', 'active' => false, 'name' => 'Kuwait'],
-            'QA' => ['path' => 'qa', 'currency' => 'QAR', 'active' => false, 'name' => 'Qatar'],
-            'BH' => ['path' => 'bh', 'currency' => 'BHD', 'active' => false, 'name' => 'Bahrain'],
-            'OM' => ['path' => 'om', 'currency' => 'OMR', 'active' => false, 'name' => 'Oman'],
+            'SA' => ['path' => 'sa', 'currency' => 'SAR', 'active' => true, 'name' => 'Saudi Arabia', 'timezone' => 'Asia/Riyadh'],
+            'AE' => ['path' => 'ae', 'currency' => 'AED', 'active' => false, 'name' => 'United Arab Emirates', 'timezone' => 'Asia/Dubai'],
+            'KW' => ['path' => 'kw', 'currency' => 'KWD', 'active' => false, 'name' => 'Kuwait', 'timezone' => 'Asia/Kuwait'],
+            'QA' => ['path' => 'qa', 'currency' => 'QAR', 'active' => false, 'name' => 'Qatar', 'timezone' => 'Asia/Qatar'],
+            'BH' => ['path' => 'bh', 'currency' => 'BHD', 'active' => false, 'name' => 'Bahrain', 'timezone' => 'Asia/Bahrain'],
+            'OM' => ['path' => 'om', 'currency' => 'OMR', 'active' => false, 'name' => 'Oman', 'timezone' => 'Asia/Muscat'],
         ],
 
         'paths' => [
@@ -640,8 +645,30 @@ return [
     |
     */
 
+    // How long the records of this programme are kept (I2-01, I2-05). The rules themselves, and why each one is what it is, are in
+    // App\Services\Retention\LegalRecordRetention; only the budgets are settings.
+    'retention' => [
+        'legal' => [
+            // Days after which a legal text that is still a DRAFT and was NEVER approved may be removed. Zero means never, which is what
+            // it ships as and what every installation keeps until somebody chooses otherwise. A text that was ever approved, published,
+            // archived or revoked is kept for good whatever this says: an acceptance row points at it by id, version and hash.
+            'draft_days' => (int) env('GCC_LEGAL_DRAFT_RETENTION_DAYS', 0),
+        ],
+    ],
+
     'notifications' => [
         'profiles' => filter_var(env('GCC_NOTIFICATION_PROFILES', false), FILTER_VALIDATE_BOOLEAN),
+
+        // How many attempts ONE message gets (I1-09). It ships at 1 -- one attempt, no retry, which is exactly what this platform does
+        // today: `PushNotificationTrait::sendNotificationToHttp()` catches and returns false, and `EmailTemplateTrait`'s catch block is
+        // EMPTY, so a transient failure (an SMTP connection reset, an FCM 503, a token minted a second before it expired) simply lost the
+        // message. Raising it is the operator's decision; the first test asserts that at 1 nothing changed. Capped at 5, because a
+        // notification is often sent inside a web request.
+        'attempts' => (int) env('GCC_NOTIFICATION_ATTEMPTS', 1),
+
+        // Milliseconds to wait before each further attempt, multiplied by the attempt number. ZERO by default and deliberately: a backoff
+        // that holds a web request open is a worse failure than the one it is recovering from. A queue worker may set one.
+        'retry_delay_ms' => (int) env('GCC_NOTIFICATION_RETRY_DELAY_MS', 0),
     ],
 
     'loyalty' => [

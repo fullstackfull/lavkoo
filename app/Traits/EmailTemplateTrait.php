@@ -5,10 +5,11 @@ namespace App\Traits;
 use App\Mail\SendMail;
 use App\Models\SocialMedia;
 use App\Models\EmailTemplate;
-use Exception;
 use Illuminate\Support\Facades\Mail;
 use App\Services\EmailTemplateService;
 use App\Services\Notification\MailAccount;
+use App\Services\Notification\NotificationAttemptLog;
+use App\Services\Notification\SendsWithinABudget;
 use App\Services\Notification\MessageLanguage;
 use App\Services\Storefront\StorefrontCurrency;
 use App\Services\Storefront\StorefrontUrl;
@@ -135,21 +136,34 @@ trait EmailTemplateTrait
             }
             $data['send-mail'] = true;
             if ($template['status'] == 1) {
-                try {
-                    // A mail about an order is written by a queue worker, which has no storefront and no session, so every figure in it would
-                    // otherwise be the platform's default currency at today's rate. The order's own record says what it was sold in; a mail that
-                    // is about no order (a password reset, a registration) carries none and is written exactly as it was.
-                    // And through the mail account of the market this message belongs to (I1-01), which is the market in force: the order's own
-                    // for a message about an order, the dispatching request's for every other one. A market with no account of its own, and
-                    // every market while the switch is off, leaves through the one account the platform has always used.
-                    app(MailAccount::class)->forThisMessage(
-                        callback: fn (): mixed => app(StorefrontCurrency::class)->withinOrderCurrency(
-                            order: $data['order'] ?? [],
-                            callback: fn (): mixed => Mail::to($sendMailTo)->send(new SendMail($data, $template, $socialMedia)),
-                        ),
-                    );
-                } catch (Exception $exception) {
-                }
+                // Every attempt is stored and, where the operator has raised the budget, retried (I1-09). The catch block here used to be
+                // EMPTY: a market whose mail password was wrong sent nothing and told nobody -- no row, no screen, no counter -- and the
+                // platform's one retry mechanism (`$tries` on the mail listeners) could not help, because the exception never left this
+                // trait for the queue to see. The exception is still swallowed, so a failed e-mail still does not fail the request that
+                // raised it; what changed is that it is now written down.
+                app(SendsWithinABudget::class)->send(
+                    channel: NotificationAttemptLog::CHANNEL_MAIL,
+                    templateKey: (string) $templateName,
+                    recipientType: (string) $userType,
+                    sentTo: is_string($sendMailTo) ? $sendMailTo : null,
+                    send: function () use ($data, $template, $socialMedia, $sendMailTo): bool {
+                        // A mail about an order is written by a queue worker, which has no storefront and no session, so every figure in it
+                        // would otherwise be the platform's default currency at today's rate. The order's own record says what it was sold
+                        // in; a mail that is about no order (a password reset, a registration) carries none and is written exactly as it was.
+                        // And through the mail account of the market this message belongs to (I1-01), which is the market in force: the
+                        // order's own for a message about an order, the dispatching request's for every other one. A market with no account
+                        // of its own, and every market while the switch is off, leaves through the one account the platform has always used.
+                        app(MailAccount::class)->forThisMessage(
+                            callback: fn (): mixed => app(StorefrontCurrency::class)->withinOrderCurrency(
+                                order: $data['order'] ?? [],
+                                callback: fn (): mixed => Mail::to($sendMailTo)->send(new SendMail($data, $template, $socialMedia)),
+                            ),
+                        );
+
+                        return true;
+                    },
+                    succeeded: static fn (mixed $answer): bool => $answer === true,
+                );
             }
             if (isset($data['attachmentPath'])) {
                 unlink($data['attachmentPath']);
