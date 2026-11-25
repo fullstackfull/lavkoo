@@ -326,6 +326,8 @@ class CustomerTablesAreNotRewrittenTest extends TestCase
         'database/migrations/2026_12_04_100000_add_payment_account_to_refund_tables.php' => ['refund_requests', 'refund_transactions'],
         // E-05: what stands behind a movement, on the two ledgers. Neither is a customer table.
         'database/migrations/2026_12_05_100000_add_attribution_to_wallet_and_loyalty_ledgers.php' => ['wallet_transactions', 'loyalty_point_transactions'],
+        // H1-11: the country whose account a carrier's credentials are, and whose list a cached city belongs to. Neither is a customer table.
+        'database/migrations/2026_12_23_100000_add_country_to_provider_credentials_and_cities.php' => ['integration_settings', 'provider_cities'],
     ];
 
     /**

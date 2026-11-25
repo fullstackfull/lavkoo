@@ -25,7 +25,7 @@ use Illuminate\Http\Request;
  *   costs:{name}            a list of per-category cost ids in the request, judged the same way
  *   platform_setting        it writes a setting of the whole platform, not a row of a market
  *   market_not_recorded     the rows it acts on carry no market yet, so no scope can judge them
- *   list_not_narrowed       it returns shipping ROWS and they are NOT yet narrowed to the employee's countries
+ *   list                    it returns shipping ROWS and they ARE narrowed, by the global scope on the models
  *   new_not_checked         it creates a row and the market it is created in is NOT yet checked against the employee's
  *
  * The last four are named rather than enforced, and each is named for its own reason rather than lumped together:
@@ -38,8 +38,12 @@ use Illuminate\Http\Request;
  *     zone SERVES, which is not the same as the market that OWNS it, and giving it an owner before that is settled would either break the
  *     destination matching or add a column nothing reads. Until a zone has a market, no scope can say whose it is, and claiming otherwise
  *     would be the lie this table exists to prevent.
- *   - `list_not_narrowed` and `new_not_checked` are the real remaining gaps on the method screen: a restricted employee still SEES every
- *     market's methods and costs on the index, and can still create a method with no market, which makes it the default storefront's.
+ *   - `list` is narrowed, and not by this middleware: `App\Models\Scopes\StaffCountryShippingScope` on `ShippingMethod` and
+ *     `CategoryShippingCost` narrows every list, counter, picker and lookup of those screens at once, so the screen no longer shows a
+ *     restricted employee the rows it will not let them touch. It is named here all the same, because a rule that says nothing about a
+ *     listing cannot be told from one that forgot it.
+ *   - `new_not_checked` is the one gap left on the method screen: an employee can still create a method with no market, which makes it the
+ *     default storefront's, whatever countries they hold.
  *
  * A row out of scope is answered like a row that does not exist, as a product and a coupon out of scope are, so belonging to a market is not
  * something an employee can find out by asking.
@@ -54,7 +58,7 @@ final class StaffShippingRoutes
 
     private const RULES = [
         ShippingMethodController::class => [
-            'index' => 'list_not_narrowed',
+            'index' => 'list',
             'add' => 'new_not_checked',
             'getUpdateView' => 'route:id',
             'update' => 'route:id',

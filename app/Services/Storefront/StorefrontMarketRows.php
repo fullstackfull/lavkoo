@@ -157,6 +157,43 @@ final class StorefrontMarketRows
     }
 
     /**
+     * Narrows a listing to the countries a STAFF MEMBER works with, by the same rule as everything else here.
+     *
+     * The same answer `allRowsBelongTo()` gives one row at a time, asked of a whole query: the rows that name one of those countries, and the
+     * unmarked rows as well when the employee holds the default market. An employee restricted to NOTHING sees nothing, and before the table
+     * carries a market every row is the default storefront's -- so an employee who does not hold it sees none of them, which is the same
+     * answer and not a special case.
+     *
+     * It narrows whatever the switch says, because the caller decides whether to narrow at all: the only caller is the global scope, which
+     * asks only for a request that a country was bound to.
+     *
+     * @param Builder<covariant \Illuminate\Database\Eloquent\Model> $query
+     * @param list<string> $countries
+     */
+    public function narrowToCountries(Builder $query, string $table, array $countries): Builder
+    {
+        if ($countries === []) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        $holdsTheDefault = in_array($this->defaultCountry(), $countries, true);
+
+        if (!$this->tableCarriesAMarket($table)) {
+            return $holdsTheDefault ? $query : $query->whereRaw('1 = 0');
+        }
+
+        $column = $query->getModel()->qualifyColumn(self::COLUMN);
+
+        return $query->where(static function (Builder $inner) use ($column, $countries, $holdsTheDefault): void {
+            $inner->whereIn($column, $countries);
+
+            if ($holdsTheDefault) {
+                $inner->orWhereNull($column);
+            }
+        });
+    }
+
+    /**
      * The market of one row, as a key a writer can add to the row it means to change, or an empty array while the table has no market column.
      *
      * A writer that keys a row by anything else -- a category and a seller, say -- would match the row of whichever market the database

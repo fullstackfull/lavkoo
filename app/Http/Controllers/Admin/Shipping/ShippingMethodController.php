@@ -64,20 +64,17 @@ class ShippingMethodController extends BaseController
             dataLimit: getWebConfig(name: 'pagination_limit')
         );
         $allCategoryIds = $this->categoryRepo->getListWhere(filters: ['position' => 0], dataLimit: 'all')->pluck('id')->toArray();
-        $allCategoryShippingCostArray = $this->categoryShippingCostRepo->getListWhere(
-            orderBy: ['id' => 'desc'],
-            filters: ['seller_id' => 0],
-            dataLimit: 'all',
-        )->pluck('category_id')->toArray();
-        foreach ($allCategoryIds as $id) {
-            if (!in_array($id, $allCategoryShippingCostArray)) {
-                $this->categoryShippingCostRepo->add(
-                    data: $this->categoryShippingCostService->getAddCategoryWiseShippingCostData(
-                        addedBy: 'admin',
-                        id: $id
-                    )
-                );
-            }
+
+        // Which categories have no cost row is a question about the WHOLE table and is asked unscoped: the listing below is narrowed to the
+        // employee's countries, and asking this narrowed would call every other market's row missing and make a second one for it each time
+        // an employee of another country opened the screen.
+        foreach ($this->categoryShippingCostService->categoriesWithNoCostRow(categoryIds: $allCategoryIds) as $id) {
+            $this->categoryShippingCostRepo->add(
+                data: $this->categoryShippingCostService->getAddCategoryWiseShippingCostData(
+                    addedBy: 'admin',
+                    id: $id
+                )
+            );
         }
         $adminShipping = $this->shippingTypeRepo->getFirstWhere(
             params: ['seller_id' => 0]

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Seller;
+use App\Models\Scopes\StaffCountryShippingScope;
 use App\Services\Storefront\StorefrontShippingMethods;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -56,6 +57,18 @@ class ShippingMethod extends Model
     public function seller():BelongsTo
     {
         return $this->belongsTo(Seller::class,'creator_id');
+    }
+
+    /**
+     * The shipping rows an employee restricted to some countries may see (GCC-14c slice 6).
+     *
+     * Registered here rather than asked for at each call site, so a list, a counter, a picker or a lookup by id written anywhere is narrowed
+     * the same way. It does nothing at all for a request no country was bound to, which is every request of the storefront side and every
+     * request while the staff country scopes are off.
+     */
+    protected static function booted(): void
+    {
+        static::addGlobalScope(new StaffCountryShippingScope());
     }
 
     /**

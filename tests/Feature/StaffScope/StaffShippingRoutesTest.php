@@ -7,6 +7,11 @@ use App\Http\Controllers\Admin\Marketplace\ShippingZoneController;
 use App\Http\Controllers\Admin\Shipping\ShippingMethodController;
 use App\Http\Controllers\Admin\Shipping\ShippingTypeController;
 use App\Http\Middleware\ScopeShippingToStaffCountries;
+use App\Models\Admin;
+use App\Models\CategoryShippingCost;
+use App\Models\ShippingMethod;
+use App\Services\CategoryShippingCostService;
+use App\Services\Staff\StaffCountryScope;
 use App\Services\Staff\StaffShippingRoutes;
 use App\Services\Storefront\StorefrontCategoryShippingCosts;
 use App\Services\Storefront\StorefrontShippingMethods;
@@ -191,10 +196,85 @@ class StaffShippingRoutesTest extends TestCase
         return true;
     }
 
+    /**
+     * The LISTING half of the criterion, and the half a refusal alone does not give: a screen that shows a restricted employee the rows it
+     * will not let them touch is a screen that invites the refusal.
+     */
+    public function test_the_listing_shows_only_the_rows_the_employee_may_touch(): void
+    {
+        $this->boundStaffHolding('KW');
+
+        $this->assertSame([self::KUWAITI], ShippingMethod::query()->orderBy('id')->pluck('id')->all());
+        $this->assertSame([self::KUWAITI], CategoryShippingCost::query()->orderBy('id')->pluck('id')->all());
+    }
+
+    /** An employee of the default market sees its own rows AND the unmarked ones, which is the rule everything here follows. */
+    public function test_an_employee_of_the_default_market_sees_the_unmarked_rows_too(): void
+    {
+        $this->boundStaffHolding('SA');
+
+        $this->assertSame([self::SAUDI, self::NO_MARKET], ShippingMethod::query()->orderBy('id')->pluck('id')->all());
+        $this->assertSame([self::SAUDI, self::NO_MARKET], CategoryShippingCost::query()->orderBy('id')->pluck('id')->all());
+    }
+
+    /** An employee who holds a market with no rows of its own is shown none, which is the correct answer and not an accident. */
+    public function test_an_employee_of_a_market_with_no_rows_is_shown_none(): void
+    {
+        $this->boundStaffHolding('BH');
+
+        $this->assertSame([], ShippingMethod::query()->pluck('id')->all());
+        $this->assertSame([], CategoryShippingCost::query()->pluck('id')->all());
+    }
+
+    public function test_an_unrestricted_employee_and_a_switched_off_platform_see_every_row(): void
+    {
+        $this->boundStaffHolding();
+        $this->assertCount(3, ShippingMethod::query()->get(), 'an employee with no country is not restricted');
+
+        config(['gcc.staff.country_scopes' => false]);
+        $this->boundStaffHolding('KW');
+        $this->assertCount(3, ShippingMethod::query()->get(), 'and with the switch off nothing is narrowed at all');
+    }
+
+    /**
+     * The question "which categories have no cost row" is asked of the WHOLE table, not of the narrowed listing.
+     *
+     * Asked narrowed, it would answer that every category whose only row belongs to another market is missing one, and the screen would make
+     * a second row for each -- every time an employee of another country opened it. That is the one place where narrowing a read would have
+     * written data.
+     */
+    public function test_which_categories_have_no_cost_row_is_not_narrowed(): void
+    {
+        $this->boundStaffHolding('KW');
+
+        $this->assertSame(
+            [],
+            app(CategoryShippingCostService::class)->categoriesWithNoCostRow(categoryIds: [self::KUWAITI, self::SAUDI, self::NO_MARKET]),
+            'every one of those categories already has a row, whatever market it belongs to',
+        );
+        $this->assertSame([99], app(CategoryShippingCostService::class)->categoriesWithNoCostRow(categoryIds: [99]), 'and one that really has none is named');
+    }
+
     private function staffHolding(string ...$countries): void
     {
         $this->giveCountries(self::STAFF, $countries);
         $this->signInAsStaff(self::STAFF);
+    }
+
+    /**
+     * A bound request, as the middleware leaves one. The listing tests read the models directly rather than through a route, so there is no
+     * middleware to do the binding: what is bound to the request is where a narrowed request's countries live, by design -- so that the next
+     * request of the same process, a queue worker and a console command all start unbound.
+     */
+    private function boundStaffHolding(string ...$countries): void
+    {
+        $this->giveCountries(self::STAFF, $countries);
+        $admin = Admin::query()->findOrFail(self::STAFF);
+        $this->actingAs($admin, 'admin');
+
+        $request = Request::create('/admin/business-settings/shipping-method/index');
+        $this->app->instance('request', $request);
+        app(StaffCountryScope::class)->bind(request: $request, admin: $admin);
     }
 
     /** @return array<string, array<string, string>> every routed action of each shipping controller, with its uri */
@@ -256,7 +336,7 @@ class StaffShippingRoutesTest extends TestCase
         }
 
         $this->assertSame([
-            'ShippingMethodController::index' => 'list_not_narrowed',
+            'ShippingMethodController::index' => 'list',
             'ShippingMethodController::add' => 'new_not_checked',
             'ShippingMethodController::updateShippingResponsibility' => 'platform_setting',
             'ShippingTypeController::addOrUpdate' => 'platform_setting',
