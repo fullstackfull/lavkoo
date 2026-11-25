@@ -326,6 +326,11 @@ trait BuildsStaffScopeWorld
         Schema::table('reviews', function (Blueprint $table) {
             $table->integer('rating')->default(5);
         });
+        // The banner form's category picker orders by `priority`. SQLite let the unknown column through and MariaDB did not, which is the
+        // same lesson as every other real-engine find: the in-memory database is not the engine the panel runs on.
+        Schema::table('categories', function (Blueprint $table) {
+            $table->integer('priority')->default(0);
+        });
 
         // Two settings these screens read without a default of their own: the deal list dies on a missing `flash_deal_priority`, and the
         // in-house shop object reads `vacation_add` as an array.
