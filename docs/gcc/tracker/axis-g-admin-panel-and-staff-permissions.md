@@ -1,6 +1,6 @@
 # Axis G: Admin panel and staff permissions
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)). **The figures of this axis -- requirements, criteria, met, coded, missing and the two percentages -- are printed by `php docs/gcc/audits/2026-11-24-post-merge-assessment/count.php` from the criteria below and are deliberately not typed here: the line that used to carry them was five criteria and two percentage points out of date within two days of being written, and a stale MISSING understates the project exactly as badly as a stale MET overstates it.**
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)). **The figures of this axis -- requirements, criteria, met, coded, missing and the two percentages -- are printed by `php docs/gcc/audits/2026-11-24-post-merge-assessment/count.php` from the criteria below and are deliberately not typed here. The line that used to carry them said 102 criteria, 59 met and 30 missing; the script, reading the same criteria two days later, said 103, 73 and 17 -- fourteen criteria of understatement, which misleads the owner exactly as badly as an overstatement would.**
 
 Independent verification: done for unit(s) G.
 

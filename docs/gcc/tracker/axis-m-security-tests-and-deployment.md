@@ -1,6 +1,6 @@
 # Axis M: Security, tests and deployment
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)). **The figures of this axis -- requirements, criteria, met, coded, missing and the two percentages -- are printed by `php docs/gcc/audits/2026-11-24-post-merge-assessment/count.php` from the criteria below and are deliberately not typed here: the line that used to carry them was five criteria and two percentage points out of date within two days of being written, and a stale MISSING understates the project exactly as badly as a stale MET overstates it.**
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)). **The figures of this axis -- requirements, criteria, met, coded, missing and the two percentages -- are printed by `php docs/gcc/audits/2026-11-24-post-merge-assessment/count.php` from the criteria below and are deliberately not typed here. The line that used to carry them said 106 met and 87 missing of 311; the script, reading the same criteria two days later, said 124 and 70 -- eighteen criteria of understatement, which misleads the owner exactly as badly as an overstatement would.**
 
 Independent verification: done for unit(s) M1, M2, M3.
 
