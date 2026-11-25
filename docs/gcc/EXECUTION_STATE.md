@@ -193,3 +193,28 @@ criteria names more signals than are built -- which is the honest record and is 
   replacement test goes through the caller: two costs of one category in two markets, with only the named one changing.
 - Where a record cannot name the rule that produced a figure, it says nothing. `shipping_rate_source` is null for a shop
   in that state rather than guessing `product_wise`, because the type written on those lines is an empty string too.
+- **`requestObj` in `generateOrder`'s data is NOT always a Request, and a typed parameter turns that into a TypeError on a money
+  path.** `app/Utils/module-helper.php` -- the payment-settlement path -- builds it as an ARRAY and merges that array into the GLOBAL
+  request before calling, so the global request is where its input actually is; the web and API callers pass a real Request. Every
+  existing reader got away with it by being untyped (`Helpers::getCustomerInformation($data['requestObj'] ?? request())`). I2-05's
+  receipt call was typed `Request`, and the result was 39 errors and 12 failures across the storefront group whose visible symptom was
+  a settlement asserting `status => settled` and getting `settle_failed` -- i.e. the failure surfaced two layers from its cause. Guard
+  it with `instanceof Request` and fall back to `request()`. The general lesson: a NEW typed call site inside `generateOrder` inherits
+  seven callers' habits, and one of them is not what the key's name says it is.
+- **A test of a group is the only thing that finds a defect whose symptom is in another feature.** The TypeError above passed
+  `php -l`, passed its own 15-test file, and passed four neighbouring classes. It took the 5,051-test storefront group to show it, in a
+  class about stopping a market. Run the group before pushing anything that touches `generateOrder`.
+- **The tracker lags the code, and reconciling it is work rather than bookkeeping.** Four cards checked in one batch were behind what
+  the repository already does: F-04's last criterion was fully built (`ThemeCacheKeysAreStorefrontAwareTest` declares and ENFORCES the
+  global keys, and `CampaignResolver` had already moved to a scoped key); D1-01's "orders has no such column" was false
+  (`2026_11_26_100000_add_storefront_snapshot_to_orders_table`); B-02's "the gallery copy form pre-fills the source price" was moot
+  (`ProductCopyToCountry` zeroes price, purchase price, discount, stock and every variant, and creates the copy unpublished, with
+  `ProductCopyToCountryTest` asserting it); and part of I2-05 had been built as `CheckoutLegalAcceptance` after the card was written.
+  Read the code before coding a card's "what remains": the percentage the owner reads is computed from these cards, so a stale MISSING
+  understates the project exactly as badly as a stale MET overstates it.
+- **Two readings of one question agreeing is worth more than either alone.** F-04's global-cache verdicts were re-derived from scratch,
+  input by input, by a separate audit that had not read the declaration list, and it reached the same answer on all six keys -- and
+  added two things the cards had not joined up: the analytics rollup has no market dimension at all (so every reach figure an operator
+  arranges a storefront by is a platform total, which no cache key can fix), and `total_spent` sums `order_amount` across orders
+  carrying different `currency_code`s. Both are in coverage-gaps now. Where scoping a key would DISGUISE a defect rather than fix it,
+  say so in the declaration instead of scoping it.
