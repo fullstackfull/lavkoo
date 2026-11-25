@@ -208,6 +208,20 @@ return [
         // nobody has been asked for yet. With it off the gate answers exactly what it answers today, and the check costs one config read.
         'sale_gate' => [
             'needs_a_payment_account' => filter_var(env('GCC_SALE_GATE_NEEDS_A_PAYMENT_ACCOUNT', false), FILTER_VALIDATE_BOOLEAN),
+
+            // Whether a TILL asks the sale gate before it opens a new sale (D1-16; `App\Services\Checkout\PointOfSaleSaleRule`).
+            //
+            // The owner's decision I2-09 is that it should: a new point-of-sale sale follows the country of its products and respects the
+            // sale gate and the market's state, while orders already placed keep being processed. The rule is built and wired into all
+            // three tills, and it ships OFF for a reason that was MEASURED rather than assumed. A market whose lifecycle record is absent
+            // is a DRAFT, not an active market, so turning this on refuses a till sale in any market nobody has made active -- and at
+            // least six existing test worlds sell at a till in exactly such a market (PosOrderRecordsItsMarketTest,
+            // StorefrontOrderWritersTest, OrderCurrencyOnEverySurfaceTest, OrderMoneyRowCurrencyTest, StorefrontStopContinuityTest,
+            // PushMarketTest). Those worlds are legitimately incomplete -- a CUSTOMER could not check out in them either -- so completing
+            // them is the work that has to come first, across lanes this track does not own.
+            //
+            // With it off the three tills behave exactly as they do today, which the first test of the rule asserts.
+            'at_the_till' => filter_var(env('GCC_SALE_GATE_AT_THE_TILL', false), FILTER_VALIDATE_BOOLEAN),
         ],
         'market_accounts' => [
             // Off by default, and off means the platform of today: a customer has the one wallet balance and the one point balance the `users` row keeps

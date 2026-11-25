@@ -16,6 +16,7 @@ use App\Events\DigitalProductDownloadEvent;
 use App\Exceptions\InsufficientStockException;
 use App\Exceptions\WalletDebitFailedException;
 use App\Http\Controllers\BaseController;
+use App\Services\Checkout\PointOfSaleSaleRule;
 use App\Services\CartService;
 use App\Services\Marketplace\InventoryService;
 use App\Services\OrderDetailsService;
@@ -187,6 +188,17 @@ class POSOrderController extends BaseController
         // leaves the balance exactly where it was.
         if (OneSellingCompanyPerOrder::productsSpanMoreThanOne(products: $cartProducts)) {
             ToastMagic::error(translate('Product_is_unavailable'));
+            return response()->json();
+        }
+
+        // And the market of those goods has to be one that may still sell (D1-16, owner decision I2-09: a NEW counter sale follows the
+        // country of its products and respects the sale gate and the market's state, while orders already placed keep being processed).
+        // Asked of the same products, in the same place and for the same reason as the rule above: nothing has been written or charged
+        // here, so a refusal leaves the stock, the balance and the receipt exactly where they were. Silent while storefronts are off,
+        // which is every installation today, so a Saudi till is unchanged.
+        $marketThatMayNotSell = app(PointOfSaleSaleRule::class)->marketThatMayNotSell(products: $cartProducts);
+        if ($marketThatMayNotSell !== null) {
+            ToastMagic::error(translate('storefront_not_open_for_checkout_yet'));
             return response()->json();
         }
 

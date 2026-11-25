@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\RestAPI\v3\seller;
 
+use App\Exceptions\StorefrontNotSellableException;
 use App\Http\Resources\Seller\PosCustomerResource;
 use App\Contracts\Repositories\CustomerRepositoryInterface;
 use App\Contracts\Repositories\DigitalProductVariationRepositoryInterface;
@@ -25,6 +26,7 @@ use App\Services\Marketplace\SellerMarketScope;
 use App\Services\PasswordResetService;
 use App\Services\Storefront\OrderStorefrontSnapshot;
 use App\Services\Storefront\StorefrontCurrency;
+use App\Services\Checkout\PointOfSaleSaleRule;
 use App\Services\Storefront\OneSellingCompanyPerOrder;
 use App\Models\User;
 use App\Traits\API\v3\VendorPOSManagement;
@@ -566,6 +568,15 @@ class POSController extends Controller
         // lines are written. It is above the wallet block for the same reason the two panels are: nothing has been charged yet, so a
         // refused receipt leaves the balance where it was.
         OneSellingCompanyPerOrder::assertProductsBelongToOne(products: $products);
+
+        // And the market of those goods has to be one that may still sell (D1-16, owner decision I2-09). Thrown rather than answered with
+        // a key, like the rule above it: `StorefrontNotSellableException` renders itself as the same 422 `storefront_not_sellable` the
+        // customer-facing routes answer, so a till and a shopper are told the same thing in the same words, in the market's own message
+        // where a person has written one. Silent while storefronts are off.
+        $marketThatMayNotSell = app(PointOfSaleSaleRule::class)->marketThatMayNotSell(products: $products);
+        if ($marketThatMayNotSell !== null) {
+            throw new StorefrontNotSellableException(countryCode: $marketThatMayNotSell);
+        }
 
         return null;
     }
