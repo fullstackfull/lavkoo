@@ -27,6 +27,9 @@ use Tests\TestCase;
  * The market of an account is read from its own vendor settings (`ChannelAccountCountry`), and whether that market may sell is the SAME
  * answer the website's checkout asks (`StorefrontSellingGate`), so a market cannot be shut for a customer and open for a marketplace.
  *
+ * It is a WRITE gate, deliberately and on the owner's own written instruction: orders and webhooks must keep being received while a market
+ * is paused (GCC-12). A paused market publishes no price, pushes no stock and confirms no shipment, and goes on being told what it sold.
+ *
  * An account whose market cannot be determined is NOT stopped, which is the opposite of the usual direction here and is deliberate: a
  * market nobody has identified has not been paused either, and stopping such an account would take every Turkish Trendyol account and
  * every unlabelled account off the air the moment the first country is paused -- a platform-wide outage caused by a per-market action.
@@ -38,6 +41,8 @@ class ChannelMarketStopTest extends TestCase
     use BuildsSalesChannelSchema;
 
     private const READ = 'trendyol.orders_list';
+
+    private const WRITE = 'trendyol.price_inventory_update';
 
     protected function setUp(): void
     {
@@ -71,13 +76,19 @@ class ChannelMarketStopTest extends TestCase
         return SalesChannelAccount::create([
             'channel' => 'trendyol', 'name' => 'Test', 'enabled' => true, 'write_enabled' => true, 'dry_run' => false,
             'settings' => ['storefront_code' => $storefrontCode],
-            'capabilities' => ['connection_test', 'read_only_sync', 'order_import'],
+            'capabilities' => ['connection_test', 'read_only_sync', 'order_import', 'price_publishing', 'inventory_publishing'],
+            'capability_approvals' => ['price_publishing' => ['by' => 1], 'inventory_publishing' => ['by' => 1]],
         ]);
     }
 
     private function read(SalesChannelAccount $account): void
     {
         app(ChannelHttp::class)->send($account, self::READ, 'GET', 'https://channel.example/orders', json: null, query: ['page' => 0]);
+    }
+
+    private function write(SalesChannelAccount $account): void
+    {
+        app(ChannelHttp::class)->send($account, self::WRITE, 'POST', 'https://channel.example/price', json: ['items' => []], scope: 'price_publishing');
     }
 
     private function pause(string $market): void
@@ -101,7 +112,7 @@ class ChannelMarketStopTest extends TestCase
         $this->assertFalse(app(ChannelAccountMarketStop::class)->isStopped($account));
     }
 
-    public function test_pausing_a_market_stops_the_calls_of_its_channel_accounts(): void
+    public function test_pausing_a_market_stops_the_writes_of_its_channel_accounts(): void
     {
         config(['gcc.storefronts.enabled' => true]);
         $this->pause('SA');
@@ -110,8 +121,8 @@ class ChannelMarketStopTest extends TestCase
         Http::fake(['*' => Http::response(['content' => []], 200)]);
 
         try {
-            $this->read($account);
-            $this->fail('A paused market must make no channel calls.');
+            $this->write($account);
+            $this->fail('A paused market must publish nothing to a channel.');
         } catch (ChannelUnavailableException $refused) {
             $this->assertSame(ChannelUnavailableException::MARKET_STOPPED, $refused->reason);
             $this->assertStringContainsString('SA', $refused->getMessage());
@@ -120,10 +131,30 @@ class ChannelMarketStopTest extends TestCase
         Http::assertNothingSent();
     }
 
-    /** The twin: the same account, the same call, with the market selling. */
-    public function test_the_same_account_calls_out_while_its_market_is_selling(): void
+    /** The twin: the same account, the same write, with the market selling. */
+    public function test_the_same_account_publishes_while_its_market_is_selling(): void
     {
         config(['gcc.storefronts.enabled' => true]);
+        $account = $this->account('SA');
+        Http::fake(['*' => Http::response(['content' => []], 200)]);
+
+        $this->write($account);
+
+        Http::assertSentCount(1);
+    }
+
+    /**
+     * And a paused market still RECEIVES: the owner has written that down (GCC-12, H2-12's open decision line), so the stop is a write
+     * gate and not a gate on every call.
+     *
+     * It is the half that is easy to get wrong and expensive to get wrong. Stopping reads as well stopped the dispatch of a marketplace
+     * order, which reads the buyer's address from the channel -- and whether a stopped market stops that dispatch is the owner's own open
+     * question (I2-09's remainder, pinned by ChannelOrderSaleGateTest). A guard's position must not answer a question nobody has asked.
+     */
+    public function test_a_paused_market_still_receives_its_orders(): void
+    {
+        config(['gcc.storefronts.enabled' => true]);
+        $this->pause('SA');
         $account = $this->account('SA');
         Http::fake(['*' => Http::response(['content' => []], 200)]);
 
@@ -138,7 +169,7 @@ class ChannelMarketStopTest extends TestCase
      * Kuwait here has not been opened for sale at all, which is the state every market but the default one is in today. It is the same
      * question -- may this market sell -- asked of the same service the checkout asks.
      */
-    public function test_an_account_of_a_market_that_has_not_been_opened_makes_no_calls(): void
+    public function test_an_account_of_a_market_that_has_not_been_opened_publishes_nothing(): void
     {
         config(['gcc.storefronts.enabled' => true]);
         $account = $this->account('KW');

@@ -42,7 +42,11 @@ Nineteen criteria. Five of them were already satisfied in code and the cards wer
   address in the other five countries, and so exactly the addresses this requirement is about. Now it asks H1-01's rule first, and
   the address list carries `storefront_can_deliver` on the web prefill and on the app's list.
 - **H2-12 and C-16.** A paused market made no difference to its marketplace accounts or to its tills.
-  `ChannelAccountMarketStop` in `ChannelHttp::assertAllowed()` and `PosSaleGate` in all three place-order actions.
+  `ChannelAccountMarketStop` among the WRITE gates of `ChannelHttp::assertAllowed()` and `PosSaleGate` in all three place-order actions. The
+  first version gated every call and the sales-channel group caught what that cost: the dispatch of a marketplace order READS the buyer's
+  address from the channel, so gating reads blocked that dispatch -- and whether a stopped market stops it is the owner's own open question.
+  A guard's position must not answer a question nobody has asked. It is a write gate now, which is also what the owner already wrote down:
+  orders and webhooks must keep being received while a market is paused (GCC-12).
 - **H2-07.** noon's country was validated against NOTHING. The markets each channel serves are data now, each entry carrying the
   SOURCE of its list and `verified` false, because no vendor document has been read here.
 - **H2-02 (coded).** noon was connectable in the enum and unreachable in the panel: no `SECRET_FIELDS` entry, so the screens
