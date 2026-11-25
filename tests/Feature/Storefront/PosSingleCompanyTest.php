@@ -333,6 +333,17 @@ class PosSingleCompanyTest extends ApiAddressTestCase
      * more than it did then -- the ownership filter the two tills now apply, the inventory and tax lanes that landed since -- and not
      * because the rule asks a question of the database. A rise here is a sale that reads more, which is worth looking at; the rule is not
      * where it comes from.
+     *
+     * **Last moved by D1-307, and this is what that cost and bought.** 26/26/25 became 26/25/26:
+     *
+     *   - the SELLER APP's till is up one, because it stopped picking its order id with
+     *     `100000 + Order::all()->count() + 1` and started asking `OrderManager::generateNewOrderID()` like the other two. One statement
+     *     for a locking read, against a count that loaded EVERY order row of the platform into memory to learn one number and handed out
+     *     an id below the highest whenever the ids had a gap in them. A worse figure here for a far better sale.
+     *   - the VENDOR till is down one, because that picker now reads with the query builder instead of through `OrderDetail`, which
+     *     eager-loads `storage` and was fetching a relation nobody looks at. The same change is why the seller app is up one and not two.
+     *
+     * So a rise is still worth looking at, and this one was looked at: it is a query traded for not reading a table.
      */
     public function test_one_saudi_line_costs_each_till_the_queries_it_costs_today(): void
     {
@@ -347,7 +358,7 @@ class PosSingleCompanyTest extends ApiAddressTestCase
         $vendor = $this->countingQueries($queries, fn () => $this->sellAtTheVendorTill([$this->sessionLine(1, 'Paracetamol SA', 100)], 100));
         $sellerApp = $this->countingQueries($queries, fn () => $this->sellAtTheSellerAppTill([$this->payloadLine(1, 100)], 100));
 
-        $this->assertSame([26, 26, 25], [$admin, $vendor, $sellerApp], 'a till reads what this head reads, and the rule adds nothing to it');
+        $this->assertSame([26, 25, 26], [$admin, $vendor, $sellerApp], 'a till reads what this head reads, and the rule adds nothing to it');
     }
 
     // ---- the state the company backfill must pass through ------------------------------------------------

@@ -138,10 +138,22 @@ class StorefrontListApiTest extends TestCase
     /**
      * The configuration endpoint is not narrowed by a storefront: it carries no storefront middleware, and it reads no flag of its own.
      *
-     * It does state one storefront thing, and only one: the money of the storefront the app asked for (B-03), so that an app formats
-     * prices in the currency that storefront trades in, with that currency's decimals, instead of working them out from a numeric
-     * setting. That statement is absent while the markets are off, which {@see test_the_config_answer_can_carry_storefront_money_only_from_the_money_service}
-     * pins here and StorefrontMoneyAndSeoTest proves against the service that produces it.
+     * It states storefront things, and it asks ONE service for all of them -- the money service -- which is what this counts. The answer
+     * does vary by the `X-Storefront` header, and always did: `storefront.vary` is on the route for exactly that reason, so "not
+     * narrowed" means no middleware BINDS a storefront here and the controller resolves none itself, not that the answer is identical
+     * for every market.
+     *
+     * Two asks, and each is named so a third cannot arrive unannounced:
+     *
+     *   - `apiMoney()` (B-03), so an app formats prices in the currency its storefront trades in, with that currency's decimals,
+     *     instead of working them out from a numeric setting;
+     *   - `currencyCodeInForce()` (D2-V1 / J-09.4), so the payment-method list this market may offer can be judged against the money it
+     *     trades in -- a gateway with no currency list for this market, and a three-decimal market whose gateway nobody has verified,
+     *     are the two cases that need it.
+     *
+     * Both statements are absent while the markets are off, which
+     * {@see test_the_config_answer_can_carry_storefront_money_only_from_the_money_service} pins here and StorefrontMoneyAndSeoTest
+     * proves against the service that produces them.
      */
     public function test_the_config_route_is_not_narrowed_by_a_storefront(): void
     {
@@ -155,9 +167,11 @@ class StorefrontListApiTest extends TestCase
         $configControllerSource = (string) file_get_contents(base_path('app/Http/Controllers/RestAPI/v1/ConfigController.php'));
         $this->assertStringNotContainsString('gcc.', $configControllerSource, 'the controller reads no storefront flag of its own');
         $this->assertSame(
-            1,
+            2,
             preg_match_all('/StorefrontCurrency/', $configControllerSource) - 1,
-            'the only storefront the controller names is the money service it asks, once',
+            'the only storefront service the controller names is the money service, and it asks it twice: the money of the market, and '
+            . 'the currency that market trades in so the payment-method list can be judged against it. A third ask, or any other '
+            . 'storefront service, is a decision somebody should make deliberately rather than discover here.',
         );
     }
 

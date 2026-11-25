@@ -360,6 +360,13 @@ class CustomerTablesAreNotRewrittenTest extends TestCase
         // and its origin was not, so a past charge could not be explained once the zones changed. Nullable and empty for every order that
         // exists, which says nothing about its rate rather than claiming one; the same migration adds the cart's own column.
         'database/migrations/2026_12_20_100500_add_shipping_rate_source_to_orders_table.php (orders)',
+        // orders.included_tax_amount and order_details.included_tax: the tax already INSIDE a tax-included price (D1-172). An included
+        // price is the one case where the tax a line carries cannot be read off the amount, because the rate was applied to a smaller
+        // number -- `gross * p / (100 + p)` and not `gross * p / 100`, which differ by 13% at the Saudi rate. Both columns are nullable
+        // and are written only while `gcc.tax.record_included_amount` is on, which ships off, so every order that exists carries null
+        // and reads as it reads today. `order_amount`, `total_tax_amount` and the line's own `tax` are untouched by it: this records a
+        // figure that was being thrown away, it does not restate one that was kept.
+        'database/migrations/2026_12_27_100000_add_included_tax_to_orders_and_order_details.php (orders, order_details)',
     ];
     /** @return list<string> the guarded tables this body names */
     private function guardedTablesIn(string $deployed): array

@@ -886,10 +886,23 @@ class OrderManager
      */
     public static function generateNewOrderID()
     {
+        // Read with the QUERY BUILDER and not the models, for three reasons that all point the same way.
+        //
+        // `OrderDetail` eager-loads `storage` (`protected $with`), so hydrating one row to learn one number fetched a relation this
+        // never looks at -- a whole extra query per sale, which is what took the seller app's till from 25 statements to 27 when it
+        // started asking this function instead of counting rows.
+        //
+        // Both models carry `StaffCountryOrderScope`, which narrows an order through its lines and the market of each product. The
+        // scope is inert unless a request asked to be narrowed, so this was not wrong today -- but an id picker that can see FEWER
+        // rows than exist hands out a number that is already taken, and the retry around it would then choose the same one again.
+        // A builder cannot be narrowed by a scope, so that cannot happen whatever a future route asks for.
+        //
+        // The selection RULE is unchanged, as it was when the locking read was added: this changes which API asks the question, not
+        // which number comes back. `value()` returns the column or null, which is the same `?? $baseID` case as before.
         $baseID = 100001;
-        $orderDetailsId = OrderDetail::orderBy('order_id', 'desc')->lockForUpdate()->first()?->order_id ?? $baseID;
-        if (Order::find($orderDetailsId)) {
-            $orderDetailsId = Order::orderBy('id', 'DESC')->lockForUpdate()->first()->id + 1;
+        $orderDetailsId = DB::table('order_details')->orderByDesc('order_id')->lockForUpdate()->value('order_id') ?? $baseID;
+        if (DB::table('orders')->where('id', $orderDetailsId)->exists()) {
+            $orderDetailsId = (int) DB::table('orders')->orderByDesc('id')->lockForUpdate()->value('id') + 1;
         }
         return $orderDetailsId;
     }
