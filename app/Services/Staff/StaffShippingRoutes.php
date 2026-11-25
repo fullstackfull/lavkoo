@@ -26,7 +26,7 @@ use Illuminate\Http\Request;
  *   platform_setting        it writes a setting of the whole platform, not a row of a market
  *   market_not_recorded     the rows it acts on carry no market yet, so no scope can judge them
  *   list                    it returns shipping ROWS and they ARE narrowed, by the global scope on the models
- *   new_not_checked         it creates a row and the market it is created in is NOT yet checked against the employee's
+ *   new_in_one_market       it creates a row, stamped with the employee's market when they hold exactly one and refused when they do not
  *
  * The last four are named rather than enforced, and each is named for its own reason rather than lumped together:
  *
@@ -42,8 +42,9 @@ use Illuminate\Http\Request;
  *     `CategoryShippingCost` narrows every list, counter, picker and lookup of those screens at once, so the screen no longer shows a
  *     restricted employee the rows it will not let them touch. It is named here all the same, because a rule that says nothing about a
  *     listing cannot be told from one that forgot it.
- *   - `new_not_checked` is the one gap left on the method screen: an employee can still create a method with no market, which makes it the
- *     default storefront's, whatever countries they hold.
+ *   - `new_in_one_market` creates rather than reads, so there is no id to judge before the action runs: an employee restricted to ONE
+ *     country has the row stamped with it, and an employee of several or of none is refused by the action itself and told to say which. It is
+ *     named rather than enforced here because the check belongs where the row is written, not where an id would be read.
  *
  * A row out of scope is answered like a row that does not exist, as a product and a coupon out of scope are, so belonging to a market is not
  * something an employee can find out by asking.
@@ -59,7 +60,7 @@ final class StaffShippingRoutes
     private const RULES = [
         ShippingMethodController::class => [
             'index' => 'list',
-            'add' => 'new_not_checked',
+            'add' => 'new_in_one_market',
             'getUpdateView' => 'route:id',
             'update' => 'route:id',
             'updateStatus' => 'input:id',

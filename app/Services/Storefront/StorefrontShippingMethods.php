@@ -58,6 +58,17 @@ final class StorefrontShippingMethods
         return $this->rows->marketOwnsRows(self::TABLE, $country);
     }
 
+    /**
+     * Whether the table carries a market at all, asked WITHOUT the storefront switch.
+     *
+     * A writer needs this rather than `applies()`: which column exists is a fact about the database, and a row created by an employee of one
+     * country has to be stamped whether or not storefronts are being served. `applies()` is the reading question and stays as it is.
+     */
+    public function tableCarriesAMarket(): bool
+    {
+        return $this->rows->tableHasTheColumn(self::TABLE);
+    }
+
     /** The market a method is given when one is made in a storefront, or null while this does not apply. */
     public function stampFor(?string $country = null): ?string
     {

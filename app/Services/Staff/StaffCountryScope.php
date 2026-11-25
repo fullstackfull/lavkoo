@@ -365,6 +365,40 @@ final class StaffCountryScope
     }
 
     /**
+     * The market a shipping row this request creates belongs to (GCC-14c slice 6; H1-14).
+     *
+     * A restricted employee creates in the ONE market they work with. An employee of several has not said which, and an employee of none is
+     * restricted to nothing; neither may create, because a row made with no market becomes the DEFAULT storefront's -- the one market whose
+     * rows that employee is least likely to have meant and most likely to be unable to touch afterwards.
+     *
+     * A request that is not narrowed answers null and the row is written exactly as it always was: unmarked, which is the default
+     * storefront's. That is every request while the staff country scopes are off.
+     *
+     * The same shape as `countryOfImportedRows()`, which settles this for a sheet of products, and for the same reason: one country or a
+     * refusal, never a guess.
+     */
+    public function countryOfNewShippingRow(): ?string
+    {
+        $bound = $this->boundCountries();
+
+        return $bound !== null && count($bound) === 1 ? $bound[0] : null;
+    }
+
+    /** @return string|null the language key of why a narrowed request may not create a shipping row, or null when it may */
+    public function whyItMayNotCreateAShippingRow(): ?string
+    {
+        $bound = $this->boundCountries();
+
+        if ($bound === null || count($bound) === 1) {
+            return null;
+        }
+
+        return $bound === []
+            ? 'your_account_works_with_no_country_so_it_cannot_create_a_shipping_rule'
+            : 'your_account_works_with_more_than_one_country_so_say_which_one_this_shipping_rule_is_for';
+    }
+
+    /**
      * Whether every one of these shipping methods belongs to a country the current request may work with (GCC-14c slice 6; H1-14).
      *
      * The rule of which market a method belongs to is `StorefrontShippingMethods`' and stays there -- a method with none is the default

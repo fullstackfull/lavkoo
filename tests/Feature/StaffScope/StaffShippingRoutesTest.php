@@ -11,6 +11,7 @@ use App\Models\Admin;
 use App\Models\CategoryShippingCost;
 use App\Models\ShippingMethod;
 use App\Services\CategoryShippingCostService;
+use App\Services\ShippingMethodService;
 use App\Services\Staff\StaffCountryScope;
 use App\Services\Staff\StaffShippingRoutes;
 use App\Services\Storefront\StorefrontCategoryShippingCosts;
@@ -197,6 +198,56 @@ class StaffShippingRoutesTest extends TestCase
     }
 
     /**
+     * `new_in_one_market`: a method created by an employee of ONE country is stamped with it.
+     *
+     * A row written with no market becomes the DEFAULT storefront's -- the one market a restricted employee is least likely to have meant
+     * and, after this scope, the one they would not be able to touch again.
+     */
+    public function test_a_method_created_by_an_employee_of_one_market_is_stamped_with_it(): void
+    {
+        $this->boundStaffHolding('KW');
+
+        $written = app(ShippingMethodService::class)->addShippingMethodData(
+            request: new Request(['title' => 'Kuwaiti express', 'duration' => '2', 'cost' => 12]),
+            addedBy: 'admin',
+        );
+
+        $this->assertSame('KW', $written[StorefrontShippingMethods::COLUMN] ?? null);
+    }
+
+    /** An unrestricted employee writes what this platform has always written: no market, which is the default storefront's. */
+    public function test_a_method_created_by_an_unrestricted_employee_names_no_market(): void
+    {
+        $this->boundStaffHolding();
+
+        $written = app(ShippingMethodService::class)->addShippingMethodData(
+            request: new Request(['title' => 'Platform wide', 'duration' => '2', 'cost' => 12]),
+            addedBy: 'admin',
+        );
+
+        $this->assertArrayNotHasKey(StorefrontShippingMethods::COLUMN, $written, 'nothing is stamped, exactly as before');
+    }
+
+    /** And an employee of several markets, or of none, is told to say which rather than having one chosen for them. */
+    public function test_an_employee_of_several_markets_or_of_none_may_not_create_a_shipping_rule(): void
+    {
+        $scope = app(StaffCountryScope::class);
+
+        $this->boundStaffHolding('KW', 'SA');
+        $this->assertSame('your_account_works_with_more_than_one_country_so_say_which_one_this_shipping_rule_is_for', $scope->whyItMayNotCreateAShippingRow());
+        $this->assertNull($scope->countryOfNewShippingRow());
+
+        $this->boundStaffHolding('ZZ');
+        $this->assertSame('your_account_works_with_no_country_so_it_cannot_create_a_shipping_rule', $scope->whyItMayNotCreateAShippingRow(), 'a country the platform does not serve grants nothing');
+
+        $this->boundStaffHolding('KW');
+        $this->assertNull($scope->whyItMayNotCreateAShippingRow(), 'and one country is a market to create in');
+
+        $this->boundStaffHolding();
+        $this->assertNull($scope->whyItMayNotCreateAShippingRow(), 'as is being unrestricted');
+    }
+
+    /**
      * The LISTING half of the criterion, and the half a refusal alone does not give: a screen that shows a restricted employee the rows it
      * will not let them touch is a screen that invites the refusal.
      */
@@ -268,6 +319,7 @@ class StaffShippingRoutesTest extends TestCase
      */
     private function boundStaffHolding(string ...$countries): void
     {
+        DB::table(StaffCountryScope::TABLE)->where('admin_id', self::STAFF)->delete();
         $this->giveCountries(self::STAFF, $countries);
         $admin = Admin::query()->findOrFail(self::STAFF);
         $this->actingAs($admin, 'admin');
@@ -337,7 +389,7 @@ class StaffShippingRoutesTest extends TestCase
 
         $this->assertSame([
             'ShippingMethodController::index' => 'list',
-            'ShippingMethodController::add' => 'new_not_checked',
+            'ShippingMethodController::add' => 'new_in_one_market',
             'ShippingMethodController::updateShippingResponsibility' => 'platform_setting',
             'ShippingTypeController::addOrUpdate' => 'platform_setting',
             'ShippingZoneController::index' => 'market_not_recorded',

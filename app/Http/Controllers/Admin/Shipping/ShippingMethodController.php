@@ -15,6 +15,7 @@ use Exception;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
 use App\Services\CategoryShippingCostService;
+use App\Services\Staff\StaffCountryScope;
 use App\Services\ShippingMethodService;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Contracts\View\View;
@@ -97,6 +98,17 @@ class ShippingMethodController extends BaseController
      */
     public function add(ShippingMethodRequest $request): RedirectResponse
     {
+        // GCC-14c slice 6: a row made with no market becomes the DEFAULT storefront's, which is the one market a restricted employee is
+        // least likely to have meant and most likely to be unable to touch afterwards. So an employee of ONE country creates in it, and an
+        // employee of several or of none is told to say which rather than having one chosen for them.
+        $refusal = app(StaffCountryScope::class)->whyItMayNotCreateAShippingRow();
+
+        if ($refusal !== null) {
+            ToastMagic::error(translate($refusal));
+
+            return redirect()->route('admin.business-settings.shipping-method.index');
+        }
+
         $this->shippingMethodRepo->add($this->shippingMethodService->addShippingMethodData(request: $request, addedBy: 'admin'));
 
         updateSetupGuideCacheKey(key: 'shipping_method', panel: 'admin');

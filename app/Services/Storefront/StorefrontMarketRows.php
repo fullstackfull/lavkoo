@@ -219,6 +219,12 @@ final class StorefrontMarketRows
         $this->ownRows = [];
     }
 
+    /** Whether the table is there and carries the market column: a fact about the database, which a writer needs as much as a reader. */
+    public function tableHasTheColumn(string $table): bool
+    {
+        return $this->tableCarriesAMarket($table);
+    }
+
     /** Whether the table is there and carries the market column. Asked without the switch, because who may CHANGE a row is not a question about which shop is open. */
     private function tableCarriesAMarket(string $table): bool
     {

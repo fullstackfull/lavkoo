@@ -10,6 +10,12 @@ trait BuildsAuditLogTable
 {
     protected function buildAuditLogTable(): void
     {
+        // Guarded, because tables persist across test classes within a process: a class that builds this and walks away would make the next
+        // class's own call a duplicate-table error rather than a no-op.
+        if (Schema::hasTable('audit_logs')) {
+            return;
+        }
+
         Schema::create('audit_logs', static function (Blueprint $table): void {
             $table->id();
             $table->string('actor_type')->nullable();
