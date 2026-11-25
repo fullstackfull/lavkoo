@@ -26,11 +26,17 @@ class AuthorizationMatrixTest extends PlatformAdminTestCase
 {
     use LoadsPassportKeys;
 
+    /** The reads that are of ONE market and refuse "every market at once": a report, and an export (L-14). */
+    private const ONE_MARKET_ROUTES = ['platform_admin.reports.view', 'platform_admin.exports.orders'];
+
     protected function setUp(): void
     {
         parent::setUp();
 
         $this->loadPassportKeys();
+        // An export of a market's orders needs an order to record which market it was sold in, and answers 409 saying so when the column is
+        // not there. The real migration is run so that every read of the API can be walked for the one answer this test is about.
+        (require database_path('migrations/2026_11_26_100000_add_storefront_snapshot_to_orders_table.php'))->up();
     }
 
     protected function tearDown(): void
@@ -49,8 +55,11 @@ class AuthorizationMatrixTest extends PlatformAdminTestCase
 
         foreach ($reads as $route) {
             [$method, $uri] = $this->requestTo($route);
+            // A report and an export are of ONE market and refuse "every market at once", so they are asked about one. Every other read
+            // answers about all of them and is asked as it always was, so the market is added rather than sent to everything.
+            $asked = in_array($route->getName(), self::ONE_MARKET_ROUTES, true) ? $uri . '?market=SA' : $uri;
 
-            $this->json($method, $uri, [], $this->bearer($token))->assertOk();
+            $this->json($method, $asked, [], $this->bearer($token))->assertOk();
         }
     }
 

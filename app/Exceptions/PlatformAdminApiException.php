@@ -46,6 +46,33 @@ class PlatformAdminApiException extends RuntimeException implements ShouldntRepo
         return new self(errorCode: 'invalid_severity', message: 'The severity must be info, warning or critical.', status: 422, extra: ['valid' => $valid]);
     }
 
+    /** The session holds a good token and has not proved the second factor again within the minutes an export asks for (L-15). */
+    public static function stepUpRequired(int $withinMinutes): self
+    {
+        return new self(
+            errorCode: 'step_up_required',
+            message: 'This action needs the second factor proved again.',
+            status: 403,
+            extra: ['within_minutes' => $withinMinutes],
+        );
+    }
+
+    /** An export of a market's orders cannot be made on an installation where an order records no market (the GCC-05 migration has not run). */
+    public static function orderMarketNotRecorded(): self
+    {
+        return new self(
+            errorCode: 'order_market_not_recorded',
+            message: 'Orders do not record which market they were sold in on this installation, so there is nothing to export by market.',
+            status: 409,
+        );
+    }
+
+    /** An export was asked for of every market at once. One export is one market's rows, so that what left the platform is a recorded fact. */
+    public static function oneMarketOnly(): self
+    {
+        return new self(errorCode: 'one_market_only', message: 'An export is of one market. Name it with the market parameter.', status: 422);
+    }
+
     public static function invalidWindow(string $message): self
     {
         return new self(errorCode: 'invalid_window', message: $message, status: 422);

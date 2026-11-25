@@ -3,10 +3,12 @@
 use App\Http\Controllers\RestAPI\PlatformAdmin\v1\AlertController;
 use App\Http\Controllers\RestAPI\PlatformAdmin\v1\AuditLogController;
 use App\Http\Controllers\RestAPI\PlatformAdmin\v1\AuthController;
+use App\Http\Controllers\RestAPI\PlatformAdmin\v1\ExportController;
 use App\Http\Controllers\RestAPI\PlatformAdmin\v1\HealthController;
 use App\Http\Controllers\RestAPI\PlatformAdmin\v1\MarketController;
 use App\Http\Controllers\RestAPI\PlatformAdmin\v1\MeController;
 use App\Http\Controllers\RestAPI\PlatformAdmin\v1\OverviewController;
+use App\Http\Controllers\RestAPI\PlatformAdmin\v1\ReportController;
 use App\Http\Controllers\RestAPI\PlatformAdmin\v1\SessionController;
 use Illuminate\Support\Facades\Route;
 
@@ -23,13 +25,18 @@ use Illuminate\Support\Facades\Route;
 | Every route but the sign-in, the sign-out and `me` carries `platform_admin_can:<capability>`: the part of the API a grant must include to reach it.
 |
 | Every route is named `platform_admin.<action>`, and the action is what the audit trail records. The only routes that are not reads are the
-| sign-in (two steps), the sign-out and the ending of sessions (one, or all but the one in use); no route changes business data.
+| sign-in (two steps), the step-up, the sign-out and the ending of sessions (one, or all but the one in use); no route changes business data: a
+| step-up stamps the session's own row and nothing else.
+|
+| The export is the one route that also carries `platform_admin_step_up`: it takes a market's rows OFF the platform, so the second factor is proved
+| again within minutes of the request and not merely at some point in the last eight hours.
 */
 Route::prefix('platform-admin/v1')->middleware('platform_admin')->name('platform_admin.')->group(function () {
     Route::post('auth/login', [AuthController::class, 'login'])->name('auth.login');
     Route::post('auth/mfa', [AuthController::class, 'mfa'])->name('auth.mfa');
 
     Route::middleware('platform_admin_auth')->group(function () {
+        Route::post('auth/step-up', [AuthController::class, 'stepUp'])->name('auth.step_up');
         Route::post('auth/logout', [AuthController::class, 'logout'])->name('auth.logout');
         Route::get('me', MeController::class)->name('me.view');
         Route::get('sessions', [SessionController::class, 'index'])->middleware('platform_admin_can:sessions')->name('sessions.list');
@@ -40,5 +47,7 @@ Route::prefix('platform-admin/v1')->middleware('platform_admin')->name('platform
         Route::get('alerts', AlertController::class)->middleware('platform_admin_can:alerts')->name('alerts.view');
         Route::get('audit-logs', AuditLogController::class)->middleware('platform_admin_can:audit')->name('audit_logs.view');
         Route::get('health', HealthController::class)->middleware('platform_admin_can:health')->name('health.view');
+        Route::get('reports', ReportController::class)->middleware('platform_admin_can:reports')->name('reports.view');
+        Route::get('exports/orders', [ExportController::class, 'orders'])->middleware(['platform_admin_can:export', 'platform_admin_step_up'])->name('exports.orders');
     });
 });

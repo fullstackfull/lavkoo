@@ -33,6 +33,11 @@ trait BuildsPlatformAdminWorld
         '2026_11_30_100200_create_platform_admin_audit_chain_tables.php',
     ];
 
+    /** Phase 3, additive like the rest: what a session gained so that an action can ask for the second factor again (L-15). */
+    private const PLATFORM_ADMIN_PHASE_THREE_MIGRATIONS = [
+        '2026_12_31_100000_add_step_up_to_platform_admin_tokens_table.php',
+    ];
+
     /** The store tables and the admin sign-in columns, without the tables of the platform admin API. */
     protected function buildStoreTables(): void
     {
@@ -65,6 +70,7 @@ trait BuildsPlatformAdminWorld
         $this->buildSellerTables();
         $this->runPlatformAdminMigrations();
         $this->runPlatformAdminPhaseTwoMigrations();
+        $this->runPlatformAdminPhaseThreeMigrations();
     }
 
     /** What the seller credentials need: a seller, its staff, their roles and the keys it issued. Inferred, like the rest of the store tables. */
@@ -142,6 +148,16 @@ trait BuildsPlatformAdminWorld
     protected function runPlatformAdminPhaseTwoMigrations(?string $only = null, array $except = []): void
     {
         foreach (self::PLATFORM_ADMIN_PHASE_TWO_MIGRATIONS as $file) {
+            if (($only === null || $only === $file) && !in_array($file, $except, true)) {
+                (require database_path("migrations/{$file}"))->up();
+            }
+        }
+    }
+
+    /** @param list<string> $except */
+    protected function runPlatformAdminPhaseThreeMigrations(?string $only = null, array $except = []): void
+    {
+        foreach (self::PLATFORM_ADMIN_PHASE_THREE_MIGRATIONS as $file) {
             if (($only === null || $only === $file) && !in_array($file, $except, true)) {
                 (require database_path("migrations/{$file}"))->up();
             }

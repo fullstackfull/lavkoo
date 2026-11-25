@@ -21,13 +21,18 @@ class CapabilitiesTest extends PlatformAdminTestCase
         'platform_admin.alerts.view' => 'alerts',
         'platform_admin.audit_logs.view' => 'audit',
         'platform_admin.health.view' => 'health',
+        'platform_admin.reports.view' => 'reports',
+        'platform_admin.exports.orders' => 'export',
         'platform_admin.sessions.list' => 'sessions',
         'platform_admin.sessions.end_others' => 'sessions',
         'platform_admin.session.revoke' => 'sessions',
     ];
 
-    /** What every admin who holds a grant may always do: say who they are, and sign out; and the two steps of the sign-in, which come before there is a grant to read. */
-    private const NEVER_GATED = ['platform_admin.me.view', 'platform_admin.auth.logout', 'platform_admin.auth.login', 'platform_admin.auth.mfa'];
+    /** What every admin who holds a grant may always do: say who they are, sign out, and prove the second factor again; and the two steps of the sign-in, which come before there is a grant to read. */
+    private const NEVER_GATED = ['platform_admin.me.view', 'platform_admin.auth.logout', 'platform_admin.auth.step_up', 'platform_admin.auth.login', 'platform_admin.auth.mfa'];
+
+    /** The routes that carry a second guard on top of their capability: a second factor proved minutes ago (L-15). */
+    private const STEP_UP_ROUTES = ['platform_admin.exports.orders'];
 
     public function test_every_route_of_the_api_is_either_gated_by_one_capability_or_never_gated(): void
     {
@@ -62,7 +67,13 @@ class CapabilitiesTest extends PlatformAdminTestCase
             }
 
             $middleware = $route->gatherMiddleware();
-            $this->assertSame(['platform_admin', 'platform_admin_auth', 'platform_admin_can:' . self::CAPABILITY_OF[$route->getName()]], $middleware, $route->uri());
+            $expected = ['platform_admin', 'platform_admin_auth', 'platform_admin_can:' . self::CAPABILITY_OF[$route->getName()]];
+
+            if (in_array($route->getName(), self::STEP_UP_ROUTES, true)) {
+                $expected[] = 'platform_admin_step_up';
+            }
+
+            $this->assertSame($expected, $middleware, $route->uri());
         }
     }
 
