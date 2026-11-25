@@ -42,6 +42,10 @@ class CouponNotificationCheckoutAndStorefrontAreTranslatedTest extends TestCase
         'app/Http/Requests/Admin/Notification',
         'resources/views/admin-views/notification',
         'resources/views/admin-views/notification-accounts',
+        // The campaign and merchandising flow: the markets a campaign runs in, and everything else the commerce screens say.
+        'app/Services/Commerce',
+        'app/Http/Controllers/Admin/Commerce',
+        'resources/views/admin-views/commerce',
         // The coupon flow.
         'app/Http/Controllers/Admin/Promotion/CouponController.php',
         'resources/views/admin-views/coupon',
