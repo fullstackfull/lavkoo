@@ -169,6 +169,20 @@ return [
             // Read docs/gcc/F-01-STOREFRONT-THEME.md before turning it on.
             'enabled' => filter_var(env('GCC_STOREFRONT_THEMES', false), FILTER_VALIDATE_BOOLEAN),
         ],
+        // Where a customer LANDS after the gateway (D2-14). A payment is already finished in the storefront it started in; the page the
+        // customer is then sent to is `payment-success` or `payment-fail`, which are unprefixed routes, so a Kuwaiti shopper who has just
+        // paid in dinars is answered the default market's page -- its money, its legal texts, its catalogue.
+        //
+        //   'unchanged'  the default, and today's URL exactly
+        //   'query'      appends `storefront=<code>`, which every route of the website already resolves
+        //
+        // THE PATH-PREFIX FORM IS DELIBERATELY NOT BUILT. Emitting `/kw/payment-success` means deciding the public URL shape of every
+        // return page on every market, which is D2-14's open owner decision. An unrecognised value reads as `unchanged`, so a value typed
+        // in hope changes nothing. The storefront is read from the payment's own record and never from the gateway's request.
+        'payment_return' => [
+            'url_form' => env('GCC_PAYMENT_RETURN_URL_FORM', App\Services\Payments\PaymentReturnsToItsStorefront::UNCHANGED),
+        ],
+
         // What a storefront must have before it may sell, beyond its legal texts, its currency and its selling company (D2-05, D1-16).
         //
         // `needs_a_payment_account` adds one prerequisite to `StorefrontPreflight`: a market that takes ONLINE payments must have a gateway
