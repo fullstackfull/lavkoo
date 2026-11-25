@@ -21,6 +21,7 @@ use App\Services\Storefront\StorefrontCurrency;
 use App\Services\Storefront\StorefrontLifecycle;
 use Closure;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -160,7 +161,14 @@ class MarketingStopCartMarketingTest extends ApiAddressTestCase
     /** @return array<int, array<string, mixed>> the customers the list offers, by customer */
     private function offeredCustomers(): array
     {
-        return collect(app(CartMarketingController::class)->index()->getData()['customers'])->keyBy('customer_id')->all();
+        // A fresh Request, and not `request()`, because this method's whole subject is which customers the list offers when NO market
+        // has been chosen -- `CartMarketingMarkets::chosen(null)` is the unchosen case, and the ambient test request could carry a
+        // `market` parameter left by a route this class drove earlier and quietly narrow the answer.
+        //
+        // The controller gained that parameter with I1-04, which narrowed this screen's list and its send to one market. This call had
+        // been passing no arguments since before that, so the merged tree was 26 errors here -- a signature change in one lane meeting a
+        // direct controller call in another.
+        return collect(app(CartMarketingController::class)->index(new Request())->getData()['customers'])->keyBy('customer_id')->all();
     }
 
     // ---- the list ---------------------------------------------------------------------------------------------------------------
