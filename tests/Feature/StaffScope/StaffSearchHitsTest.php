@@ -176,7 +176,15 @@ class StaffSearchHitsTest extends TestCase
         $this->search(keyword: '102', adminId: null);
 
         $reads = array_filter(array_column(DB::getQueryLog(), 'query'), static fn (string $query): bool => str_contains($query, 'admin_country_scopes') && !str_contains($query, 'sqlite_master') && !str_contains($query, 'information_schema'));
-        $this->assertCount(1, $reads, 'three tables are searched, and the rows of the employee are read once');
+        // TWO reads is ONE resolve. `StaffCountryScope::resolve()` asks the table two different questions on purpose (G1-14): whether
+        // the employee holds any row at all, and which of their rows are still in force. An employee with no row is unrestricted on this
+        // platform, so folding those into a single "ignore the expired rows" query would turn the last row's expiry into a privilege
+        // escalation on a timer. This said 1 until the grant trail arrived (3e33a819) and the test predates it.
+        //
+        // What the assertion is for is unchanged and is the reason the number stays pinned rather than loosened: the search reads three
+        // tables and must resolve the employee ONCE for all of them, which is `AdvanceSearch::staffCountries()`'s memo. Teeth: dropping
+        // that memo so each table resolves again takes this to 6 and fails.
+        $this->assertCount(2, $reads, 'three tables are searched, and the employee is resolved once: has-any-row and still-in-force');
     }
 
     public function test_the_search_of_the_header_narrows_what_it_hands_back_and_not_the_query_that_fills_the_cache(): void
