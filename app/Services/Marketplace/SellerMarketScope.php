@@ -475,6 +475,21 @@ final class SellerMarketScope
         return StorefrontResolver::fromConfig()->configuredCountries();
     }
 
+    /**
+     * The one market a shop is granted, or null when it is granted none or more than one (read by the platform monitor, L-09).
+     *
+     * A shop granted exactly one market belongs to that market, and anything recorded against it -- an SLA breach, a payout waiting for
+     * approval -- is that market's business. A shop granted SEVERAL belongs to no single one, and a shop granted none is not narrowed at all,
+     * so neither can be attributed: the monitor reports those apart rather than putting them under the first market it finds, which would be
+     * a count somebody acts on. While the grants are switched off every shop answers null, which is the truth about a one-market platform.
+     */
+    public function soleMarketOfShop(int|string $sellerId): ?string
+    {
+        $markets = $this->rowsOfShop(sellerId: (int) $sellerId)->pluck('country')->all();
+
+        return count($markets) === 1 ? (string) $markets[0] : null;
+    }
+
     /** The rows of a principal. An owner and a key read the shop's own rows; a staff member reads theirs. */
     private function rowsOf(SellerPrincipal $principal): Collection
     {

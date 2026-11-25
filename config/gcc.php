@@ -366,6 +366,23 @@ return [
             'pending_age_hours' => 24,
             'pending_warning_count' => 5,
             'pending_critical_count' => 20,
+            // The operational health signals of L-09, one pair of counts each. One row is information; these raise it. The owner sets the
+            // real numbers -- what counts as a warning differs by signal, and a single unreconciled cost may deserve more than one stuck
+            // payment attempt does -- and a ruling changes a line here rather than any code.
+            'health' => [
+                'payments_stuck_warning_count' => 5,
+                'payments_stuck_critical_count' => 20,
+                'payments_unreconciled_warning_count' => 5,
+                'payments_unreconciled_critical_count' => 20,
+                'channels_failing_warning_count' => 5,
+                'channels_failing_critical_count' => 20,
+                'carriers_failing_warning_count' => 5,
+                'carriers_failing_critical_count' => 20,
+                'shop_issues_open_warning_count' => 5,
+                'shop_issues_open_critical_count' => 20,
+                'approvals_pending_warning_count' => 5,
+                'approvals_pending_critical_count' => 20,
+            ],
         ],
     ],
 

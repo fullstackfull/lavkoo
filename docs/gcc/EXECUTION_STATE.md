@@ -143,5 +143,27 @@ criteria names more signals than are built -- which is the honest record and is 
   made the charge ZERO for those shops, because nothing writes a cart-shipping row for them. Thirty-nine tests across
   the address and storefront groups said so, and they were right. Before changing a default that money passes through,
   run the groups that touch money; a targeted test passing proves only that the new behaviour is self-consistent.
+- **The platform-admin area may not name the seller world at all.** `ReverseIsolationTest` scans every file under
+  `app/Services/PlatformAdmin`, the platform middleware, controllers and commands for `Seller`, `seller_`, `auth_token`,
+  `Passport`, `Sanctum`, `Auth::` and `auth(` -- comments stripped first, so what a file SAYS about what it refuses does
+  not count. L-09's first version read `seller_sla_breaches` straight from `PlatformHealthService` and tripped it. The
+  answer is not an exemption: the reads moved to `App\Services\Marketplace\ShopIssueCounts`, which the platform
+  service asks for counts, and the API field became `open_shop_issues`. The guard also stops at its FIRST violating
+  file in glob order, so a clean report on one file does not mean the next is clean.
+- **A method a parent gains must not already exist as `private` in a child.** PHP will not narrow an inherited method,
+  so the child file becomes a fatal error on load -- exit 255 and NOT a test failure, which is why it took a CI job log
+  to see it. H1-11 put `protected fakeOrderAccepted()` on `TorodTestCase` while `TorodCityResolutionTest` had carried a
+  private one since it was written, and it cost the whole SQLite suite and the whole Address group. A one-line scan
+  over the test tree for a private override of a protected ancestor method found exactly one real case and two
+  namespace-collision false positives; worth running after adding a helper to any base test case.
+- **A test that builds its own copy of a migrated table must put the table BACK.** Tables persist across classes within
+  a process, so a class that drops one and walks away takes it from every class that runs after it -- on the in-memory
+  database, all of them. `Tests\Support\RestoresCategoryShippingCostsTable` is the shape: drop, then re-run the real
+  create migration. A table with no create migration (`shipping_methods`, `payment_requests`) is the opposite case --
+  absent IS its migrated state, so dropping it is the restore.
+- **A test of a helper is not a test of the caller that was supposed to use it.** Twice in one batch: a direct test of
+  `marketKeyOf()` stayed green when the call was taken out of the controller, and a direct test of
+  `soleMarketOfShop()` would have too. The teeth check is what finds this -- remove the CALL, not the helper -- and the
+  replacement test goes through the caller: two costs of one category in two markets, with only the named one changing.
 - Where a record cannot name the rule that produced a figure, it says nothing. `shipping_rate_source` is null for a shop
   in that state rather than guessing `product_wise`, because the type written on those lines is an empty string too.

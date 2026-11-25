@@ -7,7 +7,9 @@ use App\Services\PlatformAdmin\PlatformHealthService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
+use App\Services\Marketplace\SellerMarketScope;
 use Tests\Support\BuildsPaymentRequestsTable;
+use Tests\Support\BuildsSellerIssueTables;
 
 /**
  * L-09: operational health per market -- the payment attempts that never came back, and the integrations that have stopped syncing.
@@ -23,8 +25,18 @@ use Tests\Support\BuildsPaymentRequestsTable;
 class HealthTest extends PlatformAdminTestCase
 {
     use BuildsPaymentRequestsTable;
+    use BuildsSellerIssueTables;
 
     private const URL = self::PREFIX . '/health';
+
+    /** The shop granted Saudi Arabia alone, so everything of its own is counted there. */
+    private const SAUDI_SHOP = 501;
+
+    /** The shop granted Kuwait alone. */
+    private const KUWAITI_SHOP = 502;
+
+    /** The shop granted nothing, which is not narrowed at all and so belongs to no market. */
+    private const UNSCOPED_SHOP = 503;
 
     protected function setUp(): void
     {
@@ -159,6 +171,93 @@ class HealthTest extends PlatformAdminTestCase
 
         $this->assertStringContainsString('BACKLOG', $means['payments.reconciliation_breaks']);
         $this->assertStringContainsString('does not fall when the window moves', $means['payments.reconciliation_breaks']);
+    }
+
+    public function test_the_open_shop_issues_are_counted_in_the_market_of_the_shop(): void
+    {
+        $this->giveSellerIssues();
+
+        $body = $this->health()->json('data');
+        $markets = collect($body['markets'])->keyBy('market');
+
+        $this->assertSame(2, $markets['SA']['issues']['open_shop_issues'], 'the Saudi shop has two open breaches');
+        $this->assertSame(1, $markets['KW']['issues']['open_shop_issues']);
+        $this->assertSame(0, $markets['AE']['issues']['open_shop_issues'], 'a market with no shop of its own says zero');
+    }
+
+    public function test_a_cleared_breach_is_not_an_open_issue(): void
+    {
+        $this->giveSellerIssues();
+        DB::table('seller_sla_breaches')->update(['status' => 'cleared', 'cleared_at' => now()]);
+
+        $body = $this->health()->json('data');
+
+        $this->assertSame(0, collect($body['markets'])->sum(fn (array $market): int => $market['issues']['open_shop_issues']));
+        $this->assertSame(0, $body['unattributed']['issues']['open_shop_issues']);
+    }
+
+    /**
+     * A shop granted SEVERAL markets belongs to no single one of them, so its issues are reported apart rather than put under the first
+     * market found -- which would be a count an operator acts on.
+     */
+    public function test_a_shop_of_several_markets_has_its_issues_reported_apart(): void
+    {
+        $this->giveSellerIssues();
+        DB::table(SellerMarketScope::TABLE)->insert([
+            'seller_id' => self::SAUDI_SHOP, 'staff_id' => 0, 'country' => 'BH', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $body = $this->health()->json('data');
+        $markets = collect($body['markets'])->keyBy('market');
+
+        $this->assertSame(0, $markets['SA']['issues']['open_shop_issues'], 'the shop is no longer only Saudi');
+        $this->assertSame(3, $body['unattributed']['issues']['open_shop_issues'], 'its two, beside the one of the shop that is granted nothing');
+    }
+
+    /** And a shop granted nothing is not narrowed at all, so nothing of its own can be attributed either. */
+    public function test_a_shop_granted_no_market_has_its_issues_reported_apart(): void
+    {
+        $this->giveSellerIssues();
+
+        $body = $this->health()->json('data');
+
+        $this->assertSame(1, $body['unattributed']['issues']['open_shop_issues'], 'the shop with no grant at all');
+    }
+
+    public function test_the_pending_approvals_are_counted_in_the_market_of_the_shop_that_asked(): void
+    {
+        $this->giveApprovalRequests();
+
+        $body = $this->health()->json('data');
+        $markets = collect($body['markets'])->keyBy('market');
+
+        $this->assertSame(1, $markets['SA']['issues']['pending_approvals'], 'the one the Saudi shop asked for, and not the one an admin of the same id asked for');
+        $this->assertSame(1, $markets['KW']['issues']['pending_approvals']);
+        $this->assertSame(1, $body['unattributed']['issues']['pending_approvals'], 'the admin\'s, because nothing on that row names a shop');
+    }
+
+    public function test_an_approval_somebody_has_decided_is_no_longer_pending(): void
+    {
+        $this->giveApprovalRequests();
+        DB::table('approval_requests')->update(['status' => 'approved', 'decided_at' => now()]);
+
+        $body = $this->health()->json('data');
+
+        $this->assertSame(0, collect($body['markets'])->sum(fn (array $market): int => $market['issues']['pending_approvals']));
+        $this->assertSame(0, $body['unattributed']['issues']['pending_approvals']);
+    }
+
+    /**
+     * The criterion names staff issues and escalations too. Neither has a record anywhere in this platform, so neither is SENT: a zero would
+     * read as "none open", which is a different and untrue statement.
+     */
+    public function test_the_answer_says_that_staff_issues_and_escalations_are_not_recorded_at_all(): void
+    {
+        $body = $this->health()->json('data');
+
+        $this->assertSame(['open_shop_issues', 'pending_approvals'], array_keys($body['markets'][0]['issues']));
+        $this->assertStringContainsString('BACKLOG', $body['means']['issues.open_shop_issues']);
+        $this->assertStringContainsString('keeps no record of either', $body['means']['issues.open_shop_issues']);
     }
 
     public function test_the_integrations_of_each_market_report_their_accounts_failures_and_lateness(): void
@@ -403,6 +502,88 @@ class HealthTest extends PlatformAdminTestCase
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
+        }
+    }
+
+    /**
+     * Three open seller issues and one cleared: two against the Saudi shop, one against the Kuwaiti one, one against the shop with no grant.
+     *
+     * The grants are switched ON here, because a shop has a market only through `seller_market_scopes` and that table is dormant by default --
+     * which is why a one-market installation reads every one of these figures as unattributed, and is the truth about it.
+     */
+    private function giveSellerIssues(): void
+    {
+        $this->createSellerSlaBreachesTable();
+        $this->grantShopMarkets();
+
+        foreach ([
+            [self::SAUDI_SHOP, 'late_dispatch', 'open'],
+            [self::SAUDI_SHOP, 'cancellation_rate', 'open'],
+            [self::KUWAITI_SHOP, 'late_dispatch', 'open'],
+            [self::UNSCOPED_SHOP, 'late_dispatch', 'open'],
+            [self::KUWAITI_SHOP, 'cancellation_rate', 'cleared'],
+        ] as [$shop, $metric, $status]) {
+            DB::table('seller_sla_breaches')->insert([
+                'seller_id' => $shop,
+                'metric' => $metric,
+                'threshold' => 2,
+                'actual_value' => 5,
+                'status' => $status,
+                'cleared_at' => $status === 'cleared' ? now() : null,
+                'created_at' => now()->subDays(40),
+                'updated_at' => now()->subDays(40),
+            ]);
+        }
+    }
+
+    /** Three pending approvals -- one asked by the Saudi shop, one by the Kuwaiti one, one by nobody this platform can name -- and one decided. */
+    private function giveApprovalRequests(): void
+    {
+        $this->createApprovalRequestsTable();
+        $this->grantShopMarkets();
+
+        foreach ([
+            ['APR-1', 'payout', 'seller', self::SAUDI_SHOP, 'pending'],
+            ['APR-2', 'payout', 'seller', self::KUWAITI_SHOP, 'pending'],
+            // An ADMIN asked for this one, and the id they happen to carry is the Saudi shop's. Admin ids and seller ids are separate
+            // sequences, so that collision is ordinary: reading the id without reading `requested_by_type` would put this request in Saudi
+            // Arabia, which is the market of a shop that had nothing to do with it.
+            ['APR-3', 'settings', 'admin', self::SAUDI_SHOP, 'pending'],
+            ['APR-4', 'payout', 'seller', self::SAUDI_SHOP, 'approved'],
+        ] as [$reference, $workflow, $byType, $by, $status]) {
+            DB::table('approval_requests')->insert([
+                'reference' => $reference,
+                'workflow' => $workflow,
+                'subject_type' => 'payout',
+                'subject_id' => 1,
+                'status' => $status,
+                'amount' => 45.000,
+                'currency' => 'SAR',
+                'required_approvals' => 2,
+                'approvals_count' => $status === 'approved' ? 2 : 0,
+                'requested_by_type' => $byType,
+                'requested_by' => $by,
+                'decided_at' => $status === 'approved' ? now() : null,
+                'created_at' => now()->subDays(40),
+                'updated_at' => now()->subDays(40),
+            ]);
+        }
+    }
+
+    /** One market each for two of the three shops; the third is given none on purpose. */
+    private function grantShopMarkets(): void
+    {
+        if (!Schema::hasTable(SellerMarketScope::TABLE)) {
+            (require database_path('migrations/2026_12_10_100000_create_seller_market_scopes_table.php'))->up();
+        }
+
+        config([SellerMarketScope::SWITCH => true]);
+
+        foreach ([[self::SAUDI_SHOP, 'SA'], [self::KUWAITI_SHOP, 'KW']] as [$shop, $market]) {
+            DB::table(SellerMarketScope::TABLE)->updateOrInsert(
+                ['seller_id' => $shop, 'staff_id' => 0, 'country' => $market],
+                ['created_at' => now(), 'updated_at' => now()],
+            );
         }
     }
 

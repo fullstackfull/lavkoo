@@ -6,6 +6,7 @@ use App\Models\OperationalCostReconciliation;
 use App\Services\Fulfillment\Contracts\ProviderIdentity;
 use App\Services\Fulfillment\ProviderRegistry;
 use App\Services\Fulfillment\ProviderStorefrontCountry;
+use App\Services\Marketplace\ShopIssueCounts;
 use Carbon\CarbonImmutable;
 use Illuminate\Container\Attributes\Scoped;
 use Illuminate\Support\Facades\DB;
@@ -26,9 +27,14 @@ use Illuminate\Support\Facades\Schema;
  * a resource can be neither, either or both.
  *
  * **How a market is decided.** A payment attempt belongs to the market of the order it was for (`orders.storefront_country`), which is the market whose
- * gateway took it; a sales-channel account carries its own market (`sales_channel_accounts.market`). Anything whose market is not recorded is counted
- * apart as unattributed and NEVER as Saudi Arabia -- the mistake that would make a market look busy because another one is. An attempt that is not for an
- * order at all (a wallet top-up) has no market here and is left out rather than guessed at.
+ * gateway took it; a sales-channel account carries its own market (`sales_channel_accounts.market`); a carrier's is the one its connection serves; a cost
+ * reconciliation's is its cost entry's; and a shop issue or a pending approval belongs to the shop's market, which is settled ONLY when the shop is granted
+ * exactly one (`App\Services\Marketplace\ShopIssueCounts`, which lives outside this area because nothing here may name the seller world). Anything whose market is not recorded is counted apart as unattributed and NEVER as Saudi Arabia -- the mistake that would make a market
+ * look busy because another one is. An attempt that is not for an order at all (a wallet top-up) has no market here and is left out rather than guessed at.
+ *
+ * **What is a window and what is a backlog.** The payment attempts and the sync figures are about the window asked for. The reconciliation breaks, the
+ * open seller issues and the pending approvals are BACKLOGS and are deliberately not bounded by it: none of them stops being true because time passed, and
+ * a figure that fell by itself when the window moved would be read as the problem going away. Each says which it is in `means`.
  *
  * Every figure is a grouped aggregate over a bounded range, in the shape `PlatformMarketFigures` established, and a table that has not been created yet
  * answers zero rather than failing -- so a Saudi installation, whose sales-channel tables are empty, reads zeros, which is the truth about it.
@@ -59,6 +65,7 @@ final class PlatformHealthService
         private readonly PlatformMarkets $markets,
         private readonly ProviderRegistry $carriers,
         private readonly ProviderStorefrontCountry $carrierMarket,
+        private readonly ShopIssueCounts $shopIssues,
     ) {
     }
 
@@ -69,6 +76,8 @@ final class PlatformHealthService
         $breaks = $this->reconciliationBreaksByMarket();
         $syncs = $this->channelSyncByMarket(window: $window);
         $carriers = $this->carrierSyncByMarket(window: $window);
+        $issues = $this->byMarket(counts: $this->shopIssues->openIssuesByMarket());
+        $approvals = $this->byMarket(counts: $this->shopIssues->pendingApprovalsByMarket());
 
         return [
             'scope' => $selection->scope,
@@ -78,11 +87,11 @@ final class PlatformHealthService
             'freshness' => ['mode' => 'live', 'cached' => false],
             'means' => $this->whatTheFiguresMean(),
             'markets' => array_map(
-                fn (string $market): array => $this->healthOf(market: $market, stuck: $stuck, breaks: $breaks, syncs: $syncs, carriers: $carriers),
+                fn (string $market): array => $this->healthOf(market: $market, stuck: $stuck, breaks: $breaks, syncs: $syncs, carriers: $carriers, issues: $issues, approvals: $approvals),
                 $selection->markets,
             ),
             'unattributed' => $selection->includesUnattributed
-                ? $this->healthOf(market: null, stuck: $stuck, breaks: $breaks, syncs: $syncs, carriers: $carriers) + ['reason' => 'no_market_recorded']
+                ? $this->healthOf(market: null, stuck: $stuck, breaks: $breaks, syncs: $syncs, carriers: $carriers, issues: $issues, approvals: $approvals) + ['reason' => 'no_market_recorded']
                 : null,
         ];
     }
@@ -92,10 +101,12 @@ final class PlatformHealthService
      * @param array<string, int> $breaks
      * @param array<string, array{accounts: int, failing: int, late: int, last_success_at: ?string}> $syncs
      * @param array<string, array{connections: int, failing: int, late: int, last_success_at: ?string}> $carriers
+     * @param array<string, int> $issues
+     * @param array<string, int> $approvals
      *
      * @return array<string, mixed>
      */
-    private function healthOf(?string $market, array $stuck, array $breaks, array $syncs, array $carriers): array
+    private function healthOf(?string $market, array $stuck, array $breaks, array $syncs, array $carriers, array $issues, array $approvals): array
     {
         $key = $market ?? '';
         $sync = $syncs[$key] ?? ['accounts' => 0, 'failing' => 0, 'late' => 0, 'last_success_at' => null];
@@ -122,7 +133,34 @@ final class PlatformHealthService
                     'last_success_at' => $carrier['last_success_at'],
                 ],
             ],
+            'issues' => [
+                'open_shop_issues' => $issues[$key] ?? 0,
+                'pending_approvals' => $approvals[$key] ?? 0,
+            ],
         ];
+    }
+
+    /**
+     * Counts another service keyed by market, re-keyed through this area's own idea of what a market code is.
+     *
+     * The caller of this is `ShopIssueCounts`, which lives outside the platform-admin area because nothing in this area may name the seller
+     * world at all (`ReverseIsolationTest`): that area has an identity of its own and must never be able to reach a shop's credentials.
+     * Re-keying rather than trusting the keys is cheap and collapses two spellings of one market into one figure.
+     *
+     * @param array<string, int> $counts
+     *
+     * @return array<string, int>
+     */
+    private function byMarket(array $counts): array
+    {
+        $byMarket = [];
+
+        foreach ($counts as $market => $count) {
+            $key = $this->marketKeyOf($market);
+            $byMarket[$key] = ($byMarket[$key] ?? 0) + $count;
+        }
+
+        return $byMarket;
     }
 
     /**
@@ -359,7 +397,9 @@ final class PlatformHealthService
             'integrations.channels.late_resources' => 'resources with no success inside this window',
             'integrations.carriers.failing_capabilities' => 'capabilities whose LAST event was a failure; the carrier table keeps no failure counter, so this is a different test from the channels above',
             'integrations.carriers.late_capabilities' => 'capabilities with no success inside this window',
-            'unattributed' => 'rows whose market is not recorded; never counted as the default market',
+            'issues.open_shop_issues' => 'shop service-level breaches nobody has cleared, counted in the market of the shop they are against. A BACKLOG and not a window. STAFF issues and ESCALATIONS are not in this figure and are not sent at all: this platform keeps no record of either, and a zero would read as "none open"',
+            'issues.pending_approvals' => 'approval requests nobody has decided, counted in the market of the shop that asked. Also a backlog. A request that names no shop is counted apart rather than placed in a market',
+            'unattributed' => 'rows whose market is not recorded; never counted as the default market. A shop granted several markets is here too: its issues belong to no single one of them',
         ];
     }
 
