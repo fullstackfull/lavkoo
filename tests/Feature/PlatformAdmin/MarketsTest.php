@@ -3,6 +3,7 @@
 namespace Tests\Feature\PlatformAdmin;
 
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Tests\Support\BuildsStorefrontLegalDocuments;
 
@@ -30,12 +31,12 @@ class MarketsTest extends PlatformAdminTestCase
             'scope' => 'all',
             'generated_at' => Carbon::parse('2026-11-17 12:00:00')->utc()->toIso8601ZuluString(),
             'markets' => [
-                ['code' => 'SA', 'path' => 'sa', 'currency' => 'SAR', 'active' => true, 'storefront_enabled' => false, 'legal_ready' => true, 'legal_entity' => null],
-                ['code' => 'AE', 'path' => 'ae', 'currency' => 'AED', 'active' => false, 'storefront_enabled' => false, 'legal_ready' => false, 'legal_entity' => null],
-                ['code' => 'KW', 'path' => 'kw', 'currency' => 'KWD', 'active' => false, 'storefront_enabled' => false, 'legal_ready' => false, 'legal_entity' => null],
-                ['code' => 'QA', 'path' => 'qa', 'currency' => 'QAR', 'active' => false, 'storefront_enabled' => false, 'legal_ready' => false, 'legal_entity' => null],
-                ['code' => 'BH', 'path' => 'bh', 'currency' => 'BHD', 'active' => false, 'storefront_enabled' => false, 'legal_ready' => false, 'legal_entity' => null],
-                ['code' => 'OM', 'path' => 'om', 'currency' => 'OMR', 'active' => false, 'storefront_enabled' => false, 'legal_ready' => false, 'legal_entity' => null],
+                ['code' => 'SA', 'path' => 'sa', 'currency' => 'SAR', 'active' => true, 'storefront_enabled' => false, 'legal_ready' => true, 'legal_entity' => null, 'legal_entity_id' => null, 'legal_entity_trade_name' => null],
+                ['code' => 'AE', 'path' => 'ae', 'currency' => 'AED', 'active' => false, 'storefront_enabled' => false, 'legal_ready' => false, 'legal_entity' => null, 'legal_entity_id' => null, 'legal_entity_trade_name' => null],
+                ['code' => 'KW', 'path' => 'kw', 'currency' => 'KWD', 'active' => false, 'storefront_enabled' => false, 'legal_ready' => false, 'legal_entity' => null, 'legal_entity_id' => null, 'legal_entity_trade_name' => null],
+                ['code' => 'QA', 'path' => 'qa', 'currency' => 'QAR', 'active' => false, 'storefront_enabled' => false, 'legal_ready' => false, 'legal_entity' => null, 'legal_entity_id' => null, 'legal_entity_trade_name' => null],
+                ['code' => 'BH', 'path' => 'bh', 'currency' => 'BHD', 'active' => false, 'storefront_enabled' => false, 'legal_ready' => false, 'legal_entity' => null, 'legal_entity_id' => null, 'legal_entity_trade_name' => null],
+                ['code' => 'OM', 'path' => 'om', 'currency' => 'OMR', 'active' => false, 'storefront_enabled' => false, 'legal_ready' => false, 'legal_entity' => null, 'legal_entity_id' => null, 'legal_entity_trade_name' => null],
             ],
         ]]);
     }
@@ -73,15 +74,23 @@ class MarketsTest extends PlatformAdminTestCase
         $this->assertSame(['SA' => true, 'AE' => false, 'KW' => false, 'QA' => false, 'BH' => false, 'OM' => false], $markets->all());
     }
 
-    public function test_the_legal_entity_is_the_configured_one_or_null(): void
+    /**
+     * The company of a market is the one `legal_entities` records for that country, and a market with none says so.
+     *
+     * It used to be `gcc.storefronts.legal.legal_entity`, ONE value repeated under all six markets, which said that one company sells in six
+     * countries -- the opposite of the approved plan that each country has a selling company of its own (L-08). That value is a platform-wide
+     * label and is deliberately not what this endpoint answers; the per-company figures are pinned in SalesByEntityAndCurrencyTest.
+     */
+    public function test_the_company_of_a_market_is_the_one_recorded_for_that_country_and_not_one_name_for_all_six(): void
     {
         config(['gcc.storefronts.legal.legal_entity' => 'Lavkoo Test Trading Co.']);
+        (require database_path('migrations/2026_11_27_100000_create_legal_entities_table.php'))->up();
+        DB::table('legal_entities')->insert(['country' => 'KW', 'legal_name' => 'Lavkoo Kuwait', 'status' => true, 'created_at' => now(), 'updated_at' => now()]);
         $token = $this->mintToken($this->platformAdmin());
 
-        $this->assertSame(['Lavkoo Test Trading Co.'], array_unique(array_column($this->getJson(self::URL, $this->bearer($token))->json('data.markets'), 'legal_entity')));
+        $markets = collect($this->getJson(self::URL, $this->bearer($token))->json('data.markets'))->pluck('legal_entity', 'code');
 
-        config(['gcc.storefronts.legal.legal_entity' => '   ']);
-        $this->assertSame([null], array_unique(array_column($this->getJson(self::URL, $this->bearer($token))->json('data.markets'), 'legal_entity')));
+        $this->assertSame(['SA' => null, 'AE' => null, 'KW' => 'Lavkoo Kuwait', 'QA' => null, 'BH' => null, 'OM' => null], $markets->all());
     }
 
     public function test_a_restricted_viewer_sees_only_their_markets(): void

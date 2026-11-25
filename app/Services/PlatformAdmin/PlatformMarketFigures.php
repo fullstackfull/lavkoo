@@ -31,9 +31,14 @@ final class PlatformMarketFigures
 {
     private const COUNTRY_COLUMN = 'storefront_country';
 
+    private const ENTITY_COLUMN = 'legal_entity_id';
+
     private const DATE_FORMAT = 'Y-m-d H:i:s';
 
     private ?bool $countryColumn = null;
+
+    /** @var array<string, bool> whether the orders table carries a column, asked once per column and per request */
+    private array $orderColumns = [];
 
     public function __construct(private readonly PlatformMarkets $markets, private readonly PlatformAdminSettings $settings)
     {
@@ -93,6 +98,60 @@ final class PlatformMarketFigures
             ->get();
 
         return $this->inMarkets(rows: $rows, counts: ['total', 'pending']);
+    }
+
+    /**
+     * What was sold from `$from` up to, not including, `$before`, grouped by the market of the ORDER, the company that sold it and the currency its
+     * amounts are in. Nothing here adds two currencies together: each row is one currency, and an order whose currency is not recorded is counted
+     * in a row of its own with no amount at all.
+     *
+     * The market is `orders.storefront_country`, the order's own record of what it was sold in, and NOT the country of its products the way the
+     * order counts above read it. The two can differ -- a product may be moved to another market after it was sold -- and for money it is the
+     * order's own record that is the fact. An order that carries no record has no market here and is never read as Saudi.
+     *
+     * An amount is counted only while the order's rate is exactly one, which is the one case where a stored amount IS an amount of the recorded
+     * currency (OrderStorefrontSnapshot: "an amount of a storefront with its own currency is stored as it is, so the rate is one"). What any other
+     * rate means for a stored amount is an open decision, so such an order is counted as unpriced rather than scaled by a guess -- the same rule
+     * StorefrontCurrency applies when it decides whether an order's own currency can be honoured.
+     *
+     * @return list<array{market: ?string, entity_id: ?int, currency: ?string, orders: int, gross: ?string}>
+     */
+    public function sales(CarbonInterface $from, CarbonInterface $before): array
+    {
+        if (!$this->orderCurrencyRecorded()) {
+            return [];
+        }
+
+        $market = $this->orderMarket();
+        $entity = $this->orderEntityRecorded() ? 'orders.' . self::ENTITY_COLUMN : 'NULL';
+        $priced = "CASE WHEN orders.currency_code IS NOT NULL AND TRIM(orders.currency_code) <> '' AND orders.currency_rate = 1 THEN 1 ELSE 0 END";
+        $currency = "CASE WHEN {$priced} = 1 THEN UPPER(TRIM(orders.currency_code)) END";
+
+        // The engine groups and adds up: every amount of one market, company and currency is summed in SQL, so no two amounts are ever added in PHP,
+        // where a decimal of twenty places would become a float first.
+        $rows = DB::table('orders')
+            ->where('orders.created_at', '>=', $from->format(self::DATE_FORMAT))
+            ->where('orders.created_at', '<', $before->format(self::DATE_FORMAT))
+            ->selectRaw(
+                "{$market} AS market, {$entity} AS entity_id, {$currency} AS currency,
+                COUNT(*) AS orders, SUM(CASE WHEN {$priced} = 1 THEN orders.order_amount ELSE 0 END) AS gross",
+            )
+            ->groupBy(DB::raw($market), DB::raw($entity), DB::raw($currency))
+            ->get();
+
+        return $this->salesRows(rows: $rows);
+    }
+
+    /** Whether an order records the currency its amounts are in, so that a sale can be put under a currency at all. */
+    public function orderCurrencyRecorded(): bool
+    {
+        return $this->orderColumn(column: self::COUNTRY_COLUMN) && $this->orderColumn(column: 'currency_code') && $this->orderColumn(column: 'currency_rate');
+    }
+
+    /** Whether an order records the company that sold it, so that a sale can be put under one. */
+    public function orderEntityRecorded(): bool
+    {
+        return $this->orderColumn(column: 'legal_entity_id');
     }
 
     /**
@@ -182,6 +241,55 @@ final class PlatformMarketFigures
     private function countryColumnExists(): bool
     {
         return $this->countryColumn ??= Schema::hasColumn('products', self::COUNTRY_COLUMN);
+    }
+
+    private function orderColumn(string $column): bool
+    {
+        return $this->orderColumns[$column] ??= Schema::hasColumn('orders', $column);
+    }
+
+    /**
+     * The SQL for the market an ORDER was sold in: its own recorded country while that is a configured market, and null otherwise -- an order of a
+     * country nobody configured, and one that recorded none, belong to no market and are never read as the default one. The codes are written into
+     * the statement rather than bound, as the product country above is, and they can only be two capital letters (PlatformMarkets).
+     */
+    private function orderMarket(): string
+    {
+        $codes = $this->markets->codes();
+        $column = 'orders.' . self::COUNTRY_COLUMN;
+
+        if ($codes === []) {
+            return 'NULL';
+        }
+
+        return "CASE WHEN {$column} IN ('" . implode("', '", $codes) . "') THEN {$column} END";
+    }
+
+    /**
+     * The rows the engine grouped, as the API reports them. A currency is kept only on a priced row, and an unpriced row carries no amount at all,
+     * so an order whose currency is not recorded can never be added to one whose currency is.
+     *
+     * @param iterable<object> $rows
+     *
+     * @return list<array{market: ?string, entity_id: ?int, currency: ?string, orders: int, gross: ?string}>
+     */
+    private function salesRows(iterable $rows): array
+    {
+        $reported = [];
+
+        foreach ($rows as $row) {
+            $currency = $row->currency === null ? null : (string) $row->currency;
+
+            $reported[] = [
+                'market' => $row->market === null ? null : (string) $row->market,
+                'entity_id' => $row->entity_id === null ? null : (int) $row->entity_id,
+                'currency' => $currency,
+                'orders' => (int) $row->orders,
+                'gross' => $currency === null ? null : PlatformAdminPresenter::amount(sum: $row->gross),
+            ];
+        }
+
+        return $reported;
     }
 
     /**

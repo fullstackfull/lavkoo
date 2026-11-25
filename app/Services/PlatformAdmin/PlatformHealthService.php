@@ -74,6 +74,7 @@ final class PlatformHealthService
         private readonly ProviderRegistry $carriers,
         private readonly ProviderStorefrontCountry $carrierMarket,
         private readonly ShopIssueCounts $shopIssues,
+        private readonly PlatformLegalEntities $entities,
     ) {
     }
 
@@ -125,7 +126,7 @@ final class PlatformHealthService
 
         return [
             'market' => $market,
-            'legal_entity' => $this->legalEntityOf(market: $market),
+            'legal_entity' => $this->entities->nameOf(market: $market),
             'payments' => [
                 'stuck_attempts' => $stuck[$key] ?? 0,
                 'reconciliation_breaks' => $breaks[$key] ?? 0,
@@ -358,24 +359,6 @@ final class PlatformHealthService
         }
 
         return $counts;
-    }
-
-    /**
-     * The legal company that sells in this market, as `legal_entities` records it (D1-03).
-     *
-     * Named here rather than taken from `gcc.storefronts.legal.legal_entity`, which is ONE value for the whole platform: repeating it under every market
-     * would say that six markets are sold by one company, which is the opposite of the plan's own decision that each country has a selling company of
-     * its own. A market with no entity recorded answers null, and so does the unattributed row -- rows nobody attributed belong to no company.
-     */
-    private function legalEntityOf(?string $market): ?string
-    {
-        if ($market === null || !Schema::hasTable('legal_entities')) {
-            return null;
-        }
-
-        $name = DB::table('legal_entities')->where('country', $market)->value('legal_name');
-
-        return is_string($name) && trim($name) !== '' ? trim($name) : null;
     }
 
     /** The market a cost entry belongs to: its sales-channel account's, or its order's, or none. */

@@ -25,6 +25,8 @@ final class PlatformOverviewService
         private readonly PlatformMarkets $markets,
         private readonly PlatformMarketFigures $figures,
         private readonly PlatformAlertService $alerts,
+        private readonly PlatformLegalEntities $entities,
+        private readonly PlatformSalesCombination $combination,
     ) {
     }
 
@@ -36,6 +38,7 @@ final class PlatformOverviewService
             'backlog' => $this->figures->backlog(),
             'refunds' => $this->figures->refundRequests(from: $window->startsAt(), before: $window->endsBefore()),
             'stock' => $this->figures->stock(),
+            'sales' => $this->figures->sales(from: $window->startsAt(), before: $window->endsBefore()),
         ];
 
         return [
@@ -90,7 +93,7 @@ final class PlatformOverviewService
                 'by_status' => $this->byStatus(orders: $orders),
                 'latest_at' => $this->latestOf(orders: $orders),
             ],
-            'sales' => ['by_currency' => null, 'reason' => self::NO_CURRENCY_REASON],
+            'sales' => $this->salesOf(rows: $this->rowsOf(rows: $figures['sales'], market: $market)),
             'pending_fulfilment' => ['count' => array_sum(array_column($this->rowsOf(rows: $figures['backlog'], market: $market), 'orders'))],
             'returns' => $this->refundsOf(rows: $this->rowsOf(rows: $figures['refunds'], market: $market)),
             'stock' => $this->stockOf(rows: $this->rowsOf(rows: $figures['stock'], market: $market)),
@@ -138,6 +141,44 @@ final class PlatformOverviewService
     }
 
     /**
+     * What a market sold, by the company that sold it and the currency of its own amounts, never one figure across two currencies.
+     *
+     * While an order records no currency at all -- the migration of GCC-05 has not run on this installation -- the answer is what it has always
+     * been: no figure, and the reason. Once orders do record one, each currency is its own row with the company that sold it, orders whose
+     * currency cannot be honoured are counted apart with no amount, and a figure across currencies exists only if the owner has written down a
+     * conversion rule, in which case it carries that rule's rate, source and date (PlatformSalesCombination).
+     *
+     * @param list<array<string, mixed>> $rows the sales rows of this market
+     *
+     * @return array<string, mixed>
+     */
+    private function salesOf(array $rows): array
+    {
+        if (!$this->figures->orderCurrencyRecorded()) {
+            return ['by_currency' => null, 'reason' => self::NO_CURRENCY_REASON];
+        }
+
+        $priced = array_values(array_filter($rows, static fn (array $row): bool => $row['currency'] !== null));
+        // By currency and then by company, so the answer reads the same whatever order the engine grouped the rows in.
+        usort($priced, static fn (array $one, array $other): int => [$one['currency'], $one['entity_id']] <=> [$other['currency'], $other['entity_id']]);
+        $unpriced = array_values(array_filter($rows, static fn (array $row): bool => $row['currency'] === null));
+        $combined = $this->combination->combine(rows: $priced);
+
+        return [
+            'by_currency' => array_map(fn (array $row): array => [
+                'currency' => $row['currency'],
+                'legal_entity_id' => $row['entity_id'],
+                'legal_entity' => $this->entities->byId($row['entity_id'])['name'] ?? null,
+                'orders' => $row['orders'],
+                'gross' => $row['gross'],
+            ], $priced),
+            'unpriced' => ['orders' => array_sum(array_column($unpriced, 'orders')), 'reason' => self::NO_CURRENCY_REASON],
+            'combined' => $combined['figure'],
+            'reason' => $combined['reason'],
+        ];
+    }
+
+    /**
      * @param list<array<string, mixed>> $rows
      *
      * @return array{refund_requests: int, pending: int}
@@ -165,7 +206,9 @@ final class PlatformOverviewService
             'refund_requests' => ['rule' => 'product_market', 'via' => 'refund_requests.product_id > products.storefront_country'],
             'stock' => ['rule' => 'live_physical_products_by_market', 'via' => 'products.storefront_country'],
             'products_country' => $this->figures->productsCountry(),
-            'currency' => ['per_order' => false, 'reason' => self::NO_CURRENCY_REASON],
+            'currency' => $this->figures->orderCurrencyRecorded()
+                ? ['per_order' => true, 'rule' => 'order_market_company_and_currency', 'via' => 'orders.storefront_country, orders.legal_entity_id, orders.currency_code', 'priced_when' => 'currency_rate = 1']
+                : ['per_order' => false, 'reason' => self::NO_CURRENCY_REASON],
         ];
     }
 }
