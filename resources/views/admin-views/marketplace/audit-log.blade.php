@@ -100,6 +100,7 @@
                         <thead>
                             <tr>
                                 <th>{{ translate('when') }}</th>
+                                <th>{{ translate('market') }}</th>
                                 <th>{{ translate('actor') }}</th>
                                 <th>{{ translate('action') }}</th>
                                 <th>{{ translate('record') }}</th>
@@ -110,6 +111,11 @@
                             @forelse ($entries as $entry)
                                 <tr>
                                     <td class="fs-12 text-nowrap">{{ $entry->created_at?->format('d M Y H:i:s') }}</td>
+                                    {{-- Which market the line concerns (G1-08). A dash means it concerns no one market: a panel or
+                                         console action, which an administrator takes across every country. --}}
+                                    <td class="fs-12 text-nowrap">
+                                        {{ $entry->storefront_country ?: '—' }}
+                                    </td>
                                     <td>
                                         <span class="k-badge k-badge--{{ $actorColours[$entry->actor_type] ?? 'secondary' }}">
                                             {{ translate($entry->actor_type ?? 'system') }}

@@ -2,11 +2,13 @@
 
 namespace Tests\Feature\StaffScope;
 
+use App\Http\Controllers\Admin\Marketplace\AuditLogController;
 use App\Models\AuditLog;
-use App\Services\Staff\StaffCountryAssignments;
 use App\Services\AuditLogger;
+use App\Services\Staff\StaffCountryAssignments;
 use App\Services\Staff\StaffCountryScope;
 use App\Services\Storefront\StorefrontContext;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -194,6 +196,42 @@ class StaffScopeGrantTrailTest extends TestCase
             'admin_id' => 3, 'countries' => 'KW', '--granted-by' => 'the master',
         ]));
         $this->assertSame(0, DB::table(StaffCountryScope::TABLE)->where('admin_id', 3)->count());
+    }
+
+    /**
+     * And the reading side (G1-08): a restricted employee is shown the lines of their own countries, and an unrestricted one every line.
+     *
+     * The viewer is driven through the controller rather than through the scope, because the question is what the SCREEN shows. A line
+     * naming NO market is shown to nobody restricted, which is where this parts company with every other market-owning table of the
+     * platform and does so deliberately: `AuditLogger` refuses to file a panel action as the default market's, so a reading that handed
+     * those lines to whoever holds the default market would invent the same fact at the other end.
+     */
+    public function test_the_viewer_shows_a_restricted_employee_the_lines_of_their_own_countries(): void
+    {
+        app(AuditLogger::class)->record(action: 'coupon.updated', subject: ['type' => 'coupon', 'id' => 1], country: 'KW');
+        app(AuditLogger::class)->record(action: 'coupon.updated', subject: ['type' => 'coupon', 'id' => 2], country: 'SA');
+        app(AuditLogger::class)->record(action: 'settings.changed');
+
+        $this->assertSame([1, 2, 3], $this->linesTheViewerShows(restrictedTo: null), 'an unrestricted employee reads the whole trail');
+        $this->assertSame([1], $this->linesTheViewerShows(restrictedTo: ['KW']));
+        $this->assertSame([2], $this->linesTheViewerShows(restrictedTo: ['SA']), 'the unmarked line is not the default market\'s either');
+        $this->assertSame([], $this->linesTheViewerShows(restrictedTo: []), 'an employee restricted to nothing reads nothing');
+    }
+
+    /** @param list<string>|null $restrictedTo @return list<int> the ids of the lines the controller handed the page */
+    private function linesTheViewerShows(?array $restrictedTo): array
+    {
+        $request = Request::create('/admin/audit-log');
+
+        if ($restrictedTo !== null) {
+            $request->attributes->set('staff_country_scope', $restrictedTo);
+        }
+
+        app()->instance('request', $request);
+
+        $shown = app(AuditLogController::class)->index($request)->getData()['entries'];
+
+        return collect($shown->items())->pluck('id')->map(static fn ($id): int => (int) $id)->sort()->values()->all();
     }
 
     private function assignments(): StaffCountryAssignments
