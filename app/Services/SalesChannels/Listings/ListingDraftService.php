@@ -10,6 +10,7 @@ use App\Services\SalesChannels\ChannelConnectorRegistry;
 use App\Services\SalesChannels\Contracts\DescribesListingRequirements;
 use App\Services\SalesChannels\Contracts\ResolvesChannelBrands;
 use App\Services\SalesChannels\Data\ListingRequirements;
+use App\Services\SalesChannels\Publishing\ChannelMarketMatch;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -30,6 +31,7 @@ class ListingDraftService
     public function __construct(
         private readonly ChannelConnectorRegistry $connectors,
         private readonly RegulatedProductGate $regulated,
+        private readonly ChannelMarketMatch $markets,
         private readonly ProductListingReadiness $readiness,
         private readonly ChannelProductImages $images,
         private readonly AuditLogger $audit,
@@ -100,6 +102,13 @@ class ListingDraftService
         if (in_array($draft->state, [ChannelListingDraft::SUBMITTED, ChannelListingDraft::ACCEPTED], true) && ($draft->problems ?? []) === []) {
             // Already with the channel, and nothing changed since: there is nothing to check again.
             return $draft->state === ChannelListingDraft::ACCEPTED ? ListingOutcome::accepted($draft->product_mapping_id) : ListingOutcome::working();
+        }
+        // The market comes before everything a person could fix, because nothing they can type makes a Kuwaiti product
+        // listable on a Saudi account (H2-16): telling them about a missing product type first would send them to fill in
+        // fields for a listing that may never be sent.
+        $market = $draft->account === null ? null : $this->markets->productRefusal($draft->account, $draft->product_id);
+        if ($market !== null) {
+            return $this->found($draft, [], $market);
         }
         if ((string) $draft->product_type === '') {
             return $this->found($draft, ['product_type'], 'listing_product_type_missing');

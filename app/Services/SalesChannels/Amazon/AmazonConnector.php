@@ -35,6 +35,7 @@ use App\Services\SalesChannels\Dispatch\ChannelRecipient;
 use App\Services\SalesChannels\Exceptions\ChannelPermissionDenied;
 use App\Services\SalesChannels\Exceptions\ChannelUnavailableException;
 use App\Services\SalesChannels\Exceptions\RecipientUnavailable;
+use App\Services\SalesChannels\Support\ChannelMoney;
 use App\Services\SalesChannels\Support\ChannelResponseGuard;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -526,7 +527,7 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
 
         foreach ($updates as $update) {
             $sku = $update->sku ?? $update->listingKey;
-            if ($field === 'price' && $update->price !== null && !$update->price->round(scale: 2)->isPositive()) {
+            if ($field === 'price' && $update->price !== null && !ChannelMoney::round($update->price, ChannelMoney::currencyOf($account, $update->currency))->isPositive()) {
                 $failed[$update->mappingId] = 'A price of zero or less (or one that rounds to zero) is refused.';
                 continue;
             }
@@ -578,14 +579,19 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
             return null;
         }
 
+        // The currency the update carries, then the account's, then the one configured for the country the account's own settings
+        // name -- so an account selling on amazon.ae is never sent a Saudi currency (H2-08). The riyal is still the last resort,
+        // for an account that names no country at all, which is every account of the platform as it runs today.
+        $currency = ChannelMoney::currencyOf($account, $update->currency) ?? 'SAR';
+
         return [
             'op' => 'replace',
             'path' => '/attributes/purchasable_offer',
             'value' => [[
                 'marketplace_id' => $marketplace,
-                'currency' => $update->currency ?? $account->currency ?? 'SAR',
+                'currency' => $currency,
                 'audience' => 'ALL',
-                'our_price' => [['schedule' => [['value_with_tax' => round($update->price->toFloat(), 2)]]]],
+                'our_price' => [['schedule' => [['value_with_tax' => ChannelMoney::round($update->price, $currency)->toFloat()]]]],
             ]],
         ];
     }

@@ -58,26 +58,43 @@ final class ChannelMarketMatch
      */
     public function refusal(SalesChannelAccount $account, SalesChannelProductMapping $listing, ?InventoryLocation $location): ?string
     {
+        $product = $this->productRefusal($account, $listing->product_id);
+        if ($product !== null) {
+            return $product;
+        }
+
+        $market = $this->marketOf($account);
+
+        if ($market !== null && $location !== null && !$this->locationMarket->isServedIn($location, $market)) {
+            return self::LOCATION_OF_ANOTHER_MARKET;
+        }
+
+        return null;
+    }
+
+    /**
+     * Why this account may not carry this product at all, by market, or null when nothing here stops it.
+     *
+     * Asked of a product id rather than of a listing, because the question comes up before a listing exists: an administrator
+     * typing a product id into the link form, and a listing draft on its way to the channel, are the same question as a stock
+     * share (H2-16). The answers are the same strings, so one reason reaches every screen.
+     */
+    public function productRefusal(SalesChannelAccount $account, int|string|null $productId): ?string
+    {
         if ($this->accountCountry->sellsWhereWeHaveNoCatalogue($account)) {
             return self::ACCOUNT_SELLS_WHERE_WE_HAVE_NO_CATALOGUE;
         }
 
         $market = $this->marketOf($account);
-        if ($market === null) {
+        if ($market === null || $productId === null) {
             return null;
         }
 
-        $product = $this->rows->marketKeyOf(self::PRODUCTS, $listing->product_id);
+        $product = $this->rows->marketKeyOf(self::PRODUCTS, $productId);
 
-        if (!$this->rows->rowIsServedIn(self::PRODUCTS, $product[StorefrontMarketRows::COLUMN] ?? null, $market)) {
-            return self::PRODUCT_OF_ANOTHER_MARKET;
-        }
-
-        if ($location !== null && !$this->locationMarket->isServedIn($location, $market)) {
-            return self::LOCATION_OF_ANOTHER_MARKET;
-        }
-
-        return null;
+        return $this->rows->rowIsServedIn(self::PRODUCTS, $product[StorefrontMarketRows::COLUMN] ?? null, $market)
+            ? null
+            : self::PRODUCT_OF_ANOTHER_MARKET;
     }
 
     /** @return string|null the market this account sells in, or null when it says none, or when nothing here applies */

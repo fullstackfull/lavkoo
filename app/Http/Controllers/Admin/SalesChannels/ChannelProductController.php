@@ -21,12 +21,15 @@ use App\Services\SalesChannels\Inventory\Allocation\StockShareValidator;
 use App\Services\SalesChannels\Inventory\Outbox\StockEventNudge;
 use App\Services\SalesChannels\Inventory\Outbox\StockEventOutbox;
 use App\Services\SalesChannels\Inventory\PoolKey;
+use App\Services\SalesChannels\Publishing\ChannelMarketMatch;
 use App\Services\SalesChannels\Publishing\PublishPolicyResolver;
+use App\Services\Storefront\StorefrontCatalog;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Exists;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
@@ -100,7 +103,7 @@ class ChannelProductController extends Controller
     public function link(Request $request, SalesChannelProductMapping $mapping): RedirectResponse
     {
         $validated = $request->validateWithBag($this->bag($mapping), [
-            'product_id' => ['required', 'integer', Rule::exists('products', 'id')->where('added_by', 'admin')->where('product_type', 'physical')],
+            'product_id' => ['required', 'integer', $this->aProductThisListingMayPointAt($mapping)],
             'variant_key' => ['nullable', 'string', 'max:191'],
         ]);
         if ($mapping->status === SalesChannelProductMapping::IGNORED) {
@@ -118,6 +121,14 @@ class ChannelProductController extends Controller
     {
         $suggested = $mapping->status === SalesChannelProductMapping::SUGGESTED ? $mapping->suggested_product_id : null;
         if ($suggested === null || $this->products->named([$suggested])->isEmpty()) {
+            SafeToast::warning(translate('no_suggestion_to_accept'));
+
+            return back();
+        }
+        if ($this->ofAnotherMarket($mapping, (int) $suggested)) {
+            // A suggestion of another market is not a suggestion this account may act on, and it is said in those words
+            // because the matcher that WRITES suggestions is itself held to the account's market (ListingSyncService): a
+            // suggestion that reaches this branch is one left over from before that bound, or one written by hand.
             SafeToast::warning(translate('no_suggestion_to_accept'));
 
             return back();
@@ -305,6 +316,35 @@ class ChannelProductController extends Controller
     }
 
     /** @param array{lines: int, orders: int, alsoLinkedTo: list<string>} $result */
+    /**
+     * What this listing may be linked to: one of OUR OWN physical products, of the market this account sells in (H2-16).
+     *
+     * The market belongs in this rule rather than in a check after it, because it is part of what a choosable product IS --
+     * exactly as "added by us" and "physical" are -- so a product of another market is refused in the words this form already
+     * uses for a product that cannot be chosen, in the listing's own error bag, and no new vocabulary is invented for it.
+     *
+     * Until now the picker only LABELLED each product's country (#76). A label is a help, not a refusal: a product id typed
+     * into the form put a Kuwaiti product on a Saudi account's listing, and from there its stock and its price would have gone
+     * to the wrong country's marketplace -- where the figures add up and only the market is wrong, which is why nobody would
+     * have seen it.
+     *
+     * While the storefronts are off, or before the products carry a market, the rule is the rule as it is today: the market
+     * narrowing is added only where an account names a market this platform serves.
+     */
+    private function aProductThisListingMayPointAt(SalesChannelProductMapping $mapping): Exists
+    {
+        $rule = Rule::exists('products', 'id')->where('added_by', 'admin')->where('product_type', 'physical');
+        $market = $mapping->account === null ? null : app(ChannelMarketMatch::class)->marketOf($mapping->account);
+
+        return $market === null ? $rule : $rule->where(StorefrontCatalog::COLUMN, $market);
+    }
+
+    /** Whether a product belongs to a market this account does not sell in. The stock share's own question, asked of a product id. */
+    private function ofAnotherMarket(SalesChannelProductMapping $mapping, int $productId): bool
+    {
+        return $mapping->account !== null && app(ChannelMarketMatch::class)->productRefusal($mapping->account, $productId) !== null;
+    }
+
     private function announceLinked(array $result): void
     {
         ToastMagic::success(translate('listing_linked'));

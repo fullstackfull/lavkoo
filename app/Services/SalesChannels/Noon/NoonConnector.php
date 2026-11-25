@@ -29,6 +29,7 @@ use App\Services\SalesChannels\Dispatch\ChannelRecipient;
 use App\Services\SalesChannels\Exceptions\ChannelPermissionDenied;
 use App\Services\SalesChannels\Exceptions\ChannelUnavailableException;
 use App\Services\SalesChannels\Exceptions\RecipientUnavailable;
+use App\Services\SalesChannels\Support\ChannelMoney;
 use App\Services\SalesChannels\Support\ChannelOperations;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -524,7 +525,9 @@ class NoonConnector implements ChannelConnector, ConfirmsShipments, CreatesListi
                 $failed[$update->mappingId] = $update->price === null ? 'No price to publish.' : 'No partner SKU to publish it against.';
                 continue;
             }
-            if (!$update->price->round(scale: 2)->isPositive()) {
+            // At the decimals the account's currency has, which is three for the dinar and the rial (H2-08).
+            $price = ChannelMoney::round($update->price, ChannelMoney::currencyOf($account, $update->currency));
+            if (!$price->isPositive()) {
                 $failed[$update->mappingId] = 'A price of zero or less (or one that rounds to zero) is refused.';
                 continue;
             }
@@ -533,8 +536,8 @@ class NoonConnector implements ChannelConnector, ConfirmsShipments, CreatesListi
             $items[] = array_filter([
                 'partner_sku' => $sku,
                 'country_code' => $country,
-                'price' => $update->price->round(scale: 2)->toFloat(),
-                'msrp' => $update->listPrice?->round(scale: 2)->toFloat(),
+                'price' => $price->toFloat(),
+                'msrp' => $update->listPrice === null ? null : ChannelMoney::round($update->listPrice, ChannelMoney::currencyOf($account, $update->currency))->toFloat(),
             ], static fn ($value): bool => $value !== null);
             $byKey[$sku . '|' . $country] = $update->mappingId;
         }
