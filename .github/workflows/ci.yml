@@ -153,7 +153,11 @@ jobs:
             paths: tests/Feature/Address
           - group: Storefront tests
             # Also the platform admin API tests: the SQL they run for orders, products and refund requests has to meet a real engine, MariaDB included.
-            paths: tests/Unit/Storefront tests/Feature/Storefront tests/Feature/PlatformAdmin
+            # And tests/Feature/Seeders, which builds six storefronts with their own sellers, customers, products, orders and wallets: it
+            # writes a currency row per market and a stamped order, so the columns it fills -- and the NOT NULL ones the proprietary dump
+            # has -- only answer on a real engine. It is here rather than in the checkout group because it is storefront-shaped and that
+            # group is already the largest; a job at its own ceiling is a recorded failure of this workflow (M1-V4).
+            paths: tests/Unit/Storefront tests/Feature/Storefront tests/Feature/PlatformAdmin tests/Feature/Seeders
           - group: Catalog tests
             # tests/Feature/Catalogue is the one-row price write: it belongs on a real engine for the same reason the rest of the
             # catalogue does, and it ran on SQLite alone until it was named here.
@@ -173,7 +177,11 @@ jobs:
           - group: Report pagination tests
             paths: tests/Feature/Reports
           - group: Notification and localization tests
-            paths: tests/Feature/Notifications tests/Feature/Retention tests/Feature/Localization
+            # tests/Feature/Queue is where every queued class gets its market from. It belongs on a real engine because what it reads is
+            # `orders.storefront_country` and `products.storefront_country` as their own migrations create them -- char(2) ascii_bin, where
+            # 'kw' is not 'KW'. SQLite keeps both as text and compares them case-insensitively, so a market asserted byte for byte there is
+            # asserted on nothing: that exact difference turned a green SQLite run red on MariaDB once already (EXECUTION_STATE, run 664).
+            paths: tests/Feature/Notifications tests/Feature/Retention tests/Feature/Localization tests/Feature/Queue
           # The wallet money paths build their schema by hand, so SQLite in memory (a fresh database per test)
           # cannot tell whether they hold on an engine that keeps the previous test's tables, and decimal
           # columns, collation and row order are decided by the engine the live platform runs on.

@@ -2,6 +2,9 @@
 
 namespace App\Jobs\Fulfillment;
 
+use App\Jobs\Concerns\CarriesItsStorefront;
+use App\Jobs\Concerns\MarketOfTheWork;
+use App\Jobs\Middleware\ServeInItsStorefront;
 use App\Services\Fulfillment\ReconciliationService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -11,7 +14,7 @@ use Illuminate\Queue\SerializesModels;
 
 class ReconcileProviderFulfillment implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, KeepsPersonalDataOutOfFailures, OneAtATimePerFulfillment, Queueable, SerializesModels;
+    use CarriesItsStorefront, Dispatchable, InteractsWithQueue, KeepsPersonalDataOutOfFailures, OneAtATimePerFulfillment, Queueable, SerializesModels;
 
     public int $tries = 1;
 
@@ -19,10 +22,31 @@ class ReconcileProviderFulfillment implements ShouldQueue
 
     public function __construct(public readonly int $fulfillmentId)
     {
+        $this->carryTheCurrentStorefront();
     }
 
     public function handle(ReconciliationService $reconciliation): void
     {
         $this->withoutPersonalDataInFailures(fn () => $reconciliation->reconcile($this->fulfillmentId));
+    }
+
+    /**
+     * The lock and the market, composed here because a job's own `middleware()` replaces the trait's: the shared shipment lock first, where
+     * the cancellation test reads it, and then the market the shipment's ORDER was sold in.
+     *
+     * @return list<object>
+     */
+    public function middleware(): array
+    {
+        return [$this->lockOnThisShipment(), new ServeInItsStorefront(country: $this->storefrontToServe())];
+    }
+
+    /**
+     * The market of the order this shipment belongs to, and the dispatching request's only when the record cannot be read: a shipment is
+     * queued by the fulfilment machinery, by the recovery sweep or from a panel, none of which is serving the shipment's market.
+     */
+    protected function storefrontToServe(): ?string
+    {
+        return MarketOfTheWork::ofFulfillment(fulfillmentId: $this->fulfillmentId) ?? $this->storefrontCountry;
     }
 }

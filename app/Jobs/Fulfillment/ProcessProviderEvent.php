@@ -2,6 +2,8 @@
 
 namespace App\Jobs\Fulfillment;
 
+use App\Jobs\Concerns\CarriesItsStorefront;
+use App\Jobs\Concerns\MarketOfTheWork;
 use App\Services\Fulfillment\WebhookEventProcessor;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -15,7 +17,7 @@ use Illuminate\Queue\SerializesModels;
  */
 class ProcessProviderEvent implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, KeepsPersonalDataOutOfFailures, Queueable, SerializesModels;
+    use CarriesItsStorefront, Dispatchable, InteractsWithQueue, KeepsPersonalDataOutOfFailures, Queueable, SerializesModels;
 
     public int $tries = 3;
 
@@ -26,10 +28,20 @@ class ProcessProviderEvent implements ShouldQueue
 
     public function __construct(public readonly int $eventId)
     {
+        $this->carryTheCurrentStorefront();
     }
 
     public function handle(WebhookEventProcessor $processor): void
     {
         $this->withoutPersonalDataInFailures(fn () => $processor->process($this->eventId));
+    }
+    /**
+     * The market of the order the event is about. This job is the clearest case for reading the record: it is queued from
+     * `api/fulfillment-webhooks`, which is served across every country on purpose, so the dispatching request can say nothing about the
+     * market and the storefront it carries is always null. The event names the shipment, the shipment the order, the order the market.
+     */
+    protected function storefrontToServe(): ?string
+    {
+        return MarketOfTheWork::ofFulfillmentEvent(eventId: $this->eventId) ?? $this->storefrontCountry;
     }
 }
