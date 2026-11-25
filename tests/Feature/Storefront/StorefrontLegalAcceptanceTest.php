@@ -131,6 +131,64 @@ class StorefrontLegalAcceptanceTest extends TestCase
         $this->recorder()->recordIfRequired('AE', 'terms', 'ar');
     }
 
+    /**
+     * The receipt cannot be rewritten afterwards (A2-V2).
+     *
+     * The model's own comment said a row is written once and never updated, and that was all it was: every column was fillable and nothing
+     * stopped an update or a delete, so the one record of what a customer was shown and agreed to -- the version, and the hash of the text
+     * -- could be changed by any code holding the row. A receipt that can be changed is not a receipt, and this is the one a regulator or a
+     * court would be shown.
+     */
+    public function test_an_acceptance_cannot_be_changed_afterwards(): void
+    {
+        $this->requireExplicitAcceptanceFor('terms');
+        $this->publishRequiredLegalDocuments(country: 'AE');
+        $acceptance = $this->recorder()->recordIfRequired('AE', 'terms', 'ar');
+
+        foreach ([['document_version' => 99], ['document_hash' => hash('sha256', 'something else')], ['accepted_at' => now()->subYear()]] as $change) {
+            try {
+                StorefrontLegalAcceptance::query()->findOrFail($acceptance->id)->update($change);
+                $this->fail('a legal acceptance was changed: ' . json_encode($change));
+            } catch (RuntimeException $refused) {
+                $this->assertStringContainsString('cannot be changed', $refused->getMessage());
+            }
+        }
+
+        $kept = StorefrontLegalAcceptance::query()->findOrFail($acceptance->id);
+        $this->assertSame(1, $kept->document_version, 'the version the customer was shown');
+        $this->assertSame(hash('sha256', 'Approved ar text for terms'), $kept->document_hash, 'and the hash of the text itself');
+    }
+
+    /** Nor deleted: it is the only record that this customer agreed to this text at all. */
+    public function test_an_acceptance_cannot_be_deleted(): void
+    {
+        $this->requireExplicitAcceptanceFor('terms');
+        $this->publishRequiredLegalDocuments(country: 'AE');
+        $acceptance = $this->recorder()->recordIfRequired('AE', 'terms', 'ar');
+
+        try {
+            StorefrontLegalAcceptance::query()->findOrFail($acceptance->id)->delete();
+            $this->fail('a legal acceptance was deleted');
+        } catch (RuntimeException $refused) {
+            $this->assertStringContainsString('cannot be deleted', $refused->getMessage());
+        }
+
+        $this->assertSame(1, StorefrontLegalAcceptance::query()->where('id', $acceptance->id)->count());
+    }
+
+    /** A correction is a new acceptance, which is the only correction that keeps the first answer readable. */
+    public function test_a_correction_is_recorded_as_a_second_acceptance(): void
+    {
+        $this->requireExplicitAcceptanceFor('terms');
+        $this->publishRequiredLegalDocuments(country: 'AE');
+        $first = $this->recorder()->recordIfRequired('AE', 'terms', 'ar');
+
+        $second = $this->recorder()->recordIfRequired('AE', 'terms', 'ar');
+
+        $this->assertNotSame($first->id, $second->id);
+        $this->assertSame(2, StorefrontLegalAcceptance::query()->count(), 'both answers are readable');
+    }
+
     public function test_the_acceptance_names_the_legal_entity_from_configuration(): void
     {
         $this->requireExplicitAcceptanceFor('terms');
