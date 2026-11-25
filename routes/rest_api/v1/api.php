@@ -201,7 +201,9 @@ Route::get('/cash', function () {
         Route::get('fulfillments', [FulfillmentController::class, 'orderFulfillments']);
     });
 
-    Route::group(['prefix' => 'notifications'], function () {
+    // `storefront` so that the app's X-Storefront header reaches the inbox: a broadcast limited to one market must not be listed by
+    // another market's app, and a reader that is never told which market it is serving cannot narrow anything (I1-04).
+    Route::group(['prefix' => 'notifications', 'middleware' => ['storefront']], function () {
         Route::controller(NotificationController::class)->group(function () {
             Route::get('/', 'list');
             Route::get('/seen', 'notification_seen')->middleware('auth:api');

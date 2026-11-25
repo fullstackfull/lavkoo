@@ -106,9 +106,13 @@ class PushTopicNamesTest extends ApiAddressTestCase
         self::TRAIT => ['$topic'],
     ];
 
-    /** @var array<string, list<string>> the arguments of every call of the campaign push: the campaign names no topic (the default one is the topic), the demo reset names its own */
+    /**
+     * @var array<string, list<string>> the arguments of every call of the campaign push: the admin broadcast and its resend each name the
+     * topic of ONE market they are for (I1-04), which is the platform-wide `sixvalley` when the broadcast names no market -- see
+     * BroadcastMarkets::topicsFor(); the demo reset names its own
+     */
     private const CAMPAIGN_CALLS = [
-        self::CAMPAIGN_CONTROLLER => ['$notification', '$notification'],
+        self::CAMPAIGN_CONTROLLER => ['data: $notification, topic: $topic', 'data: $notification, topic: $topic'],
         self::TRAIT => ['data: $data, topic: $data[\'type\']'],
     ];
 

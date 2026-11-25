@@ -11496,4 +11496,10 @@ return [
 	'Test_Email_Sender' => 'Test e-mail',
 	'test_Mail' => 'Test mail',
 	'mail_configuration_check' => 'Mail configuration check',
+	'markets_this_notification_is_for' => 'Markets this notification is for',
+	'choose_none_to_send_to_every_market' => 'Choose none to send to every market',
+	'choose_none_to_send_to_every_market_you_work_with' => 'Choose none to send to every market you work with',
+	'markets' => 'Markets',
+	'every_market' => 'Every market',
+	'your_country_scope_grants_you_no_market_to_broadcast_to' => 'Your country scope grants you no market to broadcast to',
 ];

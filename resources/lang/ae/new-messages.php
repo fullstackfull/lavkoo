@@ -17934,4 +17934,10 @@ return [
 	'Test_Email_Sender' => 'رسالة اختبار',
 	'test_Mail' => 'بريد اختبار',
 	'mail_configuration_check' => 'التحقق من إعدادات البريد',
+	'markets_this_notification_is_for' => 'الأسواق المقصودة بهذا الإشعار',
+	'choose_none_to_send_to_every_market' => 'لا تختر شيئاً لإرساله إلى كل الأسواق',
+	'choose_none_to_send_to_every_market_you_work_with' => 'لا تختر شيئاً لإرساله إلى كل الأسواق التي تعمل بها',
+	'markets' => 'الأسواق',
+	'every_market' => 'كل الأسواق',
+	'your_country_scope_grants_you_no_market_to_broadcast_to' => 'نطاق الدول الممنوح لك لا يتيح أي سوق للإرسال إليه',
 ];

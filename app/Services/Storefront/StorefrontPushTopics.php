@@ -27,6 +27,14 @@ final class StorefrontPushTopics
     /** The platform-wide customer maintenance topic. */
     public const CUSTOMER_MAINTENANCE = 'maintenance_mode_start_user_app';
 
+    /**
+     * The platform-wide marketing topic every customer device subscribes to, and the default of `sendPushNotificationToTopic`.
+     *
+     * The name is the one the published platform shipped with and is NOT renamed here: it is what the installed app builds already subscribe
+     * to, so renaming it would silence every device until it was updated. A market's own topic is this name with its code appended (I1-04).
+     */
+    public const CUSTOMER_MARKETING = 'sixvalley';
+
     /** The seller maintenance topic of one market, or null while storefronts are off or the code is not a market. */
     public static function sellerMaintenance(?string $country): ?string
     {
@@ -37,6 +45,12 @@ final class StorefrontPushTopics
     public static function customerMaintenance(?string $country): ?string
     {
         return self::ofMarket(base: self::CUSTOMER_MAINTENANCE, country: $country);
+    }
+
+    /** The marketing topic of one market -- what an admin broadcast limited to that market is published to -- or null while storefronts are off. */
+    public static function customerMarketing(?string $country): ?string
+    {
+        return self::ofMarket(base: self::CUSTOMER_MARKETING, country: $country);
     }
 
     private static function ofMarket(string $base, ?string $country): ?string

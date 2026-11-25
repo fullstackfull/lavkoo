@@ -31,6 +31,12 @@ class NotificationRequest extends FormRequest
                 maxSize: getFileUploadMaxSize(unit: 'kb'),
                 isDisallowed: false
             ),
+            // The markets this broadcast is for (I1-04). Nothing chosen means every market, which is what a broadcast has always been.
+            // Which codes are ACCEPTED is BroadcastMarkets' answer and not a rule here, because it depends on the signed-in employee's
+            // country scope: a rule that listed the six markets would let a Kuwaiti employee name the Emirates and be refused later,
+            // which is a worse screen than one that never offered it.
+            'storefront_countries' => 'nullable|array',
+            'storefront_countries.*' => 'string|regex:/^[A-Za-z]{2}$/',
         ];
     }
 

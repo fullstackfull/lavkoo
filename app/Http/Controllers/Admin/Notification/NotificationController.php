@@ -6,6 +6,7 @@ use App\Contracts\Repositories\NotificationRepositoryInterface;
 use App\Enums\WebConfigKey;
 use App\Http\Controllers\BaseController;
 use App\Http\Requests\Admin\NotificationRequest;
+use App\Services\Notification\BroadcastMarkets;
 use App\Services\NotificationService;
 use App\Traits\FileManagerTrait;
 use App\Traits\PushNotificationTrait;
@@ -30,6 +31,7 @@ class NotificationController extends BaseController
     public function __construct(
         private readonly NotificationRepositoryInterface $notificationRepo,
         private readonly NotificationService             $notificationService,
+        private readonly BroadcastMarkets                $markets,
     )
     {
 
@@ -49,7 +51,13 @@ class NotificationController extends BaseController
             filters: ['sent_to' => 'customer'],
             dataLimit: getWebConfig(WebConfigKey::PAGINATION_LIMIT),
         );
-        return view('admin-views.notification.index', compact('searchValue', 'notifications'));
+        return view('admin-views.notification.index', [
+            'searchValue' => $searchValue,
+            'notifications' => $notifications,
+            'marketChoices' => $this->markets->choices(),
+            'mayChooseEveryMarket' => $this->markets->mayChooseEveryMarket(),
+            'broadcastMarkets' => $this->markets,
+        ]);
     }
 
     /**
@@ -63,10 +71,21 @@ class NotificationController extends BaseController
             return back();
         }
 
-        $notification = $this->notificationRepo->add(data: $this->notificationService->getNotificationAddData(request: $request));
+        if (!$this->markets->mayBroadcast()) {
+            ToastMagic::error(translate('your_country_scope_grants_you_no_market_to_broadcast_to'));
+
+            return back()->withInput();
+        }
+
+        // The markets are accepted ONCE and the same list is both stored and published to: a broadcast stored for Kuwait and published
+        // platform-wide would reach every device and then be listed only in Kuwait, which is the worst of both answers (I1-04).
+        $markets = $this->markets->accepted(chosen: $request->input('storefront_countries'));
+        $notification = $this->notificationRepo->add(data: $this->notificationService->getNotificationAddData(request: $request, markets: $markets));
         try {
             $notification['type'] = 'notification';
-            $this->sendPushNotificationToTopic($notification);
+            foreach ($this->markets->topicsFor(markets: $markets) as $topic) {
+                $this->sendPushNotificationToTopic(data: $notification, topic: $topic);
+            }
         } catch (\Exception $e) {
             ToastMagic::warning(translate('push_notification_failed'));
         }
@@ -113,7 +132,10 @@ class NotificationController extends BaseController
         $notification = $this->notificationRepo->getFirstWhere(params: ['id' => $id]);
         $this->notificationRepo->update(id: $notification['id'],
             data: $this->notificationService->getNotificationUpdateData(
-                request: $request, notificationImage: $notification['image']
+                request: $request,
+                notificationImage: $notification['image'],
+                // Absent from the form means "leave the markets as they are"; present means change them to what was chosen.
+                markets: $request->has('storefront_countries') ? $this->markets->accepted(chosen: $request->input('storefront_countries')) : null,
             )
         );
         ToastMagic::success(translate('notification_updated_successfully'));
@@ -160,7 +182,11 @@ class NotificationController extends BaseController
         try {
             $notification = $this->notificationRepo->getFirstWhere(params: ['id' => $request['id']])->toArray();
             $notification['type'] = 'notification';
-            $this->sendPushNotificationToTopic($notification);
+            // The markets the broadcast was SENT with, not the ones the person resending it happens to be able to choose: a resend repeats
+            // a message, it does not re-target it.
+            foreach ($this->markets->topicsFor(markets: $this->markets->of(stored: $notification[BroadcastMarkets::COLUMN] ?? null)) as $topic) {
+                $this->sendPushNotificationToTopic(data: $notification, topic: $topic);
+            }
             $count = $notification['notification_count'] += 1;
             $this->notificationRepo->update(id: $notification['id'], data: ['notification_count' => $count]);
             $data['success'] = true;
