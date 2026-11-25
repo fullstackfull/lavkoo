@@ -12,6 +12,7 @@ use App\Services\Shipping\ProductDestinationPermission;
 use App\Services\Shipping\RegulatedShippingGate;
 use App\Services\Storefront\StorefrontCatalog;
 use App\Services\Storefront\StorefrontVisibility;
+use App\Services\Theme\LocalisedSettings;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
@@ -28,6 +29,10 @@ abstract class TestCase extends BaseTestCase
         FulfillmentSchema::flush();
         AddressSchema::flush();
         StorefrontCatalog::flush();
+        // The shop's installed language list, memoised statically because `collapse()` is called once per section of every page. A test that
+        // builds its own `business_settings` would otherwise be answered the list of whichever test built one before it -- which is the same
+        // class of leak as the schema memos above, and showed up as a storefront list reporting another test's languages.
+        LocalisedSettings::forget();
 
         // The shipping services remember what they read about the schema, because a cart of twenty lines must not ask the database twenty
         // times whether a column exists. On SQLite each test starts from an empty database and the question is asked again; on a real

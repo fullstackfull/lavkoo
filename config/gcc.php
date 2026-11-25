@@ -280,6 +280,18 @@ return [
         // platform has not installed is ignored rather than bound, because translate() would write language files for it.
         'language' => [
             'by_country' => [],
+            // The languages each market PRESENTS, in the order an operator listed them (I1-16). EMPTY as it ships, so every market presents
+            // whatever the platform's own language list presents -- which is the platform of today and the only answer a single-market shop
+            // can give. A market is listed here once somebody has decided which languages it offers, e.g. 'KW' => ['ar', 'en'].
+            //
+            // What a list buys is not a longer menu: it is the rule that a market never writes to a customer in a language its own storefront
+            // does not offer. A customer whose stored language is one the market does not present is written to in that MARKET's language
+            // (`by_country` above, else the first of this list) rather than in one its pages are not translated into.
+            //
+            // A locale the platform has not installed is dropped rather than offered, for the same reason a default is: translate() would
+            // write language files for a locale nobody can read. The DIRECTION is not here -- it is declared per locale by the platform's own
+            // language list, which is where the website already reads it, and deriving it from the language code is what that test forbids.
+            'lists_by_country' => [],
         ],
 
         'legal' => [
