@@ -8695,6 +8695,7 @@ return [
 	'clearance_reference' => 'Clearance reference',
 	'a_clearance_is_required_for' => 'A clearance is required for',
 	'shipping_duty_could_not_be_determined' => 'Customs duty for that country could not be determined, so this order cannot be placed.',
+	'shipping_no_carrier_serves_this_city' => 'No carrier delivers to that city.',
 	'customs_duty' => 'Customs duty',
 	'customs_duty_is_paid_by_you_on_delivery' => 'Customs duty is paid by you when the parcel is delivered.',
 	'customs_duty_is_paid_by_the_seller' => 'Customs duty is paid by the seller.',

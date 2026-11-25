@@ -44,6 +44,9 @@ final class ShippingRefusal
     /** H1-09: nobody has written a duty rule for this route, and a duty that cannot be determined is not a duty of zero. */
     public const DUTY_NOT_QUOTED = 'shipping_duty_could_not_be_determined';
 
+    /** H1-05: the carrier of this line has no approved mapping for the destination city, so it cannot deliver there. */
+    public const NO_CARRIER_SERVES_THIS_CITY = 'shipping_no_carrier_serves_this_city';
+
     /**
      * The whole vocabulary, read from the constants above so the list cannot fall behind them.
      *

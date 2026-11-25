@@ -95,7 +95,7 @@ class OrderController extends Controller
             ->whereKey($request['address_id'])
             ->first();
 
-        $decision = app(ShippingEligibility::class)->decide($cartGroupIds, $address?->country);
+        $decision = app(ShippingEligibility::class)->decide($cartGroupIds, $address?->country, $address?->city_id);
 
         if ($decision->allowed) {
             return null;

@@ -98,9 +98,13 @@ class WebController extends Controller
         }
 
         $addressId = $request['address_id'] ?? session('address_id');
-        $destination = $addressId === null ? null : ShippingAddress::query()->whereKey($addressId)->value('country');
+        $address = $addressId === null ? null : ShippingAddress::query()->whereKey($addressId)->first(['country', 'city_id']);
 
-        $decision = app(ShippingEligibility::class)->decide(CartManager::get_cart_group_ids(request: $request, type: 'checked'), $destination);
+        $decision = app(ShippingEligibility::class)->decide(
+            CartManager::get_cart_group_ids(request: $request, type: 'checked'),
+            $address?->country,
+            $address?->city_id,
+        );
 
         return $decision->allowed ? null : translate($decision->reasons[0]);
     }

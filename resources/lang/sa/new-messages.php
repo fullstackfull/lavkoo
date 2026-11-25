@@ -2218,6 +2218,7 @@ ____________________________________________________on_search_engines_and_see_th
 	'clearance_reference' => 'مرجع التصريح',
 	'a_clearance_is_required_for' => 'يلزم تصريح لـ',
 	'shipping_duty_could_not_be_determined' => 'لا يمكن تحديد الرسوم الجمركية لذلك البلد، فلا يمكن إتمام هذا الطلب.',
+	'shipping_no_carrier_serves_this_city' => 'لا يوجد ناقل يوصّل إلى تلك المدينة.',
 	'customs_duty' => 'الرسوم الجمركية',
 	'customs_duty_is_paid_by_you_on_delivery' => 'تُدفع الرسوم الجمركية منك عند تسليم الشحنة.',
 	'customs_duty_is_paid_by_the_seller' => 'تُدفع الرسوم الجمركية من البائع.',

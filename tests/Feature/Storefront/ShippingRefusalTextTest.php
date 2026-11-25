@@ -22,7 +22,7 @@ class ShippingRefusalTextTest extends TestCase
     /** Arabic for the Gulf (`ae`) and for Saudi Arabia (`sa`) are separate files on this platform, and a refusal has to exist in both. */
     private const LANGUAGES = ['en', 'sa', 'ae'];
 
-    private const HOW_MANY_REASONS = 10;
+    private const HOW_MANY_REASONS = 11;
 
     /** @return list<string> */
     private function reasonKeys(): array
@@ -49,7 +49,7 @@ class ShippingRefusalTextTest extends TestCase
     public function test_no_service_refuses_with_a_key_outside_the_vocabulary(): void
     {
         $known = $this->reasonKeys();
-        $columns = ['shipping_address_data', 'shipping_kind', 'shipping_decision'];
+        $columns = ['shipping_address_data', 'shipping_kind', 'shipping_decision', 'shipping_addresses', 'shipping_rate_source', 'shipping_type', 'shipping_cost', 'shipping_method'];
         $files = glob(app_path('Services/Shipping/*.php')) ?: [];
 
         $this->assertNotSame([], $files, 'there is a shipping engine to scan');

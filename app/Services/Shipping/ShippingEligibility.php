@@ -2,6 +2,7 @@
 
 namespace App\Services\Shipping;
 
+use App\Services\Fulfillment\ProviderCityMappingService;
 use App\Services\Fulfillment\Support\ProviderRouteSupport;
 use App\Services\Storefront\StorefrontCatalog;
 use App\Services\Storefront\StorefrontResolver;
@@ -44,13 +45,13 @@ final class ShippingEligibility
      *
      * @param list<int|string> $cartGroupIds the cart groups that will become orders
      */
-    public function decide(array $cartGroupIds, ?string $destination): EligibilityDecision
+    public function decide(array $cartGroupIds, ?string $destination, ?int $cityId = null): EligibilityDecision
     {
         if (!self::isOn()) {
             return EligibilityDecision::local();
         }
 
-        return $this->decideFor(lines: $this->linesOf($cartGroupIds), destination: $destination);
+        return $this->decideFor(lines: $this->linesOf($cartGroupIds), destination: $destination, cityId: $cityId);
     }
 
     /**
@@ -58,7 +59,7 @@ final class ShippingEligibility
      *
      * @param list<object> $lines
      */
-    private function decideFor(array $lines, ?string $destination): EligibilityDecision
+    private function decideFor(array $lines, ?string $destination, ?int $cityId = null): EligibilityDecision
     {
         $to = self::country($destination);
 
@@ -97,6 +98,10 @@ final class ShippingEligibility
                 $reasons[] = ShippingRefusal::NO_CARRIER_SERVES_THIS_ROUTE;
             }
 
+            if (!$this->cityIsServed(provider: $line->provider, cityId: $cityId)) {
+                $reasons[] = ShippingRefusal::NO_CARRIER_SERVES_THIS_CITY;
+            }
+
             // H1-09's own rule, asked before payment: a route whose duty cannot be determined refuses the order and never charges zero.
             // It is a question about the ROUTE and not about the basket's total, which is why it can be asked here at all -- the amount is
             // computed where the order's value is known. Only `strict` refuses; `declare` records the quote and lets the order through.
@@ -108,6 +113,28 @@ final class ShippingEligibility
         $kind = $crossesABorder ? EligibilityDecision::CROSS_BORDER : EligibilityDecision::LOCAL;
 
         return $reasons === [] ? new EligibilityDecision(kind: $kind, allowed: true) : EligibilityDecision::refused(kind: $kind, reasons: $reasons);
+    }
+
+    /**
+     * Whether the carrier of this line can actually deliver to the destination CITY (H1-05).
+     *
+     * The dispatcher has always known this -- it holds a shipment with `hold_city_unmapped` when the provider has no approved mapping for
+     * the city -- but it knew it after the customer had paid. A city a carrier cannot reach is a fact available at checkout, and refusing
+     * there is the difference between a customer choosing another address and a customer waiting for a parcel that was never going to move.
+     *
+     * It answers "served" wherever it cannot judge, which is the only honest answer in those cases and keeps every shop unchanged: a line
+     * with no carrier, an address with no city id -- which is every free-text address until H1-10 gives the other markets structure -- and
+     * a shop whose address and mapping tables have not been migrated.
+     */
+    private function cityIsServed(?string $provider, ?int $cityId): bool
+    {
+        if ($provider === null || $cityId === null) {
+            return true;
+        }
+
+        $mappings = app(ProviderCityMappingService::class);
+
+        return !$mappings->available() || $mappings->approvedFor($provider, $cityId) !== null;
     }
 
     /**
@@ -124,7 +151,11 @@ final class ShippingEligibility
             return EligibilityDecision::local();
         }
 
-        return $this->decideFor(lines: $this->orderLinesOf($orderId), destination: self::destinationOfOrder($orderId));
+        return $this->decideFor(
+            lines: $this->orderLinesOf($orderId),
+            destination: self::destinationOfOrder($orderId),
+            cityId: self::cityOfOrder($orderId),
+        );
     }
 
     /**
@@ -156,10 +187,26 @@ final class ShippingEligibility
     /** The country the order is going to, out of the address copy the order keeps, which is the address as it was that day. */
     private static function destinationOfOrder(int|string $orderId): ?string
     {
+        $address = self::addressOfOrder($orderId);
+
+        return $address === null ? null : self::country($address['country'] ?? null);
+    }
+
+    /** The city of that same copy, where it has one. A free-text address has none, and then the carrier's coverage cannot be judged. */
+    private static function cityOfOrder(int|string $orderId): ?int
+    {
+        $cityId = self::addressOfOrder($orderId)['city_id'] ?? null;
+
+        return is_numeric($cityId) && (int) $cityId > 0 ? (int) $cityId : null;
+    }
+
+    /** @return array<string, mixed>|null the address as it was on the day the order was placed */
+    private static function addressOfOrder(int|string $orderId): ?array
+    {
         $stored = DB::table('orders')->where('id', $orderId)->value('shipping_address_data');
         $address = is_string($stored) ? json_decode($stored, associative: true) : null;
 
-        return is_array($address) ? self::country($address['country'] ?? null) : null;
+        return is_array($address) ? $address : null;
     }
 
     /**

@@ -37,6 +37,11 @@ class ShippingEligibilityTest extends TestCase
 
     private const ABROAD = 'KW';
 
+    /** Every table the city coverage is read from; the service answers "cannot judge" until they all exist. */
+    private const CITY_TABLES = [
+        'provider_city_mappings', 'provider_city_sync_runs', 'provider_cities', 'address_city_aliases', 'address_cities', 'address_regions',
+    ];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -51,7 +56,7 @@ class ShippingEligibilityTest extends TestCase
 
     protected function tearDown(): void
     {
-        foreach (['product_destination_permissions', 'carts', 'products'] as $table) {
+        foreach ([...self::CITY_TABLES, 'product_destination_permissions', 'carts', 'products'] as $table) {
             Schema::dropIfExists($table);
         }
         ProductDestinationPermission::forget();
@@ -326,6 +331,121 @@ class ShippingEligibilityTest extends TestCase
 
             $this->assertTrue($this->decide(self::ABROAD)->allowed, "{$mode} refuses nothing");
         }
+    }
+
+    /**
+     * H1-05's last criterion: a city no carrier delivers to is refused at CHECKOUT, not held after payment.
+     *
+     * The dispatcher has always known this and held the shipment with `hold_city_unmapped` -- after the customer paid. The fact was
+     * available at checkout all along, and refusing there is the difference between a customer choosing another address and a customer
+     * waiting for a parcel that was never going to move.
+     */
+    public function test_a_city_the_carrier_does_not_serve_is_refused_at_checkout(): void
+    {
+        $this->crossBorderIsOpen();
+        config(['fulfillment.providers.courier_abroad.routes' => [self::HOME . ':' . self::ABROAD]]);
+        $this->aLineOf(market: self::HOME, provider: 'courier_abroad');
+        $this->permit(self::ABROAD);
+        $this->buildCityMappings(approvedCityId: 77);
+
+        $refused = $this->decideForCity(cityId: 91);
+        $served = $this->decideForCity(cityId: 77);
+
+        $this->assertSame([ShippingRefusal::NO_CARRIER_SERVES_THIS_CITY], $refused->reasons);
+        $this->assertTrue($served->allowed, 'and a city the carrier does serve goes through');
+    }
+
+    /** Where the coverage cannot be judged, nothing is refused: that is every shop today and every free-text address. */
+    public function test_an_unjudgeable_city_is_never_a_refusal(): void
+    {
+        $this->crossBorderIsOpen();
+        config(['fulfillment.providers.courier_abroad.routes' => [self::HOME . ':' . self::ABROAD]]);
+        $this->aLineOf(market: self::HOME, provider: 'courier_abroad');
+        $this->permit(self::ABROAD);
+        $this->buildCityMappings(approvedCityId: 77);
+
+        $this->assertTrue($this->decideForCity(cityId: null)->allowed, 'a free-text address names no city');
+
+        foreach (self::CITY_TABLES as $table) {
+            Schema::dropIfExists($table);
+        }
+        \App\Services\Address\AddressSchema::flush();
+
+        $this->assertTrue($this->decideForCity(cityId: 91)->allowed, 'and a shop that has not migrated cannot be asked');
+    }
+
+    private function decideForCity(?int $cityId)
+    {
+        return app(ShippingEligibility::class)->decide([self::GROUP], self::ABROAD, $cityId);
+    }
+
+    /**
+     * The tables the city coverage is read from, with one city approved for the carrier under test.
+     *
+     * All of them, because ProviderCityMappingService answers "cannot judge" until the whole address and mapping set has been migrated
+     * (AddressSchema::available): the masters, the mapping tables and the columns a provider's city list is promoted into.
+     */
+    private function buildCityMappings(int $approvedCityId): void
+    {
+        foreach (self::CITY_TABLES as $table) {
+            Schema::dropIfExists($table);
+        }
+
+        Schema::create('address_city_aliases', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('address_city_id');
+            $table->string('alias')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('provider_city_sync_runs', function (Blueprint $table): void {
+            $table->id();
+            $table->string('provider')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('provider_cities', function (Blueprint $table): void {
+            $table->id();
+            $table->string('provider')->nullable();
+            $table->string('external_city_id')->nullable();
+            $table->string('region_name_ar')->nullable();
+            $table->string('region_name_en')->nullable();
+            $table->string('prefix')->nullable();
+            $table->boolean('is_selected')->default(false);
+            $table->timestamp('last_seen_at')->nullable();
+            $table->timestamp('missing_since')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('address_regions', function (Blueprint $table): void {
+            $table->id();
+            $table->string('name')->nullable();
+            $table->string('country_code', 2)->nullable();
+            $table->timestamps();
+        });
+        Schema::create('address_cities', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('region_id')->nullable();
+            $table->string('name')->nullable();
+            $table->string('country_code', 2)->nullable();
+            $table->timestamps();
+        });
+        Schema::create('provider_city_mappings', function (Blueprint $table): void {
+            $table->id();
+            $table->string('provider');
+            $table->unsignedBigInteger('address_city_id');
+            $table->string('external_city_id')->nullable();
+            $table->string('status')->default('approved');
+            $table->string('country_code', 2)->nullable();
+            $table->timestamps();
+        });
+
+        DB::table('address_cities')->insert([
+            ['id' => $approvedCityId, 'name' => 'Served city', 'country_code' => self::ABROAD],
+            ['id' => 91, 'name' => 'Unserved city', 'country_code' => self::ABROAD],
+        ]);
+        DB::table('provider_city_mappings')->insert([
+            'provider' => 'courier_abroad', 'address_city_id' => $approvedCityId, 'external_city_id' => 'X1', 'status' => 'approved',
+        ]);
+        \App\Services\Address\AddressSchema::flush();
     }
 
     /** A domestic order is never asked about duty, however strict the mode: nothing crosses a border, so nothing is due. */
