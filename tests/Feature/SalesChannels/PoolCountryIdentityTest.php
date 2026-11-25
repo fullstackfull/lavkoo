@@ -23,7 +23,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Sleep;
-use Tests\Support\BuildsRemoteOrders;
+use RuntimeException;
 use Tests\Support\BuildsSalesChannelSchema;
 use Tests\Support\BuildsStockPools;
 use Tests\Support\CreatesChannelAccounts;
@@ -43,7 +43,6 @@ use Tests\TestCase;
  */
 class PoolCountryIdentityTest extends TestCase
 {
-    use BuildsRemoteOrders;
     use BuildsSalesChannelSchema;
     use BuildsStockPools;
     use CreatesChannelAccounts;
@@ -396,6 +395,62 @@ class PoolCountryIdentityTest extends TestCase
             'the default market\'s pool still holds it',
         );
         $this->assertSame([], app(PoolMembers::class)->of($this->keyFor(self::KUWAITI_PRODUCT), $this->kuwaitiShelf()), 'Kuwait\'s pool does not');
+    }
+
+    /**
+     * The rollback. It refuses while a pool names a market -- losing the column would both forget whose stock a pool was dividing and
+     * collide two markets' pools on the old key -- and otherwise puts the table back exactly as it was.
+     */
+    public function test_the_rollback_refuses_while_a_pool_names_a_market(): void
+    {
+        $this->marketsExist();
+        config(['gcc.storefronts.enabled' => true]);
+        $this->forgetMarkets();
+        app(DirtyPools::class)->mark([$this->keyFor(self::KUWAITI_PRODUCT)]);
+        $migration = require database_path('migrations/2027_01_07_100000_add_market_to_inventory_pools.php');
+
+        $refusal = null;
+
+        try {
+            $migration->down();
+        } catch (RuntimeException $refused) {
+            $refusal = $refused->getMessage();
+        }
+
+        $this->assertStringContainsString(
+            'Rolling this migration back would forget which',
+            (string) $refusal,
+            'a pool names a market, so the rollback must refuse rather than forget which',
+        );
+
+        InventoryPool::query()->delete();
+        $migration->down();
+        $this->forgetMarkets();
+
+        $this->assertFalse(Schema::hasColumn('inventory_pools', PoolKey::MARKET_COLUMN), 'with no market named, the column goes');
+        $this->assertSame(['location_id', 'product_id', 'variant_key'], array_keys($this->keyFor(self::KUWAITI_PRODUCT)->poolColumns()), 'and a key stops writing it');
+    }
+
+    /**
+     * The limit of all this, said out loud: with the DIVISION switched off, the pool's market narrows nothing.
+     *
+     * `sales_channels.stock.allocation.enabled` is the rollback switch, and off it every listing is offered the pool's whole net without the
+     * members ever being asked -- which is where the market question is answered. An account that NAMES another market is still refused
+     * there, by the gate, before the switch is even read; an account that names NONE is not, so on that path it is offered a market's whole
+     * net. Pinned as it is rather than changed: making the rollback path narrow would make it a different path than the one it rolls back to.
+     */
+    public function test_with_the_division_switched_off_the_pools_market_narrows_nothing_currently(): void
+    {
+        $this->marketsExist();
+        config(['gcc.storefronts.enabled' => true, 'sales_channels.stock.allocation.enabled' => false]);
+        $this->forgetMarkets();
+        $nameless = $this->accountOf('1111111', '');
+        $this->listing($nameless, self::KUWAITI_PRODUCT);
+
+        $sent = $this->published($nameless);
+
+        $this->assertSame(self::KUWAITI_UNITS, $sent[$this->barcode($nameless, self::KUWAITI_PRODUCT)] ?? null, 'currently: the whole Kuwaiti net, to an account that names no market');
+        $this->assertSame([], app(PoolMembers::class)->of($this->keyFor(self::KUWAITI_PRODUCT), $this->kuwaitiShelf()), 'while the pool itself gives it nothing');
     }
 
     /** Two markets' pools of one shelf and one product can both exist: the old unique key, which named no market, could not hold them. */
