@@ -138,6 +138,19 @@ class ProviderConnectionManager
     }
 
     /**
+     * The id of the account an operation for this country runs against, or null while the carrier has no account at all (C-04).
+     *
+     * One number that says WHICH account, for a record that has to stay true after the account's settings change: `integration_settings`
+     * is unique on (provider, country), so the row is the account, and the fallback is the same one every reader here uses -- the
+     * country's own row where it has one, otherwise the platform-wide row. A snapshot keeps the id rather than the pair because the pair
+     * can be rewritten (a platform-wide account given a country) while an id cannot.
+     */
+    public function accountIdFor(ProviderIdentity $provider, ?string $country = null): ?int
+    {
+        return $this->rowFor(provider: $provider, country: $country)?->id;
+    }
+
+    /**
      * The countries this carrier has an account of its OWN for, in order. The platform-wide row is not one of them: it is what every country
      * without an account falls back to, and calling it a country would make a one-account platform look as though it served none.
      *

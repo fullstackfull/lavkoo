@@ -292,8 +292,8 @@
         },
         "inventory_locations": {
             "scope": "warehouse",
-            "by": "id",
-            "why": "the anchor itself carries no country: G1-05 records that gap"
+            "by": "id; the shelf itself now names its market and its selling company (storefront_country, legal_entity_id; 2026_12_27_100000)",
+            "why": "G1-05 recorded that the anchor carried no country, which was true when it was written: the only way to ask which market a stock figure belonged to was through the PRODUCT, which answers for the units and never for the shelf. InventoryLocationMarket reads the column now, by StorefrontMarketRows' rule, and an unmarked row is the default storefront's."
         },
         "inventory_pools": {
             "scope": "derived",
@@ -528,8 +528,9 @@
             "by": "provider_fulfillment_id"
         },
         "provider_fulfillment_items": {
-            "scope": "derived",
-            "by": "provider_fulfillment_id"
+            "scope": "country",
+            "by": "storefront_country, with fulfillment_account_id naming the carrier account (2027_01_02_100000)",
+            "why": "C-04: the line was derived through provider_fulfillment_id, which answers which carrier and never which market. A row written before that migration names neither, and OwnershipHistory is the written rule for reading one: the default storefront, and the carrier's platform-wide account. Nothing backfills, because that emptiness is what tells a pre-market order from a Saudi one."
         },
         "provider_fulfillments": {
             "scope": "provider_account",

@@ -306,7 +306,7 @@ class ChannelDispatchTest extends DispatchTestCase
 
     public function test_a_failure_in_the_middle_of_making_the_order_leaves_nothing_behind(): void
     {
-        $this->app->bind(\App\Services\Fulfillment\OrderItemOwnershipSnapshotter::class, fn () => new class(app(\App\Services\Fulfillment\Support\ProviderCurrency::class)) extends \App\Services\Fulfillment\OrderItemOwnershipSnapshotter {
+        $this->app->bind(\App\Services\Fulfillment\OrderItemOwnershipSnapshotter::class, fn () => new class(app(\App\Services\Fulfillment\Support\ProviderCurrency::class), app(\App\Services\Fulfillment\ProviderRegistry::class), app(\App\Services\Fulfillment\ProviderConnectionManager::class)) extends \App\Services\Fulfillment\OrderItemOwnershipSnapshotter {
             public function capture(int $orderId, int $orderDetailId, array $product, ?string $variant, int $quantity, float $unitPrice, float $netAmount, float $lineTax, string $taxModel): ?\App\Models\ProviderFulfillmentItem
             {
                 throw new \RuntimeException('the snapshot could not be written');

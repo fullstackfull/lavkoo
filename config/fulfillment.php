@@ -76,6 +76,24 @@ return [
     'settlement_currency' => env('FULFILLMENT_SETTLEMENT_CURRENCY', App\Services\Fulfillment\Support\WhatACourierIsPaidIn::AS_CONFIGURED_TODAY),
 
     /*
+    | What the CHECKOUT does with a line whose stored execution source this installation cannot resolve (C-03, finding E11-F05).
+    |
+    | `products.fulfillment_provider` is free text. A carrier taken out of `providers` below while products still name it, an import
+    | that wrote a supplier's own spelling, or a hand edit all leave a value nothing can route. Such a line used to be packed
+    | in-house without a word -- the one outcome nobody chose. The admin product list already shows it as its own state; the
+    | checkout's answer is the owner's decision, because the two safe ones fail in opposite directions:
+    |
+    |   'in_house_today'  the default: packed in-house, no ownership snapshot, the order is placed. The platform as it runs now
+    |   'refuse'          the checkout refuses the line, which rolls the order transaction back. Nothing is sold that nobody can ship
+    |   'hold'            the order is placed and the line is frozen unrouted, so a person looks at it before anything ships
+    |
+    | A carrier DECLARED in `providers` below is not an unknown source, whether or not it has a case in ProviderCode: the registry
+    | answers for it and its lines are snapshotted like any other. An unrecognised value here is read as the default, so a typo in
+    | the environment cannot stop a checkout.
+    */
+    'unknown_source' => env('FULFILLMENT_UNKNOWN_SOURCE', App\Services\Fulfillment\Support\WhatAnUnknownSourceDoes::IN_HOUSE_TODAY),
+
+    /*
     | Codes the store's own currency table may use for a currency that providers know by its ISO code. This store's riyal is
     | stored as "KSA" (the country, not the currency): it is the same money as SAR, so an amount in it needs no conversion, and a
     | provider is always sent the ISO code. The map is read in one direction only (store spelling => ISO code); it never changes a
