@@ -6,9 +6,14 @@ use App\Enums\Address\AddressChannel;
 use App\Services\Address\AddressCatalog;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\AddressText;
+use App\Services\Address\CheckoutAddressGuard;
+use App\Services\Address\StorefrontAddressService;
+use App\Models\ShippingAddress;
+use App\Services\Shipping\CrossBorderPolicy;
 use App\Services\ShippingAddressService;
 use App\Services\Storefront\StorefrontContext;
 use App\Services\Storefront\StorefrontResolver;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -218,6 +223,96 @@ class MarketAddressRulesTest extends AddressTestCase
             static fn (object $city): string => (string) $city->name_en,
             $this->contextOf($market)->serve(fn () => $this->catalog()->searchCities(query: $query))->all(),
         );
+    }
+
+    // ---- A2-12: a saved address the storefront cannot deliver to -----------------------------------------------------
+
+    /**
+     * Dormant, and this is the case that matters: with the cross-border engine off -- which is how the platform ships -- a saved address
+     * in another country is exactly as orderable as it has always been.
+     */
+    public function test_with_cross_border_off_every_saved_address_is_as_deliverable_as_it_has_always_been(): void
+    {
+        $this->switchStorefrontsOn();
+        $kuwaiti = $this->saveAddressIn('Kuwait');
+
+        $this->assertTrue(app(StorefrontAddressService::class)->storefrontCanDeliverTo($kuwaiti));
+        $this->assertSame([], $this->contextOf('SA')->serve(fn (): array => app(CheckoutAddressGuard::class)->problems($kuwaiti, AddressChannel::Web)));
+    }
+
+    public function test_an_address_in_a_country_the_storefront_is_not_open_to_is_refused_at_checkout(): void
+    {
+        $this->switchStorefrontsOn();
+        $this->crossBorderIsOn(openTo: []);
+        $kuwaiti = $this->saveAddressIn('Kuwait');
+
+        $problems = $this->contextOf('SA')->serve(fn (): array => app(CheckoutAddressGuard::class)->problems($kuwaiti, AddressChannel::Web));
+
+        $this->assertSame([CrossBorderPolicy::REFUSAL], $problems);
+        $this->assertNotSame(
+            CrossBorderPolicy::REFUSAL,
+            translate(CrossBorderPolicy::REFUSAL),
+            'the customer is told a reason and not a key: the engine and the address book refuse in the same words',
+        );
+    }
+
+    /** The refusal's twin, which is what makes it a refusal of the destination and not of the address. */
+    public function test_that_same_address_is_orderable_once_the_owner_opens_that_destination(): void
+    {
+        $this->switchStorefrontsOn();
+        $this->crossBorderIsOn(openTo: ['KW']);
+        $kuwaiti = $this->saveAddressIn('Kuwait');
+
+        $this->assertSame([], $this->contextOf('SA')->serve(fn (): array => app(CheckoutAddressGuard::class)->problems($kuwaiti, AddressChannel::Web)));
+    }
+
+    public function test_an_address_in_the_storefronts_own_country_is_never_refused_for_its_destination(): void
+    {
+        $this->switchStorefrontsOn();
+        $this->crossBorderIsOn(openTo: []);
+        $saudi = $this->saveAddressIn('Saudi Arabia');
+
+        $this->assertSame([], $this->contextOf('SA')->serve(fn (): array => app(CheckoutAddressGuard::class)->problems($saudi, AddressChannel::Web)));
+    }
+
+    /** And the address LIST says which of them it is, so a customer can tell "fix this one" from "use a different one". */
+    public function test_the_address_list_flags_the_ones_this_storefront_cannot_deliver_to(): void
+    {
+        $this->switchStorefrontsOn();
+        $this->crossBorderIsOn(openTo: []);
+        $saudi = $this->saveAddressIn('Saudi Arabia');
+        $kuwaiti = $this->saveAddressIn('Kuwait');
+        $addresses = new EloquentCollection([$saudi, $kuwaiti]);
+
+        $this->contextOf('SA')->serve(function () use ($addresses, $kuwaiti, $saudi): void {
+            $service = app(StorefrontAddressService::class);
+
+            $this->assertSame([$kuwaiti->getKey()], $service->undeliverableAddressIds($addresses));
+            $this->assertStringContainsString('"storefront_can_deliver":false', $service->prefillJson($kuwaiti));
+            $this->assertStringContainsString('"storefront_can_deliver":true', $service->prefillJson($saudi));
+        });
+    }
+
+    private function crossBorderIsOn(array $openTo): void
+    {
+        config([
+            'gcc.shipping.cross_border.enabled' => true,
+            'gcc.shipping.cross_border.pairs' => $openTo === [] ? [] : ['SA' => $openTo],
+        ]);
+        CrossBorderPolicy::forget();
+    }
+
+    private function saveAddressIn(string $country): ShippingAddress
+    {
+        return ShippingAddress::create([
+            'customer_id' => '1',
+            'contact_person_name' => 'Sara',
+            'address_type' => 'home',
+            'address' => 'A street',
+            'city' => 'A city',
+            'country' => $country,
+            'phone' => '0551234567',
+        ]);
     }
 
     private function contextOf(string $market): StorefrontContext

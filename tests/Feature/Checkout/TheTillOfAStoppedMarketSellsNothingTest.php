@@ -293,6 +293,28 @@ class TheTillOfAStoppedMarketSellsNothingTest extends ApiAddressTestCase
         $this->assertTheSaleWentThrough($this->sellOverTheCounter());
     }
 
+    /**
+     * Before the market column exists, which is every installation today, the till sells exactly as it always has.
+     *
+     * This is the dormancy of the migration rather than of the switch: a product carries no market to read, so the rule has no market to
+     * judge and answers null. It is pinned here because the alternative reading -- treating a product that names nothing as the DEFAULT
+     * market's and judging it against that market's lifecycle -- would refuse every Saudi till sale on any installation where nobody had
+     * yet made the default market active, which is a behaviour change introduced by a column that is not there.
+     */
+    public function test_before_the_market_column_exists_the_till_sells_as_it_does_today(): void
+    {
+        $this->switchMarketsOn();
+        $this->activateStorefrontFor('SA');
+        $this->stockTheCounter(market: self::MARKET);
+
+        Schema::table('products', static function (Blueprint $table): void {
+            $table->dropColumn(StorefrontCatalog::COLUMN);
+        });
+        StorefrontCatalog::flush();
+
+        $this->assertTheSaleWentThrough($this->sellOverTheCounter());
+    }
+
     // ---------------------------------------------------------------- the rule asked directly
 
     public function test_the_rule_names_the_market_that_may_not_sell_and_nothing_otherwise(): void

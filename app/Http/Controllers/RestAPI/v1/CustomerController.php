@@ -20,6 +20,8 @@ use App\Models\SupportTicketConv;
 use App\Models\Wishlist;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\AddressSnapshot;
+use App\Services\Address\StorefrontAddressService;
+use App\Services\Shipping\ShippingEligibility;
 use App\Services\CustomerAccountDeletionGuardService;
 use App\Services\CustomerAccountDeletionService;
 use App\Services\DigitalFileAddressService;
@@ -320,7 +322,27 @@ class CustomerController extends Controller
     {
         $addresses = $this->ownAddresses(request: $request)->get();
 
-        return response()->json(AddressSchema::enabled() ? $addresses->map(fn (ShippingAddress $address): array => AddressSnapshot::build($address))->values() : $addresses, 200);
+        // A2-12: each saved address says whether the storefront this request is served from can deliver to it, and the checkout refuses
+        // the ones it cannot by the same rule. Added only while the cross-border engine is ON: with it off the question does not arise,
+        // every saved address is deliverable, and this answer stays byte for byte the one an unmigrated store has always given.
+        $undeliverable = ShippingEligibility::isOn() ? app(StorefrontAddressService::class)->undeliverableAddressIds($addresses) : null;
+        $flagOf = static fn (ShippingAddress $address): array => $undeliverable === null
+            ? []
+            : ['storefront_can_deliver' => !in_array($address->getKey(), $undeliverable, true)];
+
+        if (!AddressSchema::enabled()) {
+            return response()->json(
+                $undeliverable === null
+                    ? $addresses
+                    : $addresses->map(static fn (ShippingAddress $address): array => $address->toArray() + $flagOf($address))->values(),
+                200,
+            );
+        }
+
+        return response()->json(
+            $addresses->map(static fn (ShippingAddress $address): array => AddressSnapshot::build($address) + $flagOf($address))->values(),
+            200,
+        );
     }
 
     public function add_new_address(Request $request):JsonResponse

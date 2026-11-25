@@ -19,6 +19,9 @@ class ChannelUnavailableException extends RuntimeException
     public const UNREGISTERED_OPERATION = 'unregistered_operation';
     public const AUTH_NEEDED = 'auth_needed';
     public const BUYER_DATA_OFF = 'buyer_data_off';
+
+    /** H2-12: the market this account sells in has been paused, or is not open for sale yet. A per-market stop, not a per-account one. */
+    public const MARKET_STOPPED = 'market_stopped';
     /** The account is missing a setting the call cannot be made without — a different problem from a capability nobody switched on, and reported as a different one. */
     public const SETTING_MISSING = 'setting_missing';
     /**

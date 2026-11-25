@@ -3,6 +3,7 @@
 namespace Tests\Feature\Storefront;
 
 use App\Models\ProductDestinationPermission as PermissionRow;
+use App\Services\Shipping\CrossBorderPolicy;
 use App\Services\Shipping\EligibilityDecision;
 use App\Services\Shipping\CustomsDuty;
 use App\Services\Shipping\ProductDestinationPermission;
@@ -99,7 +100,12 @@ class ShippingEligibilityTest extends TestCase
 
     private function crossBorderIsOpen(): void
     {
-        config(['gcc.shipping.cross_border.enabled' => true]);
+        // H1-01: the engine being on is not permission to sell abroad -- the owner's pair list is, and it ships empty. This file is about
+        // the other rules, so the Saudi storefront's pairs are opened here; the gate itself has its own file (CrossBorderPolicyTest).
+        config([
+            'gcc.shipping.cross_border.enabled' => true,
+            'gcc.shipping.cross_border.pairs' => [self::HOME => [CrossBorderPolicy::EVERY_DESTINATION]],
+        ]);
     }
 
     private function permit(string $destination, int $productId = 1): void
@@ -126,6 +132,63 @@ class ShippingEligibilityTest extends TestCase
             $this->assertSame(EligibilityDecision::LOCAL, $decision->kind);
             $this->assertSame([], $decision->reasons);
         }
+    }
+
+    /**
+     * H1-01 at the engine every surface asks: with no pair open, a storefront sells inside its own country and nowhere else.
+     *
+     * Everything else a border needs is in place here -- all three product permissions granted -- so the only thing refusing this order is
+     * the shop's own right to trade there, which is the requirement's own sentence and the question nothing used to ask.
+     */
+    public function test_with_no_pair_open_a_basket_going_abroad_is_refused_however_permitted_the_product_is(): void
+    {
+        config(['gcc.shipping.cross_border.enabled' => true, 'gcc.shipping.cross_border.pairs' => []]);
+        $this->aLineOf(market: self::HOME);
+        $this->permit(self::ABROAD);
+
+        $decision = $this->decide(self::ABROAD);
+
+        $this->assertFalse($decision->allowed);
+        $this->assertTrue($decision->isCrossBorder(), 'it is a cross-border order that was refused, not a local one');
+        $this->assertContains(CrossBorderPolicy::REFUSAL, $decision->reasons);
+    }
+
+    /** And its twin: the same basket, the same permission, with the owner's list naming that pair. */
+    public function test_the_same_basket_is_allowed_once_the_owner_opens_that_pair(): void
+    {
+        config(['gcc.shipping.cross_border.enabled' => true, 'gcc.shipping.cross_border.pairs' => [self::HOME => [self::ABROAD]]]);
+        $this->aLineOf(market: self::HOME);
+        $this->permit(self::ABROAD);
+
+        $decision = $this->decide(self::ABROAD);
+
+        $this->assertTrue($decision->allowed, 'one open pair is the whole difference');
+        $this->assertTrue($decision->isCrossBorder());
+    }
+
+    /** One pair is one pair: opening Kuwait does not open Bahrain. */
+    public function test_an_open_pair_does_not_open_another_destination(): void
+    {
+        config(['gcc.shipping.cross_border.enabled' => true, 'gcc.shipping.cross_border.pairs' => [self::HOME => [self::ABROAD]]]);
+        $this->aLineOf(market: self::HOME);
+        $this->permit('BH');
+
+        $decision = $this->decide('BH');
+
+        $this->assertFalse($decision->allowed);
+        $this->assertContains(CrossBorderPolicy::REFUSAL, $decision->reasons);
+    }
+
+    /** The kill switch stops cross-border selling without turning the engine off, which would stop the refusals with it. */
+    public function test_the_kill_switch_stops_a_pair_the_owner_had_opened(): void
+    {
+        $this->crossBorderIsOpen();
+        config(['gcc.shipping.cross_border.closed' => true]);
+        $this->aLineOf(market: self::HOME);
+        $this->permit(self::ABROAD);
+
+        $this->assertFalse($this->decide(self::ABROAD)->allowed);
+        $this->assertTrue($this->decide(self::HOME)->allowed, 'and a shop never stops selling inside its own country');
     }
 
     public function test_a_basket_delivered_in_its_own_country_is_local_and_allowed(): void

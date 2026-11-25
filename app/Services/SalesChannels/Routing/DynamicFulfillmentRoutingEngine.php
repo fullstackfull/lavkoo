@@ -26,8 +26,11 @@ use Illuminate\Support\Facades\DB;
  * is routed unless someone said so) or "managed by someone else", which only follows the order. An account can never default to creating shipments: that needs a rule
  * that names where the goods are shipped from.
  *
- * App-driven creation of a provider shipment for a channel order is not available in this version (it needs the buyer's address, which is deliberately never stored,
- * and an internal order). A rule asking for it is recorded as wanted and the order waits for a person, with the reason `managed_dispatch_not_available`.
+ * App-driven creation of a provider shipment for a channel order IS built -- `DispatchGate` and `ChannelOrderMaterializer` -- and ships OFF behind
+ * `sales_channels.managed_dispatch_enabled`. While that switch is off, a rule asking for it is recorded as wanted and the order waits for a person,
+ * with the reason `managed_dispatch_not_available`; that is the switch and not the absence of the feature, which is what this docblock used to say.
+ * What it still needs when it is switched on is the buyer's address, which is read only under its own approval and purged after the shipment is
+ * accepted, and an internal order.
  */
 class DynamicFulfillmentRoutingEngine
 {
@@ -156,7 +159,7 @@ class DynamicFulfillmentRoutingEngine
         $providers = array_values(array_unique(array_column($perLine, 'provider')));
 
         if (!config('sales_channels.managed_dispatch_enabled', false)) {
-            return new RoutingDecision(RoutingAction::ManualReview, null, 'managed_dispatch_not_available', "Rule '{$rule->name}' wants this order created at " . implode(', ', $providers) . ', but creating provider shipments for channel orders is not available in this version; a person ships it, or links the shipment.', $rule->id, $snapshot, $perLine, $inputs + ['wanted_action' => $rule->action, 'wanted_provider' => count($providers) === 1 ? $providers[0] : null]);
+            return new RoutingDecision(RoutingAction::ManualReview, null, 'managed_dispatch_not_available', "Rule '{$rule->name}' wants this order created at " . implode(', ', $providers) . ', but managed dispatch is switched off on this host; a person ships it, or links the shipment.', $rule->id, $snapshot, $perLine, $inputs + ['wanted_action' => $rule->action, 'wanted_provider' => count($providers) === 1 ? $providers[0] : null]);
         }
 
         return new RoutingDecision(RoutingAction::RouteToProvider, count($providers) === 1 ? $providers[0] : null, 'rule_route_to_provider', "Rule '{$rule->name}' routes this order to " . implode(' and ', $providers) . '.', $rule->id, $snapshot, $perLine, $inputs);

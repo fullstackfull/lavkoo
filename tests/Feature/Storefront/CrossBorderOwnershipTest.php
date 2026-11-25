@@ -96,7 +96,11 @@ class CrossBorderOwnershipTest extends TestCase
      */
     public function test_the_engine_reads_the_destination_off_the_orders_own_copy(): void
     {
-        config(['gcc.shipping.cross_border.enabled' => true]);
+        config([
+            'gcc.shipping.cross_border.enabled' => true,
+            // H1-01: the pair has to be open for the engine to reach the question this test asks.
+            'gcc.shipping.cross_border.pairs' => [self::SOURCE => [self::DESTINATION]],
+        ]);
         $this->registerEntity(self::SOURCE);
         $this->aSaudiOrderGoingToKuwait();
         app(OrderStorefrontSnapshot::class)->record(orderId: self::ORDER);
@@ -109,7 +113,11 @@ class CrossBorderOwnershipTest extends TestCase
 
     public function test_an_order_of_the_destinations_own_market_is_local_and_is_that_markets_sale(): void
     {
-        config(['gcc.shipping.cross_border.enabled' => true]);
+        config([
+            'gcc.shipping.cross_border.enabled' => true,
+            // H1-01: the pair has to be open for the engine to reach the question this test asks.
+            'gcc.shipping.cross_border.pairs' => [self::SOURCE => [self::DESTINATION]],
+        ]);
         $kuwaitiCompany = $this->registerEntity(self::DESTINATION);
         $this->registerEntity(self::SOURCE);
         $this->orderOf(self::ORDER, self::DESTINATION);

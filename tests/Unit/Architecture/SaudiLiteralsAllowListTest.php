@@ -112,8 +112,11 @@ class SaudiLiteralsAllowListTest extends TestCase
             'SAR' => ['count' => 1, 'category' => self::PROVIDER_DEFAULT, 'owner' => 'H2 sales channels; M2-09', 'why' => 'a listing update falls back to the riyal when neither the update nor the account names a currency'],
         ],
         'app/Services/SalesChannels/Support/ChannelSettings.php' => [
-            'SA' => ['count' => 2, 'category' => self::PROVIDER_DEFAULT, 'owner' => 'H2 sales channels; M2-09', 'why' => 'the Trendyol storefronts the platform knows (SA, AE, KW) and the Saudi default of the storefront_code setting'],
+            'SA' => ['count' => 3, 'category' => self::PROVIDER_DEFAULT, 'owner' => 'H2 sales channels; M2-09, H2-02', 'why' => 'the Trendyol storefronts the platform knows (SA, AE, KW), the noon countries it knows (SA, AE, EG) and the Saudi default of the storefront_code setting. The third arrived with the noon account form: noon publishes its own list of countries and Saudi Arabia is on it, which is a fact about noon and not a default of ours'],
             'sa' => ['count' => 1, 'category' => self::PROVIDER_DEFAULT, 'owner' => 'H2 sales channels; M2-09', 'why' => 'the Saudi default of a channel account\'s country_code setting'],
+        ],
+        'config/sales_channels.php' => [
+            'SA' => ['count' => 3, 'category' => self::MARKET_LIST, 'owner' => 'H2-07', 'why' => 'one row of each channel\'s `serves` list -- trendyol (SA, AE, KW), noon (SA, AE, EG) and amazon (SA, AE) -- beside the other markets of each. These are the markets a VENDOR says it serves, carried as data with their source and `verified: false` rather than hard-coded in a class, so Saudi Arabia appears once per channel and not as a default'],
         ],
         'app/Services/SalesChannels/Trendyol/TrendyolLookups.php' => [
             'SA' => ['count' => 2, 'category' => self::PROVIDER_DEFAULT, 'owner' => 'H2 sales channels; M2-09', 'why' => 'the storefronts whose carriers are known (SA, AE) and the Saudi default read from the account setting'],

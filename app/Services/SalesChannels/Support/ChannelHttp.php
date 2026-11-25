@@ -34,8 +34,10 @@ class ChannelHttp
     /** cURL errors that prove the request never reached the channel. */
     private const NOT_SENT_CURL_ERRORS = [3, 5, 6, 7, 35, 51, 53, 54, 58, 59, 60, 77, 83];
 
-    public function __construct(private readonly ChannelRateLimiter $limiter)
-    {
+    public function __construct(
+        private readonly ChannelRateLimiter $limiter,
+        private readonly ChannelAccountMarketStop $marketStop,
+    ) {
     }
 
     /**
@@ -334,6 +336,17 @@ class ChannelHttp
         // A rehearsal changes nothing, so it needs no environment switch and no approval: it is how a person sees the exact request before approving anything.
         if ($account->dry_run) {
             return true;
+        }
+        // H2-12: a PER-MARKET stop, which the chain had no notion of -- the only stops were global and per account, so a paused country
+        // went on publishing prices, pushing stock and confirming shipments on three marketplaces. It belongs HERE, among the write
+        // gates, and not among the account's switches above, for a reason the owner has already written down: orders and webhooks must
+        // keep being RECEIVED while a market is paused (GCC-12), and an order is received by a READ. Stopping reads as well also stopped
+        // the dispatch of a marketplace order -- which reads the buyer's address from the channel -- and whether a stopped market stops
+        // that dispatch is the owner's own open question (I2-09's remainder, pinned by ChannelOrderSaleGateTest), not one to answer by
+        // where a guard was put. Read on every call because a run that has held the account for an hour must still stop at the next one.
+        $stopped = $this->marketStop->reasonFor($account);
+        if ($stopped !== null) {
+            throw new ChannelUnavailableException(ChannelUnavailableException::MARKET_STOPPED, $stopped);
         }
         if (!config($switches . '.external_writes_enabled', false)) {
             throw new ChannelUnavailableException(ChannelUnavailableException::WRITES_OFF_ENVIRONMENT, 'External writes are off on this host (SALES_CHANNELS_EXTERNAL_WRITES_ENABLED); this integration is read-only and nothing was sent.');

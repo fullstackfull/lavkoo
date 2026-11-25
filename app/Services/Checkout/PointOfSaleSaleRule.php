@@ -94,6 +94,11 @@ final class PointOfSaleSaleRule
      * Read through `StorefrontCatalog::sellingScopeOf()`, which is the same reader the one-company rule uses, so the two cannot come to
      * different conclusions about which market a till's cart is in.
      *
+     * Reading the markets back by product ID through the query builder was considered instead, on the ground that a cashier restricted to
+     * one country must not ring up another country's line because their own scope hid it from this check. It is not adopted: a product a
+     * scoped query cannot see is not priced into the cart either, so it is not sold, and a second read of the same products could answer
+     * differently from the one-company rule beside it -- which is the fault being avoided here, not one worth introducing.
+     *
      * @param iterable<object|null> $products
      */
     private function soleMarketOf(iterable $products): ?string

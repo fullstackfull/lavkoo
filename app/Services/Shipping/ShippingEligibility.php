@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Schema;
  *
  * It composes the two facts that decide it, and it FAILS CLOSED on both:
  *
+ *  - {@see CrossBorderPolicy} -- may this storefront sell into that country at all. No open pair means no, which is how it ships.
  *  - {@see ProductDestinationPermission} -- may this product go there at all. No record means no.
  *  - {@see ProviderRouteSupport} -- does the carrier of this line serve that route. An undeclared route is not served.
  *  - {@see RegulatedShippingGate} -- is this a regulated or unclassified product crossing a border without a recorded clearance. A
@@ -83,6 +84,13 @@ final class ShippingEligibility
             }
 
             $crossesABorder = true;
+
+            // H1-01, asked FIRST because it is the question before the others: may this storefront sell into that country at all? A
+            // product's permission and a carrier's route say nothing about whether the SHOP is allowed to trade there, and a shop selling
+            // into a country it holds no registration for is found out by a regulator rather than by a test. It ships closed.
+            if (!CrossBorderPolicy::allows($source, $to)) {
+                $reasons[] = CrossBorderPolicy::REFUSAL;
+            }
 
             $refusal = ProductDestinationPermission::refusalFor(productId: $line->product_id, source: $source, destination: $to);
             if ($refusal !== null) {

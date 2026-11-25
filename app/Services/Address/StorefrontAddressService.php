@@ -6,6 +6,7 @@ use App\Enums\Address\AddressChannel;
 use App\Models\Order;
 use App\Models\ShippingAddress;
 use App\Services\Fulfillment\Support\SaudiPhone;
+use App\Services\Shipping\ShippingEligibility;
 use App\Services\ShippingAddressService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -59,16 +60,46 @@ class StorefrontAddressService
     }
 
     /**
+     * Whether this storefront may send a parcel to this saved address at all (A2-12).
+     *
+     * A different question from `needsCompletion()`, and the customer has to be told them apart: an incomplete address can be fixed by
+     * filling the form in, and an address in a country the storefront is not open to cannot be fixed at all -- it has to be a different
+     * address. One rule answers both the address book and the checkout refusal, so they cannot disagree.
+     */
+    public function storefrontCanDeliverTo(ShippingAddress $address): bool
+    {
+        return $this->guard->storefrontCanDeliverTo($address->country);
+    }
+
+    /**
+     * @param Collection<int, ShippingAddress> $addresses
+     * @return list<int> the ids of those this storefront cannot deliver to, which is empty for every shop today
+     */
+    public function undeliverableAddressIds(Collection $addresses): array
+    {
+        // `values()` before `modelKeys()`, because `reject()` keeps the original keys and the annotation above promises a list.
+        return $addresses->reject(fn (ShippingAddress $address): bool => $this->storefrontCanDeliverTo($address))->values()->modelKeys();
+    }
+
+    /**
      * The JSON the checkout page keeps for a saved address, so choosing it fills the form. While the structured address is on it
      * also names the region and the city and says whether the address still has to be completed.
      */
     public function prefillJson(ShippingAddress $address): string
     {
+        // A2-12's flag is about the STOREFRONT and not about the structured address, so it is added whether or not the address schema is
+        // migrated -- but only while the cross-border engine is ON. With it off the question does not arise, every saved address is
+        // deliverable, and the JSON a shop's checkout page carries is byte for byte the one it carried before.
+        $deliverable = ShippingEligibility::isOn() ? ['storefront_can_deliver' => $this->storefrontCanDeliverTo($address)] : [];
+
         if (!AddressSchema::enabled()) {
-            return $address->toJson();
+            return $deliverable === [] ? $address->toJson() : (string) json_encode($address->toArray() + $deliverable, JSON_UNESCAPED_UNICODE);
         }
 
-        return (string) json_encode(AddressSnapshot::build($address) + ['needs_completion' => $this->needsCompletion($address)], JSON_UNESCAPED_UNICODE);
+        return (string) json_encode(
+            AddressSnapshot::build($address) + ['needs_completion' => $this->needsCompletion($address)] + $deliverable,
+            JSON_UNESCAPED_UNICODE,
+        );
     }
 
     /**

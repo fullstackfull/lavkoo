@@ -178,9 +178,18 @@ class ChannelOrderSingleCompanyTest extends DispatchTestCase
     }
 
     /**
-     * What one Saudi channel order costs, measured on both engines before and after the guard and unchanged by it: the products the lines
-     * are written from are read once, where each line used to read its own. The two figures differ because a real server also hands out the
-     * order number under a named lock, which SQLite has no need of.
+     * What one Saudi channel order costs, measured on both engines: the products the lines are written from are read once, where each line
+     * used to read its own. The two figures differ because a real server also hands out the order number under a named lock, which SQLite
+     * has no need of.
+     *
+     * **Raised by two on a real engine and by four on SQLite when H2-12's per-market stop was added**, and the old numbers were right when
+     * they were written. Every outbound channel WRITE now asks `StorefrontSellingGate` whether the market it sells in may trade -- the same
+     * service, and the same cost, the website's checkout has paid since GCC-11 -- and it asks on EVERY call rather than once per run,
+     * because the point of that gate is that a run which has held the account for an hour still stops at the next call after somebody
+     * pauses a market. Memoising it would buy back these queries and lose exactly the property it exists for.
+     *
+     * The figure is pinned rather than relaxed so that the NEXT change to this path has to be read by somebody. If it rises again, find
+     * out which read was added before changing the number.
      */
     public function test_one_saudi_channel_order_costs_the_queries_it_cost_before(): void
     {
@@ -188,7 +197,7 @@ class ChannelOrderSingleCompanyTest extends DispatchTestCase
 
         $queries = $this->queriesOf(fn () => $this->dispatcher()->dispatch($mapping));
 
-        $this->assertSame(in_array(DB::getDriverName(), ['mysql', 'mariadb'], true) ? 88 : 106, $queries);
+        $this->assertSame(in_array(DB::getDriverName(), ['mysql', 'mariadb'], true) ? 90 : 110, $queries);
         $this->assertSame(1, DB::table('orders')->count());
     }
 }

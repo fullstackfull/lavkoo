@@ -97,8 +97,18 @@ class OdooDraftBuilder
         // The amount the entry is posted AT is the base-currency figure where the ledger has one, because that is the figure the
         // company's books are kept in; the original currency and its rate ride along on the line and in the narration.
         $amount = Money::of((string) ($entry->base_amount ?? $entry->amount));
-        $side = OdooMoney::debitAndCredit($amount);
-        $counterSide = OdooMoney::counterOf($amount);
+
+        // H2-11: at the POSTING currency's own decimals -- three for the dinar and the rial -- and refused by name where the instance
+        // and this platform cannot be reconciled about how many that is. Nothing passed decimals before, so every figure was written at
+        // two places and a Kuwaiti posting lost its fils at the one step nobody watches. The posting currency is the company's, because
+        // that is the money the books are kept in; the ORIGINAL figure carries its own currency's decimals below.
+        $postingDecimals = OdooCurrencyDecimals::for($preflight, (string) ($preflight->company['currency_name'] ?? ''));
+        if (is_string($postingDecimals)) {
+            return OdooDraftResult::refused([$postingDecimals]);
+        }
+
+        $side = OdooMoney::debitAndCredit($amount, $postingDecimals);
+        $counterSide = OdooMoney::counterOf($amount, $postingDecimals);
         // What this entry takes back, if anything. A negative amount already puts the figure in the other column by itself
         // (`OdooMoney`); what the link adds is WHICH entry it takes back, which is the part an accountant cannot infer.
         $undo = $this->undoLinks->for($entry);
@@ -211,9 +221,18 @@ class OdooDraftBuilder
 
         $currencyId = $preflight->currencyIdFor($own);
 
-        return $currencyId === null
-            ? 'odoo_currency_not_in_this_instance:' . $own
-            : ['currency_id' => $currencyId, 'amount' => OdooMoney::forMonetaryField(Money::of((string) $entry->amount))];
+        if ($currencyId === null) {
+            return 'odoo_currency_not_in_this_instance:' . $own;
+        }
+
+        // The ORIGINAL figure is written at ITS OWN currency's decimals, not the company's: a Kuwaiti invoice carried on a riyal-keeping
+        // company's entry is still a dinar figure, and rounding it to two places would make the line disagree with the invoice it exists
+        // to be checked against.
+        $decimals = OdooCurrencyDecimals::for($preflight, $own);
+
+        return is_string($decimals)
+            ? $decimals
+            : ['currency_id' => $currencyId, 'amount' => OdooMoney::forMonetaryField(Money::of((string) $entry->amount), $decimals)];
     }
 
     /** The date the entry is booked on: the ledger's own period date, which is what every cost report groups by. */

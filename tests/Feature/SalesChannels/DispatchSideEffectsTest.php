@@ -6,6 +6,8 @@ use App\Models\ChannelOrderDispatch;
 use App\Models\Order;
 use App\Repositories\OrderRepository;
 use App\Services\Fulfillment\OrderItemOwnershipSnapshotter;
+use App\Services\Fulfillment\ProviderConnectionManager;
+use App\Services\Fulfillment\ProviderRegistry;
 use App\Services\Fulfillment\Support\ProviderCurrency;
 use App\Services\SalesChannels\Dispatch\BuyerDataPurger;
 use App\Services\SalesChannels\Dispatch\DispatchOutcome;
@@ -77,17 +79,21 @@ class DispatchSideEffectsTest extends DispatchTestCase
     public function test_a_database_error_while_making_the_order_never_carries_the_buyer_into_an_exception_and_is_tried_again_later(): void
     {
         $buyer = [self::NAME, self::PHONE_NATIONAL, self::STREET];
-        $this->app->bind(OrderItemOwnershipSnapshotter::class, fn () => new class(app(ProviderCurrency::class), $buyer) extends OrderItemOwnershipSnapshotter {
-            public function __construct(ProviderCurrency $currency, private readonly array $buyer)
-            {
-                parent::__construct($currency);
-            }
+
+        // The double mirrors `capture()` and NOT the constructor: a test that restates a constructor it does not use is a class that
+        // stops loading the next time the service gains a dependency, which is exactly what happened when the snapshotter gained the
+        // provider registry.
+        $double = new class(app(ProviderCurrency::class), app(ProviderRegistry::class), app(ProviderConnectionManager::class)) extends OrderItemOwnershipSnapshotter {
+            /** @var list<string> */
+            public array $buyer = [];
 
             public function capture(int $orderId, int $orderDetailId, array $product, ?string $variant, int $quantity, float $unitPrice, float $netAmount, float $lineTax, string $taxModel): ?\App\Models\ProviderFulfillmentItem
             {
                 throw new QueryException('mysql', 'insert into orders (receiver, phone, street) values (?, ?, ?)', $this->buyer, new \Exception('lock wait timeout'));
             }
-        });
+        };
+        $double->buyer = $buyer;
+        $this->app->bind(OrderItemOwnershipSnapshotter::class, fn () => $double);
         $mapping = $this->placed();
 
         $outcome = $this->dispatcher()->dispatch($mapping);
