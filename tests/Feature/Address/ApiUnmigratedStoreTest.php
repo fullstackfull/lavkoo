@@ -4,6 +4,7 @@ namespace Tests\Feature\Address;
 
 use App\Http\Controllers\RestAPI\v1\ConfigController;
 use App\Models\ShippingAddress;
+use App\Services\Shipping\CrossBorderPolicy;
 use App\Services\Address\AddressSchema;
 use App\Services\OrderService;
 use App\Utils\OrderManager;
@@ -62,6 +63,30 @@ class ApiUnmigratedStoreTest extends ApiAddressTestCase
 
         $this->asCustomer($customer)->deleteJson('/api/v1/customer/address', ['address_id' => $address->id])->assertOk();
         $this->assertSame(0, ShippingAddress::count());
+    }
+
+    /**
+     * A2-12 on the app's own list: the flag is there once the cross-border engine is on, and nowhere to be seen while it is off.
+     *
+     * The test above is the half that matters -- an unmigrated store's list is the old row, key for key -- so this one is what says the
+     * flag was withheld because the question did not arise, and not because nothing was wired.
+     */
+    public function test_the_app_list_says_which_saved_addresses_this_storefront_cannot_deliver_to(): void
+    {
+        $customer = $this->makeCustomer();
+        $this->asCustomer($customer)->postJson('/api/v1/customer/address/add', $this->oldPayload())->assertOk();
+        $this->asCustomer($customer)->postJson('/api/v1/customer/address/add', $this->oldPayload(['country' => 'Kuwait']))->assertOk();
+
+        $before = $this->asCustomer($customer)->getJson('/api/v1/customer/address/list')->assertOk()->json();
+        $this->assertArrayNotHasKey('storefront_can_deliver', $before[0], 'with the engine off the answer is the one it has always been');
+
+        config(['gcc.shipping.cross_border.enabled' => true, 'gcc.shipping.cross_border.pairs' => []]);
+        CrossBorderPolicy::forget();
+        $after = $this->asCustomer($customer)->getJson('/api/v1/customer/address/list')->assertOk()->json();
+
+        $byCountry = array_column($after, 'storefront_can_deliver', 'country');
+        $this->assertTrue($byCountry['Saudi Arabia'], 'the storefront delivers inside its own country');
+        $this->assertFalse($byCountry['Kuwait'], 'and says so about the one it is not open to, rather than refusing it only at the till');
     }
 
     public function test_the_old_validation_of_the_app_is_unchanged(): void
