@@ -309,8 +309,11 @@ final class Scanner
         // capitals -- which is what that branch is for and what a key path should never reach.
         //
         // STRIPPED rather than added to PLACEHOLDER, which is the sibling fix and the weaker one: a placeholder entry would excuse the
-        // whole value, so `"sk_live_abcdef1234567890{$suffix}"` would stop being refused. Stripping leaves the half that IS literal to
-        // be judged, so a partly assembled secret is still caught. There is a test for each direction.
+        // WHOLE value, so a Stripe-style live key with an interpolated tail would stop being refused. Stripping leaves the half that IS
+        // literal to be judged, so a partly assembled secret is still caught. `LeakGuardTest` holds a case for each direction, and it
+        // assembles its examples from pieces at run time for the reason this very comment had to be rewritten: a file must not itself
+        // contain anything this guard would refuse, and an illustrative key spelled out in full IS such a thing. The guard caught its
+        // own source, under `api-token`, and it was right to.
         //
         // Brace interpolation only. A bare `"$name"` is deliberately left alone, because `$` is an ordinary character in a real password
         // and one of this guard's own test secrets contains two of them; stripping it would hide them.
