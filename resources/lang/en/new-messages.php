@@ -11651,4 +11651,11 @@ return [
 	'payment_method_updated' => 'Payment method updated',
 	'destination_country' => 'Destination country',
 	'every_storefront' => 'Every storefront',
+	'product_of_another_market' => 'Product of another market',
+	'location_of_another_market' => 'Location of another market',
+	'account_sells_where_we_have_no_catalogue' => 'This account sells in a market we hold no catalogue for',
+	'shipping_this_market_sells_inside_its_own_country_only' => 'This store sells inside its own country only.',
+	'shipping_this_market_does_not_ship_to_that_country' => 'This store does not ship to that country.',
+	'shipping_cross_border_selling_is_not_open_on_this_platform' => 'Selling across borders is not open on this platform.',
+	'a_destination_may_only_be_opened_by_staff_of_the_source_market' => 'A destination may only be opened by staff of the market that sells.',
 ];

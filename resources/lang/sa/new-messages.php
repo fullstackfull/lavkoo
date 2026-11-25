@@ -5380,4 +5380,11 @@ ____________________________________________________on_search_engines_and_see_th
 	'every_storefront' => 'كل المتاجر',
 	'storefront' => 'المتجر',
 	'in' => 'في',
+	'product_of_another_market' => 'منتج يتبع سوقاً أخرى',
+	'location_of_another_market' => 'موقع يتبع سوقاً أخرى',
+	'account_sells_where_we_have_no_catalogue' => 'هذا الحساب يبيع في سوق لا نملك فيها كتالوجاً',
+	'shipping_this_market_sells_inside_its_own_country_only' => 'هذا المتجر يبيع داخل بلده فقط.',
+	'shipping_this_market_does_not_ship_to_that_country' => 'هذا المتجر لا يشحن إلى ذلك البلد.',
+	'shipping_cross_border_selling_is_not_open_on_this_platform' => 'البيع عبر الحدود غير مفتوح في هذه المنصة.',
+	'a_destination_may_only_be_opened_by_staff_of_the_source_market' => 'لا يمكن فتح بلد توصيل إلا لموظفي السوق البائعة.',
 ];
