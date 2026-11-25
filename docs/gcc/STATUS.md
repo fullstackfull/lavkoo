@@ -2,6 +2,53 @@
 
 **Last update:** 2026-11-25. **Current phase:** autonomous implementation under the owner's charters, on ONE branch per repository (`gcc/development`) with stages merged into `main` only after a CI run on the merge-candidate SHA comes back green; nothing deployed, no production data, no market activated. The "Discovery preparation" text of 2026-11-12 further down is kept as history and is **superseded**: GCC application code now exists on 134 draft pull requests of `lavkoo` (and 20 of `lavkooapp`, 17 of `lavkooappseller`), all dormant behind switches that ship off.
 
+## What happened on 2026-11-25, after the account handover
+
+A new Claude Code account took the work over from the handoff of this date. The three repositories' heads matched that
+document exactly (`5b39e0e0` / `f424cf3d` / `1fca4251`) and `count.php` reproduced its figures (963 met, 377 coded, 413
+missing), so nothing had drifted between the accounts.
+
+- **A human developer's work was in `lavkooapp/main` and not in the development branch.** `16fb7cb`, pushed directly by
+  yazan the same day: a real race fix (`GoogleSignInController` threw away the future of its own `_initialize()`, so a
+  customer who reached the button first called `login()` against an uninitialised client) plus a quick add-to-cart sheet
+  reader. Merged into `gcc/development` after a whitespace-blind diff confirmed the merge removed no line naming a
+  storefront, market, currency or duty. `0109e36`.
+- **I2-05: every order now writes its acceptance receipt, from inside the order's own transaction.** It was called from
+  the three `/api/v1` endpoints the customer app posts to and from NOWHERE else, so the entire website placed orders that
+  needed an accepted legal text and recorded nothing -- invisible, because the three covered paths were the three with
+  tests. The call moved into `OrderManager::generateOrder`, which all SEVEN order-creating paths pass through. The three
+  outer calls were REMOVED rather than left: with both in place every order of those endpoints got TWO identical
+  receipts, on a table with no unique key, which is a corrupted record of consent rather than a harmless duplicate. The
+  error swallow was narrowed at the same time, because it now runs inside `DB::transaction(attempts: 3)` and swallowing a
+  deadlock would leave that transaction running after the engine had rolled its statement back. `1836cabe`.
+- **C-01: a product may only be given a carrier that serves its own market.** H1-02 had already written down where each
+  carrier operates; the assignment door now asks it, so the refusal arrives before a customer buys rather than from the
+  carrier afterwards. Dormant by construction -- every provider's routes default to `['SA:SA']` -- so Q-33 is read here
+  and not answered. Closes that requirement's other open criterion too, the two twins, which had been carried on the
+  shape of the schema with no test behind it. `8e0bd6ab`.
+- **Three of the backend CI's four failures were the write-scanner doing its job.** `7e8386f4` made the customer profile
+  answer the market's two balances by replacing them in the RESPONSE payload, which is the one shape the scanner refuses
+  to clear, and the file was on no list. Named on the wallet reads list where `PosCustomerResource` already sits, with a
+  loyalty reads list added because one `array_replace` replaces both balances. Listing a file does not blind the guard:
+  teeth confirm a real `assignment` write in that same file still fails it.
+- **Four tracker cards were behind the code**, which matters because the percentage is computed from them: F-04's last
+  criterion was fully built and enforced, D1-01's "orders has no such column" was false, B-02's gallery-copy concern was
+  moot, and part of I2-05 had been built after its card was written. A stale MISSING understates the project exactly as
+  badly as a stale MET overstates it.
+- **One defect introduced and caught here, by running the group rather than the file.** `module-helper.php` builds
+  `requestObj` as an ARRAY and merges it into the global request, while the web and API callers pass a real Request;
+  every existing reader got away with it by being untyped. A typed parameter did not, and the symptom landed two layers
+  away as a settlement reading `settle_failed`. 39 errors and 12 failures, now 0.
+- **Two findings recorded rather than fixed, because neither is the defect its surroundings look like.** The analytics
+  rollup has no market dimension, so every reach figure the theme builder shows an operator is a platform-wide total and
+  no cache key can fix it; and `commerce_segment_ctx_*` sums `order_amount` across orders carrying different currencies.
+  Both in `tracker/coverage-gaps.md`.
+- **Both Flutter apps merged to `main` on green CI of the merged SHA**: `lavkooapp` run 58 on `0109e36` to `33c0dce`,
+  `lavkooappseller` run 66 on `1fca425` to `de5abfb`, each with `git diff <tested> HEAD --name-only` empty and, for the
+  seller, `pubspec.yaml` confirmed to carry no version change. Backend stays on `gcc/development` pending run 673.
+
+Figures after this batch, from `count.php`: **968 of 1,753 criteria met (55%), 375 coded, 410 missing; 1,343 in code (77%)** -- against 963 / 377 / 413 / 1,340 at the handover.
+
 ## What happened on 2026-11-25
 
 - **H1-13 is complete (4 of 4 criteria).** The cross-border trace runs end to end in ONE order -- checkout, decision, duty quote (115.025 of goods, 5.751 of duty, the dinar's third decimal intact), dispatch, return, shelf -- because two tests that each assume the other's half prove no span. The return half is new: `App\Services\Returns\CrossBorderReturn` puts a returned unit back on the shelf of the market that SOLD it, a return whose product belongs to another market is received and not restocked (no movement row, and the line's claim left for the order status writer), and the return records that market, the currency the customer paid in and the account that took it. Dormant by default. `c6907221`.
