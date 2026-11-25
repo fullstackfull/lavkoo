@@ -23,13 +23,22 @@ use Tests\TestCase;
  *   - every exemption says why it is one and names the owner decision it waits on, because an exemption with no reason is
  *     indistinguishable from an oversight, which is the whole thing this criterion is about.
  *
+ * It also reads the SALE RULE half of the register (D1-16): a till says it asks `PointOfSaleSaleRule` and must call it, a creator behind
+ * the route gate must be one whose routes carry `storefront.sellable`, and a creator that materialises an obligation rather than making a
+ * new sale must say why -- which I2-09 settled for the sales channels and left open only for a PAUSED country.
+ *
+ * The till half asserts that the CALL is there, not that it refuses anything: `gcc.storefronts.sale_gate.at_the_till` ships off and
+ * `config/gcc.php` says why, so these assertions hold for the wiring while the behaviour stays today's. What the rule does once the key is
+ * on is `TheTillOfAStoppedMarketSellsNothingTest`'s business.
+ *
  * It is a STRUCTURAL test and says so. That the checkout's stamp reaches every sub-order is proved behaviourally next door, by
  * `EachSubOrderCarriesItsOwnMarketTest`; the tills have their own tests. What cannot be proved behaviourally is the negative -- that
  * nothing ELSE writes an order -- and that is what reading the tree is for.
  *
  * TEETH, each mutation applied and restored: a new class in `app/Services/Checkout` that writes an order row and is in no entry -> 1 red;
- * taking the stamp out of the administrator's till -> 1 red; making the exempt marketplace dispatcher stamp after all -> 1 red. 6 tests /
- * 13 assertions, and it needs no database, so it is the same answer on every engine.
+ * taking the stamp out of the administrator's till -> 1 red; making the exempt marketplace dispatcher stamp after all -> 1 red; and, for
+ * the sale-rule half, taking the rule's call out of the seller app's till -> 1 red here (and 2 more in the till's own test). 9 tests / 25
+ * assertions, and it needs no database, so it is the same answer on every engine.
  */
 class OrderCreatorsAreAccountedForTest extends TestCase
 {
@@ -190,5 +199,70 @@ class OrderCreatorsAreAccountedForTest extends TestCase
             method_exists(OrderStorefrontSnapshot::class, 'record'),
             OrderCreatorRegister::RECORDER . ' is what every registered creator is checked against and it does not exist.',
         );
+    }
+
+    public function test_every_till_that_says_it_asks_the_sale_rule_calls_it(): void
+    {
+        $tills = OrderCreatorRegister::thatAskTheSaleRule();
+
+        $this->assertCount(3, $tills, 'the three tills are the creators no storefront serves, so they are the ones that ask the rule');
+
+        foreach (array_keys($tills) as $file) {
+            $code = $this->withoutComments((string) file_get_contents(base_path($file)));
+
+            $this->assertMatchesRegularExpression(
+                '#PointOfSaleSaleRule::class\)\s*->\s*marketThatMayNotSell\(#',
+                $code,
+                $file . ' says it asks the point-of-sale sale rule before a new sale and does not call ' . OrderCreatorRegister::SALE_RULE . '.',
+            );
+
+            // THAT the rule is asked before anything is written is NOT asserted here, and the first version of this test tried to:
+            // it compared the POSITION of the two calls in the source, which passed for the two panels and failed for the seller app
+            // because that controller asks the rule from a private helper DEFINED BELOW the method that writes the order. Source order
+            // is not call order, so the measurement was wrong rather than the code. It is proved where it can be -- behaviourally, by
+            // `ATillOfAStoppedMarketSellsNothingTest`, which refuses a sale and then asserts no order, no stock movement and no wallet
+            // debit.
+        }
+    }
+
+    /** A creator the register puts behind the route gate must have routes that carry it, or the register is describing a gate nobody applies. */
+    public function test_a_creator_behind_the_route_gate_is_reachable_only_through_routes_that_carry_it(): void
+    {
+        $behindTheGate = array_filter(
+            OrderCreatorRegister::CREATORS,
+            static fn (array $creator): bool => $creator['sale_rule'] === OrderCreatorRegister::BEHIND_THE_ROUTE_GATE,
+        );
+
+        $this->assertNotSame([], $behindTheGate, 'the customer checkout is expected to be the creator behind the route gate');
+
+        $routeFiles = implode("\n", array_map(
+            static fn (string $file): string => (string) file_get_contents(base_path($file)),
+            ['routes/web/routes.php', 'routes/rest_api/v1/api.php'],
+        ));
+
+        $this->assertStringContainsString(
+            OrderCreatorRegister::ROUTE_GATE,
+            $routeFiles,
+            'the register says the checkout is behind ' . OrderCreatorRegister::ROUTE_GATE . ' and no route file applies it.',
+        );
+    }
+
+    /** Every entry says something about the sale rule, and an obligation that is not gated says why -- the D1-16 half of this register. */
+    public function test_every_creator_states_its_sale_rule_and_an_ungated_one_says_why(): void
+    {
+        foreach (OrderCreatorRegister::CREATORS as $file => $creator) {
+            $this->assertContains($creator['sale_rule'] ?? '', [
+                OrderCreatorRegister::ASKS_THE_SALE_RULE,
+                OrderCreatorRegister::BEHIND_THE_ROUTE_GATE,
+                OrderCreatorRegister::NOT_A_NEW_SALE,
+            ], $file . ' says nothing about the sale rule it applies (D1-16).');
+
+            if (($creator['sale_rule'] ?? '') === OrderCreatorRegister::NOT_A_NEW_SALE) {
+                $this->assertNotEmpty(
+                    $creator['sale_rule_reason'] ?? '',
+                    $file . ' is not gated and does not say why, which cannot be told from a creator nobody gated.',
+                );
+            }
+        }
     }
 }

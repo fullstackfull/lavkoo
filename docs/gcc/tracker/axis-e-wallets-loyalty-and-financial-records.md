@@ -1,6 +1,6 @@
 # Axis E: Wallets, loyalty and financial records
 
-Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)), as of 2026-11-23. Requirements: 18. Acceptance criteria: 88 (MET 42, CODED 7, MISSING 39). Code completion 56%, proven by a passing test 48%, release readiness 7%.
+Detail cards of the master tracker ([`MASTER_IMPLEMENTATION_TRACKER.md`](../MASTER_IMPLEMENTATION_TRACKER.md)). The figures of this axis are NOT typed here: `php docs/gcc/audits/2026-11-24-post-merge-assessment/count.php` prints them from these cards, row `E`, and the counts that used to stand in this line had already drifted from the cards below it (it said 39 missing against the 17 the script counted on 2026-11-25). A number nobody can recompute is a number nobody can check.
 
 Independent verification: done for unit(s) E.
 
