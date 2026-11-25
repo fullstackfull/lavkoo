@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin\Customer;
 
+use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Contracts\Repositories\AddFundBonusCategoriesRepositoryInterface;
 use App\Contracts\Repositories\BusinessSettingRepositoryInterface;
 use App\Contracts\Repositories\CustomerRepositoryInterface;
@@ -39,6 +40,9 @@ class CustomerWalletController extends BaseController
         private readonly AddFundBonusCategoriesRepositoryInterface $addFundBonusCategoriesRepo,
     )
     {
+        // A restricted employee reads this customer's ledger narrowed to their own markets, and is refused an action with no rule
+        // (A2-V1). Registered here rather than on the route so it runs after the sign-in check and the module permission.
+        $this->middleware(ScopeOrdersToStaffCountries::class);
     }
 
     /**

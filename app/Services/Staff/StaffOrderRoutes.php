@@ -24,6 +24,8 @@ use App\Http\Controllers\Admin\ReportController;
 use App\Http\Controllers\Admin\Telemetry\AnalyticsController;
 use App\Http\Controllers\Admin\TransactionReportController;
 use App\Http\Controllers\Admin\VendorProductSaleReportController;
+use App\Http\Controllers\Admin\Customer\CustomerLoyaltyController;
+use App\Http\Controllers\Admin\Customer\CustomerWalletController;
 use App\Http\Controllers\Admin\Vendor\VendorController;
 use App\Services\OrderEditService;
 use Modules\TaxModule\app\Http\Controllers\Admin\Reports\AdminTaxReportController;
@@ -45,7 +47,11 @@ use Illuminate\Support\Facades\Session;
  *   list:order_lines, list:order_transactions, list:refund_transactions
  *                    it reads the lines of orders, the money records of orders, or the money records of refunds (a sum, a count, a report): each is narrowed through the order or
  *                    the order line it belongs to, and a screen names the ones it reads
- *   unavailable      it shows what cannot be told apart by country (a wallet, a total of every order): a restricted employee is answered like for something that does not exist
+ *   list:wallet_transactions, list:loyalty_point_transactions
+ *                    it reads a customer's wallet or loyalty ledger: each row records the market it belongs to, so the rows are narrowed by
+ *                    that column. These two came later than `unavailable` below and are the reason its wording is now narrower than it was:
+ *                    a wallet COULD not be told apart by country until the ledgers carried one
+ *   unavailable      it shows what cannot be told apart by country (a total of every order): a restricted employee is answered like for something that does not exist
  *   order.route:n    one order id in the path; order.input:n one in the request; order.inputs:n a list in the request, all of which must be visible
  *   line.input:n     one order LINE id in the request: the order it belongs to must be visible; line.route:n one in the path
  *   refund.route:n   one refund request id in the path; refund.input:n one in the request
@@ -129,6 +135,24 @@ final class StaffOrderRoutes
 
     /** The screens that read orders without managing them (slice 3): what each action lists, and what it cannot show a restricted employee. */
     private const READ_RULES = [
+        // A customer's money history in the panel (A2-V1). The ledgers carry a market now, so a restricted employee reads the movements of
+        // their OWN markets rather than all of them or none; the bonus setup is the platform's own configuration and names no customer and no
+        // market, so it lists nothing.
+        CustomerWalletController::class => [
+            'index' => ['list:wallet_transactions'],
+            'exportList' => ['list:wallet_transactions'],
+            'addFund' => ['none'],
+            'getBonusSetupView' => ['none'],
+            'addBonusSetup' => ['none'],
+            'updateStatus' => ['none'],
+            'deleteBonus' => ['none'],
+            'getUpdateView' => ['none'],
+            'update' => ['none'],
+        ],
+        CustomerLoyaltyController::class => [
+            'index' => ['list:loyalty_point_transactions'],
+            'exportList' => ['list:loyalty_point_transactions'],
+        ],
         CustomerController::class => [
             'index' => ['list:orders'],
             'getView' => ['list:orders', 'list:refunds'],

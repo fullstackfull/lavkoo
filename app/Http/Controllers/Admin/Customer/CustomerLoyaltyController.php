@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin\Customer;
 
+use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Contracts\Repositories\CustomerRepositoryInterface;
 use App\Contracts\Repositories\LoyaltyPointTransactionRepositoryInterface;
 use App\Enums\WebConfigKey;
@@ -23,6 +24,9 @@ class CustomerLoyaltyController extends BaseController
         private readonly LoyaltyPointTransactionRepositoryInterface     $loyaltyPointTransactionRepo,
     )
     {
+        // A restricted employee reads this customer's ledger narrowed to their own markets, and is refused an action with no rule
+        // (A2-V1). Registered here rather than on the route so it runs after the sign-in check and the module permission.
+        $this->middleware(ScopeOrdersToStaffCountries::class);
     }
 
     /**

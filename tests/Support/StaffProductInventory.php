@@ -310,6 +310,8 @@ final class StaffProductInventory
         'App\Http\Controllers\Admin\OrderReportController' => ['slice' => 'slice 3', 'reason' => 'The order report sums the orders of the employee\'s countries (StaffOrderRoutes). It reads no product.'],
         'App\Http\Controllers\Admin\ExpenseTransactionReportController' => ['slice' => 'slice 3', 'reason' => 'The expense transaction report sums the discounts and delivery expenses of the orders of the employee\'s countries (StaffOrderRoutes). It reads no product.'],
         'App\Http\Controllers\Admin\Report\RefundTransactionController' => ['slice' => 'slice 3', 'reason' => 'The refund transaction report lists the money records of the refunds about a line of the employee\'s countries (StaffOrderRoutes). It reads no product.'],
+        'App\Http\Controllers\Admin\Customer\CustomerWalletController' => ['slice' => 'slice 3', 'reason' => 'The wallet report and a customer\'s wallet movements, narrowed by the market each ledger row records (StaffCountryLedgerScope; StaffOrderRoutes). It reads no product.'],
+        'App\Http\Controllers\Admin\Customer\CustomerLoyaltyController' => ['slice' => 'slice 3', 'reason' => 'A customer\'s loyalty movements, narrowed the same way (StaffCountryLedgerScope; StaffOrderRoutes). It reads no product.'],
     ];
 
     /** @return array<string, int> how many controllers there are of each status: scoped in slice 1, 2 and 3, not needed, out */

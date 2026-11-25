@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\StaffCountryLedgerScope;
+use App\Services\Staff\StaffCountryScope;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -80,5 +82,12 @@ class WalletTransaction extends Model
     public function user()
     {
         return $this->belongsTo(User::class);
+    }
+
+    protected static function booted(): void
+    {
+        // A restricted employee reads this ledger narrowed to their own markets, on the screens that asked to be narrowed (A2-V1). It does
+        // nothing anywhere else, a customer's own statement included.
+        static::addGlobalScope(new StaffCountryLedgerScope(StaffCountryScope::SUBJECT_WALLET_TRANSACTIONS));
     }
 }

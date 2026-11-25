@@ -785,7 +785,7 @@ class StaffOrderRoutesTest extends TestCase
             foreach (StaffOrderRoutes::rulesOf(controller: $controller) as $action => $rule) {
                 $this->assertNotSame([], $rule, $controller . '@' . $action);
                 foreach ($rule as $part) {
-                    $this->assertMatchesRegularExpression('/^(none|unavailable|cart|edit:[a-z_]+|list:(orders|refunds|order_lines|order_transactions|refund_transactions)|(order|line|refund|product)\.(route|input|inputs):[A-Za-z_]+)$/', $part, $controller . '@' . $action);
+                    $this->assertMatchesRegularExpression('/^(none|unavailable|cart|edit:[a-z_]+|list:(orders|refunds|order_lines|order_transactions|refund_transactions|wallet_transactions|loyalty_point_transactions)|(order|line|refund|product)\.(route|input|inputs):[A-Za-z_]+)$/', $part, $controller . '@' . $action);
                 }
                 $this->assertSame($rule === ['none'], in_array('none', $rule, true), $controller . '@' . $action . ': none stands alone');
                 $this->assertSame($rule === ['unavailable'], in_array('unavailable', $rule, true), $controller . '@' . $action . ': unavailable stands alone');

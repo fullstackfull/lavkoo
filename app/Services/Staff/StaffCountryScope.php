@@ -52,6 +52,15 @@ final class StaffCountryScope
     /** The money records of refunds a request reads (`refund_transactions`), each through the order line it is about. */
     public const SUBJECT_REFUND_TRANSACTIONS = 'refund_transactions';
 
+    /**
+     * The wallet ledger rows a request reads (`wallet_transactions`), each by the market the ROW records -- not through an order, because a
+     * movement may have none: a top-up by an administrator, a conversion of points, a bonus.
+     */
+    public const SUBJECT_WALLET_TRANSACTIONS = 'wallet_transactions';
+
+    /** The loyalty ledger rows a request reads (`loyalty_point_transactions`), by the market the row records, for the same reason. */
+    public const SUBJECT_LOYALTY_TRANSACTIONS = 'loyalty_point_transactions';
+
     private const REQUEST_ATTRIBUTE = 'staff_country_scope';
 
     private const SUBJECTS_ATTRIBUTE = 'staff_country_scope_subjects';

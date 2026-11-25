@@ -444,6 +444,17 @@ constructors, after the sign-in check and the module permission of the route (th
 | `GET admin/customer/customer-list-without-all-customer` | `CustomerController::getCustomerListWithoutAllCustomerName` | `none` | module:people |
 | `POST admin/customer/add` | `CustomerController::add` | `none` | module:people |
 | `POST admin/customer/profile-update` | `CustomerController::updateProfile` | `none` | module:people |
+| `GET admin/customer/wallet/report` | `CustomerWalletController::index` | `list:wallet_transactions` | module:people |
+| `POST admin/customer/wallet/add-fund` | `CustomerWalletController::addFund` | `none` | module:people |
+| `GET admin/customer/wallet/export` | `CustomerWalletController::exportList` | `list:wallet_transactions` | module:people |
+| `GET admin/customer/wallet/bonus-setup` | `CustomerWalletController::getBonusSetupView` | `none` | module:people |
+| `POST admin/customer/wallet/bonus-setup` | `CustomerWalletController::addBonusSetup` | `none` | module:people |
+| `POST admin/customer/wallet/bonus-setup-update` | `CustomerWalletController::update` | `none` | module:people |
+| `POST admin/customer/wallet/bonus-setup-status` | `CustomerWalletController::updateStatus` | `none` | module:people |
+| `GET admin/customer/wallet/bonus-setup/edit/{id}` | `CustomerWalletController::getUpdateView` | `none` | module:people |
+| `DELETE admin/customer/wallet/bonus-setup-delete` | `CustomerWalletController::deleteBonus` | `none` | module:people |
+| `GET admin/customer/loyalty/report` | `CustomerLoyaltyController::index` | `list:loyalty_point_transactions` | module:people |
+| `GET admin/customer/loyalty/export` | `CustomerLoyaltyController::exportList` | `list:loyalty_point_transactions` | module:people |
 | `GET admin/report/inhouse-product-sale` | `InhouseProductSaleController::index` | `list:order_lines` | module:reports |
 | `GET admin/vendors/list` | `VendorController::index` | `list:orders` | module:people |
 | `GET admin/vendors/add` | `VendorController::getAddView` | `none` | module:people |
@@ -674,6 +685,8 @@ still an admin controller, nothing more), with what is done about them:
 | `Admin\Telemetry\AnalyticsController` | scoped in slice 3 | The analytics export by product counts the products of every country, so it is unavailable to a restricted employee (StaffOrderRoutes). |
 | `Admin\Order\DeliverySyriaDispatchController` | scoped in slice 2 | Dispatches an order to the Delivery Syria courier by its id: an order route like the order screens (StaffOrderRoutes). It reads no product. |
 | `Admin\Customer\CustomerController` | scoped in slice 3 | Lists the orders and refund requests of a customer and counts the orders of each customer (StaffOrderRoutes). It reads no product. |
+| `Admin\Customer\CustomerWalletController` | scoped in slice 3 | The wallet report and a customer's wallet movements, narrowed by the market each ledger row records (StaffCountryLedgerScope; StaffOrderRoutes). It reads no product. |
+| `Admin\Customer\CustomerLoyaltyController` | scoped in slice 3 | A customer's loyalty movements, narrowed the same way (StaffCountryLedgerScope; StaffOrderRoutes). It reads no product. |
 | `Admin\Deliveryman\DeliveryManController` | scoped in slice 3 | Lists the orders, the earnings and the status history of a delivery man (StaffOrderRoutes). It reads no product. |
 | `Modules\TaxModule\Admin\Reports\AdminTaxReportController` | scoped in slice 3 | The tax report sums the taxes of the orders of the employee's countries (StaffOrderRoutes). It reads no product. |
 | `Modules\TaxModule\Admin\Reports\VendorTaxReportController` | scoped in slice 3 | The vendor tax reports sum the orders and taxes of the employee's countries (StaffOrderRoutes). They read no product. |
@@ -789,8 +802,8 @@ fails the day one reaches it.
 | `Admin\V2AdvancedSearchController` | scoped in slice 3 | The header search of the new layout finds an order or a refund request by its number only when it is the employee's, and a product only when it is one of their countries'. It narrows what it hands back, with no middleware: it fills a cache every employee shares (App\Services\Staff\StaffSearchHits). |
 | `Admin\AdvancedSearchController` | scoped in slice 3 | The header search of the classic layout is the same search as the new one (StaffSearchHits): an order or a refund request is found only when it is the employee's, with no middleware. |
 | `Admin\InhouseProductSaleController` | scoped in slice 3 | The in-house sales report counts the sales of the order lines of the employee's countries through the product repository, for their products. Every action has a rule in StaffOrderRoutes. |
-| `Admin\Customer\CustomerWalletController` | out of slice 3 (owner) | The wallet report and the wallet transactions of the customers carry no order and no country, so they cannot be told apart by country. |
-| `Admin\Customer\CustomerLoyaltyController` | out of slice 3 (owner) | The loyalty point transactions carry no order and no country, so they cannot be told apart by country. |
+| `Admin\Customer\CustomerWalletController` | scoped in slice 3 | The wallet report and a customer's wallet movements. The reason they were the owner's to decide -- "they carry no order and no country" -- stopped being true when wallet_transactions gained storefront_country: each row records its own market, so a restricted employee is shown the movements of their markets through StaffCountryLedgerScope. The bonus setup is the platform's own configuration and lists nothing. Every action has a rule in StaffOrderRoutes. |
+| `Admin\Customer\CustomerLoyaltyController` | scoped in slice 3 | A customer's loyalty movements, narrowed the same way through loyalty_point_transactions.storefront_country. Every action has a rule in StaffOrderRoutes. |
 | `Admin\Marketplace\SellerScorecardController` | out of slice 3 (slice 5) | The scorecard of a seller is made of its orders of every country, through SellerScorecardService. |
 | `Admin\Marketplace\SettlementController` | out of slice 3 (slice 5) | The settlements of the sellers are made of their orders of every country, through the vendor ledger. |
 | `Admin\OperationalCosts\OverviewController` | out of slice 3 (slice 6) | The overview of the operational costs aggregates the profit of the orders of every country. |
