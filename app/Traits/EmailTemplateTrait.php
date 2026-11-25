@@ -14,6 +14,9 @@ trait EmailTemplateTrait
 {
     use FileManagerTrait;
 
+    /** The template fields an e-mail renders in the recipient's language, each read from the translation row of its own name. */
+    private const TRANSLATED_TEMPLATE_FIELDS = ['title', 'body', 'footer_text', 'copyright_text', 'button_name'];
+
     protected function textVariableFormat(
         $value, $userName = null, $adminName = null, $vendorName = null, $shopName = null, $shopId = null,
         $deliveryManName = null, $orderId = null, $emailId = null)
@@ -37,12 +40,17 @@ trait EmailTemplateTrait
         $template = EmailTemplate::with('translationCurrentLanguage')->where(['user_type' => $userType, 'template_name' => $templateName])->first();
         if ($template) {
             if (count($template['translationCurrentLanguage'])) {
+                // Each field takes its OWN key's translation (I1-03). Two of them used to take each other's -- `footer_text` was given
+                // the `copyright_text` row and `copyright_text` the `footer_text` row -- so every recipient whose language had a
+                // translation was shown the copyright notice in the footer slot of the e-mail and the "contact us" line at the foot of
+                // the page. The admin's own preview of the same template reads the two by their own keys, so the screen the wording is
+                // approved on did not show what was sent. Written as a lookup rather than five assignments so that the field a row
+                // reaches is the row's own key and cannot be anything else. The list is still a list: a translation row for a key the
+                // e-mail does not render writes nothing.
                 foreach ($template?->translationCurrentLanguage ?? [] as $translate) {
-                    $template['title'] = $translate->key == 'title' ? $translate->value : $template['title'];
-                    $template['body'] = $translate->key == 'body' ? $translate->value : $template['body'];
-                    $template['footer_text'] = $translate->key == 'copyright_text' ? $translate->value : $template['footer_text'];
-                    $template['copyright_text'] = $translate->key == 'footer_text' ? $translate->value : $template['copyright_text'];
-                    $template['button_name'] = $translate->key == 'button_name' ? $translate->value : $template['button_name'];
+                    if (in_array($translate->key, self::TRANSLATED_TEMPLATE_FIELDS, true)) {
+                        $template[$translate->key] = $translate->value;
+                    }
                 }
             }
             $socialMedia = SocialMedia::where(['status' => 1])->get();
