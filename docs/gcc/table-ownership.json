@@ -1,0 +1,644 @@
+{
+    "what_this_is": "The owner scope of every table a migration of this repository creates (A1-10). TableOwnershipTest reads it: a migration that creates a table absent from this file fails, and an entry no migration creates fails too, so the register can neither fall behind the schema nor keep a name the schema has dropped.",
+    "scopes": {
+        "global": "One row set serves the whole platform. There is nothing per country to carry.",
+        "country": "The row belongs to one of the six markets and says so in a column of its own.",
+        "storefront": "The row belongs to one storefront. The storefront key is the ISO country code today (A1-09 records that it has no identity of its own yet).",
+        "legal_entity": "The row belongs to one selling company.",
+        "customer": "The row belongs to one customer identity, which GCC-13 keeps single across markets.",
+        "seller": "The row belongs to one seller or shop.",
+        "warehouse": "The row belongs to one inventory location.",
+        "provider_account": "The row belongs to one carrier or fulfillment provider account.",
+        "channel_account": "The row belongs to one marketplace account.",
+        "derived": "The row carries no owner column: it reads one through the parent `by` names. Discovery 03 counts about 150 tables of this kind, and giving each a country_id instead is what DECISIONS guardrail 3 forbids.",
+        "inherited": "Created by the single-market platform, before an owner scope was a question anyone asked of a table. Its scope is NOT decided, and deciding it is A1-10's remaining work. No NEW table may be classified this way: the guard pins this set, so it can only shrink."
+    },
+    "rules": [
+        "Every table any migration creates has an entry here.",
+        "Every scope other than `global` and `inherited` names in `by` the column, or the path through a parent, that carries the owner.",
+        "`inherited` is frozen: the guard fails when a table is added to it.",
+        "A migration that passes a variable to Schema::create cannot be read statically, so it names its tables in `declares`."
+    ],
+    "declares": {
+        "2026_12_05_120000_create_customer_market_balance_accounts.php": [
+            "customer_market_loyalty_accounts",
+            "customer_market_wallet_accounts"
+        ]
+    },
+    "inherited_frozen_at": [
+        "add_fund_bonus_categories",
+        "analytic_scripts",
+        "attachments",
+        "authors",
+        "billing_addresses",
+        "business_pages",
+        "cart_shippings",
+        "carts",
+        "category_shipping_costs",
+        "delivery_country_codes",
+        "delivery_histories",
+        "delivery_man_transactions",
+        "delivery_men",
+        "delivery_zip_codes",
+        "deliveryman_notifications",
+        "deliveryman_wallets",
+        "digital_product_authors",
+        "digital_product_otp_verifications",
+        "digital_product_publishing_houses",
+        "digital_product_variations",
+        "email_templates",
+        "emergency_contacts",
+        "error_logs",
+        "guest_users",
+        "jobs",
+        "login_setups",
+        "loyalty_point_transactions",
+        "most_demandeds",
+        "notification_messages",
+        "notification_seens",
+        "oauth_access_tokens",
+        "oauth_auth_codes",
+        "oauth_clients",
+        "oauth_personal_access_clients",
+        "oauth_refresh_tokens",
+        "offline_payment_methods",
+        "offline_payments",
+        "order_delivery_verifications",
+        "order_details_rewards",
+        "order_edit_histories",
+        "order_expected_delivery_histories",
+        "order_status_histories",
+        "order_transactions",
+        "phone_or_email_verifications",
+        "product_compares",
+        "product_seos",
+        "product_tag",
+        "publishing_houses",
+        "recent_searches",
+        "referral_customers",
+        "refund_requests",
+        "refund_statuses",
+        "refund_transactions",
+        "restock_product_customers",
+        "restock_products",
+        "review_replies",
+        "robots_meta_contents",
+        "seo_meta_info",
+        "shipping_types",
+        "shop_followers",
+        "stock_clearance_products",
+        "stock_clearance_setups",
+        "storages",
+        "subscriptions",
+        "tags",
+        "translations",
+        "v2_sidebar_pins",
+        "vendor_registration_reasons",
+        "vendor_withdraw_method_infos",
+        "wallet_transactions",
+        "withdrawal_methods"
+    ],
+    "tables": {
+        "add_fund_bonus_categories": {
+            "scope": "inherited"
+        },
+        "address_cities": {
+            "scope": "derived",
+            "by": "region_id -> address_regions.country_code"
+        },
+        "address_city_aliases": {
+            "scope": "derived",
+            "by": "city_id -> address_cities -> address_regions.country_code",
+            "why": "normalized_alias is unique across every country today, which H1-10 records as a collision waiting for a second country"
+        },
+        "address_regions": {
+            "scope": "country",
+            "by": "country_code"
+        },
+        "admin_country_scopes": {
+            "scope": "country",
+            "by": "country"
+        },
+        "amazon_feed_submissions": {
+            "scope": "derived",
+            "by": "account_id"
+        },
+        "amazon_report_runs": {
+            "scope": "derived",
+            "by": "account_id"
+        },
+        "analytic_scripts": {
+            "scope": "inherited"
+        },
+        "attachments": {
+            "scope": "inherited"
+        },
+        "authors": {
+            "scope": "inherited"
+        },
+        "billing_addresses": {
+            "scope": "inherited"
+        },
+        "business_pages": {
+            "scope": "inherited"
+        },
+        "cart_shippings": {
+            "scope": "inherited"
+        },
+        "carts": {
+            "scope": "inherited"
+        },
+        "category_shipping_costs": {
+            "scope": "inherited"
+        },
+        "channel_attention_reviews": {
+            "scope": "derived",
+            "by": "source with source_row_id: the row under review carries the owner"
+        },
+        "channel_listing_drafts": {
+            "scope": "derived",
+            "by": "account_id"
+        },
+        "channel_order_dispatches": {
+            "scope": "derived",
+            "by": "account_id"
+        },
+        "channel_package_splits": {
+            "scope": "derived",
+            "by": "account_id"
+        },
+        "channel_return_decisions": {
+            "scope": "derived",
+            "by": "account_id"
+        },
+        "channel_shipment_sends": {
+            "scope": "derived",
+            "by": "account_id"
+        },
+        "channel_stock_events": {
+            "scope": "derived",
+            "by": "location_id -> inventory_locations"
+        },
+        "customer_market_loyalty_accounts": {
+            "scope": "customer",
+            "by": "customer_id with market"
+        },
+        "customer_market_wallet_accounts": {
+            "scope": "customer",
+            "by": "customer_id with market"
+        },
+        "customer_marketing_consents": {
+            "scope": "customer",
+            "by": "customer_id"
+        },
+        "delivery_country_codes": {
+            "scope": "inherited"
+        },
+        "delivery_histories": {
+            "scope": "inherited"
+        },
+        "delivery_man_transactions": {
+            "scope": "inherited"
+        },
+        "delivery_men": {
+            "scope": "inherited"
+        },
+        "delivery_zip_codes": {
+            "scope": "inherited"
+        },
+        "deliveryman_notifications": {
+            "scope": "inherited"
+        },
+        "deliveryman_wallets": {
+            "scope": "inherited"
+        },
+        "digital_product_authors": {
+            "scope": "inherited"
+        },
+        "digital_product_otp_verifications": {
+            "scope": "inherited"
+        },
+        "digital_product_publishing_houses": {
+            "scope": "inherited"
+        },
+        "digital_product_variations": {
+            "scope": "inherited"
+        },
+        "email_templates": {
+            "scope": "inherited"
+        },
+        "emergency_contacts": {
+            "scope": "inherited"
+        },
+        "error_logs": {
+            "scope": "inherited"
+        },
+        "external_order_lines": {
+            "scope": "derived",
+            "by": "mapping_id -> external_order_mappings.account_id"
+        },
+        "external_order_mappings": {
+            "scope": "derived",
+            "by": "account_id"
+        },
+        "fulfillment_routing_decisions": {
+            "scope": "derived",
+            "by": "order_id"
+        },
+        "fulfillment_routing_rules": {
+            "scope": "country",
+            "by": "country"
+        },
+        "gateway_confirmations": {
+            "scope": "derived",
+            "by": "payment_request_id"
+        },
+        "guest_users": {
+            "scope": "inherited"
+        },
+        "integration_settings": {
+            "scope": "provider_account",
+            "by": "provider with country"
+        },
+        "inventory_cost_consumptions": {
+            "scope": "derived",
+            "by": "layer_id -> inventory_cost_layers.inventory_location_id"
+        },
+        "inventory_cost_layers": {
+            "scope": "derived",
+            "by": "inventory_location_id"
+        },
+        "inventory_location_balances": {
+            "scope": "derived",
+            "by": "location_id"
+        },
+        "inventory_locations": {
+            "scope": "warehouse",
+            "by": "id",
+            "why": "the anchor itself carries no country: G1-05 records that gap"
+        },
+        "inventory_pools": {
+            "scope": "derived",
+            "by": "account_id with stock_location_id"
+        },
+        "inventory_reservations": {
+            "scope": "derived",
+            "by": "location_id"
+        },
+        "inventory_source_policies": {
+            "scope": "derived",
+            "by": "product_id -> products.storefront_country"
+        },
+        "jobs": {
+            "scope": "inherited"
+        },
+        "legal_entities": {
+            "scope": "legal_entity",
+            "by": "id, one row per country (country unique)"
+        },
+        "login_setups": {
+            "scope": "inherited"
+        },
+        "loyalty_point_transactions": {
+            "scope": "inherited"
+        },
+        "most_demandeds": {
+            "scope": "inherited"
+        },
+        "myfatoorah_payment_attempts": {
+            "scope": "derived",
+            "by": "payment_request_id -> payment_requests -> orders.storefront_country"
+        },
+        "myfatoorah_refunds": {
+            "scope": "derived",
+            "by": "payment_attempt_id"
+        },
+        "myfatoorah_webhook_events": {
+            "scope": "derived",
+            "by": "external_identifier -> myfatoorah_payment_attempts",
+            "why": "an inbound event is stored before its owner is known; the attempt it dedupes to carries the storefront"
+        },
+        "notification_messages": {
+            "scope": "inherited"
+        },
+        "notification_seens": {
+            "scope": "inherited"
+        },
+        "oauth_access_tokens": {
+            "scope": "inherited"
+        },
+        "oauth_auth_codes": {
+            "scope": "inherited"
+        },
+        "oauth_clients": {
+            "scope": "inherited"
+        },
+        "oauth_personal_access_clients": {
+            "scope": "inherited"
+        },
+        "oauth_refresh_tokens": {
+            "scope": "inherited"
+        },
+        "odoo_account_mappings": {
+            "scope": "seller",
+            "by": "seller_id with odoo_company_id",
+            "why": "H2-10: the entity that should own the mapping has no column; odoo_company_id is a number in a config, not a legal_entities reference"
+        },
+        "odoo_posting_queue": {
+            "scope": "derived",
+            "by": "source_type with source_id: the cost entry or statement row being posted"
+        },
+        "odoo_reconciliations": {
+            "scope": "seller",
+            "by": "seller_id"
+        },
+        "offline_payment_methods": {
+            "scope": "inherited"
+        },
+        "offline_payments": {
+            "scope": "inherited"
+        },
+        "operational_cost_allocations": {
+            "scope": "derived",
+            "by": "entry_id"
+        },
+        "operational_cost_contract_revisions": {
+            "scope": "derived",
+            "by": "contract_id"
+        },
+        "operational_cost_contracts": {
+            "scope": "seller",
+            "by": "seller_id"
+        },
+        "operational_cost_entries": {
+            "scope": "seller",
+            "by": "seller_id"
+        },
+        "operational_cost_invoice_items": {
+            "scope": "derived",
+            "by": "invoice_id"
+        },
+        "operational_cost_invoices": {
+            "scope": "seller",
+            "by": "seller_id"
+        },
+        "operational_cost_reconciliations": {
+            "scope": "derived",
+            "by": "estimated_entry_id and actual_entry_id"
+        },
+        "operational_cost_return_decisions": {
+            "scope": "seller",
+            "by": "seller_id"
+        },
+        "operational_cost_rules": {
+            "scope": "seller",
+            "by": "seller_id"
+        },
+        "order_delivery_verifications": {
+            "scope": "inherited"
+        },
+        "order_details_rewards": {
+            "scope": "inherited"
+        },
+        "order_edit_histories": {
+            "scope": "inherited"
+        },
+        "order_expected_delivery_histories": {
+            "scope": "inherited"
+        },
+        "order_status_histories": {
+            "scope": "inherited"
+        },
+        "order_transactions": {
+            "scope": "inherited"
+        },
+        "payment_gateway_accounts": {
+            "scope": "storefront",
+            "by": "storefront_country, with legal_entity_id beside it"
+        },
+        "payment_routing_rules": {
+            "scope": "country",
+            "by": "country"
+        },
+        "phone_or_email_verifications": {
+            "scope": "inherited"
+        },
+        "platform_admin_audit_checkpoints": {
+            "scope": "global",
+            "why": "as above"
+        },
+        "platform_admin_audit_logs": {
+            "scope": "global",
+            "why": "as above; G1-08 asks for the country each line concerns, which is not built"
+        },
+        "platform_admin_audit_tail": {
+            "scope": "global",
+            "why": "as above"
+        },
+        "platform_admin_grants": {
+            "scope": "global",
+            "why": "the platform administrator is not a market actor: a grant is platform-wide by design"
+        },
+        "platform_admin_mfa_challenges": {
+            "scope": "global",
+            "why": "as above"
+        },
+        "platform_admin_mfa_factors": {
+            "scope": "global",
+            "why": "as above"
+        },
+        "platform_admin_tokens": {
+            "scope": "global",
+            "why": "as above"
+        },
+        "pos_sale_idempotency_keys": {
+            "scope": "seller",
+            "by": "seller_id"
+        },
+        "product_compares": {
+            "scope": "inherited"
+        },
+        "product_destination_permissions": {
+            "scope": "derived",
+            "by": "product_id -> products.storefront_country, with destination_country naming the far side"
+        },
+        "product_provider_changes": {
+            "scope": "derived",
+            "by": "product_id -> products.storefront_country"
+        },
+        "product_seos": {
+            "scope": "inherited"
+        },
+        "product_tag": {
+            "scope": "inherited"
+        },
+        "provider_api_logs": {
+            "scope": "provider_account",
+            "by": "provider"
+        },
+        "provider_catalog_items": {
+            "scope": "provider_account",
+            "by": "provider"
+        },
+        "provider_cities": {
+            "scope": "provider_account",
+            "by": "provider with country"
+        },
+        "provider_city_aliases": {
+            "scope": "provider_account",
+            "by": "provider"
+        },
+        "provider_city_mappings": {
+            "scope": "provider_account",
+            "by": "provider with country_code"
+        },
+        "provider_city_sync_runs": {
+            "scope": "provider_account",
+            "by": "provider"
+        },
+        "provider_fulfillment_events": {
+            "scope": "derived",
+            "by": "provider_fulfillment_id"
+        },
+        "provider_fulfillment_items": {
+            "scope": "derived",
+            "by": "provider_fulfillment_id"
+        },
+        "provider_fulfillments": {
+            "scope": "provider_account",
+            "by": "provider"
+        },
+        "provider_price_changes": {
+            "scope": "derived",
+            "by": "mapping_id -> provider_product_mappings.provider"
+        },
+        "provider_product_mappings": {
+            "scope": "provider_account",
+            "by": "provider"
+        },
+        "provider_sync_states": {
+            "scope": "provider_account",
+            "by": "provider"
+        },
+        "publishing_houses": {
+            "scope": "inherited"
+        },
+        "recent_searches": {
+            "scope": "inherited"
+        },
+        "referral_customers": {
+            "scope": "inherited"
+        },
+        "referral_reward_grants": {
+            "scope": "customer",
+            "by": "beneficiary_id"
+        },
+        "refund_requests": {
+            "scope": "inherited"
+        },
+        "refund_statuses": {
+            "scope": "inherited"
+        },
+        "refund_transactions": {
+            "scope": "inherited"
+        },
+        "restock_product_customers": {
+            "scope": "inherited"
+        },
+        "restock_products": {
+            "scope": "inherited"
+        },
+        "review_replies": {
+            "scope": "inherited"
+        },
+        "robots_meta_contents": {
+            "scope": "inherited"
+        },
+        "sales_channel_accounts": {
+            "scope": "channel_account",
+            "by": "id; its market is derived from its settings (ChannelAccountCountry), not stored"
+        },
+        "sales_channel_api_logs": {
+            "scope": "derived",
+            "by": "account_id"
+        },
+        "sales_channel_events": {
+            "scope": "derived",
+            "by": "account_id"
+        },
+        "sales_channel_product_mappings": {
+            "scope": "derived",
+            "by": "account_id"
+        },
+        "sales_channel_sync_states": {
+            "scope": "derived",
+            "by": "account_id"
+        },
+        "seller_market_scopes": {
+            "scope": "seller",
+            "by": "seller_id with market"
+        },
+        "seo_meta_info": {
+            "scope": "inherited"
+        },
+        "shipping_rule_drafts": {
+            "scope": "storefront",
+            "by": "target_country, with source_country naming where the draft was copied from"
+        },
+        "shipping_types": {
+            "scope": "inherited"
+        },
+        "shop_followers": {
+            "scope": "inherited"
+        },
+        "stock_clearance_products": {
+            "scope": "inherited"
+        },
+        "stock_clearance_setups": {
+            "scope": "inherited"
+        },
+        "storages": {
+            "scope": "inherited"
+        },
+        "storefront_entity_visibility": {
+            "scope": "storefront",
+            "by": "storefront_country"
+        },
+        "storefront_legal_acceptances": {
+            "scope": "storefront",
+            "by": "storefront_country, with legal_entity beside it"
+        },
+        "storefront_legal_documents": {
+            "scope": "storefront",
+            "by": "country_code"
+        },
+        "subscriptions": {
+            "scope": "inherited"
+        },
+        "tags": {
+            "scope": "inherited"
+        },
+        "translations": {
+            "scope": "inherited"
+        },
+        "v2_sidebar_pins": {
+            "scope": "inherited"
+        },
+        "vendor_registration_reasons": {
+            "scope": "inherited"
+        },
+        "vendor_withdraw_method_infos": {
+            "scope": "inherited"
+        },
+        "wallet_top_ups": {
+            "scope": "customer",
+            "by": "customer_id"
+        },
+        "wallet_transactions": {
+            "scope": "inherited"
+        },
+        "withdrawal_methods": {
+            "scope": "inherited"
+        }
+    }
+}
