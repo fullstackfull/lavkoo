@@ -59,11 +59,6 @@ class TorodCityResolutionTest extends TorodAddressTestCase
         return $this->mappings()->approve(provider: 'torod_point', cityId: $this->ids[$handle], externalCityId: $externalId, adminId: 1, adminName: 'Owner');
     }
 
-    private function fakeOrderAccepted(): void
-    {
-        Http::fake([self::V5 . '/public/fulfillment/order' => Http::response(['id' => 4455, 'barcode' => 'O0015030400001'])]);
-    }
-
     private function rehearsal(): void
     {
         $this->enableProvider(ProviderCode::TorodPoint, ['company_id' => '714', 'dry_run' => true]);

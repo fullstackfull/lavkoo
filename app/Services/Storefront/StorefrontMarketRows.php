@@ -30,6 +30,15 @@ final class StorefrontMarketRows
 {
     public const COLUMN = 'storefront_country';
 
+    /**
+     * The market the unmarked rows belong to while the configuration names no default.
+     *
+     * Read from the configuration and not through `StorefrontResolver`, which refuses to be built on a default it cannot serve: a shipping
+     * listing must never throw because the default storefront is misconfigured, and the honest answer when it is, is the market whose rows
+     * these unmarked ones were written for.
+     */
+    private const UNMARKED_ROWS_BELONG_TO = 'SA';
+
     /** @var array<string, bool> */
     private array $columnReady = [];
 
@@ -117,6 +126,6 @@ final class StorefrontMarketRows
     {
         $configured = strtoupper(trim((string) config('gcc.storefronts.default_country')));
 
-        return $configured === '' ? 'SA' : $configured;
+        return $configured === '' ? self::UNMARKED_ROWS_BELONG_TO : $configured;
     }
 }
