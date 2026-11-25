@@ -6,7 +6,9 @@ use App\Http\Controllers\BaseController;
 use App\Http\Middleware\ScopeMarketplaceToStaffCountries;
 use App\Models\Product;
 use App\Models\Warehouse;
+use App\Services\Marketplace\WarehouseMarkets;
 use App\Services\Marketplace\WarehouseService;
+use App\Services\Staff\StaffCountryScope;
 use App\Services\AuditLogger;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Contracts\View\View;
@@ -23,6 +25,8 @@ class WarehouseController extends BaseController
     public function __construct(
         private readonly WarehouseService $warehouses,
         private readonly AuditLogger $audit,
+        private readonly WarehouseMarkets $markets,
+        private readonly StaffCountryScope $staff,
     ) {
         // Slice 5 of the staff country scopes (GCC-14c): these four screens MOVE stock, so a restricted employee reaches only the
         // products of their own countries on them -- the lists and the balances, and every write that names a product, a batch or a
@@ -34,7 +38,17 @@ class WarehouseController extends BaseController
     {
         $warehouses = collect();
         if (Schema::hasTable('warehouses')) {
-            $warehouses = Warehouse::ownedBy(null)->orderByDesc('is_default')->orderBy('name')->get();
+            $listing = Warehouse::ownedBy(null)->orderByDesc('is_default')->orderBy('name');
+            $bound = $this->staff->boundCountries();
+
+            // A1-18: a warehouse carries no market of its own, so a restricted employee was shown every shelf -- the one thing on these
+            // screens that was NOT narrowed. Its market is derived from what is on it, which presupposes nothing about the owner's open
+            // question of whether one warehouse may hold two markets' stock. An empty shelf names no market and is shown to everybody.
+            if ($bound !== null) {
+                $listing = $this->markets->narrow(query: $listing, countries: $bound);
+            }
+
+            $warehouses = $listing->get();
         }
 
         // Optional product-distribution lookup.

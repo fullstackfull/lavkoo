@@ -146,9 +146,52 @@ class StaffMarketplaceStockScreensTest extends TestCase
 
         $this->get('/admin/marketplace/warehouses?product_id=1')->assertNotFound('another market\'s product is answered like one that does not exist');
 
-        // The warehouses themselves have no market, so the list still shows both -- which the survey says rather than implies.
-        $this->assertStringContainsString('[warehouse:1]', (string) $mine->getContent());
+        // A1-18: a warehouse carries no market of its own, so its market is derived from what is ON it. Warehouse 1 holds only Saudi
+        // units, so this Kuwaiti employee is not shown it; warehouse 2 holds Kuwaiti units and is theirs. Neither is a guess about the
+        // owner's open question -- a warehouse holding two markets' stock would be shown to employees of either.
+        $this->assertStringNotContainsString('[warehouse:1]', (string) $mine->getContent(), 'a shelf holding only another market\'s units is not theirs');
         $this->assertStringContainsString('[warehouse:2]', (string) $mine->getContent());
+    }
+
+    /**
+     * The three readings of a warehouse's market, which is the whole of A1-18's remaining criterion as far as it can be answered without
+     * the owner: one market's shelf, two markets' shelf, and an empty one.
+     *
+     * An empty shelf names no market and is shown to everybody, which is the honest answer rather than a gap -- hiding one would make a
+     * warehouse vanish from the screen of the employee who had just created it.
+     */
+    public function test_a_warehouses_market_is_read_off_what_is_on_it(): void
+    {
+        DB::table('warehouses')->insert([
+            ['id' => 3, 'name' => 'Both', 'code' => 'BOTH', 'is_default' => false, 'status' => 'active'],
+            ['id' => 4, 'name' => 'Empty', 'code' => 'EMPTY', 'is_default' => false, 'status' => 'active'],
+        ]);
+        DB::table('warehouse_stock')->insert([
+            ['id' => 3, 'warehouse_id' => 3, 'product_id' => 1, 'quantity' => 1],
+            ['id' => 4, 'warehouse_id' => 3, 'product_id' => 2, 'quantity' => 1],
+        ]);
+        $markets = app(\App\Services\Marketplace\WarehouseMarkets::class);
+
+        $this->assertSame(['SA'], $markets->marketsOf(1));
+        $this->assertSame(['KW'], $markets->marketsOf(2));
+        $this->assertSame(['SA', 'KW'], $markets->marketsOf(3), 'a shelf of two markets belongs to both, which is what it is');
+        $this->assertSame([], $markets->marketsOf(4), 'and an empty shelf belongs to nobody yet');
+
+        $shown = (string) $this->asKuwaitStockHand()->get('/admin/marketplace/warehouses')->assertOk()->getContent();
+
+        $this->assertStringNotContainsString('[warehouse:1]', $shown);
+        foreach (['[warehouse:2]', '[warehouse:3]', '[warehouse:4]'] as $theirs) {
+            $this->assertStringContainsString($theirs, $shown);
+        }
+    }
+
+    /** The unrestricted twin: nothing is hidden from an employee who is not restricted, so the narrowing is of the employee and not of the screen. */
+    public function test_an_unrestricted_employee_still_sees_every_warehouse(): void
+    {
+        $shown = (string) $this->signInAsStaff(1)->get('/admin/marketplace/warehouses')->assertOk()->getContent();
+
+        $this->assertStringContainsString('[warehouse:1]', $shown);
+        $this->assertStringContainsString('[warehouse:2]', $shown);
     }
 
     // ---- the inventory adjustments --------------------------------------------------------------------------------------------------

@@ -70,10 +70,12 @@ use Illuminate\Support\Facades\DB;
  *  - a BRAND decision crosses every market by construction: approving an ownership claim says who may sell under that brand everywhere,
  *    and the exposure counts beside it are platform totals read with the query builder.
  *
- * What is NOT covered, and why: a WAREHOUSE has no market of its own. `inventory_locations` gained one (`2026_12_27_100000`, G1-05) and the
- * marketplace's own `warehouses` table did not, so what can be told apart here is the product whose units are being moved, never the shelf.
- * Giving that table a market belongs with the inventory lane; until then a restricted employee still SEES every warehouse on the list, and
- * the survey says so.
+ * A WAREHOUSE still has no market COLUMN of its own: `inventory_locations` gained one (`2026_12_27_100000`, G1-05) and the marketplace's own
+ * `warehouses` table did not, because whether one warehouse may hold two markets' stock is the owner's open question on A1-18 and a single
+ * column would answer it. The list is narrowed all the same, by what is ON the shelf: `App\Services\Marketplace\WarehouseMarkets` derives a
+ * warehouse's markets from the markets of the products whose units it holds, so a shelf of one market is that market's, a shelf of two is
+ * shown to employees of either -- the shape the owner's answer would take if it were "yes" -- and an EMPTY shelf names no market and is shown
+ * to everybody, which is honest rather than a gap: hiding one would make a warehouse vanish from the screen of whoever had just created it.
  */
 final class StaffMarketplaceRoutes
 {
