@@ -125,6 +125,17 @@ return [
             // next of them back to today's queue.
             'per_market' => filter_var(env('GCC_STOREFRONT_QUEUES', false), FILTER_VALIDATE_BOOLEAN),
             'prefix' => env('GCC_STOREFRONT_QUEUE_PREFIX', 'storefront-'),
+
+            // Off by default: a queued job runs in the market of the REQUEST that dispatched it, and a job dispatched where no market is
+            // bound -- a provider webhook, the recovery sweep, the scheduler, the console -- runs unbound, exactly as every job runs today.
+            // When it is on, a job whose payload names a RECORD (an order, a shipment, a stored provider event, a product) runs in the market
+            // that record belongs to, and falls back to the dispatching request's market when the record cannot be read.
+            //
+            // It is a switch of its own rather than part of GCC_STOREFRONTS_ENABLED because it changes WHICH market a job is run in, not
+            // whether markets exist: a provider webhook is deliberately served across every country (StorefrontCatalog's cross-country
+            // paths), so the market of its work can only come from the record, and reading the record costs a query a job did not make
+            // before. Turning it on needs the orders snapshot migration to have run; until it has, every job falls back as before.
+            'market_from_record' => filter_var(env('GCC_STOREFRONT_QUEUE_MARKET_FROM_RECORD', false), FILTER_VALIDATE_BOOLEAN),
         ],
 
         'currency' => [
