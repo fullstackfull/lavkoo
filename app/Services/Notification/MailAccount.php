@@ -40,10 +40,15 @@ final class MailAccount
      *
      * A market with no account of its own, a platform with the switch off and an account that names no host all run the callback untouched:
      * a half-written account is not a reason to send through the wrong host, and it is not a reason to fail to send either.
+     *
+     * @param string|null $country the market whose account to use, for the one caller that is not sending a message to a customer -- the
+     *                             admin's test send, which is asking about a market the admin CHOSE rather than about the market the request
+     *                             is being served from. Every sender leaves it null and gets the market in force, which is the order's own
+     *                             for a message about an order and the dispatching request's for every other one.
      */
-    public function forThisMessage(Closure $callback): mixed
+    public function forThisMessage(Closure $callback, ?string $country = null): mixed
     {
-        $account = $this->settingsOf($this->profiles->for(channel: NotificationProfiles::MAIL));
+        $account = $this->settingsOf($this->profiles->for(channel: NotificationProfiles::MAIL, country: $country));
 
         if ($account === []) {
             return $callback();

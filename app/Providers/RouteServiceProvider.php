@@ -62,6 +62,7 @@ class RouteServiceProvider extends ServiceProvider
         $this->mapFulfillmentAdminRoutes();
         $this->mapAddressAdminRoutes();
         $this->mapStorefrontAdminRoutes();
+        $this->mapNotificationAccountAdminRoutes();
         $this->mapBetaVendorRoutes();
         $this->mapSellerCenterRoutes();
         $this->mapBetaWebRoutes();
@@ -225,6 +226,14 @@ class RouteServiceProvider extends ServiceProvider
         Route::middleware('web')
             ->namespace($this->namespace)
             ->group(base_path('routes/admin/storefronts.php'));
+    }
+
+    /** The mail, SMS, WhatsApp and push accounts of each market, and the test send that proves one works. */
+    protected function mapNotificationAccountAdminRoutes(): void
+    {
+        Route::middleware('web')
+            ->namespace($this->namespace)
+            ->group(base_path('routes/admin/notification-accounts.php'));
     }
 
     protected function mapBetaVendorRoutes(): void

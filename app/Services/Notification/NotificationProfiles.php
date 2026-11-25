@@ -108,6 +108,27 @@ final class NotificationProfiles
             && DB::table(self::TABLE)->where(['channel' => $channel, 'country' => self::PLATFORM_WIDE, 'active' => true])->exists();
     }
 
+    /**
+     * The row stored for exactly this channel and this market, switched off rows included and WITHOUT the fallback to the shared account.
+     *
+     * It is what the admin screen reads, and only the admin screen: a screen has to show what this market itself has, so that an operator
+     * can tell an account of its own from the shared account it would otherwise fall back to, and can see a row they have switched off
+     * rather than being shown an empty form over the top of it. Every sender goes on asking {@see for()}, which answers the account a
+     * message actually leaves through.
+     *
+     * @param string $country the market, or {@see PLATFORM_WIDE} for the shared account
+     */
+    public function stored(string $channel, string $country): ?NotificationProfile
+    {
+        if (!$this->tableExists()) {
+            return null;
+        }
+
+        $row = DB::table(self::TABLE)->where(['channel' => $channel, 'country' => $country])->first();
+
+        return $row === null ? null : $this->hydrate($row);
+    }
+
     /** Forgets what was chosen, for a test that writes a row after a sender has already asked. */
     public function flush(): void
     {
@@ -124,12 +145,20 @@ final class NotificationProfiles
 
         $row ??= DB::table(self::TABLE)->where(['channel' => $channel, 'country' => self::PLATFORM_WIDE, 'active' => true])->first();
 
-        return $row === null ? null : new NotificationProfile(
-            channel: (string) $row->channel,
+        return $row === null ? null : $this->hydrate($row);
+    }
+
+    private function hydrate(object $row): NotificationProfile
+    {
+        $channel = (string) $row->channel;
+
+        return new NotificationProfile(
+            channel: $channel,
             country: (string) $row->country,
             label: $row->label === null ? null : (string) $row->label,
             settings: $this->decode($row->settings, encrypted: false, channel: $channel),
             credentials: $this->decode($row->credentials, encrypted: true, channel: $channel),
+            active: (bool) $row->active,
         );
     }
 

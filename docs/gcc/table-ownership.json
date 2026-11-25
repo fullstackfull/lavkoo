@@ -323,6 +323,11 @@
             "by": "external_identifier -> myfatoorah_payment_attempts",
             "why": "an inbound event is stored before its owner is known; the attempt it dedupes to carries the storefront"
         },
+        "notification_channel_profiles": {
+            "scope": "storefront",
+            "by": "country",
+            "why": "The shared account every market falls back to is the row whose `country` is the empty string, which is the convention integration_settings already uses for the carriers (H1-11); it is not a seventh market."
+        },
         "notification_messages": {
             "scope": "inherited"
         },
