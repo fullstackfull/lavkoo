@@ -253,7 +253,19 @@ class StaffLayoutTest extends TestCase
         $this->signInAsKuwaitEmployee();
         $queries = $this->queriesOfTheProbe();
 
-        $this->assertCount(1, $this->withoutTheProbes(queries: $queries, containing: 'admin_country_scopes'), 'the rows of the employee are read once');
+        // TWO reads is one resolve, not two. `StaffCountryScope::resolve()` asks the table two different questions on purpose (G1-14):
+        // whether the employee has any row at all, and which of their rows are still in force. An employee with no row is unrestricted
+        // on this platform, so folding those into one "ignore the expired rows" query would turn the last row's expiry into a privilege
+        // escalation on a timer -- the employee would hold no country and be read as unrestricted instead of restricted to nothing.
+        //
+        // This assertion said 1 until the grant trail arrived (3e33a819) and the test predates it, so it was reading a deliberate
+        // security design as a regression. What it is actually here to catch is the layout resolving the employee REPEATEDLY, which is
+        // why the number is pinned at exactly one resolve's worth rather than loosened.
+        //
+        // Teeth, both measured: a second reader resolving on this path takes it to 4 and fails. Removing `narrowLayout`'s own
+        // `attributes->has()` guard does NOT fail it, and that is worth knowing rather than hiding -- on this path nothing binds
+        // before the composer runs, so the guard is inert here and only earns its keep on a screen whose middleware bound first.
+        $this->assertCount(2, $this->withoutTheProbes(queries: $queries, containing: 'admin_country_scopes'), 'the employee is resolved once, which is two reads: has-any-row and still-in-force');
         $this->assertCount(2, array_filter($queries, static fn (string $query): bool => str_contains($query, 'visible_lines')), 'the order counters and the latest orders are narrowed');
         $this->assertCount(1, array_filter($queries, static fn (string $query): bool => str_contains($query, 'refund_lines')), 'and so are the refund counters');
     }
