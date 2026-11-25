@@ -76,13 +76,22 @@ trait CustomerTrait
             if (WalletOverdraft::refuses($currentBalance, $debitAmount)) {
                 return false;
             }
+            // The row carries the balance the account ENDS with, bonus included (E-16). All four copies of this write set the
+            // account to `previous + bonus + credit - debit` and wrote `previous + credit - debit` on the row, so an `add_fund`
+            // row that earned a bonus understated the account by exactly the bonus it was printing in the next column -- on the
+            // admin wallet report, which prints both on one line, and in the add-fund email, which prints the row's balance as
+            // the customer's new balance. One figure, used twice, is why the two cannot disagree again
+            // (App\Services\Customer\CustomerWalletWriter already writes it this way). Rows written before this are NOT
+            // rewritten and keep the understated figure; they stay reconcilable, because `admin_bonus` is on the row in both
+            // eras.
+            $balanceAfter = $currentBalance + $addFundToWalletBonus + $creditAmount - $debitAmount;
             $walletTransaction->credit = $creditAmount;
             $walletTransaction->debit = $debitAmount;
-            $walletTransaction->balance = $currentBalance + $creditAmount - $debitAmount;
+            $walletTransaction->balance = $balanceAfter;
             $walletTransaction->created_at = now();
             $walletTransaction->updated_at = now();
             $walletTransaction->fill(app(LedgerAttribution::class)->of(table: $walletTransaction->getTable(), origin: $origin));
-            $user->wallet_balance = $currentBalance + $addFundToWalletBonus + $creditAmount - $debitAmount;
+            $user->wallet_balance = $balanceAfter;
 
             $user->save();
             $walletTransaction->save();
