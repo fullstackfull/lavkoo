@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Services\Address\OrderAddressService;
 use App\Services\Payments\OneAccountPerRegistration;
 use App\Services\Payments\PaymentSettlementScope;
+use App\Services\Payments\WhatWasPaidMatchesTheOrder;
 use App\Services\Payments\WalletTopUpRegister;
 use App\Services\Storefront\LedgerOrigin;
 use App\Services\Storefront\PaymentStorefront;
@@ -160,6 +161,17 @@ if (!function_exists('digital_payment_place_orders')) {
             if ($orderIds === [] && !PaymentSettlementScope::hasOrderFor(transactionId: $paymentData['transaction_id'] ?? null)) {
                 Log::critical('A paid payment was settled without building an order.', ['transaction_id' => $paymentData['transaction_id'], 'customer_id' => $customerId]);
             }
+            // What the gateway took against what the orders add up to (D2). Nothing compared them, so a basket that moved
+            // between the payment starting and the callback arriving produced an order whose total is not the figure the
+            // customer was charged, with both records saying `paid`. It REPORTS and never refuses: the money has already
+            // moved, and refusing would leave the customer paid with nothing to show for it.
+            app(WhatWasPaidMatchesTheOrder::class)->report(
+                paymentId: $paymentData['id'] ?? null,
+                paymentAmount: $paymentData['payment_amount'] ?? null,
+                currencyCode: isset($paymentData['currency_code']) ? (string) $paymentData['currency_code'] : null,
+                orderIds: $orderIds,
+            );
+
             foreach ($orderIds as $orderId) {
                 OrderManager::generateReferBonusForFirstOrder(orderId: $orderId);
             }
