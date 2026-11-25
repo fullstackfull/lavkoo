@@ -27,7 +27,7 @@
                         <div class="col-12">
                             <div class="alert alert-info fs-12 mb-0">
                                 {{ translate('while_this_is_off_the_sign_in_forms_are_protected_by_rate_limiting_alone') }}.
-                                {{ translate('the_limit_is_on_the_platform_policies_page_under_access_policy') }}.
+                                {{ translate('the_limit_is_on_the_operating_rules_page_under_access_policy') }}.
                             </div>
                         </div>
                     @endif

@@ -1,12 +1,16 @@
 @extends('layouts.admin.app')
 
-@section('title', translate('platform_policies'))
+{{-- I2-06: the screen is named for what it holds -- the numbers and switches the platform applies to ITSELF -- and not "policies", which an
+     operator reads as the terms, the privacy notice and the refund policy a customer accepts. Those are legal documents, live in another
+     store, and are reached from Business Pages and from a storefront's legal texts. Neither screen may be named like the other. --}}
+@section('title', translate('operating_rules'))
 
 @section('content')
     <div class="content container-fluid">
         <div class="mb-3">
-            <h2 class="h1 mb-0 d-flex align-items-center gap-2"><i class="fi fi-rr-settings-sliders"></i> {{ translate('platform_policies') }}</h2>
+            <h2 class="h1 mb-0 d-flex align-items-center gap-2"><i class="fi fi-rr-settings-sliders"></i> {{ translate('operating_rules') }}</h2>
             <p class="mb-0 fs-12">{{ translate('the_rules_the_platform_applies_to_itself_every_one_of_them_settable_bounded_and_audited') }}.</p>
+            <p class="mb-0 fs-12 text-muted">{{ translate('these_are_not_the_legal_documents_a_customer_accepts_those_are_in_business_pages_and_in_each_storefronts_legal_texts') }}.</p>
         </div>
 
         <div class="row g-3">

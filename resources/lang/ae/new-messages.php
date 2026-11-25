@@ -17940,4 +17940,7 @@ return [
 	'markets' => 'الأسواق',
 	'every_market' => 'كل الأسواق',
 	'your_country_scope_grants_you_no_market_to_broadcast_to' => 'نطاق الدول الممنوح لك لا يتيح أي سوق للإرسال إليه',
+	'operating_rules' => 'قواعد التشغيل',
+	'these_are_not_the_legal_documents_a_customer_accepts_those_are_in_business_pages_and_in_each_storefronts_legal_texts' => 'هذه ليست المستندات القانونية التي يوافق عليها العميل؛ تلك موجودة في صفحات الأعمال وفي النصوص القانونية لكل متجر',
+	'the_limit_is_on_the_operating_rules_page_under_access_policy' => 'الحد موجود في صفحة قواعد التشغيل تحت سياسة الوصول',
 ];

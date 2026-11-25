@@ -11502,4 +11502,7 @@ return [
 	'markets' => 'Markets',
 	'every_market' => 'Every market',
 	'your_country_scope_grants_you_no_market_to_broadcast_to' => 'Your country scope grants you no market to broadcast to',
+	'operating_rules' => 'Operating rules',
+	'these_are_not_the_legal_documents_a_customer_accepts_those_are_in_business_pages_and_in_each_storefronts_legal_texts' => 'These are not the legal documents a customer accepts; those are in Business Pages and in each storefront\'s legal texts',
+	'the_limit_is_on_the_operating_rules_page_under_access_policy' => 'The limit is on the Operating rules page, under Access policy',
 ];

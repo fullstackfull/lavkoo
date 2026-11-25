@@ -999,6 +999,16 @@
                         <span class="v2-nav-btn"><span class="v2-nav-label">{{ translate('Priority_Setup') }}</span></span>
                         <div class="v2-nav-right"><button class="v2-pin-btn" type="button" data-pin="priority-setup" aria-label="Pin"></button></div>
                     </a>
+                    {{-- The numbers and switches the platform applies to ITSELF -- what counts as low stock, how long a courier may go quiet,
+                         how short a password may be. It had a screen and no way to reach it from the menu. Named "operating rules" and not
+                         "policies" on purpose (I2-06): the documents a customer ACCEPTS are legal texts, they live in another store, and they
+                         are reached from Business Pages above and from a storefront's legal texts. One menu may not call both the same thing. --}}
+                    @if (Route::has('admin.settings.policies.index') && Helpers::module_permission_check('system_settings'))
+                        <a class="v2-nav-item {{ Request::is('admin/settings/policies*') ? 'v2-is-active' : '' }}" data-item="operating-rules" href="{{ route('admin.settings.policies.index') }}">
+                            <span class="v2-nav-btn"><span class="v2-nav-label">{{ translate('operating_rules') }}</span></span>
+                            <div class="v2-nav-right"><button class="v2-pin-btn" type="button" data-pin="operating-rules" aria-label="Pin"></button></div>
+                        </a>
+                    @endif
                     <a class="v2-nav-item {{ Request::is('admin/auction/company-reliability') || (Request::is('admin/pages-and-media/list') || Request::is('admin/pages-and-media/page*') || Request::is('admin/pages-and-media/privacy-policy') || Request::is('admin/pages-and-media/about-us') || Request::is('admin/helpTopic/index') || Request::is('admin/pages-and-media/features-section') || Request::is('admin/pages-and-media/company-reliability')) ? 'v2-is-active' : '' }}" data-item="business-pages" href="{{ route('admin.pages-and-media.list') }}">
                         <span class="v2-nav-btn"><span class="v2-nav-label">{{ translate('business_Pages') }}</span></span>
                         <div class="v2-nav-right"><button class="v2-pin-btn" type="button" data-pin="business-pages" aria-label="Pin"></button></div>
