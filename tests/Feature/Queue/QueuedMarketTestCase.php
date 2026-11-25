@@ -155,16 +155,28 @@ abstract class QueuedMarketTestCase extends TestCase
         ]);
     }
 
-    /** One stored inbound provider event about a shipment. Returns the event's id. */
-    protected function storedEventOf(int $fulfillmentId): int
+    /**
+     * One stored inbound provider event about a shipment. Returns the event's id.
+     *
+     * `$eventId` is there so a test can give the event the id of ANOTHER market's shipment. Without it the first event and the first
+     * shipment are both id 1, and a reader that confused the two tables would answer the right market by coincidence: the teeth check for
+     * the event -> shipment -> order hop came back inert exactly that way before this existed.
+     */
+    protected function storedEventOf(int $fulfillmentId, ?int $eventId = null): int
     {
-        return (int) DB::table('provider_fulfillment_events')->insertGetId([
+        $row = [
             'provider_fulfillment_id' => $fulfillmentId,
-            'dedupe_key' => 'dedupe-' . $fulfillmentId,
+            'dedupe_key' => 'dedupe-' . $fulfillmentId . '-' . ($eventId ?? 'next'),
             'received_at' => now(),
             'created_at' => now(),
             'updated_at' => now(),
-        ]);
+        ];
+
+        if ($eventId !== null) {
+            $row['id'] = $eventId;
+        }
+
+        return (int) DB::table('provider_fulfillment_events')->insertGetId($row);
     }
 
     private function seedTheOrdersAndTheirShipments(bool $ordersRecordTheirMarket, bool $productsRecordTheirMarket): void
