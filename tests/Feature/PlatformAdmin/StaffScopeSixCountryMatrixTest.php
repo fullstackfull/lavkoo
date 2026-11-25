@@ -150,7 +150,7 @@ class StaffScopeSixCountryMatrixTest extends PlatformAdminTestCase
             'sales' => self::NO_SALES,
             'pending_fulfilment' => ['count' => $index + 1],
             'returns' => ['refund_requests' => count($this->countries) - $index, 'pending' => 1],
-            'stock' => ['zero' => $index + 1, 'low' => count($this->countries) - $index],
+            'stock' => $this->expectedStock(zero: $index + 1, low: count($this->countries) - $index),
             'alerts' => ['critical' => $counts['critical'] ?? 0, 'warning' => $counts['warning'] ?? 0, 'info' => $counts['info'] ?? 0],
         ];
     }
@@ -163,9 +163,20 @@ class StaffScopeSixCountryMatrixTest extends PlatformAdminTestCase
             'sales' => self::NO_SALES,
             'pending_fulfilment' => ['count' => 3],
             'returns' => ['refund_requests' => 1, 'pending' => 1],
-            'stock' => ['zero' => 1, 'low' => 0],
+            'stock' => $this->expectedStock(zero: 1, low: 0),
             'reason' => 'no_single_market',
         ];
+    }
+
+    /**
+     * The stock half of a block. Nothing of this test's world is past zero, and it builds neither inventory table, so the oversell is zero and the
+     * held stock and the pools are NO figure rather than a zero -- which is what the API answers on an installation that records neither.
+     *
+     * @return array<string, mixed>
+     */
+    private function expectedStock(int $zero, int $low): array
+    {
+        return ['zero' => $zero, 'low' => $low, 'oversold' => 0, 'oversold_units' => 0, 'reserved' => null, 'allocation' => null];
     }
 
     /** @return list<array{0: string, 1: string}> the severity and the code of every alert country number $index raises, from the thresholds the test sets */

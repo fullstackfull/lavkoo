@@ -420,6 +420,17 @@ return [
             'max_concurrent' => (int) env('GCC_PLATFORM_ADMIN_SESSION_MAX_CONCURRENT', 5),
         ],
 
+        // The oldest contract level of the shell this server will answer (App\Services\PlatformAdmin\PlatformAdminContract). It ships UNSET, so nothing is
+        // forced and every build is answered, one from before the header included. Set it to 1 and a shell that does not send
+        // `X-Platform-Admin-Contract: 1` is refused with 426 and told both numbers, the sign-in included -- a build that cannot read the answers must
+        // not be given a session to read them with. It can NEVER be set above the level the server itself speaks: a minimum of 2 against a server of 1
+        // would refuse every request including the sign-in, leaving no session to read the floor from, which is how the seller version gate once locked
+        // every seller out. A value that is not a positive whole number means no floor at all. This is NOT the seller app's version gate and does not
+        // touch it: the shell can stop being able to read this API without the seller app needing a release.
+        // Read raw rather than cast here, as the second-factor switch is: `PlatformAdminContract::minSupported()` reads it strictly, so that `1.5` or
+        // `1x` mean NO floor instead of the 1 an `(int)` cast would quietly make of them. For a floor, the unsafe direction of a nonsense value is on.
+        'min_contract' => env('GCC_PLATFORM_ADMIN_MIN_CONTRACT', 0),
+
         // The window of an overview: its default length, and the longest span any query may read. Dates are calendar dates in the application time zone.
         'window_days_default' => 30,
         'window_days_max' => 92,
@@ -447,6 +458,10 @@ return [
         'alerts' => [
             'zero_stock_warning_count' => 10,
             'zero_stock_critical_count' => 50,
+            // Stock BELOW zero is not an ordinary state of a shop -- it is a sale that should have been refused -- so one product is already
+            // information and these two numbers are far lower than the zero-stock pair above. A value below 1 means the default.
+            'oversold_warning_count' => 5,
+            'oversold_critical_count' => 20,
             // An order is stuck when it is still pending after this many hours. One order is information; the other numbers raise the severity.
             'pending_age_hours' => 24,
             'pending_warning_count' => 5,

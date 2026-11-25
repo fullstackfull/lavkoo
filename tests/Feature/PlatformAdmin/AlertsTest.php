@@ -36,6 +36,8 @@ class AlertsTest extends PlatformAdminTestCase
             'gcc.platform_admin.alerts' => [
                 'zero_stock_warning_count' => 2,
                 'zero_stock_critical_count' => 3,
+                'oversold_warning_count' => 2,
+                'oversold_critical_count' => 3,
                 'pending_age_hours' => 24,
                 'pending_warning_count' => 2,
                 'pending_critical_count' => 3,
@@ -122,6 +124,74 @@ class AlertsTest extends PlatformAdminTestCase
         $alert = collect($this->alerts('?market=KW')->json('data'))->firstWhere('code', 'stock_zero');
 
         $this->assertSame($severity, $alert['severity'] ?? null);
+    }
+
+    /** @return array<string, array{0: int, 1: ?string}> */
+    public static function oversoldLevels(): array
+    {
+        return [
+            'none' => [0, null],
+            'one is already information' => [1, 'info'],
+            'at the warning count' => [2, 'warning'],
+            'at the critical count' => [3, 'critical'],
+            'many' => [8, 'critical'],
+        ];
+    }
+
+    /**
+     * Stock below zero raises an alert of its OWN, at a floor of one.
+     *
+     * Zero stock is an ordinary state of a shop and its counts say when it is worth waking somebody for. Stock below zero is not a state a correct
+     * shop reaches at all -- it is a sale that should have been refused -- so the first one is already something to look at, and it cannot be folded
+     * into `stock_zero`, which would hide it behind that alert's much larger numbers.
+     */
+    #[DataProvider('oversoldLevels')]
+    public function test_stock_below_zero_raises_an_alert_of_its_own_at_a_floor_of_one(int $oversoldProducts, ?string $severity): void
+    {
+        DB::table('products')->where('storefront_country', 'KW')->delete();
+        for ($index = 1; $index <= $oversoldProducts; $index++) {
+            $this->product(id: 300 + $index, country: 'KW', stock: -$index);
+        }
+
+        $alert = collect($this->alerts('?market=KW')->json('data'))->firstWhere('code', 'stock_oversold');
+
+        $this->assertSame($severity, $alert['severity'] ?? null);
+    }
+
+    public function test_an_oversold_product_raises_the_oversell_alert_beside_the_zero_stock_one_and_not_instead_of_it(): void
+    {
+        DB::table('products')->where('storefront_country', 'KW')->delete();
+        $this->product(id: 310, country: 'KW', stock: -4);
+        $this->product(id: 311, country: 'KW', stock: 0);
+
+        $codes = array_column($this->alerts('?market=KW')->json('data'), 'code');
+
+        $this->assertContains('stock_oversold', $codes);
+        $this->assertContains('stock_zero', $codes, 'a product below zero is at zero stock as well, and both alerts are true of it');
+    }
+
+    public function test_the_oversell_alert_says_how_many_products_and_names_the_market(): void
+    {
+        DB::table('products')->where('storefront_country', 'KW')->delete();
+        $this->product(id: 320, country: 'KW', stock: -9);
+
+        $alert = collect($this->alerts('?market=KW')->json('data'))->firstWhere('code', 'stock_oversold');
+
+        $this->assertSame('1 live product in KW has been sold below zero.', $alert['message']);
+        $this->assertSame('markets/KW', $alert['deep_link']);
+    }
+
+    public function test_a_product_that_is_not_live_is_never_oversold_however_far_below_zero_its_stock_is(): void
+    {
+        DB::table('products')->where('storefront_country', 'KW')->delete();
+        $this->product(id: 330, country: 'KW', stock: -50, status: 0);
+        $this->product(id: 331, country: 'KW', stock: -50, requestStatus: 0);
+        $this->product(id: 332, country: 'KW', stock: -50, type: 'digital');
+
+        $this->assertNull(
+            collect($this->alerts('?market=KW')->json('data'))->firstWhere('code', 'stock_oversold'),
+            'the alert reads exactly the population the stock figures read: live physical products',
+        );
     }
 
     /** @return array<string, array{0: int, 1: ?string}> */

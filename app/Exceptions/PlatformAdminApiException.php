@@ -3,6 +3,7 @@
 namespace App\Exceptions;
 
 use App\Models\PlatformAdminDevice;
+use App\Services\PlatformAdmin\PlatformAdminContract;
 use App\Services\PlatformAdmin\PlatformAdminResponses;
 use Illuminate\Contracts\Debug\ShouldntReport;
 use Illuminate\Http\JsonResponse;
@@ -92,6 +93,21 @@ class PlatformAdminApiException extends RuntimeException implements ShouldntRepo
     public static function deviceNotFound(): self
     {
         return new self(errorCode: 'device_not_found', message: 'No such device of this session.', status: 404);
+    }
+
+    /**
+     * The shell is older than the oldest contract level this server answers. The body carries BOTH numbers, because this refusal has to be enough
+     * on its own: it can come back from the sign-in, where there is no session yet and so no `GET /me` to read the floor from, and a shell that is
+     * only told "no" cannot tell an operator why or what to do about it.
+     */
+    public static function contractTooOld(int $claimed, int $minSupported): self
+    {
+        return new self(
+            errorCode: 'contract_too_old',
+            message: 'This build of the platform admin shell is too old for this server. Update the app.',
+            status: 426,
+            extra: ['contract' => ['claimed' => $claimed, 'version' => PlatformAdminContract::VERSION, 'min_supported' => $minSupported]],
+        );
     }
 
     public static function invalidWindow(string $message): self

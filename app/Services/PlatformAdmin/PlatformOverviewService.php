@@ -12,8 +12,9 @@ use Illuminate\Support\Carbon;
  * state and not a flow, read over the last stretch the API may read at all (the longest window), so that an order that has waited longer than
  * the window is still waiting. The backlog read also says how many of its orders are stuck, which is what the alerts need.
  *
- * Sales are not reported. An order stores no currency, and the amounts it stores are in the platform's base currency, whatever the market
- * it was sold in; adding them up under a market's currency, or under any, would be a guess, so the answer says why there is no figure.
+ * Sales are reported only once an order records the currency its amounts are in, and never across two currencies; an installation whose orders
+ * record none says why there is no figure instead (see salesOf below). The stock figures include the two dormant halves of the inventory stack --
+ * what is held for orders and how a pooled stock is divided -- which report a reason rather than a zero while their tables do not exist.
  */
 final class PlatformOverviewService
 {
@@ -24,6 +25,8 @@ final class PlatformOverviewService
     private const NO_SETTLEMENTS_REASON = 'no_settlements_are_recorded_on_this_installation';
 
     private const SETTLEMENT_CURRENCY_REASON = 'settlement_currency_not_recorded';
+
+    private const NO_INVENTORY_REASON = 'inventory_stack_is_not_installed';
 
     public function __construct(
         private readonly PlatformMarkets $markets,
@@ -42,6 +45,8 @@ final class PlatformOverviewService
             'backlog' => $this->figures->backlog(),
             'refunds' => $this->figures->refundRequests(from: $window->startsAt(), before: $window->endsBefore()),
             'stock' => $this->figures->stock(),
+            'reservations' => $this->figures->reservations(),
+            'allocations' => $this->figures->allocations(),
             'sales' => $this->figures->sales(from: $window->startsAt(), before: $window->endsBefore()),
         ];
 
@@ -101,7 +106,11 @@ final class PlatformOverviewService
             'sales' => $this->salesOf(rows: $this->rowsOf(rows: $figures['sales'], market: $market)),
             'pending_fulfilment' => ['count' => array_sum(array_column($this->rowsOf(rows: $figures['backlog'], market: $market), 'orders'))],
             'returns' => $this->refundsOf(rows: $this->rowsOf(rows: $figures['refunds'], market: $market)),
-            'stock' => $this->stockOf(rows: $this->rowsOf(rows: $figures['stock'], market: $market)),
+            'stock' => $this->stockOf(
+                rows: $this->rowsOf(rows: $figures['stock'], market: $market),
+                held: $this->rowsOf(rows: $figures['reservations'], market: $market),
+                pooled: $this->rowsOf(rows: $figures['allocations'], market: $market),
+            ),
         ];
     }
 
@@ -194,13 +203,40 @@ final class PlatformOverviewService
     }
 
     /**
-     * @param list<array<string, mixed>> $rows
+     * The stock of a market: how many live products are at zero or low, how many went PAST zero and by how many units, what is promised to orders
+     * and not yet shipped, and how the division of a pooled stock between channels stands.
      *
-     * @return array{zero: int, low: int}
+     * `oversold` is the sharper reading of rows `zero` already counts, so the two overlap on purpose (PlatformMarketFigures::stock).
+     *
+     * `reserved` and `allocation` are `null` and NOT zero on an installation that keeps neither -- the dormant half of the inventory stack, whose
+     * migration has not run. "No stock is held here" and "this platform does not record held stock" are different facts, and a zero would say the
+     * first while meaning the second. `attribution.inventory` carries the reason once, because it is a fact about the installation and not about a
+     * market.
+     *
+     * @param list<array<string, mixed>> $rows
+     * @param list<array<string, mixed>> $held
+     * @param list<array<string, mixed>> $pooled
+     *
+     * @return array<string, mixed>
      */
-    private function stockOf(array $rows): array
+    private function stockOf(array $rows, array $held, array $pooled): array
     {
-        return ['zero' => array_sum(array_column($rows, 'zero')), 'low' => array_sum(array_column($rows, 'low'))];
+        return [
+            'zero' => array_sum(array_column($rows, 'zero')),
+            'low' => array_sum(array_column($rows, 'low')),
+            'oversold' => array_sum(array_column($rows, 'oversold')),
+            'oversold_units' => array_sum(array_column($rows, 'oversold_units')),
+            'reserved' => $this->figures->reservationsRecorded()
+                ? ['holds' => array_sum(array_column($held, 'holds')), 'units' => array_sum(array_column($held, 'units'))]
+                : null,
+            'allocation' => $this->figures->allocationsRecorded()
+                ? [
+                    'pools' => array_sum(array_column($pooled, 'pools')),
+                    'short' => array_sum(array_column($pooled, 'short')),
+                    'short_units' => array_sum(array_column($pooled, 'short_units')),
+                ]
+                : null,
+        ];
     }
 
     /** @return array<string, mixed> */
@@ -210,10 +246,29 @@ final class PlatformOverviewService
             'orders' => ['rule' => 'all_lines_one_market', 'via' => 'order_details.product_id > products.storefront_country'],
             'refund_requests' => ['rule' => 'product_market', 'via' => 'refund_requests.product_id > products.storefront_country'],
             'stock' => ['rule' => 'live_physical_products_by_market', 'via' => 'products.storefront_country'],
+            'inventory' => $this->inventoryAttribution(),
             'products_country' => $this->figures->productsCountry(),
             'currency' => $this->figures->orderCurrencyRecorded()
                 ? ['per_order' => true, 'rule' => 'order_market_company_and_currency', 'via' => 'orders.storefront_country, orders.legal_entity_id, orders.currency_code', 'priced_when' => 'currency_rate = 1']
                 : ['per_order' => false, 'reason' => self::NO_CURRENCY_REASON],
+        ];
+    }
+
+    /**
+     * Where the held stock and the pooled stock of a market come from, and whether this installation records either at all. Each half is reported
+     * on its own because the two tables arrive in two migrations and an installation can have run one and not the other.
+     *
+     * @return array<string, mixed>
+     */
+    private function inventoryAttribution(): array
+    {
+        $holds = $this->figures->reservationsRecorded();
+        $pools = $this->figures->allocationsRecorded();
+
+        return [
+            'reservations' => $holds ? ['rule' => 'product_market', 'via' => 'inventory_reservations.product_id > products.storefront_country', 'counted_when' => 'state = reserved'] : null,
+            'allocation' => $pools ? ['rule' => 'product_market', 'via' => 'inventory_pools.product_id > products.storefront_country', 'short_when' => 'deficit > 0'] : null,
+            'reason' => $holds && $pools ? null : self::NO_INVENTORY_REASON,
         ];
     }
 

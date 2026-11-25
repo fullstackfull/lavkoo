@@ -13,6 +13,8 @@ use App\Services\Storefront\StorefrontLegalReadiness;
  *  - `legal_not_ready` (critical): a market that is active, while storefronts are on, whose legal documents are not approved. The storefront
  *    refuses every sale until they are.
  *  - `stock_zero` (warning, critical): live products at zero stock, at the configured counts.
+ *  - `stock_oversold` (info, warning, critical): live products whose stock has gone PAST zero. One is already information, because stock below
+ *    zero is not a state a correct shop reaches -- it is a sale that should have been refused.
  *  - `orders_pending_too_long` (info, warning, critical): orders still pending after the configured age, created within the longest window.
  *  - the seven health signals of L-09 (info, warning, critical), each with a code of its own: `payments_stuck`,
  *    `payments_unreconciled`, `channels_failing`, `carriers_failing`, `books_need_a_person`, `shop_issues_open` and
@@ -103,7 +105,9 @@ final class PlatformAlertService
     public function forMarkets(array $selected, ?array $stock = null, ?array $backlog = null, ?array $health = null): array
     {
         $generatedAt = (string) PlatformAdminPresenter::timestamp(moment: now());
-        $zeroStock = $this->countsByMarket(rows: $stock ?? $this->figures->stock(), column: 'zero');
+        $stockRows = $stock ?? $this->figures->stock();
+        $zeroStock = $this->countsByMarket(rows: $stockRows, column: 'zero');
+        $oversold = $this->countsByMarket(rows: $stockRows, column: 'oversold');
         $pendingRows = array_filter($backlog ?? $this->figures->backlog(), static fn (array $row): bool => $row['status'] === 'pending');
         $stuckOrders = $this->countsByMarket(rows: $pendingRows, column: 'stuck');
         $healthOfMarket = $this->healthByMarket(health: $health);
@@ -117,6 +121,7 @@ final class PlatformAlertService
             $candidates = [
                 $this->legalAlert(code: $code, active: $market['active']),
                 $this->stockAlert(code: $code, zero: $zeroStock[$code] ?? 0),
+                $this->oversoldAlert(code: $code, oversold: $oversold[$code] ?? 0),
                 $this->pendingAlert(code: $code, stuck: $stuckOrders[$code] ?? 0),
                 ...$this->healthAlerts(code: $code, health: $healthOfMarket[$code] ?? null),
             ];
@@ -174,6 +179,33 @@ final class PlatformAlertService
         };
 
         return $severity === null ? null : [$severity, 'stock_zero', sprintf('%d live %s in %s %s out of stock.', $zero, $zero === 1 ? 'product' : 'products', $code, $zero === 1 ? 'is' : 'are')];
+    }
+
+    /**
+     * Live products of the market whose stock has gone PAST zero: units were sold that were not there, and somebody has to pick an order that
+     * cannot be picked.
+     *
+     * **One product is a warning and not information, which is why this is not `stock_zero` with a different number.** Zero stock is an ordinary
+     * state of a shop -- a line sells out, and the configured counts say when that is worth waking somebody for. Stock BELOW zero is not a state a
+     * correct shop reaches at all: it is a sale that should have been refused, and the first one is already a thing to look at. So it keeps its own
+     * code, its own counts and a floor of one, exactly as the seven health signals each keep their own rather than being folded into a shared one.
+     *
+     * @return array{0: string, 1: string, 2: string}|null
+     */
+    private function oversoldAlert(string $code, int $oversold): ?array
+    {
+        $severity = match (true) {
+            $oversold >= $this->settings->oversoldCriticalCount() => 'critical',
+            $oversold >= $this->settings->oversoldWarningCount() => 'warning',
+            $oversold >= 1 => 'info',
+            default => null,
+        };
+
+        return $severity === null ? null : [
+            $severity,
+            'stock_oversold',
+            sprintf('%d live %s in %s %s sold below zero.', $oversold, $oversold === 1 ? 'product' : 'products', $code, $oversold === 1 ? 'has been' : 'have been'),
+        ];
     }
 
     /** @return array{0: string, 1: string, 2: string}|null */

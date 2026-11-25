@@ -158,13 +158,16 @@ class SessionsTest extends PlatformAdminTestCase
 
         $noFactor = ['enrolled' => false, 'verified' => false, 'method' => null];
         $everything = ['overview', 'markets', 'alerts', 'audit', 'sessions'];
+        // The contract level this server speaks, beside the oldest it still answers (L-17). No floor ships set, so `min_supported` is null here --
+        // ContractVersionTest is where a floor is set and what it refuses is asserted.
+        $contract = ['version' => 1, 'min_supported' => null];
         $this->getJson(self::PREFIX . '/me', $this->bearer($ownerToken))->assertOk()->assertExactJson(['data' => [
             'admin_id' => $owner['id'], 'name' => 'Platform Owner', 'level' => 1, 'scope' => 'all', 'markets' => ['SA', 'AE', 'KW', 'QA', 'BH', 'OM'], 'token_expires_at' => $expiry(3),
-            'capabilities' => $everything, 'grant_expires_at' => null, 'mfa' => $noFactor,
+            'capabilities' => $everything, 'grant_expires_at' => null, 'mfa' => $noFactor, 'contract' => $contract,
         ]]);
         $this->getJson(self::PREFIX . '/me', $this->bearer($viewerToken))->assertOk()->assertExactJson(['data' => [
             'admin_id' => $viewer['id'], 'name' => 'Kuwait Viewer', 'level' => 1, 'scope' => 'restricted', 'markets' => ['AE', 'KW'], 'token_expires_at' => $expiry(4),
-            'capabilities' => $everything, 'grant_expires_at' => null, 'mfa' => $noFactor,
+            'capabilities' => $everything, 'grant_expires_at' => null, 'mfa' => $noFactor, 'contract' => $contract,
         ]]);
     }
 

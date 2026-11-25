@@ -20,7 +20,8 @@ market. While that switch is off, for the master admin and for an employee with 
 ## 1. What it is
 
 A small JSON API under `/api/platform-admin/v1` with which the platform owner, signed in to the seller app as an **admin**, watches all six markets: whether each market is
-open and legally ready, how many orders each has and in which state, what is waiting to be fulfilled, refund requests, stock at zero or low, alerts, and an audit trail of
+open and legally ready, how many orders each has and in which state, what is waiting to be fulfilled, refund requests, stock at zero, low or past zero, the stock held for orders and
+the division of a pooled stock, alerts, and an audit trail of
 what the API itself did.
 
 It is a **separate principal**. It is not a seller, a seller staff member, a seller API key, a customer, or an admin who happens to be signed in to the web panel:
@@ -239,6 +240,24 @@ somebody holds the password: change it. The lines the console commands write car
   `429 platform_admin_throttled` with `Retry-After` (and no challenge), and a code sent with a challenge that is still good gets the same 429 without being checked or counted; every other request of the second step is
   the uniform 401, locked or not, so that a 429 can only be seen by somebody who holds a good challenge.
 
+### The contract level of the shell
+
+The seller app's force-update gate (`seller_app_version_control`, in front of its login screen) is about the SELLER app's release. The admin shell is a different thing inside the same binary: it can stop being
+able to read this API without the seller app needing a release, and the seller app can be released without the shell changing. So the shell has a floor of its own, as a CONTRACT level rather than an app version —
+what matters is not which build is installed but whether it understands the answers. **Nothing here reads or touches the seller version gate, and a test asserts no statement of a request mentions it.**
+
+* A request says which level it speaks in `X-Platform-Admin-Contract`. A build from before the header says nothing, which is **level 0 and not "whatever is current"**: an older shell must not be handed answers it
+  was never written to read. A header that is not a whole number (`1.0`, `v1`, text) is level 0 as well; space around a number is ignored.
+* The server's own level is `1`. It goes up when an answer of this API changes shape in a way an older shell cannot read.
+* `GCC_PLATFORM_ADMIN_MIN_CONTRACT` is the oldest level the server will answer. It **ships unset, so nothing is forced** and deploying this changes no request's outcome. A value that is not a positive whole number
+  means no floor at all, rather than the 0 or 1 a cast would make of it: for a floor, the unsafe direction of a nonsense value is ON.
+* **The floor can never be set above the level the server itself speaks.** A minimum of 2 against a server of 1 would refuse every request including the sign-in, leaving no session to read the floor from and no way
+  back but another number — which is exactly how the seller version gate once locked every seller out. A configured value above `version` is held down to it.
+* The refusal is `426 contract_too_old` and is raised **in front of the whole API, the sign-in included**: a build that cannot read the answers is not given a session to read them with. It carries `claimed`,
+  `version` and `min_supported`, because it has to be enough on its own. It is answered `Cache-Control: no-store, private` like every other answer of this API, and says nothing about the account that asked.
+* The switch comes first: while the API is off, every route including this check is a plain 404. A dormant API never answers 426, which would admit it exists.
+* `GET /me` carries `contract: {version, min_supported}` so a shell that is still new enough can see where the floor stands and warn before it is refused, rather than learning it from a 426 one morning.
+
 ### Error codes
 
 | Status | Code | When |
@@ -251,6 +270,7 @@ somebody holds the password: change it. The lines the console commands write car
 | 422 | `invalid_market` | `market` is not `all` or a configured code; the error carries `valid` |
 | 422 | `invalid_window` | `from` or `to` is not a date written `YYYY-MM-DD`, or `from` is after `to` |
 | 422 | `invalid_severity` | `severity` is not `info`, `warning` or `critical`; the error carries `valid` |
+| 426 | `contract_too_old` | The shell speaks an older contract level than the oldest this server answers (section 4, "The contract level of the shell"). Carries `contract: {claimed, version, min_supported}`, so a build can say what is wrong without a session: this refusal comes back from the SIGN-IN too. No floor is set by default, so nothing meets this |
 | 429 | `platform_admin_throttled` | Too many sign-in attempts or requests, too many tries at the second step from one address, or the admin is locked out of the second step; `Retry-After` says when |
 | 503 | `platform_admin_unavailable` | The flag is on and the migrations have not run |
 
@@ -328,16 +348,20 @@ Ends the session of the token used: `{"data": {"revoked": true}}`. The admin's o
 
 ### `GET /me`
 
-`{"data": {"admin_id", "name", "level", "scope", "markets", "token_expires_at", "capabilities", "grant_expires_at", "mfa": {"enrolled", "verified", "method"}}}`. `scope` is `all` (the platform owner) or `restricted` (the grant names markets, or the staff country scope restricts the admin: section 12); `markets` is what the server allows (the grant, narrowed by the staff scope while it is on), in
+`{"data": {"admin_id", "name", "level", "scope", "markets", "token_expires_at", "capabilities", "grant_expires_at", "mfa": {"enrolled", "verified", "method"}, "contract": {"version", "min_supported"}}}`. `scope` is `all` (the platform owner) or `restricted` (the grant names markets, or the staff country scope restricts the admin: section 12); `markets` is what the server allows (the grant, narrowed by the staff scope while it is on), in
 configuration order; **`capabilities` is the list of the parts of the API the grant includes** (`overview`, `markets`, `alerts`, `audit`, `sessions`, in that order: what the server enforces, so the app offers only those); `grant_expires_at` is when the grant ends (UTC, with a `Z`) or `null` for no end. **The app must never decide for itself what an admin may see; it reads this on every start, and right after a sign-in.** No e-mail is returned.
 
 `mfa.enrolled` is whether the admin has a confirmed factor made for their own admin row (whether or not it is required just now); `mfa.verified` is whether **this session** passed the second factor, and `mfa.method`
 is how: `"totp"`, `"recovery_code"`, or `null` (`verified` is then `false`: a session opened while the second factor was not required, which can only be seen while it is still not required). With the second factor
 required `verified` is always `true` and there is always a method, because every other session is refused before it gets here.
 
+`contract.version` is the level this server speaks and `contract.min_supported` the oldest it answers, `null` when no floor is set (see section 4, "The contract level of the shell"). A shell already below the
+floor never reaches this route — the 426 carries both numbers itself — so this member is for warning an operator ahead of time, not for discovering a refusal.
+
 ```json
 {"data": {"admin_id": 7, "name": "Platform Owner", "level": 1, "scope": "all", "markets": ["SA","AE","KW","QA","BH","OM"], "token_expires_at": "2026-11-17T18:00:00Z",
-  "capabilities": ["overview","markets","alerts","audit","sessions"], "grant_expires_at": null, "mfa": {"enrolled": true, "verified": true, "method": "totp"}}}
+  "capabilities": ["overview","markets","alerts","audit","sessions"], "grant_expires_at": null, "mfa": {"enrolled": true, "verified": true, "method": "totp"},
+  "contract": {"version": 1, "min_supported": null}}}
 ```
 
 ### `GET /sessions`, `DELETE /sessions/{id}`, `DELETE /sessions`
@@ -378,6 +402,11 @@ ending today and is **never longer than 92 days** (longer is cut at the old end 
     "orders": {"rule": "all_lines_one_market", "via": "order_details.product_id > products.storefront_country"},
     "refund_requests": {"rule": "product_market", "via": "refund_requests.product_id > products.storefront_country"},
     "stock": {"rule": "live_physical_products_by_market", "via": "products.storefront_country"},
+    "inventory": {
+      "reservations": {"rule": "product_market", "via": "inventory_reservations.product_id > products.storefront_country", "counted_when": "state = reserved"},
+      "allocation": {"rule": "product_market", "via": "inventory_pools.product_id > products.storefront_country", "short_when": "deficit > 0"},
+      "reason": null
+    },
     "products_country": "column",
     "currency": {"per_order": false, "reason": "order_currency_not_recorded"}
   },
@@ -387,13 +416,14 @@ ending today and is **never longer than 92 days** (longer is cut at the old end 
     "sales": {"by_currency": null, "reason": "order_currency_not_recorded"},
     "pending_fulfilment": {"count": 1},
     "returns": {"refund_requests": 1, "pending": 1},
-    "stock": {"zero": 2, "low": 1},
+    "stock": {"zero": 2, "low": 1, "oversold": 1, "oversold_units": 4, "reserved": {"holds": 3, "units": 9}, "allocation": {"pools": 2, "short": 1, "short_units": 5}},
     "alerts": {"critical": 1, "warning": 1, "info": 1}
   }],
   "unattributed": {
     "orders": {"total": 4, "by_status": {"pending": 2, "...": 0}, "latest_at": "2026-11-13T07:00:00Z"},
     "sales": {"by_currency": null, "reason": "order_currency_not_recorded"},
-    "pending_fulfilment": {"count": 3}, "returns": {"refund_requests": 2, "pending": 1}, "stock": {"zero": 1, "low": 0},
+    "pending_fulfilment": {"count": 3}, "returns": {"refund_requests": 2, "pending": 1},
+    "stock": {"zero": 1, "low": 0, "oversold": 0, "oversold_units": 0, "reserved": {"holds": 1, "units": 11}, "allocation": null},
     "reason": "no_single_market"
   }
 }}
@@ -402,7 +432,9 @@ ending today and is **never longer than 92 days** (longer is cut at the old end 
 * `orders` and `returns` are **flows of the window**: orders created in it, refund requests created in it (and how many of those are still pending).
 * `pending_fulfilment` is a **state**: orders in `pending`, `confirmed` or `processing` (`SlaService::AWAITING_SELLER_STATUSES`) created within the last 92 days, whatever window was
   asked for, so an order that has waited longer than the window is still waiting. An order older than 92 days is not looked for.
-* `stock` is a state too: live physical products at zero stock, and at low stock. See section 6.
+* `stock` is a state too: live physical products at zero stock, at low stock and BELOW zero, what is held for orders and not yet shipped, and how a pooled stock is divided
+  between the channels that offer it. `oversold` is a SUBSET of `zero`, which has always counted `current_stock <= 0`; `reserved` and `allocation` are `null` rather than zero on
+  an installation that records neither, and `attribution.inventory` carries the reason once. See section 6.
 * `by_status` has every status the platform knows (`getOrderStatusList()`) in its order, with zero, then any other status found, by name.
 * `unattributed` is `null` unless the admin is the platform owner asking for `all`. A single market, and a restricted admin, never see it: those orders might belong to a market
   the admin may not see.
@@ -425,6 +457,7 @@ At most 50 to a page (default 25); a page or size that is not a positive whole n
 |---|---|---|---|
 | `legal_not_ready` | critical | storefronts are on, the market is active, and `StorefrontLegalReadiness` says it is not ready | n/a |
 | `stock_zero` | warning, critical | live products at zero stock reach the count | 10, 50 |
+| `stock_oversold` | info, warning, critical | live products whose stock has gone PAST zero. **One is already information**, and the counts are far lower than the zero-stock pair, because stock below zero is not an ordinary state of a shop but a sale that should have been refused. It is raised BESIDE `stock_zero` and not instead of it: a product below zero is at zero stock as well, and both alerts are true of it | 1, 5, 20 |
 | `orders_pending_too_long` | info, warning, critical | orders still `pending` after the age, created within the last 92 days | 1, 5, 20 after 24 hours |
 
 The counts and the age are in `config/gcc.php` (`platform_admin.alerts`). A critical count below its warning count is raised to it, and a value that makes no sense is the default.
@@ -453,6 +486,16 @@ one country, `products.storefront_country` (default `SA`), and never changes it.
   status is `approved` and who is not deleted. How low is low is the rule of the seller's inventory screens (`InventoryService::stockLimitFor`): the seller's own `stock_limit` when
   it is a whole unit or more, otherwise the platform setting `stock_limit`, never below one; stock above zero and up to the limit is low. A test compares the SQL with
   `InventoryService` for six seller limits, fractions included. The brand and business-mode filters of `Product::active()` are not applied.
+* **Held stock and a divided pool.** `stock.reserved` is the stock promised to orders and not yet shipped: how many holds and how many units, counted in
+  `inventory_reservations` only while a hold is in state `reserved`, because `committed` and `released` are the two ends of a hold's life. `stock.allocation` is how the stock of a
+  pooled product is divided between the channels that offer it: how many pools, how many of them could not give every channel its share (`inventory_pools.deficit > 0`) and how
+  many units short those are -- the allocator's own record of what it could not satisfy, not a second opinion about it. Both are in the market of the product they are for, so a
+  hold or a pool whose product has been deleted, or whose country is not a configured market, is in the `unattributed` bucket and is **never counted as Saudi**.
+* **Both inventory tables are dormant and are reported as absent rather than as empty.** They arrive in two migrations of their own, so an installation can have run one and not
+  the other. While a table does not exist its figure is `null`, not zero, and `attribution.inventory` names the half that is missing with the reason
+  `inventory_stack_is_not_installed`: "nothing is held in this market" and "this platform does not record held stock" are different facts, and a zero would state the first while
+  meaning the second. **`oversold` is not dormant**: `products.current_stock` is a signed integer and stock below zero is a real state of the data that the monitoring page already
+  counts as a finding, so the figure is read from the same rows, in the same statement, as `zero` and `low`.
 * **While `products.storefront_country` does not exist** (the products migration of the storefront stack has not run) every product belongs to the default storefront, which is what
   the storefront code itself assumes before that migration, and the answer says `products_country: "default_storefront"`. An order with no line or a deleted product is still
   unattributed.
@@ -462,7 +505,8 @@ one country, `products.storefront_country` (default `SA`), and never changes it.
   currency of an order. The contract keeps a place for it: when orders record their market and currency, `sales.by_currency` will become a list grouped per market and currency, and
   `attribution.orders` will name the new rule. Nothing will ever be summed across currencies.
 * Every figure is a **grouped aggregate in the database over a bounded range** (the window, or at most the last 92 days); nothing is loaded row by row, and the number of statements
-  does not grow with the data (a test adds sixty of everything and counts again). An overview reads the orders twice, an alerts call once.
+  does not grow with the data (a test adds sixty of everything and counts again). An overview reads the orders twice, an alerts call once. The held stock and the pools cost one
+  grouped read each, and nothing at all on an installation whose tables are absent, where the figure is a reason instead.
 
 ## 7. Isolation and what is never done
 

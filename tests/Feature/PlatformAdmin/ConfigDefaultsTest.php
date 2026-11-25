@@ -27,6 +27,10 @@ class ConfigDefaultsTest extends TestCase
             [
                 'zero_stock_warning_count' => 10,
                 'zero_stock_critical_count' => 50,
+                // Stock BELOW zero is not an ordinary state of a shop but a sale that should have been refused, so ONE product is already
+                // information and this pair is far lower than the zero-stock one above it.
+                'oversold_warning_count' => 5,
+                'oversold_critical_count' => 20,
                 'pending_age_hours' => 24,
                 'pending_warning_count' => 5,
                 'pending_critical_count' => 20,
