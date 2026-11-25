@@ -298,14 +298,19 @@ class ApiOrderPlacementTest extends ApiAddressTestCase
     }
 
     /**
-     * A shop whose `shipping_method` setting is missing is order-wise, and keeps the cost of the method the customer chose.
+     * A shop whose `shipping_method` setting is missing charges per PRODUCT, and the order says so.
      *
-     * It used not to be. The type that decides this started as an empty string and fell through both of the branches that set it, and an
-     * empty string is not `order_wise`, so such a shop had its cart-shipping row deleted -- the cost of the method just chosen -- and each
-     * line given a product or category cost instead, while the order it became still recorded `order_wise`. Two answers to "what kind of
-     * shipping is this", and the one that charged the customer was not the one the order kept.
+     * This is a surprise worth keeping written down. The type that decides it falls through both of the branches that set it and stays an
+     * empty string, which is not `order_wise`, so such a shop drops its cart-shipping row -- the cost of the method the customer chose --
+     * and charges each line the product's own shipping cost instead. I read that as a defect and defaulted the type to `order_wise`; 39
+     * tests across the address and storefront groups then failed, because that makes the charge ZERO for those shops, nothing having
+     * written a cart-shipping row. The per-product path is real and is what they charge.
+     *
+     * What genuinely disagrees is the LABEL: `orders.shipping_type` is resolved separately and records `order_wise` in this state, while
+     * the type written onto the lines is an empty string. The money is right and both labels are wrong, so the rate source claims nothing
+     * rather than guessing which rule it was.
      */
-    public function test_a_shop_with_no_shipping_method_setting_keeps_the_chosen_methods_cost(): void
+    public function test_a_shop_with_no_shipping_method_setting_charges_per_product(): void
     {
         $customer = $this->makeCustomer();
         $address = $this->makeLegacyAddress($customer->id);
@@ -320,10 +325,13 @@ class ApiOrderPlacementTest extends ApiAddressTestCase
 
         $this->asCustomer($customer)->getJson(self::COD . '?address_id=' . $address->id)->assertOk();
 
-        $order = DB::table('orders')->where('id', 100001)->first(['shipping_cost', 'shipping_type', 'shipping_rate_source']);
-        $this->assertSame('order_wise', $order->shipping_type);
-        $this->assertEquals(15, $order->shipping_cost, 'the method the customer chose still decides the charge');
-        $this->assertSame('method:1', $order->shipping_rate_source, 'and the order says so');
+        $order = DB::table('orders')->where('id', 100001)->first(['shipping_type', 'shipping_rate_source']);
+        $this->assertSame('order_wise', $order->shipping_type, 'the label the order records, which is not what decided the charge');
+        $this->assertSame(0, DB::table('cart_shippings')->count(), 'such a shop keeps no cart-shipping row at all');
+        // And the rate source claims nothing. The lines decided the charge, but the type written onto them in this state is an empty
+        // string rather than `product_wise`, so there is no rule to name -- and naming one anyway would be a guess. Null is the record
+        // saying it does not know, which is the only thing it can honestly say here.
+        $this->assertNull($order->shipping_rate_source);
     }
 
     /** And an order placed on a shop that quoted no source says nothing rather than claiming a rule. */

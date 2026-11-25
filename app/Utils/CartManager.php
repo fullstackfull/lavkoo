@@ -315,12 +315,14 @@ class CartManager
         $cartListGroup = $cartList?->groupBy('cart_group_id');
 
         foreach($cartListGroup as $cartGroupItems) {
-            // Order-wise unless the shop says otherwise. It used to start as an empty string, which is not 'order_wise', so a shop whose
-            // `shipping_method` setting was missing or held any other value fell through both branches and was then treated as NOT
-            // order-wise: its cart-shipping row -- the cost of the method the customer had chosen -- was deleted and each line was given a
-            // product or category cost instead, while the order it became still recorded `order_wise`. Two answers to "what kind of
-            // shipping is this", one of them charging the customer. The default now matches what the order records.
-            $shippingType = 'order_wise';
+            // Deliberately not 'order_wise'. A shop whose `shipping_method` setting is missing, or holds any other value, falls through
+            // both branches and is then treated as NOT order-wise: its cart-shipping row is dropped and each line is given the product's
+            // or the category's own shipping cost, which is a real and working path -- `products.shipping_cost` is what such a shop
+            // charges. Defaulting this to 'order_wise' makes the charge ZERO for those shops instead, because nothing has written a
+            // cart-shipping row; 39 tests across the address and storefront groups say so. The order's `shipping_type` column is resolved
+            // separately and records 'order_wise' in that state, so the two disagree about the LABEL -- but the money comes from the lines,
+            // and it is right.
+            $shippingType = '';
             if ($shippingMethod == 'inhouse_shipping') {
                 $shippingType = isset($adminShipping) ? $adminShipping->shipping_type : 'order_wise';
             } else if ($shippingMethod == 'sellerwise_shipping') {

@@ -110,3 +110,11 @@ What is left on H1-05, H1-08 and H1-09 is owner decisions (licensed city lists, 
   believing it.
 - A static schema cache in a service outlives the schema on a real server, where every test drops the tables. Such a
   cache belongs in the base `TestCase`'s flush list, not in each test that happens to trip over it.
+- **A reading of what the code MEANT is a hypothesis, and a group run is the answer.** `CartManager` leaves the shipping
+  type as `''` when the `shipping_method` setting is missing, which is not `order_wise`, so such a shop drops its
+  cart-shipping row and charges per product. That looked like a defect and the "fix" -- defaulting to `order_wise` --
+  made the charge ZERO for those shops, because nothing writes a cart-shipping row for them. Thirty-nine tests across
+  the address and storefront groups said so, and they were right. Before changing a default that money passes through,
+  run the groups that touch money; a targeted test passing proves only that the new behaviour is self-consistent.
+- Where a record cannot name the rule that produced a figure, it says nothing. `shipping_rate_source` is null for a shop
+  in that state rather than guessing `product_wise`, because the type written on those lines is an empty string too.
