@@ -8,6 +8,7 @@ use App\Models\EmailTemplate;
 use Exception;
 use Illuminate\Support\Facades\Mail;
 use App\Services\EmailTemplateService;
+use App\Services\Notification\MessageLanguage;
 use App\Services\Storefront\StorefrontCurrency;
 
 trait EmailTemplateTrait
@@ -35,7 +36,25 @@ trait EmailTemplateTrait
         return $data;
     }
 
+    /**
+     * Sends one of the platform's e-mail templates, written in the language its recipient reads (I1-03).
+     *
+     * The language is chosen around the whole send, template read included, because the translation rows are filtered at QUERY time by
+     * `getDefaultLanguage()`: a language chosen after the template was loaded would arrive too late to be read. A message about an order has
+     * already had its language chosen by {@see \App\Services\Storefront\OrderNotificationContext}, from the order's own recipients, and
+     * {@see MessageLanguage::asTheRecipientReads()} leaves that answer alone -- so every e-mail of this platform now has its language
+     * decided in exactly one place, and a queued listener no longer writes in whatever language its worker happens to be in.
+     */
     protected function sendingMail($sendMailTo, $userType, $templateName, $data = null): void
+    {
+        app(MessageLanguage::class)->asTheRecipientReads(
+            userType: $userType,
+            sentTo: $sendMailTo,
+            callback: fn () => $this->writeAndSendMail(sendMailTo: $sendMailTo, userType: $userType, templateName: $templateName, data: $data),
+        );
+    }
+
+    private function writeAndSendMail($sendMailTo, $userType, $templateName, $data): void
     {
         $template = EmailTemplate::with('translationCurrentLanguage')->where(['user_type' => $userType, 'template_name' => $templateName])->first();
         if ($template) {

@@ -2,8 +2,8 @@
 
 namespace App\Services\Storefront;
 
+use App\Services\Notification\MessageLanguage;
 use Closure;
-use Illuminate\Support\Facades\App;
 
 /**
  * The storefront a notification about an order is built from (GCC-13, I1-06): the one the order itself recorded when it was sold, never the
@@ -153,22 +153,13 @@ final class OrderNotificationContext
      * move the language: getDefaultLanguage() writes the session language when it is empty, and translate() rewrites the locale on every
      * call (on an /api request it reads the locale back, so the locale walks sa -> ar -> es over successive sends). A notification about one
      * order may not decide the language of the next one, whoever it was addressed to.
+     *
+     * The binding itself lives in {@see MessageLanguage}, because a message that is about no order has to be written in its recipient's
+     * language too and the sender of such a message has only the address to go on. Choosing it HERE still wins: an order knows its own
+     * recipients and its market, which an address lookup does not, and the sender leaves a language that has already been chosen alone.
      */
     private static function inLanguage(?string $language, Closure $callback): mixed
     {
-        $previousLocale = App::getLocale();
-        $previousRequestLanguage = session('local');
-
-        if ($language !== null) {
-            App::setLocale($language);
-            session()->put('local', $language);
-        }
-
-        try {
-            return $callback();
-        } finally {
-            App::setLocale($previousLocale);
-            $previousRequestLanguage === null ? session()->forget('local') : session()->put('local', $previousRequestLanguage);
-        }
+        return app(MessageLanguage::class)->write(language: $language, callback: $callback);
     }
 }
