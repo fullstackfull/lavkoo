@@ -20,9 +20,16 @@ class ResolveStorefrontMiddlewareTest extends TestCase
     }
 
     /**
-     * The alias is on the storefront-facing routes (the product, theme and cart routes) and on the routes that start a new sale, which
-     * also carry the sale gate (GCC-11). It is in no named group, and it is not on the storefront list or the config route, which
-     * must not depend on a storefront.
+     * The alias is on the storefront-facing routes (the product, theme and cart routes), on the routes that start a new sale, which also
+     * carry the sale gate (GCC-11), and on the three routes that answer a customer's own MONEY. It is in no named group, and it is not on
+     * the storefront list or the config route, which must not depend on a storefront.
+     *
+     * The money routes were added last and start no sale: `customer/info`, `customer/wallet/*` and `customer/loyalty/*`. The balance and
+     * the statement they answer belong to one market (E-01, E-04, J-09) and all three controllers already ask `MarketBalanceReader` -- but
+     * they carried `auth:api` and nothing else, so the app's `X-Storefront` header never reached them, `StorefrontCatalog::country()`
+     * answered null on every one, and the per-market read was wired and unreachable. They are named one by one here, and the rest of the
+     * customer group is deliberately NOT bound: binding the group would also narrow the wish list, the comparison and the addresses, and
+     * whether those belong to a market is not settled, so a wide bind could hide rows a customer already has.
      */
     public function test_the_alias_resolves_the_storefront_only_on_storefront_facing_routes(): void
     {
@@ -49,14 +56,22 @@ class ResolveStorefrontMiddlewareTest extends TestCase
         $this->assertNotEmpty(array_filter($resolving, fn (string $uri) => str_starts_with($uri, 'api/v1/theme')));
         $this->assertNotEmpty(array_filter($resolving, fn (string $uri) => str_starts_with($uri, 'api/v1/cart')));
         $this->assertNotEmpty($startingASale);
+
+        // The three money routes, each named: a revert that unbinds one fails here rather than leaving a per-market balance unreachable.
+        $answersCustomerMoney = static fn (string $uri): bool => $uri === 'api/v1/customer/info'
+            || str_starts_with($uri, 'api/v1/customer/wallet')
+            || str_starts_with($uri, 'api/v1/customer/loyalty');
+        $this->assertContains('api/v1/customer/info', $resolving, 'the profile answers the market\'s two balances');
+        $this->assertNotEmpty(array_filter($resolving, fn (string $uri) => str_starts_with($uri, 'api/v1/customer/wallet')));
+        $this->assertNotEmpty(array_filter($resolving, fn (string $uri) => str_starts_with($uri, 'api/v1/customer/loyalty')));
         $this->assertNotContains('api/v1/storefronts', $resolving);
         $this->assertNotContains('api/v1/config', $resolving);
         foreach ($resolving as $uri) {
             $isApi = str_starts_with($uri, 'api/');
             $isStorefrontFacing = str_starts_with($uri, 'api/v1/products') || str_starts_with($uri, 'api/v1/theme') || str_starts_with($uri, 'api/v1/cart');
             $this->assertTrue(
-                !$isApi || $isStorefrontFacing || in_array($uri, $startingASale, true),
-                "API route [{$uri}] must not resolve a storefront unless it starts a new sale.",
+                !$isApi || $isStorefrontFacing || $answersCustomerMoney($uri) || in_array($uri, $startingASale, true),
+                "API route [{$uri}] must not resolve a storefront unless it starts a new sale or answers the customer's own money.",
             );
         }
     }

@@ -345,13 +345,14 @@ Route::get('/cash', function () {
     });
 
     Route::group(['prefix' => 'customer', 'middleware' => 'auth:api'], function () {
-        // `storefront` on the profile alone, and not on the whole customer group: the two balances it answers are the market's
+        // `storefront` on the profile READ alone, and not on the group around it nor on the whole customer group: the two balances it
+        // answers are the market's
         // (J-09, E-04), and the app names that market in its `X-Storefront` header. Binding the context for the whole group would
         // also narrow the lists under it -- the wish list, the comparison, the addresses -- and whether those belong to a market is
         // not settled, so a wide bind could hide rows a customer already has. The middleware only READS the request, and while
         // storefronts are off it answers the default storefront, so this is the Saudi platform as it stands.
-        Route::controller(CustomerController::class)->middleware('storefront')->group(function () {
-            Route::get('info', 'info');
+        Route::controller(CustomerController::class)->group(function () {
+            Route::get('info', 'info')->middleware('storefront');
             Route::put('update-profile', 'update_profile');
             Route::get('account-delete/{id}', 'account_delete');
         });

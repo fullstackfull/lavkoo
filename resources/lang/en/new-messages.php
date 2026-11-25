@@ -11445,4 +11445,6 @@ return [
 	'we_are_currently_undergoing_maintenance' => 'We are currently undergoing maintenance',
 	'Maintenance_mode_turned_off' => 'Maintenance mode turned off',
 	'Maintenance_Mode_End' => 'Maintenance Mode End',
+	'this_version_will_publish_on' => 'This version will publish on',
+	'scheduled_publish_cancelled' => 'Scheduled publish cancelled',
 ];

@@ -6,6 +6,7 @@ use App\Events\EmailVerificationEvent;
 use App\Http\Controllers\Controller;
 use App\Models\PhoneOrEmailVerification;
 use App\Models\User;
+use App\Services\Identity\OneTimeCodeBlock;
 use App\Utils\Helpers;
 use Carbon\Carbon;
 use Carbon\CarbonInterval;
@@ -96,6 +97,17 @@ class EmailVerificationController extends Controller
             $token_time = Carbon::parse($token->created_at);
             $add_time = $token_time->addSeconds((int)$otp_resend_time);
             $time_differance = $add_time > Carbon::now() ? Carbon::now()->diffInSeconds($add_time) : 0;
+        }
+
+        // A resend must not shorten a live block (A2-05). These three lines used to run for anyone who knew the number, so whoever was
+        // guessing codes asked for a new one and the block was gone: the gate counted to the operator's maximum for ever and never closed.
+        // A block that has run out is cleared below exactly as it was, so a customer who waited is not kept out.
+        $blockedFor = app(OneTimeCodeBlock::class)->remainingSeconds($token);
+
+        if ($blockedFor > 0) {
+            return response()->json(['errors' => [
+                ['message' => translate('please_try_again_after') . ' ' . CarbonInterval::seconds($blockedFor)->cascade()->forHumans()]
+            ]], 403);
         }
 
         if($user && $time_differance==0){
