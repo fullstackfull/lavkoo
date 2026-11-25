@@ -3,9 +3,12 @@
 namespace App\Services\Theme;
 
 use App\Models\Banner;
+use App\Models\Theme;
 use App\Models\ThemeBlock;
 use App\Models\ThemeSection;
 use App\Models\ThemeVersion;
+use App\Services\Storefront\StorefrontResolver;
+use App\Services\Storefront\StorefrontVisibility;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -17,6 +20,18 @@ use Illuminate\Support\Str;
  * touching the theme. And a block whose image was uploaded straight in the builder is registered
  * as a "Theme Banner" row automatically, so it shows up in Banner Setup for later editing —
  * closing the "I added a banner in the theme but Banner Setup doesn't know about it" gap.
+ *
+ * **The banners table is shared by every storefront, and a theme is not (F-02, F-15).** One table and six themes means a builder edit can
+ * reach out of the market it was made in, and both directions were wrong:
+ *
+ *  - a banner MINTED from an Emirati draft was an unassigned row, and an unassigned banner is shown by every storefront
+ *    ({@see StorefrontVisibility::MODE_ASSIGNED}) -- so a picture uploaded into a draft nobody had published appeared on the Saudi
+ *    storefront. It is now assigned to the market of the theme it was minted from, and to that market alone;
+ *  - a builder edit PUSHED into a linked row rewrote the row for every storefront that shows it. A push now happens only where the row
+ *    belongs to the market of the theme being edited, so editing the Emirati draft cannot change a banner a Saudi section shows.
+ *
+ * Neither rule applies while themes do not belong to storefronts ({@see StorefrontThemeResolver::keepsThemesByStorefront()}), where there is
+ * one theme and the question does not arise, so the platform of today behaves exactly as it does.
  */
 class ThemeBannerLink
 {
@@ -76,7 +91,7 @@ class ThemeBannerLink
             $settings = $block->settings ?? [];
 
             if (!empty($settings['banner_id'])) {
-                $this->pushBlockEdits($settings, $previousSettings);
+                $this->pushBlockEdits($settings, $previousSettings, $block);
                 return;
             }
             if (empty($settings['image'])) {
@@ -106,12 +121,85 @@ class ThemeBannerLink
                 'button_text'   => $settings['button_text'] ?? null,
             ]);
 
+            $this->keepTheBannerInsideItsMarket(banner: $banner, block: $block);
+
             $settings['banner_id'] = $banner->id;
             $block->settings = $settings;
             $block->save();
         } catch (\Throwable $exception) {
             report($exception);
         }
+    }
+
+    /**
+     * Assigns a newly minted Theme Banner to the market of the theme it was minted from (F-02, F-15).
+     *
+     * A banner with no assignment is shown by EVERY storefront, so without this a picture uploaded into an Emirati draft -- a draft nobody
+     * had published -- appeared on the Saudi storefront the moment the builder autosaved. The assignment is written with the same service the
+     * catalogue mapping uses, so a banner the builder minted and one an operator assigned by hand are the same kind of row.
+     *
+     * Nothing is written while themes do not belong to storefronts, or for a theme of the default market: an unassigned row is shown by every
+     * storefront, which for a one-market platform is the right answer and the answer it already gives.
+     */
+    private function keepTheBannerInsideItsMarket(Banner $banner, ThemeBlock $block): void
+    {
+        $market = $this->marketOfTheThemeBehind($block);
+
+        if ($market !== null) {
+            StorefrontVisibility::set(entityType: StorefrontVisibility::BANNER, entityId: $banner->id, countries: [$market]);
+        }
+    }
+
+    /**
+     * Whether the market of the theme being edited is the market this banner belongs to, and so may rewrite it.
+     *
+     * While themes do not belong to storefronts there is one theme and one answer: yes, which is the platform of today. With themes per
+     * market, a draft may rewrite a row assigned to ITS market and nothing else -- not a row assigned to another market, and not an
+     * unassigned row, which every storefront shows and which is therefore nobody's to rewrite from one market's draft. The default market is
+     * the exception in the other direction: its unassigned rows are its own, because an unassigned row is exactly what a one-market platform
+     * writes and what Banner Setup still writes today.
+     */
+    private function theDraftsMarketOwnsThisBanner(Banner $banner, ThemeBlock $block): bool
+    {
+        $resolver = app(StorefrontThemeResolver::class);
+
+        if (!$resolver->keepsThemesByStorefront() || !StorefrontVisibility::isTracked()) {
+            return true;
+        }
+
+        $assigned = StorefrontVisibility::storefrontsOf(entityType: StorefrontVisibility::BANNER, entityId: $banner->id);
+        $market = $this->marketOfTheThemeBehind($block);
+
+        return $market === null ? $assigned === [] : $assigned === [$market];
+    }
+
+    /**
+     * The market the theme this block belongs to serves, or null when the question does not arise: themes do not belong to storefronts, the
+     * block's theme cannot be read, or the theme is the default market's -- whose rows are the unassigned ones.
+     */
+    private function marketOfTheThemeBehind(ThemeBlock $block): ?string
+    {
+        $resolver = app(StorefrontThemeResolver::class);
+
+        if (!$resolver->keepsThemesByStorefront() || !StorefrontVisibility::isTracked()) {
+            return null;
+        }
+
+        $theme = Theme::query()
+            ->whereIn('id', ThemeVersion::query()
+                ->whereIn('id', ThemeSection::query()->where('id', $block->theme_section_id)->select('theme_version_id'))
+                ->select('theme_id'))
+            ->first();
+
+        if ($theme === null) {
+            return null;
+        }
+
+        $market = $resolver->storefrontOf(theme: $theme);
+
+        // The default market's rows are the UNASSIGNED ones -- that is what every banner on this platform already is -- so a theme of the
+        // default market mints and rewrites unassigned rows exactly as Banner Setup does, and gets no assignment of its own.
+        return $market === StorefrontResolver::fromConfig()->defaultCountry() ? null : $market;
     }
 
     /**
@@ -136,14 +224,23 @@ class ThemeBannerLink
      *                                               means the caller cannot say what changed, so
      *                                               nothing is pushed
      */
-    private function pushBlockEdits(array $settings, ?array $previous): void
+    private function pushBlockEdits(array $settings, ?array $previous, ThemeBlock $block): void
     {
         if ($previous === null) {
             return;
         }
 
-        $banner = Banner::find((int) $settings['banner_id']);
+        $banner = Banner::withoutGlobalScope('storefront_visibility')->find((int) $settings['banner_id']);
         if (!$banner || $banner->banner_type !== self::THEME_BANNER_TYPE) {
+            return;
+        }
+
+        // A row another storefront shows is not this draft's to rewrite (F-02, F-15). The banners table is shared and a theme is not, so
+        // without this the Emirati draft's autosave changed the title, the link and the picture of a banner the Saudi storefront renders.
+        // Measured against the row's ASSIGNMENT rather than against the theme alone: a row assigned to this market is this market's, a row
+        // assigned to no market is every market's and so nobody's to rewrite from one draft, and the default market keeps its unassigned
+        // rows because an unassigned row is exactly what a one-market platform writes.
+        if (!$this->theDraftsMarketOwnsThisBanner(banner: $banner, block: $block)) {
             return;
         }
 
