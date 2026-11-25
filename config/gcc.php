@@ -444,6 +444,10 @@ return [
         'alerts' => [
             'zero_stock_warning_count' => 10,
             'zero_stock_critical_count' => 50,
+            // Stock BELOW zero is not an ordinary state of a shop -- it is a sale that should have been refused -- so one product is already
+            // information and these two numbers are far lower than the zero-stock pair above. A value below 1 means the default.
+            'oversold_warning_count' => 5,
+            'oversold_critical_count' => 20,
             // An order is stuck when it is still pending after this many hours. One order is information; the other numbers raise the severity.
             'pending_age_hours' => 24,
             'pending_warning_count' => 5,

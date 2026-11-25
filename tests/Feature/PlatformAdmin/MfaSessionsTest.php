@@ -19,7 +19,7 @@ class MfaSessionsTest extends MfaTestCase
         $response = $this->getJson(self::PREFIX . '/me', $this->bearer($token));
 
         $response->assertOk();
-        $this->assertSame(['admin_id', 'name', 'level', 'scope', 'markets', 'token_expires_at', 'capabilities', 'grant_expires_at', 'mfa'], array_keys($response->json('data')));
+        $this->assertSame(['admin_id', 'name', 'level', 'scope', 'markets', 'token_expires_at', 'capabilities', 'grant_expires_at', 'mfa', 'contract'], array_keys($response->json('data')));
         $this->assertSame(['enrolled' => true, 'verified' => true, 'method' => 'totp'], $response->json('data.mfa'));
     }
 

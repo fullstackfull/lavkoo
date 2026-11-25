@@ -457,6 +457,7 @@ At most 50 to a page (default 25); a page or size that is not a positive whole n
 |---|---|---|---|
 | `legal_not_ready` | critical | storefronts are on, the market is active, and `StorefrontLegalReadiness` says it is not ready | n/a |
 | `stock_zero` | warning, critical | live products at zero stock reach the count | 10, 50 |
+| `stock_oversold` | info, warning, critical | live products whose stock has gone PAST zero. **One is already information**, and the counts are far lower than the zero-stock pair, because stock below zero is not an ordinary state of a shop but a sale that should have been refused. It is raised BESIDE `stock_zero` and not instead of it: a product below zero is at zero stock as well, and both alerts are true of it | 1, 5, 20 |
 | `orders_pending_too_long` | info, warning, critical | orders still `pending` after the age, created within the last 92 days | 1, 5, 20 after 24 hours |
 
 The counts and the age are in `config/gcc.php` (`platform_admin.alerts`). A critical count below its warning count is raised to it, and a value that makes no sense is the default.

@@ -62,6 +62,15 @@ final class PlatformAdminSettings
 
     private const DEFAULT_ZERO_STOCK_CRITICAL_COUNT = 50;
 
+    /**
+     * Stock below zero is not an ordinary state of a shop, so its numbers are far lower than the zero-stock ones: ONE product sold below zero is
+     * already information, five is a warning and twenty is critical. The owner sets the real numbers for a Saudi-sized catalogue, as they do for
+     * every other alert (L-09's open decision).
+     */
+    private const DEFAULT_OVERSOLD_WARNING_COUNT = 5;
+
+    private const DEFAULT_OVERSOLD_CRITICAL_COUNT = 20;
+
     private const DEFAULT_PENDING_AGE_HOURS = 24;
 
     private const DEFAULT_PENDING_WARNING_COUNT = 5;
@@ -184,6 +193,17 @@ final class PlatformAdminSettings
     public function zeroStockCriticalCount(): int
     {
         return max($this->positiveInteger(key: 'alerts.zero_stock_critical_count', default: self::DEFAULT_ZERO_STOCK_CRITICAL_COUNT), $this->zeroStockWarningCount());
+    }
+
+    public function oversoldWarningCount(): int
+    {
+        return $this->positiveInteger(key: 'alerts.oversold_warning_count', default: self::DEFAULT_OVERSOLD_WARNING_COUNT);
+    }
+
+    /** Never below the warning count, so that the levels of one alert stay in order whatever is configured. */
+    public function oversoldCriticalCount(): int
+    {
+        return max($this->positiveInteger(key: 'alerts.oversold_critical_count', default: self::DEFAULT_OVERSOLD_CRITICAL_COUNT), $this->oversoldWarningCount());
     }
 
     public function pendingAgeHours(): int

@@ -245,7 +245,9 @@ class StaffScopeEffectiveMarketsTest extends PlatformAdminTestCase
 
         foreach ([$narrowed, $plain] as $token) {
             $me = $this->me($token)->json('data');
-            $this->assertSame(['admin_id', 'name', 'level', 'scope', 'markets', 'token_expires_at', 'capabilities', 'grant_expires_at', 'mfa'], array_keys($me));
+            // `contract` is one key, added by L-17: the level of the shell contract this server speaks, beside the oldest it still answers. It is
+            // read here so that a shell new enough to be answered can warn before the floor moves past it.
+            $this->assertSame(['admin_id', 'name', 'level', 'scope', 'markets', 'token_expires_at', 'capabilities', 'grant_expires_at', 'mfa', 'contract'], array_keys($me));
             $this->assertSame(['enrolled', 'verified', 'method'], array_keys($me['mfa']));
             $this->assertSame(['scope', 'generated_at', 'markets'], array_keys($this->getJson(self::PREFIX . '/markets', $this->bearer($token))->json('data')));
             // `settlements` is one key, added by E-17: what the platform settled in the window, per company and per
