@@ -19,6 +19,9 @@ class ReturnShipment extends Model
         'reference', 'order_id', 'order_details_id', 'refund_request_id', 'product_id', 'seller_id',
         'qty', 'reason', 'status', 'restock', 'carrier', 'tracking_number', 'received_at',
         'note', 'created_by', 'created_by_type',
+        // The market the goods came off and the money the return owes back (H1-13). Written only while
+        // cross-border returns are on AND the columns exist; empty on every return a one-market shop takes.
+        'source_country', 'refund_currency', 'refund_account_id',
     ];
 
     protected $casts = [
@@ -31,6 +34,7 @@ class ReturnShipment extends Model
         'restock' => 'boolean',
         'received_at' => 'datetime',
         'created_by' => 'integer',
+        'refund_account_id' => 'integer',
     ];
 
     /** A return still moving — can be advanced or received. */

@@ -7,6 +7,8 @@ use App\Enums\Fulfillment\HoldReason;
 use App\Enums\Fulfillment\ProviderCode;
 use App\Models\ProductDestinationPermission as PermissionRow;
 use App\Models\ProviderFulfillment;
+use App\Services\Marketplace\ReturnLogisticsService;
+use App\Services\Returns\CrossBorderReturn;
 use App\Services\Shipping\CustomsDuty;
 use App\Services\Shipping\CustomsDutyQuote;
 use App\Services\Shipping\EligibilityDecision;
@@ -20,6 +22,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Support\BuildsReturnDumpTables;
 
 /**
  * H1-13: one order, followed from the decision at checkout to the parcel leaving or not, for every shape of order the six markets can
@@ -39,6 +42,8 @@ use PHPUnit\Framework\Attributes\DataProvider;
  */
 class ShippingScenarioMatrixTest extends FulfillmentTestCase
 {
+    use BuildsReturnDumpTables;
+
     private const HOME = 'SA';
 
     private const ABROAD = 'KW';
@@ -55,13 +60,27 @@ class ShippingScenarioMatrixTest extends FulfillmentTestCase
         (require database_path('migrations/2026_12_20_100000_create_product_destination_permissions_table.php'))->up();
         (require database_path('migrations/2026_12_20_100300_add_clearance_reference_to_product_destination_permissions.php'))->up();
         (require database_path('migrations/2026_12_20_100400_add_customs_quote_to_orders_table.php'))->up();
+        $this->createReturnDumpTables();
+        $this->linesCanRecordWhetherTheirStockIsOffTheShelf();
         ProductDestinationPermission::forget();
         RegulatedShippingGate::forget();
+        app(CrossBorderReturn::class)->forget();
         OrderCustomsQuote::forget();
         StorefrontCatalog::flush();
 
         config(['gcc.shipping.cross_border.enabled' => true]);
         $this->enableProvider(ProviderCode::TorodPoint);
+    }
+
+    /**
+     * The marker a restock claims (`order_details.is_stock_decreased`), which the real table has had since 2021 and the fulfilment world's narrower one
+     * does not. Without it a receipt cannot read the line's budget at all.
+     */
+    private function linesCanRecordWhetherTheirStockIsOffTheShelf(): void
+    {
+        if (!Schema::hasColumn('order_details', 'is_stock_decreased')) {
+            Schema::table('order_details', fn (Blueprint $table) => $table->boolean('is_stock_decreased')->default(1));
+        }
     }
 
     /** The two product facts these scenarios turn on: which market a product belongs to, and what it is. */
@@ -185,6 +204,55 @@ class ShippingScenarioMatrixTest extends FulfillmentTestCase
         ]);
     }
 
+    /**
+     * H1-13, criteria 3 and 4: ONE order walked the whole way -- decided, quoted for duty, dispatched, returned, received -- so that the two ends of a
+     * cross-border sale are pinned by the same order and not by two tests that each assume the other's half.
+     *
+     * The dinar case, because the third decimal is the thing most easily lost on the way back: 115.025 of goods, 5.751 of duty, and a refund owed in the
+     * currency the customer paid in rather than in whatever the platform's default is on the day the box arrives.
+     */
+    public function test_a_cross_border_order_walks_from_checkout_to_the_shelf_and_the_money_it_owes_back(): void
+    {
+        config([CrossBorderReturn::SETTING => true]);
+        $orderId = 7200;
+        $given = [
+            'market' => self::HOME, 'destination' => self::ABROAD, 'route' => 'SA:KW',
+            'permit' => true, 'duty_rule' => true, 'goods' => 115.025, 'currency' => 'KWD',
+        ];
+        $this->givenTheOwnersRules($given);
+        $fulfillment = $this->anOrderOf($given, $orderId);
+        $stockBefore = (int) DB::table('products')->where('id', 1)->value('current_stock');
+
+        $decision = app(ShippingEligibility::class)->decideForOrder($orderId);
+        $quote = OrderCustomsQuote::record($orderId);
+        app(\App\Services\Fulfillment\ProviderOrderDispatcher::class)->dispatch($fulfillment->id);
+
+        $this->assertSame(EligibilityDecision::CROSS_BORDER, $decision->kind);
+        $this->assertTrue($decision->allowed, 'the order was refused: ' . implode(', ', $decision->reasons));
+        $this->assertSame(5.751, $quote->amount, 'the duty on the goods, to the third decimal');
+        $this->assertNotSame(FulfillmentStatus::Held, ProviderFulfillment::findOrFail($fulfillment->id)->status);
+
+        $returns = app(ReturnLogisticsService::class);
+        $rma = $returns->authorize(
+            data: [
+                'order_id' => $orderId,
+                'order_details_id' => DB::table('order_details')->where('order_id', $orderId)->value('id'),
+                'product_id' => 1,
+                'seller_id' => 0,
+                'qty' => 1,
+                'restock' => true,
+            ],
+            by: 1,
+        );
+        $received = $returns->receive(rma: $rma, by: 1);
+
+        $this->assertTrue($received['restocked'], 'the goods came back and the shelf took them');
+        $this->assertNull($received['refused']);
+        $this->assertSame($stockBefore + 1, (int) DB::table('products')->where('id', 1)->value('current_stock'));
+        $this->assertSame(self::HOME, $rma->fresh()->source_country, 'back on the shelf of the market that sold them');
+        $this->assertSame('KWD', $rma->fresh()->refund_currency, 'owed back in the money it was paid in');
+    }
+
     /** One routed order of one provider, in the market the scenario names and going where it says. */
     private function anOrderOf(array $given, int $orderId): ProviderFulfillment
     {
@@ -194,6 +262,7 @@ class ShippingScenarioMatrixTest extends FulfillmentTestCase
             ProviderCode::TorodPoint,
             orderOverrides: [
                 'storefront_country' => $given['market'],
+                'currency_code' => $given['currency'] ?? null,
                 'order_amount' => $goods,
                 'shipping_address_data' => json_encode([
                     'contact_person_name' => 'Sara Alharbi', 'phone' => '0551234567', 'address' => 'King Fahd Rd 12',

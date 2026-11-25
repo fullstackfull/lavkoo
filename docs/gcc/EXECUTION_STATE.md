@@ -15,7 +15,7 @@ or financial control. A pending owner decision stops its own task, never the pro
 | repository | branch | tip | merged to main |
 |---|---|---|---|
 | `fullstackfull/lavkoo` | `gcc/development` | see `git log -1` | up to `ca4f68e0`, whose tree is byte-identical to `bc39790` -- the SHA CI run 655 proved green. Everything after it waits on a green run of its own |
-| `fullstackfull/lavkooapp` | `gcc/development` | see `git log -1` | up to `78fa518`, whose tree is byte-identical to `9a4e1c2` -- the SHA CI run 51 proved green |
+| `fullstackfull/lavkooapp` | `gcc/development` | see `git log -1` | up to `45ebfad`, whose tree is byte-identical to `0d91632` -- the SHA CI run 52 proved green (the customs-duty line at checkout) |
 | `fullstackfull/lavkooappseller` | `gcc/development` | see `git log -1` | up to `5fc4411`, whose tree is byte-identical to `596ed26` -- the SHA CI run 52 proved green |
 
 The customer app's CI has no `workflow_dispatch`: it runs on a push to `gcc/**`, so every push to that branch is its own
@@ -76,14 +76,18 @@ website brought into agreement, the per-kilogram rate given a weight and the rat
 H1-05's city serviceability moved from the dispatcher to the checkout. H1-03, H1-04 and H1-06 are complete in code.
 What is left on H1-05, H1-08 and H1-09 is owner decisions (licensed city lists, Q-07, Q-08, Q-11), not code.
 
-1. **H1-13** — the cross-border scenario matrix, checkout to dispatch, in the Fulfillment group so it runs on SQLite,
-   MySQL 8 and MariaDB. The tracker's "skip the cases that need the engine" caveat is gone, because the engine exists.
-   One case per shape of order the six markets can produce, each naming its own outcome: the decision, the reason, the
-   duty quote and whether the dispatcher held the parcel or sent it. A draft is in the scratchpad.
+Done since: **H1-13 is complete** — all four criteria. Its matrix found the engine comparing a country's name with its
+code (fixed in `e97ba253`, the worst kind of defect: dormant code that would have refused every order the day it was
+switched on). The return half is now built too: `App\Services\Returns\CrossBorderReturn` puts a returned unit back on
+the shelf of the market that SOLD it and records the currency the customer paid in, and one order in the matrix walks
+the whole way -- checkout, decision, duty quote, dispatch, return, shelf -- because two tests that each assume the
+other's half prove no span.
+
+1. **H1-11** — carrier adapters open to other countries (4 missing), the largest remaining H1 gap. **H1-14** — local
+   shipping rules belong to a storefront and are never inherited (3 missing).
 2. **H1-02 remainder** — filtering candidate cities by the country of OUR city. Blocked on H1-10 / the address system
    going multi-country; recorded as blocked rather than faked.
-3. **H1-11** (carrier adapters open to other countries, 4 missing) and **H1-14** (local shipping rules belong to a
-   storefront, 3 missing) are the largest remaining H1 gaps; H2-06, H2-07 and H2-10 the largest in H2.
+3. **H2-06, H2-07 and H2-10** are the largest remaining gaps in H2 (the marketplace integrations).
 4. Then the axes with the most missing, by dependency rather than by ease: L (GCC-20 super admin), K and J (the two
    apps), B, F, G.
 
