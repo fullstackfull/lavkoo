@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\StaffCountryOrderScope;
+use App\Services\Staff\StaffCountryScope;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -47,5 +49,17 @@ class ReturnShipment extends Model
     public function isClosed(): bool
     {
         return in_array($this->status, [self::STATUS_RESTOCKED, self::STATUS_RECEIVED, self::STATUS_REJECTED], true);
+    }
+
+    /**
+     * A return is a return OF an order, so a restricted employee reads the queue of their own countries' orders (GCC-14c, slice 5). Only a
+     * screen that asked to list them is narrowed, so the service that receives one still reads the real row. A return that names no order
+     * fails closed, as an order with no line does. Inert for every request that binds no country.
+     */
+    protected static function boot(): void
+    {
+        parent::boot();
+
+        static::addGlobalScope(new StaffCountryOrderScope(subject: StaffCountryScope::SUBJECT_RETURNS, orderIdColumn: 'order_id'));
     }
 }

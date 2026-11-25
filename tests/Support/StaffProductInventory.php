@@ -209,8 +209,8 @@ final class StaffProductInventory
             'reason' => 'The vendor sales report lists the products of the employee\'s countries. Every action has a rule in StaffOrderRoutes.',
         ],
         ReviewController::class => [
-            'class' => self::OUT, 'slice' => 'slice 5',
-            'reason' => 'The reviews list and its product filter show the reviews of every country\'s products.',
+            'class' => self::SCOPED, 'slice' => 'slice 5',
+            'reason' => 'The reviews of the catalogue. Narrowed in slice 5 through the product each review is about (StaffCountryProductRowScope on Review): the list, its export and the per-shop averages of the vendor picker hold one market, and publishing or replying to a review is judged by the product of the review the form names. Every action has a rule in StaffMarketplaceRoutes.',
         ],
         VendorController::class => [
             'class' => self::SCOPED, 'slice' => 'slice 3',
@@ -221,12 +221,12 @@ final class StaffProductInventory
             'reason' => 'Batches of a marketplace product. Narrowed in slice 5: adding one is judged by the product id it posts, writing one off is judged by the product the BATCH is of, and the list is narrowed through that product (StaffCountryProductRowScope on ProductBatch).',
         ],
         BrandRegistryController::class => [
-            'class' => self::OUT, 'slice' => 'slice 5',
-            'reason' => 'Counts the products of each brand across every country.',
+            'class' => self::SCOPED, 'slice' => 'slice 5',
+            'reason' => 'Settled in slice 5 by a REFUSAL rather than a narrowing, and the difference is written out: a brand decision crosses every market by construction (approving a claim says who may sell under that brand everywhere) and the exposure counts beside it are platform totals read with the query builder. Every action is `unavailable` in StaffMarketplaceRoutes, so a restricted employee is answered like for a page that does not exist.',
         ],
         CommissionRuleController::class => [
-            'class' => self::OUT, 'slice' => 'slice 5',
-            'reason' => 'A commission rule can name a product of any country.',
+            'class' => self::SCOPED, 'slice' => 'slice 5',
+            'reason' => 'A commission rule can name a product. Narrowed in slice 5 the way a SEO override is, through the polymorphic pair (StaffCountryProductRowScope on scope_id where scope_type is product): a restricted employee lists their own countries\' product rules, and writing one is judged by the product it names. A global, category or vendor rule names no product, so it is left on the list -- it has no market to be hidden by -- and is refused to that employee for every write, because it changes what the sellers of every market are charged. Every action has a rule in StaffMarketplaceRoutes.',
         ],
         InventoryAdjustmentController::class => [
             'class' => self::SCOPED, 'slice' => 'slice 5',
@@ -237,8 +237,8 @@ final class StaffProductInventory
             'reason' => 'A purchase order line names a product. Narrowed in slice 5: creating one is judged by every line that names a catalogue product, and opening, placing, receiving or cancelling one is judged by EVERY line\'s product -- the rule an order follows, because a purchase order can buy two markets\' goods. One that buys nothing from the catalogue belongs to no market and is refused rather than guessed at.',
         ],
         ReturnLogisticsController::class => [
-            'class' => self::OUT, 'slice' => 'slice 5',
-            'reason' => 'A return names a product of any country.',
+            'class' => self::SCOPED, 'slice' => 'slice 5',
+            'reason' => 'A return names a product, an order, a line, or several of those. Narrowed in slice 5 by whichever it names -- the product directly, or every product of the order or line it points at -- and the queue is narrowed through the order each return is of (StaffCountryOrderScope on ReturnShipment, subject `returns`). A return that names neither a product nor an order belongs to no market and fails closed. Every action has a rule in StaffMarketplaceRoutes.',
         ],
         WarehouseController::class => [
             'class' => self::SCOPED, 'slice' => 'slice 5',
@@ -312,6 +312,9 @@ final class StaffProductInventory
         'App\Http\Controllers\Admin\Report\RefundTransactionController' => ['slice' => 'slice 3', 'reason' => 'The refund transaction report lists the money records of the refunds about a line of the employee\'s countries (StaffOrderRoutes). It reads no product.'],
         'App\Http\Controllers\Admin\Customer\CustomerWalletController' => ['slice' => 'slice 3', 'reason' => 'The wallet report and a customer\'s wallet movements, narrowed by the market each ledger row records (StaffCountryLedgerScope; StaffOrderRoutes). It reads no product.'],
         'App\Http\Controllers\Admin\Customer\CustomerLoyaltyController' => ['slice' => 'slice 3', 'reason' => 'A customer\'s loyalty movements, narrowed the same way (StaffCountryLedgerScope; StaffOrderRoutes). It reads no product.'],
+        'App\Http\Controllers\Admin\Marketplace\FulfillmentController' => ['slice' => 'slice 5', 'reason' => 'The pick, pack and ship queue of the marketplace: a fulfilment names an ORDER and reads no product of its own (StaffMarketplaceRoutes).'],
+        'App\Http\Controllers\Admin\Marketplace\SellerScorecardController' => ['slice' => 'slice 5', 'reason' => 'The seller scorecard, refused rather than narrowed: its figures are a seller\'s across the whole platform and it reads no product of its own (StaffMarketplaceRoutes, every action `unavailable`).'],
+        'App\Http\Controllers\Admin\Marketplace\SettlementController' => ['slice' => 'slice 5', 'reason' => 'The settlements, refused rather than narrowed: a seller\'s money is not split by market and the page reads no product (StaffMarketplaceRoutes, every action `unavailable`).'],
     ];
 
     /** @return array<string, int> how many controllers there are of each status: scoped in slice 1, 2, 3, 4 and 5, not needed, out */

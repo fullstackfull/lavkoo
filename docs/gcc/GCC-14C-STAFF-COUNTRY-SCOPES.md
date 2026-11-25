@@ -663,12 +663,13 @@ country is not something an employee can find out by asking. The rules of the 87
 | `GET admin/seo-settings/sitemap-delete` | `SiteMapController::getDelete` | `unavailable` | module:business_settings |
 <!-- slice-4-rules-end -->
 
-## What slice 5 enforces (the marketplace stock screens)
+## What slice 5 enforces (the marketplace screens and the reviews)
 
-The warehouses, the inventory adjustments, the batches and the purchase orders: the four screens that MOVE stock or buy it.
-`ScopeMarketplaceToStaffCountries` is registered by their constructors, after the sign-in check and the module permission, and
-`App\Services\Staff\StaffMarketplaceRoutes` holds the rule of each of their 17 actions; a route of one of them without a rule is REFUSED
-to a restricted employee.
+The warehouses, the inventory adjustments, the batches and the purchase orders -- the four screens that MOVE stock or buy it -- and then the
+rest of the slice, which is made of ORDERS rather than of products: the reviews, the returns, the fulfilments, the seller scorecard, the
+settlements, the brand registry and the commission rules. `ScopeMarketplaceToStaffCountries` is registered by their constructors, after the
+sign-in check and the module permission, and `App\Services\Staff\StaffMarketplaceRoutes` holds the rule of each of their 54 actions; a route
+of one of them without a rule is REFUSED to a restricted employee.
 
 **These are writes, which is why they come before the rest of slice 5.** A restricted employee could place another market's product on a
 shelf, adjust its balance, write off its batch and receive a purchase order of it -- and every one of those changes a figure the other market
@@ -684,11 +685,34 @@ sells against. The listing is the lesser half here.
    `WarehouseStock` and `PurchaseOrderItem`), so the movement history, the batch list, the per-shelf breakdown and a purchase order's lines
    hold only the employee's products.
 
+5. The rest of the slice follows the ORDER rather than the product, which is slice 2's rule. A REVIEW is the exception and is followed to
+   its PRODUCT, because that is the one key a review always has -- a review may name no order -- and the market of the reviewed product is
+   the market of the review. A RETURN names a product, an order, a line or several of those, and is judged by whichever it names; a
+   FULFILMENT ships one order and is judged by it. Both queues are narrowed through that order (`StaffCountryOrderScope` on
+   `ReturnShipment` and `OrderFulfillment`), and only where the screen ASKED for it (the subjects `returns` and `fulfillments`), so the
+   service that opens a fulfilment still sees the ones an order already has, whatever market they are in -- or it would open a second one.
+6. A COMMISSION RULE is narrowed the way a SEO override is, through a polymorphic pair: `scope_id` is read as a product id only where
+   `scope_type` says `product`. A global, category or vendor rule names no product, so it stays on the list -- it has no market to be
+   hidden by -- and every write to it is refused to a restricted employee, because it changes what the sellers of every market are charged.
+
+**Three screens of slice 5 are settled by a REFUSAL rather than a narrowing, and the reason is written down for each.** A restricted
+employee is answered like for a page that does not exist (`unavailable`, the vocabulary slices 3 and 4 use for the vendor earning report,
+the analytics and the site map):
+
+- the SELLER SCORECARD counts a seller's orders, refunds, reviews and strikes through `SellerScorecardService`, which reads them with the
+  QUERY BUILDER so no scope reaches them, and the tier it derives is a figure about the seller on the whole platform. Which market's orders
+  count towards a seller's tier is a question nobody has answered;
+- a SETTLEMENT is a seller's money across every market: the vendor ledger is keyed by seller, currency and legal entity and not by market
+  (E-17.2 ships off), so a settlement cannot be split by country at all. The two platform controls on that page -- the approver-is-not-the-
+  payer separation of duties and the payment terms the marketplace promises its sellers -- change what happens in every market;
+- a BRAND decision crosses every market by construction: approving an ownership claim says who may sell under that brand everywhere, and
+  the exposure counts beside it are platform totals read with the query builder.
+
 **What slice 5 does NOT reach: a warehouse has no market.** `inventory_locations` gained one (`2026_12_27_100000`, G1-05) and the
 marketplace's own `warehouses` table did not, so what can be told apart on these screens is the product whose units are moving, never the
 shelf. A restricted employee still SEES every warehouse on the list, with its code and its name; giving that table a market belongs with the
-inventory lane. The rest of slice 5 -- the reviews, the returns, the marketplace fulfilments, the seller scorecards and the settlements --
-is still out: each of those is made of ORDERS rather than of products, so it follows slice 2's rule and not slice 1's.
+inventory lane. Nor does it reach the vendor panel, the seller API staff or a legal-entity scope, which M2-03 names and which are not slice
+5's to build.
 
 <!-- slice-5-rules-start -->
 | Route | Action | Rule | Permission |
@@ -710,6 +734,43 @@ is still out: each of those is made of ORDERS rather than of products, so it fol
 | `PUT admin/marketplace/warehouses/{id}` | `WarehouseController::update` | `none` | module:marketplace |
 | `POST admin/marketplace/warehouses/place` | `WarehouseController::place` | `product.input:product_id` | module:marketplace |
 | `POST admin/marketplace/warehouses/transfer` | `WarehouseController::transfer` | `product.input:product_id` | module:marketplace |
+| `POST admin/marketplace/settlements/terms` | `SettlementController::updateTerms` | `unavailable` | module:marketplace |
+| `GET admin/marketplace/settlements` | `SettlementController::index` | `unavailable` | module:marketplace |
+| `POST admin/marketplace/settlements/calculate` | `SettlementController::calculate` | `unavailable` | module:marketplace |
+| `POST admin/marketplace/settlements/toggle-maker-checker` | `SettlementController::toggleMakerChecker` | `unavailable` | module:marketplace |
+| `GET admin/marketplace/settlements/{id}` | `SettlementController::show` | `unavailable` | module:marketplace |
+| `POST admin/marketplace/settlements/{id}/approve` | `SettlementController::approve` | `unavailable` | module:marketplace |
+| `POST admin/marketplace/settlements/{id}/mark-paid` | `SettlementController::markPaid` | `unavailable` | module:marketplace |
+| `POST admin/marketplace/settlements/{id}/cancel` | `SettlementController::cancel` | `unavailable` | module:marketplace |
+| `GET admin/marketplace/ledger/{sellerId}` | `SettlementController::ledger` | `unavailable` | module:marketplace |
+| `GET admin/marketplace/brand-registry` | `BrandRegistryController::index` | `unavailable` | module:marketplace |
+| `GET admin/marketplace/brand-registry/document/{id}` | `BrandRegistryController::document` | `unavailable` | module:marketplace |
+| `POST admin/marketplace/brand-registry/approve` | `BrandRegistryController::approve` | `unavailable` | module:marketplace |
+| `POST admin/marketplace/brand-registry/reject` | `BrandRegistryController::reject` | `unavailable` | module:marketplace |
+| `POST admin/marketplace/brand-registry/revoke` | `BrandRegistryController::revoke` | `unavailable` | module:marketplace |
+| `POST admin/marketplace/brand-registry/enforcement` | `BrandRegistryController::updateEnforcement` | `unavailable` | module:marketplace |
+| `GET admin/marketplace/seller-scorecard` | `SellerScorecardController::index` | `unavailable` | module:marketplace |
+| `GET admin/marketplace/returns` | `ReturnLogisticsController::index` | `list:returns` + `list` | module:marketplace |
+| `POST admin/marketplace/returns` | `ReturnLogisticsController::store` | `return.posted` | module:marketplace |
+| `POST admin/marketplace/returns/{id}/transit` | `ReturnLogisticsController::transit` | `return.route:id` | module:marketplace |
+| `POST admin/marketplace/returns/{id}/receive` | `ReturnLogisticsController::receive` | `return.route:id` | module:marketplace |
+| `POST admin/marketplace/returns/{id}/reject` | `ReturnLogisticsController::reject` | `return.route:id` | module:marketplace |
+| `GET admin/marketplace/fulfillments` | `FulfillmentController::index` | `list:fulfillments` + `order.input:order_id?` | module:marketplace |
+| `POST admin/marketplace/fulfillments` | `FulfillmentController::store` | `order.input:order_id` | module:marketplace |
+| `POST admin/marketplace/fulfillments/{id}/advance` | `FulfillmentController::advance` | `fulfillment.route:id` | module:marketplace |
+| `POST admin/marketplace/fulfillments/{id}/cancel` | `FulfillmentController::cancel` | `fulfillment.route:id` | module:marketplace |
+| `GET admin/marketplace/commission-rules` | `CommissionRuleController::index` | `product.input:preview_product_id?` + `list` | module:marketplace |
+| `POST admin/marketplace/commission-rules` | `CommissionRuleController::store` | `commission_rule.posted` | module:marketplace |
+| `POST admin/marketplace/commission-rules/{id}/toggle` | `CommissionRuleController::toggle` | `commission_rule.route:id` | module:marketplace |
+| `PUT admin/marketplace/commission-rules/{id}` | `CommissionRuleController::update` | `commission_rule.route:id` + `commission_rule.posted` | module:marketplace |
+| `DELETE admin/marketplace/commission-rules/{id}` | `CommissionRuleController::destroy` | `commission_rule.route:id` | module:marketplace |
+| `GET admin/reviews/list` | `ReviewController::index` | `product.input:product_id?` + `list` | module:people |
+| `POST admin/reviews/status` | `ReviewController::updateStatus` | `review.input:id` | module:people |
+| `GET admin/reviews/export` | `ReviewController::exportList` | `product.input:product_id?` + `list` | module:people |
+| `GET admin/reviews/customer-list-search` | `ReviewController::getCustomerList` | `none` | module:people |
+| `GET\|POST\|PUT\|PATCH\|DELETE\|OPTIONS admin/reviews/search-product` | `ReviewController::search` | `none` | module:people |
+| `POST admin/reviews/add-review-reply` | `ReviewController::addReviewReply` | `review.input:review_id` | module:people |
+| `GET\|POST\|PUT\|PATCH\|DELETE\|OPTIONS admin/reviews/search-vendor` | `ReviewController::searchVendor` | `list` | module:people |
 <!-- slice-5-rules-end -->
 
 ## The survey: every admin route that reads products or names one
@@ -721,8 +782,8 @@ slice, and the scoped controllers are exactly the ones that have rules. A second
 each action, its path and its parameters, and the file of each controller (so a route that delegates to a helper of its controller is not missed): the repository, the model, the
 product manager, the products table, and a product id in a request.
 
-**50 controllers: 3 scoped in slice 1, 5 scoped in slice 2, 9 scoped in slice 3, 10 scoped in slice 4, 4 scoped in slice 5, 6 not needed, 13 out of slice 5.**
-**158 routes read or name a product: 47 scoped in slice 1, 16 scoped in slice 2, 13 scoped in slice 3, 22 scoped in slice 4, 8 scoped in slice 5, 22 not needed, 30 out of slice 5.**
+**50 controllers: 3 scoped in slice 1, 5 scoped in slice 2, 9 scoped in slice 3, 10 scoped in slice 4, 8 scoped in slice 5, 6 not needed, 9 out of slice 5.**
+**158 routes read or name a product: 47 scoped in slice 1, 16 scoped in slice 2, 13 scoped in slice 3, 22 scoped in slice 4, 13 scoped in slice 5, 22 not needed, 25 out of slice 5.**
 
 The slices that follow slice 3 (the people, the dashboard, the reports and the shared layout), in the order proposed:
 
@@ -766,14 +827,14 @@ The slices that follow slice 3 (the people, the dashboard, the reports and the s
 | `Admin\InhouseProductSaleController` | 1 | 1 | scoped in slice 3 | The in-house sales report lists the in-house products of the employee's countries. Every action has a rule in StaffOrderRoutes. |
 | `Admin\TransactionReportController` | 5 | 1 | scoped in slice 3 | The transaction report counts the products of the employee's countries. Every action has a rule in StaffOrderRoutes. |
 | `Admin\VendorProductSaleReportController` | 2 | 1 | scoped in slice 3 | The vendor sales report lists the products of the employee's countries. Every action has a rule in StaffOrderRoutes. |
-| `Admin\Product\ReviewController` | 7 | 3 | out of slice 5 (slice 5) | The reviews list and its product filter show the reviews of every country's products. |
+| `Admin\Product\ReviewController` | 7 | 3 | scoped in slice 5 | The reviews of the catalogue. Narrowed in slice 5 through the product each review is about (StaffCountryProductRowScope on Review): the list, its export and the per-shop averages of the vendor picker hold one market, and publishing or replying to a review is judged by the product of the review the form names. Every action has a rule in StaffMarketplaceRoutes. |
 | `Admin\Vendor\VendorController` | 17 | 1 | scoped in slice 3 | The request is bound for the whole controller (it lists orders), so a vendor's product tab lists the products of the employee's countries only. Every action has a rule in StaffOrderRoutes. |
 | `Admin\Marketplace\BatchController` | 3 | 2 | scoped in slice 5 | Batches of a marketplace product. Narrowed in slice 5: adding one is judged by the product id it posts, writing one off is judged by the product the BATCH is of, and the list is narrowed through that product (StaffCountryProductRowScope on ProductBatch). |
-| `Admin\Marketplace\BrandRegistryController` | 6 | 0 | out of slice 5 (slice 5) | Counts the products of each brand across every country. |
-| `Admin\Marketplace\CommissionRuleController` | 5 | 1 | out of slice 5 (slice 5) | A commission rule can name a product of any country. |
+| `Admin\Marketplace\BrandRegistryController` | 6 | 0 | scoped in slice 5 | Settled in slice 5 by a REFUSAL rather than a narrowing, and the difference is written out: a brand decision crosses every market by construction (approving a claim says who may sell under that brand everywhere) and the exposure counts beside it are platform totals read with the query builder. Every action is `unavailable` in StaffMarketplaceRoutes, so a restricted employee is answered like for a page that does not exist. |
+| `Admin\Marketplace\CommissionRuleController` | 5 | 1 | scoped in slice 5 | A commission rule can name a product. Narrowed in slice 5 the way a SEO override is, through the polymorphic pair (StaffCountryProductRowScope on scope_id where scope_type is product): a restricted employee lists their own countries' product rules, and writing one is judged by the product it names. A global, category or vendor rule names no product, so it is left on the list -- it has no market to be hidden by -- and is refused to that employee for every write, because it changes what the sellers of every market are charged. Every action has a rule in StaffMarketplaceRoutes. |
 | `Admin\Marketplace\InventoryAdjustmentController` | 2 | 2 | scoped in slice 5 | Adjusts the stock of a product by id. Narrowed in slice 5: the adjustment is judged by the product id it posts, and the movement history the screen lists is narrowed through the product of each movement (StaffCountryProductRowScope on StockMovement). |
 | `Admin\Marketplace\PurchaseOrderController` | 7 | 1 | scoped in slice 5 | A purchase order line names a product. Narrowed in slice 5: creating one is judged by every line that names a catalogue product, and opening, placing, receiving or cancelling one is judged by EVERY line's product -- the rule an order follows, because a purchase order can buy two markets' goods. One that buys nothing from the catalogue belongs to no market and is refused rather than guessed at. |
-| `Admin\Marketplace\ReturnLogisticsController` | 5 | 1 | out of slice 5 (slice 5) | A return names a product of any country. |
+| `Admin\Marketplace\ReturnLogisticsController` | 5 | 1 | scoped in slice 5 | A return names a product, an order, a line, or several of those. Narrowed in slice 5 by whichever it names -- the product directly, or every product of the order or line it points at -- and the queue is narrowed through the order each return is of (StaffCountryOrderScope on ReturnShipment, subject `returns`). A return that names neither a product nor an order belongs to no market and fails closed. Every action has a rule in StaffMarketplaceRoutes. |
 | `Admin\Marketplace\WarehouseController` | 5 | 3 | scoped in slice 5 | Places and transfers the stock of a product by id. Narrowed in slice 5: both writes are judged by the product id, and the per-shelf breakdown is narrowed through the product of each balance (StaffCountryProductRowScope on WarehouseStock). The WAREHOUSE itself carries no market -- inventory_locations gained one and the marketplace's own warehouses table did not -- so a restricted employee still sees every shelf on the list, which the survey says rather than implies. |
 | `Admin\Fulfillment\M5aznProductsController` | 3 | 3 | out of slice 5 (slice 6) | Imports provider items as products in the default country, and lists the ones already mapped. |
 | `Admin\Fulfillment\TorodMatchingController` | 13 | 4 | out of slice 5 (slice 6) | Matches provider items to the products of the default storefront's country when codes are per country; otherwise every country's. |
@@ -886,6 +947,9 @@ still an admin controller, nothing more), with what is done about them:
 | `Admin\OrderReportController` | scoped in slice 3 | The order report sums the orders of the employee's countries (StaffOrderRoutes). It reads no product. |
 | `Admin\ExpenseTransactionReportController` | scoped in slice 3 | The expense transaction report sums the discounts and delivery expenses of the orders of the employee's countries (StaffOrderRoutes). It reads no product. |
 | `Admin\Report\RefundTransactionController` | scoped in slice 3 | The refund transaction report lists the money records of the refunds about a line of the employee's countries (StaffOrderRoutes). It reads no product. |
+| `Admin\Marketplace\FulfillmentController` | scoped in slice 5 | The pick, pack and ship queue of the marketplace: a fulfilment names an ORDER and reads no product of its own (StaffMarketplaceRoutes). |
+| `Admin\Marketplace\SellerScorecardController` | scoped in slice 5 | The seller scorecard, refused rather than narrowed: its figures are a seller's across the whole platform and it reads no product of its own (StaffMarketplaceRoutes, every action `unavailable`). |
+| `Admin\Marketplace\SettlementController` | scoped in slice 5 | The settlements, refused rather than narrowed: a seller's money is not split by market and the page reads no product (StaffMarketplaceRoutes, every action `unavailable`). |
 
 ## The survey: every admin route that reads orders or names one
 
@@ -895,8 +959,8 @@ It walks the real route table and fails for an admin controller that reads any o
 The scan reads the models, the repositories, the tables, the relations, the services that hold the sums, the wallets, and an order id in a request, in the source of each action and
 in the file of each controller. The scoped controllers are exactly the ones that have rules in `StaffOrderRoutes`, and a test keeps this document in step.
 
-**32 controllers: 6 scoped in slice 2, 14 scoped in slice 3, 1 scoped in slice 4, 4 not needed, 7 out of slice 5.**
-**114 routes read or name an order: 36 scoped in slice 2, 49 scoped in slice 3, 1 scoped in slice 4, 13 not needed, 15 out of slice 5.**
+**32 controllers: 6 scoped in slice 2, 14 scoped in slice 3, 1 scoped in slice 4, 3 scoped in slice 5, 4 not needed, 4 out of slice 5.**
+**114 routes read or name an order: 36 scoped in slice 2, 49 scoped in slice 3, 1 scoped in slice 4, 4 scoped in slice 5, 13 not needed, 11 out of slice 5.**
 
 | Slice | What it takes |
 |---|---|
@@ -933,9 +997,9 @@ in the file of each controller. The scoped controllers are exactly the ones that
 | `Admin\Settings\OrderSettingsController` | 2 | 2 | not needed | The order settings page is a setting of the shop. It reads no order. |
 | `Admin\Marketplace\PurchaseOrderController` | 7 | 7 | not needed | Purchase orders to suppliers are not customer orders: they have no order, no order line and no country of their own. |
 | `Admin\Settings\InhouseShopController` | 6 | 1 | scoped in slice 4 | The in-house shop page counts the in-house orders. Narrowed in slice 4 by the `list:orders` part of its rule in StaffPromotionRoutes, which is the slice that took the page: an order and a product are two subjects, and one middleware carries both. |
-| `Admin\Marketplace\FulfillmentController` | 4 | 2 | out of slice 5 (slice 5) | The marketplace fulfilments are shipments of orders of every country, picked by order number. |
-| `Admin\Marketplace\ReturnLogisticsController` | 5 | 1 | out of slice 5 (slice 5) | A marketplace return names an order of any country. |
-| `Admin\Product\ReviewController` | 7 | 1 | out of slice 5 (slice 5) | The reviews list reads the order behind a review, of any country. |
+| `Admin\Marketplace\FulfillmentController` | 4 | 2 | scoped in slice 5 | The marketplace fulfilments are shipments of orders. Narrowed in slice 5 through the order each one ships (StaffCountryOrderScope on OrderFulfillment, subject `fulfillments`), and opening, advancing or cancelling one is judged by that order. Only the queue is narrowed: the service that opens one has to see the fulfilments an order already has, whatever market they are in. Every action has a rule in StaffMarketplaceRoutes. |
+| `Admin\Marketplace\ReturnLogisticsController` | 5 | 1 | scoped in slice 5 | A marketplace return names an order, a line, a product or several of those, and is judged by whichever it names; the queue is narrowed through the order each return is of. Every action has a rule in StaffMarketplaceRoutes. |
+| `Admin\Product\ReviewController` | 7 | 1 | scoped in slice 5 | The reviews list loads the order behind a review, and the review itself is narrowed by the market of its PRODUCT -- which is the market of the review, and the one key a review always has, since a review may name no order. Every action has a rule in StaffMarketplaceRoutes. |
 | `Admin\Fulfillment\ProviderFulfillmentController` | 5 | 1 | out of slice 5 (slice 6) | The provider fulfilments are shipments of orders of every country. |
 | `Admin\SalesChannels\ChannelOrderController` | 7 | 7 | out of slice 5 (slice 6) | A channel order is mapped to an order of any country. |
 | `Admin\OperationalCosts\ProfitabilityController` | 3 | 1 | out of slice 5 (slice 6) | The profitability of an order of any country, with its costs. |
@@ -1002,8 +1066,8 @@ fails the day one reaches it.
 | `Admin\InhouseProductSaleController` | scoped in slice 3 | The in-house sales report counts the sales of the order lines of the employee's countries through the product repository, for their products. Every action has a rule in StaffOrderRoutes. |
 | `Admin\Customer\CustomerWalletController` | scoped in slice 3 | The wallet report and a customer's wallet movements. The reason they were the owner's to decide -- "they carry no order and no country" -- stopped being true when wallet_transactions gained storefront_country: each row records its own market, so a restricted employee is shown the movements of their markets through StaffCountryLedgerScope. The bonus setup is the platform's own configuration and lists nothing. Every action has a rule in StaffOrderRoutes. |
 | `Admin\Customer\CustomerLoyaltyController` | scoped in slice 3 | A customer's loyalty movements, narrowed the same way through loyalty_point_transactions.storefront_country. Every action has a rule in StaffOrderRoutes. |
-| `Admin\Marketplace\SellerScorecardController` | out of slice 5 (slice 5) | The scorecard of a seller is made of its orders of every country, through SellerScorecardService. |
-| `Admin\Marketplace\SettlementController` | out of slice 5 (slice 5) | The settlements of the sellers are made of their orders of every country, through the vendor ledger. |
+| `Admin\Marketplace\SellerScorecardController` | scoped in slice 5 | The scorecard of a seller is made of its orders of every country, through SellerScorecardService, which reads them with the QUERY BUILDER so no scope reaches them -- and which market's orders count towards a seller's tier is a question nobody has answered. Settled in slice 5 by a REFUSAL: `unavailable` in StaffMarketplaceRoutes, so a restricted employee is answered like for a page that does not exist rather than shown a platform total. |
+| `Admin\Marketplace\SettlementController` | scoped in slice 5 | The settlements of the sellers are made of their orders of every country, through a vendor ledger keyed by seller, currency and legal entity and not by market (E-17.2 ships off), so a settlement cannot be split by country at all; and the separation of duties and the payment terms on that page change what happens in every market. Settled in slice 5 by a REFUSAL: every action is `unavailable` in StaffMarketplaceRoutes. |
 | `Admin\OperationalCosts\OverviewController` | out of slice 5 (slice 6) | The overview of the operational costs aggregates the profit of the orders of every country. |
 | `Admin\SalesChannels\ChannelAccountOperationsController` | out of slice 5 (slice 6) | Synchronises the orders of a sales channel account, which map to orders of any country. |
 | `Admin\POS\CartController` | scoped in slice 2 | The POS cart takes, prices and counts a product by id and reads no order (StaffOrderRoutes). |

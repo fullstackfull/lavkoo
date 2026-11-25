@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\StaffCountryProductRowScope;
 use App\Traits\HidesCustomerBalances;
 use App\Traits\StorageTrait;
 use App\Utils\RequestArea;
@@ -118,6 +119,11 @@ class Review extends Model
         static::addGlobalScope('active', function (Builder $builder) {
             return RequestArea::isPanel() ? $builder : $builder->where('status', 1);
         });
+
+        // A review is about one product, so it belongs to that product's market: a restricted employee reads and publishes only the reviews
+        // of their own countries' products (GCC-14c, slice 5). Inert for every request that binds no country, which is every request of the
+        // storefront, the apps and the vendor panel.
+        static::addGlobalScope(new StaffCountryProductRowScope());
 
         static::saved(function ($model) {
             cacheRemoveByType(type: 'reviews');

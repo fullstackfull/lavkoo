@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin\Marketplace;
 
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopeMarketplaceToStaffCountries;
 use App\Models\Seller;
 use App\Services\Marketplace\SellerScorecardService;
 use Illuminate\Contracts\View\View;
@@ -21,6 +22,10 @@ class SellerScorecardController extends BaseController
 {
     public function __construct(private readonly SellerScorecardService $scorecards)
     {
+        // Slice 5 of the staff country scopes (GCC-14c): every figure on this page is a seller's across the whole platform, read with the
+        // query builder, and which market's orders count towards a seller's tier is nobody's decision yet -- so a restricted employee is
+        // answered like for a page that does not exist rather than shown a platform total. Inert while the switch is off.
+        $this->middleware(ScopeMarketplaceToStaffCountries::class);
     }
 
     public function index(Request|null $request, ?string $type = null): View

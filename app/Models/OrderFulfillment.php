@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\StaffCountryOrderScope;
+use App\Services\Staff\StaffCountryScope;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -50,5 +52,17 @@ class OrderFulfillment extends Model
     public static function flowIndex(string $status): int
     {
         return array_search($status, self::FLOW, true);
+    }
+
+    /**
+     * A fulfilment ships one order, so a restricted employee reads the pick-pack-ship queue of their own countries' orders (GCC-14c, slice
+     * 5). Only a screen that asked to list them is narrowed: opening a fulfilment must see the ones an order already has, whatever market
+     * they are in, or a second one would be opened for an order that already has one. Inert for every request that binds no country.
+     */
+    protected static function boot(): void
+    {
+        parent::boot();
+
+        static::addGlobalScope(new StaffCountryOrderScope(subject: StaffCountryScope::SUBJECT_FULFILLMENTS, orderIdColumn: 'order_id'));
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin\Marketplace;
 
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopeMarketplaceToStaffCountries;
 use App\Models\BrandClaim;
 use App\Models\BrandClaimDocument;
 use App\Models\BusinessSetting;
@@ -30,6 +31,10 @@ class BrandRegistryController extends BaseController
 {
     public function __construct(private readonly BrandRegistryService $registry)
     {
+        // Slice 5 of the staff country scopes (GCC-14c): a brand decision crosses every market by construction -- approving a claim says
+        // who may sell under that brand everywhere, and the exposure counts beside it are platform totals. A restricted employee is
+        // answered like for a page that does not exist. Inert while the switch is off.
+        $this->middleware(ScopeMarketplaceToStaffCountries::class);
     }
 
     public function index(Request|null $request = null, ?string $type = null): View

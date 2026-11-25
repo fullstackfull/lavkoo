@@ -70,6 +70,12 @@ final class StaffCountryScope
     /** The loyalty ledger rows a request reads (`loyalty_point_transactions`), by the market the row records, for the same reason. */
     public const SUBJECT_LOYALTY_TRANSACTIONS = 'loyalty_point_transactions';
 
+    /** The returns a request lists (`return_shipments`), each through the order it is a return of (slice 5). */
+    public const SUBJECT_RETURNS = 'returns';
+
+    /** The fulfilments a request lists (`order_fulfillments`), each through the order it ships (slice 5). */
+    public const SUBJECT_FULFILLMENTS = 'fulfillments';
+
     private const REQUEST_ATTRIBUTE = 'staff_country_scope';
 
     private const SUBJECTS_ATTRIBUTE = 'staff_country_scope_subjects';

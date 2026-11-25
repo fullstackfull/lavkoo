@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin\Marketplace;
 
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopeMarketplaceToStaffCountries;
 use App\Models\OrderFulfillment;
 use App\Models\Warehouse;
 use App\Services\Marketplace\FulfillmentService;
@@ -20,6 +21,9 @@ class FulfillmentController extends BaseController
 {
     public function __construct(private readonly FulfillmentService $fulfillment)
     {
+        // Slice 5 of the staff country scopes (GCC-14c): a fulfilment ships one order, so a restricted employee sees and advances only
+        // the shipments of their own countries' orders. Inert while the switch is off.
+        $this->middleware(ScopeMarketplaceToStaffCountries::class);
     }
 
     public function index(Request|null $request, ?string $type = null): View
