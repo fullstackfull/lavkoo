@@ -20,14 +20,19 @@ use PHPUnit\Framework\TestCase;
  * that is **ready** needs one line of YAML, a directory that is **blocked** needs code changed first, and a directory **nobody has run**
  * needs somebody to run it.
  *
- * So each of the 24 is declared with one of those three states and the measurement behind it, and the declaration is enforced in both
+ * So each is declared with one of those three states and the measurement behind it, and the declaration is enforced in both
  * directions: a directory that joins a strict job must come off this list, and a directory added to the tree must be put on it.
  *
- * **This guard changes no job.** Adding a directory to the strict-mode job is one line in a single YAML key that every track's merge touches
- * — and the comment above that key records four merges each writing their own `run:`, with YAML keeping only the last, which silently took
- * eighteen directories out of strict mode. So the evidence is recorded here and the workflow line is the coordinator's to apply.
+ * **The five READY directories have now been APPENDED to the job** (`tests/Feature/Queue`, `tests/Feature/Reports`,
+ * `tests/Feature/Retention`, `tests/Unit/Ci`, `tests/Unit/Storefront`), so nineteen declarations remain and not one of them says `ready:`.
+ * Appended is the operative word: the comment above that YAML key records four merges each writing their own `run:`, with YAML keeping only
+ * the last of a duplicated mapping key, which silently took eighteen directories out of strict mode. A directory joins this job by being
+ * added to the ONE existing key, never by a second key, and `test_every_test_directory_is_in_a_strict_mode_job_or_says_why_not` is what
+ * notices if a merge drops the union again -- it would report the lost directories as undeclared.
  *
- * It reads files only: no database, which is why `tests/Unit/Ci` is listed as SQLite-only by its twin.
+ * It reads files only: no database. That used to be the reason its twin listed `tests/Unit/Ci` as SQLite-only, and putting this very
+ * directory into the strict job made that entry stale by the twin's own rule ("an entry that is covered by a real-engine path ... is an
+ * error"), so the entry came off in the same commit. The two guards are coupled through the workflow and have to be moved together.
  */
 class CiStrictModeCoverageIsDeclaredTest extends TestCase
 {
@@ -63,21 +68,16 @@ class CiStrictModeCoverageIsDeclaredTest extends TestCase
         'tests/Feature/MyFatoorah' => self::NOT_MEASURED . 'the gateway directory has its own real-engine group and was not read under strict mode here',
         'tests/Feature/Notifications' => self::NOT_MEASURED . 'not run under strict mode here; it belongs to the notification axis',
         'tests/Feature/PlatformAdmin' => self::NOT_MEASURED . 'sixty files, and the platform overview reads the same money reports the staff scope does, so it is a likely second instance of the 1055 below rather than a safe bet; a group run of it is the coordinator\'s',
-        'tests/Feature/Queue' => self::READY . 'all five files, 40 tests and 327 assertions, green under strict mode on MariaDB 10.11.14',
-        'tests/Feature/Reports' => self::READY . 'both files, 14 tests and 34 assertions, green under strict mode on MariaDB 10.11.14 — which is the point of that directory: ReportGroupingMatchesWhatItSelectsTest exists to PROVE a strict server refuses the money reports, so it passes in strict mode by construction',
-        'tests/Feature/Retention' => self::READY . 'both files green under strict mode on MariaDB 10.11.14, inside a run of 687 tests and 996 assertions it shared with tests/Unit/Storefront',
         'tests/Feature/Security' => self::NOT_MEASURED . 'it runs a real queue worker and a shared cache store, so a strict connection is a second variable on top of the two it already varies',
         'tests/Feature/Seeders' => self::NOT_MEASURED . 'the staging seeder writes a whole world and is the directory most likely to be refused by a strict server, which makes it worth measuring and not worth guessing',
         'tests/Feature/StaffScope' => self::BLOCKED . 'three of its report files are 14 failures in 50 tests under strict mode on MariaDB 10.11.14, every one error 1055 on `order_transactions.created_at` or its siblings. See the test below for where the statements are',
         'tests/Feature/Storefront' => self::NOT_MEASURED . 'the largest directory in the suite (about 5,000 tests) and named as a known hole by M1-04; a group run of it is the coordinator\'s',
         'tests/Unit/Accounting' => self::NOT_MEASURED . 'not run under strict mode here; it belongs to the accounting axis and was not read',
-        'tests/Unit/Ci' => self::READY . 'all eight files, 60 tests and 156 assertions, green under strict mode on MariaDB 10.11.14 — unsurprising, since every one of them reads files rather than a database',
         'tests/Unit/Deploy' => self::NOT_MEASURED . 'deployment tooling on the file system; it needs strace and root, which only the SQLite job provides, so it is SQLITE_ONLY by its twin guard and strict mode has nothing to act on',
         'tests/Unit/MyFatoorah' => self::NOT_MEASURED . 'not run under strict mode here; the gateway unit tests were not read',
         'tests/Unit/OperationalCosts' => self::NOT_MEASURED . 'not run under strict mode here, although tests/Feature/OperationalCosts is in the job, which makes this one a likely quick win',
         'tests/Unit/Payments' => self::NOT_MEASURED . 'not run under strict mode here, although tests/Feature/Payments and tests/Feature/Payment are both in the job',
         'tests/Unit/SalesChannels' => self::NOT_MEASURED . 'not run under strict mode here, although tests/Feature/SalesChannels is in the job, which makes this one a likely quick win',
-        'tests/Unit/Storefront' => self::READY . 'all ten files green under strict mode on MariaDB 10.11.14, in the same 687-test run as tests/Feature/Retention — and this is the directory holding the market cache-key and resolver guards, so it is the first one the GCC gate wants',
     ];
 
     /** The statements measured to refuse a strict server, where they live, and what each group leaves functionally undetermined. */
