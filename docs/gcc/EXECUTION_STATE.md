@@ -756,3 +756,35 @@ criteria names more signals than are built -- which is the honest record and is 
 - **A property read on null is an `ErrorException` inside a booted Laravel app**, not a warning, so a bare
   `catch (Exception $e) {}` swallows missing null-safety entirely. That is how the promoter notification fires on
   every delivered order and sends nothing, records nothing and updates nothing, leaving no trace at all.
+
+### Learned on 2026-11-26, from the gate that caught six cross-track failures
+
+- **The authoritative group run is not optional, and it is the only place cross-track faults live.** All six failures
+  it found on `99800fce` were interactions between two tracks' work, and NOT ONE was inside a single track's own
+  files. Every track ran its targeted files green, correctly, and could not have seen any of the six by construction.
+  The sequencing that works: merge every track, then run the groups ONCE on the frozen tree with nothing edited
+  under it.
+- **A source scan that does not strip comments reads its own explanation — sixth and seventh occurrences, both in one
+  gate run.** `OrderRefused`'s docblock has to NAME `generateOrder` to say what it carries a reason for, and
+  `BulkImportCountry`'s has to name `ProductCountry::newProductAttributes()` to say it deliberately does NOT reuse
+  that fallback. Both were reported as members of the set they describe. **Every source scan in this repository
+  should read through `PlatformWriteScanner::codeOf()`**, which is the one stripper here; a scan that calls
+  `file_get_contents` straight into a `preg_match` or `str_contains` is the bug waiting to happen.
+- **And the dangerous variant of it, which nearly landed: the obvious fix is to add the file to the list, and for
+  the second one that would have recorded a FALSEHOOD.** `BulkImportCountry` matches only inside a comment that says
+  it does the opposite of what the scan concluded, and the list it would have joined is the one place somebody looks
+  to find out which surfaces may choose a product's country. The rule generalises: when a scan reports a new member,
+  read the line it matched before declaring it. If the match is in a comment, the scan is wrong, not the list.
+- **A capability list that lives in three places needs something that propagates it.** Three of the six failures
+  were one missed propagation: a track added three capabilities to the model and to two test files, and the third
+  declaration plus the console's `--capabilities` help still named the old nine. The declaration a track does not run
+  is the declaration that goes stale -- that track had listed `GrantModelTest` among the files it did not run.
+- **A test whose own docblock says "characterized and not endorsed" is a defect pinned on purpose, and it becomes
+  WRONG the day somebody fixes the defect.** `CouponMinimumPurchaseBoundaryTest` said exactly that about a fixed
+  discount above the cart being blamed on the minimum, and I1-11.6 fixed it. Rewritten to the corrected behaviour
+  with the old assertion quoted, plus an assertion that the minimum is NOT what refused it -- so the two rules cannot
+  be confused again. Grep for "characterized and not endorsed" before concluding a failing assertion is a regression.
+- **`get_job_logs`' tail is container teardown, again, and `tail_lines: 3` gives nothing at all.** One fetch happened
+  to land on the `Tests:` summary line and three others returned only Docker cleanup and a Node deprecation warning.
+  What worked instead: take the failure COUNT from whichever fetch lands, then reproduce the group locally and read
+  the real diff. Two of the three CI failures turned out to be one root cause, which the local run showed in a line.
