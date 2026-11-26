@@ -81,8 +81,11 @@ final class CouponRedemption
     /**
      * How many times this customer has redeemed this code: within one market when the counting is per store (Q-04), over every market
      * otherwise. Null while the ledger is not in use, which tells the caller to count orders as it always has.
+     *
+     * `$locked` is for the one caller that asks inside the order's transaction ({@see CouponGrant}); see `spent()` for why a plain read
+     * there would answer from a snapshot taken before the other checkout committed.
      */
-    public static function usesByCustomer(int|string|null $customerId, mixed $couponCode, ?string $market = null): ?int
+    public static function usesByCustomer(int|string|null $customerId, mixed $couponCode, ?string $market = null, bool $locked = false): ?int
     {
         if (!self::isReady() || $customerId === null || !is_string($couponCode) || $couponCode === '') {
             return null;
@@ -90,13 +93,23 @@ final class CouponRedemption
 
         $uses = DB::table(self::TABLE)->where('customer_id', $customerId)->where('coupon_code', $couponCode);
 
-        return (int) ($market === null ? $uses->count() : $uses->where('storefront_country', $market)->count());
+        if ($market !== null) {
+            $uses->where('storefront_country', $market);
+        }
+
+        return (int) ($locked ? $uses->lockForUpdate()->count() : $uses->count());
     }
 
     /** How many times this coupon has been redeemed in total, by anybody, in any market. */
-    public static function totalUses(int|string|null $couponId): int
+    public static function totalUses(int|string|null $couponId, bool $locked = false): int
     {
-        return $couponId === null || !self::isReady() ? 0 : (int) DB::table(self::TABLE)->where('coupon_id', $couponId)->count();
+        if ($couponId === null || !self::isReady()) {
+            return 0;
+        }
+
+        $uses = DB::table(self::TABLE)->where('coupon_id', $couponId);
+
+        return (int) ($locked ? $uses->lockForUpdate()->count() : $uses->count());
     }
 
     /**
@@ -110,14 +123,20 @@ final class CouponRedemption
      * **Its SPELLING is the engine's, not this method's**, and a caller comparing it as text will disagree with itself per server: MariaDB
      * answers a SUM over `decimal(18,12)` as `5.000000000000` and SQLite as `5`. Measured, on a test that asserted the text and passed on
      * SQLite. Compare it as a number.
+     *
+     * **`$locked` is not an optimisation and it is not caution.** Inside a transaction, InnoDB at REPEATABLE READ answers a plain read from
+     * the snapshot taken at that transaction's FIRST read, so a sum taken after another checkout committed its redemption can still be the
+     * sum from before it -- the budget would be judged against a world that no longer exists. A locking read sees the latest committed
+     * version and holds the range against an insert behind it. SQLite compiles no lock clause, so this changes nothing there.
      */
-    public static function spent(int|string|null $couponId): string
+    public static function spent(int|string|null $couponId, bool $locked = false): string
     {
         if ($couponId === null || !self::isReady()) {
             return '0';
         }
 
-        $spent = DB::table(self::TABLE)->where('coupon_id', $couponId)->sum('discount');
+        $rows = DB::table(self::TABLE)->where('coupon_id', $couponId);
+        $spent = $locked ? $rows->lockForUpdate()->sum('discount') : $rows->sum('discount');
 
         return is_string($spent) ? $spent : (string) (float) $spent;
     }

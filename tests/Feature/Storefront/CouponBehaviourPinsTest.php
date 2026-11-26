@@ -167,8 +167,12 @@ class CouponBehaviourPinsTest extends ApiAddressTestCase
     /**
      * A percentage coupon keeps the minimum-purchase sentence, and that is a DEFECT recorded rather than fixed (I1-11): `$couponDiscount`
      * is a figure of per cent here and the condition compares it with an amount of money, so 31 per cent is refused on a cart of 30 and
-     * applied to a cart of 100. Correcting the condition would let through a coupon this platform refuses today, which changes what a
-     * customer is charged; correcting only the wording would put a third sentence on a refusal nobody should be given at all.
+     * applied to a cart of 100. Correcting the condition lets through a coupon this platform refuses today, which changes what a customer
+     * is charged; correcting only the wording would put a third sentence on a refusal nobody should be given at all.
+     *
+     * STILL A PIN, and now a dormancy as well. The owner approved the correction on 2026-11-26 and not its release, so it lives behind
+     * `gcc.coupons.percentage_of_the_eligible_total`, which ships off: these figures are what a customer meets, and what the switch moves
+     * is measured in {@see CouponPercentageOfTheEligibleTotalTest} -- a cart of 30 takes 9.30 off with it on.
      */
     public function test_a_percentage_coupon_whose_percentage_figure_is_above_the_eligible_total_is_refused_the_same_way(): void
     {

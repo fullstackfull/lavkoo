@@ -2213,6 +2213,7 @@ ____________________________________________________on_search_engines_and_see_th
 	'this_coupon_has_been_fully_redeemed' => 'استُخدم هذا الكوبون بالكامل.',
 	'this_coupons_discount_budget_has_been_used_up' => 'استُنفدت ميزانية خصم هذا الكوبون.',
 	'this_coupons_discount_is_more_than_the_items_it_applies_to' => 'خصم هذا الكوبون أكبر من قيمة العناصر التي ينطبق عليها، فلا يمكن استخدامه على هذه السلة.',
+	'sorry_this_coupon_is_not_valid_for_this_user' => 'عذراً، هذا الكوبون غير صالح لهذا المستخدم',
 	'shipping_destination_unknown' => 'بلد الوجهة غير معروف.',
 	'shipping_no_carrier_serves_this_route' => 'لا يوجد ناقل يخدم الخط إلى ذلك البلد.',
 	'shipping_regulated_product_needs_a_recorded_clearance' => 'هذا المنتج خاضع للتنظيم ويحتاج إلى تصريح مسجَّل لذلك البلد قبل شحنه إليه.',

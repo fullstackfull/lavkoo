@@ -23,11 +23,12 @@ use Illuminate\Support\Facades\Schema;
  *  - `gcc.coupons.limits.per_store` OFF: the limit and the first-order rule count every order of the customer, as today. Whether they
  *    should count within one market is the owner's question Q-04, so the mechanism is here and the default is unchanged.
  *
- * What this does NOT do, stated here rather than left to be discovered: it is read where every other coupon refusal is read -- the
- * eligibility functions, before the order's money is computed -- so two checkouts that both read the last remaining use before either
- * records it both get the discount. The ledger's unique key makes the RECORDED count exact; it does not make the grant atomic. Closing
- * that needs a refusal carried out of `generateOrder` to its six callers, which today answer an empty return with "an item in your cart
- * just went out of stock". See the handback.
+ * Where this is read, and where the answer is BINDING. This class is asked at eligibility time -- the apply route and the checkout's own
+ * pricing, before the order's money is computed -- and that is a READ, so two checkouts that both pass it before either records a
+ * redemption both get the discount. That hole is closed, by the owner's decision of 2026-11-26, in {@see CouponGrant}: the same three
+ * questions are asked again INSIDE the order's transaction, under a lock on the coupon's row, and a refusal there rolls the order back and
+ * is carried to the customer as its own sentence ({@see \App\Services\Checkout\OrderRefused}). What is read here stays the early, friendly
+ * check; the atomic one is the authority.
  */
 final class CouponAllowance
 {
@@ -63,8 +64,12 @@ final class CouponAllowance
      * The discount about to be given is part of the question for the budget and not for the cap: a cap counts redemptions and a budget
      * counts money, so a coupon with 3 left of its budget refuses a 5 discount and would have allowed a 2. The amount is optional because
      * the coupon lists ask this question with no basket in front of them, and there the budget's own total is what decides.
+     *
+     * `$locked` is passed by the one caller that asks inside the order's transaction, under a lock on the coupon's row
+     * ({@see CouponGrant}): it makes the ledger reads locking ones, which is what stops them answering from a snapshot taken before
+     * another checkout committed its redemption. Every other caller asks outside a transaction and wants the plain read.
      */
-    public static function refusalFor(mixed $coupon, float|string|null $discount = null): ?string
+    public static function refusalFor(mixed $coupon, float|string|null $discount = null, bool $locked = false): ?string
     {
         if (!self::isOn() || !self::columnsReady() || !CouponRedemption::isReady()) {
             return null;
@@ -78,14 +83,14 @@ final class CouponAllowance
 
         $cap = data_get($coupon, 'total_uses_limit');
 
-        if (is_numeric($cap) && (int) $cap > 0 && CouponRedemption::totalUses($couponId) >= (int) $cap) {
+        if (is_numeric($cap) && (int) $cap > 0 && CouponRedemption::totalUses($couponId, locked: $locked) >= (int) $cap) {
             return self::CAP_REACHED;
         }
 
         $budget = data_get($coupon, 'budget');
 
         if (is_numeric($budget) && (float) $budget > 0) {
-            $spent = (float) CouponRedemption::spent($couponId);
+            $spent = (float) CouponRedemption::spent($couponId, locked: $locked);
 
             if ($spent + (float) ($discount ?? 0) > (float) $budget) {
                 return self::BUDGET_SPENT;

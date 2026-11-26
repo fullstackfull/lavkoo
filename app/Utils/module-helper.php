@@ -8,6 +8,7 @@ use App\Models\OrderEditHistory;
 use App\Models\ShippingAddress;
 use App\Models\User;
 use App\Services\Address\OrderAddressService;
+use App\Services\Checkout\OrderRefused;
 use App\Services\Payments\OneAccountPerRegistration;
 use App\Services\Payments\PaymentSettlementScope;
 use App\Services\Payments\WhatWasPaidMatchesTheOrder;
@@ -159,7 +160,14 @@ if (!function_exists('digital_payment_place_orders')) {
             // log would fire on every simultaneous delivery and the one case it was written for -- a paid payment whose order could not
             // be built at all -- would be lost among them.
             if ($orderIds === [] && !PaymentSettlementScope::hasOrderFor(transactionId: $paymentData['transaction_id'] ?? null)) {
-                Log::critical('A paid payment was settled without building an order.', ['transaction_id' => $paymentData['transaction_id'], 'customer_id' => $customerId]);
+                Log::critical('A paid payment was settled without building an order.', [
+                    'transaction_id' => $paymentData['transaction_id'],
+                    'customer_id' => $customerId,
+                    // Which rule refused it, where the order writer named one (I1-14). This path never refuses over a coupon -- the money
+                    // has already moved, so an exhausted coupon is reported and allowed -- so a reason here is a refusal of another kind
+                    // and the one thing worth knowing about a paid payment with no order.
+                    'refusal' => OrderRefused::reason(),
+                ]);
             }
             // What the gateway took against what the orders add up to (D2). Nothing compared them, so a basket that moved
             // between the payment starting and the callback arriving produced an order whose total is not the figure the
