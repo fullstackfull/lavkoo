@@ -3,6 +3,7 @@
 namespace Tests\Feature\Payments;
 
 use App\Models\PaymentRoutingRule;
+use App\Services\Payments\GatewayCapabilityRegistry;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Tests\Feature\Address\ApiAddressTestCase;
@@ -22,6 +23,16 @@ use Tests\Support\BuildsStorefrontCatalog;
  * `storefront_payment_methods` answers the part a market DOES settle: the app names its storefront, so a hide rule bound to that country
  * can be judged, and the currency is known, so the same question `GatewayCurrencyPolicy` asks at the start of a payment can be asked
  * before the method is ever shown. A rule bound to an amount band still cannot be judged and is still left alone.
+ *
+ * The MERCHANT half is the last clause of J-09.4 and the one added here: whether this shop's account with the provider has been confirmed
+ * live in that market, in that currency (`GatewayCapabilityRegistry`). A gateway's own currency list says what the GATEWAY can do in
+ * general; it says nothing about whether the merchant can collect in Kuwait. The market's own readiness check already asks exactly that
+ * question before letting a market open, so an app was being offered a method the platform already knew it could not take a payment
+ * through. The register ships `mode: off` with no cells, and off it refuses nothing -- which the dormancy tests below pin.
+ *
+ * The LEGAL ENTITY clause of J-09.4 is NOT closed here and the criterion is not whole without it: a market whose gateway account is filed
+ * under another company reads as having no account of its own and the payment goes through the platform's own settings, and whether that
+ * configuration is legitimate at all is the owner's open decision. There is no rule to apply until it is answered.
  *
  * The first test is the dormancy claim: with nothing configured the two keys are the same list, and `payment_methods` never moves in any
  * test here.
@@ -173,5 +184,110 @@ class StorefrontPaymentMethodsOnTheConfigAnswerTest extends ApiAddressTestCase
             $this->methodsOf('AE'),
             'the dirham has two decimals, so what decides is whether the gateway lists it at all -- and ssl_commerz does not',
         );
+    }
+
+    // ---- the merchant half: whether the provider has confirmed this market ----
+
+    public function test_the_capability_register_ships_off_and_refuses_nothing_even_with_cells_written(): void
+    {
+        $this->assertSame(GatewayCapabilityRegistry::OFF, app(GatewayCapabilityRegistry::class)->mode(), 'the register ships off');
+        $this->assertSame([], (array) config('gcc.payments.capabilities.gateways'), 'and it ships with no cell');
+
+        // A cell written while the register is off decides nothing either: a configuration half-filled must not start hiding methods.
+        config(['gcc.payments.capabilities.gateways' => ['paytabs' => ['KW' => $this->aConfirmation(currencies: ['KWD'])]]]);
+
+        $this->assertSame(self::GATEWAYS, $this->methodsOf('KW'));
+        $this->assertSame(self::GATEWAYS, $this->methodsOf('AE'));
+        $this->assertSame(self::GATEWAYS, $this->methodsOf(null));
+    }
+
+    public function test_once_enforced_only_the_gateways_confirmed_for_that_market_are_offered(): void
+    {
+        config([
+            'gcc.payments.capabilities.mode' => GatewayCapabilityRegistry::ENFORCE,
+            'gcc.payments.capabilities.gateways' => [
+                'paytabs' => ['KW' => $this->aConfirmation(currencies: ['KWD', 'AED'])],
+                'stripe' => ['AE' => $this->aConfirmation(currencies: ['AED'])],
+            ],
+        ]);
+
+        $this->assertSame(['paytabs'], $this->methodsOf('KW'), 'the one gateway whose provider has confirmed this merchant in Kuwait');
+        $this->assertSame(['stripe'], $this->methodsOf('AE'));
+        $this->assertSame([], $this->methodsOf('SA'), 'a market with no confirmed cell is default-deny, which is what enforce means');
+        $this->assertSame(self::GATEWAYS, $this->methodsOf('KW', 'payment_methods'), 'the global key is the global key and does not move');
+    }
+
+    public function test_a_cell_confirmed_for_another_currency_does_not_confirm_this_markets_money(): void
+    {
+        config([
+            'gcc.storefronts.currency.enabled' => true,
+            'gcc.storefronts.currency.verified_three_decimal_gateways' => ['paytabs'],
+            'gcc.payments.capabilities.mode' => GatewayCapabilityRegistry::ENFORCE,
+            'gcc.payments.capabilities.gateways' => ['paytabs' => ['KW' => $this->aConfirmation(currencies: ['AED'])]],
+        ]);
+
+        // Without the register this market was offered paytabs: it lists the dinar and is verified for a third decimal. What is missing is
+        // the merchant's own confirmation IN DINARS, which is the half a gateway's currency list cannot speak for.
+        $this->assertSame([], $this->methodsOf('KW'));
+
+        config(['gcc.payments.capabilities.gateways' => ['paytabs' => ['KW' => $this->aConfirmation(currencies: ['KWD'])]]]);
+        $this->assertSame(['paytabs'], $this->methodsOf('KW'));
+    }
+
+    public function test_a_cell_that_merely_looks_affirmative_confirms_nothing(): void
+    {
+        foreach ([1, '1', 'true', 'yes', null] as $value) {
+            config([
+                'gcc.payments.capabilities.mode' => GatewayCapabilityRegistry::ENFORCE,
+                'gcc.payments.capabilities.gateways' => ['paytabs' => ['KW' => array_merge($this->aConfirmation(currencies: ['KWD']), ['confirmed' => $value])]],
+            ]);
+
+            $this->assertSame([], $this->methodsOf('KW'), 'a confirmation written as ' . var_export($value, true) . ' was honoured');
+        }
+    }
+
+    public function test_an_incomplete_record_confirms_nothing_even_with_confirmed_true(): void
+    {
+        $complete = $this->aConfirmation(currencies: ['KWD']);
+
+        foreach ([
+            'with nobody named as having confirmed it' => ['provider' => ''],
+            'with no date' => ['confirmed_on' => null],
+            'with a date that has not happened' => ['confirmed_on' => now()->addYear()->toDateString()],
+            'confirmed in general, in no currency' => ['currencies' => []],
+        ] as $why => $missing) {
+            config([
+                'gcc.payments.capabilities.mode' => GatewayCapabilityRegistry::ENFORCE,
+                'gcc.payments.capabilities.gateways' => ['paytabs' => ['KW' => array_merge($complete, $missing)]],
+            ]);
+
+            $this->assertSame([], $this->methodsOf('KW'), "a record {$why} was honoured");
+        }
+
+        config(['gcc.payments.capabilities.gateways' => ['paytabs' => ['KW' => $complete]]]);
+        $this->assertSame(['paytabs'], $this->methodsOf('KW'), 'and the complete record is honoured');
+    }
+
+    public function test_the_market_the_header_names_is_the_market_judged(): void
+    {
+        config([
+            'gcc.payments.capabilities.mode' => GatewayCapabilityRegistry::ENFORCE,
+            'gcc.payments.capabilities.gateways' => ['paytabs' => ['KW' => $this->aConfirmation(currencies: ['KWD', 'AED', 'SAR'])]],
+        ]);
+
+        // The same cell, asked for three markets: a confirmation is of one market and does not travel to the next.
+        $this->assertSame([['paytabs'], [], []], [$this->methodsOf('KW'), $this->methodsOf('AE'), $this->methodsOf(null)]);
+    }
+
+    /**
+     * A complete provider confirmation. The platform refuses anything looser, so a test of what IS honoured has to write the whole record.
+     *
+     * @param list<string> $currencies
+     *
+     * @return array<string, mixed>
+     */
+    private function aConfirmation(array $currencies): array
+    {
+        return ['confirmed' => true, 'provider' => 'The provider\'s account manager', 'confirmed_on' => '2026-11-01', 'currencies' => $currencies];
     }
 }
