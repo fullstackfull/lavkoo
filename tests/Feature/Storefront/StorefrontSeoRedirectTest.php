@@ -6,11 +6,12 @@ use App\Http\Middleware\ApplySeoRedirects;
 use App\Models\Redirect;
 use App\Services\Seo\RedirectResolverService;
 use App\Services\Storefront\StorefrontMarketRows;
+use App\Services\Storefront\StorefrontPathPrefix;
 use App\Services\Storefront\StorefrontResolver;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Tests\Support\BuildsSeoRedirectRules;
 use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
 
@@ -23,15 +24,21 @@ use Tests\TestCase;
  *
  * The first test is the one that protects what exists: while storefronts are off, every rule applies everywhere, exactly as it does today.
  *
- * The middleware is asked for its rules rather than driven over HTTP, because what is at stake is WHICH rules a market is served; the
- * redirect itself, the excluded prefixes and the hit accounting are the middleware's own and are not re-proved here. The hit accounting IS
- * driven, though, because two markets can now hold a rule for the same path and the count an operator reads must not be the other market's.
+ * **What this file proves, and what it demonstrably did NOT.** It asks the middleware for its rules with a storefront already BOUND
+ * (`->serve()`), which measures the narrowing rule and nothing about the website: on a real web request nothing has bound a storefront when
+ * this middleware runs, because it is `web` GROUP middleware and the resolver is ROUTE middleware. So every assertion below passed while
+ * the narrowing was inert on every page of the live shop. That is the exact fault the rules of this project name -- a narrowing that reads a
+ * bound context proves nothing until something on that route binds it -- and it is why
+ * {@see StorefrontSeoRedirectWebsiteTest} exists and drives the real route instead. Keep both: this file pins the RULE (which rows belong
+ * to which market, the one cache entry, the migration), that one pins the WEBSITE.
+ *
+ * The hit accounting IS driven, because two markets can now hold a rule for the same path and the count an operator reads must not be the
+ * other market's.
  */
 class StorefrontSeoRedirectTest extends TestCase
 {
+    use BuildsSeoRedirectRules;
     use RestoresLanguageFiles;
-
-    private const MIGRATION = '2026_12_26_100000_add_storefront_country_to_redirects_table.php';
 
     protected function setUp(): void
     {
@@ -52,47 +59,11 @@ class StorefrontSeoRedirectTest extends TestCase
         parent::tearDown();
     }
 
-    /** The table as the SEO subsystem creates it, and then the feature's REAL migration on top, so the column is what production gets. */
-    private function buildTheRedirectTable(): void
-    {
-        Schema::dropIfExists('redirects');
-        Schema::create('redirects', function (Blueprint $table): void {
-            $table->id();
-            $table->string('from_path');
-            $table->string('to_path');
-            $table->unsignedSmallInteger('status_code')->default(301);
-            $table->string('match_type')->default('exact');
-            $table->boolean('is_active')->default(true);
-            $table->unsignedBigInteger('hits')->default(0);
-            $table->dateTime('last_hit_at')->nullable();
-            $table->string('note')->nullable();
-            $table->string('created_by_type')->nullable();
-            $table->unsignedBigInteger('created_by_id')->nullable();
-            $table->timestamps();
-        });
-
-        (require database_path('migrations/' . self::MIGRATION))->up();
-    }
-
-    private function aRuleOf(?string $market, string $from, string $to): int
-    {
-        return DB::table('redirects')->insertGetId([
-            'from_path' => $from,
-            'to_path' => $to,
-            'status_code' => 301,
-            'match_type' => 'exact',
-            'is_active' => true,
-            StorefrontMarketRows::COLUMN => $market,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-    }
-
     /** @return list<string> the paths the rules served to one market redirect FROM */
     private function rulesServedIn(string $market): array
     {
         return StorefrontResolver::fromConfig()->context(explicitChoice: $market)->serve(function (): array {
-            $middleware = new class(app(RedirectResolverService::class)) extends ApplySeoRedirects {
+            $middleware = new class(app(RedirectResolverService::class), app(StorefrontPathPrefix::class)) extends ApplySeoRedirects {
                 /** @return array<int, array<string, mixed>> */
                 public function rules(): array
                 {
@@ -164,7 +135,7 @@ class StorefrontSeoRedirectTest extends TestCase
         $kuwaiti = $this->aRuleOf('KW', '/offers', '/kuwait-offers');
 
         StorefrontResolver::fromConfig()->context(explicitChoice: 'KW')->serve(function (): void {
-            $middleware = new class(app(RedirectResolverService::class)) extends ApplySeoRedirects {
+            $middleware = new class(app(RedirectResolverService::class), app(StorefrontPathPrefix::class)) extends ApplySeoRedirects {
                 public function hit(string $path): void
                 {
                     $this->recordHit($path);
@@ -184,14 +155,14 @@ class StorefrontSeoRedirectTest extends TestCase
 
         $this->expectException(\RuntimeException::class);
 
-        (require database_path('migrations/' . self::MIGRATION))->down();
+        (require database_path('migrations/' . $this->redirectMarketMigration()))->down();
     }
 
     public function test_the_migration_rolls_back_when_no_rule_names_a_market(): void
     {
         $this->aRuleOf(null, '/old', '/new');
 
-        (require database_path('migrations/' . self::MIGRATION))->down();
+        (require database_path('migrations/' . $this->redirectMarketMigration()))->down();
 
         $this->assertFalse(Schema::hasColumn('redirects', StorefrontMarketRows::COLUMN));
     }

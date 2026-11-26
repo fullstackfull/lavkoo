@@ -341,6 +341,165 @@ class StorefrontStopRedirectTest extends TestCase
         $this->assertTrue($redirect->isExcluded('/login/google/callback'));
     }
 
+    /**
+     * **Owner decision 5, first proof: a market whose own setting did not choose this mode is never redirected, whatever the other markets
+     * are set to.** The mode ships with no feature flag in front of it, and the owner's acceptance of that is conditional on exactly this.
+     *
+     * Three states of the Emirates against Kuwait redirecting: selling, and paused in each of the two other modes. A market is redirected by
+     * its OWN setting and by nothing else.
+     */
+    #[DataProvider('theStatesAnotherMarketCanBeIn')]
+    public function test_a_market_whose_operator_did_not_choose_redirect_is_never_redirected(?string $emiratiMode): void
+    {
+        $this->pause(mode: StorefrontLifecycle::REDIRECT);
+
+        if ($emiratiMode !== null) {
+            $this->pause(mode: $emiratiMode, country: 'AE');
+        }
+
+        $this->assertSame('AE', $this->get('/ae/contacts')->assertOk()->json('market'));
+        $this->assertSame('SA', $this->get('/contacts')->assertOk()->json('market'));
+        $this->assertSame(StorefrontLifecycle::REDIRECT, app(StorefrontLifecycle::class)->stopModeOf('KW'), 'Kuwait is still the market whose own setting chose it');
+        $this->get('/kw/contacts')->assertStatus(302, 'and it is still the only market being left');
+    }
+
+    /** @return array<string, array{string|null}> */
+    public static function theStatesAnotherMarketCanBeIn(): array
+    {
+        return [
+            'selling' => [null],
+            'paused, browse only' => [StorefrontLifecycle::BROWSE_ONLY],
+            'paused, maintenance' => [StorefrontLifecycle::MAINTENANCE],
+        ];
+    }
+
+    /**
+     * **Owner decision 5, second proof: a market with no lifecycle record at all is never redirected.** Qatar is configured and reachable
+     * here and nobody has ever recorded a decision about it, which is the state of five of the six markets on the platform today. Its
+     * implicit state is draft, so it has no mode, so there is nothing to redirect -- and a reader can see that it is the ABSENCE of a record
+     * that answers, not a record saying "do not redirect".
+     */
+    public function test_a_market_with_no_lifecycle_record_at_all_is_never_redirected(): void
+    {
+        config(['gcc.storefronts.countries.QA.active' => true]);
+        $this->pause(mode: StorefrontLifecycle::REDIRECT);
+
+        $this->assertNull(app(StorefrontLifecycle::class)->stopModeOf('QA'), 'a market nobody has recorded a decision about is in no stop mode');
+        $this->assertSame(0, DB::table('business_settings')->where('type', StorefrontLifecycle::settingName('QA'))->count(), 'and it has no record at all');
+        $this->assertSame('QA', $this->get('/qa/contacts')->assertOk()->json('market'));
+    }
+
+    /**
+     * **Owner decision 5, third proof: the address the visitor is sent to cannot carry them back into the market being stopped.** The
+     * redirect is followed one hop, which is the only thing that proves it: the target is requested, and it answers with a page in the
+     * default storefront rather than with another redirect.
+     *
+     * `ApplySeoRedirects` is switched off in this file, so what is measured here is the stop redirect alone. The two redirecting middlewares
+     * TOGETHER, where an operator's rule can point back into the stopped market, are measured in
+     * {@see StorefrontSeoRedirectWebsiteTest}.
+     */
+    public function test_the_address_a_stopped_market_sends_a_visitor_to_is_not_itself_redirected(): void
+    {
+        $this->pause(mode: StorefrontLifecycle::REDIRECT);
+
+        $location = (string) $this->get('/kw/contacts')->assertStatus(302)->headers->get('Location');
+        $target = '/' . ltrim((string) parse_url($location, PHP_URL_PATH), '/');
+
+        $this->assertSame('/contacts', $target);
+
+        $arrival = $this->get($target);
+
+        $arrival->assertOk();
+        $this->assertSame('SA', $arrival->json('market'), 'the visitor arrives in the default storefront and is not sent on again');
+    }
+
+    /**
+     * **Owner decision 5, fourth proof: the target is never an address outside the platform.** The target is a PATH of this installation,
+     * built through the URL generator, so it is always this host -- including for a request whose own path is shaped like an address
+     * somewhere else, which is the case a string comparison would miss.
+     *
+     * The catch-all page is registered here and not in `setUp` on purpose: this is the one test that needs a route for an address the
+     * website does not have, and a catch-all in `setUp` would turn the 404s the other tests assert into pages.
+     */
+    public function test_every_address_this_stop_sends_a_visitor_to_is_on_this_platform(): void
+    {
+        Route::middleware(['web', 'storefront'])->get('/{anything}', fn () => 'a page')->where('anything', '.*');
+        $this->pause(mode: StorefrontLifecycle::REDIRECT);
+
+        $host = parse_url(url('/'), PHP_URL_HOST);
+
+        foreach (['/kw/contacts', '/kw', '/contacts?storefront=KW', '/kw//example.com/pwn', '/kw/https:/example.com'] as $address) {
+            $response = $this->get($address);
+
+            // Asserted rather than skipped: a shape that stopped being drivable would otherwise blind this test silently, and the two
+            // hostile shapes are the whole point of it. Measured when it was written: all five answer 302, and the last two arrive at
+            // `http://localhost/example.com/pwn` and `http://localhost/https:/example.com` -- paths of this installation, not addresses
+            // elsewhere.
+            $this->assertTrue($response->isRedirect(), "{$address} is no longer redirected, so this test no longer measures it");
+
+            $location = (string) $response->headers->get('Location');
+
+            $this->assertSame($host, parse_url($location, PHP_URL_HOST), "{$address} was sent off this platform, to {$location}");
+            $this->assertStringStartsWith(url('/'), $location, "{$address} was sent to {$location}");
+        }
+    }
+
+    /**
+     * **Owner decision 5, fifth proof, the other half of the real-route scan: a route is judged by the MIDDLEWARE it carries and not by how
+     * its address is spelt.** The scan above reads path words and route names; a panel route that says nothing in either -- and the classic
+     * vendor panel has several -- is caught only by what guards it.
+     *
+     * So every route of the real table that is guarded as a panel, a seller surface, a platform-admin surface or a courier's own endpoint
+     * has to be an address this redirect never moves. It is the same question `notVisitorPages()` answers from a hand-written list, asked of
+     * the route table instead, which is what makes a panel mounted at a NEW first segment fail this test rather than quietly become
+     * redirectable.
+     */
+    public function test_every_guarded_surface_of_the_website_is_excluded_whatever_its_address_says(): void
+    {
+        $redirectable = $this->guardedAddressesThisRedirectWouldMove();
+
+        $this->assertSame([], $redirectable, "a guarded surface this redirect would move:\n - " . implode("\n - ", $redirectable));
+    }
+
+    /**
+     * Every address of the real route table that is guarded as a panel, a seller surface, a platform-admin surface or a machine's endpoint,
+     * and which this redirect would nonetheless move.
+     *
+     * @return list<string>
+     */
+    private function guardedAddressesThisRedirectWouldMove(): array
+    {
+        $redirect = app(StorefrontStopRedirect::class);
+        $guards = ['admin', 'seller', 'seller_staff_access', 'seller_center', 'platform_admin', 'platform_admin_auth', 'delivery_man_auth', 'deliverysyria_auth', 'seller_api_auth'];
+        $guarded = [];
+
+        foreach (Route::getRoutes()->getRoutes() as $route) {
+            /** @var RoutingRoute $route */
+            foreach ($route->middleware() as $middleware) {
+                if (in_array(explode(':', (string) $middleware, 2)[0], $guards, true)) {
+                    $guarded[] = $route->uri();
+                    break;
+                }
+            }
+        }
+
+        $this->assertNotEmpty($guarded, 'the scan found no guarded route at all, so it proves nothing');
+
+        return array_values(array_unique(array_filter($guarded, static fn (string $uri): bool => !$redirect->isExcluded($uri))));
+    }
+
+    /** And its teeth, the same way the path scan has them: a guarded surface at an address that says nothing must be reported. */
+    public function test_the_guard_scan_reads_a_panel_mounted_at_an_address_that_names_nothing(): void
+    {
+        Route::get('/operations/console', fn () => 'ok')->middleware('admin');
+
+        $this->assertContains(
+            'operations/console',
+            $this->guardedAddressesThisRedirectWouldMove(),
+            'a panel mounted at a new first segment must be reported rather than quietly become redirectable',
+        );
+    }
+
     /** The audit line of the stop is the operator's record, and it is written whichever mode was chosen -- including this one. */
     public function test_the_stop_is_audited_with_the_mode_the_operator_chose(): void
     {
