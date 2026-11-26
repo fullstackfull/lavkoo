@@ -721,3 +721,38 @@ criteria names more signals than are built -- which is the honest record and is 
   the session error, and a levels-are-shut test failed nothing when a permission was added because the one endpoint
   that would have revealed it was on an exclusion list. Both were found by the teeth check and both were reported
   rather than quietly fixed.
+
+### Learned on 2026-11-26, in the owner-decision round
+
+- **Do NOT merge into the main checkout while a heavy group run is in flight there.** The coordinator did exactly
+  that: the Storefront gate run (6,254 tests) was 50 minutes in when track 2's merge changed
+  `app/Listeners/OrderStatusListener.php` and `tests/Feature/Storefront/OrderNotificationTodayTest.php` -- the second
+  of which is INSIDE the group being run. The run's verdict then describes no single tree, which is the trap this
+  file already records one lesson about and which the coordinator is as able to fall into as a track. The fix is a
+  sequencing rule: merge every track first, then run the authoritative gate ONCE on the final tree. Per-merge gate
+  runs are both slower and worthless.
+- **`Queue::fake()` cannot prove after-commit.** `QueueFake::push` records the job immediately and knows nothing
+  about `after_commit`, so a proof written with it passes whether the property is there or not. `SyncQueue::push`
+  DOES honour `shouldDispatchAfterCommit`, so the real sync driver is what gives such a test teeth -- measured both
+  ways, on SQLite and MariaDB 10.11.14.
+- **`ShouldQueue` does not imply after-commit in this project.** No connection in `config/queue.php` sets
+  `after_commit` and Laravel's default is false, so a queued listener still dispatches inside an open transaction.
+  Every future "queue this listener" needs `public bool $afterCommit = true` (or the connection setting) as a
+  separate, deliberate decision.
+- **`ShouldQueueAfterCommit` would hide a class from this repository's own guard.** `StaffJobScanner`'s regex is
+  `\bShouldQueue\b`, which does not match `ShouldQueueAfterCommit`. Prefer `implements ShouldQueue` plus the
+  property until that regex is widened -- otherwise the modern spelling makes a queued class invisible to the census.
+- **A census that scans for a MENTION cannot see a file that mentions nothing, and that is the worse blind spot.**
+  The queued-class count stood at 27 for months, internally consistent by its own arithmetic, while
+  `OrderStatusListener` mentioned `ShouldQueue` nowhere and sent a push inside every order status change on every
+  surface. When a guard counts declarations, ask what a file that declares nothing looks like to it.
+- **An arrow function captures by value.** `return static fn (): array => $levels;` written after `$levels[] = ...`
+  inside a by-reference closure hands back the EMPTY array, so a test reported "no outbound call was made" when two
+  had been. Return `function () use (&$x) { ... }`. Found only because the failure pointed the wrong way.
+- **Queueing a listener costs exactly one extra query**, because `SerializesModels` restores the model with
+  `firstOrFail()`. Grep for query-count constants (`QUERIES_OF_...`) before queueing anything.
+- **A SQL-text assertion is engine-specific**: SQLite writes `from "orders"` and MariaDB `` from `orders` ``. Strip
+  the quoting before comparing -- caught on MariaDB after passing on SQLite.
+- **A property read on null is an `ErrorException` inside a booted Laravel app**, not a warning, so a bare
+  `catch (Exception $e) {}` swallows missing null-safety entirely. That is how the promoter notification fires on
+  every delivered order and sends nothing, records nothing and updates nothing, leaving no trace at all.
