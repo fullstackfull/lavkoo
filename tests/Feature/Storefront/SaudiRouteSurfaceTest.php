@@ -164,6 +164,17 @@ class SaudiRouteSurfaceTest extends TestCase
         // until a company has an account with a token: while per-company accounts are off it resolves no account and refuses every
         // request, and the Saudi platform keeps taking every notification at the address it takes them at today.
         'POST api/payments/account/{account}/webhook | payments.account.webhook',
+
+        // Which market may sell into which country, and on whose authority (H1-05, C-16). The pair screen reads and the POST records one
+        // decision; both sit behind admin + actch:admin_panel and both are audited, like the destination-permission pair above them. They
+        // serve the Saudi platform nothing: with cross-border shipping off every sale stays inside its own country and the screen says so,
+        // and a market selling domestically needs no pair recorded at all.
+        'GET admin/shipping/cross-border-pairs | admin.shipping.cross-border-pairs.index',
+        'POST admin/shipping/cross-border-pairs | admin.shipping.cross-border-pairs.record',
+
+        // Copying a theme's own rows into another market (F-04). One address, POST only, because it is an action and not a screen: the
+        // theme builder already has the screen. It is inert on a single-market platform, which has no other market to copy into.
+        'POST admin/theme/copy-to-market | admin.theme.copy-to-market',
     ];
 
     /**

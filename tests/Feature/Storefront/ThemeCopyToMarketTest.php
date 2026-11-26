@@ -190,18 +190,24 @@ class ThemeCopyToMarketTest extends TestCase
     }
 
     /**
-     * A banner copy that cannot be completed leaves NO row behind.
+     * The annotation table being absent no longer stops a banner being copied -- and that is a FIX, not a regression.
      *
-     * `Banner`'s `saved` hook writes into `storages`, and on an installation where that table is absent the hook throws AFTER the insert
-     * has happened. Without a transaction the copy's `catch` would report the banner as "missing" while a row for it existed in
-     * `banners` -- assigned to no market, pointing at nothing, and invisible to the operator who was told the copy was fine. That is the
-     * defect shape this programme has hit before: a hook failing after the write, a caller's try/catch eating it, and everything after
-     * the create silently skipped.
+     * WHAT THIS TEST USED TO ASSERT, and why it is written out here rather than quietly replaced: `Banner`'s `saved` hook writes into
+     * `storages`, a table of the installation dump that no migration creates. Where it was absent the `updateOrInsert` THREW -- inside a
+     * `saved` hook, so AFTER the insert. `Banner::create()` raised having already written the row, this copier's `catch` reported the
+     * banner as `missing`, and the operator was told the copy was fine while a banner row existed in `banners` owned by no market and
+     * pointing at nothing. This test pinned that: `missing` held the banner, one banner row existed, and the copied block still pointed at
+     * the ORIGINAL. Its docblock said the root cause was "in the model and is reported rather than fixed here".
      *
-     * The root cause is in the model and is reported rather than fixed here; what is fixed is that this copy cannot be the one that
-     * leaves the orphan.
+     * It has since been fixed at the cause: the hook returns early when `storages` is absent, so an installation without that table
+     * annotates nothing and writes its banner normally. The copy therefore SUCCEEDS, which is what this now asserts.
+     *
+     * The transaction the old behaviour forced is still there and still right -- a hook that fails after a write must not leave an orphan
+     * -- but nothing reachable makes it fail this way any more, so this test can no longer be the place that proves it. That is stated
+     * rather than left as a silent gap: the property is now unpinned, and a reproducer for it needs a writer that still throws after its
+     * insert.
      */
-    public function test_a_banner_copy_that_cannot_finish_leaves_no_row_behind(): void
+    public function test_a_banner_is_copied_even_where_the_annotation_table_is_absent(): void
     {
         $banner = $this->giveBanner(title: 'Saudi hero');
         StorefrontVisibility::set(entityType: StorefrontVisibility::BANNER, entityId: $banner->id, countries: ['SA']);
@@ -212,9 +218,12 @@ class ThemeCopyToMarketTest extends TestCase
 
         $copied = $this->copier()->copy($this->saudiVersion, 'AE');
 
-        $this->assertSame([$banner->id], $copied['report']['banners']['missing'], 'the copy claimed a banner it could not write');
-        $this->assertSame(1, Banner::query()->count(), 'the copy left a banner row nobody owns');
-        $this->assertSame($banner->id, (int) $this->blockSettingsOf($copied['version'])['banner_id'], 'the copied block was pointed at a row that does not exist');
+        $copiedId = (int) $this->blockSettingsOf($copied['version'])['banner_id'];
+
+        $this->assertSame([], $copied['report']['banners']['missing'] ?? [], 'the copy reported a banner it could in fact write');
+        $this->assertSame([$copiedId], $copied['report']['banners']['duplicated'], 'the copy did not report the row it made');
+        $this->assertNotSame($banner->id, $copiedId, 'the copied block was left pointing at the Saudi banner');
+        $this->assertSame(2, Banner::query()->count(), 'the original and its copy are the two rows there should be');
     }
 
     /**

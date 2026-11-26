@@ -344,7 +344,20 @@ class OrderStorefrontSnapshotTest extends TestCase
         $this->assertSame([
             // Reads the order's rate to decide whether the row's stored amount can be shown in the order's own currency; writes nothing.
             'app/Models/RefundTransaction.php',
-            // The one WRITER of orders.currency_rate, and the subject of this class.
+            // A SECOND WRITER, and the only one admitted on real orders: the backfill of orders placed before this column existed. It writes
+            // the rate ONLY where the country and the currency are both still null, so it never overwrites a recorded rate and running it
+            // twice stamps the same orders once; it REFUSES outright under `multi_currency` rather than stamping a currency an invoice could
+            // later be reprinted from; `plan()` writes nothing and is what the command runs by default; and it touches no column of money,
+            // proving that by comparing the sum of order_amount before and after. Those four properties are why a backfill does not make the
+            // record stop meaning what it says -- it fills rows that said nothing, and says so where it cannot know.
+            'app/Services/Checkout/OrderCurrencyBackfill.php',
+            // READS it to decide whether a stored amount may be counted as money of the recorded currency: an amount is priced only while the
+            // rate is one, and any other rate is counted UNPRICED rather than re-scaled by a conversion rule nobody has approved.
+            'app/Services/PlatformAdmin/PlatformMarketFigures.php',
+            // Names it in the PUBLISHED rule beside the figure (`priced_when: currency_rate = 1`), so a reader of the number knows what makes
+            // it safe to read. A string in an answer, not a query.
+            'app/Services/PlatformAdmin/PlatformOverviewService.php',
+            // The one WRITER of orders.currency_rate on a NEW order, and the subject of this class.
             'app/Services/Storefront/OrderStorefrontSnapshot.php',
             // D1-10: copies the order's record onto a REFUND row when that row is made. Reads orders.currency_rate; writes the refund table's own column, not this one.
             'app/Services/Storefront/RefundFromOriginalPayment.php',
@@ -356,6 +369,9 @@ class OrderStorefrontSnapshotTest extends TestCase
             // D1-06 and D1-10: declare a currency_rate of their own on the four money-row tables and the two refund tables. Neither names orders.
             'database/migrations/2026_11_27_100000_add_order_currency_to_order_money_rows.php',
             'database/migrations/2026_12_03_100000_add_order_money_to_refund_tables.php',
+            // A WRITER of INVENTED rows only: the six-market staging seeder sets the rate to one on the orders it makes up, and refuses to run
+            // outside staging, testing and local as the first statement of run(). No order of a real shop passes through it.
+            'database/seeders/GccStagingSeeder.php',
         ], $naming, 'A file names the order rate that is not accounted for. If it WRITES orders.currency_rate the record stops meaning what it says; if it reads it, add it here with what it reads it for.');
         $this->assertSame([], array_intersect(self::SNAPSHOT_COLUMNS, (new Order())->getFillable()), 'none of the three may be filled from a request');
     }
