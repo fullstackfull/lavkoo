@@ -15,6 +15,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Feature\Address\ApiAddressTestCase;
+use Tests\Support\ActivatesStorefront;
+use Tests\Support\ApprovesStorefrontTax;
 use Tests\Support\BuildsPosSaleWorld;
 use Tests\Support\KeepsTranslateOffLanguageFiles;
 
@@ -36,6 +38,8 @@ use Tests\Support\KeepsTranslateOffLanguageFiles;
  */
 class PosOrderRecordsItsMarketTest extends ApiAddressTestCase
 {
+    use ActivatesStorefront;
+    use ApprovesStorefrontTax;
     use BuildsPosSaleWorld;
     use KeepsTranslateOffLanguageFiles;
 
@@ -75,13 +79,39 @@ class PosOrderRecordsItsMarketTest extends ApiAddressTestCase
         StorefrontCatalog::flush();
     }
 
+    /**
+     * Kuwait served, and served by a market that may actually SELL: its tax decision recorded and its storefront activated, which is what
+     * `approveNoTaxFor` and `activateStorefrontFor` exist for -- "so that the sale gate is not what is under test", as both traits say.
+     *
+     * The world used to stop at the three configuration keys, and that was an incomplete world rather than a deliberate one: a market
+     * whose lifecycle record is ABSENT reads DRAFT, so a CUSTOMER could not have checked out in it either. It went unnoticed only because
+     * the till asked no gate at all. {@see \App\Services\Checkout\PointOfSaleSaleRule} named this file first among the worlds that would
+     * break when the till's switch was thrown, and with the switch on it was the only one of them that did -- in both panel tills, which
+     * is the measurement that sized the work rather than guessing at it.
+     *
+     * Completing it takes FOUR things and not the two the handover expected, because {@see \App\Services\Storefront\StorefrontSellingGate}
+     * asks the lifecycle AND the preflight: the lifecycle record, the tax decision, the legal texts (grandfathered here, as
+     * TheTillOfAStoppedMarketSellsNothingTest does) and the market's own currency row, without which the preflight is not met while
+     * storefront currencies are on. The lifecycle and the tax alone left both tills still refusing, which is how the other two were found.
+     *
+     * Activating a market HERE is activating it in this test's own world: a `business_settings` row this class writes and the trait takes
+     * away when the class ends. It opens no market on the platform, which stays the owner's decision and G0's.
+     */
     private function sixMarketsAreServed(): void
     {
         config([
             'gcc.storefronts.enabled' => true,
             'gcc.storefronts.currency.enabled' => true,
             'gcc.storefronts.countries.KW.active' => true,
+            'gcc.storefronts.legal.grandfathered' => ['SA', self::KUWAIT],
         ]);
+
+        DB::table('currencies')->insertOrIgnore(['name' => 'Kuwaiti Dinar', 'code' => 'KWD', 'symbol' => 'KWD', 'exchange_rate' => 1, 'status' => 1]);
+        cache()->forget('active_currency_list');
+
+        $this->approveNoTaxFor(self::KUWAIT);
+        $this->activateStorefrontFor(self::KUWAIT);
+
         StorefrontCatalog::flush();
     }
 
