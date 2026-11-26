@@ -232,11 +232,11 @@ trait BuildsProductCatalog
             $table->boolean('featured')->default(false);
             $table->integer('current_stock')->default(5);
             $table->integer('minimum_order_qty')->default(1);
-            $table->decimal('unit_price', 24, 2)->default(10);
-            $table->decimal('purchase_price', 24, 2)->default(4);
+            $table->decimal('unit_price', 40, 20)->default(10);
+            $table->decimal('purchase_price', 40, 20)->default(4);
             $table->decimal('discount', 24, 2)->default(0);
             $table->string('discount_type')->default('flat');
-            $table->decimal('shipping_cost', 24, 2)->default(0);
+            $table->decimal('shipping_cost', 40, 20)->default(0);
             $table->boolean('multiply_qty')->default(false);
             $table->text('colors')->nullable();
             $table->text('attributes')->nullable();
@@ -419,9 +419,9 @@ trait BuildsProductCatalog
             $table->string('color')->nullable();
             $table->text('choices')->nullable();
             $table->text('variations')->nullable();
-            $table->decimal('price', 24, 2)->default(0);
-            $table->decimal('tax', 24, 2)->default(0);
-            $table->decimal('discount', 24, 2)->default(0);
+            $table->decimal('price', 40, 20)->default(0);
+            $table->decimal('tax', 40, 20)->default(0);
+            $table->decimal('discount', 40, 20)->default(0);
             $table->string('tax_model')->nullable();
             $table->string('variant')->nullable();
             $table->integer('quantity')->default(1);
@@ -431,7 +431,7 @@ trait BuildsProductCatalog
             $table->unsignedBigInteger('seller_id')->nullable();
             $table->string('seller_is')->nullable();
             $table->text('shop_info')->nullable();
-            $table->decimal('shipping_cost', 24, 2)->default(0);
+            $table->decimal('shipping_cost', 40, 20)->default(0);
             $table->string('shipping_type')->nullable();
             $table->boolean('is_guest')->default(false);
             $table->boolean('is_checked')->default(true);

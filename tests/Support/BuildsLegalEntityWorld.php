@@ -32,7 +32,7 @@ trait BuildsLegalEntityWorld
         Schema::create('products', function (Blueprint $table) {
             $table->id();
             $table->string('name')->nullable();
-            $table->decimal('unit_price', 16, 3)->default(0);
+            $table->decimal('unit_price', 40, 20)->default(0);
         });
         $this->runStorefrontCountryMigration();
         Schema::create('orders', function (Blueprint $table) {

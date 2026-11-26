@@ -161,9 +161,9 @@ trait BuildsMarketingConsentSchema
             $table->string('name')->nullable();
             $table->string('thumbnail')->nullable();
             $table->integer('quantity')->default(1);
-            $table->decimal('price', 24, 3)->default(0);
-            $table->decimal('discount', 24, 3)->default(0);
-            $table->decimal('tax', 24, 3)->default(0);
+            $table->decimal('price', 40, 20)->default(0);
+            $table->decimal('discount', 40, 20)->default(0);
+            $table->decimal('tax', 40, 20)->default(0);
             $table->boolean('is_checked')->default(true);
             $table->timestamps();
         });

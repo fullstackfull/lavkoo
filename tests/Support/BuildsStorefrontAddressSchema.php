@@ -80,7 +80,7 @@ trait BuildsStorefrontAddressSchema
             $table->string('product_type')->default('physical');
             $table->integer('status')->default(1);
             $table->integer('request_status')->default(1);
-            $table->decimal('unit_price', 16, 2)->default(10);
+            $table->decimal('unit_price', 40, 20)->default(10);
             $table->integer('current_stock')->default(10);
             $table->longText('variation')->nullable();
             $table->timestamps();
@@ -103,10 +103,10 @@ trait BuildsStorefrontAddressSchema
             $table->string('product_type')->default('physical');
             $table->string('variant')->nullable();
             $table->integer('quantity')->default(1);
-            $table->decimal('price', 16, 2)->default(10);
-            $table->decimal('tax', 16, 2)->default(0);
-            $table->decimal('discount', 16, 2)->default(0);
-            $table->decimal('shipping_cost', 16, 2)->default(0);
+            $table->decimal('price', 40, 20)->default(10);
+            $table->decimal('tax', 40, 20)->default(0);
+            $table->decimal('discount', 40, 20)->default(0);
+            $table->decimal('shipping_cost', 40, 20)->default(0);
             $table->string('shipping_type')->nullable();
             $table->unsignedBigInteger('seller_id')->nullable();
             $table->string('seller_is')->default('admin');

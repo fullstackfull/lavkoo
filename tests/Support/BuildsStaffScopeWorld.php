@@ -117,12 +117,12 @@ trait BuildsStaffScopeWorld
             $table->boolean('featured_status')->default(false);
             $table->integer('current_stock')->default(5);
             $table->integer('minimum_order_qty')->default(1);
-            $table->decimal('unit_price', 24, 2)->default(10);
-            $table->decimal('purchase_price', 24, 2)->default(4);
+            $table->decimal('unit_price', 40, 20)->default(10);
+            $table->decimal('purchase_price', 40, 20)->default(4);
             $table->decimal('discount', 24, 2)->default(0);
             $table->string('discount_type')->default('flat');
-            $table->decimal('shipping_cost', 24, 2)->default(0);
-            $table->decimal('temp_shipping_cost', 24, 2)->nullable();
+            $table->decimal('shipping_cost', 40, 20)->default(0);
+            $table->decimal('temp_shipping_cost', 40, 20)->nullable();
             $table->boolean('is_shipping_cost_updated')->default(false);
             $table->boolean('multiply_qty')->default(false);
             $table->text('colors')->nullable();

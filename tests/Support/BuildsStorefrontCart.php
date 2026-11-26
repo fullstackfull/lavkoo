@@ -49,7 +49,7 @@ trait BuildsStorefrontCart
                 $table->string('thumbnail')->nullable();
                 $table->string('shop_info')->nullable();
                 $table->string('digital_product_type')->nullable();
-                $table->decimal('tax', 16, 2)->default(0);
+                $table->decimal('tax', 40, 20)->default(0);
             });
         }
 

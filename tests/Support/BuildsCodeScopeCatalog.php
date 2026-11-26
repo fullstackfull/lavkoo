@@ -30,7 +30,7 @@ trait BuildsCodeScopeCatalog
             $table->string('product_type')->default('physical');
             $table->boolean('status')->default(true);
             $table->boolean('request_status')->default(true);
-            $table->decimal('unit_price', 24, 2)->default(10);
+            $table->decimal('unit_price', 40, 20)->default(10);
             $table->text('variation')->nullable();
             $table->string('fulfillment_provider')->nullable();
             $table->text('bought_together_ids')->nullable();
@@ -43,10 +43,10 @@ trait BuildsCodeScopeCatalog
             $table->string('unit')->nullable();
             $table->integer('minimum_order_qty')->default(1);
             $table->boolean('refundable')->default(false);
-            $table->decimal('purchase_price', 24, 2)->default(0);
+            $table->decimal('purchase_price', 40, 20)->default(0);
             $table->decimal('discount', 24, 2)->default(0);
             $table->string('discount_type')->nullable();
-            $table->decimal('shipping_cost', 24, 2)->default(0);
+            $table->decimal('shipping_cost', 40, 20)->default(0);
             $table->integer('current_stock')->default(0);
             $table->text('details')->nullable();
             $table->string('video_provider')->nullable();
