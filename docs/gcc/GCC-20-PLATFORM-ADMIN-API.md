@@ -143,11 +143,16 @@ leaves them fewer markets than the grant gives (section 12).
 
 ### Capabilities and expiry
 
-* **Capabilities** are the parts of the API a grant includes: `overview`, `markets`, `alerts`, `audit`, `sessions`. A grant with none named has all five (and so does every grant that was made before capabilities existed). They are enforced by the
-  route, before the controller: `GET /overview` needs `overview`, `GET /markets` needs `markets`, `GET /alerts` needs `alerts`, `GET /audit-logs` needs `audit`, and `GET /sessions`, `DELETE /sessions` and `DELETE /sessions/{id}` need `sessions`.
-  Nothing else is gated: **`GET /me` and `POST /auth/logout` are always allowed**, so the app can always read what the admin may do and sign out. A request for a part the grant does not include is `403 capability_not_allowed` (section 4), is audited like
-  any other request, and reads nothing. What `GET /me` says is what the server enforces, in the order of the list above; a value in the grant that is not one of the five is ignored, and a value that cannot be read as a list means no capability at all
-  rather than every one.
+* **Capabilities** are the parts of the API a grant includes: `overview`, `markets`, `alerts`, `audit`, `sessions`, `health`, `reports`, `export`, `orders`, `returns`, `products`, `inventory`.
+  **A grant with none named has the first five and NOT the other seven.** That rule is the one thing to read twice: naming none meant "all" when the list was fixed, and a growing list would hand an operator trusted with yesterday's API
+  tomorrow's the moment a release shipped, so every capability added after the first grant was made is in `PlatformAdminGrant::NOT_GIVEN_BY_DEFAULT` and has to be named. Health reads payment and integration failures; reports and exports reach
+  money and take rows off the platform; the four lists name rows an operator may then go looking for. Each of those is a decision rather than an inheritance.
+  They are enforced by the route, before the controller: `GET /overview` needs `overview`, `GET /markets` needs `markets`, `GET /alerts` needs `alerts` (and so do the three `devices` routes, since a phone that receives the alerts is part of them),
+  `GET /audit-logs` needs `audit`, `GET /sessions`, `DELETE /sessions` and `DELETE /sessions/{id}` need `sessions`, `GET /health` needs `health`, `GET /reports` needs `reports`, `GET /exports/orders` needs `export`, and the four drill-down lists
+  need `orders`, `returns`, `products` and `inventory`.
+  Nothing else is gated: **`GET /me`, `POST /auth/logout` and `POST /auth/step-up` are always allowed**, so the app can always read what the admin may do, prove the second factor again and sign out. A request for a part the grant does not include is
+  `403 capability_not_allowed` (section 4), is audited like any other request, and reads nothing. What `GET /me` says is what the server enforces, in the order of the list above; a value in the grant that is not one of them is ignored, and a value
+  that cannot be read as a list means no capability at all rather than every one.
 * **Expiry.** A grant may end on a day. Once it has, it is no grant: a sign-in with it is the uniform 401 (`expired_grant` in the log and the trail), and the first request of a session of that admin after that moment is the uniform 401 **and ends every open
   session of the admin** (`session.grant_expired`). The next day's `grant` command with a new `--expires` gives it back; nothing about it needs a revoke. The platform owner is just as subject to it as anybody.
 * Each run of `grant` sets the whole grant: what it leaves out is the default (every market, which needs `--confirm-owner`; every capability; no end). It says what the grant now is, and the audit line says what it was.
@@ -374,7 +379,7 @@ Ends the session of the token used: `{"data": {"revoked": true}}`. The admin's o
 ### `GET /me`
 
 `{"data": {"admin_id", "name", "level", "scope", "markets", "token_expires_at", "capabilities", "grant_expires_at", "mfa": {"enrolled", "verified", "method"}, "contract": {"version", "min_supported"}}}`. `scope` is `all` (the platform owner) or `restricted` (the grant names markets, or the staff country scope restricts the admin: section 12); `markets` is what the server allows (the grant, narrowed by the staff scope while it is on), in
-configuration order; **`capabilities` is the list of the parts of the API the grant includes** (`overview`, `markets`, `alerts`, `audit`, `sessions`, `health`, `reports`, `export`, `orders`, in that order: what the server enforces, so the app offers only those; the last four are `NOT_GIVEN_BY_DEFAULT`, so a grant that names none does NOT hold them -- see section 3); `grant_expires_at` is when the grant ends (UTC, with a `Z`) or `null` for no end. **The app must never decide for itself what an admin may see; it reads this on every start, and right after a sign-in.** No e-mail is returned.
+configuration order; **`capabilities` is the list of the parts of the API the grant includes** (`overview`, `markets`, `alerts`, `audit`, `sessions`, `health`, `reports`, `export`, `orders`, `returns`, `products`, `inventory`, in that order: what the server enforces, so the app offers only those; the last seven are `NOT_GIVEN_BY_DEFAULT`, so a grant that names none does NOT hold them -- see section 3); `grant_expires_at` is when the grant ends (UTC, with a `Z`) or `null` for no end. **The app must never decide for itself what an admin may see; it reads this on every start, and right after a sign-in.** No e-mail is returned.
 
 `mfa.enrolled` is whether the admin has a confirmed factor made for their own admin row (whether or not it is required just now); `mfa.verified` is whether **this session** passed the second factor, and `mfa.method`
 is how: `"totp"`, `"recovery_code"`, or `null` (`verified` is then `false`: a session opened while the second factor was not required, which can only be seen while it is still not required). With the second factor
@@ -516,6 +521,80 @@ One market's orders as a LIST rather than as a count: the first drill-down under
 which is what this section lacked while `GET /health`, `GET /reports`, `GET /exports/orders`, the three `devices` routes and `POST /auth/step-up` were built, tested and left
 undescribed for want of anything that would notice.
 
+### `GET /returns?market=SA&from=YYYY-MM-DD&to=YYYY-MM-DD&page=&per_page=`
+
+ONE market's refund requests as a LIST rather than as a count: the returns drill-down under a market card (L-13). Capability `returns`, which **a grant has
+only when it names it**.
+
+```json
+{"data": {
+  "market": "SA", "generated_at": "2026-11-17T09:00:00Z",
+  "window": {"from": "2026-10-19", "to": "2026-11-17", "days": 30, "clamped": false, "timezone": "Asia/Riyadh"},
+  "returns": [{"id": 3, "status": "pending", "requested_at": "2026-11-16T07:00:00Z", "order_id": 12, "product_id": 1}],
+  "attribution": {"rule": "product_market", "via": "refund_requests.product_id > products.storefront_country"}
+}, "meta": {"page": 1, "per_page": 25, "has_more": false}}
+```
+
+* **No customer, and nothing the customer wrote.** Not `customer_id`, not the reason they gave, not the images they attached, not the payment details, not
+  either side's notes -- and no such column is read. `order_id` and `product_id` are what an operator follows a return back through.
+* **No amount.** The money of a return is in `GET /reports` and in the export, each behind a capability of its own. This list answers "which returns are
+  waiting", and putting money into a read an operator not trusted with money may hold would be a decision rather than a drill-down.
+* **It is the counts' own list.** A return is in the market of the product it was made for, which is what the report's `returns` figures group by, so a
+  market's list is as long as its count for the same window. A return for a deleted product, or for one of a country nobody configured, is in no market's
+  list and is never shown as Saudi.
+* Newest first (`created_at` then id, both descending), at most 50 to a page, default 25. `market` is required and `all` is `422 one_market_only`.
+
+### `GET /products?market=SA&page=&per_page=`
+
+ONE market's live products and their stock: the stock drill-down under a market card (L-13). Capability `products`, which **a grant has only when it names
+it**.
+
+```json
+{"data": {
+  "market": "SA", "generated_at": "2026-11-17T09:00:00Z",
+  "products": [{"id": 1, "name": "Product 1", "stock": 0, "stock_limit": 5, "low": false, "oversold": false}],
+  "attribution": {"rule": "product_market", "via": "products.storefront_country"}
+}, "meta": {"page": 1, "per_page": 25, "has_more": false}}
+```
+
+* **No window, and that is the one way it differs from the two lists above.** Stock is the state of the shelf now, not something that happened between two
+  dates. The orders and the returns are events and carry one.
+* **It is the counts' own list.** The population is the one the stock figures and the stock alerts are counted over -- physical, published, approved, and
+  either the platform's own or an approved shop's -- read from the same query, so a market's list and its `stock_zero` and `stock_oversold` counts cannot
+  disagree. A product that is not live is in neither, however far below zero its stock stands.
+* **The product is named, and nothing else about it is.** A product name is published to every shopper on the storefront, so it is not confidential, and a
+  shortage list without it sends an operator to the desktop panel for every row. No shop is named and **no price is given**: who sells a product and what it
+  costs are a different question from whether the market has run out of it.
+* `stock_limit` is the limit that applies to THIS product -- the shop's own when it has set one, the platform's setting otherwise -- so `low` can be read
+  instead of recomputed by the app against a limit it would have to guess.
+* **Shortest stock first**, then by id, so the market's worst row is the first one and a page cannot drop or repeat a row.
+
+### `GET /inventory?market=SA&page=&per_page=`
+
+ONE market's stock that is promised to orders or divided between channels, product by product (L-13). Capability `inventory`, which **a grant has only when
+it names it**.
+
+```json
+{"data": {
+  "market": "SA", "generated_at": "2026-11-17T09:00:00Z",
+  "recorded": {"holds": true, "pools": false}, "reason": null,
+  "products": [{"product_id": 3, "stock": 5, "holds": 2, "reserved_units": 4, "pools": null, "short_units": null}],
+  "attribution": {"rule": "product_market", "via": "products.storefront_country"}
+}, "meta": {"page": 1, "per_page": 25, "has_more": false}}
+```
+
+* **It is the counts' own list, on both halves.** Only `reserved` holds count -- `committed` and `released` are the two correct ends of a hold's life -- which
+  is what the overview's reservation figures count; and the shortfall is `inventory_pools.deficit`, the allocator's own record rather than a second opinion
+  about it, which is what the allocation figures count.
+* **A row is here only because it holds or divides something.** A product with no reserved hold and no pool is not in the list: this answers "what is
+  promised", and the shortage list is `GET /products`.
+* **An absent table is SAID, never shown as a zero.** The two inventory tables are the dormant half of the inventory stack. `recorded` says which halves this
+  installation keeps, the members of an unrecorded half are `null` rather than `0`, and when NEITHER is kept the list is empty and `reason` is
+  `inventory_not_recorded` -- because "no pool is short" and "nothing divides a stock here" are different facts about a market, and a zero would read as the
+  first while meaning the second.
+* **No window**, for the reason the products list has none. Ordered by product id: which figure is worth sorting by differs by which half is recorded, and a
+  list an operator pages through has to be stable before it is clever -- every row carries its own figures, so a page can be arranged by the app.
+
 ### `GET /health?market=all|SA|...&from=YYYY-MM-DD&to=YYYY-MM-DD`
 
 Whether the MACHINERY of a market is working, where the overview says what it sold (L-09). Capability `health`, which **a grant has only when it names it**: these are payment and
@@ -641,7 +720,7 @@ order_id,placed_on,status,market,legal_entity_id,currency,amount
 `{"data": [{"id", "admin_id", "action", "market", "token_id", "ip", "user_agent", "context", "created_at"}], "meta": {"scope", "page", "per_page", "has_more"}}`. Newest first, 25 to a
 page, at most 100, and the page number is at most 1000. The **platform owner reads every line; a restricted admin reads only their own.** It never counts the table. `action` is one
 of `auth.login` (a session was opened; its context says how: `mfa` is `totp` or `recovery_code` when the second factor was passed), `auth.login_failed`, `auth.logout`, `auth.mfa_challenge` (a good password, a challenge given),
-`auth.mfa_failed`, `auth.mfa_locked`, `mfa.recovery_code_used` (its context holds `recovery_codes_left`), `me.view`, `sessions.list`, `session.revoke`, `sessions.end_others`, `session.evicted`, `session.idle_ended`, `session.grant_expired`, `markets.view`, `overview.view`, `orders.view`, `alerts.view`,
+`auth.mfa_failed`, `auth.mfa_locked`, `mfa.recovery_code_used` (its context holds `recovery_codes_left`), `me.view`, `sessions.list`, `session.revoke`, `sessions.end_others`, `session.evicted`, `session.idle_ended`, `session.grant_expired`, `markets.view`, `overview.view`, `orders.view`, `returns.view`, `products.view`, `inventory.view`, `alerts.view`,
 `audit_logs.view`, `health.view`, `reports.view`, `exports.orders` (its context holds `rows`, `file`, `from`, `to`), `devices.list`, `devices.register` (context: `device_id`, `platform`, `topics`),
 `device.forget` (context: `device_id`, `removed`), `auth.step_up` (context: `method`, `fresh_minutes`), `grant.created`, `grant.updated`, `grant.reactivated`, `grant.revoked`, `tokens.revoked`, and the console's `mfa.enrolled`, `mfa.confirmed`, `mfa.confirm_failed`, `mfa.reset`, `mfa.status`, `audit.pruned`. The hashes of the chain are not part of a line as the API shows it.
 `context` of a request holds the status and the few parameters the API takes (`id`, `market`, `from`, `to`, `severity`, `page`, `per_page`; `ended` for `sessions.end_others`); never a password, a token, a challenge, a code, an e-mail or
@@ -762,7 +841,7 @@ one country, `products.storefront_country` (default `SA`), and never changes it.
 20. **Sessions without the second factor** are refused while it is required, however they were opened: turning the switch from false to true ends the staging sessions on their next request rather than letting them live out their eight hours.
 21. **The operator identity** in the console's audit lines (user and host) is what the process says about itself, not an authenticated identity: it tells a reader which machine and account ran the command, which is what the server's own login and
     audit trail can then be asked about.
-22. **Capabilities are named in the grant, and absent means all five.** A column that is SQL NULL is the five parts this revision knows (so a grant made before it exists keeps working); a value that cannot be read grants none. NULL is every capability that exists, today those five: a capability added later to `PlatformAdminGrant::CAPABILITIES` is thereby given to every grant that names no list, which is a decision to make deliberately at that time. `GET /me` and `POST /auth/logout` need none.
+22. **Capabilities are named in the grant, and absent means the five that existed when capabilities did -- not every one.** A column that is SQL NULL is `overview`, `markets`, `alerts`, `audit` and `sessions` (so a grant made before capabilities existed keeps working); a value that cannot be read grants none. **This was once "NULL is every capability that exists", and that was changed on purpose**, because it meant a capability added later was given retroactively to every such grant the moment the code shipped -- an operator trusted with yesterday's API acquiring tomorrow's without anybody deciding. A new capability therefore goes in `PlatformAdminGrant::NOT_GIVEN_BY_DEFAULT` and is given on purpose; seven are there today. `GET /me`, `POST /auth/logout` and `POST /auth/step-up` need none.
 23. **A grant ends at the end of a calendar day** of the platform's time zone, because that is how an operator names it; there is no time of day to get wrong. The check is made at sign-in and on every request, so there is nothing to sweep, and the sessions of an expired grant are ended by
     the first request that meets it.
 24. **The chain is serialised by one row, not by the table.** Locking "the last line" does not work on an InnoDB table (a second writer that waited for it still sees the line it waited on as the last); the writer takes the row of the tail, which always exists, reads the hash of the last line

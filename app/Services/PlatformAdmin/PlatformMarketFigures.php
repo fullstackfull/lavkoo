@@ -40,6 +40,12 @@ final class PlatformMarketFigures
      */
     public const ORDER_ATTRIBUTION = ['rule' => 'all_lines_one_market', 'via' => 'order_details.product_id > products.storefront_country'];
 
+    /** How a RETURN is put in a market: the market of the product it was made for, which is what the counted refund figures group by. */
+    public const RETURN_ATTRIBUTION = ['rule' => 'product_market', 'via' => 'refund_requests.product_id > products.storefront_country'];
+
+    /** How a PRODUCT, and so the stock it holds, is put in a market: its own recorded market. */
+    public const PRODUCT_ATTRIBUTION = ['rule' => 'product_market', 'via' => 'products.storefront_country'];
+
     private const COUNTRY_COLUMN = 'storefront_country';
 
     private const ENTITY_COLUMN = 'legal_entity_id';
@@ -245,17 +251,9 @@ final class PlatformMarketFigures
     public function stock(): array
     {
         $country = $this->productCountry();
-        $platformLimit = max(1, (int) getWebConfig(name: 'stock_limit'));
-        $limit = "CASE WHEN sellers.stock_limit >= 1 THEN sellers.stock_limit ELSE {$platformLimit} END";
+        $limit = $this->stockLimitSql();
 
-        $rows = DB::table('products')
-            ->leftJoin('sellers', static function (JoinClause $join): void {
-                $join->on('sellers.id', '=', 'products.user_id')->where('products.added_by', '=', 'seller')->whereNull('sellers.deleted_at');
-            })
-            ->where('products.product_type', 'physical')
-            ->where('products.status', 1)
-            ->where('products.request_status', 1)
-            ->where(static fn (Builder $query) => $query->where('products.added_by', 'admin')->orWhere('sellers.status', 'approved'))
+        $rows = $this->liveProducts()
             ->selectRaw(
                 "{$country} AS country,
                 SUM(CASE WHEN products.current_stock <= 0 THEN 1 ELSE 0 END) AS zero,
@@ -338,6 +336,222 @@ final class PlatformMarketFigures
     public function allocationsRecorded(): bool
     {
         return $this->inventoryTable(table: 'inventory_pools');
+    }
+
+    /**
+     * ONE market's live products, newest shortage first, one page at a time (L-13): the drill-down under the stock figures and the stock alerts.
+     *
+     * **It is the counts' own list.** The population is `liveProducts()`, which is the very query `stock()` groups its zero, low, oversold and
+     * oversold-units figures from, so a market's list and its counts can never disagree about which products are in it. A product that is not live --
+     * unpublished, not approved, digital, or of a shop that is pending or deleted -- is in neither, however far below zero its stock stands.
+     *
+     * **The product is named.** Unlike the orders list, which gives no name at all, a row carries `products.name`: a product name is published to every
+     * shopper on the storefront, so it is not confidential, and a shortage list without it forces an operator to the desktop panel for every row, which is
+     * the whole thing the drill-down exists to save. It is the product's own recorded name and not a translation, because this API localises nothing.
+     *
+     * **No shop, and no money.** Not the shop's name or id, and not a price: who sells a product and what it costs are a different question from whether
+     * the market has run out of it, and the capability that opens this is meant to be safe to give an operator trusted with neither.
+     *
+     * `stock_limit` is the limit that applies to THIS product -- the shop's own when it has set one, the platform's otherwise -- so `low` can be read
+     * rather than recomputed by the app against a limit it would have to guess.
+     *
+     * Ordered by stock ascending then by id, so the market's worst row is first and a page cannot drop or repeat one. The page is read one row longer
+     * than it is answered, so `has_more` costs no count of the table.
+     *
+     * @return array{products: list<array{id: int, name: string, stock: int, stock_limit: int, low: bool, oversold: bool}>, has_more: bool}
+     */
+    public function productsOfMarket(string $market, int $offset, int $limit): array
+    {
+        $rows = $this->liveProducts()
+            ->whereRaw($this->productCountry() . ' = ?', [$market])
+            ->selectRaw("products.id AS id, products.name AS name, products.current_stock AS stock, {$this->stockLimitSql()} AS stock_limit")
+            ->orderBy('products.current_stock')
+            ->orderBy('products.id')
+            ->offset($offset)
+            ->limit($limit + 1)
+            ->get();
+
+        return [
+            'products' => $rows->take($limit)->map(static fn (object $row): array => [
+                'id' => (int) $row->id,
+                'name' => (string) $row->name,
+                'stock' => (int) $row->stock,
+                'stock_limit' => (int) $row->stock_limit,
+                'low' => (int) $row->stock > 0 && (int) $row->stock <= (int) $row->stock_limit,
+                'oversold' => (int) $row->stock < 0,
+            ])->values()->all(),
+            'has_more' => $rows->count() > $limit,
+        ];
+    }
+
+    /**
+     * ONE market's refund requests of the window as a LIST, newest first, one page at a time (L-13): the drill-down under the returns figures.
+     *
+     * **It is the counts' own list.** The market is the market of the product the request was made for, which is exactly what `refundRequests()` groups
+     * its totals by, so a market's list is as long as its count for the same window. A request for a product that has been deleted, or for one of a
+     * country nobody configured, is in no market's list and is never shown as Saudi.
+     *
+     * **No customer, and nothing the customer wrote.** Not `customer_id`, not the reason they gave, not the images they attached, not the payment
+     * details, not the notes either side added -- and no such column is read. What personal data a list of this API may show is an open owner decision
+     * (L-13), so until it is answered none is shown. `order_id` and `product_id` are what an operator follows a return back through.
+     *
+     * **No amount.** The money of a return is in the report's settlement figures and in the export, each behind a capability of its own. A returns
+     * list answers "which returns are waiting", and putting money into a read that an operator not trusted with money may hold would be a decision
+     * rather than a drill-down.
+     *
+     * **An id of nothing is answered as nothing.** `refund_requests.order_id` and `product_id` are `unsignedBigInteger` columns that DEFAULT to zero, so a
+     * request that names no order carries 0 and not NULL -- and 0 points at no order. Answering it would send an app looking for order zero, which is the
+     * same class of mistake as reporting a market nobody recorded as the default one. Both are reported as null, which is what they mean.
+     *
+     * @return array{returns: list<array{id: int, status: string, requested_at: ?string, order_id: ?int, product_id: ?int}>, has_more: bool}
+     */
+    public function returnsOfMarket(string $market, CarbonInterface $from, CarbonInterface $before, int $offset, int $limit): array
+    {
+        $rows = DB::table('refund_requests')
+            ->leftJoin('products', 'products.id', '=', 'refund_requests.product_id')
+            ->where('refund_requests.created_at', '>=', $from->format(self::DATE_FORMAT))
+            ->where('refund_requests.created_at', '<', $before->format(self::DATE_FORMAT))
+            ->whereRaw($this->productCountry() . ' = ?', [$market])
+            ->select(['refund_requests.id', 'refund_requests.status', 'refund_requests.created_at', 'refund_requests.order_id', 'refund_requests.product_id'])
+            ->orderByDesc('refund_requests.created_at')
+            ->orderByDesc('refund_requests.id')
+            ->offset($offset)
+            ->limit($limit + 1)
+            ->get();
+
+        return [
+            'returns' => $rows->take($limit)->map(static fn (object $row): array => [
+                'id' => (int) $row->id,
+                'status' => (string) $row->status,
+                'requested_at' => $row->created_at === null ? null : PlatformAdminPresenter::timestamp(moment: Carbon::parse(time: $row->created_at)),
+                'order_id' => self::anIdOrNone(given: $row->order_id),
+                'product_id' => self::anIdOrNone(given: $row->product_id),
+            ])->values()->all(),
+            'has_more' => $rows->count() > $limit,
+        ];
+    }
+
+    /**
+     * ONE market's stock that is promised or divided, product by product (L-13): the drill-down under the reservation and allocation figures.
+     *
+     * **It is the counts' own list, on both halves.** The holds counted are the `reserved` ones only -- `committed` and `released` are the two correct
+     * ends of a hold's life -- which is what `reservations()` counts, and the shortfall is `inventory_pools.deficit`, the allocator's own record, which
+     * is what `allocations()` counts. One row per product, because that is the key both figures are already per.
+     *
+     * **A row is here only because it holds or divides something.** A product with no reserved hold and no pool is not in the list: an operator reading
+     * "what is promised in Kuwait" wants the promises, not the catalogue, and the shortage list is `productsOfMarket()`.
+     *
+     * **An absent table is said, never shown as a zero.** The two inventory tables are the dormant half of the inventory stack, and "no pool is short"
+     * and "nothing divides a stock here" are different facts about a market. Each half is reported as recorded or not, and when NEITHER is recorded the
+     * list is empty with both said so -- so a Saudi installation whose migrations have not run cannot read as a market that promises nothing.
+     *
+     * One page is one statement whichever halves exist. Ordered by product id: the figure worth sorting by differs by which half is recorded, and a list
+     * an operator pages through has to be stable before it is clever -- every row carries its own figures, so a page can be arranged by the app.
+     *
+     * @return array{products: list<array{product_id: int, stock: int, holds: ?int, reserved_units: ?int, pools: ?int, short_units: ?int}>, has_more: bool, recorded: array{holds: bool, pools: bool}}
+     */
+    public function stockHoldsOfMarket(string $market, int $offset, int $limit): array
+    {
+        $holdsRecorded = $this->inventoryTable(table: 'inventory_reservations');
+        $poolsRecorded = $this->inventoryTable(table: 'inventory_pools');
+        $recorded = ['holds' => $holdsRecorded, 'pools' => $poolsRecorded];
+
+        if (!$holdsRecorded && !$poolsRecorded) {
+            return ['products' => [], 'has_more' => false, 'recorded' => $recorded];
+        }
+
+        $query = DB::table('products')
+            ->whereRaw($this->productCountry() . ' = ?', [$market])
+            ->select(['products.id', 'products.current_stock']);
+
+        if ($holdsRecorded) {
+            $query->leftJoinSub(
+                DB::table('inventory_reservations')
+                    ->where('state', InventoryReservation::RESERVED)
+                    ->groupBy('product_id')
+                    ->selectRaw('product_id, COUNT(*) AS holds, COALESCE(SUM(quantity), 0) AS units'),
+                'held',
+                'held.product_id',
+                '=',
+                'products.id',
+            )->addSelect(['held.holds', 'held.units']);
+        }
+
+        if ($poolsRecorded) {
+            $query->leftJoinSub(
+                DB::table('inventory_pools')
+                    ->groupBy('product_id')
+                    ->selectRaw('product_id, COUNT(*) AS pools, COALESCE(SUM(deficit), 0) AS short_units'),
+                'pooled',
+                'pooled.product_id',
+                '=',
+                'products.id',
+            )->addSelect(['pooled.pools', 'pooled.short_units']);
+        }
+
+        $rows = $query
+            ->where(static function (Builder $any) use ($holdsRecorded, $poolsRecorded): void {
+                if ($holdsRecorded) {
+                    $any->orWhereNotNull('held.product_id');
+                }
+                if ($poolsRecorded) {
+                    $any->orWhereNotNull('pooled.product_id');
+                }
+            })
+            ->orderBy('products.id')
+            ->offset($offset)
+            ->limit($limit + 1)
+            ->get();
+
+        return [
+            'products' => $rows->take($limit)->map(static fn (object $row): array => [
+                'product_id' => (int) $row->id,
+                'stock' => (int) $row->current_stock,
+                'holds' => $holdsRecorded ? (int) ($row->holds ?? 0) : null,
+                'reserved_units' => $holdsRecorded ? (int) ($row->units ?? 0) : null,
+                'pools' => $poolsRecorded ? (int) ($row->pools ?? 0) : null,
+                'short_units' => $poolsRecorded ? (int) ($row->short_units ?? 0) : null,
+            ])->values()->all(),
+            'has_more' => $rows->count() > $limit,
+            'recorded' => $recorded,
+        ];
+    }
+
+    /**
+     * The population every stock figure of this API reads, as a query: a physical product that is published and approved, and either the platform's own
+     * or one of an approved shop that has not been deleted.
+     *
+     * It is a method rather than two copies because the counts and the LIST must read the same rows. That is the discipline the orders list established
+     * (`ordersWithTheirMarket()` serves the count and the list alike): if the two ever diverge, a market's list and its own figures disagree about which
+     * products are in it and nothing says which is right.
+     */
+    private function liveProducts(): Builder
+    {
+        return DB::table('products')
+            ->leftJoin('sellers', static function (JoinClause $join): void {
+                $join->on('sellers.id', '=', 'products.user_id')->where('products.added_by', '=', 'seller')->whereNull('sellers.deleted_at');
+            })
+            ->where('products.product_type', 'physical')
+            ->where('products.status', 1)
+            ->where('products.request_status', 1)
+            ->where(static fn (Builder $query) => $query->where('products.added_by', 'admin')->orWhere('sellers.status', 'approved'));
+    }
+
+    /**
+     * An id as the API reports it: null when the column holds nothing, which on these tables includes the ZERO that an `unsignedBigInteger` column with a
+     * default puts there when nothing was written. There is no row with id 0, so 0 is "none" written in a column that cannot say so.
+     */
+    private static function anIdOrNone(mixed $given): ?int
+    {
+        return $given === null || (int) $given === 0 ? null : (int) $given;
+    }
+
+    /** The stock limit that applies to a product, as SQL: the shop's own when it has set one, the platform's setting otherwise. */
+    private function stockLimitSql(): string
+    {
+        $platformLimit = max(1, (int) getWebConfig(name: 'stock_limit'));
+
+        return "CASE WHEN sellers.stock_limit >= 1 THEN sellers.stock_limit ELSE {$platformLimit} END";
     }
 
     /**

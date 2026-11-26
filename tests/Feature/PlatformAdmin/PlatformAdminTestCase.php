@@ -28,6 +28,21 @@ abstract class PlatformAdminTestCase extends TestCase
 
     protected const PREFIX = '/api/platform-admin/v1';
 
+    /**
+     * The routes whose answer is of ONE market, so that a walk of the route table has to name a market to reach them at all: `all` is `422 one_market_only`.
+     *
+     * Declared here and not once per test file. Two files kept their own copy, and adding the three drill-downs of L-13 made one of them fail with a 422
+     * where its subject was what a read WRITES -- a failure that says nothing about the thing the test is for. The next one-market route is declared once.
+     */
+    protected const ONE_MARKET_ROUTES = [
+        'platform_admin.reports.view',
+        'platform_admin.exports.orders',
+        'platform_admin.orders.view',
+        'platform_admin.returns.view',
+        'platform_admin.products.view',
+        'platform_admin.inventory.view',
+    ];
+
     protected function setUp(): void
     {
         parent::setUp();

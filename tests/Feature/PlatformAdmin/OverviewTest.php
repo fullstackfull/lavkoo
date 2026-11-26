@@ -9,10 +9,12 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Support\BuildsInventoryHolds;
 use Tests\Support\SeedsPlatformMarketData;
 
 class OverviewTest extends PlatformAdminTestCase
 {
+    use BuildsInventoryHolds;
     use SeedsPlatformMarketData;
 
     private const URL = self::PREFIX . '/overview';
@@ -624,44 +626,6 @@ class OverviewTest extends PlatformAdminTestCase
             'stock' => $this->stockFigures(zero: $stock[0], low: $stock[1]),
             'alerts' => ['critical' => $alerts[0], 'warning' => $alerts[1], 'info' => $alerts[2]],
         ];
-    }
-
-    /**
-     * The two dormant inventory tables, built by their REAL migrations rather than by a shape inferred here, so that a column these figures read
-     * cannot drift away from the one the application creates. Both are additive and guarded by `hasTable`, so running them adds nothing else the
-     * world already has.
-     */
-    private function buildInventoryTables(): void
-    {
-        (require database_path('migrations/2026_11_07_100200_create_inventory_and_routing_tables.php'))->up();
-        (require database_path('migrations/2026_11_10_100000_add_stock_allocation.php'))->up();
-    }
-
-    private function hold(int $product, int $quantity, string $state = 'reserved'): void
-    {
-        DB::table('inventory_reservations')->insert([
-            'location_id' => 1,
-            'product_id' => $product,
-            'variant_key' => '',
-            'quantity' => $quantity,
-            'reservation_key' => 'hold-' . DB::table('inventory_reservations')->count() . '-' . $product . '-' . $state,
-            'state' => $state,
-            'reserved_at' => '2026-11-16 10:00:00',
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-    }
-
-    private function pool(int $product, int $deficit): void
-    {
-        DB::table('inventory_pools')->insert([
-            'location_id' => 1,
-            'product_id' => $product,
-            'variant_key' => 'v' . DB::table('inventory_pools')->count(),
-            'deficit' => $deficit,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
     }
 
     /**

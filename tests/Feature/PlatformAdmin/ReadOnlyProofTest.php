@@ -14,8 +14,6 @@ class ReadOnlyProofTest extends PlatformAdminTestCase
     private const OWN_WRITES = ['platform_admin_tokens', 'platform_admin_audit_logs', 'platform_admin_audit_tail'];
 
     /** The reads that are of ONE market and refuse "every market at once": a report, and an export (L-14). */
-    private const ONE_MARKET_ROUTES = ['platform_admin.reports.view', 'platform_admin.exports.orders', 'platform_admin.orders.view'];
-
     protected function setUp(): void
     {
         parent::setUp();

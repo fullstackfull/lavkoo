@@ -43,8 +43,6 @@ class LevelsTwoAndThreeAreNotBuiltTest extends PlatformAdminTestCase
     ];
 
     /** The reads that are of ONE market and refuse "every market at once", so the walk below asks each for a market it may see. */
-    private const ONE_MARKET_ROUTES = ['platform_admin.reports.view', 'platform_admin.exports.orders', 'platform_admin.orders.view'];
-
     /**
      * The reads whose answer is about the ACCOUNT that asked rather than about the platform: who they are, their open sessions, their own lines of the
      * trail, their own phones. Two different admins can never answer those byte for byte, so they are left out of the comparison and named here.
@@ -85,6 +83,11 @@ class LevelsTwoAndThreeAreNotBuiltTest extends PlatformAdminTestCase
     #[DataProvider('levelsNobodyImplemented')]
     public function test_a_grant_row_carrying_a_level_this_build_does_not_implement_answers_exactly_what_level_one_answers(int $level): void
     {
+        // The clock is held still for the whole walk, because the claim is that two sessions are answered BYTE FOR BYTE and every read of this API
+        // stamps its answer with `generated_at`. Without this the comparison fails whenever the loop crosses a second -- which it did, on `reports`,
+        // as soon as the walk grew by the three drill-down lists of L-13: 11:54:21 against 11:54:22, a failure that says nothing about the level.
+        $this->freezeTime();
+
         $atLevelOne = $this->mintToken($this->atLevel(level: PlatformAdminGrant::LEVEL_MONITOR));
         $outOfBand = $this->mintToken($this->atLevel(level: $level));
 
