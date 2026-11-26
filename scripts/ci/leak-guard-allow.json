@@ -149,6 +149,18 @@
             "path": "scripts/ci/leak-guard-allow.json",
             "line": 139,
             "reason": "This file's own line. The entry recorded above quoted the fixture number inside the sentence explaining it, so the guard -- which reads every line a commit adds, this file included -- reported the explanation as the thing it was explaining. The sentence no longer quotes it, but the commit that added it is in the history, so it is recorded here rather than rewritten. A fixture, not anyone's number, and nothing to rotate."
+        },
+        {
+            "rule": "private-key",
+            "path": "tests/Feature/SalesChannels/AdminNoonAccountTest.php",
+            "line": 41,
+            "reason": "The noon form fixture's private_key value is a PEM header and footer with nothing whatever between them: the rule matches the delimiter lines, which is what the form's validation needs to see, and there is no key material on the line to match. Allowed by the owner on 2026-11-26 after the finding was reproduced and read. Rewriting the line would not clear it, because the guard scans what the branch ADDS against origin/main, so a rewrite only turns a current-tree finding into a history one."
+        },
+        {
+            "rule": "api-token",
+            "path": "scripts/ci/leak-guard.php",
+            "line": 312,
+            "reason": "A comment of this guard's own source, in commit b7e5f1809f, which explained why interpolation is STRIPPED rather than excused by naming the shape it would otherwise excuse. The comment has since been reworded and the current tree is clean, so this entry covers the history alone. Allowed by the owner on 2026-11-26. It is the third time in this repository that explaining a rule tripped it -- the convention the guard's own test file states is that a secret used in these files is assembled at run time from pieces, and a comment should describe a shape rather than spell one."
         }
     ]
 }
