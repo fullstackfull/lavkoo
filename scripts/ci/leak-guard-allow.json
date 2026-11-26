@@ -153,8 +153,8 @@
         {
             "rule": "private-key",
             "path": "tests/Feature/SalesChannels/AdminNoonAccountTest.php",
-            "line": 41,
-            "reason": "The noon form fixture's private_key value is a PEM header and footer with nothing whatever between them: the rule matches the delimiter lines, which is what the form's validation needs to see, and there is no key material on the line to match. Allowed by the owner on 2026-11-26 after the finding was reproduced and read. Rewriting the line would not clear it, because the guard scans what the branch ADDS against origin/main, so a rewrite only turns a current-tree finding into a history one."
+            "line": 42,
+            "reason": "The noon form fixture's private_key value is a PEM header and footer with nothing whatever between them: the rule matches the delimiter lines, which is what the form's validation needs to see, and there is no key material on the line to match. Allowed by the owner on 2026-11-26 after the finding was reproduced and read. Rewriting the line would not clear it, because the guard scans what the branch ADDS against origin/main, so a rewrite only turns a current-tree finding into a history one. Re-addressed from line 41 to 42 when track H+A+C added seven lines above it in the same file (merge 1b23e084): an entry is matched on rule, path AND line, so the line is the address of the finding and not part of the decision. Line 41 is deliberately NOT left allowed as well -- it no longer holds a PEM literal, and a stale entry would allow a real secret that landed there later."
         },
         {
             "rule": "api-token",
