@@ -1,6 +1,39 @@
 # Open owner decisions by axis
 
-Taken from the "Open owner decisions" field of each requirement card, as of 2026-11-23. Nothing in this list is decided by the code; each is a choice, a review or a fact only the owner or an outside party can supply.
+Taken from the "Open owner decisions" field of each requirement card, as of 2026-11-23, with the 2026-11-26 decisions and the items raised since added above. Nothing in this list is decided by the code; each is a choice, a review or a fact only the owner or an outside party can supply.
+
+## Decisions the owner TOOK on 2026-11-26 — do not re-ask
+
+Recorded here as well as in `EXECUTION_STATE.md` so the by-axis list below is not read as still open.
+
+| id | decision |
+|---|---|
+| **M-656 / expand-only** | Option A: the stock-pool key replacement is recorded on the contract rather than split into a second migration. Applied; `NOT_EXPAND_ONLY` carries the reason and the measurement |
+| **leak-guard** | The two history findings are allowed by reasoned entry, both reproduced and read first. Applied |
+| **I1-14 concurrency** | Option A: the coupon's cap, budget and per-customer limit enforced ATOMICALLY inside the order transaction under a lock; two concurrent grants over the limit NOT accepted; the refusal reason threaded to the six callers; the race proved with two independent connections on a locking engine. Applied |
+| **per-cent vs money** | FIX IT: a percentage is a share of the eligible value, never compared with the cart amount; existing limits preserved; three-decimal currencies verified. Applied behind `gcc.coupons.percentage_of_the_eligible_total`, which **ships OFF because the owner approved the fix and not its release** |
+| **OrderStatusListener** | FIX IT after measuring; `ShouldQueue` alone explicitly not sufficient. Applied with `$afterCommit`, and after-commit / no-duplicate / no-loss each proved separately |
+| **ApplySeoRedirects** | INVESTIGATE AND FIX any PROVEN defect. The narrowing was proved inert on every page of the live shop, then fixed; per-market isolation and loop-freedom tested |
+| **stop mode "redirect" without a flag** | ACCEPTED as designed, conditional on proof. The five proofs are given; one caveat is carried into the open list below |
+| **the method** | Five git worktrees, re-cut on what actually remains; no heavy groups in parallel on the same resources; progress pushed per batch with `EXECUTION_STATE.md` updated |
+
+## Open items raised since 2026-11-23, with a recommendation each
+
+None of these blocks other work; each is isolated and the project continues around it.
+
+| # | question | options / recommendation |
+|---|---|---|
+| 1 | **The seller app's version on `main`.** `pubspec.yaml` has read `2.0.1+4` since `40178cb` of 2026-11-23, on `main` and `gcc/development`, and the commit asserts it meets the backend's published minimum. **No document in any of the three repositories records that value**, and the 2026-11-12 audit says explicitly "make no code or setting change until the owner provides the live value" and "the test constant is not evidence of it" | What is `seller_app_version_control` on production? Exactly 2.0.1 → the bump was right, record the evidence. Below → both constant and bump overshoot. Above → `2.0.1+4` still locks every seller out and the red was hidden, not fixed. Unset → the gate blocks nobody. **Not reverted, because reverting is itself a version change needing the same evidence** |
+| 2 | **Releasing the percentage-coupon fix.** The population is not a corner: the eligible total is in the stored unit, so on a riyal-based converting platform a 30% coupon refuses every cart under 112.50 today | The direction is that the shop pays a discount it currently refuses, on live traffic, from the moment the key is switched. Recommendation: switch it on in staging against the measured table first |
+| 3 | **33 `'%D'` report groupings** across the admin panel, the vendor panel and the seller API v2/v3, plus **two `Modules/TaxModule` controllers that run `SET sql_mode=...REPLACE(...ONLY_FULL_GROUP_BY...)` at request time** — so hardening `config/database.php` would not make those two correct. `'%D'` is the ordinal day of the month, proven on the engine: 1 Jan 2026, 1 Feb 2026 and 1 Mar 2025 are all `'1st'`, so those reports collapse the same day-number of every month of every year | Repair: group by the same expression the select lists, and delete the two `SET sql_mode` statements. **Not made: it changes figures an operator compares and needs a measured before-and-after per screen** |
+| 4 | **`SendEmailJob` is unreachable** — nothing dispatches it | Wiring it resolves subject, body, money and sending account in a SECOND worker that holds none of the other three bindings, losing the recipient's language (I1-03), the market's mail account (I1-01) and recording the attempt against the queueing rather than the send (I1-09). **Recommendation: leave it pinned unreachable.** Deleting is forbidden by the owner's own rule |
+| 5 | **`seller:run-stuck-bulk-jobs` loses the market** that `RunSellerBulkJob` carries. Both call one service; only the queued job carries `ServeInItsStorefront`. So a seller's bulk price change applies in their market when a worker exists and in NO market when the scheduler picks it up — precisely the state that sweep exists for | Closing it needs a market column on `seller_bulk_jobs`: a schema change on a money path. Pinned, nothing changed |
+| 6 | **Where `after_commit` belongs** for the other 27 queued classes. Measured as latent, not live: no fire site of `RefundEvent` or `OrderStatusEvent` is inside an open transaction | On `config/queue.php`'s connections (one change, affects everything) or per class (27 changes, explicit). Cross-cutting, so not taken |
+| 7 | **The coupon budget comparison is a `float` comparison** of amounts stored as `decimal(18,12)`, so a cart exactly at its budget is refused by a hair's breadth | Repair proposed: `bccomp` at scale 12. **Not applied: it is a financial control** |
+| 8 | **An SEO rule's `to_path` may be an absolute URL off the platform**, by existing design — `isSelfReferential()` returns false for any `https?://` target as "not comparable to a local path". Verified at the line. Admin-authored, not visitor-reachable, and outside the wording of the redirect decision | Close it or accept it. The stop redirect's own target is always a local path through `URL::to()`, which is proved |
+| 9 | **L-15, levels 2 and 3 of GCC-20** — all five criteria wait on whether the acting half is wanted at all, and in which order of action classes. No write endpoint was built and nothing was relaxed | The owner's |
+| 10 | **G-12's entity dimension.** `legal_entities.country` is UNIQUE, so an entity scope selects exactly the same rows as a country scope | Recommendation: restate the criterion as satisfied by the country scope while one-company-per-country holds, or defer it until two companies may sell in one country. Building an empty dimension would be ceremony |
+| 11 | **A return naming no order line restocks its typed quantity uncapped** (2 sold, 4 typed → shelf 54) | What does a return with no order line mean — goods arriving without an order, or a mis-typed RMA? Capping would break a possibly-correct path |
 
 ## Axis A: Six-country base and customer identity
 
