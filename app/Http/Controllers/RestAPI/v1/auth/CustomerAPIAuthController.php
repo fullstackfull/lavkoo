@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\RestAPI\v1\auth;
 
 use App\Contracts\Repositories\BusinessSettingRepositoryInterface;
+use App\Rules\OneAccountPerPhone;
+use App\Services\Identity\RegistrationProof;
 use App\Services\Platform\PasswordPolicy;
 use App\Contracts\Repositories\CustomerRepositoryInterface;
 use App\Contracts\Repositories\LoginSetupRepositoryInterface;
@@ -42,6 +44,7 @@ class CustomerAPIAuthController extends Controller
         private readonly CustomerAuthService                         $customerAuthService,
         private readonly ReferByEarnCustomerService                  $referByEarnCustomerService,
         private readonly CustomerPasswordResetService                $customerPasswordResetService,
+        private readonly RegistrationProof                           $registrationProof,
     )
     {
     }
@@ -52,7 +55,7 @@ class CustomerAPIAuthController extends Controller
             'f_name' => 'required',
             'l_name' => 'required',
             'email' => 'required|unique:users',
-            'phone' => 'required|min:6|max:20|unique:users',
+            'phone' => ['required', 'min:6', 'max:20', 'unique:users', new OneAccountPerPhone()],
             'password' => app(PasswordPolicy::class)->ruleString(),
         ], [
             'f_name.required' => translate('The first name field is required.'),
@@ -478,7 +481,7 @@ class CustomerAPIAuthController extends Controller
             'f_name' => 'required',
             'l_name' => 'required',
             'email' => 'required|unique:users',
-            'phone' => 'required|min:6|max:20|unique:users',
+            'phone' => ['required', 'min:6', 'max:20', 'unique:users', new OneAccountPerPhone()],
             'password' => app(PasswordPolicy::class)->ruleString(),
         ], [
             'f_name.required' => translate('The first name field is required.'),
@@ -609,10 +612,13 @@ class CustomerAPIAuthController extends Controller
 
         if (isset($verify)) {
             $this->phoneOrEmailVerificationRepo->delete(params: ['phone_or_email' => $request['phone']]);
-            $temporaryToken = Str::random(40);
 
             $isUserExist = $this->customerRepo->getFirstWhere(params: ['phone' => $request['phone']]);
             if (!$isUserExist) {
+                // The code matched and no account holds the number, so the answer is "register". The token the caller is given back is
+                // what registration-with-otp takes as the proof that this code was matched.
+                $temporaryToken = $this->registrationProof->issue(proved: (string) $request['phone'], how: RegistrationProof::ONE_TIME_CODE);
+
                 return response()->json(['temporary_token' => $temporaryToken, 'status' => false], 200);
             }
 
@@ -640,11 +646,21 @@ class CustomerAPIAuthController extends Controller
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'email' => 'nullable|max:255',
-            'phone' => 'required|string|min:6|max:15',
+            'phone' => ['required', 'string', 'min:6', 'max:15', new OneAccountPerPhone()],
         ]);
 
         if ($validator->fails()) {
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
+        }
+
+        if (RegistrationProof::isRequired() && !$this->registrationProof->redeem(
+                token: RegistrationProof::sentWith(request: $request),
+                proved: (string) $request['phone'],
+                how: RegistrationProof::ONE_TIME_CODE,
+            )) {
+            return response()->json(['errors' => [
+                ['code' => 'temporary_token', 'message' => translate('invalid_request')]
+            ]], 403);
         }
 
         if ($request['email']) {
@@ -771,11 +787,23 @@ class CustomerAPIAuthController extends Controller
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:users|max:255',
-            'phone' => 'required|min:6|max:20',
+            'phone' => ['required', 'min:6', 'max:20', new OneAccountPerPhone()],
         ]);
 
         if ($validator->fails()) {
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
+        }
+
+        // This copy of the endpoint is shadowed by the one of SocialAuthController, which the route file registers last; it is guarded all
+        // the same, because which of two identical registrations answers must not be what decides whether the e-mail was proved.
+        if (RegistrationProof::isRequired() && !$this->registrationProof->redeem(
+                token: RegistrationProof::sentWith(request: $request),
+                proved: (string) $request['email'],
+                how: RegistrationProof::PROVIDER,
+            )) {
+            return response()->json(['errors' => [
+                ['code' => 'temporary_token', 'message' => translate('invalid_request')]
+            ]], 403);
         }
 
         $isPhoneExist = $this->customerRepo->getFirstWhere(params: ['phone' => $request['phone']]);

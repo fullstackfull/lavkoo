@@ -1056,4 +1056,53 @@ return [
         'record_included_amount' => filter_var(env('GCC_TAX_RECORD_INCLUDED_AMOUNT', false), FILTER_VALIDATE_BOOLEAN),
     ],
 
+    'identity' => [
+        // A2-04: what proves, to the server, that the person at the other end owns the e-mail or the phone an account is being created for,
+        // and that an OAuth callback belongs to the browser that started the sign-in. Both switches are off, and off is the platform of
+        // today in every detail.
+        //
+        // `registration_proof.required`: `registration-with-otp` creates an account for any phone it is sent, stamps it
+        // `is_phone_verified = 1` and hands back an access token; `registration-with-social-media` does the same for any e-mail, stamps
+        // `email_verified_at` and reads `login_medium = social`. Neither asks for proof, so anybody can claim an address or a number that is
+        // not theirs before its owner gets there. The proof itself already happens one call earlier -- `verify-otp` matched a code,
+        // `social-customer-login` asked Google, Facebook or Apple -- and both of those answers already carry a throwaway 40-character token
+        // (`temporary_token`, `temp_token`) that proves nothing. With the switch on, that token IS the proof
+        // (App\Services\Identity\RegistrationProof): one e-mail or one phone, one way of proving it, ten minutes, one use, and a
+        // registration without it is refused. The response shape does not change either way, so the issuing half needs no app release; the
+        // switch is what needs one, because an app build that does not send the token back would be refused.
+        //
+        // `oauth_callback_state.checked`: the website's provider callback is `stateless()`, so a callback forged by another site is handled
+        // like one the store started, which is what the `state` parameter exists to stop. The redirect already writes a state into the
+        // session (Socialite's own `redirect()` does it); nothing compares it on the way back. With the switch on, a callback whose `state`
+        // is absent, stale or not the one this browser's session holds is refused before the provider is asked anything at all, and the
+        // state is spent, so a captured callback cannot be replayed. It ships off because a browser that drops the session cookie between
+        // the redirect and the callback -- an in-app browser, a third-party-cookie policy, a sign-in that crosses domains -- would be
+        // refused a sign-in it is given today, and that has to be measured on real devices before it is switched on.
+        'registration_proof' => [
+            'required' => filter_var(env('GCC_REGISTRATION_PROOF_REQUIRED', false), FILTER_VALIDATE_BOOLEAN),
+        ],
+
+        'oauth_callback_state' => [
+            'checked' => filter_var(env('GCC_OAUTH_CALLBACK_STATE_CHECKED', false), FILTER_VALIDATE_BOOLEAN),
+        ],
+
+        // A2-06: whether a customer's phone number is read as ONE identity across its spellings. Off by default, and off is the platform
+        // of today: `unique:users` compares the string that was typed, so `05XX XXX XXX`, `+9665XX XXX XXX` and `00966 5X XXX XXX` are three
+        // customers with one phone, and whichever row a later sign-in finds first decides which account the person gets.
+        //
+        // With it on, a creation path asks `App\Services\Identity\CustomerPhone` whether an account already holds the same NUMBER --
+        // the market's dialling code and the national digits, compared by `SaudiPhone::isSameNumber()` across any country code and one
+        // trunk zero -- and refuses a second one in the answer shape that path already refuses a taken number with. A number that carries
+        // no country code is attached to the market being served, and to the default storefront where a request names none, which is the
+        // same rule every market-owning row is read by; a number of a country the platform has no numbering plan for is judged by nobody
+        // and the path falls back to the string comparison it made before.
+        //
+        // It ships off because the duplicates it would refuse may already EXIST: whether `users` gets a canonical column, a country code
+        // or a unique key is the owner's decision and needs the live duplicates counted first (A2-06's own blocker). Nothing here writes
+        // a column or a key, so turning it on is reversible and turning it off restores today's behaviour exactly.
+        'canonical_phone' => [
+            'checked' => filter_var(env('GCC_CANONICAL_PHONE', false), FILTER_VALIDATE_BOOLEAN),
+        ],
+    ],
+
 ];

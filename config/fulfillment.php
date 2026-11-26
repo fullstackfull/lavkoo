@@ -94,6 +94,24 @@ return [
     'unknown_source' => env('FULFILLMENT_UNKNOWN_SOURCE', App\Services\Fulfillment\Support\WhatAnUnknownSourceDoes::IN_HOUSE_TODAY),
 
     /*
+    | Which source fulfils a MARKET's own goods: the products of that market that name no carrier of their own (C-03).
+    |
+    | In-house is an implicit NULL on a product, which is the right default for the one country this platform has served -- the shop
+    | and the country are the same thing there. For a second country it is a guess dressed as a default: a Kuwaiti product that names
+    | no carrier would be packed by the Saudi shop, because nothing says what Kuwait's own goods are fulfilled by.
+    |
+    | A map of market code to carrier code, EMPTY as it ships, so every market keeps the implicit in-house default and a Saudi
+    | checkout freezes exactly the rows it freezes today. A market that names a source has its unsourced lines frozen with that source
+    | and routed to it; a product that names a carrier itself always wins, because it was assigned to it on purpose.
+    |
+    |   'market_own_goods_source' => ['KW' => 'torod_point'],
+    |
+    | A code no carrier answers for is not read as in-house: it is an unknown source and follows `unknown_source` above, whose default
+    | is today's platform -- so a misspelt entry cannot stop a checkout and cannot quietly send a parcel anywhere either.
+    */
+    'market_own_goods_source' => [],
+
+    /*
     | Codes the store's own currency table may use for a currency that providers know by its ISO code. This store's riyal is
     | stored as "KSA" (the country, not the currency): it is the same money as SAR, so an amount in it needs no conversion, and a
     | provider is always sent the ISO code. The map is read in one direction only (store spelling => ISO code); it never changes a

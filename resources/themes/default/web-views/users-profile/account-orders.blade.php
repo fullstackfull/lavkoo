@@ -39,6 +39,24 @@
                                 </option>
                             </select>
                         </div>
+                        @if(!empty($marketsToOffer))
+                            <div class="d-flex align-items-center gap-2 border rounded py-1 px-3">
+                                <i class="fi fi-rr-bars-filter"></i>
+                                <select name="storefront" id="orderMarketFilter"
+                                        class="bg-transparent outline-0 fs-14 w-auto border-0 p-0">
+                                    <option
+                                        value="{{ route('account-oder', ['order_by' => $order_by]) }}" {{ $pickedMarket ? '' : 'selected' }}>
+                                        {{ translate('all') }} {{ translate('market') }}
+                                    </option>
+                                    @foreach($marketsToOffer as $market)
+                                        <option
+                                            value="{{ route('account-oder', ['order_by' => $order_by, 'storefront' => $market]) }}" {{ strtoupper((string) $pickedMarket) === $market ? 'selected' : '' }}>
+                                            {{ $market }}
+                                        </option>
+                                    @endforeach
+                                </select>
+                            </div>
+                        @endif
                         <button class="profile-aside-btn btn btn--primary px-2 rounded px-2 py-1 d-lg-none">
                             <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 15 15" fill="none">
                                 <path fill-rule="evenodd" clip-rule="evenodd"
@@ -114,6 +132,14 @@
                                                                         class="status-badge rounded-pill __badge badge-soft-primary fs-12 font-semibold text-capitalize">
                                                                     {{ translate($order['order_status']) }}
                                                                 </span>
+                                                                @endif
+
+                                                                @if(!empty($marketsToOffer))
+                                                                    <span class="title-semidark fs-12 text-uppercase"
+                                                                          data-toggle="tooltip"
+                                                                          data-title="{{ translate('market') }}">
+                                                                        {{ $order->sold_in_market }}
+                                                                    </span>
                                                                 @endif
                                                             </div>
                                                         </div>
@@ -284,13 +310,16 @@
         document.addEventListener('DOMContentLoaded', function () {
             // The filter select is not rendered on every state of this page;
             // the unguarded listener used to throw and kill later inits.
-            const filterSelect = document.getElementById('orderFilter');
-            if (!filterSelect) return;
-            filterSelect.addEventListener('change', function () {
-                const url = this.value;
-                if (url) {
-                    window.location.href = url;
-                }
+            const filterSelects = ['orderFilter', 'orderMarketFilter']
+                .map(id => document.getElementById(id))
+                .filter(select => select !== null);
+            filterSelects.forEach(function (filterSelect) {
+                filterSelect.addEventListener('change', function () {
+                    const url = this.value;
+                    if (url) {
+                        window.location.href = url;
+                    }
+                });
             });
         });
     </script>

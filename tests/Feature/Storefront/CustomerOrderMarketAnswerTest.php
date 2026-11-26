@@ -15,6 +15,7 @@ use Tests\Feature\Address\ApiAddressTestCase;
 use Tests\Support\BuildsSixStorefrontCheckoutWorld;
 use Tests\Support\BuildsStorefrontCart;
 use Tests\Support\BuildsStorefrontCatalog;
+use Tests\Support\BuildsWhatOrderAnswersRead;
 use Tests\Support\KeepsOrderDebugLogClean;
 
 /**
@@ -39,6 +40,7 @@ class CustomerOrderMarketAnswerTest extends ApiAddressTestCase
     use BuildsSixStorefrontCheckoutWorld;
     use BuildsStorefrontCart;
     use BuildsStorefrontCatalog;
+    use BuildsWhatOrderAnswersRead;
     use KeepsOrderDebugLogClean;
 
     /** What a key reads as when the answer does not carry it at all, which `json()` cannot tell from a null. */
@@ -141,47 +143,6 @@ class CustomerOrderMarketAnswerTest extends ApiAddressTestCase
         $this->restoreOrderDebugLog();
 
         parent::tearDown();
-    }
-
-    /** The tables the five answers load besides the order itself: the checkout world has none of them. */
-    private function addWhatTheOrderAnswersRead(): void
-    {
-        Schema::table('reviews', function (Blueprint $table) {
-            $table->unsignedBigInteger('order_id')->nullable();
-            $table->unsignedBigInteger('customer_id')->nullable();
-        });
-        Schema::table('products', function (Blueprint $table) {
-            $table->text('colors')->nullable();
-            $table->text('attributes')->nullable();
-        });
-        Schema::create('colors', function (Blueprint $table) {
-            $table->id();
-            $table->string('name')->nullable();
-            $table->string('code')->nullable();
-            $table->timestamps();
-        });
-        Schema::create('order_delivery_verifications', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('order_id');
-            $table->text('image');
-            $table->timestamps();
-        });
-        Schema::create('order_edit_histories', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('order_id');
-            $table->decimal('order_due_amount', 16, 2)->default(0);
-            $table->string('order_due_payment_status')->nullable();
-            $table->decimal('order_return_amount', 16, 2)->default(0);
-            $table->string('order_return_payment_status')->nullable();
-            $table->timestamps();
-        });
-        Schema::create('delivery_men', function (Blueprint $table) {
-            $table->id();
-            $table->string('f_name')->nullable();
-            $table->string('l_name')->nullable();
-            $table->string('phone')->nullable();
-            $table->timestamps();
-        });
     }
 
     // ---- the world --------------------------------------------------------------------------------------------------------------------------

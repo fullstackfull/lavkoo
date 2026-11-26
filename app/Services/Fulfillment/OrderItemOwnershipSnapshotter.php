@@ -7,6 +7,7 @@ use App\Models\ProviderProductMapping;
 use App\Services\Fulfillment\Contracts\ProviderIdentity;
 use App\Services\Fulfillment\Exceptions\UnknownFulfillmentSourceException;
 use App\Services\Fulfillment\Support\ProviderCurrency;
+use App\Services\Fulfillment\Support\WhatAMarketsOwnGoodsAreFulfilledBy;
 use App\Services\Fulfillment\Support\WhatAnUnknownSourceDoes;
 use App\Services\Storefront\StorefrontCatalog;
 use Illuminate\Support\Facades\DB;
@@ -57,6 +58,10 @@ class OrderItemOwnershipSnapshotter
         string $taxModel,
     ): ?ProviderFulfillmentItem {
         $stored = trim((string) ($product['fulfillment_provider'] ?? ''));
+
+        if ($stored === '') {
+            $stored = (string) $this->sourceOfTheMarketsOwnGoods($product);
+        }
 
         if ($stored === '') {
             return null;
@@ -133,6 +138,23 @@ class OrderItemOwnershipSnapshotter
         }
 
         return WhatAnUnknownSourceDoes::holds();
+    }
+
+    /**
+     * The source a market's OWN goods are fulfilled by, for a line whose product names none (C-03).
+     *
+     * `anyMarketNamesOne()` is asked FIRST, and that order is the point: while no market names a source -- which is every platform as
+     * it ships -- an in-house line makes not one query it did not make before, which is the promise {@see marketOf()} documents.
+     *
+     * @param array<string, mixed> $product
+     */
+    private function sourceOfTheMarketsOwnGoods(array $product): ?string
+    {
+        if (!WhatAMarketsOwnGoodsAreFulfilledBy::anyMarketNamesOne()) {
+            return null;
+        }
+
+        return WhatAMarketsOwnGoodsAreFulfilledBy::forMarket($this->marketOf($product));
     }
 
     /**

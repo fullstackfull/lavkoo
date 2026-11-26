@@ -14,10 +14,12 @@ use App\Http\Middleware\NoIndexThemePreview;
 use App\Http\Middleware\RecordAnalytics;
 use App\Http\Middleware\RecordHttpTelemetry;
 use App\Models\Admin;
+use App\Models\AddressCity;
 use App\Models\ProviderCity;
 use App\Models\ProviderCityMapping;
 use App\Models\ProviderCitySyncRun;
 use App\Services\Address\AddressSchema;
+use App\Services\Fulfillment\OwnershipHistory;
 use App\Services\Fulfillment\ProviderCityReview;
 use App\Services\Fulfillment\ProviderCityMappingService;
 use App\Services\Fulfillment\ProviderOrderDispatcher;
@@ -98,10 +100,10 @@ class TorodMatchingScreenTest extends TorodAddressTestCase
     }
 
     /** Riyadh's order held, with both of Torod's Riyadh proposed. */
-    private function heldRiyadh(): int
+    private function heldRiyadh(int $orderId = 100): int
     {
-        $this->mappings()->proposeCandidates('torod_point', collect([\App\Models\AddressCity::findOrFail($this->ids['riyadh'])]));
-        $fulfillment = $this->torodFulfillment(['shipping_address_data' => $this->snapshotJson('riyadh')]);
+        $this->mappings()->proposeCandidates('torod_point', collect([AddressCity::findOrFail($this->ids['riyadh'])]));
+        $fulfillment = $this->torodFulfillment(['shipping_address_data' => $this->snapshotJson('riyadh')], orderId: $orderId);
         app(ProviderOrderDispatcher::class)->dispatch($fulfillment->id);
         $this->assertSame(FulfillmentStatus::Held, $fulfillment->refresh()->status);
 
@@ -236,8 +238,9 @@ class TorodMatchingScreenTest extends TorodAddressTestCase
      * screen: with one carrier code serving two countries (H1-11) both countries' approved matches were listed together, and two cities of
      * the same name in two countries read as one row repeated.
      *
-     * Only the APPROVED list is narrowed, on purpose: a city with orders WAITING is work somebody has to do, and hiding another country's
-     * held order from the only screen that can release it would be worse than a mixed list.
+     * The waiting and the conflicting blocks are narrowed too, each by its own rule, and the three tests below are theirs. No held
+     * shipment is HIDDEN by it -- one line of this country is enough to list one -- because a held order kept off the only screen that
+     * can release it would be worse than a mixed list.
      *
      * TEETH, applied and restored on SQLite 8.3: removing the narrowing from `ProviderCityReview::approved()` -> this test red, and only
      * this one. The sibling below has its own: reverting `countryOfUnmarkedMappings()` to the provider's declaration alone -> 2 red.
@@ -271,6 +274,94 @@ class TorodMatchingScreenTest extends TorodAddressTestCase
         $this->scopeProviderCataloguesByCountry();
 
         $this->assertSame([$saudi->id], $this->approvedMappingIds());
+    }
+
+    /**
+     * The waiting block, narrowed by the market the shipment's own LINES name (H1-10).
+     *
+     * `provider_fulfillments` carries no market and needs none: every line of a provider-owned shipment is an immutable ownership
+     * snapshot that already names the market it was sold in (C-04), so the shipment's country is a READ of that rather than a second
+     * record of the same fact. Two records of one fact are two records that can disagree.
+     */
+    public function test_the_cities_waiting_are_the_ones_of_this_connections_country(): void
+    {
+        $this->theSnapshotsCanNameTheirMarket();
+        $saudi = $this->heldRiyadh();
+        $foreign = $this->heldRiyadh(orderId: 101);
+        DB::table('provider_fulfillment_items')->where('provider_fulfillment_id', $foreign)->update([OwnershipHistory::MARKET => 'KW']);
+
+        $this->assertSame([$foreign, $saudi], $this->heldShipmentIds(), 'with the switch off the screen lists what it lists today');
+
+        $this->scopeProviderCataloguesByCountry();
+
+        $this->assertSame([$saudi], $this->heldShipmentIds(), 'the Kuwaiti shipment is not the Saudi connection\'s to settle');
+    }
+
+    /** A line written before markets existed is the default storefront's, so its shipment stays on the default storefront's screen. */
+    public function test_a_held_shipment_whose_lines_name_no_market_stays_with_the_default_storefront(): void
+    {
+        $this->theSnapshotsCanNameTheirMarket();
+        $held = $this->heldRiyadh();
+        DB::table('provider_fulfillment_items')->where('provider_fulfillment_id', $held)->update([OwnershipHistory::MARKET => null]);
+        $this->scopeProviderCataloguesByCountry();
+
+        $this->assertSame([$held], $this->heldShipmentIds());
+    }
+
+    /** A city somebody settled in ANOTHER country is still unsettled here, or a conflict disappears from the only screen that can resolve it. */
+    public function test_a_city_approved_in_another_country_does_not_settle_the_conflict_here(): void
+    {
+        $this->mappings()->proposeCandidates('torod_point', collect([AddressCity::findOrFail($this->ids['riyadh'])]));
+        $settledElsewhere = $this->mappings()->approve(provider: 'torod_point', cityId: $this->ids['riyadh'], externalCityId: '41126');
+        DB::table('provider_city_mappings')->where('id', $settledElsewhere->id)->update(['country_code' => 'KW']);
+
+        $this->assertSame(
+            [$this->ids['riyadh']],
+            app(ProviderCityMappingService::class)->conflictedCityIds('torod_point', 50, 'SA'),
+            'Riyadh still has two candidates waiting in Saudi Arabia, whatever another country has settled',
+        );
+    }
+
+    public function test_a_conflict_of_another_country_is_not_this_connections_to_resolve(): void
+    {
+        $kuwaiti = $this->aKuwaitiCityNamed('الكويت', 'Kuwait City');
+        $this->mappings()->proposeCandidates('torod_point', collect([AddressCity::findOrFail($this->ids['riyadh'])]));
+        DB::table('provider_city_mappings')->where('address_city_id', $this->ids['riyadh'])->update([
+            'address_city_id' => $kuwaiti->id, 'country_code' => 'KW',
+        ]);
+
+        $service = app(ProviderCityMappingService::class);
+
+        $this->assertSame([(int) $kuwaiti->id], $service->conflictedCityIds('torod_point'), 'with no country asked for, the table is the table');
+        $this->assertSame([], $service->conflictedCityIds('torod_point', 50, 'SA'));
+        $this->assertSame([(int) $kuwaiti->id], $service->conflictedCityIds('torod_point', 50, 'KW'));
+    }
+
+    /** @return list<int> the ids of the held shipments the waiting block is built from, in its own order */
+    private function heldShipmentIds(): array
+    {
+        $waiting = app(ProviderCityReview::class)->overview('torod_point')['cities'];
+
+        return array_values(array_unique(array_merge(...array_map(
+            static fn (array $block): array => array_column($block['shipments'], 'id'),
+            $waiting,
+        ))));
+    }
+
+    /**
+     * The ownership snapshot's own market column (C-04), which this fixture's table predates, and the storefronts switch.
+     *
+     * Both are needed, and that is the narrowing's dormancy rather than an accident of the fixture: `StorefrontMarketRows` reads an
+     * unmarked row as the default storefront's only while storefronts are ON -- a platform with one market has no market to narrow by --
+     * and before the migration there is no market on a line to read at all.
+     */
+    private function theSnapshotsCanNameTheirMarket(): void
+    {
+        if (!Schema::hasColumn(OwnershipHistory::TABLE, OwnershipHistory::MARKET)) {
+            (require database_path('migrations/2027_01_02_100000_add_market_and_account_to_provider_fulfillment_items.php'))->up();
+        }
+
+        config(['gcc.storefronts.enabled' => true]);
     }
 
     /** @return list<int> the ids of the approved matches the screen would list, in its own order */
