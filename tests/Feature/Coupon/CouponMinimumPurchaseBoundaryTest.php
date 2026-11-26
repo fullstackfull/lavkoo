@@ -36,6 +36,7 @@ class CouponMinimumPurchaseBoundaryTest extends StorefrontTestCase
     private const DISCOUNT_SAR = 10;
     private const MINIMUM_SAR = 100;
     private const NOT_REACHED = 'Minimum purchase amount not reached for this coupon.';
+    private const LARGER_THAN_THE_ITEMS = "This coupon's discount is more than the items it applies to, so it cannot be used on this cart.";
     private const APPLIED = 'Coupon applied successfully!';
 
     /** @var array<string, string> */
@@ -136,8 +137,21 @@ class CouponMinimumPurchaseBoundaryTest extends StorefrontTestCase
         $this->assertSame(self::COUPON_CODE, session('coupon_code'));
     }
 
-    /** Current copy, characterized and not endorsed: a fixed discount above the cart is refused under the minimum message even when the minimum is met. */
-    public function test_a_fixed_discount_above_the_cart_is_refused_under_the_minimum_message_while_the_minimum_is_met(): void
+    /**
+     * REWRITTEN to the corrected behaviour, and this is not a regression.
+     *
+     * This test used to pin the defect and said so itself -- "Current copy, characterized and not endorsed: a fixed discount above the cart
+     * is refused under the minimum message even when the minimum is met" -- with the old assertion being
+     * `assertSame(self::NOT_REACHED, $result['messages'])`. I1-11.6 fixed exactly that: a refusal now names its OWN rule instead of blaming
+     * the minimum, so a cart of 40 that MEETS a minimum of 30 is refused because the discount of 50 is larger than the items it applies
+     * to, and the shopper is told that rather than being told to spend more when spending more was never the problem.
+     *
+     * The old assertion is quoted above rather than deleted, per this programme's rule: a test that pins a defect becomes wrong the moment
+     * somebody fixes the defect, and the answer is to rewrite it to the corrected behaviour and never to restore the defect to make it
+     * pass. What is now UNPINNED: nothing. The minimum's own precedence is still pinned by the tests above and below this one, and that a
+     * cart BELOW the minimum still gets the minimum's message is what keeps the two rules apart.
+     */
+    public function test_a_fixed_discount_above_the_cart_is_refused_by_its_own_rule_and_not_by_the_minimum(): void
     {
         $this->shopperWithCart(subtotal: 40);
         $this->saudiCouponOfTenRiyals(overrides: ['min_purchase' => 30, 'discount' => 50]);
@@ -145,7 +159,8 @@ class CouponMinimumPurchaseBoundaryTest extends StorefrontTestCase
         $result = OrderManager::getTotalCouponAmount(request: request(), couponCode: self::COUPON_CODE);
 
         $this->assertFalse($result['status']);
-        $this->assertSame(self::NOT_REACHED, $result['messages']);
+        $this->assertSame(self::LARGER_THAN_THE_ITEMS, $result['messages'], 'the cart meets the minimum, so the minimum is not what refused it');
+        $this->assertNotSame(self::NOT_REACHED, $result['messages'], 'and it is no longer blamed on the minimum');
     }
 
     public function test_the_minimum_applies_to_the_subtotal_after_a_flat_product_discount(): void

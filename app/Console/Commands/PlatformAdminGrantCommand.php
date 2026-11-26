@@ -22,7 +22,7 @@ class PlatformAdminGrantCommand extends Command
     protected $signature = 'gcc:platform-admin:grant
         {admin_id : The id of the admin}
         {--countries= : Comma-separated country codes. Leave it out for every market (the platform owner), which needs --confirm-owner}
-        {--capabilities= : Comma-separated parts of the API the grant includes: overview, markets, alerts, audit, sessions, health, reports, export, orders. Leave it out for every one a grant holds by default (not health, reports, export or orders)}
+        {--capabilities= : Comma-separated parts of the API the grant includes: overview, markets, alerts, audit, sessions, health, reports, export, orders, returns, products, inventory. Leave it out for every one a grant holds by default (not health, reports, export, orders, returns, products or inventory)}
         {--expires= : The last day the grant is good for, written YYYY-MM-DD. Leave it out for no end}
         {--confirm-owner : Says that a grant for every market, the platform owner\'s, is what is meant. Refused beside --countries}
         {--level=1 : 1 is monitor, the only level there is}';

@@ -15,6 +15,7 @@ use RecursiveIteratorIterator;
 use Tests\Support\BuildsCodeScopeCatalog;
 use Tests\Support\BuildsProductCatalog;
 use Tests\Support\RestoresLanguageFiles;
+use Tests\Support\PlatformWriteScanner;
 use Tests\TestCase;
 
 /**
@@ -121,13 +122,20 @@ class SellerSurfacesCountryTest extends TestCase
         $callers = [];
         $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(base_path('app'), FilesystemIterator::SKIP_DOTS));
         foreach ([...iterator_to_array($files, false), ...iterator_to_array(new RecursiveIteratorIterator(new RecursiveDirectoryIterator(base_path('Modules'), FilesystemIterator::SKIP_DOTS)), false)] as $file) {
-            if ($file->isFile() && $file->getExtension() === 'php' && preg_match('/ProductCountry::newProductAttributes\(|public static function newProductAttributes\(/', (string) file_get_contents($file->getPathname())) === 1) {
+            // Comments STRIPPED, and it is load-bearing: App\Services\Catalog\BulkImportCountry's docblock NAMES
+            // ProductCountry::newProductAttributes() in order to say that it deliberately does NOT reuse that fallback -- a code nobody
+            // sells in is refused rather than corrected. A scan reading its own explanation filed it as a surface that lets a request
+            // choose a country, which is the opposite of what the file says and does, and adding it to the list below would have recorded
+            // that falsehood in the one place somebody looks to find out which surfaces may choose a country.
+            if ($file->isFile() && $file->getExtension() === 'php' && preg_match('/ProductCountry::newProductAttributes\(|public static function newProductAttributes\(/', PlatformWriteScanner::codeOf((string) file_get_contents($file->getPathname()))) === 1) {
                 $callers[] = substr($file->getPathname(), strlen(base_path()) + 1);
             }
         }
         sort($callers);
         $callers = array_values(array_diff($callers, ['app/Rules/NewProductCountryInStaffScope.php']));
 
+        // Unchanged at three, which is the point: the set of surfaces that may choose a product's country did NOT grow when the bulk
+        // import gained its country row, because that service asks StaffCountryScope and refuses, and never reaches this fallback.
         $this->assertSame(['app/Services/Catalog/ProductCodeScope.php', 'app/Services/ProductService.php', 'app/Services/Storefront/ProductCountry.php'], $callers);
         $this->assertStringContainsString("\$addedBy == 'admin'\n            ? ProductCountry::newProductAttributes(", (string) file_get_contents(app_path('Services/ProductService.php')), 'only an admin add takes the country of the request');
     }

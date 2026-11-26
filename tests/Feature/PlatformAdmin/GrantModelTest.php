@@ -23,22 +23,33 @@ class GrantModelTest extends TestCase
         DB::table('admins')->insert(['id' => 7, 'name' => 'Owner', 'email' => 'owner@example.test', 'password' => 'x']);
     }
 
-    public function test_the_capabilities_that_exist_are_these_six_in_this_order(): void
+    public function test_the_capabilities_that_exist_are_these_twelve_in_this_order(): void
     {
-        $this->assertSame(['overview', 'markets', 'alerts', 'audit', 'sessions', 'health', 'reports', 'export', 'orders'], PlatformAdminGrant::CAPABILITIES);
+        $this->assertSame([
+            'overview', 'markets', 'alerts', 'audit', 'sessions', 'health', 'reports', 'export',
+            // The four market drill-downs, newest last. `orders` came with the first of them; `returns`, `products` and `inventory`
+            // completed L-13 and were added without this declaration being updated with them -- which is what the coordinator's group
+            // run caught, because the track that added them did not run this file.
+            'orders', 'returns', 'products', 'inventory',
+        ], PlatformAdminGrant::CAPABILITIES);
     }
 
     /**
      * Which of them a grant that names none does NOT get.
      *
-     * The first five were there when the first grant was made, so naming none meant all of them and still does. `health`, `reports`, `export` and
-     * `orders` were added afterwards, and giving them to every existing grant the moment the code shipped would have widened what an operator may
-     * read -- for the export, what they may TAKE OFF the platform, and for `orders`, a market's order rows one by one rather than as a count --
-     * without anybody deciding.
+     * The first five were there when the first grant was made, so naming none meant all of them and still does. `health`, `reports`, `export`,
+     * `orders`, `returns`, `products` and `inventory` were added afterwards, and giving them to every existing grant the moment the code shipped
+     * would have widened what an operator may read -- for the export, what they may TAKE OFF the platform, and for the four drill-downs, a
+     * market's rows one by one rather than as a count -- without anybody deciding.
+     *
+     * So this list grows with EVERY capability added after the first grant, and the assertion below is the thing that makes "no existing grant
+     * acquires it by a merge" true rather than claimed.
      */
     public function test_a_capability_added_after_the_first_grant_is_not_given_by_a_grant_that_names_none(): void
     {
-        $this->assertSame(['health', 'reports', 'export', 'orders'], PlatformAdminGrant::NOT_GIVEN_BY_DEFAULT);
+        $this->assertSame([
+            'health', 'reports', 'export', 'orders', 'returns', 'products', 'inventory',
+        ], PlatformAdminGrant::NOT_GIVEN_BY_DEFAULT);
         $this->assertSame([], array_diff(PlatformAdminGrant::NOT_GIVEN_BY_DEFAULT, PlatformAdminGrant::CAPABILITIES), 'a capability that is not given by default has to be a capability');
 
         $namesNone = new PlatformAdminGrant();

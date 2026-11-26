@@ -18,6 +18,7 @@ use ReflectionMethod;
 use Tests\Support\BuildsAddressSchema;
 use Tests\Support\BuildsApiAddressSchema;
 use Tests\Support\RestoresLanguageFiles;
+use Tests\Support\PlatformWriteScanner;
 use Tests\TestCase;
 
 /**
@@ -170,13 +171,21 @@ class CheckoutAsksOneDestinationGateTest extends TestCase
 
         foreach (['app', 'Modules'] as $root) {
             foreach ($this->phpFilesIn(base_path($root)) as $file) {
-                if (str_contains((string) file_get_contents($file), 'OrderManager::generateOrder(')) {
+                // Comments STRIPPED, and that is load-bearing rather than tidiness: App\Services\Checkout\OrderRefused's docblock has to
+                // NAME generateOrder() to explain what it carries a reason for, and a scan that read its own explanation would file it as a
+                // seventh caller. Adding it to the list below instead would have made the list's own sentence false -- it makes no order.
+                // Fifth occurrence of this shape in this programme (see EXECUTION_STATE.md); PlatformWriteScanner::codeOf() is the one
+                // stripper, so this scan uses it rather than growing a second.
+                if (str_contains(PlatformWriteScanner::codeOf((string) file_get_contents($file)), 'OrderManager::generateOrder(')) {
                     $callers[] = str_replace(base_path() . '/', '', $file);
                 }
             }
         }
 
         sort($callers);
+
+        // Measured in both directions, because a strip that excuses too much is worse than no strip: without codeOf() this scan reports
+        // app/Services/Checkout/OrderRefused.php as a caller, and with it the set is exactly the three files that call it.
         $this->assertSame([
             'app/Http/Controllers/RestAPI/v1/OrderController.php',
             'app/Http/Controllers/Web/WebController.php',
