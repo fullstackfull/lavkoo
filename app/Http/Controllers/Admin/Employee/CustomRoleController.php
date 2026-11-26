@@ -10,6 +10,7 @@ use App\Exports\EmployeeRoleListExport;
 use App\Http\Controllers\BaseController;
 use App\Http\Requests\Admin\CustomRoleRequest;
 use App\Services\AdminService;
+use App\Services\Staff\SensitiveAdminAction;
 use App\Traits\PaginatorTrait;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Contracts\View\View;
@@ -26,6 +27,7 @@ class CustomRoleController extends BaseController
     public function __construct(
         private readonly AdminRepositoryInterface     $adminRepo,
         private readonly AdminRoleRepositoryInterface $adminRoleRepo,
+        private readonly SensitiveAdminAction         $sensitive,
     )
     {
     }
@@ -57,7 +59,7 @@ class CustomRoleController extends BaseController
             'created_at' => now(),
             'updated_at' => now(),
         ];
-        $this->adminRoleRepo->add(data: $data);
+        $this->sensitive->perform(fn () => $this->adminRoleRepo->add(data: $data));
         ToastMagic::success(translate('role_added_successfully'));
         return back();
     }
@@ -83,7 +85,7 @@ class CustomRoleController extends BaseController
             'name' => $request['name'],
             'module_access' => json_encode($request['modules']),
         ];
-        $this->adminRoleRepo->update(id: $request['id'], data: $data);
+        $this->sensitive->perform(fn () => $this->adminRoleRepo->update(id: $request['id'], data: $data));
         ToastMagic::success(translate('role_updated_successfully'));
         return back();
     }
@@ -93,7 +95,7 @@ class CustomRoleController extends BaseController
         if ($this->isMasterRole(id: $request['id'])) {
             return $this->refuseTheMasterRole();
         }
-        $this->adminRoleRepo->update(id: $request['id'], data: ['status' => $request->get('status', 0)]);
+        $this->sensitive->perform(fn () => $this->adminRoleRepo->update(id: $request['id'], data: ['status' => $request->get('status', 0)]));
         return response()->json([
             'success' => 1,
             'message' => translate('status_updated_successfully'),
@@ -122,7 +124,7 @@ class CustomRoleController extends BaseController
         if ($this->isMasterRole(id: $request['id'])) {
             return $this->refuseTheMasterRole();
         }
-        $this->adminRoleRepo->delete(params: ['id' => $request['id']]);
+        $this->sensitive->perform(fn () => $this->adminRoleRepo->delete(params: ['id' => $request['id']]));
         return response()->json([
             'success' => 1,
             'message' => translate('role_deleted_successfully')

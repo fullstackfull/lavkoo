@@ -2,9 +2,12 @@
 
 namespace App\Services;
 
+use App\Exceptions\AuditLineNotWrittenException;
 use App\Http\Middleware\SellerApiAuthMiddleware;
+use App\Models\Admin;
 use App\Models\AuditLog;
 use App\Services\Marketplace\SellerPrincipal;
+use App\Services\Staff\StaffCountryScope;
 use App\Services\Storefront\LegalEntityRegistry;
 use App\Services\Storefront\StorefrontContext;
 use Illuminate\Support\Facades\Schema;
@@ -20,6 +23,12 @@ use Illuminate\Support\Facades\Schema;
  * the worst outcome of a logging problem is a missing line, which is far better than a settlement or
  * a payout rolled back because the note about it could not be saved.
  *
+ * **`whileLinesAreRequired()` turns that trade around for the length of one action (G-14).** Some actions change who may do what, and for
+ * those a change nobody can trace is worse than a change that did not happen. A caller that has opened a transaction marks it, and inside
+ * the mark `record()` THROWS instead of swallowing, so the transaction rolls the change back. The mark also puts the asker's country scope
+ * on the line, which is what makes it answer "could this employee have done this". Nothing outside the mark changes in any way, and the
+ * mark is restored on the way out whatever happens, so one failed action cannot leave the platform fail-closed.
+ *
  * **`recordOrFail()` is for the opposite case, and it exists because of a real one.** Some actions ARE the record: a person
  * settling an ambiguous refund by hand has produced nothing else -- no request, no reply, no channel state change -- so an
  * action reported as done whose only trace silently failed to save is a lie told to whoever reads the trail next. Such a
@@ -29,6 +38,37 @@ class AuditLogger
 {
     /** Whether `audit_logs` carries the two columns that say which market and company a line concerns. Asked once per process. */
     private static ?bool $trailNamesItsMarket = null;
+
+    /** Whether a line that cannot be written is an error rather than a missing note, for the length of one action. */
+    private static bool $linesAreRequired = false;
+
+    /**
+     * Carries `$work` out with the trail fail-closed: a line that cannot be written throws, so a caller that has opened a transaction
+     * takes the change back with it.
+     *
+     * The mark is nested-safe and restored in a `finally`, because a platform left fail-closed by one failed action would refuse every
+     * audited write after it -- a logging problem turned into an outage, which is the thing `record()` exists to avoid.
+     *
+     * @template TResult
+     * @param callable(): TResult $work
+     * @return TResult
+     */
+    public static function whileLinesAreRequired(callable $work): mixed
+    {
+        $was = self::$linesAreRequired;
+        self::$linesAreRequired = true;
+
+        try {
+            return $work();
+        } finally {
+            self::$linesAreRequired = $was;
+        }
+    }
+
+    public static function linesAreRequired(): bool
+    {
+        return self::$linesAreRequired;
+    }
 
     /**
      * Record an action.
@@ -46,13 +86,17 @@ class AuditLogger
     ): ?AuditLog {
         try {
             if (!Schema::hasTable('audit_logs')) {
+                if (self::$linesAreRequired) {
+                    throw new AuditLineNotWrittenException('audit_logs has not been migrated, so this action cannot be recorded: ' . $action);
+                }
+
                 return null;
             }
 
             [$subjectType, $subjectId] = $this->resolveSubject($subject);
             [$actorType, $actorId, $actorName] = $this->resolveActor();
 
-            return AuditLog::create($this->marketOf($country) + [
+            $line = AuditLog::create($this->marketOf($country) + [
                 'actor_type' => $actorType,
                 'actor_id' => $actorId,
                 'actor_name' => $actorName,
@@ -61,14 +105,52 @@ class AuditLogger
                 'subject_id' => $subjectId,
                 'before' => $before,
                 'after' => $after,
-                'context' => $context,
+                'context' => $this->withTheAskersScope($context),
                 'ip_address' => $this->clientIp(),
                 'user_agent' => $this->userAgent(),
             ]);
-        } catch (\Throwable) {
+        } catch (\Throwable $failed) {
+            if (self::$linesAreRequired) {
+                throw new AuditLineNotWrittenException('The audit line for this action could not be written: ' . $action, previous: $failed);
+            }
+
             // A missing audit line is never worth failing the audited action.
             return null;
         }
+
+        return $line;
+    }
+
+    /**
+     * The countries the asker may work in, added to the context of an action whose line is REQUIRED and to no other (G-14).
+     *
+     * Spelt out as `unrestricted` rather than left absent for an employee who holds no scope row, because a reader of the trail cannot
+     * tell a missing key from an unrestricted account. Outside the mark the context is returned untouched, so no existing line gains a
+     * key and no existing reader of the trail sees a shape it did not see before.
+     *
+     * @param array<string, mixed>|null $context
+     * @return array<string, mixed>|null
+     */
+    private function withTheAskersScope(?array $context): ?array
+    {
+        if (!self::$linesAreRequired) {
+            return $context;
+        }
+
+        return ($context ?? []) + ['asker_scope' => $this->askersScope()];
+    }
+
+    /** @return list<string> */
+    private function askersScope(): array
+    {
+        try {
+            $asker = auth('admin')->user();
+            $countries = $asker instanceof Admin ? app(StaffCountryScope::class)->countriesOf(admin: $asker) : null;
+        } catch (\Throwable) {
+            return ['unknown'];
+        }
+
+        return $countries ?? ['unrestricted'];
     }
 
     /**
@@ -122,10 +204,11 @@ class AuditLogger
             && Schema::hasColumn('audit_logs', 'legal_entity_id');
     }
 
-    /** Forgets what was read about the trail's shape, for a test that migrates it mid-run. */
+    /** Forgets what was read about the trail's shape, and leaves the trail as it ships, for a test that migrates it mid-run. */
     public static function forget(): void
     {
         self::$trailNamesItsMarket = null;
+        self::$linesAreRequired = false;
     }
 
     /**
