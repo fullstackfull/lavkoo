@@ -149,6 +149,21 @@ return [
     'storefronts' => [
         'enabled' => filter_var(env('GCC_STOREFRONTS_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
 
+        // What turning `enabled` OFF AGAIN means once a second market's products are in the table (M1-18).
+        //
+        // Off by default, and off is today's behaviour in every detail: `enabled` off narrows nothing, which is the right answer for the
+        // platform of today -- one market, one country's products, no column to narrow by -- and the WRONG answer after the switch has been
+        // used. A second market's rows are then in `products`, nothing is narrowed any more, and the visitor of the one remaining
+        // storefront is shown them. So turning the switch off was never a way of stopping a market; it was a way of merging six markets
+        // into one catalogue, which is why the runbook had to say "deactivate the country instead, never turn the flag off". A switch
+        // somebody is told not to use is not a switch, and StorefrontKillSwitchTest pinned exactly that.
+        //
+        // With it on, off means ONE MARKET: a storefront request falls back to `default_country`'s catalogue and the rows of the markets
+        // that were added stay out of it until `enabled` is turned on again. Nothing is deleted. The panels, the seller APIs, the
+        // webhooks, the platform admin API and the queues are cross-country by design and are answered exactly as before. It is inert
+        // before the products migration has run, because there is then no column and so no second market's row to keep out.
+        'off_is_one_market' => filter_var(env('GCC_STOREFRONTS_OFF_IS_ONE_MARKET', false), FILTER_VALIDATE_BOOLEAN),
+
         'default_country' => env('GCC_DEFAULT_COUNTRY', 'SA'),
 
         // `timezone` is the market's own clock, for the times an operator of that market TYPES (F-08). `config/app.php` sets one zone for
