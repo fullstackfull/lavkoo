@@ -114,13 +114,26 @@ class StaffProductRouteInventoryTest extends TestCase
         return $scoped;
     }
 
+    /**
+     * The registry controllers that read no product and no order, so neither survey classifies them.
+     *
+     * @var list<class-string>
+     */
+    private const SCOPED_BUT_IN_NEITHER_SURVEY = [
+        'App\Http\Controllers\Admin\Marketplace\PayoutController',
+    ];
+
     public function test_the_controllers_listed_as_scoped_are_exactly_the_ones_that_have_rules_in_the_registry_of_their_slice(): void
     {
         $slice1 = StaffProductRoutes::controllers();
         $slice2 = StaffOrderRoutes::orderScreenControllers();
         $slice3 = StaffOrderRoutes::readScreenControllers();
         $slice4 = StaffPromotionRoutes::controllers();
-        $slice5 = StaffMarketplaceRoutes::controllers();
+        // The ledger payouts came into slice 5 with G-14's money switch, and a payout names NEITHER a product nor an order: it names a
+        // seller. So this is the first registry controller that neither survey finds, and it is named here rather than being added to a
+        // survey of product routes -- which would be a falsehood about what the screen reads. A controller taken off this list without
+        // being classified fails the equality below.
+        $slice5 = array_values(array_diff(StaffMarketplaceRoutes::controllers(), self::SCOPED_BUT_IN_NEITHER_SURVEY));
         sort($slice1);
         sort($slice2);
         sort($slice3);
@@ -177,8 +190,8 @@ class StaffProductRouteInventoryTest extends TestCase
                 $this->assertNotSame([], $rule, $controller . '@' . $action);
                 foreach ($rule as $part) {
                     $this->assertMatchesRegularExpression(
-                        '/^(none|unavailable|list(:(returns|fulfillments))?'
-                        . '|(product|batch|purchase_order|order|review|return|fulfillment|commission_rule)\.(route|input|items):[A-Za-z_]+\??'
+                        '/^(none|unavailable|list(:(returns|fulfillments|payouts))?'
+                        . '|(product|batch|purchase_order|order|review|return|fulfillment|commission_rule|seller_payout)\.(route|input|items):[A-Za-z_]+\??'
                         . '|(return|commission_rule)\.posted)$/',
                         $part,
                         $controller . '@' . $action,

@@ -7,6 +7,7 @@ use App\Http\Controllers\Admin\Marketplace\BrandRegistryController;
 use App\Http\Controllers\Admin\Marketplace\CommissionRuleController;
 use App\Http\Controllers\Admin\Marketplace\FulfillmentController;
 use App\Http\Controllers\Admin\Marketplace\InventoryAdjustmentController;
+use App\Http\Controllers\Admin\Marketplace\PayoutController;
 use App\Http\Controllers\Admin\Marketplace\PurchaseOrderController;
 use App\Http\Controllers\Admin\Marketplace\ReturnLogisticsController;
 use App\Http\Controllers\Admin\Marketplace\SellerScorecardController;
@@ -16,6 +17,7 @@ use App\Http\Controllers\Admin\Product\ReviewController;
 use App\Services\Marketplace\CommissionEngine;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * The screens of slice 5 that a staff country scope covers (GCC-14c): the marketplace stock screens -- the warehouses, the inventory
@@ -79,8 +81,48 @@ use Illuminate\Support\Facades\DB;
  */
 final class StaffMarketplaceRoutes
 {
+    /**
+     * The ledger payouts, while `StaffOrderRoutes::MONEY_ACTIONS_SWITCH` is on (G-14, second criterion).
+     *
+     * This screen was outside the staff-scope regime altogether -- no scope middleware on any of its routes -- so a restricted employee
+     * reached all six with the module permission alone, five of them money-moving POSTs that approve a transfer, mark it paid, mark it
+     * failed, send it again or reject it and release the reservation. Each is now judged by the market of the SHOP whose money it moves,
+     * which is the rule `StaffCountryScope::coversEverySeller()` reads from `SellerMarketScope` for a seller's withdrawal, read again and
+     * not restated.
+     *
+     * The LIST is narrowed as well as the actions, through the same rule (`StaffCountryPayoutScope`, subject `payouts`). A screen whose
+     * five buttons refuse another market's payout while the page beside them prints its amount, its bank details and its reference is a
+     * half-closed gate that reads as closed, which is worse than an open one.
+     *
+     * The rules are separate from `RULES` and merged only while the money switch is on, so that with the switch off -- which is how it
+     * ships -- every action keeps the rule `none` it has always effectively had: a restricted employee reaches the screen exactly as today
+     * and the list is narrowed for nobody.
+     *
+     * @var array<class-string, array<string, list<string>>>
+     */
+    private const MONEY_RULES = [
+        PayoutController::class => [
+            'index' => ['list:payouts'],
+            'approve' => ['seller_payout.route:id'],
+            'markPaid' => ['seller_payout.route:id'],
+            'markFailed' => ['seller_payout.route:id'],
+            'reissue' => ['seller_payout.route:id'],
+            'reject' => ['seller_payout.route:id'],
+        ],
+    ];
+
     /** @var array<class-string, array<string, list<string>>> */
     private const RULES = [
+        // The ledger payouts while the money switch is off: the rule each action has always effectively had, so nothing moves until the
+        // switch does. `MONEY_RULES` above replaces every one of them when it is on.
+        PayoutController::class => [
+            'index' => ['none'],
+            'approve' => ['none'],
+            'markPaid' => ['none'],
+            'markFailed' => ['none'],
+            'reissue' => ['none'],
+            'reject' => ['none'],
+        ],
         WarehouseController::class => [
             // The list also breaks one product's stock down per shelf when the screen is asked about one.
             'index' => ['product.input:product_id?', 'list'],
@@ -179,7 +221,12 @@ final class StaffMarketplaceRoutes
     /** @return array<string, list<string>> */
     public static function rulesOf(string $controller): array
     {
-        return self::RULES[ltrim($controller, '\\')] ?? [];
+        $controller = ltrim($controller, '\\');
+        $rules = self::RULES[$controller] ?? [];
+
+        // `+` keeps the left-hand entry for a key both sides hold, so a money action takes its own rule and every other action of the
+        // controller keeps the one above. The same shape as `StaffOrderRoutes::rulesOf()`, so there is one way the switch works.
+        return $rules !== [] && StaffOrderRoutes::moneyActionsAreScoped() ? (self::MONEY_RULES[$controller] ?? []) + $rules : $rules;
     }
 
     /** @return list<string>|null */
@@ -189,7 +236,12 @@ final class StaffMarketplaceRoutes
     }
 
     /**
-     * Whether every product the rule says this request names is one the employee may work with.
+     * Whether everything the rule says this request names is something the employee may work with.
+     *
+     * Every part of this slice resolved to PRODUCT ids until the ledger payouts came inside the regime, and a payout names a SELLER and no
+     * product: a part is now resolved to the ids of its own SUBJECT, and the subject decides which question the scope is asked. Only
+     * `seller_payout.*` answers sellers; every other part answers products exactly as it did, through the same `productIdsOf()` the stock
+     * screens' tests drive directly.
      *
      * @param list<string> $rule
      */
@@ -200,14 +252,52 @@ final class StaffMarketplaceRoutes
         }
 
         foreach ($rule as $part) {
-            $productIds = self::productIdsOf(request: $request, part: $part);
-
-            if ($productIds === null || !$scope->coversEveryProduct(productIds: $productIds)) {
+            if (!self::partIsCovered(request: $request, part: $part, scope: $scope)) {
                 return false;
             }
         }
 
         return true;
+    }
+
+    private static function partIsCovered(Request $request, string $part, StaffCountryScope $scope): bool
+    {
+        if (str_starts_with($part, 'seller_payout.')) {
+            $sellerIds = self::sellerIdsOf(request: $request, part: $part);
+
+            return $sellerIds !== null && $scope->coversEverySeller(sellerIds: $sellerIds);
+        }
+
+        $productIds = self::productIdsOf(request: $request, part: $part);
+
+        return $productIds !== null && $scope->coversEveryProduct(productIds: $productIds);
+    }
+
+    /**
+     * The shops whose money the part of a rule says this request moves.
+     *
+     * @return list<int>|null null when what the part asks for is missing, is not an id, or names a payout that does not exist or one that
+     *                        names no shop -- each answered like a payout that does not exist, so which ids belong to which market is not
+     *                        something an employee can find out by asking
+     */
+    public static function sellerIdsOf(Request $request, string $part): ?array
+    {
+        [, $where] = array_pad(explode('.', $part, 2), 2, '');
+        [$kind, $name] = array_pad(explode(':', $where, 2), 2, '');
+
+        if ($name === '' || $kind !== 'route') {
+            return null;
+        }
+
+        $payout = StaffRouteIds::one(value: $request->route($name));
+
+        if ($payout === null || !Schema::hasTable('vendor_payout_requests')) {
+            return null;
+        }
+
+        $sellerId = DB::table('vendor_payout_requests')->where('id', $payout[0])->value('seller_id');
+
+        return $sellerId === null || (int) $sellerId <= 0 ? null : [(int) $sellerId];
     }
 
     /**

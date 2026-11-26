@@ -667,9 +667,10 @@ country is not something an employee can find out by asking. The rules of the 87
 
 The warehouses, the inventory adjustments, the batches and the purchase orders -- the four screens that MOVE stock or buy it -- and then the
 rest of the slice, which is made of ORDERS rather than of products: the reviews, the returns, the fulfilments, the seller scorecard, the
-settlements, the brand registry and the commission rules. `ScopeMarketplaceToStaffCountries` is registered by their constructors, after the
-sign-in check and the module permission, and `App\Services\Staff\StaffMarketplaceRoutes` holds the rule of each of their 54 actions; a route
-of one of them without a rule is REFUSED to a restricted employee.
+settlements, the brand registry and the commission rules -- and the ledger PAYOUTS, which came inside the regime with the money switch of
+G-14's second criterion. `ScopeMarketplaceToStaffCountries` is registered by their constructors, after the sign-in check and the module
+permission, and `App\Services\Staff\StaffMarketplaceRoutes` holds the rule of each of their 60 actions; a route of one of them without a rule
+is REFUSED to a restricted employee.
 
 **These are writes, which is why they come before the rest of slice 5.** A restricted employee could place another market's product on a
 shelf, adjust its balance, write off its batch and receive a purchase order of it -- and every one of those changes a figure the other market
@@ -750,6 +751,12 @@ inventory lane. Nor does it reach the vendor panel, the seller API staff or a le
 | `POST admin/marketplace/brand-registry/revoke` | `BrandRegistryController::revoke` | `unavailable` | module:marketplace |
 | `POST admin/marketplace/brand-registry/enforcement` | `BrandRegistryController::updateEnforcement` | `unavailable` | module:marketplace |
 | `GET admin/marketplace/seller-scorecard` | `SellerScorecardController::index` | `unavailable` | module:marketplace |
+| `GET admin/marketplace/payouts` | `PayoutController::index` | `none` | module:marketplace |
+| `POST admin/marketplace/payouts/{id}/approve` | `PayoutController::approve` | `none` | module:marketplace |
+| `POST admin/marketplace/payouts/{id}/mark-paid` | `PayoutController::markPaid` | `none` | module:marketplace |
+| `POST admin/marketplace/payouts/{id}/mark-failed` | `PayoutController::markFailed` | `none` | module:marketplace |
+| `POST admin/marketplace/payouts/{id}/reissue` | `PayoutController::reissue` | `none` | module:marketplace |
+| `POST admin/marketplace/payouts/{id}/reject` | `PayoutController::reject` | `none` | module:marketplace |
 | `GET admin/marketplace/returns` | `ReturnLogisticsController::index` | `list:returns` + `list` | module:marketplace |
 | `POST admin/marketplace/returns` | `ReturnLogisticsController::store` | `return.posted` | module:marketplace |
 | `POST admin/marketplace/returns/{id}/transit` | `ReturnLogisticsController::transit` | `return.route:id` | module:marketplace |
@@ -1197,6 +1204,12 @@ a money action that was a false reassurance rather than a fact:
 |---|---|---|
 | `VendorController::withdrawStatus` | `seller_payout.route:id` | the market of the SHOP whose withdrawal it approves or denies |
 | `VendorController::getWithdrawView` | `seller_payout.route:withdrawId` | the same, so the amount and the bank details do not open for another market |
+| `PayoutController::approve` | `seller_payout.route:id` | the market of the SHOP whose ledger payout it approves |
+| `PayoutController::markPaid` | `seller_payout.route:id` | the same, for the transfer that takes the money out of the platform |
+| `PayoutController::markFailed` | `seller_payout.route:id` | the same, for the transfer the bank sent back and the reservation it puts back |
+| `PayoutController::reissue` | `seller_payout.route:id` | the same, for the fresh request a failed transfer opens |
+| `PayoutController::reject` | `seller_payout.route:id` | the same, for the refusal that releases the reservation |
+| `PayoutController::index` | `list:payouts` | the markets of the shops whose payouts it lists (`StaffCountryPayoutScope`) |
 | `CustomerWalletController::addFund` | `unavailable` | nothing: a hand-made wallet credit names no market and is refused |
 
 With the switch OFF `StaffOrderRoutes::rulesOf()` returns the rules above unchanged, so every guard, inventory and row of this document
@@ -1215,22 +1228,39 @@ this schema (GCC-13), and the per-market accounts of GCC-15 are dormant. So ther
 and a platform-wide money write is not the act of one market. That is the same answer this registry already gives a restricted employee for a
 platform total they cannot be shown a share of. The per-market accounts are what would change it.
 
+**The ledger payouts are now inside the regime too, and they are where the restructure was spent.** `Admin\Marketplace\PayoutController`
+had no scope middleware at all and was in no registry, so a restricted employee reached all six of its routes on the module permission
+alone -- five of them money-moving POSTs that approve a transfer, mark it paid, mark it failed, send it again, or reject it and release the
+reservation. Each is now judged by the market of the shop whose money it moves, by the same `coversEverySeller()` rule as a seller's
+withdrawal. What it cost, since this was measured before it was done: `StaffMarketplaceRoutes::isCovered()` resolved EVERY rule to PRODUCT
+ids, and a payout names a seller and no product, so a part is now resolved to the ids of its own SUBJECT and the subject decides which
+question the scope is asked. Only `seller_payout.*` answers sellers; every other part answers products exactly as before, through the same
+`productIdsOf()` the stock screens' tests drive directly. The rules live in a `MONEY_RULES` table merged in only while the money switch is
+on, the same shape `StaffOrderRoutes` uses, so with the switch off every action keeps the rule `none` it has always effectively had.
+
+**The payouts LIST is narrowed as well as its actions**, through the same rule (`App\Models\Scopes\StaffCountryPayoutScope`, subject
+`payouts`, resolved by `StaffCountryScope::sellerIdsOfPayoutsOfTheRequest()`): a screen whose five buttons refuse another market's payout
+while the page beside them prints its amount, its bank details and its reference is a half-closed gate that reads as closed. Only the GRANTED
+shops are read rather than every seller, because with the grants in force a shop outside that table belongs to no market and can never be
+listed -- the same trade `channelAccountIdsOfTheRequest()` makes, and for the same reason: a shop's market is derived rather than stored, so
+no SQL can ask the question. The scope narrows only a request the LIST narrowed, which is deliberate: each of the five actions has to run on
+the real row -- `PayoutService` releases a reservation, writes a ledger entry and marks a transfer failed -- so whether an employee may act
+is the guard's answer and never the model quietly failing to find a row.
+
 **What is still NOT covered when the switch is on**, said plainly because a half-closed money gate read as closed is worse than an open one:
 
 - the withdraw LIST and its export (`getWithdrawListView`, `exportWithdrawList`) are **not narrowed**, so a restricted employee still sees
   every market's withdrawal requests and can only decide their own;
-- `Admin\Marketplace\PayoutController` -- approve, mark paid, mark failed, reissue, reject, five money-moving POSTs of the ledger payouts --
-  has **no scope middleware at all** and is in no registry;
-- `Admin\Deliveryman\DeliverymanWithdrawController` likewise. A delivery man belongs to no market in this schema either, so that one needs
-  a rule somebody decides rather than a rule to read.
+- `Admin\Deliveryman\DeliverymanWithdrawController` has **no scope middleware at all** and is in no registry, so a restricted employee
+  reaches its list, its filter, its export, its one request's screen and its status POST on the module permission (`module:people`) alone.
+  **This one is the owner's and is not guessed at:** a delivery man belongs to no market in this schema -- `delivery_men` carries no country
+  and no storefront, and a delivery man is not a shop, so `SellerMarketScope` has nothing to say about one. There is no rule to READ here,
+  only a rule somebody decides.
 
-Those two are not left as prose. `StaffMoneyActionsTest::test_the_money_screens_that_no_staff_country_scope_covers_are_exactly_these`
-walks the real route table and pins the eleven routes concerned -- `admin/marketplace/payouts` and its five POSTs,
-`admin/delivery-man/withdraw-list` and its three others -- so a money screen that gains a scope has to come off the list and one that loses
-a scope has to go on it. Neither can happen silently. What closing `PayoutController` costs, measured rather than guessed:
-`StaffMarketplaceRoutes::isCovered()` resolves EVERY rule to product ids and a payout names a seller and no product, so it needs that
-function restructured; and the slice-5 inventory entry, six new rows of the table below and its pinned count of 54 marketplace actions all
-move with it.
+Neither is left as prose. `StaffMoneyActionsTest::test_the_money_screens_that_no_staff_country_scope_covers_are_exactly_these` walks the real
+route table and pins the five routes still outside -- `admin/delivery-man/withdraw-list` and its four others -- so a money screen that gains
+a scope has to come off the list and one that loses a scope has to go on it. Neither can happen silently. Its twin asserts that the screens
+already inside really are inside, the six payout routes among them.
 
 ## Out of slices 1 to 3: the rule that would apply
 

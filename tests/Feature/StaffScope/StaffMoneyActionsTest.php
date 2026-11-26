@@ -3,9 +3,14 @@
 namespace Tests\Feature\StaffScope;
 
 use App\Http\Controllers\Admin\Customer\CustomerWalletController;
+use App\Http\Controllers\Admin\Marketplace\PayoutController;
 use App\Http\Controllers\Admin\Vendor\VendorController;
+use App\Http\Middleware\ScopeMarketplaceToStaffCountries;
 use App\Http\Middleware\ScopeOrdersToStaffCountries;
+use App\Models\VendorPayoutRequest;
 use App\Services\Marketplace\SellerMarketScope;
+use App\Services\Staff\StaffCountryScope;
+use App\Services\Staff\StaffMarketplaceRoutes;
 use App\Services\Staff\StaffOrderRoutes;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
@@ -49,6 +54,25 @@ class StaffMoneyActionsTest extends TestCase
         'App\\Http\\Controllers\\Admin\\Deliveryman\\DeliverymanWithdrawController',
     ];
 
+    /** Payout 601 is the Kuwaiti shop's, 602 the Saudi shop's, 603 the shop granted both markets', and 604 names no shop at all. */
+    private const KUWAITI_PAYOUT = '601';
+
+    private const SAUDI_PAYOUT = '602';
+
+    private const TWO_MARKET_PAYOUT = '603';
+
+    private const OWNERLESS_PAYOUT = '604';
+
+    /** Every route of the payouts screen, by name, with the verb it answers. */
+    private const PAYOUT_ACTIONS = [
+        'admin.marketplace.payouts.index' => 'GET',
+        'admin.marketplace.payouts.approve' => 'POST',
+        'admin.marketplace.payouts.mark-paid' => 'POST',
+        'admin.marketplace.payouts.mark-failed' => 'POST',
+        'admin.marketplace.payouts.reissue' => 'POST',
+        'admin.marketplace.payouts.reject' => 'POST',
+    ];
+
     /** Employees 2 and 3 of the shared world (role 2), and 6, who is given no scope row and so is not restricted. */
     private const KUWAITI_STAFF = 2;
 
@@ -65,6 +89,7 @@ class StaffMoneyActionsTest extends TestCase
         $this->buildStaffProductTables();
         $this->runStaffScopeMigration();
         $this->buildTheWithdrawalRequests();
+        $this->buildThePayoutRequests();
         $this->buildTheSellerGrants();
         $this->switchStaffScopesOn();
         config(['gcc.storefronts.enabled' => true, 'gcc.storefronts.default_country' => 'SA']);
@@ -75,6 +100,7 @@ class StaffMoneyActionsTest extends TestCase
     {
         $this->restoreLanguageFiles();
         Schema::dropIfExists('withdraw_requests');
+        Schema::dropIfExists('vendor_payout_requests');
         Schema::dropIfExists(SellerMarketScope::TABLE);
 
         parent::tearDown();
@@ -88,6 +114,10 @@ class StaffMoneyActionsTest extends TestCase
         $this->assertSame(['none'], StaffOrderRoutes::ruleOf(controller: VendorController::class, method: 'getWithdrawView'));
         $this->assertSame(['none'], StaffOrderRoutes::ruleOf(controller: CustomerWalletController::class, method: 'addFund'));
         $this->assertFalse(StaffOrderRoutes::moneyActionsAreScoped());
+
+        foreach (['index', 'approve', 'markPaid', 'markFailed', 'reissue', 'reject'] as $action) {
+            $this->assertSame(['none'], StaffMarketplaceRoutes::ruleOf(controller: PayoutController::class, method: $action), $action);
+        }
     }
 
     public function test_with_the_money_switch_off_a_restricted_employee_reaches_every_money_action(): void
@@ -98,6 +128,120 @@ class StaffMoneyActionsTest extends TestCase
         $this->assertTrue($this->reachesWithdrawStatus(withdrawId: '502'), 'another market\'s withdrawal is decided today');
         $this->assertTrue($this->reachesWithdrawView(withdrawId: '502'));
         $this->assertTrue($this->reachesAddFund());
+
+        foreach (self::PAYOUT_ACTIONS as $routeName => $method) {
+            $this->assertTrue(
+                $this->reachesPayout(routeName: $routeName, method: $method, payoutId: self::SAUDI_PAYOUT),
+                $routeName . ' reaches another market\'s payout today',
+            );
+        }
+
+        $this->assertNull($this->marketOfTheNarrowedPayouts(), 'and the list is narrowed for nobody');
+    }
+
+    // ---- the ledger payouts, the screen that was outside the regime altogether ------------------------------------------
+
+    /**
+     * Each of the five money-moving POSTs is judged by the market of the shop whose money it moves, and the screen that shows the amount,
+     * the bank details and the reference follows the same rule -- a list that prints what the buttons refuse is a gate that reads as
+     * closed while it is open.
+     */
+    public function test_a_payout_is_decided_only_by_an_employee_of_the_shops_own_market(): void
+    {
+        config([StaffOrderRoutes::MONEY_ACTIONS_SWITCH => true, SellerMarketScope::SWITCH => true]);
+
+        $this->giveCountries(adminId: self::KUWAITI_STAFF, countries: ['KW']);
+        $this->signInAsStaff(adminId: self::KUWAITI_STAFF);
+
+        foreach (self::PAYOUT_ACTIONS as $routeName => $method) {
+            if ($routeName === 'admin.marketplace.payouts.index') {
+                continue;
+            }
+
+            $this->assertTrue($this->reachesPayout(routeName: $routeName, method: $method, payoutId: self::KUWAITI_PAYOUT), $routeName . ' on its own market');
+            $this->assertFalse($this->reachesPayout(routeName: $routeName, method: $method, payoutId: self::SAUDI_PAYOUT), $routeName . ' on another market');
+        }
+
+        $this->giveCountries(adminId: self::SAUDI_STAFF, countries: ['SA']);
+        $this->signInAsStaff(adminId: self::SAUDI_STAFF);
+        $this->assertFalse($this->reachesPayout(routeName: 'admin.marketplace.payouts.approve', method: 'POST', payoutId: self::KUWAITI_PAYOUT));
+        $this->assertTrue($this->reachesPayout(routeName: 'admin.marketplace.payouts.approve', method: 'POST', payoutId: self::SAUDI_PAYOUT));
+    }
+
+    /** A shop granted two markets, and a payout naming no shop at all, belong to no single market, so their money is refused rather than guessed at. */
+    public function test_a_payout_of_two_markets_or_of_no_shop_is_refused_to_an_employee_of_either_market(): void
+    {
+        config([StaffOrderRoutes::MONEY_ACTIONS_SWITCH => true, SellerMarketScope::SWITCH => true]);
+
+        foreach ([self::KUWAITI_STAFF => 'KW', self::SAUDI_STAFF => 'SA'] as $staff => $country) {
+            $this->giveCountries(adminId: $staff, countries: [$country]);
+            $this->signInAsStaff(adminId: $staff);
+
+            // Only values the ROUTE still accepts are listed: these paths carry `whereNumber('id')`, so `601abc` and `-601` resolve to no
+            // route at all and a refusal of them would be the router's answer rather than this guard's.
+            foreach ([self::TWO_MARKET_PAYOUT, self::OWNERLESS_PAYOUT, '999999', '0601', '0'] as $payoutId) {
+                $this->assertFalse(
+                    $this->reachesPayout(routeName: 'admin.marketplace.payouts.mark-paid', method: 'POST', payoutId: $payoutId),
+                    $country . ' is refused payout ' . $payoutId,
+                );
+            }
+        }
+
+        $this->signInAsStaff(adminId: self::UNRESTRICTED_STAFF);
+        $this->assertTrue(
+            $this->reachesPayout(routeName: 'admin.marketplace.payouts.mark-paid', method: 'POST', payoutId: self::TWO_MARKET_PAYOUT),
+            'the two-market payout is a real route, which is what makes the refusals above a guard',
+        );
+        $this->assertTrue($this->reachesPayout(routeName: 'admin.marketplace.payouts.mark-paid', method: 'POST', payoutId: self::OWNERLESS_PAYOUT));
+    }
+
+    /** The list holds the payouts of the employee's own markets, and the model itself is what narrows it, so the counts beside it agree. */
+    public function test_the_payouts_list_holds_the_employees_own_markets_and_no_others(): void
+    {
+        config([StaffOrderRoutes::MONEY_ACTIONS_SWITCH => true, SellerMarketScope::SWITCH => true]);
+
+        $this->giveCountries(adminId: self::KUWAITI_STAFF, countries: ['KW']);
+        $this->signInAsStaff(adminId: self::KUWAITI_STAFF);
+        $this->assertSame([601], $this->payoutIdsOfTheList());
+
+        $this->giveCountries(adminId: self::SAUDI_STAFF, countries: ['SA']);
+        $this->signInAsStaff(adminId: self::SAUDI_STAFF);
+        $this->assertSame([602], $this->payoutIdsOfTheList());
+
+        $this->signInAsStaff(adminId: self::UNRESTRICTED_STAFF);
+        $this->assertSame([601, 602, 603, 604], $this->payoutIdsOfTheList(), 'an employee the scopes do not restrict reads every payout');
+    }
+
+    /**
+     * With the grants off -- every installation today -- no shop names a market, so every shop's money is the DEFAULT storefront's: the
+     * employees of that market decide and list it, and nobody else does. Reading `soleMarketOfShop()` alone here would refuse every payout
+     * to every restricted employee, which is safe and useless.
+     */
+    public function test_with_the_grants_off_every_payout_is_the_default_markets(): void
+    {
+        config([StaffOrderRoutes::MONEY_ACTIONS_SWITCH => true]);
+
+        $this->giveCountries(adminId: self::SAUDI_STAFF, countries: ['SA']);
+        $this->signInAsStaff(adminId: self::SAUDI_STAFF);
+        $this->assertTrue($this->reachesPayout(routeName: 'admin.marketplace.payouts.approve', method: 'POST', payoutId: self::KUWAITI_PAYOUT));
+        $this->assertSame([601, 602, 603, 604], $this->payoutIdsOfTheList(), 'the default market\'s employee lists them all');
+
+        $this->giveCountries(adminId: self::KUWAITI_STAFF, countries: ['KW']);
+        $this->signInAsStaff(adminId: self::KUWAITI_STAFF);
+        $this->assertFalse($this->reachesPayout(routeName: 'admin.marketplace.payouts.approve', method: 'POST', payoutId: self::KUWAITI_PAYOUT));
+        $this->assertSame([], $this->payoutIdsOfTheList(), 'an employee of another market lists none');
+    }
+
+    /** The payout actions run on the real row: nothing but the guard refuses them, so a service that releases a reservation still finds it. */
+    public function test_a_payout_action_is_never_narrowed_by_the_model_so_it_acts_on_the_real_row(): void
+    {
+        config([StaffOrderRoutes::MONEY_ACTIONS_SWITCH => true, SellerMarketScope::SWITCH => true]);
+        $this->giveCountries(adminId: self::KUWAITI_STAFF, countries: ['KW']);
+        $this->signInAsStaff(adminId: self::KUWAITI_STAFF);
+
+        $this->assertTrue($this->reachesPayout(routeName: 'admin.marketplace.payouts.approve', method: 'POST', payoutId: self::KUWAITI_PAYOUT));
+        $this->assertNotNull(VendorPayoutRequest::find((int) self::KUWAITI_PAYOUT), 'the row the action was allowed on is readable');
+        $this->assertNotNull(VendorPayoutRequest::find((int) self::SAUDI_PAYOUT), 'and so is one the guard would have refused');
     }
 
     // ---- the switch is on, and the seller market grants are not ---------------------------------------------------------
@@ -274,14 +418,8 @@ class StaffMoneyActionsTest extends TestCase
             'GET admin/delivery-man/withdraw-list',
             'GET admin/delivery-man/withdraw-list-export',
             'GET admin/delivery-man/withdraw-view/{withdraw_id}',
-            'GET admin/marketplace/payouts',
             'POST admin/delivery-man/withdraw-list',
             'POST admin/delivery-man/withdraw-update-status/{id}',
-            'POST admin/marketplace/payouts/{id}/approve',
-            'POST admin/marketplace/payouts/{id}/mark-failed',
-            'POST admin/marketplace/payouts/{id}/mark-paid',
-            'POST admin/marketplace/payouts/{id}/reissue',
-            'POST admin/marketplace/payouts/{id}/reject',
         ], $uncovered);
     }
 
@@ -298,6 +436,13 @@ class StaffMoneyActionsTest extends TestCase
                 $name . ' is covered by a staff country scope',
             );
         }
+
+        foreach (array_keys(self::PAYOUT_ACTIONS) as $name) {
+            $route = Route::getRoutes()->getByName($name);
+            $this->assertNotNull($route, $name);
+
+            $this->assertContains(ScopeMarketplaceToStaffCountries::class, $route->gatherMiddleware(), $name . ' is covered by a staff country scope');
+        }
     }
 
     // ---- what the tests build and drive --------------------------------------------------------------------------------
@@ -312,6 +457,40 @@ class StaffMoneyActionsTest extends TestCase
         return $this->reaches(routeName: 'admin.vendors.withdraw_view', method: 'GET', path: ['withdrawId' => $withdrawId, 'vendorId' => '1']);
     }
 
+    private function reachesPayout(string $routeName, string $method, string $payoutId): bool
+    {
+        return $this->reaches(
+            routeName: $routeName,
+            method: $method,
+            path: ['id' => $payoutId],
+            middleware: ScopeMarketplaceToStaffCountries::class,
+        );
+    }
+
+    /**
+     * The ids the payouts screen really lists, read the way the controller reads them: through the model, after the screen's own middleware
+     * has run. Reading the scope directly would prove nothing about the screen.
+     *
+     * @return list<int>
+     */
+    private function payoutIdsOfTheList(): array
+    {
+        $this->assertTrue(
+            $this->reachesPayout(routeName: 'admin.marketplace.payouts.index', method: 'GET', payoutId: '1'),
+            'the list itself is reached: it is the rows that are narrowed, not the screen',
+        );
+
+        return VendorPayoutRequest::query()->orderBy('id')->pluck('id')->map(static fn ($id): int => (int) $id)->all();
+    }
+
+    /** What the payouts screen narrowed the request to, or null when it narrowed nothing. */
+    private function marketOfTheNarrowedPayouts(): ?array
+    {
+        $this->reachesPayout(routeName: 'admin.marketplace.payouts.index', method: 'GET', payoutId: '1');
+
+        return app(StaffCountryScope::class)->narrowedCountries(subject: StaffCountryScope::SUBJECT_PAYOUTS);
+    }
+
     private function reachesAddFund(): bool
     {
         return $this->reaches(routeName: 'admin.customer.wallet.add-fund', method: 'POST', path: []);
@@ -322,7 +501,7 @@ class StaffMoneyActionsTest extends TestCase
      *
      * @param array<string, string> $path
      */
-    private function reaches(string $routeName, string $method, array $path): bool
+    private function reaches(string $routeName, string $method, array $path, string $middleware = ScopeOrdersToStaffCountries::class): bool
     {
         $declared = Route::getRoutes()->getByName($routeName);
         $this->assertNotNull($declared, 'the route ' . $routeName . ' is declared');
@@ -340,7 +519,7 @@ class StaffMoneyActionsTest extends TestCase
         $this->app->instance('request', $request);
 
         try {
-            app(ScopeOrdersToStaffCountries::class)->handle($request, static fn () => response('reached'));
+            app($middleware)->handle($request, static fn () => response('reached'));
         } catch (NotFoundHttpException) {
             return false;
         }
@@ -365,6 +544,31 @@ class StaffMoneyActionsTest extends TestCase
         }
 
         DB::table('withdraw_requests')->insert(['id' => 504, 'seller_id' => null, 'delivery_man_id' => 9, 'amount' => 10, 'created_at' => now(), 'updated_at' => now()]);
+    }
+
+    private function buildThePayoutRequests(): void
+    {
+        Schema::dropIfExists('vendor_payout_requests');
+        Schema::create('vendor_payout_requests', static function (Blueprint $table): void {
+            $table->id();
+            $table->string('reference')->nullable();
+            $table->unsignedBigInteger('seller_id')->nullable();
+            $table->decimal('amount', 16, 2)->default(0);
+            $table->string('status')->default(VendorPayoutRequest::STATUS_REQUESTED);
+            $table->timestamps();
+        });
+
+        foreach ([601 => 1, 602 => 2, 603 => 3, 604 => null] as $id => $sellerId) {
+            DB::table('vendor_payout_requests')->insert([
+                'id' => $id,
+                'reference' => 'PO-' . $id,
+                'seller_id' => $sellerId,
+                'amount' => 25,
+                'status' => VendorPayoutRequest::STATUS_REQUESTED,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
     }
 
     private function buildTheSellerGrants(): void

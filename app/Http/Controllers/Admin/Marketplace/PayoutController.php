@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin\Marketplace;
 
 use App\Http\Controllers\BaseController;
+use App\Http\Middleware\ScopeMarketplaceToStaffCountries;
 use App\Models\Seller;
 use App\Models\VendorPayoutRequest;
 use App\Services\Marketplace\PayoutService;
@@ -25,6 +26,7 @@ class PayoutController extends BaseController
 {
     public function __construct(private readonly PayoutService $payoutService)
     {
+        $this->middleware(ScopeMarketplaceToStaffCountries::class);
     }
 
     public function index(?Request $request = null, ?string $type = null): View
