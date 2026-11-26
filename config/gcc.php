@@ -883,6 +883,18 @@ return [
         // that holds a web request open is a worse failure than the one it is recovering from. A queue worker may set one.
         'retry_delay_ms' => (int) env('GCC_NOTIFICATION_RETRY_DELAY_MS', 0),
 
+        // Whether a market may have its own WORDING for a notification, not only its own translation (I1-03). OFF, which is the platform
+        // of today: `notification_messages` holds one row per (user_type, key) for the whole installation and every market is told the
+        // same thing in the same words.
+        //
+        // On, and once `2027_01_10_100000_add_storefront_to_notification_messages_table` has run, a row naming a country is that market's
+        // own wording for that message and the resolution order is the one I1-03 states -- the market's row in the recipient's language,
+        // then the GLOBAL row in that language (so an untranslated override does not send another language's words), then the market's own
+        // untranslated words, then the global ones. A market with a row of its own may also switch that message OFF for itself.
+        //
+        // The DEFAULT market is always read as the global row, so Saudi wording cannot be moved by this even by writing an SA row.
+        'market_templates' => filter_var(env('GCC_NOTIFICATION_MARKET_TEMPLATES', false), FILTER_VALIDATE_BOOLEAN),
+
         // Whether a message's identity is claimed before it is sent, so a replay of one business event sends nothing twice (I1-09).
         // OFF, which is the platform of today: a queue worker running one order status job twice sends the customer two identical
         // pushes, and nothing downstream can tell that from two real status changes.

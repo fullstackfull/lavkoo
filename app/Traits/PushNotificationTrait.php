@@ -4,6 +4,7 @@ namespace App\Traits;
 
 use App\Services\Notification\NotificationAttemptLog;
 use App\Services\Notification\NotificationProfiles;
+use App\Services\Notification\MarketNotificationText;
 use App\Services\Notification\MessageIdentity;
 use App\Services\Notification\SendsWithinABudget;
 use App\Services\Storefront\OrderNotificationContext;
@@ -309,6 +310,20 @@ trait PushNotificationTrait
                 'your_referred_customer_has_been_place_order' => 'your_referred_customer_has_been_place_order',
                 'your_referred_customer_order_has_been_delivered' => 'your_referred_customer_order_has_been_delivered',
             ];
+            // A market's own wording for this message, where it has written one (I1-03). It answers null for the default market, for a
+            // market with no override, and for every market while `gcc.notifications.market_templates` is off or its migration has not
+            // run -- and on null this reads the one global row exactly as it always has. `false` is the market having switched the
+            // message off for itself, which is a decision and is not the same as having none.
+            $forThisMarket = app(MarketNotificationText::class)->of(
+                key: $notificationKey[$key],
+                userType: $userType,
+                language: $lang,
+            );
+
+            if ($forThisMarket !== null) {
+                return $forThisMarket;
+            }
+
             $data = NotificationMessage::with(['translations' => function ($query) use ($lang) {
                 $query->where('locale', $lang);
             }])->where(['key' => $notificationKey[$key], 'user_type' => $userType])->first() ?? ["status" => 0, "message" => "", "translations" => []];
