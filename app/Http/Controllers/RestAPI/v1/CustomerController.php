@@ -18,6 +18,7 @@ use App\Models\ShippingAddress;
 use App\Models\SupportTicket;
 use App\Models\SupportTicketConv;
 use App\Models\Wishlist;
+use App\Services\Storefront\OrderMarketReading;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\AddressSnapshot;
 use App\Services\Address\StorefrontAddressService;
@@ -64,6 +65,7 @@ class CustomerController extends Controller
         private readonly DigitalFileAddressService $digitalFileAddresses,
         private readonly CustomerAccountDeletionGuardService $accountDeletionGuard,
         private readonly CustomerAccountDeletionService $customerAccountDeletionService,
+        private readonly OrderMarketReading $orderMarketReading,
     )
     {
     }
@@ -526,6 +528,7 @@ class CustomerController extends Controller
                         $query->where('order_type', 'default_type');
                     });
             })
+            ->when($request['storefront'], fn ($query) => $this->orderMarketReading->narrowToPickedMarket($query, $request['storefront']))
             ->orderBy('id', 'desc')
             ->paginate($request['limit'], ['*'], 'page', $request['offset']);
 
@@ -537,6 +540,10 @@ class CustomerController extends Controller
 
             return $data;
         });
+
+        // Additive: the row's own columns are untouched and three keys say what they MEAN -- an order that carries no stamp still names
+        // the market and the company it was sold by, which a null column cannot do.
+        $this->orderMarketReading->nameOn($orders->items());
 
         $orders = [
             'total_size' => $orders->total(),
@@ -591,6 +598,9 @@ class CustomerController extends Controller
             $query['reviewData'] = $reviewData;
             return $query;
         });
+
+        $this->orderMarketReading->nameOn($detailsList->pluck('order')->filter());
+
         return response()->json($detailsList, 200);
     }
 
@@ -659,6 +669,7 @@ class CustomerController extends Controller
             $order['offlinePayments']->payment_info = $order->offlinePayments->payment_info;
         }
         $order = json_decode(json_encode($order), true);
+        $order += $this->orderMarketReading->of($order);
         // Additive: only an order that has provider shipments carries this key, so existing responses are unchanged.
         if ($fulfillments = app(CustomerFulfillmentPresenter::class)->forOrder((int) $order['id'])) {
             $order['fulfillments'] = $fulfillments;

@@ -21,6 +21,7 @@ use App\Services\CustomerAccountDeletionGuardService;
 use App\Services\CustomerAccountDeletionService;
 use App\Services\Fulfillment\Support\SaudiPhone;
 use App\Services\OrderStatusHistoryService;
+use App\Services\Storefront\OrderMarketReading;
 use App\Services\Storefront\StorefrontPaymentMethods;
 use App\Traits\PdfGenerator;
 use App\Http\Controllers\Controller;
@@ -79,6 +80,7 @@ class UserProfileController extends Controller
         private readonly StorefrontPaymentMethods                  $storefrontPaymentMethods,
         private readonly CustomerAccountDeletionGuardService       $accountDeletionGuard,
         private readonly CustomerAccountDeletionService            $customerAccountDeletionService,
+        private readonly OrderMarketReading                        $orderMarketReading,
     )
     {
         // The address book is the signed-in customer's: nobody else can add, open, change or remove an address.
@@ -338,11 +340,17 @@ class UserProfileController extends Controller
         $offlinePaymentMethods = OfflinePaymentMethod::where('status', 1)->get();
         $offlinePaymentStatus = getWebConfig(name: 'offline_payment');
         $cashOnDeliveryStatus = getWebConfig(name: 'cash_on_delivery');
+        $pickedMarket = $request['storefront'];
         $orders = $this->order->with('orderEditHistory', 'details', 'seller.shop')
             ->withSum('orderDetails', 'qty')
             ->where(['customer_id' => auth('customer')->id(), 'is_guest' => '0'])
+            ->when($pickedMarket, fn ($query) => $this->orderMarketReading->narrowToPickedMarket($query, $pickedMarket))
             ->orderBy('id', $order_by)
             ->paginate(10)->appends($request->all());
+        $this->orderMarketReading->nameOn($orders);
+        // Empty while storefronts are off and while the customer has bought in one market only, which is what leaves the page as it is today.
+        $marketsToOffer = $this->orderMarketReading->marketsOfCustomer(customerId: auth('customer')->id());
+
         return view(VIEW_FILE_NAMES['account_orders'], compact(
             'orders',
             'order_by',
@@ -350,6 +358,8 @@ class UserProfileController extends Controller
             'offlinePaymentMethods',
             'offlinePaymentStatus',
             'cashOnDeliveryStatus',
+            'marketsToOffer',
+            'pickedMarket',
         ));
     }
 
