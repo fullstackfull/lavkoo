@@ -98,12 +98,16 @@ six tables scoped `storefront` are the ones a second storefront per country woul
   `StorefrontSearchIndexTest` pins it (4 tests), and removing that one call makes a Kuwaiti search for `vitamin` return
   the two Saudi products instead of the two Kuwaiti ones. `unmatchedTerms` is narrowed twice over, by the same call and
   by `Product::active()`'s own scope. What a search result is *not* is a platform total.
-- **A market of its own on a queued job — built since this line was written.** Of the 27 files naming `ShouldQueue`, 26
-  classes implement it; 22 carry or honour a market and 4 are declared `no market of its own` with reasons, enforced in
-  both directions by `tests/Feature/Queue/EveryQueuedClassDeclaresItsMarketTest.php` (a class claiming a market is built
-  and asked for its queue middleware; a class claiming none is refused one). A job records the dispatching market in its
-  constructor and it rides in the serialised payload; a queued listener records it in the middleware the dispatcher asks
-  for, because Laravel builds a listener without its constructor. The 45 **scheduled** entries are classified too (42 on
+- **A market of its own on a queued job — built since this line was written.** All **28** files naming `ShouldQueue`
+  implement it; 24 carry or honour a market (11 the dispatching request's, 6 the record the payload names, 7 the order
+  the notification is about) and 4 are declared `no market of its own` with reasons, enforced in both directions by
+  `tests/Feature/Queue/EveryQueuedClassDeclaresItsMarketTest.php` (a class claiming a market is built and asked for its
+  queue middleware; a class claiming none is refused one). The number was 26 of 27 while `RefundListener` named the
+  contract without implementing it, and 27 is still the figure the three criteria quote: the 28th is
+  `OrderStatusListener`, which named the contract NOWHERE and so was in nobody's count while it sent a push inside every
+  order status change on every surface. A job records the dispatching market in its constructor and it rides in the
+  serialised payload; a queued listener records it in the middleware the dispatcher asks for, because Laravel builds a
+  listener without its constructor. The 45 **scheduled** entries are classified too (42 on
   a default install, 45 with three switched-off features' entries), and four of them have no market — see the gaps
   above and `seller:run-stuck-bulk-jobs`.
 - **Country paths.** `gcc.storefronts.paths.enabled` ships off and no route group is mounted under a country prefix, so

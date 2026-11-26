@@ -127,6 +127,10 @@ final class StaffJobInventory
             'class' => self::NOT_STAFF_STARTED, 'started' => 'OrderManager, at checkout',
             'reason' => 'Confirms the one order the event names to the customer who placed it, fired at checkout.',
         ],
+        'App\Listeners\OrderStatusListener' => [
+            'class' => self::ONE_RECORD, 'started' => 'Admin\Order\OrderController singly and in bulk, Vendor\Order\OrderController, the seller API v2 and v3, the delivery-man API v2 and the seller API\'s RefundController',
+            'reason' => 'Tells the buyer, the shop or the delivery man that the one order the event names changed status. All three recipients come off that order, so there is no list of a country to narrow, and the employee\'s right to change that order was decided on the request by StaffOrderRoutes. It was not on this list until it was queued at all: the file named ShouldQueue nowhere, so the scan could not see it.',
+        ],
         'App\Listeners\PasswordResetListener' => [
             'class' => self::NOT_STAFF_STARTED, 'started' => 'the customer password-reset paths',
             'reason' => 'Sends the reset link for the account a customer asked about. Started by that customer, on their own account.',

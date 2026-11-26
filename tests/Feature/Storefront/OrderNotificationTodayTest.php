@@ -16,6 +16,12 @@ use Illuminate\Support\Facades\Mail;
  * carries a storefront record is notified exactly as an order without one: the title in the store's own language, and the delivery charge
  * converted into the platform's currency. The last two pins hold with the switches on, for an order that records no storefront and for the
  * one listener that sends nothing at all.
+ *
+ * **The query figure moved, and not because a storefront read was added.** The first test asserted exactly
+ * {@see self::QUERIES_OF_A_CUSTOMER_PUSH}, which was right when it was written: `OrderStatusListener` was not queued, so the push was built
+ * in the request from the order the caller already had. It is queued now (owner decision of 2026-11-26), and `SerializesModels` hands the
+ * worker an id rather than the order, so the worker's first query re-reads it — one query, measured, and the only change. The switches are
+ * still off and still buy the platform nothing extra, which is what this class is here to say; the `+ 1` names whose query it is.
  */
 class OrderNotificationTodayTest extends OrderNotificationTestCase
 {
@@ -35,7 +41,11 @@ class OrderNotificationTodayTest extends OrderNotificationTestCase
         $this->assertSame('Order ' . self::KW_ORDER . ' is pending', $push['message']['notification']['body']);
         $this->assertFalse(app()->bound(StorefrontContext::class), 'nothing was bound');
         $this->assertSame('KW', DB::table('orders')->where('id', self::KW_ORDER)->value('storefront_country'), 'the order does carry a record');
-        $this->assertSame(self::QUERIES_OF_A_CUSTOMER_PUSH, $this->queriesOfTheNotification, 'the switched-off platform asks the database nothing extra');
+        $this->assertSame(
+            self::QUERIES_OF_A_CUSTOMER_PUSH + 1,
+            $this->queriesOfTheNotification,
+            'the switched-off platform asks the database nothing extra of its own; the one extra query is the queue\'s',
+        );
     }
 
     public function test_with_the_switches_off_the_delivery_charge_in_a_push_is_the_platform_conversion_it_has_always_been(): void
