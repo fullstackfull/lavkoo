@@ -118,23 +118,11 @@ class GccMigrationsContractTest extends TestCase
     /**
      * Columns added to a table that already exists WITHOUT being nullable and without a default, with the reason each is safe anyway. A
      * column like that is additive -- it drops nothing -- and still stops a half-deployed application dead: the code that ran a second
-     * before the migration writes a row without it and the engine refuses the insert. Meant to hold nothing that really adds a column.
-     *
-     * The one entry adds no column at all: the scan reads a `->change()` on an existing column the same way it reads a definition, because
-     * nothing in the Blueprint text distinguishes them, and `change` cannot go in NOT_A_COLUMN without the scan ceasing to read every
-     * other `->change()` on this tree as well.
+     * before the migration writes a row without it and the engine refuses the insert. Empty, and meant to stay empty.
      *
      * @var array<string, string>
      */
-    private const NOT_NULL_WITHOUT_A_DEFAULT = [
-        '2026_12_15_100000_carry_three_decimals_on_myfatoorah_refund_money.php'
-            => 'adds no column. It changes the SCALE of three columns that already exist (24,2 -> 24,3, the entry in NOT_EXPAND_ONLY above '
-            . 'says why) and myfatoorah_refunds.amount and myfatoorah_payment_attempts.expected_amount are already NOT NULL with no '
-            . 'default, exactly as their create migrations declared them. Giving them a default to satisfy this scan would change the '
-            . 'schema in a way the change does not need, and would hide the next insert that forgets an amount. No insert that worked a '
-            . 'second before the deploy stops working: a writer that supplied an amount still supplies one, and a wider scale accepts '
-            . 'every value the narrower one did',
-    ];
+    private const NOT_NULL_WITHOUT_A_DEFAULT = [];
 
     /** Methods a `Schema::table` callback may call without adding a column: an index or a key needs no `hasColumn`. */
     private const NOT_A_COLUMN = [
@@ -393,6 +381,18 @@ class GccMigrationsContractTest extends TestCase
                 }
                 // `timestamps()`, `softDeletes()` and `rememberToken()` are nullable by construction.
                 if (preg_match('/->\s*(timestamps|softDeletes|nullableTimestamps|rememberToken)\s*\(/', $statement) === 1) {
+                    continue;
+                }
+                // A `->change()` ADDS no column: it alters one that already exists, so the half-deployed window this rule exists to
+                // close cannot open -- a writer that supplied the value a second before the deploy still supplies it. Without this the
+                // scan reads `$table->decimal('amount', 24, 3)->change()` as a new NOT NULL column and a migration that only widens a
+                // decimal's scale has to be excused in NOT_NULL_WITHOUT_A_DEFAULT, which is meant to stay empty.
+                //
+                // Nothing is lost by skipping it, and that is the point: `narrowingStatements()` flags EVERY `->change()` as not
+                // expand-only, so a change() cannot reach this tree without a reasoned entry in NOT_EXPAND_ONLY. The dangerous case --
+                // a change() that makes an existing NULLABLE column NOT NULL, which the rows already there would refuse -- is caught
+                // and read there, by a human, rather than silently by a scan that cannot tell it from a widening.
+                if (preg_match('/->\s*change\s*\(\s*\)/', $statement) === 1) {
                     continue;
                 }
                 if (preg_match('/->\s*(nullable|default|useCurrent|useCurrentOnUpdate|generatedAs|storedAs|virtualAs)\s*\(/', $statement) !== 1) {
