@@ -80,10 +80,32 @@ six tables scoped `storefront` are the ones a second storefront per country woul
 - **The two tables above**, by choice, with the reasons given.
 - **Entity-bound wallets.** The per-market accounts exist and are dormant; `users.wallet_balance` is still the authority,
   and the drift between it and the ledger is pinned by a test rather than fixed (M2-17).
-- **A market dimension in the analytics rollup, the search index and the monitoring module.** Not switched off: absent.
-  A figure read from them is a platform total.
-- **A market of its own on a queued job.** None of the 27 `ShouldQueue` classes names one; a queued message is correct
-  because the order it reads carries a market.
+- **A market dimension in the analytics rollup and the monitoring module.** Not switched off: absent. A figure read from
+  either is a platform total. The analytics rollup is the one that misleads, because `analytics_daily` *does* carry a
+  `country` column and it is the **visitor's geography** (`VisitorContext::country`, read off the request), not the
+  storefront the visit was served from: a shopper in Kuwait browsing the Saudi storefront is counted under KW. So a
+  figure an operator reads while arranging one market is that market's by appearance only, and
+  `commerce:metrics-refresh` carries the same figures into the ranking of dynamic collections. The monitoring module's
+  series are measurements of one server, which serves every market, so they have nothing per market to lose; the
+  per-market alerts an operator wants (`stock_zero`, `orders_pending_too_long`, `legal_not_ready`) are a separate chain
+  that does exist per market in the platform-admin overview. Both are declared and counted as gaps in
+  `tests/Feature/Queue/EveryScheduledTaskDeclaresItsMarketTest.php`.
+- **The search index is NOT in that list, and the line that used to put it there was wrong.** The index table carries no
+  market column — its rows are one per product per locale — and it needs none, because a **search** is narrowed to the
+  storefront at read time: `ProductSearchService::baseQuery` passes the query through
+  `StorefrontCatalog::restrictProductIds` (against `products.storefront_country`) *before* the 500-id cap, so the oldest
+  and largest catalogue cannot fill the pool and leave a later storefront a fraction of its own matches.
+  `StorefrontSearchIndexTest` pins it (4 tests), and removing that one call makes a Kuwaiti search for `vitamin` return
+  the two Saudi products instead of the two Kuwaiti ones. `unmatchedTerms` is narrowed twice over, by the same call and
+  by `Product::active()`'s own scope. What a search result is *not* is a platform total.
+- **A market of its own on a queued job — built since this line was written.** Of the 27 files naming `ShouldQueue`, 26
+  classes implement it; 22 carry or honour a market and 4 are declared `no market of its own` with reasons, enforced in
+  both directions by `tests/Feature/Queue/EveryQueuedClassDeclaresItsMarketTest.php` (a class claiming a market is built
+  and asked for its queue middleware; a class claiming none is refused one). A job records the dispatching market in its
+  constructor and it rides in the serialised payload; a queued listener records it in the middleware the dispatcher asks
+  for, because Laravel builds a listener without its constructor. The 45 **scheduled** entries are classified too (42 on
+  a default install, 45 with three switched-off features' entries), and four of them have no market — see the gaps
+  above and `seller:run-stuck-bulk-jobs`.
 - **Country paths.** `gcc.storefronts.paths.enabled` ships off and no route group is mounted under a country prefix, so
   no old link has moved.
 
