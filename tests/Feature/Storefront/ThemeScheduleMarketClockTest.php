@@ -8,6 +8,7 @@ use App\Services\Theme\ThemeScheduleClock;
 use App\Services\Theme\ThemeStorefrontSelection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Tests\Support\BuildsThemeWorld;
 use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
@@ -172,13 +173,31 @@ class ThemeScheduleMarketClockTest extends TestCase
         self::assertNull($clock->momentTyped(theme: $emirati, typed: '2099-04-01T09:00'));
         self::assertSame(ThemeScheduleClock::TOO_LATE_FOR_THE_COLUMN, $clock->whyItCannotBeScheduled(theme: $emirati, typed: '2099-04-01T09:00'));
         self::assertNotNull($clock->momentTyped(theme: $emirati, typed: '2037-04-01T09:00'), 'a date the column does hold is still scheduled');
+    }
 
-        // What the refusal prevents, written out so the reason cannot be mistaken for tidiness: the column really does store zero, and the
-        // runner's own scope really does read zero as due.
+    /**
+     * What the refusal above PREVENTS, written out so the reason cannot be mistaken for tidiness: the column really does store zero, and
+     * the runner's own scope really does read zero as due.
+     *
+     * It is the half of that test that can only be asked of a real engine, and it is its own test for that reason. It used to be the tail
+     * of the test above, which made the whole thing red on SQLite -- a `TIMESTAMP` out of range is a MySQL and MariaDB behaviour, and
+     * SQLite keeps dates as text and stores `2099-04-01 09:00:00` happily, so there the assertion read the moment back unchanged. Both
+     * SQLite jobs of CI run 678 carried that failure and the handover did not account for it. Splitting it rather than skipping the lot
+     * keeps the REFUSAL -- which is application code and engine-independent -- asserted on every engine, which is the part a regression
+     * would break.
+     */
+    public function test_the_column_really_does_store_zero_and_the_runner_reads_zero_as_due(): void
+    {
+        if (!in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+            $this->markTestSkipped('A TIMESTAMP beyond 2038 is truncated by MySQL and MariaDB only: SQLite keeps dates as text and stores the moment unchanged.');
+        }
+
+        $emirati = $this->giveTheme(name: 'Emirati', country: 'AE');
         $draft = $this->draftOf($emirati);
-        \Illuminate\Support\Facades\DB::table('theme_versions')->where('id', $draft->id)->update(['publish_at' => '2099-04-01 09:00:00']);
 
-        self::assertSame('0000-00-00 00:00:00', \Illuminate\Support\Facades\DB::table('theme_versions')->where('id', $draft->id)->value('publish_at'));
+        DB::table('theme_versions')->where('id', $draft->id)->update(['publish_at' => '2099-04-01 09:00:00']);
+
+        self::assertSame('0000-00-00 00:00:00', DB::table('theme_versions')->where('id', $draft->id)->value('publish_at'));
         self::assertContains($draft->id, ThemeVersion::dueToPublish()->pluck('id')->all(), 'zero reads as already due');
     }
 
