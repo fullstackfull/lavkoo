@@ -30,6 +30,11 @@ use Tests\Support\BuildsStorefrontCouponWorld;
  *
  * Two cases keep the old sentence on purpose, and both are pinned here as records rather than as intentions: a PERCENTAGE coupon, where
  * the condition compares a figure of per cent with an amount of money, and a cart with nothing eligible at all.
+ *
+ * **The percentage case has since been CORRECTED, behind a switch that ships off** (the owner's decision of 2026-11-26,
+ * `gcc.coupons.percentage_of_the_eligible_total`, measured in {@see CouponPercentageOfTheEligibleTotalTest}). The case below therefore
+ * still pins what this platform does as it ships, and is no longer a statement that the defect is unfixed: it is the dormancy of the
+ * correction, read from the refusal's side.
  */
 class CouponRefusalNamesItsOwnRuleTest extends ApiAddressTestCase
 {
@@ -89,8 +94,13 @@ class CouponRefusalNamesItsOwnRuleTest extends ApiAddressTestCase
     /**
      * RECORDED, not intended: a percentage coupon keeps the minimum sentence because the condition compares a figure of per cent with an
      * amount of money. 31 per cent is refused on a cart of 30 and applied to a cart of 100 (CouponBehaviourPinsTest pins both), so the
-     * fault is in the CONDITION. Correcting it would let through a coupon this platform refuses today, which changes what a customer is
-     * charged, and is not a wording correction.
+     * fault is in the CONDITION. Correcting it lets through a coupon this platform refuses today, which changes what a customer is charged,
+     * and is not a wording correction.
+     *
+     * The owner approved that correction on 2026-11-26 and NOT its release, so it is switched off and this is what a customer still meets.
+     * With `gcc.coupons.percentage_of_the_eligible_total` on, this cart takes 31% of 100 and a cart whose share really is bigger than its
+     * lines is told the OTHER sentence -- which is the sentence this file exists to make true.
+     * {@see CouponPercentageOfTheEligibleTotalTest} holds both readings.
      */
     public function test_a_percentage_figure_above_the_eligible_total_keeps_the_old_sentence_and_the_reason_is_a_defect_in_the_condition(): void
     {

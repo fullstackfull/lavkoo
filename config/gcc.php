@@ -779,6 +779,22 @@ return [
             // store). OFF, so the count is what this platform has always counted; it needs the switch above as well.
             'per_store' => filter_var(env('GCC_COUPON_LIMITS_PER_STORE', false), FILTER_VALIDATE_BOOLEAN),
         ],
+
+        // Whether a PERCENTAGE coupon is judged by the discount it would give rather than by its figure of per cent (the owner's decision
+        // of 2026-11-26). `OrderManager::getTotalCouponAmount` refuses a coupon whose `discount` is larger than the eligible total, and
+        // for a percentage coupon that column holds a figure of PER CENT: 31 means 31 per cent, and it was being compared with an amount
+        // of money. So a 31% coupon is refused on a cart of 30 and applied to a cart of 100, and the customer is told the minimum purchase
+        // was not reached -- which is not the rule that refused them and is not true of their cart.
+        //
+        // ON, the share is computed first (`eligible x per cent / 100`, capped by `max_discount`, exactly as it always was) and THAT is
+        // what the limits are judged against. A money coupon is unaffected: its figure and its discount are the same number, so every cart
+        // it refuses today it still refuses, with the same sentence.
+        //
+        // OFF, which is how this ships, because it changes what a customer is charged: every percentage coupon on a cart worth less than
+        // its figure of per cent stops being refused and starts taking its share, and on a platform that converts from a base currency
+        // (the riyal at 3.75) the eligible total is in the stored unit, so a 30% coupon currently refuses every cart under 112.50 riyals.
+        // The owner has approved the correction and NOT its release.
+        'percentage_of_the_eligible_total' => filter_var(env('GCC_COUPON_PERCENTAGE_OF_ELIGIBLE_TOTAL', false), FILTER_VALIDATE_BOOLEAN),
     ],
 
     'notifications' => [
