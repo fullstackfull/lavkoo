@@ -2,14 +2,19 @@
 
 namespace Tests\Feature\SalesChannels;
 
+use App\Models\InventoryLocation;
 use App\Models\InventoryPool;
 use App\Models\InventoryReservation;
+use App\Models\SalesChannelAccount;
 use App\Models\SalesChannelProductMapping;
 use App\Models\SalesChannelSyncState;
 use App\Services\SalesChannels\Inventory\Allocation\PoolAllocationService;
+use App\Services\SalesChannels\Inventory\InventoryLocationMarket;
 use App\Services\SalesChannels\Inventory\InventoryLocationService;
 use App\Services\SalesChannels\Inventory\PoolKey;
+use App\Services\Storefront\StorefrontMarketRows;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Tests\Support\BuildsRemoteOrders;
 use Tests\Support\BuildsStockPools;
@@ -24,6 +29,10 @@ class AdminSalesChannelsStockAttentionTest extends AdminSalesChannelsTestCase
     use BuildsStockPools;
 
     private const PRODUCT = 50;
+
+    private const KUWAITI_PRODUCT = 51;
+
+    private const KUWAITI_SELLER = '7654320';
 
     protected function setUp(): void
     {
@@ -194,6 +203,116 @@ class AdminSalesChannelsStockAttentionTest extends AdminSalesChannelsTestCase
         foreach (['attention_stock_deficit', 'attention_stock_over_offered', 'attention_stock_source_not_confirmed', 'attention_stock_raises_frozen', 'attention_stock_unattributed', 'attention_stock_aged_holds'] as $key) {
             $this->assertStringNotContainsString(e(translate($key)), $html, $key);
         }
+    }
+
+    /**
+     * THE DEFECT: the over-offered section was BLIND to a pool of any market but the default one.
+     *
+     * That section groups the listings by the `allocation.pool` string the division wrote on each of them, and looks each pool up by the
+     * key it builds from the pool row. A pool's market is part of its identity (M-656, M-745), so the written string ends `@KW` -- and the
+     * key this screen built named no market, so the lookup missed, `?? 0` answered, and the one section of this screen that exists to catch
+     * units being sold twice reported nothing at all for every market but Saudi Arabia.
+     *
+     * The same world as the Saudi case above, one market along: 20 units of a Kuwaiti product on the Kuwaiti shelf, divided between two
+     * Kuwaiti accounts, and both channels still showing 11 each -- two more than the pool holds. (The Saudi case takes its units away with
+     * a store order instead; `BuildsStockPools::storeOrder` records every fulfilment line under `torod_point`, so a store order against an
+     * M5AZN product takes nothing from this shelf. Noted in the handoff; this test does not need it.)
+     */
+    public function test_the_hub_lists_a_pool_of_another_market_whose_channels_are_shown_more_than_is_left(): void
+    {
+        $this->theMarketsExist();
+        $this->kuwaitiProduct();
+        $first = $this->kuwaitiAccount(self::KUWAITI_SELLER);
+        $second = $this->kuwaitiAccount('7654321');
+        $this->stockListing($first, self::KUWAITI_PRODUCT, $this->kuwaitiShelf(), 'BAR-KW-A');
+        $this->stockListing($second, self::KUWAITI_PRODUCT, $this->kuwaitiShelf(), 'BAR-KW-B');
+        $this->divideKuwait();
+        SalesChannelProductMapping::query()->update(['last_published_quantity' => 11]);
+
+        // The pool the division wrote really is Kuwait's, or this test would be measuring the Saudi case twice.
+        $this->assertSame('KW', (string) InventoryPool::where('product_id', self::KUWAITI_PRODUCT)->sole()->storefront_country);
+        $this->assertSame(
+            $this->kuwaitiShelf()->id . ':' . self::KUWAITI_PRODUCT . ':@KW',
+            (string) SalesChannelProductMapping::where('listing_key', 'BAR-KW-A')->sole()->allocation['pool'],
+            'the string the screen has to look the pool up by',
+        );
+
+        $html = $this->hub();
+
+        $this->assertStringContainsString(e(translate('attention_stock_over_offered')), $html);
+        $this->assertStringContainsString(e(translate('shown_on_channels')) . ': 22 · ' . e(translate('net_to_offer')) . ': 20', $html);
+        $this->assertStringContainsString('Product ' . self::KUWAITI_PRODUCT, $html);
+    }
+
+    /**
+     * And the market that was always right stays right once the pool table keys by a market.
+     *
+     * Kept beside the test above because the cheapest wrong fix is to append the market unconditionally: every pool that exists today holds
+     * `''` in that column, and a key that spelled it `@SA`, or `@`, would stop matching its own stored string and silence the Saudi
+     * section instead of the Kuwaiti one.
+     */
+    public function test_the_default_markets_pool_is_still_read_once_the_pool_table_keys_by_a_market(): void
+    {
+        $this->theMarketsExist();
+        $this->providerFigure(self::PRODUCT, 20, now()->subMinutes(30));
+        $first = $this->trendyolAccount();
+        $second = $this->trendyolAccount(sellerId: '7654321');
+        $this->stockListing($first, self::PRODUCT, $this->torodLocation(), 'BAR-A');
+        $this->stockListing($second, self::PRODUCT, $this->torodLocation(), 'BAR-B');
+        $this->divide();
+        SalesChannelProductMapping::query()->update(['last_published_quantity' => 10]);
+        $this->storeOrder(1, self::PRODUCT, 10);
+        $this->divide();
+
+        $this->assertSame('', (string) InventoryPool::where('product_id', self::PRODUCT)->sole()->storefront_country, 'a Saudi pool names no market, as every pool of this platform does');
+
+        $html = $this->hub();
+
+        $this->assertStringContainsString(e(translate('attention_stock_over_offered')), $html);
+        $this->assertStringContainsString(e(translate('shown_on_channels')) . ': 20 · ' . e(translate('net_to_offer')) . ': 10', $html);
+    }
+
+    /** The markets the products, the shelves and the pools carry, and the switch that makes anything read them. */
+    private function theMarketsExist(): void
+    {
+        (require database_path('migrations/2026_11_25_100000_add_storefront_country_to_products.php'))->up();
+        (require database_path('migrations/2027_01_07_100000_add_market_to_inventory_pools.php'))->up();
+        config(['gcc.storefronts.enabled' => true]);
+        app(StorefrontMarketRows::class)->forget();
+        app(InventoryLocationMarket::class)->forget();
+    }
+
+    /** A Kuwaiti product on the Kuwaiti shelf, with 20 units the supplier confirms. */
+    private function kuwaitiProduct(): void
+    {
+        $this->storeProduct(self::KUWAITI_PRODUCT, provider: 'm5azn');
+        DB::table('products')->where('id', self::KUWAITI_PRODUCT)->update([StorefrontMarketRows::COLUMN => 'KW']);
+        $this->kuwaitiShelf()->forceFill([StorefrontMarketRows::COLUMN => 'KW'])->save();
+        $this->providerFigure(self::KUWAITI_PRODUCT, 20, now()->subMinutes(30), provider: 'm5azn');
+        app(InventoryLocationMarket::class)->forget();
+    }
+
+    /** The M5AZN supplier stock, which this world uses as the Kuwaiti shelf: a shelf belongs to a market of its own (E11-F19). */
+    private function kuwaitiShelf(): InventoryLocation
+    {
+        return app(InventoryLocationService::class)->ensureDefaults()[1];
+    }
+
+    /** A Trendyol account that sells in Kuwait: `storefront_code` is the setting Trendyol keeps its own storefront under. */
+    private function kuwaitiAccount(string $sellerId): SalesChannelAccount
+    {
+        $account = $this->trendyolAccount(sellerId: $sellerId);
+        $account->forceFill(['settings' => ['storefront_code' => 'KW', 'integration_name' => 'PharmacyHub']])->save();
+
+        return $account->fresh();
+    }
+
+    private function divideKuwait(): void
+    {
+        app(PoolAllocationService::class)->allocate(PoolKey::ofListing(
+            (new SalesChannelProductMapping())->forceFill(['product_id' => self::KUWAITI_PRODUCT, 'variant_key' => '']),
+            (int) $this->kuwaitiShelf()->id,
+        ));
     }
 
     public function test_the_stock_screen_shows_how_a_pool_is_shared_and_what_each_channel_promised(): void

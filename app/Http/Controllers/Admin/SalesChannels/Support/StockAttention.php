@@ -210,9 +210,31 @@ final class StockAttention
         return $newestFirst === '' ? '' : ' · ' . translate('held_by_orders') . ': ' . $newestFirst;
     }
 
+    /**
+     * The key of a pool AS THE POOL ROW ITSELF NAMES IT, market included.
+     *
+     * The market is part of a pool's identity (M-656, M-745) and this read left it out, so the key built here was always the DEFAULT
+     * storefront's. That is harmless for `holdingOrders()`, whose `columns()` carry no market either, and it silently broke
+     * `offeredBeyondWhatIsLeft()`: that section groups the listings by the `allocation.pool` string the division WROTE, which for a pool of
+     * another market ends `@KW`, and looks each pool up by the string built here, which did not. The lookup missed, `?? 0` answered, and a
+     * Kuwaiti pool showing more on its channels than it has left was reported to nobody -- the one section of this screen that exists to
+     * catch units being sold twice.
+     *
+     * `''` for a row that names no market and for a row of the default one, which is every pool that exists today and every pool at all
+     * before the migration has run: an Eloquent model answers null for a column it does not carry, so the screen reads the same on a
+     * database without it. The `??` is measurably INERT today -- `(string) null` is already `''` -- and is kept rather than tidied away
+     * because it names the rule (`StorefrontMarketRows`: a row that names no market is the default storefront's) and because it is what
+     * would still be right if `DEFAULT_MARKET` were ever spelled as anything but the empty string. `LocationStockPage` reads the same
+     * column the same way.
+     */
     private function key(InventoryPool $pool): PoolKey
     {
-        return new PoolKey((int) $pool->location_id, (int) $pool->product_id, (string) $pool->variant_key);
+        return new PoolKey(
+            locationId: (int) $pool->location_id,
+            productId: (int) $pool->product_id,
+            variantKey: (string) $pool->variant_key,
+            market: (string) ($pool->{PoolKey::MARKET_COLUMN} ?? PoolKey::DEFAULT_MARKET),
+        );
     }
 
     /** @param Collection<int, \App\Models\Product> $names */
