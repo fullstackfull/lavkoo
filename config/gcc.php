@@ -381,6 +381,13 @@ return [
             // return is verified against the account's own secret. MyFatoorah's notification address IS per account (the mechanism is the same), but its
             // outbound calls still read the one platform settings row through GatewayConfigRepository, so listing it would stamp a payment with an account
             // whose credentials nothing reads. It joins this list in the same change that makes MyFatoorah read its api_key from the account.
+            //
+            // 2026-11-26, D2-15: MyFatoorah's REFUND now reads it (App\Services\MyFatoorah\AccountThatTookThePayment), and that is still not enough to
+            // list the gateway -- which is why it is not listed here. Its INITIATION and its VERIFICATION read the platform row, so a listed MyFatoorah
+            // would start a payment on the platform key, stamp it with the company account and then refund it on the account's key: a refund the provider
+            // refuses, or worse, one sent out of a merchant that never took the money. The refund was the one reader of the stamp that was missing and is
+            // the harder half; the three call sites left are PaymentInitiationService::start and PaymentVerificationService (twice). Until they move, the
+            // refund REFUSES a stamped payment it cannot authenticate as rather than falling back, so nothing is drawn on the platform account by mistake.
             'gateways' => ['paymob_accept'],
             // A customer's return from a gateway proves nothing by itself. Off by default: the return is read exactly as it is today. When it is on, a
             // return settles only after the server has confirmed the payment with the gateway itself, and a return it cannot confirm settles nothing.
