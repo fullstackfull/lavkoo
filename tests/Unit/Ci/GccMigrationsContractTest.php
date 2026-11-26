@@ -77,6 +77,17 @@ class GccMigrationsContractTest extends TestCase
             => 'the same shape for address_city_aliases.normalized_alias, which was unique platform-wide: one country recording "al khobar" '
             . 'would have stopped every other country recording its own, and the legacy matcher would have resolved a typed city to ANOTHER '
             . "country's. Wide key first, narrow key dropped after, each guarded by hasIndex()",
+        '2027_01_07_100000_add_market_to_inventory_pools.php'
+            => 'the third of this shape, and the owner chose it on 2026-11-26 over splitting the drop into a later migration '
+            . '(docs/gcc/M-656-STOCK-POOL-UNIQUE-KEY-EXPAND-ONLY.md records both options and what was measured). It replaces the key '
+            . '(location_id, product_id, variant_key) with (storefront_country, location_id, product_id, variant_key) so two markets may '
+            . 'each hold their own pool of a shelf and product they share -- which the narrow key refuses, so the drop cannot be left out '
+            . 'of the plan, only moved. Wide key added BEFORE the narrow one is dropped and each step asks hasIndex() first, as both '
+            . 'entries above do. What makes it safe for code running before the deploy was MEASURED on MariaDB rather than argued: the '
+            . "market column defaults to '', so every row that code writes still collides on the WIDE key -- the pre-deploy duplicate is "
+            . "refused with 'Duplicate entry for key ipool_market_location_product_variant_unique', and the FOR UPDATE on that row keeps "
+            . 'the single-writer guarantee it always had. The column is an empty string and not NULL for exactly that reason: two keys '
+            . 'containing NULL do not collide on MySQL or MariaDB',
     ];
 
     /**
