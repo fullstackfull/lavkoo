@@ -82,6 +82,9 @@ final class StaffCountryScope
     /** The provider shipments a request lists (`provider_fulfillments`), each through the order the provider is shipping (slice 6). */
     public const SUBJECT_PROVIDER_FULFILLMENTS = 'provider_fulfillments';
 
+    /** The ledger payouts a request lists (`vendor_payout_requests`), each through the market of the shop whose money it moves (G-14.2). */
+    public const SUBJECT_PAYOUTS = 'payouts';
+
     private const REQUEST_ATTRIBUTE = 'staff_country_scope';
 
     private const SUBJECTS_ATTRIBUTE = 'staff_country_scope_subjects';
@@ -436,6 +439,52 @@ final class StaffCountryScope
         }
 
         return true;
+    }
+
+    /**
+     * The shops whose money the current request may list, for a screen that was narrowed to `SUBJECT_PAYOUTS` (G-14, second criterion).
+     *
+     * The two states are `coversEverySeller()`'s and are not restated: while the seller market grants are off -- every installation today
+     * -- no shop names a market, so every shop's money is the DEFAULT storefront's, and the answer is "every shop" or "no shop" with
+     * nothing in between. With the grants in force a shop granted exactly one market belongs to it, and a shop granted several or none
+     * belongs to no single market and so to no restricted employee.
+     *
+     * Only the GRANTED shops are read, not every seller on the platform: with the grants in force a shop outside that table belongs to no
+     * market, so it can never be listed. There are tens to hundreds of shops, and this runs once per narrowed query -- the same trade
+     * `channelAccountIdsOfTheRequest()` makes, and for the same reason: a shop's market is derived rather than stored, so no SQL can ask
+     * the question.
+     *
+     * @return list<int>|null null when nothing is to be narrowed (the request is not narrowed to this subject, or every shop's money is
+     *                       this employee's); an empty list when no shop's money is
+     */
+    public function sellerIdsOfPayoutsOfTheRequest(): ?array
+    {
+        $countries = $this->narrowedCountries(subject: self::SUBJECT_PAYOUTS);
+
+        if ($countries === null) {
+            return null;
+        }
+
+        $markets = app(SellerMarketScope::class);
+
+        if (!$markets->enabled()) {
+            return $this->coversTheDefaultMarket() ? null : [];
+        }
+
+        if (!Schema::hasTable(SellerMarketScope::TABLE)) {
+            return [];
+        }
+
+        $granted = DB::table(SellerMarketScope::TABLE)
+            ->where('staff_id', SellerMarketScope::OWNER_STAFF_ID)
+            ->distinct()
+            ->pluck('seller_id');
+
+        return $granted
+            ->filter(static fn ($sellerId): bool => in_array($markets->soleMarketOfShop(sellerId: $sellerId), $countries, true))
+            ->map(static fn ($sellerId): int => (int) $sellerId)
+            ->values()
+            ->all();
     }
 
     /**

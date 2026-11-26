@@ -142,10 +142,16 @@ class StaffScopeDocTest extends TestCase
         $this->assertStringContainsString('The rules of the 45 routes', $this->doc);
         $this->assertStringContainsString('The rules of the 49 routes', $this->doc);
         $this->assertStringContainsString('The rules of the 87 routes', $this->doc);
-        // 54 since slice 5 took the rest of its own screens: the four stock screens' 17 actions, plus the reviews, the returns, the
-        // fulfilments, the commission rules, and the scorecard, the settlements and the brand registry that it settles by a refusal.
-        $this->assertStringContainsString('the rule of each of their 54 actions', $this->doc);
-        $this->assertSame(54, array_sum(array_map(static fn (string $controller): int => count(StaffMarketplaceRoutes::rulesOf($controller)), StaffMarketplaceRoutes::controllers())));
+        // 60 since the ledger payouts came inside the regime with G-14's money switch: the four stock screens' 17 actions, plus the
+        // reviews, the returns, the fulfilments, the commission rules, the scorecard, the settlements and the brand registry that it
+        // settles by a refusal, and the payouts screen's six.
+        $this->assertStringContainsString('the rule of each of their 60 actions', $this->doc);
+        $this->assertSame(60, array_sum(array_map(static fn (string $controller): int => count(StaffMarketplaceRoutes::rulesOf($controller)), StaffMarketplaceRoutes::controllers())));
+        // And the count does not move with the money switch: with it on the payout actions take their own rules in place of `none`, so the
+        // doc's figure describes the registry in either state.
+        config([StaffOrderRoutes::MONEY_ACTIONS_SWITCH => true]);
+        $this->assertSame(60, array_sum(array_map(static fn (string $controller): int => count(StaffMarketplaceRoutes::rulesOf($controller)), StaffMarketplaceRoutes::controllers())));
+        config([StaffOrderRoutes::MONEY_ACTIONS_SWITCH => false]);
         // Slice 6: the ten integration controllers and the four cost controllers, and the doc states both figures beside the registries.
         $integrations = array_sum(array_map(static fn (string $controller): int => count(StaffIntegrationRoutes::rulesOf($controller)), StaffIntegrationRoutes::controllers()));
         $costs = array_sum(array_map(static fn (string $controller): int => count(StaffCostRoutes::rulesOf($controller)), StaffCostRoutes::controllers()));

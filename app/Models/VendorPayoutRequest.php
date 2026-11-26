@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\StaffCountryPayoutScope;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -59,5 +60,10 @@ class VendorPayoutRequest extends Model
     public function isOpen(): bool
     {
         return in_array($this->status, self::OPEN_STATUSES, true);
+    }
+
+    protected static function booted(): void
+    {
+        static::addGlobalScope(new StaffCountryPayoutScope());
     }
 }

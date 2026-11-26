@@ -68,6 +68,10 @@
                                 </div>
                             </div>
                         </div>
+                        {{-- One global balance per customer: `users.wallet_balance` and `users.loyalty_point` carry no market, and the
+                             per-market accounts of GCC-15 are dormant, so neither figure can be split into the share that belongs to one
+                             market. A restricted employee is shown neither rather than a platform total (G-07). --}}
+                        @unless (app(\App\Services\Staff\StaffCountryScope::class)->restricts())
                         <div class="col-sm-6 col-xl-3">
                             <div class="bg-FFF9F0 p-3 rounded-10 h-100">
                                 <h2 class="text-warning mb-2 fw-bold">
@@ -82,6 +86,7 @@
                                 <p class="fs-12 mb-0">{{ translate('Loyalty point') }}</p>
                             </div>
                         </div>
+                        @endunless
                     </div>
                 </div>
             </div>

@@ -399,6 +399,26 @@ class StaffPeopleScreensTest extends TestCase
         $this->assertSame(1, substr_count($vendor, 'vendor_Wallet'), 'the one wallet card of the page is the one that is guarded');
     }
 
+    /**
+     * The customer's own two figures, which is the rest of G-07's fourth criterion.
+     *
+     * `users.wallet_balance` and `users.loyalty_point` carry no market -- one global balance per customer, with the per-market accounts of
+     * GCC-15 dormant -- so neither can be split into the share that belongs to one market. A restricted employee is shown NEITHER rather
+     * than a platform total presented on a page they reach because they hold one country.
+     */
+    public function test_the_wallet_balance_and_the_loyalty_points_of_a_customer_are_left_out_of_the_page_for_a_restricted_employee(): void
+    {
+        $customer = (string) file_get_contents(resource_path('views/admin-views/customer/customer-view.blade.php'));
+
+        $guard = preg_quote('@unless (app(\\App\\Services\\Staff\\StaffCountryScope::class)->restricts())', '/');
+        $this->assertMatchesRegularExpression(
+            '/' . $guard . '(?:(?!@endunless).)*\$customer\[.wallet_balance.\](?:(?!@endunless).)*\$customer\[.loyalty_point.\](?:(?!@endunless).)*@endunless/s',
+            $customer,
+        );
+        $this->assertSame(1, substr_count($customer, "\$customer['wallet_balance']"), 'the page prints the balance once, inside the guard');
+        $this->assertSame(1, substr_count($customer, "\$customer['loyalty_point']"), 'and the points once');
+    }
+
     // ---- who is not narrowed ---------------------------------------------------------------------------------------------------------
 
     public function test_the_master_admin_an_employee_with_no_country_and_the_switch_off_see_every_order_on_these_screens(): void
