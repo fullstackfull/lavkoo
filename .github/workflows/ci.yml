@@ -128,7 +128,14 @@ jobs:
     needs: decide
     if: needs.decide.outputs.documentation_only != 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # 110, matching the three other heavy jobs of this workflow, and raised from 60 on a measurement rather than a hunch:
+    # in run 679 `Storefront tests, MySQL 8` ran 60.2 minutes and was CANCELLED BY THIS TIMEOUT, while its MariaDB 11.4.2
+    # sibling passed. fail-fast is false here and the concurrency group does not cancel a dispatch, so the timeout was the
+    # only thing that stopped it. MySQL 8 is several times slower than MariaDB on this suite (recorded for the sales-channel
+    # job too), so the largest group was sitting exactly on this limit and the engine the limit bit on is the one engine that
+    # catches json key order, collation and unique-key behaviour -- i.e. a cancelled job here reads as "no result" for the
+    # very properties this matrix exists to prove. A timeout bounds a hung job; it must not bound a job that is merely slow.
+    timeout-minutes: 110
     strategy:
       fail-fast: false
       matrix:
