@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
 use ReflectionProperty;
+use Tests\Support\BuildsPlatformStaffWorld;
 use Tests\Support\SeedsPlatformMarketData;
 
 /**
@@ -27,6 +28,7 @@ use Tests\Support\SeedsPlatformMarketData;
  */
 class MarketOrdersTest extends PlatformAdminTestCase
 {
+    use BuildsPlatformStaffWorld;
     use SeedsPlatformMarketData;
 
     private const URL = self::PREFIX . '/orders';
@@ -190,6 +192,29 @@ class MarketOrdersTest extends PlatformAdminTestCase
     public function test_an_unknown_market_is_a_422_and_not_a_403_even_for_a_restricted_viewer(): void
     {
         $this->orders('?market=ZZ', $this->restrictedTo('KW'))->assertStatus(422)->assertJsonPath('errors.0.code', 'invalid_market');
+    }
+
+    /**
+     * The staff country scope of the admin panel narrows this read as it narrows every other (GCC-14c): an employee's markets are the markets of their
+     * grant that the staff scope ALSO leaves them.
+     *
+     * It is tested on this route and not taken on trust from the overview's test, because what makes the narrowing real is that the route goes through
+     * `MarketSelector` -- a route that read the market any other way would look narrowed and answer every market, which is a trap this programme has
+     * already paid for once.
+     */
+    public function test_the_staff_country_scope_narrows_this_read_as_it_narrows_the_others(): void
+    {
+        $this->buildStaffCountryTable();
+        $this->switchStaffScopes(on: true);
+        $employee = $this->employeeWithGrant(
+            grantCountries: ['SA', 'KW'],
+            staffCountries: ['KW'],
+            grantOverrides: ['capabilities' => json_encode([PlatformAdminGrant::CAPABILITY_ORDERS])],
+        );
+        $token = $this->mintToken($employee);
+
+        $this->assertSame([4, 5, 6], $this->idsOf(market: 'KW', token: $token), 'the one market both lists leave them');
+        $this->orders('?market=SA', $token)->assertStatus(403)->assertJsonPath('errors.0.code', 'market_not_allowed');
     }
 
     public function test_reading_a_market_order_by_order_is_a_capability_a_grant_has_to_name(): void
