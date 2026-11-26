@@ -2,6 +2,8 @@
 
 namespace Tests\Feature\StaffScope;
 
+use App\Services\Staff\StaffCostRoutes;
+use App\Services\Staff\StaffIntegrationRoutes;
 use App\Services\Staff\StaffMarketplaceRoutes;
 use App\Services\Staff\StaffOrderRoutes;
 use App\Services\Staff\StaffProductRoutes;
@@ -72,7 +74,7 @@ class StaffExportRouteInventoryTest extends TestCase
                 $this->assertArrayHasKey($entry['slice'], StaffExportInventory::SLICES, $controller . ': where an export that is still every market\'s belongs');
             }
             if ($entry['class'] === StaffExportInventory::SCOPED) {
-                $this->assertContains($entry['slice'], ['slice 1', 'slice 2', 'slice 3', 'slice 4', 'slice 5'], $controller . ': the slice that narrows the file');
+                $this->assertContains($entry['slice'], ['slice 1', 'slice 2', 'slice 3', 'slice 4', 'slice 5', 'slice 6'], $controller . ': the slice that narrows the file');
             }
             if ($entry['class'] === StaffExportInventory::NOT_NEEDED) {
                 $this->assertNull($entry['slice'], $controller . ': a file that holds nothing of a market names no slice');
@@ -86,12 +88,17 @@ class StaffExportRouteInventoryTest extends TestCase
      */
     public function test_a_controller_this_table_calls_scoped_really_has_rules_in_the_slice_it_names(): void
     {
+        // Slice 6 spans TWO registries, so its entry asks both: a controller of that slice has rules in one of them.
         $registryOf = [
             'slice 1' => StaffProductRoutes::rulesOf(...),
             'slice 2' => StaffOrderRoutes::rulesOf(...),
             'slice 3' => StaffOrderRoutes::rulesOf(...),
             'slice 4' => StaffPromotionRoutes::rulesOf(...),
             'slice 5' => StaffMarketplaceRoutes::rulesOf(...),
+            'slice 6' => static fn (string $controller): array => [
+                ...StaffIntegrationRoutes::rulesOf(controller: $controller),
+                ...StaffCostRoutes::rulesOf(controller: $controller),
+            ],
         ];
 
         foreach (StaffExportInventory::CONTROLLERS as $controller => $entry) {
@@ -112,11 +119,16 @@ class StaffExportRouteInventoryTest extends TestCase
                 continue;
             }
 
+            // The two slice-6 registries were MISSING from this list, and that is how a stale `out` survived a green guard: slice 6 settled
+            // the profitability export by a REFUSAL, the entry still read "holds the orders of every country with their costs", and nothing
+            // here asked. A stale `out` understates the coverage the owner is shown exactly as badly as a stale `scoped` overstates it.
             $rules = [
                 ...StaffProductRoutes::rulesOf(controller: $controller),
                 ...StaffOrderRoutes::rulesOf(controller: $controller),
                 ...StaffPromotionRoutes::rulesOf(controller: $controller),
                 ...StaffMarketplaceRoutes::rulesOf(controller: $controller),
+                ...StaffIntegrationRoutes::rulesOf(controller: $controller),
+                ...StaffCostRoutes::rulesOf(controller: $controller),
             ];
 
             $this->assertSame([], $rules, $controller . ' is listed as ' . $entry['class'] . ' and a registry holds rules for it: it is scoped, in whichever slice wrote them');
@@ -142,6 +154,8 @@ class StaffExportRouteInventoryTest extends TestCase
                     ...StaffOrderRoutes::rulesOf(controller: $controller),
                     ...StaffPromotionRoutes::rulesOf(controller: $controller),
                     ...StaffMarketplaceRoutes::rulesOf(controller: $controller),
+                    ...StaffIntegrationRoutes::rulesOf(controller: $controller),
+                    ...StaffCostRoutes::rulesOf(controller: $controller),
                 ];
                 if (!array_key_exists($action, $rules)) {
                     $withoutARule[] = $controller . '@' . $action . ' (' . $key . ')';
@@ -179,10 +193,11 @@ class StaffExportRouteInventoryTest extends TestCase
 
         $counts = StaffExportInventory::countsByStatus();
         $this->assertSame(count(StaffExportInventory::CONTROLLERS), array_sum($counts));
-        // What the guard is for, in one number: ten of the panel's thirty-nine export controllers still hand a restricted employee every
-        // market's rows, and each of the ten now says which slice or decision settles it.
+        // What the guard is for, in one number: nine of the panel's thirty-nine export controllers still hand a restricted employee every
+        // market's rows, and each of the nine says which slice or decision settles it. It was ten until the guard above gained the two
+        // slice-6 registries and found the profitability export already settled.
         $this->assertSame(
-            ['scoped' => 22, 'not_needed' => 7, 'out' => 10],
+            ['scoped' => 23, 'not_needed' => 7, 'out' => 9],
             $counts,
             'the figures of the export survey moved: say so in G-10 and in the handoff rather than only here',
         );

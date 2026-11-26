@@ -14,7 +14,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
+use Tests\Support\BuildsStaffOrderWorld;
 use Tests\Support\BuildsStaffScopeWorld;
+use Tests\Support\RendersNoViews;
 use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
 
@@ -30,7 +32,9 @@ use Tests\TestCase;
  */
 class StaffLedgerScopeTest extends TestCase
 {
+    use BuildsStaffOrderWorld;
     use BuildsStaffScopeWorld;
+    use RendersNoViews;
     use RestoresLanguageFiles;
 
     private const KUWAITI = 10;
@@ -40,6 +44,9 @@ class StaffLedgerScopeTest extends TestCase
     private const NO_MARKET = 30;
 
     private const STAFF = 70;
+
+    /** An employee whose role holds `people`, which is the module both report routes ask for. */
+    private const PEOPLE_STAFF = 71;
 
     private const CUSTOMER = 1;
 
@@ -52,6 +59,8 @@ class StaffLedgerScopeTest extends TestCase
         $this->buildStaffAdminTables();
         $this->buildStaffProductTables();
         $this->buildTheTwoLedgers();
+        $this->buildThePeopleEmployee();
+        $this->switchTheWalletOn();
         $this->runStaffScopeMigration();
         $this->switchStaffScopesOn();
         config(['gcc.storefronts.enabled' => true, 'gcc.storefronts.default_country' => 'SA']);
@@ -64,6 +73,19 @@ class StaffLedgerScopeTest extends TestCase
         Schema::dropIfExists('loyalty_point_transactions');
 
         parent::tearDown();
+    }
+
+    /** The wallet report reads `wallet_status` and fails on a null row before it reaches the ledger at all. */
+    private function switchTheWalletOn(): void
+    {
+        DB::table('business_settings')->updateOrInsert(['type' => 'wallet_status'], ['value' => 1]);
+    }
+
+    /** The report routes ask for `module:people`, which no role of the shared world holds. */
+    private function buildThePeopleEmployee(): void
+    {
+        DB::table('admin_roles')->insert(['id' => 51, 'name' => 'People', 'module_access' => json_encode(['people']), 'status' => 1]);
+        DB::table('admins')->insert(['id' => self::PEOPLE_STAFF, 'name' => 'People', 'email' => 'people@example.test', 'admin_role_id' => 51]);
     }
 
     private function buildTheTwoLedgers(): void
@@ -206,6 +228,52 @@ class StaffLedgerScopeTest extends TestCase
                 $this->assertArrayHasKey($route->getActionMethod(), $rules, $controller . '@' . $route->getActionMethod());
             }
         }
+    }
+
+    /**
+     * **The REAL screens, which is what the criterion is about.** Every test above narrows the request by hand or reads the registry, and a
+     * test of a helper is not a test of the caller: with the middleware taken off these two controllers all of them stay green while a
+     * restricted employee is shown every market's movements. These drive the routes.
+     */
+    public function test_the_wallet_report_screen_shows_a_restricted_employee_the_movements_of_their_own_markets(): void
+    {
+        $this->renderNoViews();
+        $this->answerNoCustomers();
+        $this->giveCountries(self::PEOPLE_STAFF, ['KW']);
+        $this->signInAsStaff(self::PEOPLE_STAFF);
+
+        $this->assertSame([self::KUWAITI], $this->idsOfTheReport(url: '/admin/customer/wallet/report'));
+
+        // The grants ADD rather than replace, so Kuwait is taken back before Saudi Arabia is given: two rows would be an employee of both.
+        DB::table('admin_country_scopes')->where('admin_id', self::PEOPLE_STAFF)->delete();
+        $this->giveCountries(self::PEOPLE_STAFF, ['SA']);
+        $this->signInAsStaff(self::PEOPLE_STAFF);
+        $this->assertSame([self::SAUDI, self::NO_MARKET], $this->idsOfTheReport(url: '/admin/customer/wallet/report'), 'the default market also holds the rows written before the ledgers carried one');
+
+        $this->signInAsStaff(adminId: 1);
+        $this->assertSame([self::KUWAITI, self::SAUDI, self::NO_MARKET], $this->idsOfTheReport(url: '/admin/customer/wallet/report'), 'the master admin reads the whole history as it always did');
+    }
+
+    public function test_the_loyalty_report_screen_shows_a_restricted_employee_the_movements_of_their_own_markets(): void
+    {
+        $this->renderNoViews();
+        $this->answerNoCustomers();
+        $this->giveCountries(self::PEOPLE_STAFF, ['KW']);
+        $this->signInAsStaff(self::PEOPLE_STAFF);
+
+        $this->assertSame([self::KUWAITI], $this->idsOfTheReport(url: '/admin/customer/loyalty/report'));
+
+        $this->signInAsStaff(adminId: 1);
+        $this->assertSame([self::KUWAITI, self::SAUDI, self::NO_MARKET], $this->idsOfTheReport(url: '/admin/customer/loyalty/report'));
+    }
+
+    /** @return list<int> */
+    private function idsOfTheReport(string $url): array
+    {
+        $page = $this->get($url);
+        $page->assertOk();
+
+        return collect($page->viewData('transactions')->items())->pluck('id')->map(static fn (mixed $id): int => (int) $id)->sort()->values()->all();
     }
 
     /** The two reports list their ledger, and the bonus setup of the platform lists nothing. */

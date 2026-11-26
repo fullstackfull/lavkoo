@@ -72,8 +72,8 @@ final class StaffExportInventory
             'reason' => 'Downloads the log of a live verification run against a courier, which names the orders it tried: a fulfilment-provider screen, slice 6.',
         ],
         'App\Http\Controllers\Admin\OperationalCosts\ProfitabilityController' => [
-            'class' => self::OUT, 'slice' => 'slice 6',
-            'reason' => 'The profitability export holds the orders of every country with their costs.',
+            'class' => self::SCOPED, 'slice' => 'slice 6',
+            'reason' => 'The profit list and its export are settled in slice 6 by a REFUSAL rather than a narrowing (`unavailable` in StaffCostRoutes, both actions): the cost rollup behind them has no market dimension at all, so narrowing the page while its export handed over every market -- the shape G-10 exists to stop -- was refused instead. A restricted employee is answered like for a page that does not exist; an unrestricted one downloads the file as before.',
         ],
         'App\Http\Controllers\Admin\OperationalCosts\ReportController' => [
             'class' => self::OUT, 'slice' => 'slice 6',

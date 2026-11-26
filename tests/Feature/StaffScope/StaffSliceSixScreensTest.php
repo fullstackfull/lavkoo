@@ -424,7 +424,11 @@ class StaffSliceSixScreensTest extends AdminPagesTestCase
         $this->asKuwaitHand()->get(route('admin.operational-costs.profit.index'))->assertNotFound();
         $this->asKuwaitHand()->get(route('admin.operational-costs.profit.export'))->assertNotFound();
 
+        // The twin of each refusal, the EXPORT included: without it a 404 from a page that is simply broken reads as a guard doing its
+        // job, and the export is the one of the three that leaves the panel as a file (G-10).
         $this->asUnrestrictedHand()->get(route('admin.operational-costs.index'))->assertOk();
+        $this->asUnrestrictedHand()->get(route('admin.operational-costs.profit.index'))->assertOk();
+        $this->asUnrestrictedHand()->get(route('admin.operational-costs.profit.export'))->assertOk();
     }
 
     public function test_a_profit_page_of_an_order_of_another_market_is_refused(): void
