@@ -222,12 +222,18 @@ class BuildThatSendsNoStorefrontHeaderTest extends TestCase
         $this->assertSame(['SA', 'SAR'], [StorefrontContext::current()->country, StorefrontContext::current()->currency], 'what asks on a seller request is answered the default market');
     }
 
-    /** @return list<string> */
+    /**
+     * The middleware a route declares, read with `middleware()` and deliberately NOT with `gatherMiddleware()`: gathering also resolves the
+     * route's CONTROLLER, and one controller of this platform opens its constructor with a MySQL-only statement, so gathering the whole
+     * routing table is an error on SQLite and a pass on MariaDB. `storefront` is declared on route groups and never inside a controller.
+     *
+     * @return list<string>
+     */
     private function middlewareOf(string $uri): array
     {
         foreach (Route::getRoutes() as $route) {
             if ($route->uri() === $uri) {
-                return $route->gatherMiddleware();
+                return $route->middleware();
             }
         }
 

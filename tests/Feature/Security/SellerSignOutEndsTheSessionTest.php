@@ -212,7 +212,8 @@ class SellerSignOutEndsTheSessionTest extends TestCase
 
         $this->assertNotNull($route);
 
-        $middleware = $route->gatherMiddleware();
+        // `middleware()`, not `gatherMiddleware()`: gathering resolves the controller, and this route's placement is declared on its group.
+        $middleware = $route->middleware();
         $this->assertContains('seller_api_auth', $middleware, 'a credential has to be presented before it can be given back');
         // The login throttle counts failures against the address, so a seller trying to leave would be refused because somebody else was
         // guessing passwords; the market scope decides what a seller may SEE, and seeing nothing must never trap a seller in a session.
