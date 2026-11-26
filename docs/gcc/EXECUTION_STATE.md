@@ -949,3 +949,36 @@ what the frozen-SHA CI is for. And **write a long run's output to a file rather 
 `tail`**, so a kill still leaves the partial result readable. The earlier note that phpunit exits
 0 on a missing path belongs beside this one: both turn a non-result into something that can be
 mistaken for a verification.
+
+### Track H/A/C's five criteria, verified by the coordinator (2026-11-26, owner's instruction 4)
+
+The owner asked for these to be checked before they are accepted as MET, because H/A/C was the
+one track that promoted its own cards. Checked three ways: the criterion's wording against the
+test's cases, a run of the tests, and **a teeth check of my own on each of the five mechanisms** --
+a different mutation from the track's where possible, so the result is not a replay of its work.
+
+| Criterion | Mutation I made | Red |
+|---|---|---|
+| A2-04 OAuth callback state | `matchesTheBrowsersSession()` always returns true | **7 of 10** |
+| A2-04 registration proof | `RegistrationProof::redeem()` always accepts | **9 of 15** |
+| A2-06 canonical phone | `accountHoldingTheSameNumber()` never finds an account | **3 of 18** |
+| A2-10 order history | `narrowToPickedMarket()` returns the query unchanged | **5 of 21** |
+| C-03 market's own goods | `WhatAMarketsOwnGoodsAreFulfilledBy::forMarket()` returns null | **5 of 9** |
+
+All five bite. Where the track reported the same mutation its figure matched exactly (order
+history 5/21, market source 5/9). **Accepted as MET.**
+
+Run green beforehand: those 5 files plus 6 neighbours, 189 tests / 945 assertions on MariaDB.
+
+**A counting mistake of mine, recorded because it is the kind that makes a report look wrong when
+it is right.** I said `CanonicalCustomerPhoneTest` had 13 cases against the track's 18, from
+`grep -c 'public function test'`. The track was right: **data providers expand 13 methods into 18
+cases**, and phpunit's own count is the only one worth quoting. Count tests by running them, not
+by grepping for the method.
+
+**And the sequencing rule, nearly broken again.** The first two teeth checks were made in the MAIN
+checkout while a 39-minute Storefront run was in flight there -- the same mistake as merging
+during a gate run. It did no damage (those classes were already loaded and the run finished with
+zero failures), but it was luck. The remaining three were made in `/home/user/wt/hac` against
+`pharmacy_testing_hac`: **a teeth check belongs in a worktree of its own, never in the tree a run
+is reading.**
