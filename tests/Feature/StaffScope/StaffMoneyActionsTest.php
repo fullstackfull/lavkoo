@@ -38,6 +38,17 @@ class StaffMoneyActionsTest extends TestCase
     use BuildsStaffScopeWorld;
     use RestoresLanguageFiles;
 
+    /**
+     * The admin screens whose actions move money and which this requirement is about. Only the two that are OUTSIDE the staff-scope regime
+     * are listed, because the test below asks the route table which of their routes no scope middleware covers.
+     *
+     * @var list<class-string>
+     */
+    private const MONEY_SCREENS = [
+        'App\\Http\\Controllers\\Admin\\Marketplace\\PayoutController',
+        'App\\Http\\Controllers\\Admin\\Deliveryman\\DeliverymanWithdrawController',
+    ];
+
     /** Employees 2 and 3 of the shared world (role 2), and 6, who is given no scope row and so is not restricted. */
     private const KUWAITI_STAFF = 2;
 
@@ -217,6 +228,76 @@ class StaffMoneyActionsTest extends TestCase
 
         $this->assertTrue($this->reachesWithdrawStatus(withdrawId: '502'));
         $this->assertTrue($this->reachesAddFund());
+    }
+
+    // ---- the rest of the criterion, measured rather than claimed ------------------------------------------------------
+
+    /**
+     * **What criterion 2 still does not cover, as a list the route table itself produces.**
+     *
+     * The three actions above are the money actions of controllers the staff country scope already covers. Two whole screens are outside
+     * the regime: no `Scope...ToStaffCountries` middleware is on any of their routes, so a restricted employee reaches every one of them
+     * with the module permission alone -- five money-moving POSTs of the ledger payouts among them.
+     *
+     * This is evidence and not a fix, and it is a RATCHET in both directions: a money screen that gains a scope must be taken off this
+     * list, and one that loses it must be put on, so neither can happen silently. What closing `PayoutController` costs, measured while
+     * writing this: `StaffMarketplaceRoutes::isCovered()` resolves EVERY rule to product ids, and a payout names a seller and no product,
+     * so it needs that function restructured; and the slice-5 inventory, the document's six new rows and its pinned count of 54 marketplace
+     * actions all move with it. A delivery man belongs to no market in this schema at all, so that one needs a rule somebody decides.
+     */
+    public function test_the_money_screens_that_no_staff_country_scope_covers_are_exactly_these(): void
+    {
+        $uncovered = [];
+
+        foreach (Route::getRoutes()->getRoutes() as $route) {
+            $controller = ltrim((string) $route->getControllerClass(), '\\');
+
+            if (!str_starts_with($controller, 'App\\Http\\Controllers\\Admin\\') || !in_array($controller, self::MONEY_SCREENS, true)) {
+                continue;
+            }
+
+            $scoped = array_filter(
+                $route->gatherMiddleware(),
+                static fn (mixed $middleware): bool => is_string($middleware)
+                    && str_starts_with($middleware, 'App\\Http\\Middleware\\Scope')
+                    && str_ends_with($middleware, 'ToStaffCountries'),
+            );
+
+            if ($scoped === []) {
+                $uncovered[] = array_values(array_diff($route->methods(), ['HEAD']))[0] . ' ' . $route->uri();
+            }
+        }
+
+        sort($uncovered);
+
+        $this->assertSame([
+            'GET admin/delivery-man/withdraw-list',
+            'GET admin/delivery-man/withdraw-list-export',
+            'GET admin/delivery-man/withdraw-view/{withdraw_id}',
+            'GET admin/marketplace/payouts',
+            'POST admin/delivery-man/withdraw-list',
+            'POST admin/delivery-man/withdraw-update-status/{id}',
+            'POST admin/marketplace/payouts/{id}/approve',
+            'POST admin/marketplace/payouts/{id}/mark-failed',
+            'POST admin/marketplace/payouts/{id}/mark-paid',
+            'POST admin/marketplace/payouts/{id}/reissue',
+            'POST admin/marketplace/payouts/{id}/reject',
+        ], $uncovered);
+    }
+
+    /** And the twin of it: the screens this round DID bring inside the regime really are inside it. */
+    public function test_the_withdrawal_and_wallet_screens_are_inside_the_staff_scope_regime(): void
+    {
+        foreach (['admin.vendors.withdraw_status', 'admin.vendors.withdraw_view', 'admin.customer.wallet.add-fund'] as $name) {
+            $route = Route::getRoutes()->getByName($name);
+            $this->assertNotNull($route, $name);
+
+            $this->assertContains(
+                ScopeOrdersToStaffCountries::class,
+                $route->gatherMiddleware(),
+                $name . ' is covered by a staff country scope',
+            );
+        }
     }
 
     // ---- what the tests build and drive --------------------------------------------------------------------------------

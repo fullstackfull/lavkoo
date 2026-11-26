@@ -1224,6 +1224,14 @@ platform total they cannot be shown a share of. The per-market accounts are what
 - `Admin\Deliveryman\DeliverymanWithdrawController` likewise. A delivery man belongs to no market in this schema either, so that one needs
   a rule somebody decides rather than a rule to read.
 
+Those two are not left as prose. `StaffMoneyActionsTest::test_the_money_screens_that_no_staff_country_scope_covers_are_exactly_these`
+walks the real route table and pins the eleven routes concerned -- `admin/marketplace/payouts` and its five POSTs,
+`admin/delivery-man/withdraw-list` and its three others -- so a money screen that gains a scope has to come off the list and one that loses
+a scope has to go on it. Neither can happen silently. What closing `PayoutController` costs, measured rather than guessed:
+`StaffMarketplaceRoutes::isCovered()` resolves EVERY rule to product ids and a payout names a seller and no product, so it needs that
+function restructured; and the slice-5 inventory entry, six new rows of the table below and its pinned count of 54 marketplace actions all
+move with it.
+
 ## Out of slices 1 to 3: the rule that would apply
 
 | Area | Rule for the slice that takes it |
