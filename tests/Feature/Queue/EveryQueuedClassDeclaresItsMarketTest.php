@@ -205,6 +205,71 @@ class EveryQueuedClassDeclaresItsMarketTest extends QueuedMarketTestCase
         );
     }
 
+    /**
+     * `SendEmailJob` says in its own declaration above that nothing in this repository dispatches it. Nothing enforced that, and a claim of
+     * unreachability is exactly the kind that rots: the first caller to arrive would make the sentence false and nothing would notice.
+     *
+     * It is pinned RATHER than wired, because wiring it would bypass four mechanisms that were each built on purpose. The real mail path is
+     * `EmailTemplateTrait::sendingMail` -> `MessageLanguage::asTheRecipientReads` -> `writeAndSendMail` -> `SendsWithinABudget::send` ->
+     * `MailAccount::forThisMessage` -> `StorefrontCurrency::withinOrderCurrency` -> `Mail::to()->send(new SendMail(...))`. All of that runs
+     * inside the already-queued listener, and a Mailable is RENDERED at `send()` time. So moving the send into this job would resolve the
+     * subject, the body, the money and the sending account in a SECOND worker that carries only `storefrontCountry` -- losing the
+     * recipient's language (I1-03), the market's own mail account (I1-01) and the order's currency, and recording the attempt
+     * (`NotificationAttemptLog`, I1-09) against the queueing rather than against the send, which is the accounting the empty catch block
+     * was fixed to provide. A second queue hop would also mean a mail waiting on two workers instead of one.
+     *
+     * So the decision is the owner's, and until it is taken the class stays unreachable and that is now a fact a test holds. Deleting it is
+     * the other option and is not taken here either: the queued-class count above is what three criteria are measured against, and
+     * {@see \Tests\Support\StaffJobInventory} names this class.
+     */
+    public function test_nothing_in_the_application_dispatches_the_one_queued_class_declared_unreachable(): void
+    {
+        $this->assertStringContainsString(
+            'Nothing in this repository dispatches it.',
+            self::WHERE_ITS_MARKET_COMES_FROM[\App\Jobs\SendEmailJob::class]['reason'],
+            'this test enforces that sentence, so it has to still be the claim',
+        );
+
+        $mentions = [];
+
+        foreach (['app', 'Modules', 'database', 'routes', 'config'] as $directory) {
+            /** @var SplFileInfo $file */
+            foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(base_path($directory), FilesystemIterator::SKIP_DOTS)) as $file) {
+                $path = str_replace(base_path() . DIRECTORY_SEPARATOR, '', $file->getPathname());
+
+                if ($file->getExtension() !== 'php' || $path === 'app/Jobs/SendEmailJob.php') {
+                    continue;
+                }
+
+                // Comments are stripped, so a file that EXPLAINS why it does not use this job does not read as a caller: the same rule the
+                // TLS and secret scanners of this suite follow, and the fourth time in this programme that a scan read its own explanation.
+                if (str_contains($this->withoutComments((string) file_get_contents($file->getPathname())), 'SendEmailJob')) {
+                    $mentions[] = $path;
+                }
+            }
+        }
+
+        sort($mentions);
+
+        $this->assertSame(
+            [],
+            $mentions,
+            'SendEmailJob is declared unreachable: a caller makes that declaration false and raises the language, account, currency and attempt-log questions in this test\'s docblock',
+        );
+    }
+
+    /** PHP's own tokeniser rather than a regular expression, so a string containing `//` is not mistaken for a comment. */
+    private function withoutComments(string $source): string
+    {
+        $code = '';
+
+        foreach (token_get_all($source) as $token) {
+            $code .= is_array($token) ? (in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true) ? ' ' : $token[1]) : $token;
+        }
+
+        return $code;
+    }
+
     public function test_every_queued_class_says_where_its_market_comes_from(): void
     {
         $undeclared = array_diff($this->everyClassThatNamesTheQueue(), array_keys(self::WHERE_ITS_MARKET_COMES_FROM));
