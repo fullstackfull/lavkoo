@@ -30,6 +30,28 @@ return [
         | ask for the password on every request, including the second half of a two-request action, which is not a security property but a
         | way of making the screen unusable.
         */
+        /*
+        | Putting the panel's own MONEY actions inside the employee's country scope (G-14, second criterion).
+        |
+        | Off by default: a seller's withdrawal is approved, its screen is opened and a customer's wallet is credited by hand on the
+        | strength of the module permission alone, exactly as today -- the rules of those three actions stay `none` and not one extra
+        | query is made.
+        |
+        | With it on, and only for an employee the country scopes restrict:
+        |
+        |   - a seller's withdrawal request may be opened and decided only when the shop's market is one of the employee's. Which market a
+        |     shop's money belongs to is `SellerMarketScope`'s rule, read and not restated; while the seller market grants are off -- every
+        |     installation today -- a shop's money is the DEFAULT storefront's, so a one-market platform keeps working;
+        |   - a hand-made wallet credit is refused. `users.wallet_balance` is ONE global balance and a customer belongs to no market in this
+        |     schema, so there is no market such a credit could be checked against, and a platform-wide money write is not an act of one
+        |     market. The per-market accounts of GCC-15 are what would change that answer, and they are dormant.
+        |
+        | An employee the scopes do not restrict is unaffected either way, which is every employee while `country_scopes` is off.
+        */
+        'money_actions' => [
+            'scoped' => filter_var(env('GCC_STAFF_MONEY_ACTIONS_SCOPED', false), FILTER_VALIDATE_BOOLEAN),
+        ],
+
         'step_up' => [
             'enabled' => filter_var(env('GCC_ADMIN_STEP_UP', false), FILTER_VALIDATE_BOOLEAN),
             'minutes' => (int) env('GCC_ADMIN_STEP_UP_MINUTES', 10),
