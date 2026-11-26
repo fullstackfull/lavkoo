@@ -10,6 +10,62 @@ or financial control. A pending owner decision stops its own task, never the pro
 
 ---
 
+## Picked up from the 2026-11-26 handover: CI run 678's four causes
+
+Read `docs/gcc/HANDOFF-2026-11-26-TO-NEXT-CLAUDE.md` for the state this was picked up in. Run 678
+(<https://github.com/fullstackfull/lavkoo/actions/runs/45744979283>, `workflow_dispatch` on `5aab34f9`) was 41 success,
+9 failure, 2 skipped, and its nine red jobs came from three code causes plus the leak guard. Where each stands:
+
+| cause | jobs | state |
+|---|---|---|
+| **A** — the staging seeder wrote `users.wallet_balance` | 7 | **FIXED** in `8fedd536`. The seeder stopped being a writer rather than being declared one |
+| **C** — a `json` column's keys come back in the engine's order | 1 | **FIXED** in `09cb6cc4`. Read through the helper this suite already had |
+| **B** — `dropUnique()` against the expand-only contract | 2 (both SQLite) | **OPEN, the owner's.** `docs/gcc/M-656-STOCK-POOL-UNIQUE-KEY-EXPAND-ONLY.md` (`78b9a174`): measured, two precedents named, options costed, recommendation A. Not applied |
+| **D** — the leak guard's 2 history findings | 1 | **OPEN, the owner's.** Reproduced and characterised below. Not routed around |
+
+**Cause A, and why the guard was not widened.** `WalletBalanceWritersTest` reported
+`database/seeders/GccStagingSeeder.php` as a sixth writer of `users.wallet_balance`. The handover expected "likely a
+one-entry declaration". It is not: that list is *also* the list of the places that take the customer's row lock and
+write the ledger row with the balance the account ends with, and the seeder did neither, so a sixth entry would have
+made the list's own sentence false for every later reader. `createWallets()` now goes through
+`CustomerWalletWriter::record()` — the one locked writer — and **the writers list is unchanged, which is the proof.**
+Because that writer moves nothing while the wallet feature is off, `run()` asks before the first row of the first
+market, so no market is left holding a seller, shop, customer, products and an order but no wallet, which the next run
+would skip. 136 tests / 2,078 assertions green on SQLite and MariaDB 10.11.14.
+
+**Cause C, and how its scope was settled without MySQL 8.** `platform_admin_audit_logs.context` is a `json` column;
+MySQL 8 returns a json object's keys by LENGTH then bytewise, MariaDB keeps the written order, and two assertions
+compared the decoded array with `assertSame`. The suite already had `contextOf()` + `sortedByKey()` for exactly this,
+with the reason in its docblock, and fifteen sibling assertions already used them. The scope is those two and no
+others, and **CI's own green jobs are what settled that**: every other test comparing a decoded JSON column with an
+order-sensitive `assertSame` lives in a directory run 678 ran on MySQL 8 and passed. Reasoning statically about
+production migrations said otherwise and was wrong, because what matters is the column type in the TEST's schema, not
+in the real migration — several of those tests build the column as `text`.
+
+**Cause D, reproduced so the owner's decision is informed.** `php scripts/ci/leak-guard.php --base=origin/main`
+answers 2 findings, and they are:
+
+ - `tests/Feature/SalesChannels/AdminNoonAccountTest.php:41`, rule `private-key` — a test fixture whose `private_key`
+   value is a PEM **header and footer with nothing between them**. The rule matches the delimiters, not a key;
+ - `b7e5f1809f scripts/ci/leak-guard.php:312`, rule `api-token` — an explanatory **comment** in the guard's own source
+   that at the time spelled out a Stripe-style example while explaining why interpolation is stripped. The comment has
+   since been rewritten and the current tree is clean.
+
+So neither is a real credential, and **neither can be cleared by a code change**: the guard scans what the branch ADDS
+against `origin/main`, so rewriting the line converts a current-tree finding into a history one (which is exactly how
+the second already reads). The documented remedy is a reasoned entry in `leak-guard-allow.json`, and that is the
+owner's to write — a request for one was refused in the previous session as undermining oversight, and it was not
+routed around here either.
+
+**What C-16 cost to measure.** See `845ccb77`. `config/gcc.php` named six test worlds that would break when the till's
+sale gate was switched on; running all six plus every other file that both places a till sale and switches markets on
+(13 files, 276 tests) with `GCC_SALE_GATE_AT_THE_TILL=1` returned **exactly two failures**, both data sets of one test
+in `PosOrderRecordsItsMarketTest`. The named list was a conservative superset. The switch is still OFF: the broad sweep
+over all 13 directories that can place a till sale (14,230 tests) has to come back clean before a default on a money
+path moves.
+
+---
+
 ## The parallel tracks, and how to pick them up (2026-11-25, owner's instruction)
 
 The owner asked for organised parallel development across five tracks. It is set up as FIVE LOCAL GIT WORKTREES, not
@@ -495,3 +551,52 @@ criteria names more signals than are built -- which is the honest record and is 
 - **A refusal reason needs words wherever it can surface.** `MARKET_STOPPED` was added to the transport and never to
   `ListingLabels::CHANNEL_REFUSALS`, so the listing screen printed the bare code `market_stopped` at an operator
   trying to find out why nothing was sent. A new enum case or constant in a refusal family is only half the change.
+
+### Learned on 2026-11-26, picking up run 678
+
+- **A guard's allow-list often carries a MEANING, and an entry that contradicts the meaning costs more than the fix.**
+  `WalletBalanceWritersTest`'s writers list is also the list of the places that take the row lock and write the ledger
+  row. Adding the staging seeder to it would have been one line and would have made that sentence false for everybody
+  who read the list afterwards. Going through `CustomerWalletWriter` instead left the list untouched — and an untouched
+  guard is a better proof than a widened one. Before declaring a new writer, read what being on the list is supposed
+  to mean.
+- **A fresh container has NO `vendor`, NO `bcmath` and NO MariaDB.** The two corrections above about MariaDB being
+  installed were true of the container they were written in and do not survive it. The recipe that works here, in
+  order: `apt-get install -y --no-install-recommends php8.3-bcmath mariadb-server mariadb-client`; `mariadb-install-db
+  --user=mysql --datadir=/var/lib/mysql`; start `mariadbd` BY HAND (`invoke-rc.d` is policy-denied); create the `ci`
+  user; `cp .env.example .env && php artisan key:generate`; `COMPOSER_ALLOW_SUPERUSER=1 composer install`. Budget real
+  time for the install: GitHub dist downloads fall back to `git clone --mirror` and the cache reaches about 9GB.
+- **Never set `COMPOSER_AUTH` in this container.** `gh auth token` answers the literal string `proxy-injected` — the
+  proxy injects real credentials itself — and handing that to composer fails the WHOLE install immediately with "Your
+  github oauth token for github.com contains invalid characters". It looks like a composer fault and is not one.
+- **A proxy timeout is not a policy denial, and the difference is one curl.** `composer install` died on
+  `https://phonepe.mycloudrepo.io/...` with "Proxy CONNECT aborted due to timeout", which reads exactly like a blocked
+  host — and that package is a hard requirement in `composer.json` with no way to skip it. A plain
+  `curl -o /dev/null -w '%{http_code}'` of the same URL answered **200** a minute later. Retry before proposing a
+  network change; proposing one for a transient failure spends the owner's attention on nothing.
+- **MySQL 8's json key order can be reproduced locally, so an order-sensitivity fix can be teeth-checked without
+  MySQL 8.** The order is (length, then bytewise), which is
+  `uksort($a, fn($x, $y) => [strlen($x), $x] <=> [strlen($y), $y])`. Permute the expected array into it and assert that
+  the OLD assertion shape fails while the NEW one passes, with the values identical — that is the whole of the claim,
+  and it bit for both failing cases. For the export line, `status, params, rows, file, from, to` as written comes back
+  as `to, file, from, rows, params, status`.
+- **`apt-get install mysql-server-8.0` REMOVES `mariadb-server` here** (`apt-get install -s` says so without doing it),
+  so the two engines cannot be had together from apt. A criterion needing MySQL 8 is answered by the CI job, not
+  locally — or by a standalone tarball, which was not needed.
+- **Whether a decoded JSON column is order-sensitive depends on the column type in the TEST's schema, not in the real
+  migration.** Most of this suite's tests hand-build their tables, because most migrations are ALTER-only and assume
+  the proprietary dump. A production migration declaring `json` tells you nothing about a test that builds the same
+  column as `text`. Four "latent landmines" found by reading migrations were not landmines at all, and the thing that
+  settled it in one step was that their directories had already run green on MySQL 8 in the very run being fixed. **A
+  green CI job is evidence about scope, not only about correctness.**
+- **The at-risk set named in a comment can be a conservative superset, which is why the instruction is to measure it.**
+  `config/gcc.php` named six worlds the till's sale gate would break. With the gate on, one file failed, in two data
+  sets. Acting on the list would have meant changing five files that needed nothing.
+- **Completing a storefront world so that it may SELL takes four things, not two.** `StorefrontSellingGate` asks the
+  lifecycle AND the preflight, so `activateStorefrontFor()` + `approveNoTaxFor()` left both tills still refusing. The
+  other two are the legal texts (`gcc.storefronts.legal.grandfathered`) and the market's own `currencies` row, without
+  which the preflight is not met while storefront currencies are on. All four are now named in
+  `PosOrderRecordsItsMarketTest::sixMarketsAreServed()`'s docblock so the next world is completed in one pass.
+- **`git add a b && git commit -F -` with a message describing only `a` is a mislabelled commit, not a small one.** It
+  happened here and was split with `git reset --soft HEAD~1` before the push — which is the window in which that is
+  free. Check `git show --stat` against the message before pushing, not after.
