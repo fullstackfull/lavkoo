@@ -72,6 +72,10 @@ return Application::configure(basePath: dirname(__DIR__))
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
             \App\Http\Middleware\Localization::class,
             \App\Http\Middleware\DetectMobile::class,
+            // Before the operator's own redirect rules: a market paused in mode "redirect" has no page at either end of such a rule, so its
+            // visitors are taken to the same page on the default storefront and that storefront's rules apply there (I2-15). It answers
+            // nothing while storefronts are off or while no market is paused in that mode.
+            \App\Http\Middleware\RedirectStoppedStorefront::class,
             \App\Http\Middleware\ApplySeoRedirects::class,
             // A previewed draft is a real storefront response with an unpublished page in it. This
             // keeps that page out of search results and shared caches for as long as the token
