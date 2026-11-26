@@ -516,11 +516,16 @@ class ProviderCityMappingService
     }
 
     /**
-     * The mappings of one provider that belong to a country: the ones that say so, and -- for the provider's own country -- the ones that
-     * say nothing, because a mapping written before countries were stated is a mapping of the country the provider serves.
+     * The mappings of one provider that belong to a country: the ones that say so, and -- for ONE country -- the ones that say nothing,
+     * because a mapping written before countries were stated is a mapping of the single country the platform served then.
      *
      * Every mapping WRITTEN from now on names its city's country ({@see mappingCountry()}), so the unmarked rows this covers are the ones
      * that were already in the table.
+     *
+     * Which country takes them is {@see countryOfUnmarkedMappings()}, and the first version of this method got it wrong in a way nothing
+     * could see while nothing read it: it asked only the provider's DECLARED country, and `torod_point` declares none in the shipped
+     * configuration (only `m5azn` does). So every mapping a Saudi shop had already approved would have vanished from the matching screen
+     * the day the country scope was switched on. `TorodCityMappingServiceTest` now pins both halves.
      *
      * @param \Illuminate\Database\Eloquent\Builder<ProviderCityMapping> $mappings
      */
@@ -535,10 +540,25 @@ class ProviderCityMappingService
         return $mappings->where(function (Builder $inner) use ($provider, $wanted): void {
             $inner->where('country_code', $wanted);
 
-            if (self::countryOf($provider) === $wanted) {
+            if (self::countryOfUnmarkedMappings($provider) === $wanted) {
                 $inner->orWhereNull('country_code');
             }
         });
+    }
+
+    /**
+     * The one country the mappings that name NO country belong to: the country this provider's configuration declares, and the DEFAULT
+     * storefront's when it declares none.
+     *
+     * Exactly one country, deliberately. Letting both take them would list one mapping in two countries' screens, which is the pooling the
+     * country was added to stop; letting neither take them would hide every mapping a one-country shop has already approved. The provider's
+     * own declaration wins because a connection that says it serves Kuwait wrote Kuwaiti mappings before anything recorded a country, and
+     * the default storefront is the answer for the shipped configuration -- the same rule {@see StorefrontMarketRows} states for every
+     * other table of market-owning rows.
+     */
+    public static function countryOfUnmarkedMappings(string $provider): string
+    {
+        return self::countryOf($provider) ?? self::defaultStorefrontCountry();
     }
 
     private function pendingRow(string $provider, AddressCity $city, CityCandidate $candidate, string $method, array $considered): array

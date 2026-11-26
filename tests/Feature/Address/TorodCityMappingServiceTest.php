@@ -646,27 +646,9 @@ class TorodCityMappingServiceTest extends TorodAddressTestCase
         app(\App\Services\Fulfillment\ProviderCityCountry::class)->forget();
     }
 
-    /** A region and a city in Kuwait, test-only rows: the address importer writes Saudi Arabia only (H1-10's third criterion). */
-    private function aKuwaitiCityNamed(string $arabic, string $english): AddressCity
-    {
-        $region = \Illuminate\Support\Facades\DB::table('address_regions')->insertGetId([
-            'country_code' => 'KW', 'code' => 'KW-KU', 'name_ar' => 'الكويت', 'name_en' => 'Kuwait',
-            'normalized_ar' => \App\Services\Address\AddressText::key('الكويت'), 'normalized_en' => \App\Services\Address\AddressText::key('Kuwait'),
-            'sort_order' => 9, 'is_active' => true, 'source' => 'test', 'source_ref' => 'kw', 'created_at' => now(), 'updated_at' => now(),
-        ]);
-
-        $id = \Illuminate\Support\Facades\DB::table('address_cities')->insertGetId([
-            'region_id' => $region, 'name_ar' => $arabic, 'name_en' => $english,
-            'normalized_ar' => \App\Services\Address\AddressText::key($arabic), 'normalized_en' => \App\Services\Address\AddressText::key($english),
-            'sort_order' => 50, 'is_active' => true, 'source' => 'test', 'source_ref' => 'kw-city', 'created_at' => now(), 'updated_at' => now(),
-        ]);
-
-        return AddressCity::query()->with('region')->findOrFail($id);
-    }
-
     /**
-     * And the filter the country is for: the mappings of one country are its own, plus -- for the provider's own country -- the ones
-     * written before countries were stated, because a mapping of a one-country platform is a mapping of that country.
+     * And the filter the country is for: the mappings of one country are its own, plus -- for the provider's own declared country -- the
+     * ones written before countries were stated, because a mapping of a one-country platform is a mapping of that country.
      */
     public function test_the_mappings_of_a_country_are_its_own_and_the_ones_that_name_none(): void
     {
@@ -679,5 +661,30 @@ class TorodCityMappingServiceTest extends TorodAddressTestCase
 
         $this->assertGreaterThan(0, $saudi, "the provider's own country takes the rows that name none");
         $this->assertSame(0, $kuwaiti, 'another country takes none of them');
+    }
+
+    /**
+     * And the case the shipped configuration is actually in, which the first version of the filter got wrong: `torod_point` declares NO
+     * `default_country` (only `m5azn` does), so asking the provider alone left the rows that name no country belonging to nobody -- every
+     * mapping a Saudi shop had already approved would have disappeared from the matching screen the day the country scope was switched on.
+     * The default storefront takes them.
+     */
+    public function test_a_provider_that_declares_no_country_leaves_the_unmarked_mappings_to_the_default_storefront(): void
+    {
+        config(['fulfillment.providers.torod_point.default_country' => null, 'gcc.storefronts.default_country' => 'SA']);
+        $this->service()->proposeCandidates(self::PROVIDER, collect([$this->city('riyadh')]));
+        \Illuminate\Support\Facades\DB::table('provider_city_mappings')->update(['country_code' => null]);
+
+        $this->assertSame('SA', \App\Services\Fulfillment\ProviderCityMappingService::countryOfUnmarkedMappings('torod_point'));
+        $this->assertGreaterThan(
+            0,
+            \App\Services\Fulfillment\ProviderCityMappingService::ofCountry(\App\Models\ProviderCityMapping::query(), 'torod_point', 'SA')->count(),
+            'the default storefront takes the rows that name no country when the provider declares none',
+        );
+        $this->assertSame(
+            0,
+            \App\Services\Fulfillment\ProviderCityMappingService::ofCountry(\App\Models\ProviderCityMapping::query(), 'torod_point', 'KW')->count(),
+            'and exactly one country takes them, or one mapping would be listed in two countries',
+        );
     }
 }
