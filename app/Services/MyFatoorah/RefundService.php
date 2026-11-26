@@ -23,7 +23,10 @@ use Illuminate\Support\Str;
  *
  *  - refunding more than was actually paid, counting requests still under review. The total is summed
  *    under a row lock on the attempt, in the same transaction as the insert, so two operators clicking
- *    at once cannot each pass a check the other invalidates;
+ *    at once cannot each pass a check the other invalidates. How much is left is counted in the smallest
+ *    coin the currency has and is never rounded upwards, because a ceiling that rounds up is not a
+ *    ceiling: see {@see RefundMoney}, which also carries why the exact handling is its own class and not
+ *    a wider {@see Money} (D2-10);
  *  - refunding twice for the same decision. `external_identifier` is unique and is derived from the
  *    attempt plus a caller-supplied idempotency key, so a double-submitted form collides in the
  *    database instead of sending two refunds.
@@ -54,7 +57,7 @@ class RefundService
      */
     public function request(
         MyFatoorahPaymentAttempt $attempt,
-        float $amount,
+        float|int|string $amount,
         ?string $comment = null,
         ?int $requestedBy = null,
         ?int $refundRequestId = null,
@@ -70,8 +73,12 @@ class RefundService
             return ['ok' => false, 'code' => 'no_payment_id', 'error' => 'This payment has no MyFatoorah payment id to refund against.'];
         }
 
-        $amount = round($amount, 2);
-        if ($amount <= 0) {
+        // The currency the money went out in, which is also the currency it comes back in and therefore the one whose smallest coin this
+        // refund is counted in. Resolved once, so the figure sent, the figure stored and the ceiling checked cannot disagree about scale.
+        $currency = $this->currencyOf($attempt);
+        $money = RefundMoney::asked(amount: $amount, currencyCode: $currency);
+
+        if (!$money->isPositive()) {
             return ['ok' => false, 'code' => 'bad_amount', 'error' => 'A refund amount must be greater than zero.'];
         }
 
@@ -89,7 +96,7 @@ class RefundService
 
         // Reserve the refund and check the headroom in one transaction, under a lock on the attempt, so
         // the sum cannot change between the check and the insert.
-        $reservation = $this->reserve($attempt, $amount, $reference, $comment, $requestedBy, $refundRequestId, $orderId);
+        $reservation = $this->reserve($attempt, $money, $currency, $reference, $comment, $requestedBy, $refundRequestId, $orderId);
 
         if (!$reservation['ok']) {
             return $reservation;
@@ -105,7 +112,7 @@ class RefundService
 
         $response = $this->client->post($connection['config'], 'create_refund', [
             'PaymentId' => (string) $attempt->payment_id,
-            'Amount' => $amount,
+            'Amount' => $money->toFloat(),
             'ExternalIdentifier' => $reference,
             'Comment' => Str::limit((string) ($comment ?? ''), 200, ''),
             // The store absorbs MyFatoorah's service charge rather than deducting it from the customer's
@@ -166,14 +173,15 @@ class RefundService
      */
     private function reserve(
         MyFatoorahPaymentAttempt $attempt,
-        float $amount,
+        RefundMoney $amount,
+        string $currency,
         string $reference,
         ?string $comment,
         ?int $requestedBy,
         ?int $refundRequestId,
         ?int $orderId,
     ): array {
-        return DB::transaction(function () use ($attempt, $amount, $reference, $comment, $requestedBy, $refundRequestId, $orderId): array {
+        return DB::transaction(function () use ($attempt, $amount, $currency, $reference, $comment, $requestedBy, $refundRequestId, $orderId): array {
             /** @var MyFatoorahPaymentAttempt|null $locked */
             $locked = MyFatoorahPaymentAttempt::query()->whereKey($attempt->getKey())->lockForUpdate()->first();
 
@@ -187,22 +195,29 @@ class RefundService
                 return ['ok' => true, 'refund' => $existing, 'existing' => true];
             }
 
-            // What the customer actually paid — the verified figure, not the one we asked for.
-            $paid = (float) ($locked->captured_amount ?? $locked->expected_amount);
-            $alreadyAsked = (float) MyFatoorahRefund::query()
+            /*
+             * What the customer actually paid — the verified figure, not the one we asked for, and read PAST the model's cast.
+             *
+             * The cast on these columns is `decimal:2`, so a captured 10.005 would be handed over as 10.01 and the ceiling would sit five
+             * fils above what was ever paid — the over-refund, reintroduced by the model after the service had been fixed. The raw column
+             * value is the money. Reading it this way changes nothing for a two-place amount, which is every amount this gateway has taken,
+             * and it leaves the cast — and with it the payment verification that reads `expected_amount` through it — exactly as it is.
+             */
+            $paid = $locked->getRawOriginal('captured_amount') ?? $locked->getRawOriginal('expected_amount');
+            $alreadyAsked = MyFatoorahRefund::query()
                 ->where('payment_attempt_id', $locked->getKey())
                 ->whereIn('status', MyFatoorahRefund::COUNTS_AGAINST_PAID)
                 ->sum('amount');
 
-            $remaining = round($paid - $alreadyAsked, 2);
+            // Exact, at the smallest coin this currency has and never rounded up: an epsilon fudge here, or a round() that lifts the
+            // ceiling by half a coin, would let a refund exceed the paid amount, and repeated partial refunds would accumulate that drift.
+            $headroom = RefundMoney::headroom(paid: $paid, alreadyAsked: $alreadyAsked, currencyCode: $currency);
 
-            // Exact, in halalas: an epsilon fudge here would let a refund exceed the paid amount by a
-            // fraction, and repeated partial refunds would accumulate that drift.
-            if (Money::greaterThan($amount, $remaining)) {
+            if ($amount->exceeds($headroom)) {
                 return [
                     'ok' => false,
                     'code' => 'exceeds_paid',
-                    'error' => 'Only ' . number_format($remaining, 2) . ' ' . $locked->captured_currency . ' is left to refund on this payment.',
+                    'error' => 'Only ' . $headroom->forHumans() . ' ' . $locked->captured_currency . ' is left to refund on this payment.',
                 ];
             }
 
@@ -212,8 +227,8 @@ class RefundService
                     'refund_request_id' => $refundRequestId,
                     'order_id' => $orderId,
                     'external_identifier' => $reference,
-                    'amount' => number_format($amount, 2, '.', ''),
-                    'currency' => (string) ($locked->captured_currency ?? $locked->expected_currency),
+                    'amount' => $amount->toStorage(),
+                    'currency' => $currency,
                     'status' => MyFatoorahRefund::STATUS_REQUESTED,
                     'requested_by' => $requestedBy,
                     'comment' => $comment !== null ? Str::limit($comment, 200, '') : null,
@@ -286,6 +301,17 @@ class RefundService
             'approved_by' => $approvedBy,
             'executed_at' => now(),
         ])->save();
+    }
+
+    /**
+     * The currency a refund of this payment is in: what the gateway CAPTURED, falling back to what the attempt asked for.
+     *
+     * The same answer the stored row has always been given, lifted out so that the scale the amount is counted at and the currency the row
+     * names are one decision rather than two that could drift apart.
+     */
+    private function currencyOf(MyFatoorahPaymentAttempt $attempt): string
+    {
+        return (string) ($attempt->captured_currency ?? $attempt->expected_currency);
     }
 
     /**

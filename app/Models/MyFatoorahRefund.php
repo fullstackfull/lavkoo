@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Casts\RefundAmountInItsCurrency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -18,7 +19,8 @@ class MyFatoorahRefund extends Model
     protected $guarded = ['id'];
 
     protected $casts = [
-        'amount' => 'decimal:2',
+        // The decimals of the currency this refund names, not two for every currency: a dinar is 1,000 fils (D2-10).
+        'amount' => RefundAmountInItsCurrency::class,
         'requested_at' => 'datetime',
         'executed_at' => 'datetime',
     ];

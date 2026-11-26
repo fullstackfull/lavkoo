@@ -69,6 +69,13 @@ class GccMigrationsContractTest extends TestCase
             => 'widens the SCALE of five decimal columns (14,2 -> 14,3) so a fils amount is not rounded away on the way in, which a new '
             . 'column beside them could not do: the existing writers write these. Widening a decimal is lossless (12.34 becomes 12.340) '
             . 'and the migration re-runs: setScaleTo() reads the current scale and does nothing when it is already three',
+        '2026_12_15_100000_carry_three_decimals_on_myfatoorah_refund_money.php'
+            => 'the same shape as the entry above, for the three columns a gateway refund is computed from (24,2 -> 24,3): '
+            . 'myfatoorah_refunds.amount and the attempt\'s expected_amount and captured_amount, which are what the headroom is read '
+            . 'from. A column beside them could not do it either -- the existing writers write these -- and leaving the scale at two '
+            . 'would store a payment of 10.005 as 10.01 and hand the refund path a ceiling five fils above what was paid, which is the '
+            . 'over-refund D2-10 exists to prevent. Widening a decimal is lossless (150.00 becomes 150.000) and change() to the scale a '
+            . 'column already has is the same statement again, so the migration re-runs',
         '2026_12_23_100000_add_country_to_provider_credentials_and_cities.php'
             => 'replaces the key (provider, external_id) with (provider, country, external_id) so two countries may map their own city of '
             . 'that id. The wide key is added BEFORE the narrow one is dropped, so there is no window in which a city could be imported '
@@ -111,11 +118,23 @@ class GccMigrationsContractTest extends TestCase
     /**
      * Columns added to a table that already exists WITHOUT being nullable and without a default, with the reason each is safe anyway. A
      * column like that is additive -- it drops nothing -- and still stops a half-deployed application dead: the code that ran a second
-     * before the migration writes a row without it and the engine refuses the insert. Empty, and meant to stay empty.
+     * before the migration writes a row without it and the engine refuses the insert. Meant to hold nothing that really adds a column.
+     *
+     * The one entry adds no column at all: the scan reads a `->change()` on an existing column the same way it reads a definition, because
+     * nothing in the Blueprint text distinguishes them, and `change` cannot go in NOT_A_COLUMN without the scan ceasing to read every
+     * other `->change()` on this tree as well.
      *
      * @var array<string, string>
      */
-    private const NOT_NULL_WITHOUT_A_DEFAULT = [];
+    private const NOT_NULL_WITHOUT_A_DEFAULT = [
+        '2026_12_15_100000_carry_three_decimals_on_myfatoorah_refund_money.php'
+            => 'adds no column. It changes the SCALE of three columns that already exist (24,2 -> 24,3, the entry in NOT_EXPAND_ONLY above '
+            . 'says why) and myfatoorah_refunds.amount and myfatoorah_payment_attempts.expected_amount are already NOT NULL with no '
+            . 'default, exactly as their create migrations declared them. Giving them a default to satisfy this scan would change the '
+            . 'schema in a way the change does not need, and would hide the next insert that forgets an amount. No insert that worked a '
+            . 'second before the deploy stops working: a writer that supplied an amount still supplies one, and a wider scale accepts '
+            . 'every value the narrower one did',
+    ];
 
     /** Methods a `Schema::table` callback may call without adding a column: an index or a key needs no `hasColumn`. */
     private const NOT_A_COLUMN = [
