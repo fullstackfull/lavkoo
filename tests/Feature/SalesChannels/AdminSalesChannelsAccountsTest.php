@@ -9,6 +9,7 @@ use App\Models\SalesChannelAccount;
 use App\Services\SalesChannels\ChannelAccountService;
 use App\Services\SalesChannels\ChannelConnectorRegistry;
 use App\Services\SalesChannels\Exceptions\ChannelUnavailableException;
+use App\Services\SalesChannels\Support\ChannelAccountCountry;
 use App\Services\SalesChannels\Support\ChannelCredentialStore;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Arr;
@@ -361,6 +362,92 @@ class AdminSalesChannelsAccountsTest extends AdminSalesChannelsTestCase
         $this->forgetToasts();
         $this->post(route('admin.sales-channels.accounts.update', $account), $this->update(['external_account_id' => '7654321', 'name' => 'Only a name']));
         $this->assertStringNotContainsString(translate('account_identity_changed_withdrawn'), implode(' ', $this->flashedToasts()));
+    }
+
+    /**
+     * THE FORM ROW THE DECLARATION NEVER HAD (H2-06).
+     *
+     * `ChannelSettings` has validated a declared storefront country since M-744, `ChannelAccountCountry` prefers it to the derived answer,
+     * the service stores it and the console can set it -- and `AccountForm::SETTING_FIELDS` did not list it, so the one screen an operator
+     * uses DROPPED the key: the account could not be told which storefront it sells in from the panel at all.
+     *
+     * Driven through the real create page and the real POST, for Trendyol and for Amazon, because the row is every channel's.
+     */
+    public function test_the_create_form_declares_which_storefront_the_account_sells_in(): void
+    {
+        $this->storefrontsAreOn();
+
+        foreach (['trendyol', 'amazon'] as $channel) {
+            $this->assertStringContainsString(
+                'name="settings[storefront_country]"',
+                $this->get(route('admin.sales-channels.accounts.create', ['channel' => $channel]))->assertOk()->getContent(),
+                $channel . ': the form has no row for the storefront the account sells in',
+            );
+        }
+
+        $account = $this->freshAccount($this->trendyolForm(['settings' => ['storefront_code' => 'KW', 'storefront_country' => 'KW']]));
+
+        $this->assertSame('KW', $account->setting('storefront_country'), 'the declaration the form sent was dropped');
+        $this->assertSame('KW', app(ChannelAccountCountry::class)->of($account), 'and it is the country the account sells in');
+    }
+
+    /** With the storefronts off there is nothing to declare, so the row is not there and the form is the form of today. */
+    public function test_with_the_storefronts_off_the_form_offers_no_storefront_country(): void
+    {
+        $this->assertStringNotContainsString(
+            'name="settings[storefront_country]"',
+            $this->get(route('admin.sales-channels.accounts.create', ['channel' => 'trendyol']))->assertOk()->getContent(),
+        );
+
+        $account = $this->freshAccount($this->trendyolForm(['settings' => ['storefront_country' => 'KW']]));
+        $this->assertNull($account->setting('storefront_country'), 'a declaration sent while storefronts are off is dropped, not stored');
+    }
+
+    /** A declaration the account's own channel setting contradicts is refused by the form, with the field it is about. */
+    public function test_a_declaration_the_channels_own_setting_contradicts_is_refused(): void
+    {
+        $this->storefrontsAreOn();
+
+        $this->post(route('admin.sales-channels.accounts.store'), $this->trendyolForm(['settings' => ['storefront_code' => 'SA', 'storefront_country' => 'KW']]))
+            ->assertRedirect();
+
+        $this->assertSame(0, SalesChannelAccount::count(), 'a Trendyol account of the Saudi storefront cannot declare the Kuwaiti one');
+        // The refusal comes out of ChannelSettings as an exception the controller turns into an error on `settings`, not a toast.
+        $this->assertStringContainsString(
+            'sells in SA, so it cannot declare the KW storefront',
+            implode(' ', session('errors')->getBag('default')->get('settings')),
+        );
+
+        // The companion half: the same form with the two in agreement DOES create the account, so the refusal above is the contradiction
+        // and not some other rule of this form.
+        $this->post(route('admin.sales-channels.accounts.store'), $this->trendyolForm(['settings' => ['storefront_code' => 'KW', 'storefront_country' => 'KW']]))->assertRedirect();
+        $this->assertSame(1, SalesChannelAccount::count());
+    }
+
+    /**
+     * Editing an account to another storefront says what the move withdrew, exactly as changing its seller id does.
+     *
+     * NOT a test of the declaration half of the identity, and it must not be read as one: a Trendyol account cannot declare a storefront
+     * its own `storefront_code` contradicts, so the two move together and `market` moves with them -- which was already in the identity.
+     * What this proves is the SCREEN: the operator is told. The declaration on its own is isolated in
+     * ChannelAccountStorefrontCountryTest::test_moving_an_account_to_another_storefront_withdraws_what_was_proven_for_it, through an Amazon
+     * account with no marketplace, where nothing else about the account moves.
+     */
+    public function test_moving_an_account_to_another_storefront_says_what_was_withdrawn(): void
+    {
+        $this->storefrontsAreOn();
+        $account = $this->connected($this->freshAccount($this->trendyolForm(['settings' => ['storefront_code' => 'SA', 'storefront_country' => 'SA']])));
+
+        $this->post(route('admin.sales-channels.accounts.update', $account), $this->update(['settings' => ['storefront_code' => 'KW', 'storefront_country' => 'KW']]));
+
+        $this->assertToastContains(translate('account_identity_changed_withdrawn'));
+        $this->assertSame('KW', $account->fresh()->setting('storefront_country'));
+        $this->assertSame('untested', $account->fresh()->connection_status, 'the earlier connection test described another storefront');
+    }
+
+    private function storefrontsAreOn(): void
+    {
+        config(['gcc.storefronts.enabled' => true, 'gcc.storefronts.countries.KW.active' => true]);
     }
 
     public function test_the_account_default_for_orders_no_rule_decides_about_is_chosen_on_the_form(): void

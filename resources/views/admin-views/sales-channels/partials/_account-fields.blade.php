@@ -4,6 +4,7 @@
 @use('App\Enums\SalesChannels\SalesChannel')
 @use('App\Http\Controllers\Admin\SalesChannels\Support\AccountForm')
 @use('App\Services\SalesChannels\Support\ChannelSettings')
+@use('App\Services\Storefront\ProductCountry')
 @php
     $isAmazon = $channel === SalesChannel::Amazon;
     $isNoon = $channel === SalesChannel::Noon;
@@ -52,6 +53,22 @@
         <input class="form-control" id="account-currency" name="currency" maxlength="3" placeholder="SAR" value="{{ old('currency', $account?->currency) }}">
         @error('currency')<div class="text-danger fs-12">{{ $message }}</div>@enderror
     </div>
+    @if (ChannelSettings::marketMayBeDeclared($channel->value))
+        {{-- Which storefront this account sells in, declared rather than guessed (H2-06). Until this row existed the declaration could be
+             made only from the console: ChannelSettings validated it, ChannelAccountCountry preferred it, and the form dropped the key.
+             Not declaring one is the answer every account has today -- the country is then derived from the channel's own setting. It is
+             part of the account's identity, so changing it withdraws the connection result, the approvals and the write permission. --}}
+        <div class="col-md-3">
+            <label class="form-label" for="account-storefront-country">{{ translate('storefront_country_of_this_connection') }}</label>
+            <select class="form-select" id="account-storefront-country" name="settings[{{ ChannelSettings::MARKET }}]">
+                <option value="">{{ translate('not_set') }}</option>
+                @foreach (ProductCountry::options() as $accountCountry)
+                    <option value="{{ $accountCountry }}" @selected(strtoupper((string) $setting(ChannelSettings::MARKET)) === $accountCountry)>{{ ProductCountry::label(country: $accountCountry) }}</option>
+                @endforeach
+            </select>
+            @error('settings.' . ChannelSettings::MARKET)<div class="text-danger fs-12">{{ $message }}</div>@enderror
+        </div>
+    @endif
     <div class="col-md-6">
         <label class="form-label" for="account-policy">{{ translate('when_no_rule_matches') }}</label>
         <select class="form-select" id="account-policy" name="execution_policy" required>

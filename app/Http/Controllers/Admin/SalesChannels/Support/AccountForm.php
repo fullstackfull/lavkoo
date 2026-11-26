@@ -8,6 +8,7 @@ use App\Enums\SalesChannels\SalesChannel;
 use App\Models\SalesChannelAccount;
 use App\Models\Seller;
 use App\Services\SalesChannels\Support\ChannelSettings;
+use App\Services\Storefront\StorefrontResolver;
 use App\Utils\Helpers;
 use Illuminate\Contracts\Validation\Factory as ValidationFactory;
 use Illuminate\Contracts\Validation\Validator;
@@ -39,22 +40,35 @@ final class AccountForm
         'noon' => ['key_id', 'private_key', 'project_code'],
     ];
 
-    /** The settings that say WHICH seller account a connection test was about: changing one leaves the earlier test describing something else. */
+    /**
+     * The settings that say WHICH seller account a connection test was about: changing one leaves the earlier test describing something else.
+     *
+     * The DECLARED storefront country is one of them, for every channel (H2-06). `ChannelAccountService::identityOf()` withdraws the
+     * connection result, every approval and the write permission when it changes, and this list is what makes the screen SAY SO -- the
+     * update action compares it before and after to raise `account_identity_changed_withdrawn`. The two have to name the same things or an
+     * operator has everything withdrawn and is told nothing. It reads as nothing for every account that declares no country, which is
+     * every account while storefronts are off.
+     */
     public const IDENTITY_SETTINGS = [
-        'amazon' => ['region'],
-        'trendyol' => ['storefront_code'],
+        'amazon' => [ChannelSettings::MARKET, 'region'],
+        'trendyol' => [ChannelSettings::MARKET, 'storefront_code'],
         // A noon price belongs to a COUNTRY and a noon stock figure to a WAREHOUSE, so changing either leaves an earlier connection test
         // describing something else -- which is exactly what the identity set is for (E12-F02 recorded that neither was in it).
-        'noon' => ['country_code', 'warehouse_code'],
+        'noon' => [ChannelSettings::MARKET, 'country_code', 'warehouse_code'],
     ];
 
     /** What an account does with an order no rule decides about. It can follow only; creating shipments needs a rule that says from where. */
     public const DEFAULT_POLICIES = [ExecutionPolicy::ManualReview, ExecutionPolicy::ExternallyManaged];
 
+    /**
+     * The settings an administrator may send, per channel. A key that is not here is DROPPED, which is why the declared storefront country
+     * had to be added to all three: the field existed in `ChannelSettings`, was validated there, and was settable from the console and the
+     * service -- and the form threw it away, so the one screen an operator uses could not declare which storefront an account sells in.
+     */
     private const SETTING_FIELDS = [
-        'amazon' => ['region', 'marketplace_ids', 'sync_fba_inventory', 'request_buyer_data', 'auto_link_exact_sku', 'route_cod_orders', 'shipment_creation', 'dispatch_mode'],
-        'trendyol' => ['storefront_code', 'integration_name', 'accept_language', 'auto_link_exact_barcode', 'prices_include_tax', 'route_cod_orders', 'auto_restock_accepted_returns', 'torod_reference_field', 'carrier_codes', 'shipment_creation', 'dispatch_mode'],
-        'noon' => ['country_code', 'warehouse_code', 'use_sandbox', 'sync_fbn_inventory', 'route_cod_orders'],
+        'amazon' => [ChannelSettings::MARKET, 'region', 'marketplace_ids', 'sync_fba_inventory', 'request_buyer_data', 'auto_link_exact_sku', 'route_cod_orders', 'shipment_creation', 'dispatch_mode'],
+        'trendyol' => [ChannelSettings::MARKET, 'storefront_code', 'integration_name', 'accept_language', 'auto_link_exact_barcode', 'prices_include_tax', 'route_cod_orders', 'auto_restock_accepted_returns', 'torod_reference_field', 'carrier_codes', 'shipment_creation', 'dispatch_mode'],
+        'noon' => [ChannelSettings::MARKET, 'country_code', 'warehouse_code', 'use_sandbox', 'sync_fbn_inventory', 'route_cod_orders'],
     ];
 
     /** A setting that decides something another module owns: changing it needs that module's permission, whichever page the form is on (the account pages need only Sales channels). */
@@ -149,6 +163,13 @@ final class AccountForm
             'clear_secrets' => ['nullable', 'array'],
             'clear_secrets.*' => ['string', Rule::in(self::SECRET_FIELDS[$channel->value])],
         ];
+        // The declared storefront country is every channel's, so it is here rather than in one of settingRules()' three branches. The empty
+        // value is allowed and means "declare nothing": the derived answer stands, which is what every account has today. `''` is listed
+        // beside the countries as well as `nullable`, because the global ConvertEmptyStringsToNull turns the form's empty option into null
+        // on a web request and leaves it as `''` for a caller that does not go through it.
+        if (ChannelSettings::marketMayBeDeclared($channel->value)) {
+            $rules['settings.' . ChannelSettings::MARKET] = ['nullable', 'string', Rule::in([...StorefrontResolver::fromConfig()->configuredCountries(), ''])];
+        }
         if ($creating) {
             $rules += [
                 'environment' => ['required', Rule::enum(AccountEnvironment::class)],
@@ -219,6 +240,8 @@ final class AccountForm
             'execution_policy' => translate('when_no_rule_matches'),
             'environment' => translate('environment'),
             'seller_id' => translate('seller_id_platform_is_zero'),
+            // Safe to name, unlike noon's two below: this key has text in every locale already (the fulfilment connection form shows it).
+            'settings.' . ChannelSettings::MARKET => translate('storefront_country_of_this_connection'),
             'settings.region' => translate('amazon_region'),
             'settings.marketplace_ids' => translate('marketplace_ids'),
             'settings.storefront_code' => translate('storefront_code'),

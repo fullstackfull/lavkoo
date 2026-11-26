@@ -152,6 +152,15 @@ class ChannelAccountService
     /**
      * Which seller, where. Anything that approved or proved something about this account was approved or proved for THIS identity.
      *
+     * The DECLARED storefront country is part of it (H2-06). `market` is not a substitute: it is derived per channel from a vendor setting
+     * -- the Trendyol storefront code, the Amazon region, and nothing at all for noon -- so moving an account from the Saudi storefront to
+     * the Emirati one by changing its declaration left `market` untouched and the connection result, the approvals and the write permission
+     * standing, describing an account that now sells somewhere else. An account that declares nothing reads as `''` here, before and after,
+     * which is every account while storefronts are off: nothing is withdrawn that is not withdrawn today.
+     *
+     * `AccountForm::IDENTITY_SETTINGS` names the same thing for the screen, and must keep doing so: the update action compares that list
+     * before and after to tell the operator what was withdrawn, so a thing withdrawn here and missing there is a silent withdrawal.
+     *
      * @return array<string, mixed>
      */
     private function identityOf(SalesChannelAccount $account): array
@@ -159,7 +168,13 @@ class ChannelAccountService
         $marketplaces = array_map('strval', (array) ($account->marketplace_ids ?? []));
         sort($marketplaces);
 
-        return ['seller' => (string) $account->external_account_id, 'environment' => (string) $account->environment, 'market' => (string) $account->market, 'marketplaces' => $marketplaces];
+        return [
+            'seller' => (string) $account->external_account_id,
+            'environment' => (string) $account->environment,
+            'market' => (string) $account->market,
+            'storefront' => strtoupper(trim((string) $account->setting(ChannelSettings::MARKET, ''))),
+            'marketplaces' => $marketplaces,
+        ];
     }
 
     /**

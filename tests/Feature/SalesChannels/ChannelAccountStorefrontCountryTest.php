@@ -2,6 +2,10 @@
 
 namespace Tests\Feature\SalesChannels;
 
+use App\Enums\SalesChannels\ConnectionStatus;
+use App\Enums\SalesChannels\IntegrationCapability;
+use App\Enums\SalesChannels\SalesChannel;
+use App\Http\Controllers\Admin\SalesChannels\Support\AccountForm;
 use App\Models\InventoryLocation;
 use App\Models\SalesChannelAccount;
 use App\Services\SalesChannels\ChannelAccountService;
@@ -248,5 +252,96 @@ class ChannelAccountStorefrontCountryTest extends TestCase
             array_map(static fn ($member): int => (int) $member->listing->id, $members),
             'the account that declares Kuwait shares Kuwait\'s pool; the one that declares nothing does not',
         );
+    }
+
+    // ---- the declaration is part of the account's identity (H2-06) -------------------------------------------------------------------
+
+    /**
+     * MOVING AN ACCOUNT TO ANOTHER STOREFRONT WITHDRAWS WHAT WAS PROVEN FOR IT, which nothing did.
+     *
+     * `identityOf()` named the seller, the environment, the `market` column and the marketplaces -- and `market` is DERIVED per channel
+     * from a vendor setting (the Trendyol storefront code, the Amazon region, nothing at all for noon). So an operator could move an
+     * account from one storefront to another by changing its declaration and the connection result, every capability approval and the
+     * permission to write stayed, describing an account that now sells somewhere else.
+     *
+     * An Amazon account with no marketplace id is the isolated case: `market` is its region and does not move, and no marketplace
+     * cross-check applies, so the declaration is the only thing that changes.
+     */
+    public function test_moving_an_account_to_another_storefront_withdraws_what_was_proven_for_it(): void
+    {
+        $this->storefrontsAreOn();
+        $account = $this->proven($this->amazonAccountWith([ChannelSettings::MARKET => 'SA']));
+
+        app(ChannelAccountService::class)->update($account, ['settings' => [ChannelSettings::MARKET => 'KW']], [], [], adminId: 1);
+        $account->refresh();
+
+        $this->assertSame('KW', $account->setting(ChannelSettings::MARKET), 'the declaration itself is saved');
+        $this->assertSame('eu', $account->setting('region'), 'and nothing else about the account moved, so the withdrawal is the declaration\'s');
+        $this->assertSame(ConnectionStatus::Untested->value, $account->connection_status, 'the earlier test was against the Saudi storefront');
+        $this->assertSame([], $account->capability_approvals);
+        $this->assertFalse((bool) $account->write_enabled);
+        $this->assertTrue((bool) $account->dry_run);
+    }
+
+    /** Saving the same declaration again withdraws nothing: the reset follows a CHANGE, not a save. */
+    public function test_saving_the_same_declaration_again_withdraws_nothing(): void
+    {
+        $this->storefrontsAreOn();
+        $account = $this->proven($this->amazonAccountWith([ChannelSettings::MARKET => 'SA']));
+
+        app(ChannelAccountService::class)->update($account, ['settings' => [ChannelSettings::MARKET => 'SA'], 'name' => 'Renamed'], [], [], adminId: 1);
+        $account->refresh();
+
+        $this->assertSame('Renamed', $account->name);
+        $this->assertSame(ConnectionStatus::Ok->value, $account->connection_status);
+        $this->assertTrue((bool) $account->write_enabled);
+    }
+
+    /**
+     * And an account that declares nothing is not touched by any of this, which is every account while storefronts are off and every
+     * account that has not been moved: the declaration reads `''` before and after.
+     */
+    public function test_an_account_that_declares_nothing_keeps_what_was_proven_for_it(): void
+    {
+        $this->storefrontsAreOn();
+        $account = $this->proven($this->amazonAccountWith([]));
+
+        app(ChannelAccountService::class)->update($account, ['settings' => [], 'name' => 'Renamed'], [], [], adminId: 1);
+
+        $this->assertSame(ConnectionStatus::Ok->value, $account->fresh()->connection_status);
+        $this->assertTrue((bool) $account->fresh()->write_enabled);
+    }
+
+    /**
+     * The screen has to SAY what the change withdrew, and it reads a different list from the service.
+     *
+     * `ChannelAccountController::update` compares `AccountForm::IDENTITY_SETTINGS` before and after to raise
+     * `account_identity_changed_withdrawn`. A thing the service withdraws for and the form does not name is a silent withdrawal: everything
+     * is taken away and the operator is told nothing. So the declaration is in both, for all three channels.
+     */
+    public function test_every_channel_names_the_declaration_in_the_identity_the_screen_reads(): void
+    {
+        foreach (SalesChannel::connectable() as $channel) {
+            $this->assertContains(
+                ChannelSettings::MARKET,
+                AccountForm::IDENTITY_SETTINGS[$channel->value],
+                $channel->value . ': the service withdraws the approvals when the declaration changes, so the screen must say so',
+            );
+        }
+    }
+
+    /** An account whose connection was tested, whose steps were approved, and which is allowed to write. */
+    private function proven(SalesChannelAccount $account): SalesChannelAccount
+    {
+        $account->forceFill([
+            'connection_status' => ConnectionStatus::Ok->value,
+            'connection_checked_at' => now(),
+            'capabilities' => [IntegrationCapability::ConnectionTest->value, IntegrationCapability::ReadOnlySync->value],
+            'capability_approvals' => [IntegrationCapability::ReadOnlySync->value => ['by' => 1, 'at' => now()->toIso8601String(), 'reason' => 'approved']],
+            'write_enabled' => true,
+            'dry_run' => false,
+        ])->save();
+
+        return $account->fresh();
     }
 }
