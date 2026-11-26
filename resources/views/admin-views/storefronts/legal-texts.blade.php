@@ -158,6 +158,7 @@
                                     <label class="form-label fs-12" for="publish-{{ $text->id }}-from">{{ translate('in_force_from') }} (UTC)</label>
                                     <input class="form-control form-control-sm mb-1" id="publish-{{ $text->id }}-from" name="effective_from" maxlength="16" dir="ltr" placeholder="2026-12-01 08:00" value="{{ old('_step') === 'publish-' . $text->id ? old('effective_from') : '' }}">
                                     <div class="fs-12 text-muted mb-1">{{ translate('leave_the_day_empty_to_publish_now') }}</div>
+                                    <x-k.step-up :id="'publish-' . $text->id" />
                                     <button class="btn btn-primary btn-sm" type="submit">{{ translate('publish_the_text') }}</button>
                                 </form>
                             @endif
@@ -167,6 +168,7 @@
                                     <input type="hidden" name="_step" value="revoke-{{ $text->id }}">
                                     <label class="form-label fs-12" for="revoke-{{ $text->id }}-reason">{{ translate('why_it_is_revoked') }}</label>
                                     <input class="form-control form-control-sm mb-1" id="revoke-{{ $text->id }}-reason" name="reason" required maxlength="500" value="{{ old('_step') === 'revoke-' . $text->id ? old('reason') : '' }}">
+                                    <x-k.step-up :id="'revoke-' . $text->id" />
                                     <button class="btn btn-outline-danger btn-sm" type="submit">{{ translate('revoke_the_text') }}</button>
                                 </form>
                             @endif

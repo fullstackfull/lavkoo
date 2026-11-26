@@ -42,7 +42,19 @@ Route::group([
 
     Route::middleware([EnsureStorefrontPermission::for(StorefrontPermissionService::LEGAL_APPROVE), 'throttle:30,1,storefront-legal-approve'])->whereNumber('text')->group(function () {
         Route::post('legal-texts/{text}/approve', [StorefrontLegalTextController::class, 'approve'])->name('legal-texts.approve');
-        Route::post('legal-texts/{text}/publish', [StorefrontLegalTextController::class, 'publish'])->name('legal-texts.publish');
-        Route::post('legal-texts/{text}/revoke', [StorefrontLegalTextController::class, 'revoke'])->name('legal-texts.revoke');
+
+        // PUBLISHING and REVOKING also ask the employee to prove who they are again (I2-03, GCC-20 level 3). Those two are the steps that
+        // change what every customer of a market is bound by -- one puts a text into force, the other takes the text in force away and
+        // can leave a market with none, which stops it selling -- and they are carried out on the strength of a panel session that may be
+        // hours old. APPROVING is deliberately not among them: it is already the second person's act (a text may not be approved by its
+        // own author), so the dual control this criterion also names is what guards it, and asking twice for the same step buys nothing.
+        //
+        // Inert while `gcc.staff.step_up.enabled` is off, which is how it ships. This screen's publish and revoke forms carry the field
+        // (`<x-k.step-up />`), so it is the first screen of this panel on which that switch can be turned on and the action still works:
+        // the staff-management and role forms, which have carried this middleware since G-14, still have no field.
+        Route::middleware('admin_step_up')->group(function () {
+            Route::post('legal-texts/{text}/publish', [StorefrontLegalTextController::class, 'publish'])->name('legal-texts.publish');
+            Route::post('legal-texts/{text}/revoke', [StorefrontLegalTextController::class, 'revoke'])->name('legal-texts.revoke');
+        });
     });
 });
