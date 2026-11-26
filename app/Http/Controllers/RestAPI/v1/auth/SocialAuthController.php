@@ -8,6 +8,7 @@ use App\Contracts\Repositories\PhoneOrEmailVerificationRepositoryInterface;
 use App\Http\Controllers\Controller;
 use App\Models\BusinessSetting;
 use App\Models\User;
+use App\Rules\OneAccountPerEmail;
 use App\Rules\OneAccountPerPhone;
 use App\Services\Identity\RegistrationProof;
 use App\Services\SocialLoginConfirmationService;
@@ -374,7 +375,7 @@ class SocialAuthController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
-            'email' => 'required|email|max:255',
+            'email' => ['required', 'email', 'max:255', new OneAccountPerEmail()],
             'phone' => ['required', 'min:6', 'max:20', new OneAccountPerPhone()],
         ]);
 

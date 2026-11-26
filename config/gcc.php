@@ -1103,6 +1103,28 @@ return [
         'canonical_phone' => [
             'checked' => filter_var(env('GCC_CANONICAL_PHONE', false), FILTER_VALIDATE_BOOLEAN),
         ],
+
+        // A2-06, M2-04: whether a customer's e-mail address is read as ONE identity across its spellings. Off by default, and off is the
+        // platform of today: `unique:users` compares the string that was typed through the SERVER'S OWN collation, so which two spellings
+        // are one account is decided by the engine and not by the platform. Two duplicates survive that, both reached through the real
+        // registration endpoint. The domain's TRAILING DOT: `layla@example.test.` names the same host (the dot is the root label) and is a
+        // different string on every engine -- measured, MariaDB 10.11 answers `'layla@example.test.' = 'layla@example.test'` false -- so it
+        // is a second account everywhere. And CAPITALS wherever the collation is case-sensitive: MariaDB with `utf8mb4_general_ci` folds
+        // them, SQLite does not, so the test suite and a live server disagree about who one customer is. Surrounding whitespace is NOT one
+        // of them: `TrimStrings` is in the global middleware stack, so an address arrives trimmed.
+        //
+        // With it on, a creation path asks `App\Services\Identity\CustomerEmail` whether an account already holds the same ADDRESS --
+        // trimmed, lower-cased, with a trailing dot off the domain -- and refuses a second one in the answer shape that path already
+        // refuses a taken address with. A dot inside the local part and a `+tag` after it are left as typed: those are one mailbox at some
+        // providers and two at others, and folding them would merge accounts the platform has always kept apart. The key takes no market,
+        // so one customer is known by the same address in all six and no country's rule is the default.
+        //
+        // It ships off for the same reason the phone does: the duplicates it would refuse may already EXIST, and whether `users` gets a
+        // canonical column or a case-insensitive key is the owner's decision once the live duplicates have been counted (A2-01's blocker).
+        // Nothing here writes a column or a key, so turning it on is reversible and turning it off restores today's behaviour exactly.
+        'canonical_email' => [
+            'checked' => filter_var(env('GCC_CANONICAL_EMAIL', false), FILTER_VALIDATE_BOOLEAN),
+        ],
     ],
 
 ];

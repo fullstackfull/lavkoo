@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\RestAPI\v1\auth;
 
 use App\Contracts\Repositories\BusinessSettingRepositoryInterface;
+use App\Rules\OneAccountPerEmail;
 use App\Rules\OneAccountPerPhone;
 use App\Services\Identity\RegistrationProof;
 use App\Services\Platform\PasswordPolicy;
@@ -54,7 +55,7 @@ class CustomerAPIAuthController extends Controller
         $validator = Validator::make($request->all(), [
             'f_name' => 'required',
             'l_name' => 'required',
-            'email' => 'required|unique:users',
+            'email' => ['required', 'unique:users', new OneAccountPerEmail()],
             'phone' => ['required', 'min:6', 'max:20', 'unique:users', new OneAccountPerPhone()],
             'password' => app(PasswordPolicy::class)->ruleString(),
         ], [
@@ -480,7 +481,7 @@ class CustomerAPIAuthController extends Controller
         $validator = Validator::make($request->all(), [
             'f_name' => 'required',
             'l_name' => 'required',
-            'email' => 'required|unique:users',
+            'email' => ['required', 'unique:users', new OneAccountPerEmail()],
             'phone' => ['required', 'min:6', 'max:20', 'unique:users', new OneAccountPerPhone()],
             'password' => app(PasswordPolicy::class)->ruleString(),
         ], [
@@ -645,7 +646,7 @@ class CustomerAPIAuthController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
-            'email' => 'nullable|max:255',
+            'email' => ['nullable', 'max:255', new OneAccountPerEmail()],
             'phone' => ['required', 'string', 'min:6', 'max:15', new OneAccountPerPhone()],
         ]);
 
@@ -786,7 +787,7 @@ class CustomerAPIAuthController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
-            'email' => 'required|email|unique:users|max:255',
+            'email' => ['required', 'email', 'unique:users', 'max:255', new OneAccountPerEmail()],
             'phone' => ['required', 'min:6', 'max:20', new OneAccountPerPhone()],
         ]);
 
