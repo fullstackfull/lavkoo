@@ -16,6 +16,13 @@ use Illuminate\Support\Facades\DB;
  * prefetches it and then they click it — has said one thing once, so the second call writes nothing and raises
  * nothing. That is read-then-insert inside a transaction, which is enough for a person clicking twice; two requests
  * arriving in the same instant can still write two withdrawal rows, and the answer in force is the same either way.
+ *
+ * EVERY ROW IS SCOPED, and no caller has to remember to do it. The storefront the answer was given on and the company
+ * that sells there are filled by {@see MarketingConsentScope} whenever the caller names neither, so a form, a sender or
+ * a future writer cannot file a decision under nobody by forgetting an argument — which is what every caller did, and
+ * why every row of every head before this carried two nulls (A2-13, M-556). A caller that knows better may still name
+ * both; a WITHDRAWAL names the grant's own pair, because where the grant was given is a recorded fact and the click
+ * that withdraws it is a guess at one.
  */
 final class MarketingConsentRecorder
 {
@@ -99,8 +106,6 @@ final class MarketingConsentRecorder
             source: $source,
             textVersion: $textVersion,
             textHash: $textHash,
-            storefront: null,
-            legalEntityId: null,
         );
     }
 
@@ -152,15 +157,18 @@ final class MarketingConsentRecorder
         string $source,
         ?string $textVersion,
         ?string $textHash,
-        ?string $storefront,
-        ?int $legalEntityId,
+        ?string $storefront = null,
+        ?int $legalEntityId = null,
     ): CustomerMarketingConsent {
+        $market = MarketingConsent::market($market);
+        $storefront ??= MarketingConsentScope::storefront();
+
         return CustomerMarketingConsent::create([
             'customer_id' => $customerId,
             'subject_hash' => $subjectHash,
-            'market' => MarketingConsent::market($market),
+            'market' => $market,
             'storefront' => $storefront,
-            'legal_entity_id' => $legalEntityId,
+            'legal_entity_id' => $legalEntityId ?? MarketingConsentScope::sellingCompanyId(country: $storefront ?? $market),
             'channel' => $channel,
             'purpose' => $purpose,
             'decision' => $decision,

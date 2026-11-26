@@ -17,10 +17,12 @@ use Illuminate\Support\Facades\Schema;
  * (App\Models\CustomerMarketingConsent refuses both), which is why there is no unique key here: a person may change
  * their mind as often as they like and the history has to keep every step.
  *
- * `storefront` and `legal_entity_id` are nullable and nothing fills them yet. main has no storefront layer
- * (orders.storefront_country lives on an unmerged branch) and `legal_entities` has no migration anywhere in this
- * repository, so `legal_entity_id` carries NO foreign key: the column is the shape the record needs, not a link to a
- * table that is not here.
+ * `storefront` and `legal_entity_id` are nullable, and App\Services\Marketing\MarketingConsentScope fills them: the
+ * storefront the answer was given on, and the company that sells there. Both stay NULL — as they were on every head
+ * before that, where nothing filled either — while storefronts are off, where nothing names a storefront (a panel, a
+ * console command, a queue), and while the company registry answers nothing. `legal_entity_id` carries NO foreign key:
+ * `legal_entities` is created by a later migration of this programme, and a consent row must be writable on an
+ * installation that has not run it.
  *
  * down() refuses to drop the table once it holds a row. A consent record is the evidence that a person agreed; losing
  * it to a rollback would leave the store sending mail it cannot prove it was allowed to send.
@@ -48,10 +50,12 @@ return new class extends Migration
             // The market the answer was given for: an ISO code (SA, AE, KW, QA, BH, OM).
             $table->char('market', 2);
 
-            // The storefront, when there is a storefront layer to name one. Nothing fills it on this head.
+            // The storefront the answer was given ON, which is not always the market it governs: a customer whose
+            // address names Kuwait may answer on the Saudi storefront. Null where nothing names one.
             $table->string('storefront', 64)->nullable();
 
-            // The selling company. No foreign key: `legal_entities` does not exist in this repository.
+            // The company that sells on that storefront. No foreign key: `legal_entities` is created by a later
+            // migration of this programme and a consent row has to be writable before it has run.
             $table->unsignedBigInteger('legal_entity_id')->nullable();
 
             $table->string('channel', 32);
