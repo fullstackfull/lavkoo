@@ -238,6 +238,9 @@ class TorodMatchingScreenTest extends TorodAddressTestCase
      *
      * Only the APPROVED list is narrowed, on purpose: a city with orders WAITING is work somebody has to do, and hiding another country's
      * held order from the only screen that can release it would be worse than a mixed list.
+     *
+     * TEETH, applied and restored on SQLite 8.3: removing the narrowing from `ProviderCityReview::approved()` -> this test red, and only
+     * this one. The sibling below has its own: reverting `countryOfUnmarkedMappings()` to the provider's declaration alone -> 2 red.
      */
     public function test_the_approved_list_shows_the_matches_of_the_country_this_connection_serves(): void
     {

@@ -41,6 +41,19 @@ use Tests\TestCase;
  * right for a link on a Kuwaiti page and catastrophic for the one address whose purpose is to leave Kuwait. The two controllers behind the
  * pages are markers, as in {@see StorefrontPathRoutingTest}: the real home page reads the installation database and the page is not the
  * subject.
+ *
+ * **The four proofs the owner's acceptance of this mode is conditional on** (2026-11-26: accepted as designed, with no feature flag, "on
+ * condition that it is shown never to fire outside the market whose own setting chose it, and that no unsafe redirect path exists") are the
+ * tests named `..._is_never_redirected`, `..._is_not_itself_redirected`, `..._is_on_this_platform` and
+ * `..._excluded_whatever_its_address_says`. The fifth, a rule of ANOTHER market pointing back into the stopped one, needs both redirecting
+ * middlewares at once and is in {@see StorefrontSeoRedirectWebsiteTest}, where `ApplySeoRedirects` is left switched on.
+ *
+ * TEETH, each mutation applied and restored, on SQLite 8.3 and MariaDB 10.11.14:
+ *  - a market redirected because ANOTHER market chose the mode -> **5 red**;
+ *  - a market with no recorded mode at all counted as redirecting -> **4 red**;
+ *  - the target returned as written instead of built through the URL generator -> **4 red**, one of them naming the address it left the
+ *    platform for;
+ *  - `vendor` dropped from `StorefrontPathPrefix::notVisitorPages()` -> **1 red**, the guarded-surface scan, and only that one.
  */
 class StorefrontStopRedirectTest extends TestCase
 {

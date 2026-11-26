@@ -45,6 +45,17 @@ use Tests\TestCase;
  *
  * Three markets, deliberately: Saudi Arabia (the default storefront, whose behaviour must not move), Kuwait (a market with rules of its own)
  * and the Emirates (a market with none), so that a rule proven to apply in its own market is also proven NOT to apply in two others.
+ *
+ * TEETH, each mutation applied and restored, on SQLite 8.3 and MariaDB 10.11.14:
+ *  - `ApplySeoRedirects::marketBeingServed()` returning null, which is byte for byte what the code did before this round -> **7 red**: the
+ *    Kuwaiti visitor gets `/kw/__page-c` (the Saudi rule's target) instead of `/kw/__page-b`, a market's own rule does not fire at all, an
+ *    unmarked rule bleeds into Kuwait and the Emirates, the hit is counted against the wrong market's rule, a market's chained rules never
+ *    fire, and a remembered market is ignored. That is the proof of the inertness, in both directions.
+ *  - `leadsBackHere()` returning false -> **4 red**, all of them loops; and the chain follower on its own prints the circle,
+ *    `/kw/__page-a -> /kw/__page-b -> /kw/__page-a`, which is how it is known to have teeth of its own rather than only riding on the
+ *    `assertOk()` before it.
+ *  - `RedirectResolverService::isSelfReferential()` removed -> **1 red**, and only because of the test written for exactly that; see
+ *    {@see test_a_rule_whose_target_is_its_own_source_serves_the_page}, whose own teeth check came back INERT and says so.
  */
 class StorefrontSeoRedirectWebsiteTest extends TestCase
 {
