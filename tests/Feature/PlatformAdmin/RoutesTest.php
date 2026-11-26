@@ -19,6 +19,8 @@ use Illuminate\Routing\Route as RoutingRoute;
 use Illuminate\Routing\Router;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Route;
+use ReflectionClass;
+use Tests\Support\PlatformWriteScanner;
 
 /**
  * How the routes of the API are wired. The wiring is what keeps it apart from every other API: no session, no cookie, no storefront, no
@@ -48,6 +50,41 @@ class RoutesTest extends PlatformAdminTestCase
 
     /** The contract the seller app's admin shell is built on. Section 5 of it is the list of endpoints, and it must be the route table's own list. */
     private const CONTRACT_DOCUMENT = 'docs/gcc/GCC-20-PLATFORM-ADMIN-API.md';
+
+    /**
+     * The routes that do NOT take a market from the request, and why each one does not (L-11).
+     *
+     * Every other route reads the data of ONE market, and the market it reads is a `market` parameter the request names -- which is exactly the
+     * thing a route must not interpret for itself. `MarketSelector` validates it against the configuration (422 `invalid_market`) and against the
+     * viewer's grant (403 `market_not_allowed`), and records the market the request was audited for; a route that read `$request->query('market')`
+     * on its own would be a second answer to the same question, and the one that is wrong is the one nobody tested.
+     *
+     * So this list is a DECLARATION and not a skip list: a new route that reads a market and forgets the selector is in neither half of this test
+     * and fails, and a route added here has to come with the sentence saying why it has no market to validate.
+     */
+    private const WITHOUT_A_MARKET_PARAMETER = [
+        // The two steps of the sign-in, the step-up and the sign-out: no data of any market is read, and before the first of them there is no grant
+        // to judge a market against at all.
+        'platform_admin.auth.login' => 'the sign-in reads no market',
+        'platform_admin.auth.mfa' => 'the second step reads no market',
+        'platform_admin.auth.step_up' => 'proving the factor again reads no market',
+        'platform_admin.auth.logout' => 'ending the session reads no market',
+        // The grant itself, which is what the markets are judged AGAINST.
+        'platform_admin.me.view' => 'answers the grant, including which markets it allows',
+        // A session belongs to an admin and not to a country: there is no market to filter one by, which the card records as deliberate.
+        'platform_admin.sessions.list' => 'a session is of an admin and of no market, by design',
+        'platform_admin.sessions.end_others' => 'a session is of an admin and of no market, by design',
+        'platform_admin.session.revoke' => 'a session is of an admin and of no market, by design',
+        // ALL the markets the grant allows, every time: there is no parameter to validate because the answer is not of one market. It filters on
+        // the principal (`PlatformAdminPrincipal::canSee`) rather than on a request value.
+        'platform_admin.markets.view' => 'answers every market the grant allows, so there is nothing to select',
+        // The trail is of the API and not of a market; narrowing it by one would hide the lines that matter most.
+        'platform_admin.audit_logs.view' => 'the trail is of the API and not of a market, by design',
+        // The SERVER names a device's topics from the grant and the role, so a device cannot ask for a market at all (L-16).
+        'platform_admin.devices.list' => 'the server names the topics from the grant, never from a parameter',
+        'platform_admin.devices.register' => 'the server names the topics from the grant, never from a parameter',
+        'platform_admin.device.forget' => 'the server names the topics from the grant, never from a parameter',
+    ];
 
     public function test_the_aliases_point_at_the_three_middleware(): void
     {
@@ -124,6 +161,56 @@ class RoutesTest extends PlatformAdminTestCase
         }
 
         $this->assertSame(self::WRITING_ROUTES, $writing);
+    }
+
+    public function test_every_route_that_reads_market_data_goes_through_the_market_selector(): void
+    {
+        $without = [];
+
+        foreach ($this->platformRoutes() as $route) {
+            $name = (string) $route->getName();
+            if (!str_contains($this->controllerCodeOf($route), 'MarketSelector')) {
+                $without[$name] = self::WITHOUT_A_MARKET_PARAMETER[$name] ?? 'READS NO MARKET AND VALIDATES NONE';
+            }
+        }
+
+        // Both halves, as the writing routes are: a route that reads a market and forgets the selector appears here and is not in the list, and a
+        // route that stops using the selector cannot quietly leave the walk either.
+        $this->assertSame(self::WITHOUT_A_MARKET_PARAMETER, $without);
+    }
+
+    public function test_a_route_that_takes_no_market_never_reads_one_out_of_the_request_itself(): void
+    {
+        foreach ($this->platformRoutes() as $route) {
+            $name = (string) $route->getName();
+            if (!array_key_exists($name, self::WITHOUT_A_MARKET_PARAMETER)) {
+                continue;
+            }
+
+            $code = $this->controllerCodeOf($route);
+
+            // The selector is the only thing allowed to turn a request value into a market. A route declared as taking none, that then reads one
+            // itself, has neither the validation nor the refusal and is the shape this guard exists to catch.
+            foreach (["'market'", '"market"', 'MarketSelection'] as $reach) {
+                $this->assertStringNotContainsString(
+                    $reach,
+                    $code,
+                    $name . ' is declared to take no market, so it must not read one out of the request: ' . self::WITHOUT_A_MARKET_PARAMETER[$name],
+                );
+            }
+        }
+    }
+
+    /** The source of a route's controller, comments stripped: what it says it refuses is not what it does. */
+    private function controllerCodeOf(RoutingRoute $route): string
+    {
+        $action = (string) $route->getActionName();
+        $class = explode('@', $action)[0];
+        $this->assertTrue(class_exists($class), $action . ' is not a controller class this test can read');
+
+        $file = (string) (new ReflectionClass($class))->getFileName();
+
+        return PlatformWriteScanner::codeOf((string) file_get_contents($file));
     }
 
     public function test_the_portal_lists_every_route_as_an_internal_admin_endpoint_with_a_bearer_token_and_never_to_a_partner(): void

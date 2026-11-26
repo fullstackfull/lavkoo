@@ -30,8 +30,8 @@ class ReportController extends Controller
         stability: ApiDoc::BETA,
         since: 'v1',
         group: 'platform_admin',
-        summary: 'One market\'s summary over a window: orders, returns, what it sold and what was settled',
-        description: 'For ONE market (`market`, required) over a bounded window of days (`from`, `to`). Orders by status and returns as counts; what the market sold and what was settled with its shops by the company that did it and the currency of its own money, never one figure across two currencies. A figure across currencies exists only when the owner has recorded a conversion rate, its source and its date, and is then sent with all three. A market with no selling company recorded, orders that record no currency and an absent settlement ledger each say so with a reason rather than a number.',
+        summary: 'One market\'s summary over a window: orders, returns, what it sold, what it took, its tax and what was settled',
+        description: 'For ONE market (`market`, required) over a bounded window of days (`from`, `to`). Orders by status and returns as counts; what the market sold, what it TOOK (`payments`, by payment method and currency, with the money received apart from the orders still unpaid), the TAX it recorded (`tax`, what was charged on top and what was already inside a tax-included price, never added together) and what was settled with its shops, each by the company that did it and the currency of its own money, never one figure across two currencies. A figure across currencies exists only when the owner has recorded a conversion rate, its source and its date, and is then sent with all three. A market with no selling company recorded, orders that record no currency, a payment method an order does not name, an included tax nothing has written and an absent settlement ledger each say so with a reason or a count of their own rather than a number that would be false. The tax here is a SUMMARY and not a compliant tax return, which stays desktop work.',
         idempotent: true,
     )]
     public function __invoke(Request $request): JsonResponse
