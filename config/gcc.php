@@ -229,15 +229,29 @@ return [
             //
             // The owner's decision I2-09 is that it should: a new point-of-sale sale follows the country of its products and respects the
             // sale gate and the market's state, while orders already placed keep being processed. The rule is built and wired into all
-            // three tills, and it ships OFF for a reason that was MEASURED rather than assumed. A market whose lifecycle record is absent
-            // is a DRAFT, not an active market, so turning this on refuses a till sale in any market nobody has made active -- and at
-            // least six existing test worlds sell at a till in exactly such a market (PosOrderRecordsItsMarketTest,
-            // StorefrontOrderWritersTest, OrderCurrencyOnEverySurfaceTest, OrderMoneyRowCurrencyTest, StorefrontStopContinuityTest,
-            // PushMarketTest). Those worlds are legitimately incomplete -- a CUSTOMER could not check out in them either -- so completing
-            // them is the work that has to come first, across lanes this track does not own.
+            // three tills, and it is now ON by default (2026-11-26, C-16) because the work that had to come first was done and the set at
+            // risk was MEASURED rather than estimated.
             //
-            // With it off the three tills behave exactly as they do today, which the first test of the rule asserts.
-            'at_the_till' => filter_var(env('GCC_SALE_GATE_AT_THE_TILL', false), FILTER_VALIDATE_BOOLEAN),
+            // It shipped OFF until now for a measured reason: a market whose lifecycle record is absent is a DRAFT, not an active market,
+            // so an on gate refuses a till sale in any market nobody has made active, and the comment here named six existing test worlds
+            // that sell at a till in exactly such a market. That list was a conservative SUPERSET. With GCC_SALE_GATE_AT_THE_TILL=1 over
+            // all six plus every other file that both places a till sale and switches markets on -- 13 files, 276 tests -- exactly TWO
+            // failed, both data sets of one test in PosOrderRecordsItsMarketTest. Its Kuwait world is now complete, and completing it took
+            // FOUR things and not the two expected: StorefrontSellingGate asks the lifecycle AND the preflight, so the lifecycle record
+            // and the tax decision alone left both panel tills still refusing, and the legal texts and the market's own currency row were
+            // the other two.
+            //
+            // Then the whole at-risk space was swept with the gate on, and this is what the default rests on: all 13 directories that can
+            // place a till sale -- derived from every test file in the repository that reaches a place-order path, so complete by
+            // construction -- came to 14,230 tests and 83,235 assertions with ZERO failures caused by the gate. The one failure in that
+            // sweep was a pre-existing SQLite-only TIMESTAMP-range assertion, unrelated, confirmed by re-running it with the gate off and
+            // fixed separately.
+            //
+            // Turning it on activates NO market and changes no behaviour on any installation today: while storefronts are off,
+            // StorefrontSellingGate::maySell() answers true for every market, so a Saudi till is unchanged to the line. What it does is
+            // make the three tills respect the market's state once storefronts ARE on, which is what I2-09 requires. The first test of the
+            // rule still asserts the off case, so the dormancy is kept and provable.
+            'at_the_till' => filter_var(env('GCC_SALE_GATE_AT_THE_TILL', true), FILTER_VALIDATE_BOOLEAN),
         ],
         'market_accounts' => [
             // Off by default, and off means the platform of today: a customer has the one wallet balance and the one point balance the `users` row keeps
