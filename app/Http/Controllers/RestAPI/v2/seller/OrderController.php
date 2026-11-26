@@ -290,8 +290,9 @@ class OrderController extends Controller
         }
 
         // The shared rule (E-14, LO-08). Its default answers this channel exactly as the three conditions below it used to -- delivered,
-        // paid, the wallet on and the programme on -- and claims nothing, which is how one order can earn here more than once. The
-        // `one_rule` reading claims the reward row, which is the repair; it is not the default, because it changes what is credited.
+        // paid, the wallet on and the programme on -- and claims nothing, which is how one order can earn here more than once. Two keys
+        // repair that and neither is the default: `one_rule`, which makes every channel read the admin panel's whole rule, and the
+        // smaller `a_seller_delivery_claims_its_reward_row`, which adds only the claim here and leaves every other condition alone.
         $reward = app(TheOrdersLoyaltyReward::class);
         $rewardRow = $reward->rowFor(orderId: $order->id);
 
@@ -306,9 +307,16 @@ class OrderController extends Controller
             hasSeller: $order->seller_id !== null,
         ));
 
-        if ($earns && (!WhenADeliveryEarnsPoints::claimsTheRewardRow(channel: WhenADeliveryEarnsPoints::SELLER_API_V2)
-            || app(RefundClaims::class)->claimRewardDelivered($rewardRow->id))) {
-            CustomerManager::create_loyalty_point_transaction($order->customer_id, $order->id, Convert::default($order->order_amount - $order->shipping_cost), 'order_place', origin: LedgerOrigin::order(id: $order->id));
+        if ($earns) {
+            $credit = static fn (): bool => CustomerManager::create_loyalty_point_transaction($order->customer_id, $order->id, Convert::default($order->order_amount - $order->shipping_cost), 'order_place', origin: LedgerOrigin::order(id: $order->id));
+
+            // Behind `gcc.loyalty.a_seller_delivery_claims_its_reward_row` the reward row is CLAIMED first, and inside the transaction that
+            // pays, so one order earns once and a credit that fails gives the claim back (IDEM-08, RefundClaims). The row is known to be
+            // claimable here, because with that key on the rule above makes it a condition. With the key off nothing is claimed and no
+            // transaction is opened: the credit is made exactly as it is today.
+            WhenADeliveryEarnsPoints::claimsTheRewardRow(channel: WhenADeliveryEarnsPoints::SELLER_API_V2)
+                ? DB::transaction(static fn (): mixed => app(RefundClaims::class)->claimRewardDelivered($rewardRow->id) ? $credit() : null)
+                : $credit();
         }
 
         OrderManager::generateReferBonusForFirstOrder(orderId: $order['id']);

@@ -839,6 +839,16 @@ return [
             App\Services\Loyalty\WhenADeliveryEarnsPoints::AS_EACH_CHANNEL_DOES_TODAY,
         ),
 
+        // The SMALLER repair for the one disagreement above that loses money nobody decided to give away (E-14, LO-08). The three
+        // seller-API delivery sites read the order's reward row and claim NOTHING, so a seller who moves an order off `delivered` and
+        // back is credited a second time, and an order the admin panel has already paid is paid again. With this on those three sites
+        // require a claimable reward row and CLAIM it, inside the transaction that credits, and every other condition of every channel
+        // is untouched -- so the double credit stops without settling what the wallet switch, `payment_status`,
+        // `loyalty_point_for_each_order` or a guest order should mean per channel, which is `when_a_delivery_earns_points` above and
+        // the owner's. It is a no-op under `one_rule`, which already claims everywhere. OFF as it ships: it changes what a customer is
+        // credited on a replayed delivery, which is the owner's to switch.
+        'a_seller_delivery_claims_its_reward_row' => env('GCC_SELLER_DELIVERY_CLAIMS_ITS_REWARD_ROW', false),
+
         'when_a_refund_would_take_points_below_zero' => env(
             'GCC_REFUND_POINTS_BELOW_ZERO',
             App\Services\Loyalty\WhenARefundWouldTakePointsBelowZero::ALLOW_AS_TODAY,

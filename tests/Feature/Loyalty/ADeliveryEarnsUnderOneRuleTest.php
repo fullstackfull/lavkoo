@@ -26,6 +26,11 @@ use Tests\TestCase;
  * once. It is pinned under the default and REPAIRED by the `one_rule` reading, which is not adopted: what a customer is credited is the
  * owner's decision, not this branch's.
  *
+ * **The third group is the SMALLER repair**, `gcc.loyalty.a_seller_delivery_claims_its_reward_row`, which is also off: it adds the claim
+ * to the three seller-API sites and nothing else, so the double credit stops while every other disagreement in the table stays where it is.
+ * One test measures exactly that -- the wallet disagreement, the points-for-each-order disagreement and the unpaid-order disagreement are
+ * all re-read with the key on and all answer what they answer today.
+ *
  * Tests whose name says `currently` assert today's figure so that adopting a reading flips them on purpose.
  */
 class ADeliveryEarnsUnderOneRuleTest extends TestCase
@@ -46,6 +51,7 @@ class ADeliveryEarnsUnderOneRuleTest extends TestCase
         $this->setSetting(type: 'loyalty_point_for_each_order', value: '1');
         $this->setSetting(type: 'loyalty_point_item_purchase_point', value: '10');
         config()->set('gcc.loyalty.when_a_delivery_earns_points', WhenADeliveryEarnsPoints::AS_EACH_CHANNEL_DOES_TODAY);
+        config()->set(WhenADeliveryEarnsPoints::SELLER_CLAIM_SETTING, false);
     }
 
     protected function tearDown(): void
@@ -239,7 +245,178 @@ class ADeliveryEarnsUnderOneRuleTest extends TestCase
         }
     }
 
+    // ---- the smaller key: the seller APIs claim the reward row and change nothing else ---------------------------------
+
+    /**
+     * The first thing the key has to prove is that it is off: with it off every channel earns where it earns today, and the three
+     * seller-API sites still leave the reward row unmarked, which is the whole of the defect above.
+     */
+    public function test_with_the_seller_claim_key_off_nothing_changed_on_any_channel(): void
+    {
+        config()->set(WhenADeliveryEarnsPoints::SELLER_CLAIM_SETTING, false);
+
+        foreach ($this->everyChannel() as $name => $deliver) {
+            $this->anOrderWithAReward(id: 100);
+            $deliver(100);
+
+            $this->assertSame(10.0, $this->pointsCredited(), $name . ' earns with the key off');
+            $this->startAgain();
+        }
+
+        $this->anOrderWithAReward(id: 100);
+        $this->deliverThroughSellerApiV3OrderDetailStatus(100);
+        $this->assertSame(0, (int) DB::table('order_details_rewards')->where('order_id', 100)->value('reward_delivered'), 'the row is still not claimed with the key off');
+    }
+
+    /** The defect itself, with the key on: the same sequence that credits twice above credits once. */
+    public function test_with_the_key_on_a_seller_api_pays_a_replayed_delivery_only_once(): void
+    {
+        config()->set(WhenADeliveryEarnsPoints::SELLER_CLAIM_SETTING, true);
+        $this->anOrderWithAReward(id: 100);
+
+        $this->deliverThroughSellerApiV3OrderDetailStatus(100);
+        $this->assertSame(10.0, $this->pointsCredited());
+        $this->assertSame(1, (int) DB::table('order_details_rewards')->where('order_id', 100)->value('reward_delivered'), 'the row is claimed, which is what makes the second delivery pay nothing');
+
+        DB::table('orders')->where('id', 100)->update(['order_status' => 'processing']);
+        $this->deliverThroughSellerApiV3OrderDetailStatus(100);
+
+        $this->assertSame(10.0, $this->pointsCredited(), 'one order, one credit');
+        $this->assertSame(1, DB::table('loyalty_point_transactions')->where('reference', 100)->count());
+    }
+
+    /** All three seller-API sites, not only the one the defect was found on. */
+    public function test_with_the_key_on_every_seller_api_site_pays_a_replayed_delivery_only_once(): void
+    {
+        config()->set(WhenADeliveryEarnsPoints::SELLER_CLAIM_SETTING, true);
+
+        foreach ($this->everySellerApiSite() as $name => $deliver) {
+            $this->anOrderWithAReward(id: 100);
+
+            $deliver(100);
+            DB::table('orders')->where('id', 100)->update(['order_status' => 'processing']);
+            $deliver(100);
+
+            $this->assertSame(10.0, $this->pointsCredited(), $name . ' pays a replayed delivery once');
+            $this->startAgain();
+        }
+    }
+
+    public function test_with_the_key_on_a_reward_the_panel_has_paid_is_not_paid_again_by_a_seller_api(): void
+    {
+        config()->set(WhenADeliveryEarnsPoints::SELLER_CLAIM_SETTING, true);
+        $this->anOrderWithAReward(id: 100);
+
+        $this->deliverThroughAdminPanel(100);
+        DB::table('orders')->where('id', 100)->update(['order_status' => 'processing']);
+        $this->deliverThroughSellerApiV3OrderDetailStatus(100);
+
+        $this->assertSame(10.0, $this->pointsCredited());
+    }
+
+    /**
+     * **This is the measurement that makes the key the SMALLER repair.** Every other disagreement in the table stays exactly where it is:
+     * with the wallet off the admin panel still earns and the other four still do not, and the seller APIs still ignore
+     * `loyalty_point_for_each_order`. Only the claim moved.
+     */
+    public function test_with_the_key_on_every_other_disagreement_is_exactly_as_today(): void
+    {
+        config()->set(WhenADeliveryEarnsPoints::SELLER_CLAIM_SETTING, true);
+        $this->setSetting(type: 'wallet_status', value: '0');
+
+        $earned = [];
+        foreach ($this->everyChannel() as $name => $deliver) {
+            $this->anOrderWithAReward(id: 100);
+            $deliver(100);
+            $earned[$name] = $this->pointsCredited();
+            $this->startAgain();
+        }
+
+        $this->assertSame([
+            'the admin panel' => 10.0,
+            'the vendor panel' => 0.0,
+            'seller API v2' => 0.0,
+            'seller API v3 order-detail-status' => 0.0,
+            'seller API v3 order-detail-info-update' => 0.0,
+        ], $earned, 'the wallet disagreement is untouched by the claim key');
+
+        $this->setSetting(type: 'wallet_status', value: '1');
+        $this->setSetting(type: 'loyalty_point_for_each_order', value: '0');
+
+        $this->anOrderWithAReward(id: 100);
+        $this->deliverThroughSellerApiV2(100);
+        $this->assertSame(10.0, $this->pointsCredited(), 'seller API v2 still ignores points-for-each-order with the key on');
+
+        $this->startAgain();
+        $this->makeOrder(100, $this->undeliveredVendorOrder());
+        DB::table('order_details_rewards')->insert(['order_id' => 100, 'reward_type' => 'loyalty_point', 'reward_amount' => 10, 'reward_delivered' => 0, 'created_at' => now(), 'updated_at' => now()]);
+        $this->deliverThroughSellerApiV2(100);
+        $this->assertSame(0.0, $this->pointsCredited(), 'seller API v2 still refuses an unpaid delivery with the key on');
+    }
+
+    /**
+     * The claim is a CONDITION as well as a write, which is what stops the key turning a missing reward row into a null claim. An order
+     * with no reward recorded earns nothing on a seller API with the key on -- and still earns today, with it off, which is the figure
+     * that says the key and nothing else moved it.
+     */
+    public function test_with_the_key_on_an_order_with_no_reward_row_earns_on_no_seller_api(): void
+    {
+        foreach ($this->everySellerApiSite() as $name => $deliver) {
+            config()->set(WhenADeliveryEarnsPoints::SELLER_CLAIM_SETTING, false);
+            $this->makeOrder(100, ['payment_status' => 'paid'] + $this->undeliveredVendorOrder());
+            $deliver(100);
+            $this->assertSame(10.0, $this->pointsCredited(), $name . ' pays an unrecorded reward today');
+            $this->startAgain();
+
+            config()->set(WhenADeliveryEarnsPoints::SELLER_CLAIM_SETTING, true);
+            $this->makeOrder(100, ['payment_status' => 'paid'] + $this->undeliveredVendorOrder());
+            $deliver(100);
+            $this->assertSame(0.0, $this->pointsCredited(), $name . ' pays nothing with the key on, because there is nothing to claim');
+            $this->startAgain();
+        }
+    }
+
+    /** A reward already marked delivered is nothing to claim, so the credit is refused rather than attempted and lost. */
+    public function test_with_the_key_on_a_reward_already_marked_delivered_earns_nothing_on_a_seller_api(): void
+    {
+        config()->set(WhenADeliveryEarnsPoints::SELLER_CLAIM_SETTING, true);
+        $this->anOrderWithAReward(id: 100);
+        DB::table('order_details_rewards')->where('order_id', 100)->update(['reward_delivered' => 1]);
+
+        $this->deliverThroughSellerApiV2(100);
+
+        $this->assertSame(0.0, $this->pointsCredited());
+    }
+
+    /** The two keys cannot disagree: the one rule is the stricter, so turning the smaller one on under it changes nothing. */
+    public function test_the_claim_key_is_a_no_op_under_the_one_rule(): void
+    {
+        config()->set('gcc.loyalty.when_a_delivery_earns_points', WhenADeliveryEarnsPoints::ONE_RULE);
+
+        foreach ([false, true] as $claimKey) {
+            config()->set(WhenADeliveryEarnsPoints::SELLER_CLAIM_SETTING, $claimKey);
+
+            $this->anOrderWithAReward(id: 100);
+            $this->deliverThroughSellerApiV3OrderDetailStatus(100);
+            DB::table('orders')->where('id', 100)->update(['order_status' => 'processing']);
+            $this->deliverThroughSellerApiV3OrderDetailStatus(100);
+
+            $this->assertSame(10.0, $this->pointsCredited(), 'the one rule claims whatever the smaller key says');
+            $this->startAgain();
+        }
+    }
+
     // ---- what the tests build and read ----------------------------------------------------------------------------------
+
+    /** @return array<string, callable(int): mixed> the three sites the smaller key reaches */
+    private function everySellerApiSite(): array
+    {
+        return [
+            'seller API v2' => fn (int $id) => $this->deliverThroughSellerApiV2($id),
+            'seller API v3 order-detail-status' => fn (int $id) => $this->deliverThroughSellerApiV3OrderDetailStatus($id),
+            'seller API v3 order-detail-info-update' => fn (int $id) => $this->deliverThroughSellerApiV3UpdateOrderDetails($id),
+        ];
+    }
 
     /** @return array<string, callable(int): mixed> */
     private function everyChannel(): array
