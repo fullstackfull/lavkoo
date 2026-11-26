@@ -142,6 +142,52 @@ class ArchitectureAsBuiltTest extends TestCase
     }
 
     /**
+     * Section 4 is the "what is still not built" list, and it had drifted: it filed the search index with the analytics
+     * rollup and the monitoring module as having no market dimension, and concluded that "a figure read from them is a
+     * platform total". That was true of two of the three. A **search** is narrowed to the storefront at read time —
+     * `ProductSearchService::baseQuery` passes the query through `StorefrontCatalog::restrictProductIds` BEFORE the
+     * 500-id cap — so a search result is not a platform total, and a reader acting on that sentence would have gone
+     * looking for a market column the feature does not need.
+     *
+     * Section 5's citations have been pinned since it was written; section 4's never were, which is how one line of it
+     * went stale for a day. So the same treatment: the claim that needs the mechanism names the mechanism, and the
+     * mechanism has to be in the tree AND still do what the sentence says. An "absent" list is the part of a
+     * reconciliation most worth guarding, because every entry on it is an invitation to build something.
+     */
+    public function test_the_not_built_list_does_not_file_the_search_index_among_the_things_with_no_market(): void
+    {
+        $document = $this->document();
+
+        foreach ([
+            'tests/Feature/Queue/EveryScheduledTaskDeclaresItsMarketTest.php' => 'tests/Feature/Queue/EveryScheduledTaskDeclaresItsMarketTest.php',
+            'tests/Feature/Queue/EveryQueuedClassDeclaresItsMarketTest.php' => 'tests/Feature/Queue/EveryQueuedClassDeclaresItsMarketTest.php',
+            'StorefrontSearchIndexTest' => 'tests/Feature/Storefront/StorefrontSearchIndexTest.php',
+            'ProductSearchService::baseQuery' => 'app/Services/Search/ProductSearchService.php',
+            'VisitorContext::country' => 'app/Services/Analytics/VisitorContext.php',
+        ] as $citation => $path) {
+            $this->assertStringContainsString($citation, $document, 'the not-built list must cite ' . $citation);
+            $this->assertFileExists($this->repositoryRoot() . '/' . $path, $citation . ' is cited by ' . self::DOCUMENT . ' and is not in the tree');
+        }
+
+        // The sentence the correction turns on, read out of the service rather than out of the document: the narrowing
+        // has to be in the method the document names, and it has to come before the cap it says it comes before.
+        $search = (string) file_get_contents($this->repositoryRoot() . '/app/Services/Search/ProductSearchService.php');
+        $this->assertStringContainsString(
+            'StorefrontCatalog::restrictProductIds(query: DB::table(\'product_search_index\')',
+            $search,
+            'section 4 says a search is narrowed to the storefront before its cap; put the line back or rewrite that paragraph',
+        );
+
+        // And the other direction, so this is a guard on the claim rather than on a phrase: the index itself must still
+        // carry no market column. If one is ever added, the paragraph's reasoning changes and it has to be re-read.
+        $this->assertStringNotContainsString(
+            'product_search_index',
+            $this->columnAddingMigrationsFor(column: 'storefront_country'),
+            'the search index has gained a market column: section 4 explains why it needs none, so rewrite it',
+        );
+    }
+
+    /**
      * The half of the reconciliation that would otherwise rot silently: the document says `countries` and `storefronts`
      * were deliberately NOT built, and the day somebody creates one the document becomes a lie about the schema. This
      * fails then, and names the table.
@@ -196,6 +242,18 @@ class ArchitectureAsBuiltTest extends TestCase
         $this->assertFileExists($path);
 
         return json_decode((string) file_get_contents($path), true, 512, JSON_THROW_ON_ERROR)['tables'];
+    }
+
+    /** The source of every migration whose file name says it adds this column, which is where a market column arrives. */
+    private function columnAddingMigrationsFor(string $column): string
+    {
+        $source = '';
+
+        foreach (glob($this->repositoryRoot() . '/database/migrations/*' . $column . '*.php') ?: [] as $file) {
+            $source .= file_get_contents($file);
+        }
+
+        return $source;
     }
 
     private function migrationSource(): string
