@@ -175,6 +175,12 @@ class SaudiRouteSurfaceTest extends TestCase
         // Copying a theme's own rows into another market (F-04). One address, POST only, because it is an action and not a screen: the
         // theme builder already has the screen. It is inert on a single-market platform, which has no other market to copy into.
         'POST admin/theme/copy-to-market | admin.theme.copy-to-market',
+
+        // Which markets the signed-in seller may put a product in (B-09). The seller app's market picker could not be built because nothing
+        // told it what the choice was: the grant lived in a table and a seller learnt of it by being refused a create. It is a fact about
+        // the caller's own account, behind the same seller_can list as the Seller Center overview beside it, and it writes nothing. On the
+        // Saudi platform it answers the one default market and says the picker is not needed, because the market grants ship off.
+        'GET api/v3/seller/seller-center/markets | (none)',
     ];
 
     /**

@@ -27,6 +27,7 @@ use App\Http\Controllers\RestAPI\v3\seller\SellerControlTowerController;
 use App\Http\Controllers\RestAPI\v3\seller\SellerFinanceControlController;
 use App\Http\Controllers\RestAPI\v3\seller\SellerIntegrationController;
 use App\Http\Controllers\RestAPI\v3\seller\SellerInventoryController;
+use App\Http\Controllers\RestAPI\v3\seller\SellerMarketsController;
 use App\Http\Controllers\RestAPI\v3\seller\SellerController;
 use App\Http\Controllers\RestAPI\v3\seller\SellerPayoutController;
 use App\Http\Controllers\RestAPI\v3\seller\SellerPrincipalController;
@@ -427,6 +428,17 @@ Route::group(['namespace' => 'RestAPI\v3\seller', 'prefix' => 'v3/seller', 'midd
                 Route::middleware('seller_can:orders.view,orders.manage,products.view,products.manage,finance.view')->group(function () {
                     Route::get('overview', 'overview');
                     Route::get('scorecard', 'scorecard');
+                });
+            });
+
+            // Which markets this seller may put a product in, so the app can offer the choice instead of a seller
+            // discovering their grant by being refused a create (B-09). A fact about the caller's own account, read
+            // under the same permission list as the overview above, and it writes nothing: where a seller product is
+            // saved is unchanged. While the market grants are off -- every installation today -- it answers the one
+            // default market and says the picker is not needed.
+            Route::controller(SellerMarketsController::class)->group(function () {
+                Route::middleware('seller_can:orders.view,orders.manage,products.view,products.manage,finance.view')->group(function () {
+                    Route::get('markets', 'index');
                 });
             });
 
