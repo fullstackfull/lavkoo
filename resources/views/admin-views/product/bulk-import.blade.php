@@ -122,6 +122,7 @@
                     <div class="text-center mb-20">
                         <h3 class="mb-0 fs16">{{translate("Import items file")}} ?</h3>
                     </div>
+                    @include('admin-views.product.partials._bulk-import-country')
                     <div class="form-group mb-20">
                         <div class="row justify-content-center">
                             <div class="max-w-500 uplad-xls-file">

@@ -5,7 +5,7 @@ namespace App\Services;
 
 use App\Events\RestockProductNotificationEvent;
 use App\Models\Color;
-use App\Services\Staff\StaffCountryScope;
+use App\Services\Catalog\BulkImportCountry;
 use App\Services\Marketplace\SellerMarketScope;
 use App\Services\Storefront\LegalEntityRegistry;
 use App\Services\Storefront\ProductCountry;
@@ -829,9 +829,11 @@ class ProductService
 
     public function getImportBulkProductData(object $request, string $addedBy, int|string $shopId): array
     {
-        $staffCountries = app(StaffCountryScope::class);
-        $countriesAreTracked = $staffCountries->restricts() && ProductCountry::isTracked();
-        $refusal = $staffCountries->whyItMayNotImport(countriesAreTracked: $countriesAreTracked);
+        // The country the operator chose on the import screen, which decides both the refusal and what the rows are stamped with (B-08).
+        // Nothing chosen falls straight through to the readings this import has always taken.
+        $importCountryChoice = $request[BulkImportCountry::FIELD] ?? null;
+        $bulkImportCountry = app(BulkImportCountry::class);
+        $refusal = $bulkImportCountry->refusal(chosen: $importCountryChoice);
         if ($refusal !== null) {
             return [
                 'status' => false,
@@ -941,7 +943,7 @@ class ProductService
             ];
         }
 
-        $importCountry = $staffCountries->countryOfImportedRows(countriesAreTracked: $countriesAreTracked);
+        $importCountry = $bulkImportCountry->forRows(chosen: $importCountryChoice);
 
         return [
             'status' => true,

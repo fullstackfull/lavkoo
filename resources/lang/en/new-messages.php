@@ -11819,4 +11819,6 @@ return [
 	'noon_merchant_code_help' => 'The merchant code of the seller account, shown in the noon partner portal.',
 	'channel_reason_market_stopped' => 'The market this account sells in may not sell right now, so nothing was sent',
 	'confirm_your_password_to_continue' => 'Confirm your password to continue',
+	'the_country_you_chose_for_this_import_is_not_a_country_this_shop_sells_in' => 'The country you chose for this import is not a country this shop sells in',
+	'the_country_these_products_are_imported_into' => 'The country these products are imported into',
 ];
