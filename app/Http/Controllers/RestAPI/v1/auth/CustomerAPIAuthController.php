@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\RestAPI\v1\auth;
 
 use App\Contracts\Repositories\BusinessSettingRepositoryInterface;
+use App\Rules\OneAccountPerPhone;
 use App\Services\Identity\RegistrationProof;
 use App\Services\Platform\PasswordPolicy;
 use App\Contracts\Repositories\CustomerRepositoryInterface;
@@ -54,7 +55,7 @@ class CustomerAPIAuthController extends Controller
             'f_name' => 'required',
             'l_name' => 'required',
             'email' => 'required|unique:users',
-            'phone' => 'required|min:6|max:20|unique:users',
+            'phone' => ['required', 'min:6', 'max:20', 'unique:users', new OneAccountPerPhone()],
             'password' => app(PasswordPolicy::class)->ruleString(),
         ], [
             'f_name.required' => translate('The first name field is required.'),
@@ -480,7 +481,7 @@ class CustomerAPIAuthController extends Controller
             'f_name' => 'required',
             'l_name' => 'required',
             'email' => 'required|unique:users',
-            'phone' => 'required|min:6|max:20|unique:users',
+            'phone' => ['required', 'min:6', 'max:20', 'unique:users', new OneAccountPerPhone()],
             'password' => app(PasswordPolicy::class)->ruleString(),
         ], [
             'f_name.required' => translate('The first name field is required.'),
@@ -645,7 +646,7 @@ class CustomerAPIAuthController extends Controller
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'email' => 'nullable|max:255',
-            'phone' => 'required|string|min:6|max:15',
+            'phone' => ['required', 'string', 'min:6', 'max:15', new OneAccountPerPhone()],
         ]);
 
         if ($validator->fails()) {
@@ -786,7 +787,7 @@ class CustomerAPIAuthController extends Controller
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:users|max:255',
-            'phone' => 'required|min:6|max:20',
+            'phone' => ['required', 'min:6', 'max:20', new OneAccountPerPhone()],
         ]);
 
         if ($validator->fails()) {

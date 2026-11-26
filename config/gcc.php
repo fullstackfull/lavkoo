@@ -1032,6 +1032,24 @@ return [
         'oauth_callback_state' => [
             'checked' => filter_var(env('GCC_OAUTH_CALLBACK_STATE_CHECKED', false), FILTER_VALIDATE_BOOLEAN),
         ],
+
+        // A2-06: whether a customer's phone number is read as ONE identity across its spellings. Off by default, and off is the platform
+        // of today: `unique:users` compares the string that was typed, so `0551234567`, `+966551234567` and `00966 55 123 4567` are three
+        // customers with one phone, and whichever row a later sign-in finds first decides which account the person gets.
+        //
+        // With it on, a creation path asks `App\Services\Identity\CustomerPhone` whether an account already holds the same NUMBER --
+        // the market's dialling code and the national digits, compared by `SaudiPhone::isSameNumber()` across any country code and one
+        // trunk zero -- and refuses a second one in the answer shape that path already refuses a taken number with. A number that carries
+        // no country code is attached to the market being served, and to the default storefront where a request names none, which is the
+        // same rule every market-owning row is read by; a number of a country the platform has no numbering plan for is judged by nobody
+        // and the path falls back to the string comparison it made before.
+        //
+        // It ships off because the duplicates it would refuse may already EXIST: whether `users` gets a canonical column, a country code
+        // or a unique key is the owner's decision and needs the live duplicates counted first (A2-06's own blocker). Nothing here writes
+        // a column or a key, so turning it on is reversible and turning it off restores today's behaviour exactly.
+        'canonical_phone' => [
+            'checked' => filter_var(env('GCC_CANONICAL_PHONE', false), FILTER_VALIDATE_BOOLEAN),
+        ],
     ],
 
 ];
