@@ -1,6 +1,46 @@
 # Lavkoo GCC — Current Project Status & Handoff Index
 
-**Last update:** 2026-11-25. **Current phase:** autonomous implementation under the owner's charters, on ONE branch per repository (`gcc/development`) with stages merged into `main` only after a CI run on the merge-candidate SHA comes back green; nothing deployed, no production data, no market activated. The "Discovery preparation" text of 2026-11-12 further down is kept as history and is **superseded**: GCC application code now exists on 134 draft pull requests of `lavkoo` (and 20 of `lavkooapp`, 17 of `lavkooappseller`), all dormant behind switches that ship off.
+**Last update:** 2026-11-26. **Current phase:** autonomous implementation under the owner's charters, on ONE branch per repository (`gcc/development`) with stages merged into `main` only after a CI run on the merge-candidate SHA comes back green; nothing deployed, no production data, no market activated. The "Discovery preparation" text of 2026-11-12 further down is kept as history and is **superseded**: GCC application code now exists on 134 draft pull requests of `lavkoo` (and 20 of `lavkooapp`, 17 of `lavkooappseller`), all dormant behind switches that ship off.
+
+## What happened on 2026-11-26, after the second account handover
+
+A new Claude Code account took the work over from `docs/gcc/HANDOFF-2026-11-26-TO-NEXT-CLAUDE.md`. The three heads
+matched that document exactly (`0416a2f4` / `525da8e` / `68a5d59`), so nothing had drifted between the accounts.
+
+**CI run 682 is GREEN — <https://github.com/fullstackfull/lavkoo/actions/runs/45831725884> on `c723eb2c`.** 52 jobs:
+**50 success, 0 failure, 2 skipped by design** (the deployment overlay and the Saudi baseline job, both skipped on a
+dispatch). It is the first fully green comprehensive run of this effort, and it includes MySQL 8, MariaDB 11.4.2, both
+SQLite jobs, the strict-mode run and the secret guard.
+
+Figures, printed by `php docs/gcc/audits/2026-11-24-post-merge-assessment/count.php` and never typed:
+**in code 1,538 of 1,754 (88%) · proven 1,128 of 1,754 (64%) · missing 216**, and the three states still sum to 1,754.
+
+**Run 678's four causes are all closed**, three of them fixed and one answered by the owner:
+A the staging seeder's balance write (it goes through the one locked writer now, and the writers list is unchanged,
+which is the proof); C a `json` column's key order between MySQL 8 and MariaDB (read through the helper this suite
+already had — confirmed on MySQL 8 only after the matrix's 60-minute timeout was found to be cancelling that job at
+60.2 minutes); B the expand-only contract, where the owner chose to record the decision; and D the leak guard, where
+the owner authorised two reasoned entries after both findings were reproduced and read.
+
+**A fourth cause the handover had not accounted for** was found by the C-16 sweep rather than by reading the run: the
+two SQLite jobs each carried 4 failures against the three causes' three, and the fourth was a TIMESTAMP-out-of-range
+assertion proving MySQL behaviour on SQLite.
+
+**Ten tracks ran in two rounds of five git worktrees**, one owner per axis and per question. **C-16 is now MET**: the
+till sale gate is on by default, measured over 14,230 tests in every directory that can place a till sale.
+
+**The owner's five decisions of 2026-11-26 are implemented**: the coupon's limits are atomic inside the transaction
+under a lock, with the race proved by two independent connections on a locking engine and the refusal reason threaded
+to the six callers; a percentage coupon is judged by its share of the eligible total, behind a switch that ships off
+because the owner approved the fix and not its release; the order-status push leaves the request and only after the
+status commits, with after-commit, no-duplicate and no-loss each proved separately; a market's SEO redirects reach its
+own shoppers (the narrowing was inert on every page of the live shop, proven before it was fixed) and no loop is
+reachable; and stop mode "redirect" has its five proofs.
+
+**Still the owner's, and none of it blocking:** the seller app's version on `main` without recorded evidence, the 33
+`'%D'` report groupings plus two `SET sql_mode` statements, `seller:run-stuck-bulk-jobs` losing its market,
+`SendEmailJob`, where `after_commit` belongs for the other 27 queued classes, the float budget comparison, and the
+SEO rule's absolute off-platform target. Read `docs/gcc/EXECUTION_STATE.md` for all of it.
 
 ## What happened on 2026-11-25, after the account handover
 
