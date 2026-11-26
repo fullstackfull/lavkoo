@@ -711,6 +711,24 @@ return [
         ],
     ],
 
+    'coupons' => [
+        'limits' => [
+            // I1-14. OFF by default and the whole feature is dormant behind it: no ledger row is written, no cap and no budget is read,
+            // and `OrderManager::countCouponUses` counts the customer's order groups exactly as it always has.
+            //
+            // When it is on, a coupon's redemptions are recorded in `coupon_redemptions` (one row per coupon and order group) and two
+            // columns of `coupons` are honoured: `total_uses_limit`, how many times the coupon may be redeemed in total, and `budget`,
+            // how much discount it may give away in the money of its own storefront. Both are NULL on every coupon that exists, and null
+            // means no limit -- an administrator who has typed no cap has capped nothing.
+            'enabled' => filter_var(env('GCC_COUPON_LIMITS', false), FILTER_VALIDATE_BOOLEAN),
+
+            // Whether the per-customer limit and the first-order rule are counted WITHIN ONE MARKET rather than over every order of the
+            // customer. With six markets those are different coupons, and which one the owner wants is Q-04 (its own proposal is per
+            // store). OFF, so the count is what this platform has always counted; it needs the switch above as well.
+            'per_store' => filter_var(env('GCC_COUPON_LIMITS_PER_STORE', false), FILTER_VALIDATE_BOOLEAN),
+        ],
+    ],
+
     'notifications' => [
         'profiles' => filter_var(env('GCC_NOTIFICATION_PROFILES', false), FILTER_VALIDATE_BOOLEAN),
 

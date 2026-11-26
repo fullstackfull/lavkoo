@@ -8687,6 +8687,8 @@ return [
 	'hold_before_go_live' => 'The order was placed before the go-live date.',
 	'hold_city_unmapped' => 'The delivery city has no matching provider city.',
 	'hold_route_unsupported' => 'The destination is outside the routes this carrier serves.',
+	'this_coupon_has_been_fully_redeemed' => 'This coupon has been fully redeemed.',
+	'this_coupons_discount_budget_has_been_used_up' => "This coupon's discount budget has been used up.",
 	'shipping_destination_unknown' => 'The destination country is not known.',
 	'shipping_no_carrier_serves_this_route' => 'No carrier serves the route to that country.',
 	'shipping_regulated_product_needs_a_recorded_clearance' => 'This product is regulated and needs a recorded clearance for that country before it can be shipped there.',
