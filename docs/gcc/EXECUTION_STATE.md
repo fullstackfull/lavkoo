@@ -66,6 +66,45 @@ path moves.
 
 ---
 
+## The parallel tracks — THIRD cut (2026-11-26), re-partitioned on the current 216 missing
+
+The owner reaffirmed the five-track worktree method on 2026-11-26 and asked for the distribution to be re-cut on
+**what actually remains**, not on the stale 334. `count.php` on `f8f3d631` says **216 missing** (in code 1,538 of
+1,754, 88%; proven 1,127, 64%), so the partition is by AXIS, every axis with exactly one owner, and the five sums are
+within 56 and 39 of each other:
+
+| worktree | branch | database | axes | missing |
+|---|---|---|---|---|
+| `/home/user/wt/m` | `wt/m` | `pharmacy_testing_m` | M | 56 |
+| `/home/user/wt/id` | `wt/id` | `pharmacy_testing_id` | I, D | 42 |
+| `/home/user/wt/hac` | `wt/hac` | `pharmacy_testing_hac` | H, A, C | 39 |
+| `/home/user/wt/klj` + `klj-app` + `klj-seller` | `wt/klj` | `pharmacy_testing_klj` | K, L, J (+ BOTH app repositories) | 39 |
+| `/home/user/wt/egbf` | `wt/egbf` | `pharmacy_testing_egbf` | E, G, B, F | 40 |
+
+56 + 42 + 39 + 39 + 40 = 216, which is the whole remaining set. The Flutter work is all in ONE track on purpose: two
+tracks editing one Flutter repository is a conflict no file partition prevents, and that repository has no toolchain
+here to catch it.
+
+**The QUESTIONS are partitioned too, not only the files**, because round 2 proved a file partition does not stop two
+tracks building the same mechanism — two of them wrote a POS sale gate in two files and wired both into the same three
+actions. Each track's brief names the decisions it owns: CI/test-matrix/staging/reports (M); the sale gate on
+order-creating paths, coupons, notifications, legal text, stop modes, order currency, payment eligibility (I+D);
+carriers, addresses and serviceability, cross-border duties, the channel account's market, customer identity, consent
+scoping, stock pools (H+A+C); seller scopes and session handling, the apps' per-storefront reads, the GCC-20 surface
+(K+L+J); balances and their writers, financial records by entity, staff scopes and what a scoped employee may export,
+country-owned products and local pricing, themes per storefront (E+G+B+F).
+
+**Verified rather than assumed, at set-up time**, by the two checks this file already prescribes: the five
+`vendor/composer/autoload_psr4.php` inodes are all distinct from each other and from the main checkout's (so
+`composer dump-autoload` cannot write through the hardlink into the main class map), and each worktree's
+`ReflectionClass(OrderManager::class)->getFileName()` answers its OWN path. Hardlinking the 11GB vendor cost 2GB in
+total for five worktrees.
+
+**Still FOUR cores.** Five tracks interleave; they do not run five-wide. Each track is forbidden from running a whole
+PHPUnit group or directory — targeted files only — and the heavy group runs stay the coordinator's, one at a time.
+Tracks never push, never open a pull request and never change a tracker card's state; the coordinator merges into
+`gcc/development`, applies register edits centrally, and dispatches CI once per batch.
+
 ## The parallel tracks, and how to pick them up (2026-11-25, owner's instruction)
 
 The owner asked for organised parallel development across five tracks. It is set up as FIVE LOCAL GIT WORKTREES, not
