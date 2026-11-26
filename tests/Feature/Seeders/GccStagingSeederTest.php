@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use LeakGuard\Scanner;
+use Tests\Support\PlatformWriteScanner;
 use Tests\TestCase;
 
 require_once dirname(__DIR__, 3) . '/scripts/ci/leak-guard.php';
@@ -39,6 +40,7 @@ final class GccStagingSeederTest extends TestCase
 
         $this->createTables();
         $this->theRiyalTheInstallationAlreadyHad();
+        $this->theWalletTheInstallationAlreadyHadSwitchedOn();
     }
 
     public function test_it_creates_six_storefronts_each_with_its_own_seller_customer_products_order_and_wallets(): void
@@ -210,14 +212,105 @@ final class GccStagingSeederTest extends TestCase
         $this->assertSame($after, $this->rowCounts());
     }
 
+    /**
+     * The settings are compared row for row rather than counted to nothing. Counting to nothing said the same thing only while the test's
+     * database held no setting at all, and that is the one world in which "it writes no setting" is impossible to get wrong: now that the
+     * wallet setting is there -- because the seeder READS it -- the assertion is that the row it reads comes back byte for byte, which is
+     * what the promise actually means.
+     */
     public function test_it_changes_no_setting_and_leaves_the_currency_the_installation_had_exactly_as_it_was(): void
     {
         $riyalBefore = (array) DB::table('currencies')->where('code', 'SAR')->first();
+        $settingsBefore = $this->settingRows();
 
         $this->seed(GccStagingSeeder::class);
 
         $this->assertSame($riyalBefore, (array) DB::table('currencies')->where('code', 'SAR')->first(), 'the riyal row is untouched');
-        $this->assertSame(0, DB::table('business_settings')->count(), 'the seeder writes no setting, so no default moves');
+        $this->assertSame($settingsBefore, $this->settingRows(), 'the seeder writes and rewrites no setting, so no default moves');
+    }
+
+    /**
+     * E-03, from the seeder's side. users.wallet_balance has five writers, every one of which takes the customer's row lock and writes the
+     * ledger row carrying the balance the account ends with, and Tests\Feature\Fulfillment\WalletBalanceWritersTest fails when a sixth
+     * appears. This seeder WAS a sixth -- it updated the column and inserted the ledger row by hand -- and the fix was to go through the
+     * one writer rather than to be added to that list. Pinned here, next to the seeder, so that re-adding a direct write fails beside the
+     * code that did it and not only in a guard three directories away.
+     */
+    public function test_it_writes_no_balance_column_of_its_own_and_goes_through_the_platforms_one_wallet_writer(): void
+    {
+        $source = (string) file_get_contents(base_path('database/seeders/GccStagingSeeder.php'));
+
+        $this->assertSame([], PlatformWriteScanner::columnWritesIn($source, 'wallet_balance'), 'the seeder writes users.wallet_balance itself');
+        $this->assertSame([], PlatformWriteScanner::columnWritesIn($source, 'loyalty_point'), 'the seeder writes users.loyalty_point itself');
+        $this->assertStringContainsString('CustomerWalletWriter::record(', $source, 'the credit goes through the one wallet writer');
+    }
+
+    /**
+     * And what that writer leaves behind, which is the property the hand-written version had to get right by hand: the ledger row says the
+     * balance the account ends with, so a market's invented wallet reconciles (wallet:reconcile) exactly as a real customer's does.
+     */
+    public function test_each_markets_wallet_movement_agrees_with_the_balance_it_left_in_the_account(): void
+    {
+        $this->seed(GccStagingSeeder::class);
+
+        foreach (self::MARKETS as $market) {
+            $customerId = $this->customerOf($market);
+            $row = DB::table('wallet_transactions')->where('user_id', $customerId)->first();
+
+            $this->assertNotNull($row, "{$market}'s customer has a movement");
+            $this->assertSame('add_fund_by_admin', $row->transaction_type, "{$market}'s credit is an administrator's");
+            $this->assertSame('gcc-staging-seed', $row->reference, "{$market}'s movement says where it came from");
+            $this->assertGreaterThan(0, (float) $row->credit, "{$market}'s movement credits something");
+            $this->assertSame(
+                (float) DB::table('users')->where('id', $customerId)->value('wallet_balance'),
+                (float) $row->balance,
+                "{$market}'s ledger row carries the balance the account ends with"
+            );
+        }
+    }
+
+    /**
+     * The refusal that keeps a half-built market from existing. The credit cannot be made while the wallet is off, so the seeder asks
+     * before it writes its first row -- rather than after a market already has its seller, shop, customer, products and order, which the
+     * next run would then skip, because a market whose seller exists is left alone.
+     */
+    public function test_it_refuses_before_writing_anything_while_the_wallet_feature_is_off(): void
+    {
+        DB::table('business_settings')->where('type', 'wallet_status')->update(['value' => '0']);
+
+        try {
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessage('needs the customer wallet switched on');
+            (new GccStagingSeeder())->run();
+        } finally {
+            $this->assertSame(0, DB::table('sellers')->count(), 'and it wrote nothing before refusing');
+            $this->assertSame(0, DB::table('users')->count(), 'not even a customer to credit later');
+            $this->assertSame(1, DB::table('currencies')->count(), 'and it added no market currency');
+        }
+    }
+
+    /** A database that never had the setting is a refusal too, and not an error about a row that is not there. */
+    public function test_it_refuses_before_writing_anything_when_the_wallet_setting_is_absent(): void
+    {
+        DB::table('business_settings')->where('type', 'wallet_status')->delete();
+
+        try {
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessage('needs the customer wallet switched on');
+            (new GccStagingSeeder())->run();
+        } finally {
+            $this->assertSame(0, DB::table('sellers')->count(), 'and it wrote nothing before refusing');
+            $this->assertSame(0, DB::table('users')->count(), 'not even a customer to credit later');
+        }
+    }
+
+    /** @return list<array<string, mixed>> every setting row, in a stable order */
+    private function settingRows(): array
+    {
+        return array_map(
+            static fn (object $row): array => (array) $row,
+            DB::table('business_settings')->orderBy('type')->get()->all()
+        );
     }
 
     public function test_it_refuses_to_run_anywhere_that_is_not_a_throwaway_database(): void
@@ -276,6 +369,22 @@ final class GccStagingSeederTest extends TestCase
         }
 
         return $counts;
+    }
+
+    /**
+     * The wallet feature, switched on, as an installation that sells has it. The seeder credits its invented customers through
+     * CustomerWalletWriter, which moves nothing while this setting is off, so the seeder refuses before writing anything when it is --
+     * which is its own test below. It is a row the installation has, not one the seeder writes: the promise that the seeder changes no
+     * setting is asserted against this row too.
+     */
+    private function theWalletTheInstallationAlreadyHadSwitchedOn(): void
+    {
+        DB::table('business_settings')->insert([
+            'type' => 'wallet_status',
+            'value' => '1',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 
     /** The riyal row an installation already has, so the test can prove the seeder does not touch it. */
@@ -398,6 +507,9 @@ final class GccStagingSeederTest extends TestCase
             $table->decimal('admin_bonus', 24, 3)->default(0);
             $table->decimal('balance', 24, 3)->default(0);
             $table->string('transaction_type')->nullable();
+            // 2023_08_26_173523_add_payment_method_column_to_wallet_transactions_table: the one writer sets it on every row, so a table
+            // built without it is a table this seeder cannot write to at all.
+            $table->string('payment_method')->nullable();
             $table->string('reference')->nullable();
             $table->timestamps();
         });

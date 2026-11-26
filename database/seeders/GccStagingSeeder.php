@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
+use App\Models\BusinessSetting;
+use App\Services\Customer\CustomerWalletWriter;
 use App\Services\Storefront\StorefrontResolver;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
@@ -50,6 +52,7 @@ final class GccStagingSeeder extends Seeder
     public function run(): void
     {
         $this->refuseOutsideADisposableEnvironment();
+        $this->refuseWhileTheWalletFeatureIsOff();
 
         $resolver = StorefrontResolver::fromConfig();
 
@@ -73,6 +76,35 @@ final class GccStagingSeeder extends Seeder
             throw new \RuntimeException(
                 "GccStagingSeeder refuses to run in '{$environment}'. It writes invented sellers, customers, orders and wallet movements, "
                 . 'which belong only on a throwaway database. Allowed: ' . implode(', ', self::DISPOSABLE_ENVIRONMENTS) . '.'
+            );
+        }
+    }
+
+    /**
+     * The second refusal, and it is asked HERE rather than where the wallet is written because of where the failure would otherwise land.
+     * The customer's credit goes through the platform's one wallet writer, which moves nothing and answers false while the wallet feature
+     * is switched off -- so a market would get its seller, shop, customer, products and order and then no wallet, and the next run would
+     * skip that market altogether, because a market whose invented seller already exists is left exactly as it is. Asked before the first
+     * row of the first market, the answer costs one query and leaves no half-built market behind.
+     *
+     * It reads the setting CustomerWalletWriter itself reads, and reads it the same way, so this cannot pass where that writer would
+     * refuse; reading it here as well is what buys the refusal its position. A missing row is a refusal too, and not an incident: the
+     * writer dereferences that row without checking it, so a database that has never had the setting would otherwise fail here as an
+     * error about null rather than as the plain fact that this platform has no wallet switched on.
+     *
+     * It only READS. Whether the wallet feature is on stays the operator's decision, like which markets trade: this seeder changes no
+     * setting, which is its own promise and is asserted.
+     */
+    private function refuseWhileTheWalletFeatureIsOff(): void
+    {
+        $setting = BusinessSetting::where('type', 'wallet_status')->first();
+
+        if ($setting === null || $setting->value != 1) {
+            throw new \RuntimeException(
+                'GccStagingSeeder needs the customer wallet switched on. It credits each market\'s invented customer through '
+                . 'CustomerWalletWriter, which moves nothing while the wallet is off, and six markets holding none of the balances this '
+                . 'seeder exists to create is not the staging world it is for. Switch the wallet on for this database, or seed a '
+                . 'database that has it on.'
             );
         }
     }
@@ -229,23 +261,38 @@ final class GccStagingSeeder extends Seeder
      * One wallet each side of the market: the customer's credit, with the movement that put it there, and the seller's earnings. Separate
      * per storefront because the decision is that wallet balances and ledgers are separate by store, legal entity and currency
      * (DECISIONS.md) -- each market's invented customer has their own account, and none of them shares a balance with another market's.
+     *
+     * The credit goes through CustomerWalletWriter and not through a `users` update of its own. An earlier version of this method wrote
+     * the balance column here and inserted the ledger row beside it, and Tests\Feature\Fulfillment\WalletBalanceWritersTest reported it
+     * as a sixth writer of users.wallet_balance -- correctly. The answer was to stop being one rather than to be declared one: that list
+     * is also the list of the places that take the customer's row lock and write the ledger row with the balance the account ends with,
+     * and a seeder doing it by hand did neither, so a sixth entry would have made the list's own sentence false for every later reader.
+     *
+     * Going through the one writer is also what makes the staging data worth standing up: these wallets are now made the way production
+     * makes them -- the same row lock, the same overdraft rule, the same ledger row, the same conversion of the amount into the currency
+     * the balance is stored in -- so a defect on the platform's wallet path cannot be hidden by staging rows that never walked it. The
+     * figure is therefore what an administrator's credit of 150 produces on this installation, which under the multi-currency model is
+     * the converted amount rather than 150 exactly.
      */
     private function createWallets(InventedMarketIdentity $identity, int $customerId, int $sellerId): void
     {
         $credit = 150;
 
-        DB::table('users')->where('id', $customerId)->update(['wallet_balance' => $credit]);
+        $movement = CustomerWalletWriter::record(
+            customerId: $customerId,
+            amount: $credit,
+            transactionType: 'add_fund_by_admin',
+            reference: self::REFERENCE,
+        );
 
-        DB::table('wallet_transactions')->insert($this->timestamps() + [
-            'user_id' => $customerId,
-            'transaction_id' => (string) Str::uuid(),
-            'credit' => $credit,
-            'debit' => 0,
-            'admin_bonus' => 0,
-            'balance' => $credit,
-            'transaction_type' => 'add_fund_by_admin',
-            'reference' => self::REFERENCE,
-        ]);
+        if ($movement === false) {
+            throw new \RuntimeException(
+                "GccStagingSeeder could not credit the {$identity->country} customer's wallet, and that market is now half-built. The "
+                . 'wallet feature was on when the run started, so what is left is a customer row the writer could not find, or a write '
+                . 'that threw and was rolled back with the reason in the log. Delete the rows referencing ' . self::REFERENCE
+                . ' and run it again.'
+            );
+        }
 
         DB::table('seller_wallets')->insert($this->timestamps() + [
             'seller_id' => $sellerId,
