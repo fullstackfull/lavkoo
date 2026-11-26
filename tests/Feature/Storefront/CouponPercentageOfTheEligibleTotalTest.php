@@ -40,7 +40,8 @@ use Tests\Support\BuildsStorefrontCouponWorld;
  * putting the figure of per cent back into the condition with the correction ON -> 3 red (the 31% cart, the over-discount, and the
  * percentage its maximum cuts down to size); rounding the share to two decimals -> 6 red, among them a budget half a fils SHORT of the
  * share allowing the coupon; rounding it to three -> 5 red, among them a budget EQUAL to the share refusing it. Those last two are the
- * owner's "must not round up past the budget or down past the minimum", in both directions, on the three-decimal currencies.
+ * owner's "must not round up past the budget or down past the minimum", in both directions, on the three-decimal currencies. Making the
+ * minimum purchase inclusive (`>=`) -> 2 red, one in each currency, on the cart that is exactly at its minimum.
  */
 class CouponPercentageOfTheEligibleTotalTest extends ApiAddressTestCase
 {
@@ -293,6 +294,40 @@ class CouponPercentageOfTheEligibleTotalTest extends ApiAddressTestCase
         $this->assertEqualsWithDelta($share, $discountCharged, 0.0000001, 'the order is lowered by the exact share');
         $this->assertNotEqualsWithDelta(round($share, 2), $discountCharged, 0.0000001, 'the share was rounded to two decimals, which is the halala and not the fils');
         $this->assertNotEqualsWithDelta(round($share, 3), $discountCharged, 0.0000001, 'the share was rounded to the fils, and half a fils of it is gone');
+    }
+
+    /** @return array<string, array{string, bool}> a minimum purchase on either side of a cart of 12.500 dinars, and whether the coupon may be used */
+    public static function minimumsAroundTheThreeDecimalCart(): array
+    {
+        return [
+            'a minimum equal to the cart' => ['12.500', true],
+            'a minimum one fils below the cart' => ['12.499', true],
+            'a minimum one fils above the cart' => ['12.501', false],
+        ];
+    }
+
+    /**
+     * The minimum purchase's boundary again, in a currency whose smallest coin is a THOUSANDTH: a Bahraini cart of 12.500 dinars meets a
+     * minimum of 12.500 and one of 12.499, and does not meet 12.501.
+     *
+     * The rule is `min_purchase > eligible total` and it has nothing to do with the percentage, which is exactly the point.
+     * {@see StorefrontCouponRedemptionTest} proves this boundary for a MONEY coupon in dinars and in riyals; what is proved here is that
+     * putting a percentage coupon through the corrected reading does not move it by a fils.
+     */
+    #[DataProvider('minimumsAroundTheThreeDecimalCart')]
+    public function test_the_minimum_purchase_boundary_is_the_same_for_a_percentage_coupon_in_a_three_decimal_currency(string $minimum, bool $mayBeUsed): void
+    {
+        $this->judgeAPercentageByItsShare();
+        $this->serveTheStorefronts();
+        $this->givePercentageCoupon(figure: 2.5, maximumDiscount: 1000, minimumPurchase: $minimum, market: 'BH');
+        $customer = $this->makeCustomer();
+        $this->fillTheCartFrom(customer: $customer, country: 'BH', productId: 5);
+
+        $response = $this->applyFrom(market: 'BH', customer: $customer, code: 'PCT');
+
+        $mayBeUsed
+            ? $this->assertCouponApplied(discount: 0.3125, response: $response)
+            : $this->assertCouponRefused(message: $this->minimumNotReached(), response: $response);
     }
 
     /** @return array<string, array{string, bool}> a budget on either side of the exact share, and whether the coupon may be used */
