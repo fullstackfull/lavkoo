@@ -19,6 +19,9 @@ class StorefrontLifecycleCommand extends Command
         StorefrontPreflight::CURRENCY => 'give the storefront the currency it trades in: php artisan gcc:storefront:money',
         StorefrontPreflight::LEGAL_ENTITY => 'register the selling company of the storefront: php artisan gcc:legal-entity:upsert',
         StorefrontPreflight::TAX => 'approve its tax setup, or record that it charges none: php artisan gcc:storefront:tax-approve',
+        StorefrontPreflight::PAYMENT_ACCOUNT => 'switch on a gateway that can take this market\'s currency and is confirmed for it, with its credentials saved under the mode it runs in',
+        StorefrontPreflight::CATALOGUE => 'give the storefront at least one product a customer of it could buy: php artisan gcc:catalog:copy-to-country',
+        StorefrontPreflight::THEME => 'publish a theme for the storefront, or for the default storefront it falls back to, in the theme builder',
     ];
 
     protected $signature = 'gcc:storefront:state
@@ -123,8 +126,13 @@ class StorefrontLifecycleCommand extends Command
             $this->line("  message for its customers: {$status['message']}");
         }
 
-        foreach (self::HOW_TO_MEET as $prerequisite => $howToMeet) {
-            $this->line(in_array($prerequisite, $unmet, true) ? sprintf('  %-13s UNMET  %s', $prerequisite, $howToMeet) : sprintf('  %-13s ok', $prerequisite));
+        // Over the PREFLIGHT's own list, never over the list above: this loop read `HOW_TO_MEET` and that list named five of the six
+        // prerequisites, so a market blocked on its payment account was reported as blocked with every line it printed reading "ok".
+        // A prerequisite with no words here is still printed, named, rather than being left out of the report.
+        foreach ($preflight->prerequisites() as $prerequisite) {
+            $this->line(in_array($prerequisite, $unmet, true)
+                ? sprintf('  %-13s UNMET  %s', $prerequisite, self::HOW_TO_MEET[$prerequisite] ?? 'no instruction is recorded for this prerequisite')
+                : sprintf('  %-13s ok', $prerequisite));
         }
 
         $this->reportAdvisory(checks: $checks, code: $code);

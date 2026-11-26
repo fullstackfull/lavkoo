@@ -297,6 +297,25 @@ return [
         'sale_gate' => [
             'needs_a_payment_account' => filter_var(env('GCC_SALE_GATE_NEEDS_A_PAYMENT_ACCOUNT', false), FILTER_VALIDATE_BOOLEAN),
 
+            // `needs_a_catalogue` adds a prerequisite to `StorefrontPreflight` (I2-12): a market has at least one product a customer of
+            // THAT market could buy -- its own product, let through by `Product::active()`, which is the scope the catalogue, the search
+            // and the home page use, so a market whose every product is switched off or out of a switched-off brand is not counted as
+            // having one. A market with published legal texts, a decided currency and a working gateway still sells nothing when its
+            // catalogue is empty, and the only thing that reports that today is a customer.
+            //
+            // `needs_a_theme` adds the other half of "it would serve a customer": the market renders. It asks the renderer's own question
+            // (`StorefrontThemeResolver::publishedVersionServedBy()`) rather than a query of its own, so a market cannot be called ready
+            // while the renderer serves it nothing. A market served the DEFAULT storefront's published theme is ready, which is every
+            // market on this platform today.
+            //
+            // BOTH OFF BY DEFAULT, and for the same reason `needs_a_payment_account` is: what "ready to sell" includes beyond the legal
+            // texts is the owner's open decision on D1-16, and a market must not be refused by a prerequisite nobody has been asked about.
+            // A market before the catalogue migration has run is answered ready whatever these say, because while `products` has no
+            // storefront column there is one catalogue for the whole platform and the question has no per-market answer -- which is the
+            // Saudi platform of today. With both off each costs one config read and asks the database nothing.
+            'needs_a_catalogue' => filter_var(env('GCC_SALE_GATE_NEEDS_A_CATALOGUE', false), FILTER_VALIDATE_BOOLEAN),
+            'needs_a_theme' => filter_var(env('GCC_SALE_GATE_NEEDS_A_THEME', false), FILTER_VALIDATE_BOOLEAN),
+
             // Whether a TILL asks the sale gate before it opens a new sale (D1-16; `App\Services\Checkout\PointOfSaleSaleRule`).
             //
             // The owner's decision I2-09 is that it should: a new point-of-sale sale follows the country of its products and respects the
