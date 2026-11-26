@@ -88,6 +88,11 @@ jobs:
         env:
           EXPECT_DB_DRIVER: sqlite
         run: vendor/bin/phpunit --display-skipped ${{ inputs.paths }}
+      - name: The run left the language files as they were
+        # translate() appends a key the language files do not know, and they are tracked: a key written by a test is indistinguishable
+        # from one a feature added. `if: always()` so a dirty tree is reported even when a test above it failed.
+        if: always()
+        run: php scripts/ci/language-files-unchanged.php
 
       - name: Targeted tests on a real engine
         if: inputs.engine != 'sqlite'
@@ -99,3 +104,8 @@ jobs:
           DB_USERNAME: root
           DB_PASSWORD: ci-root-password
         run: vendor/bin/phpunit -c phpunit.mysql.xml --display-skipped ${{ inputs.paths }}
+      - name: The run left the language files as they were
+        # translate() appends a key the language files do not know, and they are tracked: a key written by a test is indistinguishable
+        # from one a feature added. `if: always()` so a dirty tree is reported even when a test above it failed.
+        if: always()
+        run: php scripts/ci/language-files-unchanged.php

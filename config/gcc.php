@@ -1127,4 +1127,29 @@ return [
         ],
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | What a TEST RUN may leave behind (M2, the language-file guard)
+    |--------------------------------------------------------------------------
+    |
+    | `language_file_writes_are_failures`: whether a test that let translate() append a key to a tracked language file is FAILED for it.
+    |
+    | Off by default, and off changes nothing about a run: the files are put back after every test either way (Tests\TestCase does it
+    | unconditionally, because a gate that depends on a switch is not a gate), and a write is simply put back in silence. With it on, the
+    | test that wrote is failed and the message names the file and the keys, which is how the offending test is found among the suite's
+    | thousands -- the reason to have the switch at all.
+    |
+    | What it is FOR. translate() appends a humanised placeholder for any key the language files do not know, so a test that renders such a
+    | page used to leave the key in resources/lang. The cost is not the dirty tree: it is that a key a real feature added becomes
+    | indistinguishable from an artifact of a test run, in the diff and in the admin's translation screen alike. The CI step that refuses a
+    | run which changed resources/lang is what holds the line; this switch is what tells you WHICH test to fix.
+    |
+    | It is read in a test tear-down and nowhere else, so it has no meaning on a live site.
+    |
+    */
+
+    'tests' => [
+        'language_file_writes_are_failures' => filter_var(env('GCC_TEST_LANGUAGE_FILE_WRITES_ARE_FAILURES', false), FILTER_VALIDATE_BOOLEAN),
+    ],
+
 ];

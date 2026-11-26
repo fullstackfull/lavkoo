@@ -17,10 +17,12 @@ use App\Services\Theme\LocalisedSettings;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
+use Tests\Support\RestoresLanguageFiles;
 
 abstract class TestCase extends BaseTestCase
 {
     use CreatesApplication;
+    use RestoresLanguageFiles;
 
     /** Every test builds its own database, so what the schema classes remembered about the previous one must not carry over. */
     protected function setUp(): void
@@ -52,6 +54,41 @@ abstract class TestCase extends BaseTestCase
 
         $this->startFromAnEmptyRealDatabase();
         StorefrontVisibility::flush();
+
+        // Before the test as well as after it: PHPUnit does not call tearDown when setUp itself fails, so a test that rendered a page and
+        // then threw would otherwise leave its key behind for good. Reading what the files are is stat-only once the process has its copy.
+        $this->rememberLanguageFiles();
+        $this->restoreLanguageFiles();
+    }
+
+    /**
+     * The tracked language files are put back after EVERY test, not only after the ones that elected to remember them.
+     *
+     * translate() appends a humanised placeholder for any key it does not know, and 892 of this suite's test files carried no such
+     * election, so a run left keys in resources/lang that look exactly like a key a real feature added -- which is the cost that matters:
+     * a genuinely new translation key becomes indistinguishable from an artifact of a test run. Measured before this was written:
+     * tests/Feature/Address/ApiAddressCrudTest alone added three.
+     *
+     * The restore is unconditional, because a gate that depends on a switch is not a gate. `gcc.tests.language_file_writes_are_failures`
+     * decides only whether the test that wrote is also FAILED, which is how the offending test is found; off, which is how it ships, the
+     * write is put back in silence and nothing about the suite changes but the state of the working tree.
+     */
+    protected function tearDown(): void
+    {
+        $written = $this->keysWrittenToTheLanguageFiles();
+        $this->restoreLanguageFiles();
+        $failures = $written !== [] && (bool) config('gcc.tests.language_file_writes_are_failures') ? $written : [];
+
+        parent::tearDown();
+
+        foreach ($failures as $path => $keys) {
+            $this->fail(
+                'This test let translate() write ' . count($keys) . ' key(s) into ' . basename(dirname($path)) . '/'
+                . basename($path) . ': ' . implode(', ', $keys)
+                . "\n\nA key a test invents is indistinguishable from one a feature added. Give the key a text in the language file if"
+                . ' the feature needs it, or stop the test rendering it.',
+            );
+        }
     }
 
     /**
