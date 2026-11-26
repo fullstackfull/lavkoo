@@ -30,6 +30,28 @@ return [
         | ask for the password on every request, including the second half of a two-request action, which is not a security property but a
         | way of making the screen unusable.
         */
+        /*
+        | Putting the panel's own MONEY actions inside the employee's country scope (G-14, second criterion).
+        |
+        | Off by default: a seller's withdrawal is approved, its screen is opened and a customer's wallet is credited by hand on the
+        | strength of the module permission alone, exactly as today -- the rules of those three actions stay `none` and not one extra
+        | query is made.
+        |
+        | With it on, and only for an employee the country scopes restrict:
+        |
+        |   - a seller's withdrawal request may be opened and decided only when the shop's market is one of the employee's. Which market a
+        |     shop's money belongs to is `SellerMarketScope`'s rule, read and not restated; while the seller market grants are off -- every
+        |     installation today -- a shop's money is the DEFAULT storefront's, so a one-market platform keeps working;
+        |   - a hand-made wallet credit is refused. `users.wallet_balance` is ONE global balance and a customer belongs to no market in this
+        |     schema, so there is no market such a credit could be checked against, and a platform-wide money write is not an act of one
+        |     market. The per-market accounts of GCC-15 are what would change that answer, and they are dormant.
+        |
+        | An employee the scopes do not restrict is unaffected either way, which is every employee while `country_scopes` is off.
+        */
+        'money_actions' => [
+            'scoped' => filter_var(env('GCC_STAFF_MONEY_ACTIONS_SCOPED', false), FILTER_VALIDATE_BOOLEAN),
+        ],
+
         'step_up' => [
             'enabled' => filter_var(env('GCC_ADMIN_STEP_UP', false), FILTER_VALIDATE_BOOLEAN),
             'minutes' => (int) env('GCC_ADMIN_STEP_UP_MINUTES', 10),
@@ -717,6 +739,30 @@ return [
         ],
     ],
 
+    'wallet' => [
+        // The UNIT a wallet order debit is counted in (E-16). `App\Services\Customer\WalletOrderDebit` has always rounded the stored
+        // amount half up to TWO places, once, for the check and the debit alike -- which is the riyal's, the dirham's, the Qatari riyal's
+        // and the dollar's smallest coin, and is ten times COARSER than the smallest coin of the Kuwaiti dinar, the Bahraini dinar and
+        // the Omani rial, all of which have three places (ISO 4217, and `storefronts.currency.decimals` above says so). In those three
+        // markets an order of 10.015 was checked and debited as 10.02: a figure the customer's own money cannot express, and a ledger row
+        // that is not the order's amount.
+        //
+        // OFF as it ships: every market's wallet debit rounds at two places exactly as it always has, and the switch is read before
+        // anything else, so not one query is made. With it on, a request served from a storefront that sells in its own currency rounds
+        // at THAT currency's places and every other request -- a panel, a queue worker, a console command, and every request while the
+        // storefronts are off -- still rounds at two. Saudi Arabia, the United Arab Emirates and Qatar therefore round at two whatever
+        // this says.
+        //
+        // The places come from `StorefrontCurrency::decimalsOf()`, which is the one authority on how many places a currency has, and
+        // never from `decimal_point_settings`: that is a display choice whose own admin field allows 0, and reading it as a money unit is
+        // the defect `ATopUpCreditsWhatWasPaidTest` already measures on the top-up path.
+        //
+        // What this does NOT reach, each because it is the owner's: the point-of-sale tills, which debit unrounded (half of D18); the four
+        // writers of the one balance and the top-up's double conversion (open financial decision 1); and the points, refund and referral
+        // CREDITS (LF-1, LF-2, RF-10).
+        'debit_in_the_markets_minor_unit' => filter_var(env('GCC_WALLET_DEBIT_IN_THE_MARKETS_MINOR_UNIT', false), FILTER_VALIDATE_BOOLEAN),
+    ],
+
     'refunds' => [
         // Whether cancelling an order pays the customer's wallet back (E-13, finding E04-F10). Today a POS sale paid with the wallet refunds
         // itself and any other wallet-paid order does not: the customer keeps waiting until somebody refunds it by hand. Each answer has a
@@ -838,6 +884,16 @@ return [
             'GCC_WHEN_A_DELIVERY_EARNS_POINTS',
             App\Services\Loyalty\WhenADeliveryEarnsPoints::AS_EACH_CHANNEL_DOES_TODAY,
         ),
+
+        // The SMALLER repair for the one disagreement above that loses money nobody decided to give away (E-14, LO-08). The three
+        // seller-API delivery sites read the order's reward row and claim NOTHING, so a seller who moves an order off `delivered` and
+        // back is credited a second time, and an order the admin panel has already paid is paid again. With this on those three sites
+        // require a claimable reward row and CLAIM it, inside the transaction that credits, and every other condition of every channel
+        // is untouched -- so the double credit stops without settling what the wallet switch, `payment_status`,
+        // `loyalty_point_for_each_order` or a guest order should mean per channel, which is `when_a_delivery_earns_points` above and
+        // the owner's. It is a no-op under `one_rule`, which already claims everywhere. OFF as it ships: it changes what a customer is
+        // credited on a replayed delivery, which is the owner's to switch.
+        'a_seller_delivery_claims_its_reward_row' => env('GCC_SELLER_DELIVERY_CLAIMS_ITS_REWARD_ROW', false),
 
         'when_a_refund_would_take_points_below_zero' => env(
             'GCC_REFUND_POINTS_BELOW_ZERO',

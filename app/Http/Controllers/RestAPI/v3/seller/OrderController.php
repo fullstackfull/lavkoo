@@ -572,6 +572,7 @@ class OrderController extends Controller
         }
 
         // The shared rule (E-14, LO-08); its default answers this channel exactly as the conditions below it used to, and claims nothing.
+        // `one_rule` and the smaller `a_seller_delivery_claims_its_reward_row` each make it claim; both ship off.
         $reward = app(TheOrdersLoyaltyReward::class);
         $rewardRow = $reward->rowFor(orderId: $order->id);
 
@@ -586,9 +587,13 @@ class OrderController extends Controller
             hasSeller: $order->seller_id !== null,
         ));
 
-        if ($earns && (!WhenADeliveryEarnsPoints::claimsTheRewardRow(channel: WhenADeliveryEarnsPoints::SELLER_API_V3)
-            || app(RefundClaims::class)->claimRewardDelivered($rewardRow->id))) {
-            CustomerManager::create_loyalty_point_transaction($order->customer_id, $order->id, Convert::default($order->order_amount - $order->shipping_cost), 'order_place', origin: LedgerOrigin::order(id: $order->id));
+        if ($earns) {
+            $credit = static fn (): bool => CustomerManager::create_loyalty_point_transaction($order->customer_id, $order->id, Convert::default($order->order_amount - $order->shipping_cost), 'order_place', origin: LedgerOrigin::order(id: $order->id));
+
+            // The same claim as the v2 endpoint, behind the same key: claimed first, inside the transaction that pays (IDEM-08).
+            WhenADeliveryEarnsPoints::claimsTheRewardRow(channel: WhenADeliveryEarnsPoints::SELLER_API_V3)
+                ? DB::transaction(static fn (): mixed => app(RefundClaims::class)->claimRewardDelivered($rewardRow->id) ? $credit() : null)
+                : $credit();
         }
 
         $refEarningStatus = BusinessSetting::where('type', 'ref_earning_status')->first()->value ?? 0;
@@ -909,9 +914,13 @@ class OrderController extends Controller
                     hasSeller: $order['seller_id'] !== null,
                 ));
 
-                if ($earns && (!WhenADeliveryEarnsPoints::claimsTheRewardRow(channel: WhenADeliveryEarnsPoints::SELLER_API_V3)
-                    || app(RefundClaims::class)->claimRewardDelivered($rewardRow->id))) {
-                    CustomerManager::create_loyalty_point_transaction($order['customer_id'], $order['id'], Convert::default($order['order_amount'] - $order['shipping_cost']), 'order_place', origin: LedgerOrigin::order(id: $order['id']));
+                if ($earns) {
+                    $credit = static fn (): bool => CustomerManager::create_loyalty_point_transaction($order['customer_id'], $order['id'], Convert::default($order['order_amount'] - $order['shipping_cost']), 'order_place', origin: LedgerOrigin::order(id: $order['id']));
+
+                    // The same claim as the status endpoint above, behind the same key (IDEM-08).
+                    WhenADeliveryEarnsPoints::claimsTheRewardRow(channel: WhenADeliveryEarnsPoints::SELLER_API_V3)
+                        ? DB::transaction(static fn (): mixed => app(RefundClaims::class)->claimRewardDelivered($rewardRow->id) ? $credit() : null)
+                        : $credit();
                 }
 
                 $refEarningStatus = BusinessSetting::where('type', 'ref_earning_status')->first()->value ?? 0;

@@ -4,6 +4,7 @@ namespace App\Services\Staff;
 
 use App\Models\Admin;
 use App\Models\SalesChannelAccount;
+use App\Services\Marketplace\SellerMarketScope;
 use App\Services\SalesChannels\Inventory\InventoryLocationMarket;
 use App\Services\SalesChannels\Support\ChannelAccountCountry;
 use App\Services\Storefront\CouponCountry;
@@ -391,6 +392,50 @@ final class StaffCountryScope
         }
 
         return CouponCountry::allBelongTo(couponIds: $ids, countries: $bound);
+    }
+
+    /**
+     * Whether the money of every one of these sellers belongs to a market the current request may work with (G-14, second criterion).
+     *
+     * A seller's money -- a withdrawal approved, a payout paid -- is the business of the market the shop sells in, and that rule already
+     * exists in ONE place: `SellerMarketScope::soleMarketOfShop()`, which the platform monitor reads to file a payout awaiting approval
+     * under a market (L-09). It is read here and never restated.
+     *
+     * Two states, and the difference between them is the whole of this method:
+     *
+     *  - while the seller market grants are not in force -- which is every installation today -- no shop names a market at all, so a
+     *    shop's money is the DEFAULT storefront's, by the one rule the whole platform follows for a row naming no market
+     *    (`coversTheDefaultMarket()`). A one-market platform therefore keeps working: the employees of that market decide its payouts and
+     *    nobody else does. Reading `soleMarketOfShop()` alone here would refuse EVERY payout to EVERY restricted employee, which is safe
+     *    and useless;
+     *  - with the grants in force, a shop granted exactly one market belongs to it. A shop granted SEVERAL, and a shop granted none and so
+     *    unrestricted, belongs to no single market, and its money is refused rather than guessed at -- the same answer a sales-channel
+     *    account naming no country gets, and for the same reason: this decides whether money leaves the platform.
+     *
+     * @param list<int|string> $sellerIds
+     */
+    public function coversEverySeller(array $sellerIds): bool
+    {
+        $bound = $this->boundCountries();
+        $ids = array_values(array_unique($sellerIds));
+
+        if ($bound === null || $ids === []) {
+            return true;
+        }
+
+        $markets = app(SellerMarketScope::class);
+        if (!$markets->enabled()) {
+            return $this->coversTheDefaultMarket();
+        }
+
+        foreach ($ids as $id) {
+            $market = $markets->soleMarketOfShop(sellerId: $id);
+            if ($market === null || !in_array($market, $bound, true)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

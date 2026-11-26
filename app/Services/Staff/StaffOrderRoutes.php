@@ -31,6 +31,8 @@ use App\Services\OrderEditService;
 use Modules\TaxModule\app\Http\Controllers\Admin\Reports\AdminTaxReportController;
 use Modules\TaxModule\app\Http\Controllers\Admin\Reports\VendorTaxReportController;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Session;
 
 /**
@@ -67,6 +69,46 @@ use Illuminate\Support\Facades\Session;
  */
 final class StaffOrderRoutes
 {
+    /** The switch that puts the panel's own money actions inside the country scope (G-14, second criterion). Off as it ships. */
+    public const MONEY_ACTIONS_SWITCH = 'gcc.staff.money_actions.scoped';
+
+    /**
+     * The money actions of these screens, and what each one is checked against while `MONEY_ACTIONS_SWITCH` is on (G-14, second criterion).
+     *
+     * The card's second criterion is that a withdrawal or payout approval, a wallet adjustment and a coupon change are checked against the
+     * employee's country. The coupon half has been enforced since `StaffCouponRoutes`; these three actions are the rest of it that lives
+     * inside this registry, and each has carried the rule `none` -- which means "names nothing that belongs to a market", and for a money
+     * action that was a false reassurance rather than a fact:
+     *
+     *   `VendorController::withdrawStatus`   approves or denies a seller's withdrawal: moves the seller's wallet and writes a payout entry
+     *   `VendorController::getWithdrawView`  the one request's screen, which shows the amount and the bank details it would be paid to
+     *   `CustomerWalletController::addFund`  credits a customer's wallet by hand
+     *
+     * The first two name a market through the SELLER, by the rule `StaffCountryScope::coversEverySeller()` reads from
+     * `SellerMarketScope`. The third names NO market and cannot: `users.wallet_balance` is one global balance, a customer belongs to no
+     * market in this schema, and the per-market accounts of GCC-15 are dormant -- so a hand-made credit is a platform act, and the honest
+     * scope for an employee of one market is that they may not make it. That is `unavailable`, the same answer this registry already gives
+     * a restricted employee for a platform total they cannot be shown a share of.
+     *
+     * **Off as it ships, and what is still NOT covered when it is on**, said plainly because a half-closed money gate read as closed is
+     * worse than an open one: the withdraw LIST and its export (`getWithdrawListView`, `exportWithdrawList`) are not narrowed, so a
+     * restricted employee still SEES every market's withdrawal requests and can only decide their own; and two whole screens are outside
+     * this regime altogether, with no scope middleware on them at all -- `Admin\Marketplace\PayoutController` (approve, mark paid, mark
+     * failed, reissue, reject) and `Admin\Deliveryman\DeliverymanWithdrawController`. A delivery man belongs to no market in this schema
+     * either, which is why that one is named here rather than guessed at.
+     *
+     * @var array<class-string, array<string, list<string>>>
+     */
+    private const MONEY_RULES = [
+        VendorController::class => [
+            'getWithdrawView' => ['seller_payout.route:withdrawId'],
+            'withdrawStatus' => ['seller_payout.route:id'],
+        ],
+        CustomerWalletController::class => [
+            'addFund' => ['unavailable'],
+        ],
+    ];
+
     private const RULES = [
         OrderController::class => [
             'index' => ['list:orders'],
@@ -303,12 +345,21 @@ final class StaffOrderRoutes
         return array_keys(self::READ_RULES);
     }
 
+    /** Whether the panel's money actions are checked against the employee's country (G-14, second criterion). Off as it ships. */
+    public static function moneyActionsAreScoped(): bool
+    {
+        return filter_var(config(self::MONEY_ACTIONS_SWITCH, false), FILTER_VALIDATE_BOOLEAN);
+    }
+
     /** @return array<string, list<string>> the rule of every action of a covered controller, by the name of the action */
     public static function rulesOf(string $controller): array
     {
         $controller = ltrim($controller, '\\');
+        $rules = self::RULES[$controller] ?? self::READ_RULES[$controller] ?? [];
 
-        return self::RULES[$controller] ?? self::READ_RULES[$controller] ?? [];
+        // While the money switch is off the rules are the ones above, unchanged, so every guard, inventory and document that reads this
+        // registry reads exactly what it read before. With it on the money actions of this controller take their own rule.
+        return $rules !== [] && self::moneyActionsAreScoped() ? (self::MONEY_RULES[$controller] ?? []) + $rules : $rules;
     }
 
     /** @return list<string>|null */
@@ -373,8 +424,42 @@ final class StaffOrderRoutes
             'line' => $scope->coversEveryOrderLine(lineIds: $ids),
             'refund' => $scope->coversEveryRefund(refundIds: $ids),
             'product' => $scope->coversEveryProduct(productIds: $ids),
+            'seller_payout' => self::sellersAreCovered(sellerIds: self::sellersOfVendorWithdraws(withdrawIds: $ids), scope: $scope),
             default => false,
         };
+    }
+
+    /** @param list<int>|null $sellerIds */
+    private static function sellersAreCovered(?array $sellerIds, StaffCountryScope $scope): bool
+    {
+        return $sellerIds !== null && $scope->coversEverySeller(sellerIds: $sellerIds);
+    }
+
+    /**
+     * The sellers whose money these withdrawal requests would move.
+     *
+     * @param list<int> $withdrawIds
+     * @return list<int>|null null when a request is missing, or names no seller -- a delivery man's row reached through a vendor screen --
+     *                        which is answered like a request that does not exist
+     */
+    private static function sellersOfVendorWithdraws(array $withdrawIds): ?array
+    {
+        if (!Schema::hasTable('withdraw_requests')) {
+            return null;
+        }
+
+        $sellerIds = DB::table('withdraw_requests')->whereIn('id', $withdrawIds)->pluck('seller_id')->all();
+        if (count($sellerIds) !== count($withdrawIds)) {
+            return null;
+        }
+
+        foreach ($sellerIds as $sellerId) {
+            if ($sellerId === null || (int) $sellerId <= 0) {
+                return null;
+            }
+        }
+
+        return array_values(array_unique(array_map('intval', $sellerIds)));
     }
 
     /** @param list<int>|null $productIds */

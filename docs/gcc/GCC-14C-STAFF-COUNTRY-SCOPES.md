@@ -1187,6 +1187,51 @@ default market would invent the same fact at the other end. Every line written b
 with the third-party setup module reads and writes every market's. Whether a gateway belongs to a market at all is the owner's to say (G1-13); the gateway ACCOUNTS of
 GCC-06 are the per-market design and these two screens are the legacy global ones.
 
+## The panel's money actions, behind a switch of their own (G-14, second criterion)
+
+`gcc.staff.money_actions.scoped`, from `GCC_STAFF_MONEY_ACTIONS_SCOPED`, **off as it ships**. Three actions of the screens listed above
+carried the rule `none` -- which in this registry means "names nothing that belongs to a market" -- while each of them moves money, and for
+a money action that was a false reassurance rather than a fact:
+
+| Action | Rule while the switch is ON | What it is checked against |
+|---|---|---|
+| `VendorController::withdrawStatus` | `seller_payout.route:id` | the market of the SHOP whose withdrawal it approves or denies |
+| `VendorController::getWithdrawView` | `seller_payout.route:withdrawId` | the same, so the amount and the bank details do not open for another market |
+| `CustomerWalletController::addFund` | `unavailable` | nothing: a hand-made wallet credit names no market and is refused |
+
+With the switch OFF `StaffOrderRoutes::rulesOf()` returns the rules above unchanged, so every guard, inventory and row of this document
+reads exactly what it read before and not one extra query is made.
+
+**Which market a seller's money belongs to** is `SellerMarketScope`'s rule, read by `StaffCountryScope::coversEverySeller()` and never
+restated. Two states, and the difference is the whole of the method: while the seller market grants are not in force -- every installation
+today -- no shop names a market, so a shop's money is the **default storefront's**, by the one rule the platform follows for a row naming
+none, and a one-market platform keeps working. With the grants in force a shop granted exactly one market belongs to it, and a shop granted
+several, or granted none and so unrestricted, belongs to no single market: its money is **refused** rather than filed under whichever market
+the employee happens to hold. Reading `soleMarketOfShop()` alone would refuse every payout to every restricted employee, which is safe and
+useless.
+
+**Why the wallet credit is a refusal and not a narrowing.** `users.wallet_balance` is ONE global balance, a customer belongs to no market in
+this schema (GCC-13), and the per-market accounts of GCC-15 are dormant. So there is no market a hand-made credit could be checked against,
+and a platform-wide money write is not the act of one market. That is the same answer this registry already gives a restricted employee for a
+platform total they cannot be shown a share of. The per-market accounts are what would change it.
+
+**What is still NOT covered when the switch is on**, said plainly because a half-closed money gate read as closed is worse than an open one:
+
+- the withdraw LIST and its export (`getWithdrawListView`, `exportWithdrawList`) are **not narrowed**, so a restricted employee still sees
+  every market's withdrawal requests and can only decide their own;
+- `Admin\Marketplace\PayoutController` -- approve, mark paid, mark failed, reissue, reject, five money-moving POSTs of the ledger payouts --
+  has **no scope middleware at all** and is in no registry;
+- `Admin\Deliveryman\DeliverymanWithdrawController` likewise. A delivery man belongs to no market in this schema either, so that one needs
+  a rule somebody decides rather than a rule to read.
+
+Those two are not left as prose. `StaffMoneyActionsTest::test_the_money_screens_that_no_staff_country_scope_covers_are_exactly_these`
+walks the real route table and pins the eleven routes concerned -- `admin/marketplace/payouts` and its five POSTs,
+`admin/delivery-man/withdraw-list` and its three others -- so a money screen that gains a scope has to come off the list and one that loses
+a scope has to go on it. Neither can happen silently. What closing `PayoutController` costs, measured rather than guessed:
+`StaffMarketplaceRoutes::isCovered()` resolves EVERY rule to product ids and a payout names a seller and no product, so it needs that
+function restructured; and the slice-5 inventory entry, six new rows of the table below and its pinned count of 54 marketplace actions all
+move with it.
+
 ## Out of slices 1 to 3: the rule that would apply
 
 | Area | Rule for the slice that takes it |
