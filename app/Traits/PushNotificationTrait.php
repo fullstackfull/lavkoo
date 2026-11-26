@@ -4,6 +4,7 @@ namespace App\Traits;
 
 use App\Services\Notification\NotificationAttemptLog;
 use App\Services\Notification\NotificationProfiles;
+use App\Services\Notification\MessageIdentity;
 use App\Services\Notification\SendsWithinABudget;
 use App\Services\Storefront\OrderNotificationContext;
 use App\Models\NotificationMessage;
@@ -542,6 +543,10 @@ trait PushNotificationTrait
             succeeded: static fn (mixed $answer): bool => is_object($answer) && method_exists($answer, 'successful')
                 ? (bool) $answer->successful()
                 : $answer !== false && $answer !== null,
+            // What this push is ABOUT, read out of the payload the caller has already built, so no sender had to be changed to gain a
+            // message identity (I1-09). A payload that names no order, refund or auction names no business event, and such a push -- a
+            // marketing blast, a broadcast -- is a replay of nothing and is never suppressed.
+            about: MessageIdentity::subjectOf(is_array($data) ? (array) ($data['message']['data'] ?? []) : []),
         );
     }
 

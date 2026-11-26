@@ -856,6 +856,21 @@ return [
         // Milliseconds to wait before each further attempt, multiplied by the attempt number. ZERO by default and deliberately: a backoff
         // that holds a web request open is a worse failure than the one it is recovering from. A queue worker may set one.
         'retry_delay_ms' => (int) env('GCC_NOTIFICATION_RETRY_DELAY_MS', 0),
+
+        // Whether a message's identity is claimed before it is sent, so a replay of one business event sends nothing twice (I1-09).
+        // OFF, which is the platform of today: a queue worker running one order status job twice sends the customer two identical
+        // pushes, and nothing downstream can tell that from two real status changes.
+        //
+        // What turning it on BUYS: one push and one e-mail per recipient per business event, enforced by the unique key on
+        // `notification_send_attempts (idempotency_key, attempt)` rather than by a read, so two workers cannot both pass it.
+        //
+        // What turning it on COSTS, and why it is the operator's decision rather than a default: the identity of a notification is
+        // (order, recipient, which message), NOT the rendered text -- see `App\Services\Notification\MessageIdentity` for why hashing
+        // the text would switch the whole mechanism off without saying so -- so an order put BACK into a status it has already been
+        // notified about does not notify again. At-most-once per status, in exchange for no duplicates.
+        //
+        // It also does nothing at all until `2027_01_09_100000_add_idempotency_key_to_notification_send_attempts` has run.
+        'idempotency' => filter_var(env('GCC_NOTIFICATION_IDEMPOTENCY', false), FILTER_VALIDATE_BOOLEAN),
     ],
 
     'loyalty' => [
