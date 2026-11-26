@@ -982,3 +982,18 @@ during a gate run. It did no damage (those classes were already loaded and the r
 zero failures), but it was luck. The remaining three were made in `/home/user/wt/hac` against
 `pharmacy_testing_hac`: **a teeth check belongs in a worktree of its own, never in the tree a run
 is reading.**
+
+### A teeth check that reports "nothing went red" may mean the MUTATION failed
+
+Verifying Track STEPUP I removed the step-up component from one screen with
+`perl -0pi -e 's/\s*<x-k\.step-up\s*\/>//'` and the suite stayed green at 21/168 — which reads as
+"the test has no teeth". It was my regex: the component is written
+`<x-k.step-up id="role-add" />`, so the pattern never matched and **nothing was mutated at all**.
+Removing the line properly turned exactly 2 red, the two the track had named.
+
+So: **print the occurrence count, or diff the file, and confirm the mutation LANDED before
+believing a teeth check that says the test is toothless.** A failed mutation and a toothless test
+look identical in the run's output, and the first conclusion is the flattering one — it blames the
+other agent's work rather than your own command. The same error in the other direction is what the
+earlier note about `git checkout` wiping uncommitted edits describes: Track STEPUP hit that itself
+and re-measured all five of its readings against the commit, which is the right response.
