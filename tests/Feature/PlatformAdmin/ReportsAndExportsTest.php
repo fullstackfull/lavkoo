@@ -157,14 +157,18 @@ class ReportsAndExportsTest extends PlatformAdminTestCase
 
         $this->assertNotNull($line, 'what left the platform is a recorded fact');
         $this->assertSame('SA', (string) $line->market);
-        $this->assertSame([
+        // Read through contextOf(), like every other trail assertion in this suite: `context` is a json column, and MySQL 8 returns a
+        // json object's keys in ITS order (by length, then by name) while MariaDB keeps the order they were written in. Comparing the
+        // decoded array directly was therefore green on MariaDB and red on MySQL 8 for six keys in a different order -- the same figures
+        // either way. Nothing about what is written changes here; only the reading stops depending on the engine.
+        $this->assertSame($this->sortedByKey([
             'status' => 200,
             'params' => ['market' => 'SA'],
             'rows' => 2,
             'file' => 'lavkoo-orders-sa-2026-10-19-to-2026-11-17.csv',
             'from' => '2026-10-19',
             'to' => '2026-11-17',
-        ], json_decode((string) $line->context, true));
+        ]), $this->contextOf($line));
     }
 
     public function test_an_export_needs_the_second_factor_proved_again_and_not_merely_at_the_sign_in(): void

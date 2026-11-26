@@ -149,7 +149,8 @@ class StepUpTest extends MfaTestCase
 
         $this->assertCount(1, $lines, 'one line for one step-up, and not the same event written twice');
         $this->assertSame($admin['id'], (int) $lines[0]->admin_id);
-        $this->assertSame(['status' => 200, 'method' => 'totp', 'fresh_minutes' => 5], json_decode((string) $lines[0]->context, true));
+        // contextOf(), not a bare decode: a json column's keys come back in the engine's own order (see ReportsAndExportsTest).
+        $this->assertSame($this->sortedByKey(['status' => 200, 'method' => 'totp', 'fresh_minutes' => 5]), $this->contextOf($lines[0]));
     }
 
     public function test_the_configured_minutes_are_capped_so_a_step_up_cannot_be_made_to_last(): void
