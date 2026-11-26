@@ -324,12 +324,23 @@ class ProviderCityMappingService
     }
 
     /** @return list<int> our cities with more than one candidate waiting and no approved mapping */
-    public function conflictedCityIds(string $provider, int $limit = 50): array
+    /**
+     * Our cities this provider has more than one pending candidate for, narrowed to the country given (H1-10).
+     *
+     * Both halves are narrowed, and the second is the one that matters: a city settled in ANOTHER country must not count as settled here,
+     * or a conflict somebody has to resolve disappears from the only screen that can resolve it. `$country` is null for every caller that
+     * asks about the whole table, and while the country scope is off, and then nothing is narrowed at all.
+     *
+     * @return list<int>
+     */
+    public function conflictedCityIds(string $provider, int $limit = 50, ?string $country = null): array
     {
-        return ProviderCityMapping::query()
+        $settledHere = self::ofCountry(ProviderCityMapping::query()->approved()->where('provider', $provider), $provider, $country);
+
+        return self::ofCountry(ProviderCityMapping::query(), $provider, $country)
             ->where('provider', $provider)
             ->where('status', MappingStatus::Pending->value)
-            ->whereNotIn('address_city_id', ProviderCityMapping::query()->approved()->where('provider', $provider)->select('address_city_id'))
+            ->whereNotIn('address_city_id', $settledHere->select('address_city_id'))
             ->groupBy('address_city_id')
             ->havingRaw('COUNT(*) > 1')
             ->orderBy('address_city_id')

@@ -15,6 +15,8 @@ use App\Services\Address\AddressSnapshot;
 use App\Services\Address\CityMatch;
 use App\Services\Address\LegacyCityMatcher;
 use App\Services\Fulfillment\Data\CityResolution;
+use App\Services\Storefront\StorefrontMarketRows;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -40,10 +42,11 @@ class ProviderCityReview
         private readonly ProviderCityMappingService $mappings,
         private readonly LegacyCityMatcher $matcher,
         private readonly ProviderStorefrontCountry $providerCountry,
+        private readonly StorefrontMarketRows $marketRows,
     ) {
     }
 
-    /** @return list<int> our cities the held orders are waiting on, most recent first */
+    /** @return list<int> our cities the held orders of this connection's country are waiting on, most recent first */
     public function heldCityIds(string $provider): array
     {
         return $this->heldShipments($provider)->pluck('city_id')->filter()->unique()->values()->map(static fn ($id): int => (int) $id)->all();
@@ -62,9 +65,10 @@ class ProviderCityReview
      */
     public function overview(string $provider): array
     {
+        $country = $this->providerCountry->of($provider);
         $held = $this->heldShipments($provider);
         $heldByCity = $held->filter(static fn (array $shipment): bool => $shipment['city_id'] > 0)->groupBy('city_id');
-        $conflictIds = $this->mappings->conflictedCityIds($provider, self::SHOWN_CONFLICTS);
+        $conflictIds = $this->mappings->conflictedCityIds($provider, self::SHOWN_CONFLICTS, $country);
 
         $cities = AddressCity::query()->with('region')->whereIn('id', [...$heldByCity->keys()->all(), ...$conflictIds])->get()->keyBy('id');
         $candidates = $this->mappings->candidatesForMany(provider: $provider, cities: $cities);
@@ -98,7 +102,7 @@ class ProviderCityReview
             'cities' => $blocks,
             'typed' => $this->typedText($held),
             'approved' => $this->approved($provider),
-            'country' => $this->providerCountry->of($provider),
+            'country' => $country,
         ];
     }
 
@@ -110,13 +114,13 @@ class ProviderCityReview
      */
     private function heldShipments(string $provider): Collection
     {
-        $held = ProviderFulfillment::query()
+        $shipments = ProviderFulfillment::query()
             ->where('provider', $provider)
             ->where('status', FulfillmentStatus::Held->value)
-            ->where('hold_reason', HoldReason::CITY_UNMAPPED)
-            ->orderByDesc('id')
-            ->limit(self::HELD_LIMIT)
-            ->get(['id', 'order_id', 'reference', 'last_error_message']);
+            ->where('hold_reason', HoldReason::CITY_UNMAPPED);
+        $this->ofThisCountry($shipments, $provider);
+
+        $held = $shipments->orderByDesc('id')->limit(self::HELD_LIMIT)->get(['id', 'order_id', 'reference', 'last_error_message']);
         $snapshots = DB::table('orders')->whereIn('id', $held->pluck('order_id')->all())->pluck('shipping_address_data', 'id');
 
         $readings = [];
@@ -173,6 +177,35 @@ class ProviderCityReview
     }
 
     /** @return array{total: int, missing: int, selected: int} */
+    /**
+     * Narrows held shipments to the country the connection serves, by the market their own LINES name (H1-10).
+     *
+     * `provider_fulfillments` carries no market, and it does not need one: every line of a provider-owned shipment is an immutable
+     * ownership snapshot that already names the market it was sold in (C-04, `2027_01_02_100000`), so the shipment's country is a read of
+     * that rather than a second record of the same fact -- and two records of one fact are two records that can disagree. The rule for an
+     * unmarked line is {@see StorefrontMarketRows}'s and is not restated: the default storefront takes the lines that name no market,
+     * because every such line was sold in the only market this platform had.
+     *
+     * `whereHas` and not `whereDoesntHave`: a shipment with a line of this market is shown here even if it has lines of another, because a
+     * held order hidden from the only screen that can release it is worse than one that appears on two countries' screens.
+     *
+     * Dormant twice over: while the country-scoped codes switch is off `ProviderStorefrontCountry::of()` answers null, and before the
+     * snapshot migration has run `StorefrontMarketRows::applies()` is false -- in both cases nothing is narrowed and the screen is the one
+     * this platform has always shown.
+     *
+     * @param Builder<ProviderFulfillment> $shipments
+     */
+    private function ofThisCountry(Builder $shipments, string $provider): void
+    {
+        $country = $this->providerCountry->of($provider);
+
+        if ($country === null || !$this->marketRows->applies(OwnershipHistory::TABLE)) {
+            return;
+        }
+
+        $shipments->whereHas('items', fn ($items) => $this->marketRows->narrow($items, OwnershipHistory::TABLE, $country));
+    }
+
     private function directory(string $provider): array
     {
         $cities = ProviderCity::query()->where('provider', $provider);
@@ -198,9 +231,10 @@ class ProviderCityReview
      * storefront also takes the rows that name no country, because a mapping made before countries were stated is a mapping of the one
      * country the platform served.
      *
-     * Only the APPROVED list. The waiting and conflicting blocks are deliberately NOT narrowed: they are work somebody has to do, and a
-     * held order of another country hidden from the only screen that can release it would be worse than a mixed list. Narrowing those needs
-     * the shipment's own market, which `provider_fulfillments` does not carry; it is named in H1-10 as the half that remains.
+     * The waiting and the conflicting blocks are narrowed too, each by its own rule: {@see ofThisCountry()} reads the market the
+     * shipment's own LINES name, and {@see ProviderCityMappingService::conflictedCityIds()} takes the country here. A held shipment is
+     * never hidden by it -- one line of this market is enough to list it -- because a held order kept off the only screen that can release
+     * it would be worse than a mixed list.
      *
      * @return list<array{mapping: ProviderCityMapping, city: ?AddressCity, provider_city: ?ProviderCity}>
      */
