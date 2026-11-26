@@ -886,8 +886,8 @@ in the main checkout.
 | M | `fff938d9` | CI guards 65/205; the concurrency proof re-measured 4/44, and its teeth re-checked (a market-blind `PoolKey` turns 3 of 4 red) |
 | K/L/J | `0184ba86` | the whole PlatformAdmin suite on the merged tree, 1,231 tests / 27,490 assertions |
 | E/G/B/F | `d3a23476` | StaffScope + Referral + Permissions, 780 tests / 21,080 assertions |
-| I/D | `cbe0edb1` | migration contract + architecture 167 green; Notifications/MyFatoorah/Refund/Payments run |
-| H/A/C | `a27e9760` (squashed) | Security + Fulfillment + Address + Auth run |
+| I/D | `cbe0edb1` | migration contract + architecture 167; Notifications + MyFatoorah + Refund + Payments, 764 tests / 3,286 assertions |
+| H/A/C | `a27e9760` (squashed) | its 5 new files + 6 neighbours, 189 tests / 945 assertions in 89s |
 
 **Why H/A/C is the one squashed merge.** Its net tree is clean, but leak-guard's per-commit pass
 found 7 findings in its own earlier commits -- four comments holding the SHAPE of a Saudi mobile
@@ -936,3 +936,16 @@ The fix is a guard, not a sweep: a step that fails a test job which leaves track
 modified. It cannot simply be added, because many suites would fail it at once -- so it needs
 measuring first, then either the trait added to the suites that dirty the file, or the guard
 scoped to `resources/lang` while the rest is worked through. Sized for a track, not taken here.
+
+**A scoping lesson from H/A/C's verification, which cost 50 minutes and produced nothing.** I
+first ran four whole directories (`Security`, `Fulfillment`, `Address`, `Auth`) and the background
+task was killed at its time limit with an EMPTY output file -- the pipe into `tail` had flushed
+nothing. Re-run against the track's 5 new files plus the 6 neighbours it actually named, the same
+verification took **89 seconds** for 189 tests / 945 assertions.
+
+Two rules out of that. **Verify a track against the files it changed and the neighbours it names,
+not the directories they live in** -- the directory is the comprehensive run's job, and that is
+what the frozen-SHA CI is for. And **write a long run's output to a file rather than through
+`tail`**, so a kill still leaves the partial result readable. The earlier note that phpunit exits
+0 on a missing path belongs beside this one: both turn a non-result into something that can be
+mistaken for a verification.
