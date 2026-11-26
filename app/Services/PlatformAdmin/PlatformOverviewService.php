@@ -243,7 +243,7 @@ final class PlatformOverviewService
     private function attribution(): array
     {
         return [
-            'orders' => ['rule' => 'all_lines_one_market', 'via' => 'order_details.product_id > products.storefront_country'],
+            'orders' => PlatformMarketFigures::ORDER_ATTRIBUTION,
             'refund_requests' => ['rule' => 'product_market', 'via' => 'refund_requests.product_id > products.storefront_country'],
             'stock' => ['rule' => 'live_physical_products_by_market', 'via' => 'products.storefront_country'],
             'inventory' => $this->inventoryAttribution(),

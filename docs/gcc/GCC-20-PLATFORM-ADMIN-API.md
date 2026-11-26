@@ -463,12 +463,39 @@ At most 50 to a page (default 25); a page or size that is not a positive whole n
 The counts and the age are in `config/gcc.php` (`platform_admin.alerts`). A critical count below its warning count is raised to it, and a value that makes no sense is the default.
 `deep_link` is a path the app can route; at level 1 every alert links to the market (`markets/XX`). A message carries only a count and a market, never a name.
 
+### `GET /orders?market=SA&from=YYYY-MM-DD&to=YYYY-MM-DD&page=&per_page=`
+
+One market's orders as a LIST rather than as a count: the first drill-down under a market card (L-13). Capability `orders`, which **a grant has only when it names it**.
+
+```json
+{"data": {
+  "market": "SA",
+  "generated_at": "2026-11-17T09:00:00Z",
+  "window": {"from": "2026-10-19", "to": "2026-11-17", "days": 30, "clamped": false, "timezone": "Asia/Riyadh"},
+  "orders": [{"id": 16, "status": "processing", "placed_at": "2026-11-17T15:00:00Z", "lines": 1}],
+  "attribution": {"rule": "all_lines_one_market", "via": "order_details.product_id > products.storefront_country"}
+}, "meta": {"page": 1, "per_page": 25, "has_more": false}}
+```
+
+* **ONE market.** `market` is required and `all` is the same `one_market_only` 422 a report and an export answer. An unknown market is `invalid_market` (422) and a market outside the
+  viewer's is `market_not_allowed` (403), whatever the case it was written in -- the same `MarketSelector` as every other read, so the refusal and the audited market are in one place.
+* **It is the counts' own list.** The market of an order comes from the subquery the overview's figures are grouped from, so a market's list is exactly as long as the overview counts
+  it for the same window, and the answer names the rule (`attribution`). An order of no single market is in no market's list and is never shown as Saudi.
+* **No customer.** The order's id, its status, the moment it was placed and how many lines it has. No name, address, telephone number or e-mail, and no such column is read: what
+  personal data a list of this API may show is an open owner decision (section 10), so until it is answered none is shown.
+* Newest first (`placed_at` then id, both descending, so paging cannot drop or repeat a row). At most **50** to a page, default 25, page at most 1000; a page or size that is not a
+  positive whole number is the default. `has_more` is read by taking one row more than the page, so nothing counts the table.
+* One page is **one statement** over the bounded range, whatever the market holds.
+
+**The three endpoints this section does not yet describe** are `GET /health` (L-09), `GET /reports` and `GET /exports/orders` (L-14) and the three `devices` routes (L-16). They are
+built and tested; the shapes live in their cards and their tests, and writing them up here is outstanding.
+
 ### `GET /audit-logs?page=&per_page=`
 
 `{"data": [{"id", "admin_id", "action", "market", "token_id", "ip", "user_agent", "context", "created_at"}], "meta": {"scope", "page", "per_page", "has_more"}}`. Newest first, 25 to a
 page, at most 100, and the page number is at most 1000. The **platform owner reads every line; a restricted admin reads only their own.** It never counts the table. `action` is one
 of `auth.login` (a session was opened; its context says how: `mfa` is `totp` or `recovery_code` when the second factor was passed), `auth.login_failed`, `auth.logout`, `auth.mfa_challenge` (a good password, a challenge given),
-`auth.mfa_failed`, `auth.mfa_locked`, `mfa.recovery_code_used` (its context holds `recovery_codes_left`), `me.view`, `sessions.list`, `session.revoke`, `sessions.end_others`, `session.evicted`, `session.idle_ended`, `session.grant_expired`, `markets.view`, `overview.view`, `alerts.view`,
+`auth.mfa_failed`, `auth.mfa_locked`, `mfa.recovery_code_used` (its context holds `recovery_codes_left`), `me.view`, `sessions.list`, `session.revoke`, `sessions.end_others`, `session.evicted`, `session.idle_ended`, `session.grant_expired`, `markets.view`, `overview.view`, `orders.view`, `alerts.view`,
 `audit_logs.view`, `grant.created`, `grant.updated`, `grant.reactivated`, `grant.revoked`, `tokens.revoked`, and the console's `mfa.enrolled`, `mfa.confirmed`, `mfa.confirm_failed`, `mfa.reset`, `mfa.status`, `audit.pruned`. The hashes of the chain are not part of a line as the API shows it.
 `context` of a request holds the status and the few parameters the API takes (`id`, `market`, `from`, `to`, `severity`, `page`, `per_page`; `ended` for `sessions.end_others`); never a password, a token, a challenge, a code, an e-mail or
 any other value the request carried. `ip` is as sent; `user_agent` is cut at 255 characters. A line of the console carries `operator` (`user`, `host`) in its context, which only the platform owner is shown.

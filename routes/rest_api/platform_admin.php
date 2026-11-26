@@ -8,6 +8,7 @@ use App\Http\Controllers\RestAPI\PlatformAdmin\v1\ExportController;
 use App\Http\Controllers\RestAPI\PlatformAdmin\v1\HealthController;
 use App\Http\Controllers\RestAPI\PlatformAdmin\v1\MarketController;
 use App\Http\Controllers\RestAPI\PlatformAdmin\v1\MeController;
+use App\Http\Controllers\RestAPI\PlatformAdmin\v1\OrderController;
 use App\Http\Controllers\RestAPI\PlatformAdmin\v1\OverviewController;
 use App\Http\Controllers\RestAPI\PlatformAdmin\v1\ReportController;
 use App\Http\Controllers\RestAPI\PlatformAdmin\v1\SessionController;
@@ -52,6 +53,7 @@ Route::prefix('platform-admin/v1')->middleware('platform_admin')->name('platform
         Route::get('devices', [DeviceController::class, 'index'])->middleware('platform_admin_can:alerts')->name('devices.list');
         Route::post('devices', [DeviceController::class, 'store'])->middleware('platform_admin_can:alerts')->name('devices.register');
         Route::delete('devices/{id}', [DeviceController::class, 'destroy'])->whereNumber('id')->middleware('platform_admin_can:alerts')->name('device.forget');
+        Route::get('orders', OrderController::class)->middleware('platform_admin_can:orders')->name('orders.view');
         Route::get('reports', ReportController::class)->middleware('platform_admin_can:reports')->name('reports.view');
         Route::get('exports/orders', [ExportController::class, 'orders'])->middleware(['platform_admin_can:export', 'platform_admin_step_up'])->name('exports.orders');
     });

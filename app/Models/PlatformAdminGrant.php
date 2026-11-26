@@ -17,7 +17,7 @@ class PlatformAdminGrant extends Model
      * listed as not given by default: adding a capability to this list would otherwise give it to every such grant, retroactively, the moment the code
      * shipped -- an operator trusted with yesterday's API acquiring tomorrow's without anybody deciding.
      */
-    public const CAPABILITIES = ['overview', 'markets', 'alerts', 'audit', 'sessions', self::CAPABILITY_HEALTH, self::CAPABILITY_REPORTS, self::CAPABILITY_EXPORT];
+    public const CAPABILITIES = ['overview', 'markets', 'alerts', 'audit', 'sessions', self::CAPABILITY_HEALTH, self::CAPABILITY_REPORTS, self::CAPABILITY_EXPORT, self::CAPABILITY_ORDERS];
 
     /** Operational health: payment attempts that never came back, and integrations that have stopped syncing (L-09). */
     public const CAPABILITY_HEALTH = 'health';
@@ -29,6 +29,15 @@ class PlatformAdminGrant extends Model
     public const CAPABILITY_EXPORT = 'export';
 
     /**
+     * One market's orders as a LIST and not as a count: the first drill-down under a market card (L-13).
+     *
+     * It is a capability of its own rather than part of `overview`, because the two answer different questions about the same rows. The overview says
+     * how many orders a market has in each status, which is a shape; a list names them one by one, which is the row an operator then goes looking
+     * for. An operator trusted to read the shape has not thereby been trusted to read the rows.
+     */
+    public const CAPABILITY_ORDERS = 'orders';
+
+    /**
      * Capabilities a grant has only when it NAMES them.
      *
      * The rule for everything above is that naming none means all, which is right for a list that was fixed when the first grant was made and wrong for a
@@ -37,7 +46,7 @@ class PlatformAdminGrant extends Model
      * those is a decision, not an inheritance. Reports and exports are here for a stronger reason -- an export takes a market's rows OFF the platform,
      * and nobody should acquire that because a release shipped.
      */
-    public const NOT_GIVEN_BY_DEFAULT = [self::CAPABILITY_HEALTH, self::CAPABILITY_REPORTS, self::CAPABILITY_EXPORT];
+    public const NOT_GIVEN_BY_DEFAULT = [self::CAPABILITY_HEALTH, self::CAPABILITY_REPORTS, self::CAPABILITY_EXPORT, self::CAPABILITY_ORDERS];
 
     protected $fillable = ['admin_id', 'admin_fingerprint', 'level', 'countries', 'capabilities', 'granted_by', 'granted_at', 'revoked_at', 'expires_at'];
 

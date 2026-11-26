@@ -25,19 +25,20 @@ class GrantModelTest extends TestCase
 
     public function test_the_capabilities_that_exist_are_these_six_in_this_order(): void
     {
-        $this->assertSame(['overview', 'markets', 'alerts', 'audit', 'sessions', 'health', 'reports', 'export'], PlatformAdminGrant::CAPABILITIES);
+        $this->assertSame(['overview', 'markets', 'alerts', 'audit', 'sessions', 'health', 'reports', 'export', 'orders'], PlatformAdminGrant::CAPABILITIES);
     }
 
     /**
      * Which of them a grant that names none does NOT get.
      *
-     * The first five were there when the first grant was made, so naming none meant all of them and still does. `health`, `reports` and `export`
-     * were added afterwards, and giving them to every existing grant the moment the code shipped would have widened what an operator may read --
-     * and, for the export, what they may TAKE OFF the platform -- without anybody deciding.
+     * The first five were there when the first grant was made, so naming none meant all of them and still does. `health`, `reports`, `export` and
+     * `orders` were added afterwards, and giving them to every existing grant the moment the code shipped would have widened what an operator may
+     * read -- for the export, what they may TAKE OFF the platform, and for `orders`, a market's order rows one by one rather than as a count --
+     * without anybody deciding.
      */
     public function test_a_capability_added_after_the_first_grant_is_not_given_by_a_grant_that_names_none(): void
     {
-        $this->assertSame(['health', 'reports', 'export'], PlatformAdminGrant::NOT_GIVEN_BY_DEFAULT);
+        $this->assertSame(['health', 'reports', 'export', 'orders'], PlatformAdminGrant::NOT_GIVEN_BY_DEFAULT);
         $this->assertSame([], array_diff(PlatformAdminGrant::NOT_GIVEN_BY_DEFAULT, PlatformAdminGrant::CAPABILITIES), 'a capability that is not given by default has to be a capability');
 
         $namesNone = new PlatformAdminGrant();

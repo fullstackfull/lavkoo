@@ -25,6 +25,7 @@ class CapabilitiesTest extends PlatformAdminTestCase
         'platform_admin.device.forget' => 'alerts',
         'platform_admin.audit_logs.view' => 'audit',
         'platform_admin.health.view' => 'health',
+        'platform_admin.orders.view' => 'orders',
         'platform_admin.reports.view' => 'reports',
         'platform_admin.exports.orders' => 'export',
         'platform_admin.sessions.list' => 'sessions',
@@ -146,11 +147,14 @@ class CapabilitiesTest extends PlatformAdminTestCase
             }
         }
 
-        $this->assertSame(
-            PlatformAdminGrant::NOT_GIVEN_BY_DEFAULT,
-            array_values(array_unique(array_filter($refused))),
-            'a grant naming no capability is refused exactly the capabilities that are not given by default',
-        );
+        // The claim is about the SET of capabilities that were refused, and the walk is in route-table order, so both sides are sorted before they
+        // are compared: a route moved in the route file must not read as a capability wrongly withheld. The comparison stays exact.
+        $withheld = array_values(array_unique(array_filter($refused)));
+        $declared = PlatformAdminGrant::NOT_GIVEN_BY_DEFAULT;
+        sort($withheld);
+        sort($declared);
+
+        $this->assertSame($declared, $withheld, 'a grant naming no capability is refused exactly the capabilities that are not given by default');
         $this->assertNotSame([], PlatformAdminGrant::NOT_GIVEN_BY_DEFAULT, 'if that list is ever emptied, this test must be rewritten rather than left to pass trivially');
     }
 
@@ -161,7 +165,9 @@ class CapabilitiesTest extends PlatformAdminTestCase
             'an empty list' => ['[]'],
             'the JSON text null' => ['null'],
             'an object' => ['{"overview":true}'],
-            'names that are not capabilities' => ['["payments","orders"]'],
+            // Neither has ever been a capability. `orders` was here until it became one (L-13): a data set whose premise the code has overtaken
+            // proves nothing, so it was replaced rather than left to pass for the wrong reason.
+            'names that are not capabilities' => ['["payments","refunds"]'],
             'a name in another case' => ['["Overview"]'],
         ];
     }
