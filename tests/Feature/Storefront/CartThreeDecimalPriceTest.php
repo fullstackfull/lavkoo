@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Schema;
 use Tests\Feature\Address\ApiAddressTestCase;
 use Tests\Support\BuildsStorefrontCart;
 use Tests\Support\BuildsStorefrontCatalog;
+use Tests\Support\RestoresLanguageFiles;
 
 /**
  * M2-07's last unproved surface: a price in a three-decimal currency, through the CART.
@@ -29,6 +30,7 @@ class CartThreeDecimalPriceTest extends ApiAddressTestCase
 {
     use BuildsStorefrontCart;
     use BuildsStorefrontCatalog;
+    use RestoresLanguageFiles;
 
     private const DINAR_PRICE = 3.505;
     private const KUWAITI_PRODUCT = 7;
@@ -38,6 +40,7 @@ class CartThreeDecimalPriceTest extends ApiAddressTestCase
     {
         parent::setUp();
 
+        $this->rememberLanguageFiles();
         $this->buildStorefrontCartWorld();
         $this->useMultiCurrencyPlatform();
         $this->seedAKuwaitiProduct();
@@ -103,6 +106,15 @@ class CartThreeDecimalPriceTest extends ApiAddressTestCase
             0.0000001,
             'the dormant path must store the product price unchanged, as it does today',
         );
+    }
+
+    protected function tearDown(): void
+    {
+        StorefrontCatalog::flush();
+        Schema::dropIfExists('currencies');
+        $this->restoreLanguageFiles();
+
+        parent::tearDown();
     }
 
     private function addTheKuwaitiProduct(int $quantity = 1): void
