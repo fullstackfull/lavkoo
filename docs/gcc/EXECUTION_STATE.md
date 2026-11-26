@@ -908,3 +908,31 @@ reserved file stayed reserved.**
   `tests/Feature/Identity` printed `Test file ... not found` and exited **0** -- a false green that
   would have passed for a verified merge. Always read the test COUNT, never the exit code alone,
   and confirm the directory exists before trusting a green.
+
+### A finding for the next Track M: a test run dirties the working tree and CI never notices
+
+Running the money suites left `resources/lang/en/new-messages.php` modified: two existing coupon
+keys rewritten in `var_export`'s quote style, and four keys appended that exist NOWHERE in
+`app/`, `resources/views/` or `Modules/` -- `Code_is_required!`,
+`The_minimum_order_quantity_is_required!`, `..._must_be_positive!`, `file_delete_fail`. They are
+validator messages humanised by `translate()` at runtime, so they are artifacts of exercising a
+validation path, not text any feature added.
+
+`RestoresLanguageFiles` is the project's answer and **195 test files use it -- but only ONE file
+in `tests/Feature/Cart`, `Checkout` and `Coupon` together does**, which is why those suites
+dirtied the tree.
+
+Two consequences, the second worse than the first:
+
+1. A local run leaves the tree dirty, and a coordinator committing "all changes" would commit
+   the artifacts. This nearly happened on 2026-11-26 and was caught only by reading the diff.
+2. **A genuinely new translation key added by a feature becomes indistinguishable from an
+   artifact.** That is the real cost: the signal is gone either way.
+
+**`.github/workflows/ci.yml` has no tree-cleanliness check at all** -- no `git status --porcelain`,
+no `git diff --exit-code` in any job. So nothing anywhere reports this.
+
+The fix is a guard, not a sweep: a step that fails a test job which leaves tracked files
+modified. It cannot simply be added, because many suites would fail it at once -- so it needs
+measuring first, then either the trait added to the suites that dirty the file, or the guard
+scoped to `resources/lang` while the rest is worked through. Sized for a track, not taken here.
