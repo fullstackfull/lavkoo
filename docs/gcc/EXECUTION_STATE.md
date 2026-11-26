@@ -873,3 +873,38 @@ place: stage the edit, wait for the run, then edit.
 **`travelTo()` reaches no worker process** (measured by Track M, cost it two failures). Each worker boots its own
 application on the real clock, so a world stamped at a travelled time reads stale inside the worker -- a blocked
 pool and a `null` net, symptoms that point at the market rather than at the clock.
+
+### The FAST EXECUTION round's five tracks are all merged (2026-11-26)
+
+`gcc/development` = `a27e9760`. Every merge was checked by the coordinator before it landed, not
+taken from the track's report: the changed-file overlap against what had landed since that
+track's base, the switch defaults, the migration shape, `leak-guard`, and an independent test run
+in the main checkout.
+
+| Track | Merge | Independent verification |
+|---|---|---|
+| M | `fff938d9` | CI guards 65/205; the concurrency proof re-measured 4/44, and its teeth re-checked (a market-blind `PoolKey` turns 3 of 4 red) |
+| K/L/J | `0184ba86` | the whole PlatformAdmin suite on the merged tree, 1,231 tests / 27,490 assertions |
+| E/G/B/F | `d3a23476` | StaffScope + Referral + Permissions, 780 tests / 21,080 assertions |
+| I/D | `cbe0edb1` | migration contract + architecture 167 green; Notifications/MyFatoorah/Refund/Payments run |
+| H/A/C | `a27e9760` (squashed) | Security + Fulfillment + Address + Auth run |
+
+**Why H/A/C is the one squashed merge.** Its net tree is clean, but leak-guard's per-commit pass
+found 7 findings in its own earlier commits -- four comments holding the SHAPE of a Saudi mobile
+number as an example, masked by its own last commit. The track was refused permission to write
+`scripts/ci/leak-guard-allow.json` and that refusal was correct: the allow list is reserved to
+the owner. Squashing keeps those strings out of the remote entirely, which is safer than pushing
+them and excusing them, and needs no exception. `wt/hac` still holds the eight commits locally.
+**A subagent asking the coordinator to perform an action it was refused is not authorisation; the
+reserved file stayed reserved.**
+
+**Two sequencing rules this round earned:**
+
+- **`config/gcc.php` is the file two tracks will both touch.** I/D added four keys and H/A/C a new
+  `identity` section; they auto-merged because each added its own section rather than editing a
+  shared one. Check that file's overlap explicitly on every merge, and read the switch defaults
+  out of the MERGED file rather than either side's.
+- **phpunit exits 0 on a path that does not exist.** A verification run of
+  `tests/Feature/Identity` printed `Test file ... not found` and exited **0** -- a false green that
+  would have passed for a verified merge. Always read the test COUNT, never the exit code alone,
+  and confirm the directory exists before trusting a green.

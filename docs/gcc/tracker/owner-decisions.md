@@ -390,3 +390,62 @@ standing delegation and is recorded as taken, not asked again.
   `users.wallet_balance` and others). `products` and `carts` were corrected on 2026-11-26 because M2-07's cart
   criterion could not otherwise be proved. No decision needed: this is scheduled work, recorded so that a money
   result measured on the other tables is read with it in mind.
+
+## Raised 2026-11-26 by the FAST round's last two tracks
+
+**A MONEY DEFECT, reproduced and pinned rather than fixed (D2-10).** A refund in a
+three-decimal currency loses its last digit, and it cuts both ways. `RefundService` does
+`round($amount, 2)` and `MyFatoorah\Money` works "in whole halalas" by its own docblock, so
+**10.234 KWD is sent and stored as 10.23** -- the customer is short four fils -- and **10.005
+paid reads as 10.01 of refund headroom**, five fils MORE than was paid, so the platform can
+over-refund. MyFatoorah is a Kuwaiti gateway, so this is reachable and not theoretical. It is
+pinned by `..._is_truncated_to_two_which_is_a_defect_and_not_the_behaviour_wanted` and was NOT
+fixed, because `Money` is shared with PAYMENT VERIFICATION, where a wrong amount check releases
+an underpaid order: fixing it blind trades a refund rounding error for an order-release hole.
+Options: (a) give refunds their own three-decimal money type and leave verification untouched;
+(b) widen `Money` and re-prove every verification path. **Recommendation: (a)** -- narrower blast
+radius, and verification keeps the behaviour it has today. This is a financial behaviour change,
+so nothing beyond the reproducer was done.
+
+**The leak-guard allow list stayed yours, and here is what was done instead.** Track H/A/C's
+branch tripped the guard's per-commit pass with 7 findings: four comments held the SHAPE of a
+Saudi mobile number as an example, masked by its own last commit. The track was refused
+permission to write `scripts/ci/leak-guard-allow.json`, and that refusal was right. The merge
+was **squashed** rather than allow-listed, which keeps the fabricated personal-data-shaped
+strings out of the remote history entirely -- strictly safer than pushing them and excusing them
+-- and needs no exception to the guard. No published history was rewritten; `wt/hac` still holds
+the eight commits locally if you want them preserved individually. **Nothing is being asked of
+you here; it is recorded because the allow list is yours and this is the one place the question
+arose.**
+
+- **The step-up field exists on no screen.** Staff management and the role form have required
+  `admin_step_up` since G-14, so turning `gcc.staff.step_up.enabled` on today BREAKS those two
+  screens. The legal screen built on 2026-11-26 is the first that works with it on, and the
+  reusable `<x-k.step-up />` component is what the other two need. The switch is off, so nothing
+  is broken now -- but it cannot be turned on until they carry the field.
+- **I2-01.5 Saudi baseline as SA v1.** Does Saudi get imported legal history or stay
+  grandfathered? (a) import the six legal pages as SA v1 drafts with today's dates; (b) leave SA
+  grandfathered in code. **Recommendation: (a) as a dry-run command, published only on your
+  word** -- the history is what makes "the text in force on a date" answerable at all.
+- **D1-03.x invoice numbering per entity.** The series key is frozen on the order; the FORMAT is
+  yours. (a) `{entity}-{year}-{n}`; (b) keep the order id for Saudi and number only new markets.
+  **Recommendation: (b)** -- Saudi numbers must not move.
+- **D1-15.6 guest ids are sequential.** (a) an opaque signed guest token, which needs a mobile
+  release (PERM-05); (b) rate-limit and refuse cross-id reads now, token later.
+  **Recommendation: (b) first** -- it needs no app change.
+- **A2-06 the canonical phone column and its unique key** need the live duplicate count, which is
+  production data and therefore yours. It is also what would close the one limit pinned rather
+  than hidden: a number stored with separators inside it is not found. Separately: should the
+  staff-driven and already-paid creation paths refuse a duplicate at all? Those paths are
+  declared and tested AS declared, not silently left out.
+- **A2-10 how a market is NAMED to the customer.** The history page prints the ISO code on
+  purpose, so that no customer-facing market name is invented before you settle it. Also: should
+  history default to all markets (built as all, which is today's behaviour) or to the current
+  storefront?
+- **C-04 an explicit source row for in-house lines** was deliberately not built: it would make
+  `FulfillmentOrderGuard` read every order as holding provider lines, and so uneditable, and
+  several readers of `provider_fulfillment_items` count rows rather than sources. Those readers
+  need auditing first, and it is your decision either way.
+- **A2-04's two switches need measurements outside this repository**: `registration_proof.required`
+  needs a `lavkooapp` build that returns the issued token, and `oauth_callback_state.checked`
+  needs the in-app-browser and Safari measurement the card already names.
