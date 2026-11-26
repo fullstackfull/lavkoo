@@ -46,6 +46,9 @@ class RoutesTest extends PlatformAdminTestCase
     /** The routes that ask for the second factor again, minutes before the request, on top of the token (L-15). */
     private const STEP_UP_ROUTES = ['platform_admin.exports.orders'];
 
+    /** The contract the seller app's admin shell is built on. Section 5 of it is the list of endpoints, and it must be the route table's own list. */
+    private const CONTRACT_DOCUMENT = 'docs/gcc/GCC-20-PLATFORM-ADMIN-API.md';
+
     public function test_the_aliases_point_at_the_three_middleware(): void
     {
         $aliases = app(Router::class)->getMiddleware();
@@ -145,6 +148,55 @@ class RoutesTest extends PlatformAdminTestCase
             $outside = array_filter($manifest->endpoints(['visibility' => $audienceThatIsOutside]), static fn (array $endpoint): bool => str_starts_with($endpoint['path'], '/api/platform-admin'));
             $this->assertSame([], array_values($outside), "no route of the API is visible to {$audienceThatIsOutside} callers");
         }
+    }
+
+    /**
+     * The contract document describes EVERY route of the API, read from the route table rather than from a list somebody keeps.
+     *
+     * This is the guard the document lacked, and the lack is what the document was missing: `GET /health`, `GET /reports`, `GET /exports/orders`, the three
+     * `devices` routes and `POST /auth/step-up` were built, tested and shipped, and section 5 went on describing the ten routes that existed when it was
+     * written -- for four deliveries, with a note in the middle of it naming three of its own gaps. Nothing read the document against the code, so nothing
+     * said so. A route added tomorrow fails this test the day it is added, which is the only way a contract the seller app is built on stays one.
+     *
+     * The match is the heading's own backticked `METHOD /path`, with anything from the first `?` ignored, so a heading may carry its query string (and
+     * several routes may share one heading, as the sessions and the devices do) without the document having to spell a route twice.
+     */
+    public function test_the_contract_document_describes_every_route_of_the_api(): void
+    {
+        $document = (string) file_get_contents(base_path(self::CONTRACT_DOCUMENT));
+        $section = $this->sectionFive(document: $document);
+        $described = [];
+
+        preg_match_all('/^### (.+)$/m', $section, $headings);
+        foreach ($headings[1] as $heading) {
+            preg_match_all('/`([A-Z]+) (\/[^`?]*)[^`]*`/', $heading, $routes, PREG_SET_ORDER);
+            foreach ($routes as $route) {
+                $described[] = $route[1] . ' ' . rtrim($route[2], '/');
+            }
+        }
+
+        $registered = [];
+        foreach ($this->platformRoutes() as $route) {
+            $registered[] = array_values(array_diff($route->methods(), ['HEAD']))[0] . ' /' . substr($route->uri(), strlen('api/platform-admin/v1/'));
+        }
+
+        sort($registered);
+        $described = array_values(array_unique($described));
+        sort($described);
+
+        $this->assertSame([], array_values(array_diff($registered, $described)), 'every route of the API is described in section 5 of ' . self::CONTRACT_DOCUMENT);
+        $this->assertSame([], array_values(array_diff($described, $registered)), 'section 5 of ' . self::CONTRACT_DOCUMENT . ' describes a route that does not exist');
+    }
+
+    /** Section 5 of the contract, from its own heading up to the next one, so a `### ` heading of another section cannot be read as an endpoint. */
+    private function sectionFive(string $document): string
+    {
+        $start = strpos($document, "\n## 5. Endpoints\n");
+        $this->assertNotFalse($start, self::CONTRACT_DOCUMENT . ' has no section 5');
+        $end = strpos($document, "\n## 6. ", $start);
+        $this->assertNotFalse($end, self::CONTRACT_DOCUMENT . ' section 5 does not end');
+
+        return substr($document, $start, $end - $start);
     }
 
     public function test_the_routes_of_the_other_apis_are_unchanged_by_these_routes(): void

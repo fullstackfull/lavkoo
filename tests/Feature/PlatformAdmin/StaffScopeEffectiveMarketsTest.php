@@ -28,6 +28,21 @@ class StaffScopeEffectiveMarketsTest extends PlatformAdminTestCase
 
     private const ALL_SIX = ['SA', 'AE', 'KW', 'QA', 'BH', 'OM'];
 
+    /**
+     * The READ routes of the API that take no `market`, and why each takes none. **Everything else must refuse a market the staff scope forbids**, and the
+     * walk below asks every read route rather than the three somebody listed -- which is the whole point of it.
+     *
+     * This list is the declaration a new route has to join, with a reason, or be walked. It is checked for staleness too: an entry naming a route that no
+     * longer exists fails, so a route renamed or removed cannot leave a silent exemption behind it.
+     */
+    private const READS_WITHOUT_A_MARKET = [
+        'platform_admin.me.view' => 'answers the admin\'s OWN effective markets: it is the route that says what they may see, so it cannot be asked for one',
+        'platform_admin.sessions.list' => 'the admin\'s own sessions, which belong to no market',
+        'platform_admin.markets.view' => 'the list IS the effective markets, already narrowed by the grant and the staff scope; there is nothing to ask for',
+        'platform_admin.audit_logs.view' => 'the admin\'s own trail. A restricted admin reads only their own lines, which is a narrowing by ADMIN and not by market',
+        'platform_admin.devices.list' => 'the devices of this session, whose topics the server itself named from the effective markets',
+    ];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -460,6 +475,91 @@ class StaffScopeEffectiveMarketsTest extends PlatformAdminTestCase
         $unrestricted = $reach->of(grant: $free, admin: $admin($free));
         $this->assertSame([self::ALL_SIX, self::ALL_SIX, null], [$unrestricted->granted, $unrestricted->markets, $unrestricted->staffCountries]);
         $this->assertFalse($unrestricted->restrictedByStaffScope());
+    }
+
+    // ---- the route table, not a list of names -------------------------------------------------------------------------------------------
+
+    /**
+     * EVERY read route of the API, walked from the ROUTE TABLE, refuses a market the staff scope forbids.
+     *
+     * Why this is not three named routes: the tests of this intersection asked `overview`, `alerts` and `audit-logs` BY NAME, so every read route added
+     * after they were written -- `health` (L-09), `orders` (L-13), `reports` and `exports/orders` (L-14), `devices` (L-16) -- started life uncovered by the
+     * GCC-14c intersection, and nothing said so. A security property proved for the routes that existed when the test was written is not a property of the
+     * API. Read from the table, a route added tomorrow is in the walk the day it is added, and a route that forgets `MarketSelector` fails the day it is
+     * written rather than the day somebody notices.
+     *
+     * The refusal has its unrestricted TWIN in the same loop, because a refusal test alone cannot tell a guard from a wrong URL: the same request from an
+     * admin whom nothing narrows must NOT be refused the market. The twin is asserted as "not `market_not_allowed`" rather than as 200 on purpose -- a route
+     * may refuse an unrestricted admin for a reason of its own (an export on an installation whose orders record no market says so) and that is not this
+     * test's business; what matters is that the market was not what stopped it.
+     */
+    public function test_every_read_route_that_takes_a_market_refuses_one_the_staff_scope_forbids(): void
+    {
+        $capabilities = ['capabilities' => json_encode(PlatformAdminGrant::CAPABILITIES)];
+        $narrowed = $this->mintToken($this->employeeWithGrant(grantCountries: null, staffCountries: ['KW'], grantOverrides: $capabilities));
+        $unrestricted = $this->mintToken($this->employeeWithGrant(grantCountries: null, staffCountries: null, grantOverrides: $capabilities));
+        $walked = [];
+
+        foreach ($this->readRoutes() as $name => $uri) {
+            if (array_key_exists($name, self::READS_WITHOUT_A_MARKET)) {
+                continue;
+            }
+
+            $refused = $this->get($uri . '?market=SA', $this->bearer($narrowed));
+            $allowed = $this->get($uri . '?market=SA', $this->bearer($unrestricted));
+
+            $this->assertSame(403, $refused->getStatusCode(), "{$name} must refuse a market the staff scope forbids");
+            $this->assertSame('market_not_allowed', $this->errorCodeOf($refused), $name);
+            $this->assertNotSame('market_not_allowed', $this->errorCodeOf($allowed), "{$name}: the market is not what stopped an admin nothing narrows");
+            $walked[] = $name;
+        }
+
+        $this->assertNotEmpty($walked, 'no read route takes a market, so this walk proved nothing');
+    }
+
+    /**
+     * Every route named as taking no market still exists, and every read route is in exactly one of the two sets.
+     *
+     * Without this, a route renamed or removed leaves an exemption behind it that silently excuses whatever is named that next.
+     */
+    public function test_the_routes_declared_to_take_no_market_are_read_routes_that_exist(): void
+    {
+        $reads = array_keys($this->readRoutes());
+
+        $this->assertSame([], array_values(array_diff(array_keys(self::READS_WITHOUT_A_MARKET), $reads)), 'a route declared to take no market is not a read route of this API');
+        $this->assertNotEmpty(array_diff($reads, array_keys(self::READS_WITHOUT_A_MARKET)), 'every read route is declared to take no market, so the walk above walks nothing');
+    }
+
+    /**
+     * The error code of an answer, or null when the answer is not a JSON error.
+     *
+     * Read off the content type rather than by decoding the body, because one read route of this API answers a FILE: the export streams a CSV, and both
+     * `json()` and `getContent()` on a streamed answer would fail the test for a reason that has nothing to do with what it is asserting.
+     */
+    private function errorCodeOf(TestResponse $response): ?string
+    {
+        if (!str_contains((string) $response->headers->get('Content-Type'), 'json')) {
+            return null;
+        }
+
+        return $response->json('errors.0.code');
+    }
+
+    /** @return array<string, string> the name and the address of every GET route of the API, from the route table */
+    private function readRoutes(): array
+    {
+        $reads = [];
+
+        foreach ($this->platformRoutes() as $route) {
+            if (!in_array('GET', $route->methods(), true)) {
+                continue;
+            }
+
+            [, $uri] = $this->requestTo($route);
+            $reads[(string) $route->getName()] = $uri;
+        }
+
+        return $reads;
     }
 
     private function me(string $token): TestResponse

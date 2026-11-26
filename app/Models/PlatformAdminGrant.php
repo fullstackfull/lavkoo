@@ -17,7 +17,11 @@ class PlatformAdminGrant extends Model
      * listed as not given by default: adding a capability to this list would otherwise give it to every such grant, retroactively, the moment the code
      * shipped -- an operator trusted with yesterday's API acquiring tomorrow's without anybody deciding.
      */
-    public const CAPABILITIES = ['overview', 'markets', 'alerts', 'audit', 'sessions', self::CAPABILITY_HEALTH, self::CAPABILITY_REPORTS, self::CAPABILITY_EXPORT, self::CAPABILITY_ORDERS];
+    public const CAPABILITIES = [
+        'overview', 'markets', 'alerts', 'audit', 'sessions',
+        self::CAPABILITY_HEALTH, self::CAPABILITY_REPORTS, self::CAPABILITY_EXPORT,
+        self::CAPABILITY_ORDERS, self::CAPABILITY_RETURNS, self::CAPABILITY_PRODUCTS, self::CAPABILITY_INVENTORY,
+    ];
 
     /** Operational health: payment attempts that never came back, and integrations that have stopped syncing (L-09). */
     public const CAPABILITY_HEALTH = 'health';
@@ -38,6 +42,30 @@ class PlatformAdminGrant extends Model
     public const CAPABILITY_ORDERS = 'orders';
 
     /**
+     * One market's refund requests as a LIST and not as a count: the returns drill-down under a market card (L-13).
+     *
+     * Apart from `orders` rather than folded into it, because the two name different rows and an operator watching the shelves is not thereby trusted
+     * with what customers have sent back. Apart from `reports` too: the report gives the returns of a market as two numbers, and this names them.
+     */
+    public const CAPABILITY_RETURNS = 'returns';
+
+    /**
+     * One market's live products and their stock as a LIST and not as counts: the stock drill-down under a market card (L-13).
+     *
+     * The overview and the alerts say how many of a market's products are at zero, which is a shape; this names them, which is the catalogue. An
+     * operator trusted to see that a market has run out of eleven things has not thereby been trusted to read its catalogue a page at a time.
+     */
+    public const CAPABILITY_PRODUCTS = 'products';
+
+    /**
+     * One market's stock promised to orders and divided between channels, product by product (L-13).
+     *
+     * Apart from `products`, because the two answer different questions about one shelf: what is ON it, and what has already been promised off it. A
+     * market's promises are also the figure that shows which channel is being starved, which is commercial and not operational.
+     */
+    public const CAPABILITY_INVENTORY = 'inventory';
+
+    /**
      * Capabilities a grant has only when it NAMES them.
      *
      * The rule for everything above is that naming none means all, which is right for a list that was fixed when the first grant was made and wrong for a
@@ -46,7 +74,10 @@ class PlatformAdminGrant extends Model
      * those is a decision, not an inheritance. Reports and exports are here for a stronger reason -- an export takes a market's rows OFF the platform,
      * and nobody should acquire that because a release shipped.
      */
-    public const NOT_GIVEN_BY_DEFAULT = [self::CAPABILITY_HEALTH, self::CAPABILITY_REPORTS, self::CAPABILITY_EXPORT, self::CAPABILITY_ORDERS];
+    public const NOT_GIVEN_BY_DEFAULT = [
+        self::CAPABILITY_HEALTH, self::CAPABILITY_REPORTS, self::CAPABILITY_EXPORT,
+        self::CAPABILITY_ORDERS, self::CAPABILITY_RETURNS, self::CAPABILITY_PRODUCTS, self::CAPABILITY_INVENTORY,
+    ];
 
     protected $fillable = ['admin_id', 'admin_fingerprint', 'level', 'countries', 'capabilities', 'granted_by', 'granted_at', 'revoked_at', 'expires_at'];
 

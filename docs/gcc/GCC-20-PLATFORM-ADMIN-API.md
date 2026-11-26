@@ -143,11 +143,16 @@ leaves them fewer markets than the grant gives (section 12).
 
 ### Capabilities and expiry
 
-* **Capabilities** are the parts of the API a grant includes: `overview`, `markets`, `alerts`, `audit`, `sessions`. A grant with none named has all five (and so does every grant that was made before capabilities existed). They are enforced by the
-  route, before the controller: `GET /overview` needs `overview`, `GET /markets` needs `markets`, `GET /alerts` needs `alerts`, `GET /audit-logs` needs `audit`, and `GET /sessions`, `DELETE /sessions` and `DELETE /sessions/{id}` need `sessions`.
-  Nothing else is gated: **`GET /me` and `POST /auth/logout` are always allowed**, so the app can always read what the admin may do and sign out. A request for a part the grant does not include is `403 capability_not_allowed` (section 4), is audited like
-  any other request, and reads nothing. What `GET /me` says is what the server enforces, in the order of the list above; a value in the grant that is not one of the five is ignored, and a value that cannot be read as a list means no capability at all
-  rather than every one.
+* **Capabilities** are the parts of the API a grant includes: `overview`, `markets`, `alerts`, `audit`, `sessions`, `health`, `reports`, `export`, `orders`, `returns`, `products`, `inventory`.
+  **A grant with none named has the first five and NOT the other seven.** That rule is the one thing to read twice: naming none meant "all" when the list was fixed, and a growing list would hand an operator trusted with yesterday's API
+  tomorrow's the moment a release shipped, so every capability added after the first grant was made is in `PlatformAdminGrant::NOT_GIVEN_BY_DEFAULT` and has to be named. Health reads payment and integration failures; reports and exports reach
+  money and take rows off the platform; the four lists name rows an operator may then go looking for. Each of those is a decision rather than an inheritance.
+  They are enforced by the route, before the controller: `GET /overview` needs `overview`, `GET /markets` needs `markets`, `GET /alerts` needs `alerts` (and so do the three `devices` routes, since a phone that receives the alerts is part of them),
+  `GET /audit-logs` needs `audit`, `GET /sessions`, `DELETE /sessions` and `DELETE /sessions/{id}` need `sessions`, `GET /health` needs `health`, `GET /reports` needs `reports`, `GET /exports/orders` needs `export`, and the four drill-down lists
+  need `orders`, `returns`, `products` and `inventory`.
+  Nothing else is gated: **`GET /me`, `POST /auth/logout` and `POST /auth/step-up` are always allowed**, so the app can always read what the admin may do, prove the second factor again and sign out. A request for a part the grant does not include is
+  `403 capability_not_allowed` (section 4), is audited like any other request, and reads nothing. What `GET /me` says is what the server enforces, in the order of the list above; a value in the grant that is not one of them is ignored, and a value
+  that cannot be read as a list means no capability at all rather than every one.
 * **Expiry.** A grant may end on a day. Once it has, it is no grant: a sign-in with it is the uniform 401 (`expired_grant` in the log and the trail), and the first request of a session of that admin after that moment is the uniform 401 **and ends every open
   session of the admin** (`session.grant_expired`). The next day's `grant` command with a new `--expires` gives it back; nothing about it needs a revoke. The platform owner is just as subject to it as anybody.
 * Each run of `grant` sets the whole grant: what it leaves out is the default (every market, which needs `--confirm-owner`; every capability; no end). It says what the grant now is, and the audit line says what it was.
@@ -265,11 +270,17 @@ what matters is not which build is installed but whether it understands the answ
 | 401 | `platform_admin_auth` | Any failure to authenticate or to sign in |
 | 403 | `capability_not_allowed` | The grant does not include the part of the API the route belongs to (section 3, "Capabilities and expiry"); the error carries `capability`, the one that is missing. Not an authentication failure: the token is good, and `GET /me` says what is allowed |
 | 403 | `market_not_allowed` | The market is not one the admin may see: not in their grant, or not left to them by their staff country scope (section 12); the answer is the same, so it says nothing about which (`market=all` is never refused: it means all of theirs) |
+| 403 | `step_up_required` | The route asks for the second factor proved again minutes ago and this session's proof is older or absent (the export, L-15); the error carries `within_minutes`. The token is good, so this is not an authentication failure: `POST /auth/step-up` fixes it without signing in again |
 | 404 | `session_not_found` | The session is not one of the admin's own open sessions (another admin's id, an ended one and an unknown one all answer alike) |
+| 404 | `device_not_found` | The device is not one of THIS session's own (another session's id, a forgotten one and an unknown one all answer alike) |
 | 404 | (router's own) | The API is switched off, or the path does not exist |
+| 409 | `order_market_not_recorded` | An export of a market's orders was asked for on an installation where an order records no market (the GCC-05 migration has not run), so there is nothing to export BY market. 409 rather than 503: the API is serving, this one answer cannot be given |
 | 422 | `invalid_market` | `market` is not `all` or a configured code; the error carries `valid` |
 | 422 | `invalid_window` | `from` or `to` is not a date written `YYYY-MM-DD`, or `from` is after `to` |
 | 422 | `invalid_severity` | `severity` is not `info`, `warning` or `critical`; the error carries `valid` |
+| 422 | `one_market_only` | `market=all` was asked of an answer that is of ONE market: the report, the export and the orders list. The message names none of the three, because it is read by whoever asked |
+| 422 | `invalid_device_platform` | `platform` is not `android` or `ios`; the error carries `valid` |
+| 422 | `invalid_push_token` | `push_token` is missing, empty or longer than 512 characters |
 | 426 | `contract_too_old` | The shell speaks an older contract level than the oldest this server answers (section 4, "The contract level of the shell"). Carries `contract: {claimed, version, min_supported}`, so a build can say what is wrong without a session: this refusal comes back from the SIGN-IN too. No floor is set by default, so nothing meets this |
 | 429 | `platform_admin_throttled` | Too many sign-in attempts or requests, too many tries at the second step from one address, or the admin is locked out of the second step; `Retry-After` says when |
 | 503 | `platform_admin_unavailable` | The flag is on and the migrations have not run |
@@ -342,6 +353,25 @@ was already used or an older one, a recovery code that is wrong or was already u
 counts its own tries (5 per challenge) and reads `challenge_expires_at`, and when either is over it starts again from the password. Each refusal on a challenge that is still good counts one of its tries, and a wrong or replayed
 code counts one against the admin's lockout as well; the challenge is consumed by the last try or by the first success. Limits and the lockout: section 4 and section 3. A code is used once, so a second sign-in within the same 30 seconds needs the next code.
 
+### `POST /auth/step-up`
+
+Proves the second factor again on the session already in hand, for a route that asks for a recent proof rather than merely a valid token (L-15). The body is the body of
+`POST /auth/mfa` without the challenge: **exactly one of** `code` (a string of six digits) or `recovery_code`. There is no new token and no new session -- the proof is stamped on the
+session's own row.
+
+```json
+{"data": {"stepped_up": true, "fresh_until": "2026-11-17T09:05:00Z", "reason": null}}
+```
+
+* `fresh_until` is the moment the proof stops counting: `GCC_PLATFORM_ADMIN_STEP_UP_MINUTES` after it was given (5 by default, **15 whatever is configured**). After it, a route that
+  asks for a step-up answers `403 step_up_required` again and the app asks for another code.
+* **While the second factor is not required at all** (staging) there is nothing to prove, so the answer is `{"stepped_up": true, "fresh_until": null, "reason": "second_factor_not_required"}`
+  and no code is read. That is the same mode in which a password alone opens a full session, so it adds no permission that mode did not already give.
+* A wrong, replayed or malformed code is the uniform `401 platform_admin_auth`, and counts towards the same lockout a failed sign-in counts towards; a locked admin gets
+  `429 platform_admin_throttled` with `Retry-After` and the code is never looked at. **A code that opened a session cannot step up with it**: the single-use rule of the sign-in is not
+  loosened here.
+* Audited as `auth.step_up`, whose context says `method` and `fresh_minutes`.
+
 ### `POST /auth/logout`
 
 Ends the session of the token used: `{"data": {"revoked": true}}`. The admin's other sessions are not touched.
@@ -349,7 +379,7 @@ Ends the session of the token used: `{"data": {"revoked": true}}`. The admin's o
 ### `GET /me`
 
 `{"data": {"admin_id", "name", "level", "scope", "markets", "token_expires_at", "capabilities", "grant_expires_at", "mfa": {"enrolled", "verified", "method"}, "contract": {"version", "min_supported"}}}`. `scope` is `all` (the platform owner) or `restricted` (the grant names markets, or the staff country scope restricts the admin: section 12); `markets` is what the server allows (the grant, narrowed by the staff scope while it is on), in
-configuration order; **`capabilities` is the list of the parts of the API the grant includes** (`overview`, `markets`, `alerts`, `audit`, `sessions`, in that order: what the server enforces, so the app offers only those); `grant_expires_at` is when the grant ends (UTC, with a `Z`) or `null` for no end. **The app must never decide for itself what an admin may see; it reads this on every start, and right after a sign-in.** No e-mail is returned.
+configuration order; **`capabilities` is the list of the parts of the API the grant includes** (`overview`, `markets`, `alerts`, `audit`, `sessions`, `health`, `reports`, `export`, `orders`, `returns`, `products`, `inventory`, in that order: what the server enforces, so the app offers only those; the last seven are `NOT_GIVEN_BY_DEFAULT`, so a grant that names none does NOT hold them -- see section 3); `grant_expires_at` is when the grant ends (UTC, with a `Z`) or `null` for no end. **The app must never decide for itself what an admin may see; it reads this on every start, and right after a sign-in.** No e-mail is returned.
 
 `mfa.enrolled` is whether the admin has a confirmed factor made for their own admin row (whether or not it is required just now); `mfa.verified` is whether **this session** passed the second factor, and `mfa.method`
 is how: `"totp"`, `"recovery_code"`, or `null` (`verified` is then `false`: a session opened while the second factor was not required, which can only be seen while it is still not required). With the second factor
@@ -360,7 +390,7 @@ floor never reaches this route — the 426 carries both numbers itself — so th
 
 ```json
 {"data": {"admin_id": 7, "name": "Platform Owner", "level": 1, "scope": "all", "markets": ["SA","AE","KW","QA","BH","OM"], "token_expires_at": "2026-11-17T18:00:00Z",
-  "capabilities": ["overview","markets","alerts","audit","sessions"], "grant_expires_at": null, "mfa": {"enrolled": true, "verified": true, "method": "totp"},
+  "capabilities": ["overview","markets","alerts","audit","sessions","health"], "grant_expires_at": null, "mfa": {"enrolled": true, "verified": true, "method": "totp"},
   "contract": {"version": 1, "min_supported": null}}}
 ```
 
@@ -487,16 +517,212 @@ One market's orders as a LIST rather than as a count: the first drill-down under
   positive whole number is the default. `has_more` is read by taking one row more than the page, so nothing counts the table.
 * One page is **one statement** over the bounded range, whatever the market holds.
 
-**The three endpoints this section does not yet describe** are `GET /health` (L-09), `GET /reports` and `GET /exports/orders` (L-14) and the three `devices` routes (L-16). They are
-built and tested; the shapes live in their cards and their tests, and writing them up here is outstanding.
+**Every route of the API is described in this section**, and `RoutesTest::test_the_contract_document_describes_every_route_of_the_api` reads the ROUTE TABLE and fails when one is not --
+which is what this section lacked while `GET /health`, `GET /reports`, `GET /exports/orders`, the three `devices` routes and `POST /auth/step-up` were built, tested and left
+undescribed for want of anything that would notice.
+
+### `GET /returns?market=SA&from=YYYY-MM-DD&to=YYYY-MM-DD&page=&per_page=`
+
+ONE market's refund requests as a LIST rather than as a count: the returns drill-down under a market card (L-13). Capability `returns`, which **a grant has
+only when it names it**.
+
+```json
+{"data": {
+  "market": "SA", "generated_at": "2026-11-17T09:00:00Z",
+  "window": {"from": "2026-10-19", "to": "2026-11-17", "days": 30, "clamped": false, "timezone": "Asia/Riyadh"},
+  "returns": [{"id": 3, "status": "pending", "requested_at": "2026-11-16T07:00:00Z", "order_id": 12, "product_id": 1}],
+  "attribution": {"rule": "product_market", "via": "refund_requests.product_id > products.storefront_country"}
+}, "meta": {"page": 1, "per_page": 25, "has_more": false}}
+```
+
+* **No customer, and nothing the customer wrote.** Not `customer_id`, not the reason they gave, not the images they attached, not the payment details, not
+  either side's notes -- and no such column is read. `order_id` and `product_id` are what an operator follows a return back through.
+* **No amount.** The money of a return is in `GET /reports` and in the export, each behind a capability of its own. This list answers "which returns are
+  waiting", and putting money into a read an operator not trusted with money may hold would be a decision rather than a drill-down.
+* **It is the counts' own list.** A return is in the market of the product it was made for, which is what the report's `returns` figures group by, so a
+  market's list is as long as its count for the same window. A return for a deleted product, or for one of a country nobody configured, is in no market's
+  list and is never shown as Saudi.
+* Newest first (`created_at` then id, both descending), at most 50 to a page, default 25. `market` is required and `all` is `422 one_market_only`.
+
+### `GET /products?market=SA&page=&per_page=`
+
+ONE market's live products and their stock: the stock drill-down under a market card (L-13). Capability `products`, which **a grant has only when it names
+it**.
+
+```json
+{"data": {
+  "market": "SA", "generated_at": "2026-11-17T09:00:00Z",
+  "products": [{"id": 1, "name": "Product 1", "stock": 0, "stock_limit": 5, "low": false, "oversold": false}],
+  "attribution": {"rule": "product_market", "via": "products.storefront_country"}
+}, "meta": {"page": 1, "per_page": 25, "has_more": false}}
+```
+
+* **No window, and that is the one way it differs from the two lists above.** Stock is the state of the shelf now, not something that happened between two
+  dates. The orders and the returns are events and carry one.
+* **It is the counts' own list.** The population is the one the stock figures and the stock alerts are counted over -- physical, published, approved, and
+  either the platform's own or an approved shop's -- read from the same query, so a market's list and its `stock_zero` and `stock_oversold` counts cannot
+  disagree. A product that is not live is in neither, however far below zero its stock stands.
+* **The product is named, and nothing else about it is.** A product name is published to every shopper on the storefront, so it is not confidential, and a
+  shortage list without it sends an operator to the desktop panel for every row. No shop is named and **no price is given**: who sells a product and what it
+  costs are a different question from whether the market has run out of it.
+* `stock_limit` is the limit that applies to THIS product -- the shop's own when it has set one, the platform's setting otherwise -- so `low` can be read
+  instead of recomputed by the app against a limit it would have to guess.
+* **Shortest stock first**, then by id, so the market's worst row is the first one and a page cannot drop or repeat a row.
+
+### `GET /inventory?market=SA&page=&per_page=`
+
+ONE market's stock that is promised to orders or divided between channels, product by product (L-13). Capability `inventory`, which **a grant has only when
+it names it**.
+
+```json
+{"data": {
+  "market": "SA", "generated_at": "2026-11-17T09:00:00Z",
+  "recorded": {"holds": true, "pools": false}, "reason": null,
+  "products": [{"product_id": 3, "stock": 5, "holds": 2, "reserved_units": 4, "pools": null, "short_units": null}],
+  "attribution": {"rule": "product_market", "via": "products.storefront_country"}
+}, "meta": {"page": 1, "per_page": 25, "has_more": false}}
+```
+
+* **It is the counts' own list, on both halves.** Only `reserved` holds count -- `committed` and `released` are the two correct ends of a hold's life -- which
+  is what the overview's reservation figures count; and the shortfall is `inventory_pools.deficit`, the allocator's own record rather than a second opinion
+  about it, which is what the allocation figures count.
+* **A row is here only because it holds or divides something.** A product with no reserved hold and no pool is not in the list: this answers "what is
+  promised", and the shortage list is `GET /products`.
+* **An absent table is SAID, never shown as a zero.** The two inventory tables are the dormant half of the inventory stack. `recorded` says which halves this
+  installation keeps, the members of an unrecorded half are `null` rather than `0`, and when NEITHER is kept the list is empty and `reason` is
+  `inventory_not_recorded` -- because "no pool is short" and "nothing divides a stock here" are different facts about a market, and a zero would read as the
+  first while meaning the second.
+* **No window**, for the reason the products list has none. Ordered by product id: which figure is worth sorting by differs by which half is recorded, and a
+  list an operator pages through has to be stable before it is clever -- every row carries its own figures, so a page can be arranged by the app.
+
+### `GET /health?market=all|SA|...&from=YYYY-MM-DD&to=YYYY-MM-DD`
+
+Whether the MACHINERY of a market is working, where the overview says what it sold (L-09). Capability `health`, which **a grant has only when it names it**: these are payment and
+integration failures, and whether a particular operator should see them is a decision rather than an inheritance.
+
+```json
+{"data": {
+  "scope": "all", "market": "all", "generated_at": "2026-11-17T09:00:00Z",
+  "window": {"from": "2026-10-19", "to": "2026-11-17", "days": 30, "clamped": false, "timezone": "Asia/Riyadh"},
+  "freshness": {"mode": "live", "cached": false},
+  "means": {"payments.stuck_attempts": "started, never confirmed, and older than 30 minutes; ...", "...": "..."},
+  "markets": [{
+    "market": "SA", "legal_entity": null,
+    "payments": {"stuck_attempts": 2, "reconciliation_breaks": 0},
+    "integrations": {
+      "channels": {"accounts": 1, "failing_resources": 0, "late_resources": 1, "last_success_at": "2026-11-16T21:00:00Z"},
+      "carriers": {"connections": 2, "failing_capabilities": 1, "late_capabilities": 0, "last_success_at": "2026-11-17T05:00:00Z"},
+      "books":    {"queued_postings": 4, "postings_needing_a_person": 1, "overdue_postings": 2, "last_posted_at": "2026-11-15T03:00:00Z"}
+    },
+    "issues": {"open_shop_issues": 3, "pending_approvals": 1}
+  }],
+  "unattributed": {"market": null, "...": "...", "reason": "no_market_recorded"}
+}}
+```
+
+* **Counts and timestamps only: no credential, no customer, no amount and no gateway reference.** That is the limit that makes the capability safe to give an operator who is not
+  trusted with money, and it is why there is no figure here for what a gateway took.
+* **Every figure is sent with a sentence saying what it means**, in `means`, keyed by its own path. A stuck payment attempt is not a failed one -- a shopper who closed the tab leaves
+  the same row -- so the number is one to watch for a CHANGE in, and the answer says so rather than leaving the app to invent a label.
+* **A window figure and a backlog are different things and the answer says which.** The payment attempts and the sync figures are of the window; the reconciliation breaks, the open
+  shop issues, the pending approvals and the accounting postings are backlogs and are deliberately NOT bounded by it, because none of them stops being true because time passed and a
+  figure that fell by itself when the window moved would read as the problem going away.
+* `last_posted_at` is the latest entry that reached the books, whenever it was, for the same reason.
+* **A table that has not been created answers zero rather than failing**, so a Saudi installation whose sales-channel tables are empty reads zeros -- which is the truth about it.
+* **Nothing here names the seller world.** `open_shop_issues` and `pending_approvals` are counted by `App\Services\Marketplace\ShopIssueCounts`, which this service ASKS for counts;
+  the first version of this endpoint read `seller_sla_breaches` directly and tripped `ReverseIsolationTest`, and the answer was to move the read rather than to exempt the file. A shop
+  granted several markets belongs to no single one of them and is counted in `unattributed`.
+* **Staff issues and escalations are not in these figures and are not sent at all**: the platform keeps no record of either, and a zero would read as "none open". `means` says so.
+* Rows whose market is not recorded are in `unattributed` and **never counted as the default market**.
+
+### `GET /devices`, `POST /devices`, `DELETE /devices/{id}`
+
+The phones of **this session** that alerts are pushed to (L-16). Capability `alerts`: a device is only a way of receiving what the alerts endpoint already answers.
+
+```
+GET    /devices          -> {"data": {"generated_at": "...", "devices": [{"id": 4, "platform": "android", "topics": ["lavkoo_pa_level_1","lavkoo_pa_sa"], "registered_at": "..."}]}}
+POST   /devices          <- {"platform": "android"|"ios", "push_token": "<=512 characters"}
+                         -> {"data": {"id": 4, "platform": "android", "topics": ["lavkoo_pa_level_1","lavkoo_pa_sa"]}}
+DELETE /devices/{id}     -> {"data": {"removed": true}}
+```
+
+* **The topics are the SERVER's.** A device cannot ask for one. The server names them from the grant and the level (`lavkoo_pa_<market>` for each market the grant allows, and
+  `lavkoo_pa_level_<n>`), so a device cannot subscribe to a market its grant does not allow, nor to a topic of the seller app. The answer says which it was subscribed to.
+* **The push token is never answered back.** A device is identified by an id of its own; `GET /devices` gives the platform, the topics and the moment it was registered, and no token.
+* **A device belongs to the session, not to the admin**, and goes when the session does: signed out, revoked from another device, or evicted to make room. Registering the same device
+  again in the same session REPLACES its topics, which is what a grant changed since needs.
+* `DELETE` removes the row and then unsubscribes the token, **in that order**, so a push service that cannot be reached still leaves nothing registered. A device of another session is
+  `404 device_not_found`.
+* A platform that is not `android` or `ios` is `422 invalid_device_platform` (carrying `valid`); a missing, empty or over-long token is `422 invalid_push_token`.
+* **A notification carries market, code and count and NO deep link to an entity**, deliberately: it is read on a lock screen by whoever is holding the phone.
+* Audited as `devices.list`, `devices.register` (context: `device_id`, `platform`, `topics`) and `device.forget` (context: `device_id`, `removed`). No business data is read or written
+  by any of the three, which is why they are in `RoutesTest`'s list of writing routes with a reason beside them rather than left to look like an exception.
+
+### `GET /reports?market=SA&from=YYYY-MM-DD&to=YYYY-MM-DD`
+
+ONE market's own summary over a window: its orders, its returns, what it sold and what was settled with its shops (L-14). Capability `reports`, which **a grant has only when it names
+it**.
+
+```json
+{"data": {
+  "market": "SA", "generated_at": "2026-11-17T09:00:00Z",
+  "window": {"from": "2026-10-19", "to": "2026-11-17", "days": 30, "clamped": false, "timezone": "Asia/Riyadh"},
+  "legal_entity": {"id": 3, "name": "...", "trade_name": "..."},
+  "orders": {"total": 41, "by_status": {"pending": 4, "delivered": 30, "...": 7}},
+  "returns": {"refund_requests": 3, "pending": 1},
+  "sales": {"by_currency": [{"currency": "SAR", "legal_entity_id": 3, "legal_entity": "...", "orders": 30, "gross": "4210.00"}],
+            "unpriced": {"orders": 2, "reason": "order_currency_not_recorded"}, "combined": null, "reason": "..."},
+  "settlements": {"by_currency": [{"...": "..."}], "reason": null}
+}}
+```
+
+* **ONE market.** `market` is required and `all` is `422 one_market_only`. An unknown market is `invalid_market` (422) and a market outside the viewer's is `market_not_allowed` (403) --
+  the same `MarketSelector` as every other read, so the refusal and the audited market are in one place.
+* **No figure is ever added across two currencies.** Each row of `sales.by_currency` is one currency and one selling company. A combined figure exists ONLY when the owner has recorded
+  a conversion rate, its source and its date, and is then sent with all three; otherwise `combined` is null and `reason` says why.
+* **A market with nothing to say says so with a reason rather than a number**: no selling company recorded for the market (`legal_entity.reason`), orders that record no currency
+  (`sales.unpriced.reason`), an absent settlement ledger (`settlements.reason`). A zero would read as "nothing was sold".
+* `settlements` counts only what was **approved or paid** (`PlatformSettlementFigures`), by the company that settled it and in that company's own currency.
+* Audited as `reports.view`, whose context carries the market and the window.
+
+### `GET /exports/orders?market=SA&from=YYYY-MM-DD&to=YYYY-MM-DD`
+
+Takes ONE market's orders of a window OFF the platform as a CSV (L-14). Capability `export` **and** a second factor proved within the last few minutes
+(`platform_admin_step_up`, L-15): it is the one route of the whole API that asks for both.
+
+```
+HTTP/1.1 200
+Content-Type: text/csv; charset=UTF-8
+Content-Disposition: attachment; filename=lavkoo-orders-sa-2026-10-19-to-2026-11-17.csv
+
+# LAVKOO platform export
+# operator: 7 Platform Owner
+# market: SA
+# window: 2026-10-19 to 2026-11-17
+# taken_at: 2026-11-17T09:00:00Z
+order_id,placed_on,status,market,legal_entity_id,currency,amount
+```
+
+* **Every file says who took it.** The first lines are a watermark -- the operator's id and name, the market, the window and the moment it was taken -- so a file found on a laptop names
+  the person who asked for it. They are written as comment lines so that a spreadsheet still reads the header row, and the operator's name is stripped of commas and newlines and
+  clipped, so the watermark cannot break the file it labels.
+* **No customer is in it**: no name, no address, no telephone number, no e-mail. The columns are exactly the seven above.
+* **The file is streamed and stored nowhere on the server.** Rows are read in chunks of 500.
+* `all` is `422 one_market_only`, because what left the platform has to be one named market. An installation where an order records no market answers `409 order_market_not_recorded`
+  rather than exporting rows it cannot attribute.
+* **One operator may take a few an hour**: `GCC_PLATFORM_ADMIN_EXPORTS_PER_HOUR` (3 by default, **20 whatever is configured**), answered `429 platform_admin_throttled` with
+  `Retry-After`. Counted per admin, not per address.
+* The audit line (`exports.orders`) is written **before a single row is sent**, and says how many rows left the platform: `rows`, `file`, `from`, `to`. For a streamed answer the
+  middleware runs before the body, so the count is taken in the controller on purpose rather than read off the response.
 
 ### `GET /audit-logs?page=&per_page=`
 
 `{"data": [{"id", "admin_id", "action", "market", "token_id", "ip", "user_agent", "context", "created_at"}], "meta": {"scope", "page", "per_page", "has_more"}}`. Newest first, 25 to a
 page, at most 100, and the page number is at most 1000. The **platform owner reads every line; a restricted admin reads only their own.** It never counts the table. `action` is one
 of `auth.login` (a session was opened; its context says how: `mfa` is `totp` or `recovery_code` when the second factor was passed), `auth.login_failed`, `auth.logout`, `auth.mfa_challenge` (a good password, a challenge given),
-`auth.mfa_failed`, `auth.mfa_locked`, `mfa.recovery_code_used` (its context holds `recovery_codes_left`), `me.view`, `sessions.list`, `session.revoke`, `sessions.end_others`, `session.evicted`, `session.idle_ended`, `session.grant_expired`, `markets.view`, `overview.view`, `orders.view`, `alerts.view`,
-`audit_logs.view`, `grant.created`, `grant.updated`, `grant.reactivated`, `grant.revoked`, `tokens.revoked`, and the console's `mfa.enrolled`, `mfa.confirmed`, `mfa.confirm_failed`, `mfa.reset`, `mfa.status`, `audit.pruned`. The hashes of the chain are not part of a line as the API shows it.
+`auth.mfa_failed`, `auth.mfa_locked`, `mfa.recovery_code_used` (its context holds `recovery_codes_left`), `me.view`, `sessions.list`, `session.revoke`, `sessions.end_others`, `session.evicted`, `session.idle_ended`, `session.grant_expired`, `markets.view`, `overview.view`, `orders.view`, `returns.view`, `products.view`, `inventory.view`, `alerts.view`,
+`audit_logs.view`, `health.view`, `reports.view`, `exports.orders` (its context holds `rows`, `file`, `from`, `to`), `devices.list`, `devices.register` (context: `device_id`, `platform`, `topics`),
+`device.forget` (context: `device_id`, `removed`), `auth.step_up` (context: `method`, `fresh_minutes`), `grant.created`, `grant.updated`, `grant.reactivated`, `grant.revoked`, `tokens.revoked`, and the console's `mfa.enrolled`, `mfa.confirmed`, `mfa.confirm_failed`, `mfa.reset`, `mfa.status`, `audit.pruned`. The hashes of the chain are not part of a line as the API shows it.
 `context` of a request holds the status and the few parameters the API takes (`id`, `market`, `from`, `to`, `severity`, `page`, `per_page`; `ended` for `sessions.end_others`); never a password, a token, a challenge, a code, an e-mail or
 any other value the request carried. `ip` is as sent; `user_agent` is cut at 255 characters. A line of the console carries `operator` (`user`, `host`) in its context, which only the platform owner is shown.
 
@@ -560,11 +786,16 @@ one country, `products.storefront_country` (default `SA`), and never changes it.
 * No write to any business data: orders, products, stock, settings, payments, wallets, sellers, markets. A test snapshots every table before and after a series of reads: only
   `platform_admin_tokens.last_used_at` and `platform_admin_audit_logs` change, and no statement that changes anything runs on another table.
 * **No HTTP route to enrol, reset or change a second factor, and no passkeys, SMS or e-mail codes** (section 10). The factor is a TOTP app and recovery codes, managed from the console only.
-* No push notifications or topics, no exports, no step-up confirmation (there is nothing critical to confirm).
+* **Push topics, the export and the step-up are no longer among the things level 1 does not do** -- they were, when this was written. The three `devices` routes subscribe a phone to
+  topics the SERVER names (L-16), `GET /exports/orders` takes one market's orders off the platform as a file (L-14), and `POST /auth/step-up` is what that file asks for (L-15). What
+  is still true of the three is narrower and is said where each is described: a notification carries market, code and count and no deep link to an entity; an export is one market,
+  watermarked, streamed, stored nowhere and rationed per operator; and the step-up guards exactly one route, because no write action exists to guard.
 * No level 2 (support, local operations) or level 3 (store status, payment accounts, legal publication, stock release, permissions, integrations). A grant of any level but 1 cannot
   be made, and level 1 is all that is read.
-* Not yet in the overview, because nothing in the repository gives them a per-market signal: payment and webhook incidents, reconciliation, provider, marketplace, Odoo and logistics
-  health, staff and seller issues, approvals. Each can be added as a new read endpoint without changing these.
+* Not in the OVERVIEW, and now answered by `GET /health` instead -- which is the "new read endpoint without changing these" this bullet predicted (L-09): stuck payment attempts,
+  reconciliation breaks, channel and carrier sync, the accounting queue, open shop issues and pending approvals, each per market. **Two of the things named here are still absent and
+  are absent on purpose:** STAFF issues and ESCALATIONS, because this platform keeps no record of either and a zero would read as "none open", so `means` says so rather than
+  reporting one. Webhook incidents are reported as the channel sync figures, which is what the repository has a per-market signal for.
 
 ## 9. Assumptions and choices that could have gone another way
 
@@ -610,7 +841,7 @@ one country, `products.storefront_country` (default `SA`), and never changes it.
 20. **Sessions without the second factor** are refused while it is required, however they were opened: turning the switch from false to true ends the staging sessions on their next request rather than letting them live out their eight hours.
 21. **The operator identity** in the console's audit lines (user and host) is what the process says about itself, not an authenticated identity: it tells a reader which machine and account ran the command, which is what the server's own login and
     audit trail can then be asked about.
-22. **Capabilities are named in the grant, and absent means all five.** A column that is SQL NULL is the five parts this revision knows (so a grant made before it exists keeps working); a value that cannot be read grants none. NULL is every capability that exists, today those five: a capability added later to `PlatformAdminGrant::CAPABILITIES` is thereby given to every grant that names no list, which is a decision to make deliberately at that time. `GET /me` and `POST /auth/logout` need none.
+22. **Capabilities are named in the grant, and absent means the five that existed when capabilities did -- not every one.** A column that is SQL NULL is `overview`, `markets`, `alerts`, `audit` and `sessions` (so a grant made before capabilities existed keeps working); a value that cannot be read grants none. **This was once "NULL is every capability that exists", and that was changed on purpose**, because it meant a capability added later was given retroactively to every such grant the moment the code shipped -- an operator trusted with yesterday's API acquiring tomorrow's without anybody deciding. A new capability therefore goes in `PlatformAdminGrant::NOT_GIVEN_BY_DEFAULT` and is given on purpose; seven are there today. `GET /me`, `POST /auth/logout` and `POST /auth/step-up` need none.
 23. **A grant ends at the end of a calendar day** of the platform's time zone, because that is how an operator names it; there is no time of day to get wrong. The check is made at sign-in and on every request, so there is nothing to sweep, and the sessions of an expired grant are ended by
     the first request that meets it.
 24. **The chain is serialised by one row, not by the table.** Locking "the last line" does not work on an InnoDB table (a second writer that waited for it still sees the line it waited on as the last); the writer takes the row of the tail, which always exists, reads the hash of the last line
