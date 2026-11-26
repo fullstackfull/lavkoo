@@ -639,3 +639,56 @@ criteria names more signals than are built -- which is the honest record and is 
 - **`git add a b && git commit -F -` with a message describing only `a` is a mislabelled commit, not a small one.** It
   happened here and was split with `git reset --soft HEAD~1` before the push — which is the window in which that is
   free. Check `git show --stat` against the message before pushing, not after.
+
+### Learned on 2026-11-26, coordinating the third five-track round
+
+- **An allow-list entry matched by LINE drifts the moment another track edits the file above it.** The two
+  `leak-guard-allow.json` entries the owner authorised address their findings by rule, path AND line. Track H+A+C
+  added seven lines above the noon fixture, the PEM literal moved from 41 to 42, and the guard reported the finding
+  again on a tree whose code was fine. Found by running the guard AFTER the merge rather than before it. Two
+  consequences: re-run `leak-guard.php --base=origin/main` after every merge that touches a file named in that
+  file, and do NOT leave the old line allowed as well -- a stale entry licences a real secret that lands there later.
+- **And check that such a fix is COMMITTED, not merely made.** The re-addressing sat in the working tree while two
+  merges and a push went by, because `git merge` happily proceeds with a dirty file it does not touch. The pushed
+  tree would have failed the leak-guard job with the code correct. `git status --short` before every push, and for a
+  guard file, read the value back out of `HEAD` rather than out of the working tree.
+- **A backtick inside an unquoted heredoc is a command, and `git merge -F -` does not read stdin.** Two separate
+  traps in one commit. A merge message containing a backticked phrase had that phrase executed and emptied, and left
+  two stray zero-byte files named `=` and `level` in the repository root. And `git commit -F -` reads stdin while
+  `git merge -F -` answers "could not read file '-'". Write a merge message to a file with a QUOTED heredoc
+  (`<<'EOF'`) and pass `-F <file>`.
+- **`git worktree add -b <new> <path> <branch>` can create and check out the WRONG branch.** In both Flutter
+  repositories, where no local `gcc/development` existed yet, it created `gcc/development` tracking the remote and
+  checked THAT out, ignoring `-b wt/klj` -- so a track committed onto the shared branch name locally before noticing.
+  Nothing was pushed and the branch was restored to its remote SHA byte for byte, but the lesson is cheap: run
+  `git branch -vv` IN the new worktree immediately after creating it and confirm the starred branch is the one you
+  named. The backend worktrees, where a local `gcc/development` already existed, behaved as expected -- so the trap
+  only appears in a repository whose branch you have never checked out locally.
+- **Two tracks' diagnoses of one defect can both be partly wrong, and grep settles it in one call.** One track
+  reported the second `ONLY_FULL_GROUP_BY` family as `OrderTransactionRepository` grouping by `'%M'`; another
+  reported 33 sites spelt `'%D'` and no `'%M'` anywhere. Measured: **zero** `'%M'` groupings remain in `app/` or
+  `Modules/` (an earlier round corrected 22) and **33** `'%D'` ones do. Neither handback was a safe thing to relay.
+- **`'%D'` is the ordinal day of the month, so grouping by it is worse than grouping by `'%M'`.** Proven on the
+  engine rather than reasoned about: `DATE_FORMAT('2026-01-01','%D')`, `DATE_FORMAT('2026-02-01','%D')` and
+  `DATE_FORMAT('2025-03-01','%D')` are all `'1st'`. So those 33 reports collapse the same day-number of every month
+  of every year into one row, which is wrong for any range wider than a month -- where the `'%M'` defect merged only
+  the same month across years. Two `Modules/TaxModule` controllers also run
+  `SET sql_mode=(SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY',''))` at REQUEST time, so hardening
+  `config/database.php` would not make those correct.
+- **A guard's "not recorded at all" can be "partly recorded, and the real gap is elsewhere and worse."** G-14's card
+  says role, employee and staff-scope changes leave no trail; `AuditTrailObserver` does watch `Admin` and
+  `AdminRole`. What was actually wrong is that `AdminRoleRepository` uses `where(...)->update()` and
+  `where(...)->delete()` -- mass statements that raise no model event -- so a role could be rewritten, switched off
+  or DELETED in silence, and a role's `module_access` is the whole of what its holders may do. Read the mechanism
+  before accepting a card's description of the hole.
+- **Brief a track from the CODE, not from the handover.** Three of the five briefs written this round named work that
+  was already done: H1-11's remainder (DONE, 5 of 5, the wide-key-first migration already listed in
+  `NOT_EXPAND_ONLY`), H1-02's remainder (unblocked by another track's city-country filter before the track arrived),
+  and L-09's remaining signals (4 of 4, with seven alert codes rather than the card's six). Each track read the code
+  and said so, which is the behaviour wanted -- but a coordinator who greps the tracker for `[MISSING]` and does not
+  check the code spends a track's first hour on work that does not exist.
+- **A track that reports a false pass in its own work is worth more than one that reports only green.** Two did this
+  round: a refusal test whose only assertion was a count stayed green with the mutation applied until it also read
+  the session error, and a levels-are-shut test failed nothing when a permission was added because the one endpoint
+  that would have revealed it was on an exclusion list. Both were found by the teeth check and both were reported
+  rather than quietly fixed.
