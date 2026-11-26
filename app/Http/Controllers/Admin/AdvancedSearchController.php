@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Admin;
 use App\Contracts\Repositories\RecentSearchRepositoryInterface;
 use App\Services\AdvancedSearchPermissionFilter;
 use App\Services\AdvancedSearchService;
+use App\Services\Staff\StaffCountryScope;
+use App\Services\Staff\StaffSearchHits;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Contracts\View\View;
@@ -65,7 +67,12 @@ class AdvancedSearchController extends BaseController
             'user_type' => $userType
         ], dataLimit: 10);
 
-        $finalData = $this->permissionFilter->filterByPermission(grouped: $this->advancedSearchService->getSortRecentSearchByType($recentSearches));
+        // The employee's ROLE decides the groups, and their COUNTRIES decide the hits that name a row of a market. A recent search is a
+        // stored row, so one saved before the employee was restricted would otherwise keep naming another market's order (G-06).
+        $finalData = app(StaffSearchHits::class)->keepRecent(
+            grouped: $this->permissionFilter->filterByPermission(grouped: $this->advancedSearchService->getSortRecentSearchByType($recentSearches)),
+            countries: app(StaffCountryScope::class)->countriesOf(admin: auth('admin')->user()),
+        );
         return response()->json([
             'keyword' => $keyword,
             'result' => $finalData,

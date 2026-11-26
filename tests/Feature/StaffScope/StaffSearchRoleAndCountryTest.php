@@ -161,6 +161,127 @@ class StaffSearchRoleAndCountryTest extends TestCase
         $this->assertSame(['admin/products/update/7102'], $this->rowsIn($second['products']), 'the second employee reads their own market out of the cache the first one filled');
     }
 
+    // ---- the recent searches, which are stored rows and not a query -------------------------------------------------------------------
+
+    /**
+     * A recent search is a row of `recent_searches` holding what the employee's browser posted when they last clicked a hit, so one saved
+     * BEFORE the employee was restricted keeps naming, titling and linking the row it named then, for as long as the row lives. The role
+     * filter has always reached these; the country filter had not (G-06, decision 17 -- the default it named was "filter").
+     */
+    #[DataProvider('routes')]
+    public function test_a_recent_search_saved_before_the_restriction_is_narrowed_by_the_employees_countries(string $route): void
+    {
+        $employee = $this->employeeHolding(permissions: ['orders', 'catalog'], countries: ['KW']);
+        $this->rememberSearchesOf(employee: $employee);
+
+        $answer = $this->recentSearchesOf(employee: $employee, route: $route);
+
+        $this->assertSame(['admin/orders/details/6201'], $this->rowsIn($answer['orders'] ?? []), 'the Saudi order it had opened before is not offered again');
+        $this->assertSame(['admin/products/update/7101'], $this->rowsIn($answer['products'] ?? []));
+    }
+
+    /** The twin: the same four rows, for the same role with no country, are all still offered -- so the narrowing above is the scope's. */
+    #[DataProvider('routes')]
+    public function test_the_same_recent_searches_are_all_offered_to_an_employee_the_scopes_do_not_restrict(string $route): void
+    {
+        $employee = $this->employeeHolding(permissions: ['orders', 'catalog'], countries: []);
+        $this->rememberSearchesOf(employee: $employee);
+
+        $answer = $this->recentSearchesOf(employee: $employee, route: $route);
+
+        $this->assertSame(['admin/orders/details/6201', 'admin/orders/details/6202'], $this->rowsIn($answer['orders'] ?? []));
+        $this->assertSame(['admin/products/update/7101', 'admin/products/update/7102'], $this->rowsIn($answer['products'] ?? []));
+    }
+
+    /** A kind that belongs to no market is left alone: a customer is one identity across every country (GCC-13), so the row stays. */
+    #[DataProvider('routes')]
+    public function test_a_recent_hit_of_a_kind_that_belongs_to_no_market_is_still_offered(string $route): void
+    {
+        $employee = $this->employeeHolding(permissions: ['orders', 'catalog', 'people'], countries: ['KW']);
+        $this->rememberSearchesOf(employee: $employee);
+        $this->rememberOneSearch(employee: $employee, type: 'users', uri: 'admin/customer/view/4101', priority: 9);
+
+        $answer = $this->recentSearchesOf(employee: $employee, route: $route);
+
+        $this->assertSame(['admin/customer/view/4101'], array_values((array) ($answer['users'] ?? [])));
+    }
+
+    /** And a LIST page of a scoped kind, which carries no id and so no market and is the same link for every employee. */
+    #[DataProvider('routes')]
+    public function test_a_recent_hit_that_names_a_list_page_rather_than_a_row_is_still_offered(string $route): void
+    {
+        $employee = $this->employeeHolding(permissions: ['orders'], countries: ['KW']);
+        $this->rememberOneSearch(employee: $employee, type: 'orders', uri: 'admin/orders/list/all', priority: 1);
+
+        $answer = $this->recentSearchesOf(employee: $employee, route: $route);
+
+        $this->assertSame(['admin/orders/list/all'], array_values((array) ($answer['orders'] ?? [])));
+    }
+
+    /** A stored address of a scoped kind that names something which is not an id is dropped: nobody can resolve it, so nobody is shown it. */
+    #[DataProvider('routes')]
+    public function test_a_recent_hit_whose_address_names_no_readable_row_is_dropped(string $route): void
+    {
+        $employee = $this->employeeHolding(permissions: ['orders'], countries: ['KW']);
+        $this->rememberOneSearch(employee: $employee, type: 'orders', uri: 'admin/orders/details/0', priority: 1);
+        $this->rememberOneSearch(employee: $employee, type: 'orders', uri: 'admin/orders/details/99999', priority: 2);
+
+        $answer = $this->recentSearchesOf(employee: $employee, route: $route);
+
+        $this->assertSame([], array_values((array) ($answer['orders'] ?? [])));
+    }
+
+    /** The four rows an employee who had been unrestricted would have saved: both orders and both products. */
+    private function rememberSearchesOf(Admin $employee): void
+    {
+        $this->rememberOneSearch(employee: $employee, type: 'orders', uri: 'admin/orders/details/6201', priority: 1);
+        $this->rememberOneSearch(employee: $employee, type: 'orders', uri: 'admin/orders/details/6202', priority: 2);
+        $this->rememberOneSearch(employee: $employee, type: 'products', uri: 'admin/products/update/7101', priority: 3);
+        $this->rememberOneSearch(employee: $employee, type: 'products', uri: 'admin/products/update/7102', priority: 4);
+    }
+
+    private function rememberOneSearch(Admin $employee, string $type, string $uri, int $priority): void
+    {
+        DB::table('recent_searches')->insert([
+            'user_id' => $employee->getKey(),
+            'user_type' => 'admin',
+            'title' => 'Saved hit',
+            'route_uri' => $uri,
+            'route_full_url' => url($uri),
+            'keyword' => self::KEYWORD,
+            'response' => json_encode([
+                'type' => $type,
+                'uri' => $uri,
+                'page_title_value' => 'Saved hit',
+                'priority' => $priority,
+                'image' => '',
+            ]),
+            'created_at' => now()->subMinutes(100 - $priority),
+            'updated_at' => now(),
+        ]);
+    }
+
+    /**
+     * The recent searches a route offers: the same two routes, asked with NO keyword, which is the branch that reads the stored rows.
+     *
+     * @return array<string, list<string>>
+     */
+    private function recentSearchesOf(Admin $employee, string $route): array
+    {
+        Cache::flush();
+
+        $response = $this->actingAs($employee, 'admin')->getJson($route);
+        $response->assertOk();
+
+        $byGroup = [];
+        foreach ((array) $response->json('result') as $group => $hits) {
+            $byGroup[(string) $group] = array_values(array_map(static fn (array $hit): string => (string) ($hit['uri'] ?? ''), $hits));
+        }
+        ksort($byGroup);
+
+        return $byGroup;
+    }
+
     /**
      * @param list<string> $permissions
      * @param list<string> $countries an empty list leaves the employee unrestricted: no row is written, which is what an employee nobody

@@ -7,6 +7,8 @@ use App\Http\Controllers\BaseController;
 use App\Packages\AdvanceSearch\AdvanceSearch;
 use App\Services\AdvancedSearchPermissionFilter;
 use App\Services\AdvancedSearchService;
+use App\Services\Staff\StaffCountryScope;
+use App\Services\Staff\StaffSearchHits;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -90,6 +92,12 @@ class V2AdvancedSearchController extends BaseController
         );
         $sorted = $this->advancedSearchService->getSortRecentSearchByType($recentSearches);
         $sorted = $this->permissionFilter->filterByPermission(grouped: $sorted);
+        // The same narrowing as the classic header's, for the same reason (G-06): a recent hit saved before the employee was restricted
+        // still names, titles and links the row it named then.
+        $sorted = app(StaffSearchHits::class)->keepRecent(
+            grouped: $sorted,
+            countries: app(StaffCountryScope::class)->countriesOf(admin: auth('admin')->user()),
+        );
         if (!$auctionAvailable) {
             $sorted = $this->stripAuctionEntries($sorted);
         }
