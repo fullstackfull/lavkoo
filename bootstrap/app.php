@@ -166,6 +166,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'storefront.wallet' => \App\Http\Middleware\EnsureWalletIsOpenInStorefront::class,
             // Adopted by the admin screens that work on the products of one country, so their money is that country's (GCC-05).
             'money.market' => \App\Http\Middleware\ScopeMoneyToMarket::class,
+            // Asks an employee to type their own password again before an action that changes who may do what (G-14). Off by default.
+            'admin_step_up' => \App\Http\Middleware\EnsureAdminStepUp::class,
         ]);
     })
     // The schedule itself lives in App\Console\ScheduleDefinition, so the monitoring page can

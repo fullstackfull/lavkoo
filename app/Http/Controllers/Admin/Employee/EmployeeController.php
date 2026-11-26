@@ -10,6 +10,7 @@ use App\Http\Controllers\BaseController;
 use App\Http\Requests\Admin\AdminAddRequest;
 use App\Http\Requests\Admin\AdminUpdateRequest;
 use App\Services\AdminService;
+use App\Services\Staff\SensitiveAdminAction;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -26,6 +27,7 @@ class EmployeeController extends BaseController
     public function __construct(
         private readonly AdminRepositoryInterface $adminRepo,
         private readonly AdminRoleRepositoryInterface $adminRoleRepo,
+        private readonly SensitiveAdminAction $sensitive,
     )
     {
     }
@@ -77,7 +79,7 @@ class EmployeeController extends BaseController
             'updated_at' => now(),
         ];
 
-        $this->adminRepo->add(data: $data);
+        $this->sensitive->perform(fn () => $this->adminRepo->add(data: $data));
         ToastMagic::success(translate('employee_added_successfully'));
         return redirect()->route('admin.employee.list');
     }
@@ -152,7 +154,7 @@ class EmployeeController extends BaseController
             'updated_at' => now(),
         ];
 
-        $this->adminRepo->update(id:$request['id'], data: $data);
+        $this->sensitive->perform(fn () => $this->adminRepo->update(id: $request['id'], data: $data));
         ToastMagic::success(translate('employee_updated_successfully'));
         return redirect()->route('admin.employee.list');
     }
@@ -162,7 +164,7 @@ class EmployeeController extends BaseController
         if ($this->isOutOfReach(employee: $this->adminRepo->getFirstWhere(params: ['id' => $request['id']]), adminService: $adminService)) {
             return $this->refuse(request: $request);
         }
-        $this->adminRepo->update(id:$request['id'], data:['status'=> $request->get('status', 0)]);
+        $this->sensitive->perform(fn () => $this->adminRepo->update(id: $request['id'], data: ['status' => $request->get('status', 0)]));
         if($request->ajax()) {
             return response()->json([
                 'status' => 'success',

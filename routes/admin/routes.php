@@ -672,27 +672,29 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
     });
 
 
+    // `admin_step_up` sits on the WRITES only: a form an employee cannot open is not a form they can confirm, and an export is a read.
+    // It passes everything through while `gcc.staff.step_up.enabled` is off, which is how it ships (G-14).
     Route::group(['prefix' => 'employee', 'as' => 'employee.', 'middleware' => ['module:people', EnsureMasterAdmin::class]], function () {
         Route::controller(EmployeeController::class)->group(function () {
             Route::get('list', 'index')->name('list');
             Route::get('add', 'getAddView')->name('add-new');
-            Route::post('add', 'add')->name('add-new-post');
+            Route::post('add', 'add')->name('add-new-post')->middleware('admin_step_up');
             Route::get('export', 'exportList')->name('export');
             Route::get('view/{id}', 'getView')->name('view');
             Route::get('update/{id}', 'getUpdateView')->name('update');
-            Route::post('update/{id}', 'update');
-            Route::post('status', 'updateStatus')->name('status');
+            Route::post('update/{id}', 'update')->middleware('admin_step_up');
+            Route::post('status', 'updateStatus')->name('status')->middleware('admin_step_up');
         });
     });
 
     Route::group(['prefix' => 'custom-role', 'as' => 'custom-role.', 'middleware' => ['module:people', EnsureMasterAdmin::class]], function () {
         Route::controller(CustomRoleController::class)->group(function () {
             Route::get('add', 'index')->name('create');
-            Route::post('add', 'add')->name('store');
+            Route::post('add', 'add')->name('store')->middleware('admin_step_up');
             Route::get('update/{id}', 'getUpdateView')->name('update');
-            Route::post('update/{id}', 'update');
-            Route::post('employee-role-status', 'updateStatus')->name('employee-role-status');
-            Route::post('delete', 'delete')->name('delete');
+            Route::post('update/{id}', 'update')->middleware('admin_step_up');
+            Route::post('employee-role-status', 'updateStatus')->name('employee-role-status')->middleware('admin_step_up');
+            Route::post('delete', 'delete')->name('delete')->middleware('admin_step_up');
             Route::get('export', 'exportList')->name('export');
         });
     });
@@ -1309,7 +1311,7 @@ Route::group(['prefix' => 'admin', 'as' => 'admin.', 'middleware' => ['admin', '
 
             Route::controller(DatabaseSettingController::class)->group(function () {
                 Route::get('db-index', 'index')->name('db-index');
-                Route::post('db-clean', 'delete')->name('clean-db');
+                Route::post('db-clean', 'delete')->name('clean-db')->middleware('admin_step_up');
             });
 
             Route::group(['prefix' => 'login-settings', 'as' => 'login-settings.'], function () {

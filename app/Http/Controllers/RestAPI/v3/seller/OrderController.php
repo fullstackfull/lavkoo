@@ -46,6 +46,10 @@ use Ramsey\Uuid\Uuid;
 use App\Services\Marketplace\SellerOrderBreakdownService;
 use App\Services\Marketplace\SellerOrderTimelineService;
 use App\Services\Customer\CustomerWalletWriter;
+use App\Services\Loyalty\DeliveryEarnFacts;
+use App\Services\Loyalty\TheOrdersLoyaltyReward;
+use App\Services\Loyalty\WhenADeliveryEarnsPoints;
+use App\Services\Refund\RefundClaims;
 use App\Services\Storefront\LedgerOrigin;
 
 
@@ -567,10 +571,24 @@ class OrderController extends Controller
             }
         }
 
-        if (!$order->is_guest && $walletStatus == 1 && $loyaltyPointStatus == 1) {
-            if ($request->order_status == 'delivered') {
-                CustomerManager::create_loyalty_point_transaction($order->customer_id, $order->id, Convert::default($order->order_amount - $order->shipping_cost), 'order_place', origin: LedgerOrigin::order(id: $order->id));
-            }
+        // The shared rule (E-14, LO-08); its default answers this channel exactly as the conditions below it used to, and claims nothing.
+        $reward = app(TheOrdersLoyaltyReward::class);
+        $rewardRow = $reward->rowFor(orderId: $order->id);
+
+        $earns = WhenADeliveryEarnsPoints::earns(channel: WhenADeliveryEarnsPoints::SELLER_API_V3, facts: new DeliveryEarnFacts(
+            statusIsDelivered: $request->order_status == 'delivered',
+            isGuest: (bool) $order->is_guest,
+            paymentIsPaid: $order->payment_status == 'paid',
+            walletIsOn: $walletStatus == 1,
+            programmeIsOn: $loyaltyPointStatus == 1,
+            pointsForEachOrder: $this->pointsForEachOrder(),
+            rewardIsClaimable: $reward->isClaimable(row: $rewardRow),
+            hasSeller: $order->seller_id !== null,
+        ));
+
+        if ($earns && (!WhenADeliveryEarnsPoints::claimsTheRewardRow(channel: WhenADeliveryEarnsPoints::SELLER_API_V3)
+            || app(RefundClaims::class)->claimRewardDelivered($rewardRow->id))) {
+            CustomerManager::create_loyalty_point_transaction($order->customer_id, $order->id, Convert::default($order->order_amount - $order->shipping_cost), 'order_place', origin: LedgerOrigin::order(id: $order->id));
         }
 
         $refEarningStatus = BusinessSetting::where('type', 'ref_earning_status')->first()->value ?? 0;
@@ -876,10 +894,24 @@ class OrderController extends Controller
                     }
                 }
 
-                if (!$order['is_guest'] && $walletStatus == 1 && $loyaltyPointStatus == 1) {
-                    if ($request['order_status'] == 'delivered') {
-                        CustomerManager::create_loyalty_point_transaction($order['customer_id'], $order['id'], Convert::default($order['order_amount'] - $order['shipping_cost']), 'order_place', origin: LedgerOrigin::order(id: $order['id']));
-                    }
+                // The same shared rule as the status endpoint above, asked with the same facts (E-14, LO-08).
+                $reward = app(TheOrdersLoyaltyReward::class);
+                $rewardRow = $reward->rowFor(orderId: $order['id']);
+
+                $earns = WhenADeliveryEarnsPoints::earns(channel: WhenADeliveryEarnsPoints::SELLER_API_V3, facts: new DeliveryEarnFacts(
+                    statusIsDelivered: $request['order_status'] == 'delivered',
+                    isGuest: (bool) $order['is_guest'],
+                    paymentIsPaid: $order['payment_status'] == 'paid',
+                    walletIsOn: $walletStatus == 1,
+                    programmeIsOn: $loyaltyPointStatus == 1,
+                    pointsForEachOrder: $this->pointsForEachOrder(),
+                    rewardIsClaimable: $reward->isClaimable(row: $rewardRow),
+                    hasSeller: $order['seller_id'] !== null,
+                ));
+
+                if ($earns && (!WhenADeliveryEarnsPoints::claimsTheRewardRow(channel: WhenADeliveryEarnsPoints::SELLER_API_V3)
+                    || app(RefundClaims::class)->claimRewardDelivered($rewardRow->id))) {
+                    CustomerManager::create_loyalty_point_transaction($order['customer_id'], $order['id'], Convert::default($order['order_amount'] - $order['shipping_cost']), 'order_place', origin: LedgerOrigin::order(id: $order['id']));
                 }
 
                 $refEarningStatus = BusinessSetting::where('type', 'ref_earning_status')->first()->value ?? 0;
@@ -925,5 +957,16 @@ class OrderController extends Controller
                 ['code' => 'order', 'message' => translate('not found!')]
             ]
         ], 404);
+    }
+
+    /**
+     * `loyalty_point_for_each_order`, which the panels read and the seller APIs never did -- so a shop that switched it off still earned
+     * points whenever the seller app delivered. Absent, it falls back to the programme switch, exactly as the panels read it.
+     */
+    private function pointsForEachOrder(): bool
+    {
+        $forEachOrder = getWebConfig(name: 'loyalty_point_for_each_order');
+
+        return (is_null($forEachOrder) ? getWebConfig(name: 'loyalty_point_status') : $forEachOrder) == 1;
     }
 }

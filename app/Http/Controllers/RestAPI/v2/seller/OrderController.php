@@ -3,6 +3,10 @@
 namespace App\Http\Controllers\RestAPI\v2\seller;
 
 use App\Services\DigitalProductFileService;
+use App\Services\Loyalty\DeliveryEarnFacts;
+use App\Services\Loyalty\TheOrdersLoyaltyReward;
+use App\Services\Loyalty\WhenADeliveryEarnsPoints;
+use App\Services\Refund\RefundClaims;
 use App\Services\Fulfillment\FulfillmentOrderGuard;
 use App\Services\Storefront\LedgerOrigin;
 use App\Events\OrderStatusEvent;
@@ -285,10 +289,26 @@ class OrderController extends Controller
             }
         }
 
-        if ($wallet_status == 1 && $loyalty_point_status == 1) {
-            if ($request->order_status == 'delivered' && $order->payment_status == 'paid') {
-                CustomerManager::create_loyalty_point_transaction($order->customer_id, $order->id, Convert::default($order->order_amount - $order->shipping_cost), 'order_place', origin: LedgerOrigin::order(id: $order->id));
-            }
+        // The shared rule (E-14, LO-08). Its default answers this channel exactly as the three conditions below it used to -- delivered,
+        // paid, the wallet on and the programme on -- and claims nothing, which is how one order can earn here more than once. The
+        // `one_rule` reading claims the reward row, which is the repair; it is not the default, because it changes what is credited.
+        $reward = app(TheOrdersLoyaltyReward::class);
+        $rewardRow = $reward->rowFor(orderId: $order->id);
+
+        $earns = WhenADeliveryEarnsPoints::earns(channel: WhenADeliveryEarnsPoints::SELLER_API_V2, facts: new DeliveryEarnFacts(
+            statusIsDelivered: $request->order_status == 'delivered',
+            isGuest: (bool) $order->is_guest,
+            paymentIsPaid: $order->payment_status == 'paid',
+            walletIsOn: $wallet_status == 1,
+            programmeIsOn: $loyalty_point_status == 1,
+            pointsForEachOrder: $this->pointsForEachOrder(),
+            rewardIsClaimable: $reward->isClaimable(row: $rewardRow),
+            hasSeller: $order->seller_id !== null,
+        ));
+
+        if ($earns && (!WhenADeliveryEarnsPoints::claimsTheRewardRow(channel: WhenADeliveryEarnsPoints::SELLER_API_V2)
+            || app(RefundClaims::class)->claimRewardDelivered($rewardRow->id))) {
+            CustomerManager::create_loyalty_point_transaction($order->customer_id, $order->id, Convert::default($order->order_amount - $order->shipping_cost), 'order_place', origin: LedgerOrigin::order(id: $order->id));
         }
 
         OrderManager::generateReferBonusForFirstOrder(orderId: $order['id']);
@@ -377,5 +397,16 @@ class OrderController extends Controller
                 ['code' => 'order', 'message' => translate('not found!')]
             ]
         ], 404);
+    }
+
+    /**
+     * `loyalty_point_for_each_order`, which the panels read and the seller APIs never did -- so a shop that switched it off still earned
+     * points whenever the seller app delivered. Absent, it falls back to the programme switch, exactly as the panels read it.
+     */
+    private function pointsForEachOrder(): bool
+    {
+        $forEachOrder = getWebConfig(name: 'loyalty_point_for_each_order');
+
+        return (is_null($forEachOrder) ? getWebConfig(name: 'loyalty_point_status') : $forEachOrder) == 1;
     }
 }

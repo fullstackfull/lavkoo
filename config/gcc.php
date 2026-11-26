@@ -16,6 +16,44 @@ return [
 
     'staff' => [
         'country_scopes' => filter_var(env('GCC_STAFF_COUNTRY_SCOPES', false), FILTER_VALIDATE_BOOLEAN),
+
+        /*
+        | Asking an employee to prove who they are again before an action that changes who may do what (G-14).
+        |
+        | Off by default: the panel's sensitive actions are carried out on the strength of the session, exactly as they are today. With it
+        | on, a request that adds, rewrites or switches off an employee, that adds, rewrites, switches off or deletes a role, or that empties
+        | a table from the database settings screen, is refused unless the employee has typed their OWN password within the last
+        | `step_up.minutes`. The password is sent with the action itself in `step_up_password`; proving it stamps the session, so a run of
+        | actions inside the window asks once. Nothing else about the panel changes, and no screen asks for the field while the switch is off.
+        |
+        | `minutes` is how long one proof lasts. Ten is the figure the card names. A value below one is read as one: a window of zero would
+        | ask for the password on every request, including the second half of a two-request action, which is not a security property but a
+        | way of making the screen unusable.
+        */
+        'step_up' => [
+            'enabled' => filter_var(env('GCC_ADMIN_STEP_UP', false), FILTER_VALIDATE_BOOLEAN),
+            'minutes' => (int) env('GCC_ADMIN_STEP_UP_MINUTES', 10),
+            'attempts_per_minute' => (int) env('GCC_ADMIN_STEP_UP_ATTEMPTS_PER_MINUTE', 5),
+        ],
+
+        /*
+        | Recording an action that changes who may do what, and REFUSING to carry it out when the line cannot be written (G-14).
+        |
+        | Off by default: adding, rewriting or switching off an employee, and adding, rewriting, switching off or deleting a role, write no
+        | audit line at all today, which is what the platform does and what this leaves alone while the switch is off -- not one query goes
+        | near the trail, and no transaction is opened.
+        |
+        | With it on, each of those actions and its line are one transaction, and the line is written through `recordOrFail()`: a trail that
+        | could not be written takes the change back with it. That is the deliberate choice of this switch and the reason it is a switch.
+        | `record()` swallows a failure because a missing note is better than a rolled-back payout; here the reverse holds -- a permission
+        | change nobody can trace is worse than a permission change that did not happen.
+        |
+        | It needs `audit_logs`, which `2026_12_29_100000_create_audit_logs_and_name_the_market_each_line_concerns` creates. On a host that
+        | has not run it, every one of these actions would be refused, which is the second reason this ships off.
+        */
+        'sensitive_actions' => [
+            'recorded' => filter_var(env('GCC_ADMIN_SENSITIVE_ACTION_AUDIT', false), FILTER_VALIDATE_BOOLEAN),
+        ],
     ],
 
     /*
@@ -754,6 +792,23 @@ return [
         //
         // It decides what a customer owes for points they have already spent, so it is the owner's and nobody else's:
         // docs/gcc/OPEN-FINANCIAL-DECISIONS.md section 5. An unrecognised value is read as the default.
+        // Whether a delivery earns points under ONE rule on every channel (E-14, finding LO-08). Five places decide it today and all five
+        // decide it differently -- the table is in `App\Services\Loyalty\WhenADeliveryEarnsPoints`, measured condition by condition.
+        // The costly disagreement is that the three seller-API sites claim no reward row, so one order can earn more than once, while the
+        // panels take the row first (IDEM-08) and so credit once.
+        //
+        //   'as_each_channel_does_today'  the default: each channel's own conditions, unchanged, to the condition
+        //   'one_rule'                    the admin panel's reading on every channel, and every channel claims the reward row
+        //
+        // The one rule deliberately does not require the wallet to be on (points are not wallet money) and does not require the payment to
+        // be paid (four of the five do not), so it is more permissive than four channels in the first respect and than seller API v2 in the
+        // second. Both change what a customer is credited, so the reading is the owner's: docs/gcc/OPEN-FINANCIAL-DECISIONS.md. An
+        // unrecognised value is read as the default.
+        'when_a_delivery_earns_points' => env(
+            'GCC_WHEN_A_DELIVERY_EARNS_POINTS',
+            App\Services\Loyalty\WhenADeliveryEarnsPoints::AS_EACH_CHANNEL_DOES_TODAY,
+        ),
+
         'when_a_refund_would_take_points_below_zero' => env(
             'GCC_REFUND_POINTS_BELOW_ZERO',
             App\Services\Loyalty\WhenARefundWouldTakePointsBelowZero::ALLOW_AS_TODAY,
