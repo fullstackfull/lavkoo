@@ -16,10 +16,11 @@ use SplFileInfo;
  * Where every queued class gets its market from — one list, enforced in both directions (M-504, M-768, M-888).
  *
  * The three criteria this closes were all recorded against one measurement: "none of 27 ShouldQueue files mentions a storefront". A count
- * is the wrong shape of answer, because the right number is not 27. Some of this work belongs to one market and must carry it; some belongs
- * to every market at once and must NOT, because binding the dispatcher's market to a sweep over every country would narrow the very thing
- * it exists to sweep. So the question per class is "where does its market come from", and "from nowhere, and here is why" is one of the
- * lawful answers.
+ * is the wrong shape of answer, because the right number is not 27 -- and the census reads 28 now, because `OrderStatusListener` named the
+ * contract nowhere and so was in nobody's 27 while it sent a push inside every order status change. Some of this work belongs to one
+ * market and must carry it; some belongs to every market at once and must NOT, because binding the dispatcher's market to a sweep over
+ * every country would narrow the very thing it exists to sweep. So the question per class is "where does its market come from", and "from
+ * nowhere, and here is why" is one of the lawful answers.
  *
  * The list is enforced rather than asserted. A queued class added to `app/Jobs` or `app/Listeners` fails this test until somebody
  * classifies it, and a class whose declaration stops matching what the class does fails too: an entry claiming a market is built and asked
@@ -140,6 +141,10 @@ class EveryQueuedClassDeclaresItsMarketTest extends QueuedMarketTestCase
             'market' => self::THE_ORDER_IT_IS_ABOUT,
             'reason' => 'Confirms one order. The order is the record, so a confirmation sent from a panel or by a gateway callback still reads the market the order was sold in.',
         ],
+        \App\Listeners\OrderStatusListener::class => [
+            'market' => self::THE_ORDER_IT_IS_ABOUT,
+            'reason' => 'Tells the buyer, the shop or the delivery man that one order changed status, in that order\'s money and language. Fired from 38 places in 6 controllers -- both panels, the seller API v2 and v3 and the delivery-man API -- and a panel sees every market, so the order is the only record that can answer.',
+        ],
         \App\Listeners\PasswordResetListener::class => [
             'market' => self::THE_DISPATCHING_REQUEST,
             'reason' => 'Sends the reset link for the account somebody asked about, from the storefront they asked on.',
@@ -166,21 +171,29 @@ class EveryQueuedClassDeclaresItsMarketTest extends QueuedMarketTestCase
     private const BOUND_IN_QUEUE_MIDDLEWARE = [self::THE_DISPATCHING_REQUEST, self::THE_RECORD_IT_NAMES];
 
     /**
-     * The 27 the three criteria were measured against are FILES that name the queue contract, and all 27 classes now implement it.
+     * The census is 28 files, and all 28 classes implement what they name. The three criteria were recorded against 27.
      *
-     * It read 26 until the 27th was fixed: the difference was `RefundListener`, which named the contract and implemented nothing. The count
-     * is kept rather than dropped because the three criteria were recorded against the number 27, and a reader comparing the register with
-     * the code needs the two halves of that number to still be here.
+     * The number has moved twice, and the two moves are different in kind, which is why both are written down:
+     *
+     *  - it read 26 of 27 until `RefundListener` was fixed. That file NAMED the contract and implemented nothing, so the census saw it and
+     *    reported the gap -- which is what a census is for;
+     *  - it reads 28 of 28 since `OrderStatusListener` was queued, and that one is the opposite case and the worse one. That file named
+     *    the contract NOWHERE, so it was never in the 27 at all: a listener sending a push inside every order status change on every
+     *    surface, invisible to the one test that counts queued work. A census of the files that mention something cannot see a file that
+     *    mentions nothing, and the 27 was never the number of listeners that ought to be queued.
+     *
+     * The 27 is kept in this docblock rather than in an assertion because that is the figure the three criteria quote, and a reader
+     * comparing the register with the code needs to know which number went where.
      */
-    public function test_the_27_the_three_criteria_were_measured_against_is_a_count_of_files_and_all_27_are_really_queued(): void
+    public function test_every_file_that_names_the_queue_contract_really_is_queued(): void
     {
         $named = $this->everyClassThatNamesTheQueue();
         $run = $this->everyClassTheQueueRuns();
 
-        $this->assertCount(27, $named, 'the criteria were recorded against 27 files naming ShouldQueue');
+        $this->assertCount(28, $named, 'the census was 27 files naming ShouldQueue, plus OrderStatusListener, which named it nowhere');
         $this->assertCount(10, array_filter($named, static fn (string $class): bool => str_starts_with($class, 'App\\Jobs\\')));
-        $this->assertCount(17, array_filter($named, static fn (string $class): bool => str_starts_with($class, 'App\\Listeners\\')));
-        $this->assertCount(27, $run, 'a file that names the queue contract and does not implement it is not queued at all');
+        $this->assertCount(18, array_filter($named, static fn (string $class): bool => str_starts_with($class, 'App\\Listeners\\')));
+        $this->assertCount(28, $run, 'a file that names the queue contract and does not implement it is not queued at all');
     }
 
     /**
@@ -201,6 +214,10 @@ class EveryQueuedClassDeclaresItsMarketTest extends QueuedMarketTestCase
      *
      * That the refund notification really waits on the queue, rather than merely declaring that it does, is
      * {@see \Tests\Feature\Notifications\RefundNotificationWaitsOnTheQueueTest}: this test reads a declaration, that one drives the event.
+     *
+     * `OrderStatusListener` was the same fault one step further on: it named the contract NOWHERE, so this test's own scan could not see it
+     * and the census it belongs in was never wrong by its own arithmetic. Both are asserted below, because a listener that is missing from
+     * a list of files that mention a thing is the one shape a mention-scan cannot report.
      */
     public function test_no_file_names_the_queue_contract_without_implementing_it(): void
     {
@@ -215,6 +232,17 @@ class EveryQueuedClassDeclaresItsMarketTest extends QueuedMarketTestCase
             'the refund notification is no longer sent inside the request that recorded the refund',
         );
         $this->assertSame(1, (new \App\Listeners\RefundListener())->tries, 'a push has no idempotency key, so a worker retry would send a second one');
+
+        // And the listener the census could not see at all, which named the contract nowhere while sending a push inside every order
+        // status change. `config/queue.php` sets `after_commit` on no connection, so the property is the only thing that keeps a
+        // notification out of a transaction that may yet roll back; that it really does is
+        // {@see \Tests\Feature\Notifications\OrderStatusNotificationWaitsOnTheQueueTest}, which drives the event.
+        $this->assertTrue(
+            (new ReflectionClass(\App\Listeners\OrderStatusListener::class))->implementsInterface(ShouldQueue::class),
+            'an order status notification is no longer sent inside the request that changed the status',
+        );
+        $this->assertSame(1, (new \App\Listeners\OrderStatusListener())->tries, 'one status change must not become three pushes on a worker retry');
+        $this->assertTrue((new \App\Listeners\OrderStatusListener())->afterCommit, 'and must not be sent for a status change that rolls back');
     }
 
     /**
@@ -402,7 +430,7 @@ class EveryQueuedClassDeclaresItsMarketTest extends QueuedMarketTestCase
         }, array_filter($constructor->getParameters(), static fn (ReflectionParameter $parameter): bool => !$parameter->isOptional()));
     }
 
-    /** @return list<class-string> every class under app/Jobs and app/Listeners whose file names the queue contract: the 27 the criteria counted */
+    /** @return list<class-string> every class under app/Jobs and app/Listeners whose file names the queue contract: the criteria's 27 and one more */
     private function everyClassThatNamesTheQueue(): array
     {
         $classes = [];
