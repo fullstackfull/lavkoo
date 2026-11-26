@@ -6,6 +6,7 @@ use App\Contracts\Repositories\CustomerRepositoryInterface;
 use App\Contracts\Repositories\PhoneOrEmailVerificationRepositoryInterface;
 use App\Models\User;
 use App\Services\FirebaseService;
+use App\Services\Identity\OAuthCallbackState;
 use App\Services\RecaptchaService;
 use App\Services\Web\CustomerAuthService;
 use App\Utils\CustomerManager;
@@ -42,6 +43,11 @@ class SocialAuthController extends Controller
 
     public function handleProviderCallback(Request $request, $service)
     {
+        if (OAuthCallbackState::isChecked() && !OAuthCallbackState::matchesTheBrowsersSession(request: $request)) {
+            Toastr::error(translate('invalid_request'));
+            return redirect()->route('customer.auth.login');
+        }
+
         $query = [];
         parse_str(parse_url($_SERVER['REQUEST_URI'], PHP_URL_QUERY), $query);
         $code = $query['code'] ?? null;

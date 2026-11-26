@@ -1003,4 +1003,35 @@ return [
         'record_included_amount' => filter_var(env('GCC_TAX_RECORD_INCLUDED_AMOUNT', false), FILTER_VALIDATE_BOOLEAN),
     ],
 
+    'identity' => [
+        // A2-04: what proves, to the server, that the person at the other end owns the e-mail or the phone an account is being created for,
+        // and that an OAuth callback belongs to the browser that started the sign-in. Both switches are off, and off is the platform of
+        // today in every detail.
+        //
+        // `registration_proof.required`: `registration-with-otp` creates an account for any phone it is sent, stamps it
+        // `is_phone_verified = 1` and hands back an access token; `registration-with-social-media` does the same for any e-mail, stamps
+        // `email_verified_at` and reads `login_medium = social`. Neither asks for proof, so anybody can claim an address or a number that is
+        // not theirs before its owner gets there. The proof itself already happens one call earlier -- `verify-otp` matched a code,
+        // `social-customer-login` asked Google, Facebook or Apple -- and both of those answers already carry a throwaway 40-character token
+        // (`temporary_token`, `temp_token`) that proves nothing. With the switch on, that token IS the proof
+        // (App\Services\Identity\RegistrationProof): one e-mail or one phone, one way of proving it, ten minutes, one use, and a
+        // registration without it is refused. The response shape does not change either way, so the issuing half needs no app release; the
+        // switch is what needs one, because an app build that does not send the token back would be refused.
+        //
+        // `oauth_callback_state.checked`: the website's provider callback is `stateless()`, so a callback forged by another site is handled
+        // like one the store started, which is what the `state` parameter exists to stop. The redirect already writes a state into the
+        // session (Socialite's own `redirect()` does it); nothing compares it on the way back. With the switch on, a callback whose `state`
+        // is absent, stale or not the one this browser's session holds is refused before the provider is asked anything at all, and the
+        // state is spent, so a captured callback cannot be replayed. It ships off because a browser that drops the session cookie between
+        // the redirect and the callback -- an in-app browser, a third-party-cookie policy, a sign-in that crosses domains -- would be
+        // refused a sign-in it is given today, and that has to be measured on real devices before it is switched on.
+        'registration_proof' => [
+            'required' => filter_var(env('GCC_REGISTRATION_PROOF_REQUIRED', false), FILTER_VALIDATE_BOOLEAN),
+        ],
+
+        'oauth_callback_state' => [
+            'checked' => filter_var(env('GCC_OAUTH_CALLBACK_STATE_CHECKED', false), FILTER_VALIDATE_BOOLEAN),
+        ],
+    ],
+
 ];

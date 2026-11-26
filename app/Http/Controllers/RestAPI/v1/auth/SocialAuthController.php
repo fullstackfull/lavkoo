@@ -8,6 +8,7 @@ use App\Contracts\Repositories\PhoneOrEmailVerificationRepositoryInterface;
 use App\Http\Controllers\Controller;
 use App\Models\BusinessSetting;
 use App\Models\User;
+use App\Services\Identity\RegistrationProof;
 use App\Services\SocialLoginConfirmationService;
 use App\Utils\CartManager;
 use App\Utils\Helpers;
@@ -27,6 +28,7 @@ class SocialAuthController extends Controller
         private readonly PhoneOrEmailVerificationRepositoryInterface $phoneOrEmailVerificationRepo,
         private readonly LoginSetupRepositoryInterface               $loginSetupRepo,
         private readonly SocialLoginConfirmationService              $socialLoginConfirmationService,
+        private readonly RegistrationProof                           $registrationProof,
     )
     {
     }
@@ -293,9 +295,12 @@ class SocialAuthController extends Controller
         }
 
         $existingUser = $this->customerRepo->getFirstWhere(params: ['email' => $data['email']]);
-        $temporaryToken = Str::random(40);
 
         if (!$existingUser) {
+            // The provider has just vouched for this address and no account holds it, so the answer is "register". The token the caller is
+            // given back is what registration-with-social-media takes as the proof that this call happened.
+            $temporaryToken = $this->registrationProof->issue(proved: (string) $data['email'], how: RegistrationProof::PROVIDER);
+
             return response()->json(['temp_token' => $temporaryToken, 'status' => false, 'new_user' => 0, 'socialResponse' => $socialResponse]);
         }
 
@@ -374,6 +379,18 @@ class SocialAuthController extends Controller
 
         if ($validator->fails()) {
             return response()->json(['errors' => Helpers::validationErrorProcessor($validator)], 403);
+        }
+
+        // Before the phone is looked up, not after: an answer about who already holds a number is itself something a caller who has
+        // proved nothing should not be given.
+        if (RegistrationProof::isRequired() && !$this->registrationProof->redeem(
+                token: RegistrationProof::sentWith(request: $request),
+                proved: (string) $request['email'],
+                how: RegistrationProof::PROVIDER,
+            )) {
+            return response()->json(['errors' => [
+                ['code' => 'temporary_token', 'message' => translate('invalid_request')]
+            ]], 403);
         }
 
         $isPhoneExist = $this->customerRepo->getFirstWhere(params: ['phone' => $request['phone']]);
