@@ -18512,4 +18512,5 @@ return [
 	'noon_merchant_code' => 'رمز التاجر في نون',
 	'noon_merchant_code_help' => 'رمز التاجر الخاص بحساب البائع، كما يظهر في بوابة شركاء نون.',
 	'channel_reason_market_stopped' => 'السوق الذي يبيع فيه هذا الحساب غير مسموح له بالبيع حاليًا، فلم يُرسل شيء',
+	'confirm_your_password_to_continue' => 'أكِّد كلمة المرور للمتابعة',
 ];

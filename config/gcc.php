@@ -16,6 +16,25 @@ return [
 
     'staff' => [
         'country_scopes' => filter_var(env('GCC_STAFF_COUNTRY_SCOPES', false), FILTER_VALIDATE_BOOLEAN),
+
+        /*
+        | Asking an employee to prove who they are again before an action that changes who may do what (G-14).
+        |
+        | Off by default: the panel's sensitive actions are carried out on the strength of the session, exactly as they are today. With it
+        | on, a request that adds, rewrites or switches off an employee, that adds, rewrites, switches off or deletes a role, or that empties
+        | a table from the database settings screen, is refused unless the employee has typed their OWN password within the last
+        | `step_up.minutes`. The password is sent with the action itself in `step_up_password`; proving it stamps the session, so a run of
+        | actions inside the window asks once. Nothing else about the panel changes, and no screen asks for the field while the switch is off.
+        |
+        | `minutes` is how long one proof lasts. Ten is the figure the card names. A value below one is read as one: a window of zero would
+        | ask for the password on every request, including the second half of a two-request action, which is not a security property but a
+        | way of making the screen unusable.
+        */
+        'step_up' => [
+            'enabled' => filter_var(env('GCC_ADMIN_STEP_UP', false), FILTER_VALIDATE_BOOLEAN),
+            'minutes' => (int) env('GCC_ADMIN_STEP_UP_MINUTES', 10),
+            'attempts_per_minute' => (int) env('GCC_ADMIN_STEP_UP_ATTEMPTS_PER_MINUTE', 5),
+        ],
     ],
 
     /*
