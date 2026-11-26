@@ -660,8 +660,8 @@ DELETE /devices/{id}     -> {"data": {"removed": true}}
 
 ### `GET /reports?market=SA&from=YYYY-MM-DD&to=YYYY-MM-DD`
 
-ONE market's own summary over a window: its orders, its returns, what it sold and what was settled with its shops (L-14). Capability `reports`, which **a grant has only when it names
-it**.
+ONE market's own summary over a window: its orders, its returns, what it sold, what it TOOK, the TAX it recorded and what was settled with its shops (L-13, L-14). Capability `reports`,
+which **a grant has only when it names it**.
 
 ```json
 {"data": {
@@ -672,6 +672,11 @@ it**.
   "returns": {"refund_requests": 3, "pending": 1},
   "sales": {"by_currency": [{"currency": "SAR", "legal_entity_id": 3, "legal_entity": "...", "orders": 30, "gross": "4210.00"}],
             "unpriced": {"orders": 2, "reason": "order_currency_not_recorded"}, "combined": null, "reason": "..."},
+  "payments": {"by_method": [{"method": "mada", "currency": "SAR", "orders": 30, "paid_orders": 28, "unpaid_orders": 2, "paid": "4100.00"},
+                             {"method": null, "currency": "SAR", "orders": 1, "paid_orders": 1, "unpaid_orders": 0, "paid": "40.00"}], "reason": null},
+  "tax": {"by_currency": [{"currency": "SAR", "legal_entity_id": 3, "legal_entity": "...", "orders": 30,
+                           "charged": "630.00", "included": "0.00", "tax_included_orders": 0, "included_not_recorded": 0}],
+          "included_recorded": false, "reason": null},
   "settlements": {"by_currency": [{"...": "..."}], "reason": null}
 }}
 ```
@@ -683,6 +688,20 @@ it**.
 * **A market with nothing to say says so with a reason rather than a number**: no selling company recorded for the market (`legal_entity.reason`), orders that record no currency
   (`sales.unpriced.reason`), an absent settlement ledger (`settlements.reason`). A zero would read as "nothing was sold".
 * `settlements` counts only what was **approved or paid** (`PlatformSettlementFigures`), by the company that settled it and in that company's own currency.
+* **`payments` is what the market TOOK, by the method it arrived through.** `paid` sums `paid_amount` over the orders whose payment status is `paid` and nothing else: an order
+  part-paid or still waiting on a gateway is in `unpaid_orders` and carries no amount, because a figure that mixed money received with money expected would be neither. A method the
+  order does not record is its OWN row with `"method": null` -- never folded into the commonest one and never renamed `unknown`, since which methods a market actually takes money
+  through is the question the figure is read for. `by_method` is null with `reason: order_payment_not_recorded` where the columns are not there.
+* **`sold`, `took`, `tax` and `settled` are four figures and are never reconciled here.** What was billed, what arrived, what the authority is owed out of it, and what then left for
+  the shops answer different questions; an order billed inside the window and paid after it makes the first two differ legitimately, and a reader who needs them to agree needs the
+  dates, not a sum.
+* **`tax` is a SUMMARY, not a compliant tax return**, which stays desktop work ([GCC-20-MOBILE-OR-DESKTOP](GCC-20-MOBILE-OR-DESKTOP.md)); no tax CONFIGURATION is in this API at all.
+  `charged` is tax put ON TOP of the price (`orders.total_tax_amount`); `included` is tax that was already INSIDE a tax-included price (`orders.included_tax_amount`, D1-07). The two
+  are **never added**: `total_tax_amount` is part of the order total and the included amount is not, so a sum would double the tax of a store running both models.
+* **A tax-included sale is never read as carrying zero tax.** `included_not_recorded` counts the orders `tax_model` says were sold tax-included whose included amount nothing has
+  written -- which is every one of them while `gcc.tax.record_included_amount` ships off -- and `tax_included_orders` is how many were sold that way at all, so "4 of 4" and "4 of 200"
+  are different readings. An ordinary tax-on-top sale has no included tax to record and is NOT counted as a gap. Without `tax_model` there is no way to tell the two apart, so both
+  counts are `null` rather than `0`, and `included_recorded` says whether the column exists at all.
 * Audited as `reports.view`, whose context carries the market and the window.
 
 ### `GET /exports/orders?market=SA&from=YYYY-MM-DD&to=YYYY-MM-DD`

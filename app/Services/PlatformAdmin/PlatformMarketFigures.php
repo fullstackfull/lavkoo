@@ -52,6 +52,16 @@ final class PlatformMarketFigures
 
     private const DATE_FORMAT = 'Y-m-d H:i:s';
 
+    /**
+     * What `orders.payment_status` says of an order whose money has actually been received. The order column and not a gateway's own verdict
+     * (`App\Services\Payments\GatewayTransactionState`): one is what this platform recorded of the sale, the other is what a provider said of one attempt.
+     */
+    private const PAID = 'paid';
+
+    /** What `orders.tax_model` says of a sale whose price already held its tax (`App\Services\Tax\IncludedTax`); the other value is `exclude`. */
+    private const TAX_INCLUDED = 'include';
+
+
     private ?bool $countryColumn = null;
 
     /** @var array<string, bool> whether the orders table carries a column, asked once per column and per request */
@@ -205,7 +215,7 @@ final class PlatformMarketFigures
 
         $market = $this->orderMarket();
         $entity = $this->orderEntityRecorded() ? 'orders.' . self::ENTITY_COLUMN : 'NULL';
-        $priced = "CASE WHEN orders.currency_code IS NOT NULL AND TRIM(orders.currency_code) <> '' AND orders.currency_rate = 1 THEN 1 ELSE 0 END";
+        $priced = $this->pricedOrder();
         $currency = "CASE WHEN {$priced} = 1 THEN UPPER(TRIM(orders.currency_code)) END";
 
         // The engine groups and adds up: every amount of one market, company and currency is summed in SQL, so no two amounts are ever added in PHP,
@@ -233,6 +243,205 @@ final class PlatformMarketFigures
     public function orderEntityRecorded(): bool
     {
         return $this->orderColumn(column: 'legal_entity_id');
+    }
+
+    /** Whether an order records how it was paid, so that what a market took can be put under a method at all. */
+    public function orderPaymentRecorded(): bool
+    {
+        return $this->orderCurrencyRecorded() && $this->orderColumn(column: 'payment_method') && $this->orderColumn(column: 'payment_status') && $this->orderColumn(column: 'paid_amount');
+    }
+
+    /** Whether an order records the tax charged on top of its price. */
+    public function orderTaxRecorded(): bool
+    {
+        return $this->orderCurrencyRecorded() && $this->orderColumn(column: 'total_tax_amount');
+    }
+
+    /** Whether an order records the tax that was already INSIDE a tax-included price (D1-07). Off is the platform of today, and the column may not be there at all. */
+    public function includedTaxRecorded(): bool
+    {
+        return $this->orderColumn(column: 'included_tax_amount');
+    }
+
+    /**
+     * Whether an order records WHICH tax model it was sold under (`tax_model`: `include` or `exclude`).
+     *
+     * This is what tells a tax-included sale from an ordinary one, and without it the included tax cannot be reported at all -- not because the amount
+     * is missing but because there is no way to say which orders were supposed to have one. An installation without the column is answered with nulls
+     * rather than with zeros that would read as "no tax-included sale here".
+     */
+    public function taxModelRecorded(): bool
+    {
+        return $this->orderColumn(column: 'tax_model');
+    }
+
+    /**
+     * What one market took, by the method it was paid with and the currency it was paid in (L-13).
+     *
+     * **A method is never guessed.** `orders.payment_method` is nullable and an order that records none is a row of its own with a null method, not
+     * folded into the commonest one and not renamed "unknown": which methods a market actually takes money through is the question this figure is
+     * read for, and a bucket invented for it would be the wrong answer rather than a missing one.
+     *
+     * **Two currencies are never added.** The rule is the sales figure's, down to the condition: an amount counts only while the order records a
+     * currency and a rate of exactly 1, so an order stored in another currency at a converted rate is counted as unpriced rather than scaled by a
+     * guess at what the rate meant. `paid` is therefore the money the market took in its OWN money and nothing else.
+     *
+     * **Paid is what was received, not what was billed.** `paid_amount` is summed only over orders whose `payment_status` is paid; an order
+     * part-paid or awaiting a gateway is counted in `unpaid_orders` and contributes no amount, because a figure that mixed money received with
+     * money expected would be neither.
+     *
+     * One grouped statement over a date-bounded range, whatever the amount of data. Nothing of the customer is read or returned.
+     *
+     * @return list<array{method: ?string, currency: ?string, orders: int, paid_orders: int, unpaid_orders: int, paid: ?string}>
+     */
+    public function paymentsOfMarket(string $market, CarbonInterface $from, CarbonInterface $before): array
+    {
+        if (!$this->orderPaymentRecorded()) {
+            return [];
+        }
+
+        $priced = $this->pricedOrder();
+        $currency = "CASE WHEN {$priced} = 1 THEN UPPER(TRIM(orders.currency_code)) END";
+        $method = "CASE WHEN orders.payment_method IS NOT NULL AND TRIM(orders.payment_method) <> '' THEN LOWER(TRIM(orders.payment_method)) END";
+        $received = "CASE WHEN LOWER(TRIM(orders.payment_status)) = '" . self::PAID . "' THEN 1 ELSE 0 END";
+
+        $rows = DB::table('orders')
+            ->where('orders.' . self::COUNTRY_COLUMN, $market)
+            ->where('orders.created_at', '>=', $from->format(self::DATE_FORMAT))
+            ->where('orders.created_at', '<', $before->format(self::DATE_FORMAT))
+            ->selectRaw(
+                "{$method} AS method, {$currency} AS currency, COUNT(*) AS orders,
+                SUM({$received}) AS paid_orders,
+                SUM(CASE WHEN {$priced} = 1 AND {$received} = 1 THEN orders.paid_amount ELSE 0 END) AS paid",
+            )
+            ->groupBy(DB::raw($method), DB::raw($currency))
+            ->get();
+
+        return $this->paymentRows(rows: $rows);
+    }
+
+    /**
+     * The tax one market recorded, by the company that sold it and the currency, in the two shapes tax is recorded in (L-13).
+     *
+     * **`charged` and `included` are not the same money and are never added.** `total_tax_amount` is tax put ON TOP of the price and is part of what
+     * the customer was billed; `included_tax_amount` is the tax that was already INSIDE a tax-included price, written in a column of its own exactly
+     * so that no reader adds it to the order total (see `App\Services\Tax\IncludedTax`). A summary that summed them would double the tax of a store
+     * that runs both models.
+     *
+     * **A tax-included order whose included amount is not recorded says so.** While `gcc.tax.record_included_amount` is off nothing writes that
+     * column, so a tax-included sale holds NULL there -- and NULL is reported as `included_not_recorded`, never as a zero. Zero is the one claim that
+     * cannot be true of a taxed sale, and it is the claim the column exists to stop being made. `included_not_recorded` counts the orders `tax_model`
+     * says were sold tax-INCLUDED and nothing else: an ordinary tax-on-top sale has no included tax to record and is not a gap, which is why the count
+     * is taken from the model and not from the amount being absent. Without `tax_model` there is no way to tell the two apart, so both counts are null.
+     *
+     * **`tax_included_orders` is the denominator of that.** How many of the window's orders were sold tax-included at all, so that "4 of 200 recorded
+     * nothing" and "4 of 4 recorded nothing" are different readings of the same four.
+     *
+     * This is a SUMMARY and not a compliant tax return: it is what a market collected, grouped, and the configuration behind it is deliberately not
+     * here (docs/gcc/GCC-20-MOBILE-OR-DESKTOP.md classifies the return and the configuration as desktop work).
+     *
+     * One grouped statement over a date-bounded range, whatever the amount of data.
+     *
+     * @return list<array{legal_entity_id: ?int, currency: ?string, orders: int, charged: ?string, included: ?string, tax_included_orders: ?int, included_not_recorded: ?int}>
+     */
+    public function taxOfMarket(string $market, CarbonInterface $from, CarbonInterface $before): array
+    {
+        if (!$this->orderTaxRecorded()) {
+            return [];
+        }
+
+        $priced = $this->pricedOrder();
+        $currency = "CASE WHEN {$priced} = 1 THEN UPPER(TRIM(orders.currency_code)) END";
+        $entity = $this->orderEntityRecorded() ? 'orders.' . self::ENTITY_COLUMN : 'NULL';
+        $included = $this->includedTaxRecorded() ? 'orders.included_tax_amount' : 'NULL';
+        $taxIncluded = $this->taxModelRecorded() ? "CASE WHEN LOWER(TRIM(orders.tax_model)) = '" . self::TAX_INCLUDED . "' THEN 1 ELSE 0 END" : 'NULL';
+        $unrecorded = $this->taxModelRecorded()
+            ? "CASE WHEN {$taxIncluded} = 1 AND {$included} IS NULL THEN 1 ELSE 0 END"
+            : 'NULL';
+
+        $rows = DB::table('orders')
+            ->where('orders.' . self::COUNTRY_COLUMN, $market)
+            ->where('orders.created_at', '>=', $from->format(self::DATE_FORMAT))
+            ->where('orders.created_at', '<', $before->format(self::DATE_FORMAT))
+            ->selectRaw(
+                "{$entity} AS entity_id, {$currency} AS currency, COUNT(*) AS orders,
+                SUM(CASE WHEN {$priced} = 1 THEN orders.total_tax_amount ELSE 0 END) AS charged,
+                SUM(CASE WHEN {$priced} = 1 THEN COALESCE({$included}, 0) ELSE 0 END) AS included,
+                SUM({$taxIncluded}) AS tax_included_orders,
+                SUM({$unrecorded}) AS included_not_recorded",
+            )
+            ->groupBy(DB::raw($entity), DB::raw($currency))
+            ->get();
+
+        return $this->taxRows(rows: $rows);
+    }
+
+    /**
+     * The SQL condition under which an order's stored amounts may be read as money of its own currency: a currency recorded, and a rate of exactly 1.
+     *
+     * One place rather than three. `sales()` wrote this condition first and `paymentsOfMarket()` and `taxOfMarket()` must answer under exactly the same
+     * rule, or a market's sales and the money it took would disagree about which orders were priced at all.
+     */
+    private function pricedOrder(): string
+    {
+        return "CASE WHEN orders.currency_code IS NOT NULL AND TRIM(orders.currency_code) <> '' AND orders.currency_rate = 1 THEN 1 ELSE 0 END";
+    }
+
+    /**
+     * @param iterable<object> $rows
+     *
+     * @return list<array{method: ?string, currency: ?string, orders: int, paid_orders: int, unpaid_orders: int, paid: ?string}>
+     */
+    private function paymentRows(iterable $rows): array
+    {
+        $reported = [];
+
+        foreach ($rows as $row) {
+            $currency = $row->currency === null ? null : (string) $row->currency;
+            $orders = (int) $row->orders;
+            $paidOrders = (int) $row->paid_orders;
+
+            $reported[] = [
+                'method' => $row->method === null ? null : (string) $row->method,
+                'currency' => $currency,
+                'orders' => $orders,
+                'paid_orders' => $paidOrders,
+                'unpaid_orders' => $orders - $paidOrders,
+                'paid' => $currency === null ? null : PlatformAdminPresenter::amount(sum: $row->paid),
+            ];
+        }
+
+        usort($reported, static fn (array $one, array $other): int => [$one['currency'], $one['method']] <=> [$other['currency'], $other['method']]);
+
+        return $reported;
+    }
+
+    /**
+     * @param iterable<object> $rows
+     *
+     * @return list<array{legal_entity_id: ?int, currency: ?string, orders: int, charged: ?string, included: ?string, tax_included_orders: ?int, included_not_recorded: ?int}>
+     */
+    private function taxRows(iterable $rows): array
+    {
+        $reported = [];
+
+        foreach ($rows as $row) {
+            $currency = $row->currency === null ? null : (string) $row->currency;
+
+            $reported[] = [
+                'legal_entity_id' => $row->entity_id === null ? null : (int) $row->entity_id,
+                'currency' => $currency,
+                'orders' => (int) $row->orders,
+                'charged' => $currency === null ? null : PlatformAdminPresenter::amount(sum: $row->charged),
+                'included' => $currency === null ? null : PlatformAdminPresenter::amount(sum: $row->included),
+                'tax_included_orders' => $row->tax_included_orders === null ? null : (int) $row->tax_included_orders,
+                'included_not_recorded' => $row->included_not_recorded === null ? null : (int) $row->included_not_recorded,
+            ];
+        }
+
+        usort($reported, static fn (array $one, array $other): int => [$one['currency'], $one['legal_entity_id']] <=> [$other['currency'], $other['legal_entity_id']]);
+
+        return $reported;
     }
 
     /**
