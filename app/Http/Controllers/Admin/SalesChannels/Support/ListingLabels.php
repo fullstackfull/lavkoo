@@ -53,7 +53,10 @@ final class ListingLabels
         ChannelUnavailableException::GLOBAL_OFF, ChannelUnavailableException::ACCOUNT_OFF, ChannelUnavailableException::CAPABILITY_OFF,
         ChannelUnavailableException::WRITES_OFF_ENVIRONMENT, ChannelUnavailableException::WRITES_OFF_ACCOUNT, ChannelUnavailableException::NOT_APPROVED,
         ChannelUnavailableException::UNREGISTERED_OPERATION, ChannelUnavailableException::AUTH_NEEDED, ChannelUnavailableException::BUYER_DATA_OFF,
-        ChannelUnavailableException::SETTING_MISSING, ChannelUnavailableException::ANOTHER_ATTEMPT_RUNNING, 'rate_limited',
+        ChannelUnavailableException::SETTING_MISSING, ChannelUnavailableException::ANOTHER_ATTEMPT_RUNNING,
+        // A market that may not sell makes no channel WRITE call. It reaches this screen like any other refusal, so it needs words here:
+        // without them the screen prints the bare code `market_stopped` at an operator who is trying to find out why nothing was sent.
+        ChannelUnavailableException::MARKET_STOPPED, 'rate_limited',
     ];
 
     /** Every problem of our own that can stand beside a draft: what the store has not finished, and what the channel reports that a person has to look at. */

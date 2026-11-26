@@ -3,6 +3,7 @@
 @use('App\Enums\SalesChannels\ExecutionPolicy')
 @use('App\Enums\SalesChannels\SalesChannel')
 @use('App\Http\Controllers\Admin\SalesChannels\Support\AccountForm')
+@use('App\Services\SalesChannels\Support\ChannelSettings')
 @php
     $isAmazon = $channel === SalesChannel::Amazon;
     $isNoon = $channel === SalesChannel::Noon;
@@ -68,7 +69,7 @@
         <div class="col-md-3">
             <label class="form-label" for="noon-country">{{ translate('noon_country') }}</label>
             <select class="form-select" id="noon-country" name="settings[country_code]" required>
-                @foreach (\App\Services\SalesChannels\Support\ChannelSettings::marketsOf('noon') as $country)
+                @foreach (ChannelSettings::marketsOf('noon') as $country)
                     <option value="{{ strtolower($country) }}" @selected(strtoupper((string) $setting('country_code')) === $country)>{{ $country }}</option>
                 @endforeach
             </select>

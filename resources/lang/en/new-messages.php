@@ -11815,4 +11815,7 @@ return [
 	'fbn_units_are_noons_own_stock' => 'FBN units are the stock noon holds itself',
 	'connect_noon' => 'Connect noon',
 	'connect_noon_help' => 'noon partner API: orders, prices and stock, with the FBN units noon holds itself. Needs an access key and a secret from the noon partner portal.',
+	'noon_merchant_code' => 'noon merchant code',
+	'noon_merchant_code_help' => 'The merchant code of the seller account, shown in the noon partner portal.',
+	'channel_reason_market_stopped' => 'The market this account sells in may not sell right now, so nothing was sent',
 ];
