@@ -6,6 +6,7 @@ use App\Enums\SalesChannels\SalesChannel;
 use App\Http\Controllers\Admin\SalesChannels\Support\AccountForm;
 use App\Models\SalesChannelAccount;
 use App\Services\SalesChannels\Support\ChannelCredentialStore;
+use App\Services\SalesChannels\Support\ChannelSettings;
 
 /**
  * An administrator can create a noon account from the panel, and could not (H2-02).
@@ -119,9 +120,14 @@ class AdminNoonAccountTest extends AdminSalesChannelsTestCase
         $this->post(route('admin.sales-channels.accounts.store'), $form)->assertSessionHasNoErrors();
     }
 
+    /**
+     * The declared storefront country joined this list on 2026-11-26 (H2-06): it is part of every channel account's identity, and the
+     * update action compares this list before and after to tell the operator what the change withdrew. The two noon fields this test was
+     * written for are unchanged.
+     */
     public function test_the_country_and_the_warehouse_are_part_of_the_accounts_identity(): void
     {
-        $this->assertSame(['country_code', 'warehouse_code'], AccountForm::IDENTITY_SETTINGS[SalesChannel::Noon->value]);
+        $this->assertSame([ChannelSettings::MARKET, 'country_code', 'warehouse_code'], AccountForm::IDENTITY_SETTINGS[SalesChannel::Noon->value]);
         $this->assertSame(['key_id', 'private_key', 'project_code'], AccountForm::SECRET_FIELDS[SalesChannel::Noon->value]);
     }
 
