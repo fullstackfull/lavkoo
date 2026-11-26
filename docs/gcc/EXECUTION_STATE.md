@@ -788,3 +788,41 @@ criteria names more signals than are built -- which is the honest record and is 
   to land on the `Tests:` summary line and three others returned only Docker cleanup and a Node deprecation warning.
   What worked instead: take the failure COUNT from whichever fetch lands, then reproduce the group locally and read
   the real diff. Two of the three CI failures turned out to be one root cause, which the local run showed in a line.
+
+### 2026-11-26 — THE DART LIMITATION IS PARTLY LIFTED. Read this before saying "no toolchain"
+
+**A Dart SDK at exactly the version CI runs can be had here in one download, and it is now proven.** All three
+workflows pin `flutter-version: '3.47.0'`; the Flutter releases JSON says that release bundles **Dart 3.13.0**; and
+the Dart SDK alone is about 230MB against several times that for the Flutter tarball:
+
+    curl -sS -o releases.json https://storage.googleapis.com/flutter_infra_release/releases/releases_linux.json
+    # read dart_sdk_version for the pinned flutter version, then:
+    curl -sS -o dartsdk.zip \
+      https://storage.googleapis.com/dart-archive/channels/stable/release/3.13.0/sdk/dartsdk-linux-x64-release.zip
+    unzip -q dartsdk.zip && ./dart-sdk/bin/dart --version
+
+**What that buys, and what it still does NOT.** It buys `dart format` for real, which was the single most expensive
+gap: the formatting gate had failed twice in this programme on work that could not be checked locally. It does NOT
+buy `flutter test` or `flutter analyze`, because those need Flutter itself and a resolved `package_config.json`, and
+the app tests import `package:flutter_test`. So Dart logic is still verified by each app's own CI — but a FORMATTING
+red is now entirely avoidable and must not be shipped again.
+
+**Always pass `--language-version`, and take it from the package's own `pubspec.yaml`.** The customer app says
+`sdk: ^3.6.2` → `--language-version=3.6`; the seller app says `>=3.2.0 <4.0.0` → `--language-version=3.2`. Both
+select SHORT style. With no `.dart_tool/package_config.json` the formatter silently falls back to the newest style
+and reports a clean run against a standard CI does not use, which is the trap already recorded here.
+
+**And a new trap, which inflated a red and nearly hid a real finding.** The formatting gate's own comment says: "The
+event names no base this clone has (a new branch, or a manual run), so the change is read against origin/main." So
+pushing app work to a NEW branch makes the gate read every Dart file the whole GCC branch has added since `main` --
+it reported **nine changed files of fourteen**, most of them untouched by the commit. The first reading of that is
+"the gate is wrong"; the correct reading is that BOTH were true, because within the files the commit really did
+touch, one genuinely needed formatting. Measure the commit's own files at the right language version before
+concluding anything about such a red.
+
+**Seller app, still open and not diagnosed here.** `gcc/k-12-session-token-rules` fails `analyze-and-test` while its
+whole suite reports **1971 tests passed, 2 skipped** -- so the failure is in one of that job's ~37 NAMED steps, not
+in the tests. The step added by that commit matches its siblings' shape exactly, the two symbols it references
+exist, its own scan reproduces to the 3 permitted files, and there is no duplicate step name within the job. The
+failing step cannot be identified from the log's tail and there is no Flutter here to reproduce it. The branch is
+test-and-workflow only and is merged nowhere.
