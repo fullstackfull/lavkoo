@@ -56,8 +56,10 @@ class OrderStatusListener implements ShouldQueue
     /**
      * One attempt, whatever the worker was started with.
      *
-     * A push carries no idempotency key yet (I1-09's one remaining criterion), so a second run of this job sends the customer a second
-     * notification about one status change. The retry that is wanted here is the channel's own, inside
+     * A second run of this job is a replay, and whether it sends the customer a second notification is now the channel's answer rather
+     * than nobody's: {@see \App\Services\Notification\MessageIdentity} is claimed before the send where an operator has turned
+     * `gcc.notifications.idempotency` on, and the platform's default is still two pushes. The retry that is wanted here is the channel's
+     * own, inside
      * {@see \App\Services\Notification\SendsWithinABudget}, which stores each attempt and marks the last as final. An operator running
      * `queue:work --tries=3` must not turn one cancellation into three pushes, so the class answers for itself.
      *

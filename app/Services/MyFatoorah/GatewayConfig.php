@@ -60,6 +60,38 @@ final class GatewayConfig
         return $this->invoiceLookupProof[$endpointKey] ?? null;
     }
 
+    /**
+     * The same connection, authenticated as one company's gateway account instead of as the platform (D2-07, D2-15).
+     *
+     * Everything that is a property of the INTEGRATION is carried over -- the host (already checked against the allow-list, so a
+     * registered account cannot point an outbound call anywhere of its own), the mode, the currency, the title and the method lists -- and
+     * the two things that are a property of the ACCOUNT are replaced.
+     *
+     * `invoiceLookupProof` is deliberately EMPTIED rather than carried over. The proof records which lookup path has been seen to answer
+     * on this connection, and the repository already drops a proof whose api key no longer matches, for the reason that a different key may
+     * be a different merchant: carrying the platform's proof onto a company's key would make a 404 from that merchant read as "no such
+     * invoice" when it may mean "that path is not permitted for this account".
+     */
+    public function authenticatedAs(string $apiKey, ?string $webhookSecret): self
+    {
+        return new self(
+            activeInAdmin: $this->activeInAdmin,
+            mode: $this->mode,
+            apiKey: $apiKey,
+            webhookSecret: $webhookSecret,
+            baseUrl: $this->baseUrl,
+            currency: $this->currency,
+            title: $this->title,
+            enabledMethods: $this->enabledMethods,
+            accountMethods: $this->accountMethods,
+            lastTestAt: $this->lastTestAt,
+            lastTestResult: $this->lastTestResult,
+            lastTestMessage: $this->lastTestMessage,
+            accountStatus: $this->accountStatus,
+            invoiceLookupProof: [],
+        );
+    }
+
     public function hasApiKey(): bool
     {
         return is_string($this->apiKey) && $this->apiKey !== '';

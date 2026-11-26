@@ -297,6 +297,25 @@ return [
         'sale_gate' => [
             'needs_a_payment_account' => filter_var(env('GCC_SALE_GATE_NEEDS_A_PAYMENT_ACCOUNT', false), FILTER_VALIDATE_BOOLEAN),
 
+            // `needs_a_catalogue` adds a prerequisite to `StorefrontPreflight` (I2-12): a market has at least one product a customer of
+            // THAT market could buy -- its own product, let through by `Product::active()`, which is the scope the catalogue, the search
+            // and the home page use, so a market whose every product is switched off or out of a switched-off brand is not counted as
+            // having one. A market with published legal texts, a decided currency and a working gateway still sells nothing when its
+            // catalogue is empty, and the only thing that reports that today is a customer.
+            //
+            // `needs_a_theme` adds the other half of "it would serve a customer": the market renders. It asks the renderer's own question
+            // (`StorefrontThemeResolver::publishedVersionServedBy()`) rather than a query of its own, so a market cannot be called ready
+            // while the renderer serves it nothing. A market served the DEFAULT storefront's published theme is ready, which is every
+            // market on this platform today.
+            //
+            // BOTH OFF BY DEFAULT, and for the same reason `needs_a_payment_account` is: what "ready to sell" includes beyond the legal
+            // texts is the owner's open decision on D1-16, and a market must not be refused by a prerequisite nobody has been asked about.
+            // A market before the catalogue migration has run is answered ready whatever these say, because while `products` has no
+            // storefront column there is one catalogue for the whole platform and the question has no per-market answer -- which is the
+            // Saudi platform of today. With both off each costs one config read and asks the database nothing.
+            'needs_a_catalogue' => filter_var(env('GCC_SALE_GATE_NEEDS_A_CATALOGUE', false), FILTER_VALIDATE_BOOLEAN),
+            'needs_a_theme' => filter_var(env('GCC_SALE_GATE_NEEDS_A_THEME', false), FILTER_VALIDATE_BOOLEAN),
+
             // Whether a TILL asks the sale gate before it opens a new sale (D1-16; `App\Services\Checkout\PointOfSaleSaleRule`).
             //
             // The owner's decision I2-09 is that it should: a new point-of-sale sale follows the country of its products and respects the
@@ -381,6 +400,13 @@ return [
             // return is verified against the account's own secret. MyFatoorah's notification address IS per account (the mechanism is the same), but its
             // outbound calls still read the one platform settings row through GatewayConfigRepository, so listing it would stamp a payment with an account
             // whose credentials nothing reads. It joins this list in the same change that makes MyFatoorah read its api_key from the account.
+            //
+            // 2026-11-26, D2-15: MyFatoorah's REFUND now reads it (App\Services\MyFatoorah\AccountThatTookThePayment), and that is still not enough to
+            // list the gateway -- which is why it is not listed here. Its INITIATION and its VERIFICATION read the platform row, so a listed MyFatoorah
+            // would start a payment on the platform key, stamp it with the company account and then refund it on the account's key: a refund the provider
+            // refuses, or worse, one sent out of a merchant that never took the money. The refund was the one reader of the stamp that was missing and is
+            // the harder half; the three call sites left are PaymentInitiationService::start and PaymentVerificationService (twice). Until they move, the
+            // refund REFUSES a stamped payment it cannot authenticate as rather than falling back, so nothing is drawn on the platform account by mistake.
             'gateways' => ['paymob_accept'],
             // A customer's return from a gateway proves nothing by itself. Off by default: the return is read exactly as it is today. When it is on, a
             // return settles only after the server has confirmed the payment with the gateway itself, and a return it cannot confirm settles nothing.
@@ -856,6 +882,33 @@ return [
         // Milliseconds to wait before each further attempt, multiplied by the attempt number. ZERO by default and deliberately: a backoff
         // that holds a web request open is a worse failure than the one it is recovering from. A queue worker may set one.
         'retry_delay_ms' => (int) env('GCC_NOTIFICATION_RETRY_DELAY_MS', 0),
+
+        // Whether a market may have its own WORDING for a notification, not only its own translation (I1-03). OFF, which is the platform
+        // of today: `notification_messages` holds one row per (user_type, key) for the whole installation and every market is told the
+        // same thing in the same words.
+        //
+        // On, and once `2027_01_10_100000_add_storefront_to_notification_messages_table` has run, a row naming a country is that market's
+        // own wording for that message and the resolution order is the one I1-03 states -- the market's row in the recipient's language,
+        // then the GLOBAL row in that language (so an untranslated override does not send another language's words), then the market's own
+        // untranslated words, then the global ones. A market with a row of its own may also switch that message OFF for itself.
+        //
+        // The DEFAULT market is always read as the global row, so Saudi wording cannot be moved by this even by writing an SA row.
+        'market_templates' => filter_var(env('GCC_NOTIFICATION_MARKET_TEMPLATES', false), FILTER_VALIDATE_BOOLEAN),
+
+        // Whether a message's identity is claimed before it is sent, so a replay of one business event sends nothing twice (I1-09).
+        // OFF, which is the platform of today: a queue worker running one order status job twice sends the customer two identical
+        // pushes, and nothing downstream can tell that from two real status changes.
+        //
+        // What turning it on BUYS: one push and one e-mail per recipient per business event, enforced by the unique key on
+        // `notification_send_attempts (idempotency_key, attempt)` rather than by a read, so two workers cannot both pass it.
+        //
+        // What turning it on COSTS, and why it is the operator's decision rather than a default: the identity of a notification is
+        // (order, recipient, which message), NOT the rendered text -- see `App\Services\Notification\MessageIdentity` for why hashing
+        // the text would switch the whole mechanism off without saying so -- so an order put BACK into a status it has already been
+        // notified about does not notify again. At-most-once per status, in exchange for no duplicates.
+        //
+        // It also does nothing at all until `2027_01_09_100000_add_idempotency_key_to_notification_send_attempts` has run.
+        'idempotency' => filter_var(env('GCC_NOTIFICATION_IDEMPOTENCY', false), FILTER_VALIDATE_BOOLEAN),
     ],
 
     'loyalty' => [

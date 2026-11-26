@@ -8,6 +8,7 @@ use App\Models\EmailTemplate;
 use Illuminate\Support\Facades\Mail;
 use App\Services\EmailTemplateService;
 use App\Services\Notification\MailAccount;
+use App\Services\Notification\MessageIdentity;
 use App\Services\Notification\NotificationAttemptLog;
 use App\Services\Notification\SendsWithinABudget;
 use App\Services\Notification\MessageLanguage;
@@ -163,6 +164,14 @@ trait EmailTemplateTrait
                         return true;
                     },
                     succeeded: static fn (mixed $answer): bool => $answer === true,
+                    // Which order this e-mail is about, so a replay of the event that raised it sends one message rather than two
+                    // (I1-09). An e-mail about no order -- a password reset, a registration, a one-time code -- names no business event
+                    // and is never suppressed: two of those are two real requests from a customer who pressed the button twice.
+                    about: MessageIdentity::aboutTheOrder(
+                        order: $data['order'] ?? null,
+                        orderId: isset($data['orderId']) ? (string) $data['orderId'] : null,
+                        templateKey: (string) $templateName,
+                    ),
                 );
             }
             if (isset($data['attachmentPath'])) {

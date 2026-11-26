@@ -43,8 +43,9 @@ use Tests\Feature\Storefront\OrderNotificationTestCase;
  *    says `$afterCommit = true` for itself. Proved by a transaction that rolls back sending nothing, and by the send happening at
  *    `DB::transactionLevel() === 0`;
  *  - **no duplicate send** — `$tries = 1`, read off the job Laravel pushed rather than off the listener, because that is the copy a worker
- *    started with `--tries=3` obeys. A push carries no idempotency key, and the test below that sends one status change twice is the proof
- *    of that, not a complaint about it: it is I1-09's one remaining criterion and it stays open;
+ *    started with `--tries=3` obeys. A push carries no idempotency key in its PAYLOAD -- the identity I1-09 added is claimed in
+ *    `notification_send_attempts` and never travels to the device -- and the test below that sends one status change twice measures the
+ *    default platform, where that claim is switched off;
  *  - **no lost send** — the order comes back out of the payload in the worker, and an order that cannot be found raises
  *    `ModelNotFoundException` instead of quietly sending nothing, so the job fails into `failed_jobs` rather than vanishing.
  *
@@ -315,15 +316,19 @@ class OrderStatusNotificationWaitsOnTheQueueTest extends OrderNotificationTestCa
     /**
      * Why `tries = 1` is the control and not a preference: the SAME notification sent twice is two identical pushes to the device.
      *
-     * This pins I1-09's one remaining criterion — replay idempotency — as OPEN rather than closing it. There is no idempotency key in the
-     * payload and no record keyed on one, so nothing downstream can tell a replay from a second real status change. Queueing the send
-     * removes the duplicate a worker retry would have caused; it does not give the message an identity.
+     * **This pinned I1-09's last criterion as OPEN, and the criterion is now built -- so read what this test still measures.** It was
+     * written as `test_one_status_change_sent_twice_is_two_identical_pushes_because_a_push_has_no_idempotency_key`, and its claim was
+     * that nothing downstream could tell a replay from a second real status change. What closed it is exactly what this docblock asked
+     * for: a key derived from the order, the recipient and the message, claimed before the send through the unique key of
+     * `notification_send_attempts` -- in {@see \App\Services\Notification\SendsWithinABudget} and
+     * {@see \App\Services\Notification\MessageIdentity}, not in the listener, which is untouched by it.
      *
-     * What would close it is a key the sender derives from the order, the recipient and the message, stored and checked before the send.
-     * That is a change to {@see \App\Services\Notification\SendsWithinABudget} and to `notification_send_attempts`, not to this listener,
-     * and it is not made here.
+     * The assertions below are unchanged all the same, because they describe the DEFAULT platform and still hold: this world has no
+     * attempt log and `gcc.notifications.idempotency` ships off, which are two of the three independent ways the mechanism is dormant.
+     * A payload still carries no key, and nothing was added to it. What a market that turns the switch on gets instead is
+     * {@see \Tests\Feature\Notifications\OneBusinessEventSendsOneMessageTest}, which is where one push per business event is proven.
      */
-    public function test_one_status_change_sent_twice_is_two_identical_pushes_because_a_push_has_no_idempotency_key(): void
+    public function test_one_status_change_sent_twice_is_two_identical_pushes_while_nothing_claims_a_messages_identity(): void
     {
         $order = $this->aKuwaitiOrderOfTheHouse();
 
@@ -333,7 +338,7 @@ class OrderStatusNotificationWaitsOnTheQueueTest extends OrderNotificationTestCa
         $pushes = $this->pushesSent();
         $this->assertCount(2, $pushes, 'nothing suppresses the second send of one status change');
         $this->assertSame($pushes[0]['message'], $pushes[1]['message'], 'and the device cannot tell them apart either');
-        $this->assertArrayNotHasKey('idempotency_key', $pushes[0]['message']['data'], 'I1-09 replay idempotency is not built');
+        $this->assertArrayNotHasKey('idempotency_key', $pushes[0]['message']['data'], 'the identity is claimed in the log, never put in the payload');
     }
 
     // ---- no lost send ------------------------------------------------------------------------------------------------------------------

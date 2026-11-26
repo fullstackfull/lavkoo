@@ -44,20 +44,45 @@ final class StorefrontThemeResolver
     /** The active theme of the storefront the request is served from, else the default storefront's. */
     public function activeTheme(): ?Theme
     {
+        // The switch is read BEFORE the request's storefront, and that order is a property somebody pinned: switched off, the storefront
+        // is not read at all, so a configuration that cannot be resolved does not break the one theme the platform serves
+        // (`StorefrontThemeSwitchTest::test_switched_off_the_storefront_is_not_read_at_all`). Delegating straight to the method below
+        // resolves the storefront first and threw. Found by that test, which is what it is for.
         if (!$this->keepsThemesByStorefront()) {
             return Theme::query()->where('is_active', true)->first();
         }
 
-        $country = $this->requestStorefront();
-        $default = $this->defaultStorefront();
-
-        return $this->activeThemeOf(storefront: $country) ?? ($country === $default ? null : $this->activeThemeOf(storefront: $default));
+        return $this->activeThemeServedBy(storefront: $this->requestStorefront());
     }
 
     /** The published version of the active theme, which is what a customer is shown. */
     public function publishedVersion(): ?ThemeVersion
     {
         return $this->publishedVersionOf(theme: $this->activeTheme());
+    }
+
+    /**
+     * The active theme the storefront NAMED would be served -- its own, else the default storefront's -- for a reader asking about a
+     * market nobody is being served from (I2-12: the readiness check of a market an operator is about to open).
+     *
+     * {@see self::activeTheme()} is this question asked of the request's own storefront, so there is one answer and not two: a readiness
+     * report that resolved the theme its own way could say a market is ready while the renderer serves it nothing.
+     */
+    public function activeThemeServedBy(string $storefront): ?Theme
+    {
+        if (!$this->keepsThemesByStorefront()) {
+            return Theme::query()->where('is_active', true)->first();
+        }
+
+        $default = $this->defaultStorefront();
+
+        return $this->activeThemeOf(storefront: $storefront) ?? ($storefront === $default ? null : $this->activeThemeOf(storefront: $default));
+    }
+
+    /** The published version a named storefront would serve, which is what its customers would be shown. */
+    public function publishedVersionServedBy(string $storefront): ?ThemeVersion
+    {
+        return $this->publishedVersionOf(theme: $this->activeThemeServedBy(storefront: $storefront));
     }
 
     /**

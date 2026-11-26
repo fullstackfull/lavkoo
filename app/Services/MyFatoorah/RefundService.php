@@ -28,14 +28,19 @@ use Illuminate\Support\Str;
  *    attempt plus a caller-supplied idempotency key, so a double-submitted form collides in the
  *    database instead of sending two refunds.
  *
+ * **And a refund goes back out of the merchant account that took the payment (D2-15)**, which is
+ * {@see AccountThatTookThePayment}'s answer and not this class's: a payment with no company account stamp is refunded through the one
+ * platform settings row exactly as before, and a payment stamped with an account this platform can no longer authenticate as is REFUSED
+ * rather than refunded out of the platform's account.
+ *
  * Returning stock is deliberately NOT done here. Money going back and goods coming back are different
  * events with different evidence, and the store already has a returns workflow that owns the stock side.
  */
 class RefundService
 {
     public function __construct(
-        private readonly GatewayConfigRepository $configRepo,
         private readonly MyFatoorahClient $client,
+        private readonly AccountThatTookThePayment $accountThatTookIt,
     ) {
     }
 
@@ -70,6 +75,16 @@ class RefundService
             return ['ok' => false, 'code' => 'bad_amount', 'error' => 'A refund amount must be greater than zero.'];
         }
 
+        // WHICH MERCHANT ACCOUNT the money goes back out of, resolved BEFORE the reservation (D2-15): a refund that cannot be sent
+        // through the account that took the payment must not consume the headroom either, or an operator would be left with a refund
+        // reserved against a payment and no way to send it. Every payment today carries no account stamp and is answered the one platform
+        // settings row, exactly as before.
+        $connection = $this->accountThatTookIt->connectionFor($attempt);
+
+        if (!$connection['ok']) {
+            return $connection;
+        }
+
         $reference = $this->refundReference($attempt, $idempotencyKey);
 
         // Reserve the refund and check the headroom in one transaction, under a lock on the attempt, so
@@ -88,9 +103,7 @@ class RefundService
             return ['ok' => true, 'refund' => $refund];
         }
 
-        $config = $this->configRepo->forMode((string) $attempt->mode);
-
-        $response = $this->client->post($config, 'create_refund', [
+        $response = $this->client->post($connection['config'], 'create_refund', [
             'PaymentId' => (string) $attempt->payment_id,
             'Amount' => $amount,
             'ExternalIdentifier' => $reference,
@@ -238,8 +251,16 @@ class RefundService
         // Nothing documented in the pages this integration was built from gives a refund-details path,
         // so the refund is re-read through the payment it belongs to: a fully refunded payment reports a
         // remaining value, which is enough to tell "executed" from "still pending".
-        $config = $this->configRepo->forMode((string) $attempt->mode);
-        $response = $this->client->get($config, 'payment_details', ['paymentId' => (string) $attempt->payment_id]);
+        //
+        // Through the account that TOOK the payment (D2-15), for the same reason the send is: a merchant's invoice is not readable with
+        // another merchant's key, so reading it with the platform's would answer "no such payment" about a payment that exists.
+        $connection = $this->accountThatTookIt->connectionFor($attempt);
+
+        if (!$connection['ok']) {
+            return $connection['error'];
+        }
+
+        $response = $this->client->get($connection['config'], 'payment_details', ['paymentId' => (string) $attempt->payment_id]);
 
         if (!$response->succeeded) {
             return 'Could not reach MyFatoorah to check this refund.';
