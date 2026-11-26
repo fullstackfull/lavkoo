@@ -122,7 +122,9 @@ class GrantOptionsCommandsTest extends TestCase
     {
         return [
             'a name that is not one' => ['overview,payments', 'Unknown capability: payments'],
-            'two that are not' => ['payments,orders', 'Unknown capabilities: payments, orders'],
+            // `orders` stood here until it became a capability of its own (L-13). A data set whose premise the code has overtaken proves nothing, so
+            // it names two that have never been capabilities instead of being left to pass for the wrong reason.
+            'two that are not' => ['payments,refunds', 'Unknown capabilities: payments, refunds'],
             'one that is not, named twice' => ['payments, Payments', 'Unknown capability: payments.'],
             'a list with no name in it' => [' , ', 'no capability'],
             'a name in the wrong place' => ['overview;alerts', 'Unknown capability: overview;alerts'],

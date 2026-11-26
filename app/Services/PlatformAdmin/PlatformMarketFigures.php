@@ -5,6 +5,7 @@ namespace App\Services\PlatformAdmin;
 use App\Models\InventoryReservation;
 use App\Services\Marketplace\SettlementTotals;
 use App\Services\Marketplace\SlaService;
+use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Illuminate\Container\Attributes\Scoped;
 use Illuminate\Database\Query\Builder;
@@ -32,6 +33,13 @@ use Illuminate\Support\Facades\Schema;
 #[Scoped]
 final class PlatformMarketFigures
 {
+    /**
+     * How an order is put in a market, as every answer that reports orders names it. One constant and not a literal per answer, because the overview's
+     * count and the drill-down's list are the same rule read twice (`ordersWithTheirMarket()`): if one ever says something different from the other,
+     * the two answers disagree about which orders a market has and nothing says which is right.
+     */
+    public const ORDER_ATTRIBUTION = ['rule' => 'all_lines_one_market', 'via' => 'order_details.product_id > products.storefront_country'];
+
     private const COUNTRY_COLUMN = 'storefront_country';
 
     private const ENTITY_COLUMN = 'legal_entity_id';
@@ -88,6 +96,45 @@ final class PlatformMarketFigures
     public function orders(CarbonInterface $from, CarbonInterface $before, ?array $statuses = null): array
     {
         return $this->groupedOrders(from: $from, before: $before, statuses: $statuses, olderThan: null);
+    }
+
+    /**
+     * ONE market's orders of the window, newest first, one page at a time (L-13): the order's own id, its status, the moment it was placed and how
+     * many lines it has.
+     *
+     * **It is the counts' own list.** The market comes from `ordersWithTheirMarket()`, which is the subquery the counted figures are grouped from, so
+     * a market's list and its count can never disagree about which orders are in it. An order of no single market is in no market's list, exactly as
+     * it is in no market's count, and is never shown as Saudi.
+     *
+     * **No customer is in it.** Not a name, an address, a telephone number or an e-mail -- the same rule the export follows, and for the same reason:
+     * who the order was for is not what an operator watching a market needs, and the owner has not yet decided what personal data a list of this API
+     * may show (L-13, open decision). A line count answers "how big was it" without one.
+     *
+     * One page is one statement over the bounded range, and the page is read one row longer than it is answered so that `has_more` costs no count of
+     * the whole table.
+     *
+     * @return array{orders: list<array{id: int, status: string, placed_at: ?string, lines: int}>, has_more: bool}
+     */
+    public function ordersOfMarket(string $market, CarbonInterface $from, CarbonInterface $before, int $offset, int $limit): array
+    {
+        $rows = DB::query()
+            ->fromSub($this->ordersWithTheirMarket(from: $from, before: $before, statuses: null), 'attributed')
+            ->where('attributed.market', $market)
+            ->orderByDesc('attributed.created_at')
+            ->orderByDesc('attributed.order_id')
+            ->offset($offset)
+            ->limit($limit + 1)
+            ->get();
+
+        return [
+            'orders' => $rows->take($limit)->map(static fn (object $row): array => [
+                'id' => (int) $row->order_id,
+                'status' => (string) $row->status,
+                'placed_at' => $row->created_at === null ? null : PlatformAdminPresenter::timestamp(moment: Carbon::parse(time: $row->created_at)),
+                'lines' => (int) $row->lines_count,
+            ])->values()->all(),
+            'has_more' => $rows->count() > $limit,
+        ];
     }
 
     /**
@@ -328,7 +375,7 @@ final class PlatformMarketFigures
             ->where('orders.created_at', '<', $before->format(self::DATE_FORMAT))
             ->groupBy('orders.id', 'orders.order_status', 'orders.created_at')
             ->selectRaw(
-                "orders.id AS order_id, orders.order_status AS status, orders.created_at AS created_at,
+                "orders.id AS order_id, orders.order_status AS status, orders.created_at AS created_at, COUNT(order_details.id) AS lines_count,
                 CASE WHEN COUNT(products.id) = COUNT(order_details.id) AND MIN({$country}) = MAX({$country}) AND MIN({$country}) IN ({$configured})
                     THEN MIN({$country}) END AS market",
                 $codes,

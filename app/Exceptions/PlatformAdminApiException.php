@@ -69,10 +69,16 @@ class PlatformAdminApiException extends RuntimeException implements ShouldntRepo
         );
     }
 
-    /** An export was asked for of every market at once. One export is one market's rows, so that what left the platform is a recorded fact. */
+    /**
+     * Every market at once was asked for where the answer is of ONE: an export, whose file is one market's rows so that what left the platform is a
+     * recorded fact; a report, whose money must never be added across two currencies; and a market's orders as a list (L-13).
+     *
+     * The message names none of the three, because it is read by whoever asked, for whichever of them they asked: it said "an export" while two other
+     * routes already answered it, which told a reader asking for a report about a feature they had not used.
+     */
     public static function oneMarketOnly(): self
     {
-        return new self(errorCode: 'one_market_only', message: 'An export is of one market. Name it with the market parameter.', status: 422);
+        return new self(errorCode: 'one_market_only', message: 'This answer is of one market. Name it with the market parameter.', status: 422);
     }
 
     public static function invalidDevicePlatform(): self
