@@ -2,6 +2,7 @@
 
 namespace App\Services\Marketplace;
 
+use App\Models\Seller;
 use App\Models\SellerApiKey;
 use App\Models\SellerRole;
 use App\Models\SellerStaff;
@@ -9,6 +10,7 @@ use App\Services\AuditLogger;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
+use InvalidArgumentException;
 
 /**
  * Who works in a shop, and what each of them may do.
@@ -206,6 +208,44 @@ class SellerTeamService
             action: 'seller.staff_signed_out',
             subject: ['type' => 'seller_staff', 'id' => $staff->id],
             context: ['seller_id' => $staff->seller_id],
+        );
+    }
+
+    /**
+     * End the session the caller is in, whoever the caller is (K-12).
+     *
+     * A session on this API *is* the bearer token, so ending one means the token stops resolving —
+     * nothing else about the account changes, because signing out is not deactivating. An owner and
+     * a staff member keep that token in different tables, which is the only difference between the
+     * two halves, and an issued key is neither: a key is revoked in the key console by the person
+     * who owns the shop, never by whatever is holding it.
+     */
+    public function signOut(SellerPrincipal $principal): void
+    {
+        if ($principal->apiKey !== null) {
+            throw new InvalidArgumentException('An issued key has no session to end: revoke the key instead.');
+        }
+
+        $principal->staff !== null
+            ? $this->signOutStaff(staff: $principal->staff)
+            : $this->signOutOwner(seller: $principal->seller);
+    }
+
+    /**
+     * End an owner's API session without changing anything else about them.
+     *
+     * Written through the model rather than as a query so that the `saved` hook on {@see Seller}
+     * forgets the cached seller rows: a cached row still carrying the old token would hand a
+     * signed-out credential back to the next reader that trusts the cache.
+     */
+    public function signOutOwner(Seller $seller): void
+    {
+        $seller->forceFill(['auth_token' => null])->save();
+
+        $this->audit->record(
+            action: 'seller.signed_out',
+            subject: ['type' => 'seller', 'id' => $seller->id],
+            context: ['seller_id' => $seller->id],
         );
     }
 

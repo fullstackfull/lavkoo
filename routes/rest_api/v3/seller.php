@@ -66,6 +66,22 @@ Route::group(['namespace' => 'RestAPI\v3\seller', 'prefix' => 'v3/seller', 'midd
         });
     });
 
+    /*
+     * Signing out. Authenticated, and deliberately outside the group above: that group is the
+     * unauthenticated door and carries the login throttle, which would answer a seller trying to
+     * leave with "too many attempts" because somebody else was guessing passwords.
+     *
+     * `seller_market` is left off on purpose too. The market scope decides what a seller may SEE;
+     * being unable to see anything must never be a reason a seller cannot give their credential
+     * back, which is the one request that is safe to grant whatever else is wrong with the caller.
+     *
+     * An issued key is refused by the token middleware, which 403s a key on any route that declares
+     * no scope: a key is revoked in the key console by the shop, not by whatever is holding it.
+     */
+    Route::group(['prefix' => 'auth', 'middleware' => ['seller_api_auth']], function () {
+        Route::post('logout', [VendorLoginController::class, 'logout']);
+    });
+
     Route::group(['prefix' => 'registration', 'namespace' => 'auth'], function () {
         Route::controller(RegisterController::class)->group(function () {
             Route::post('/', 'store');
