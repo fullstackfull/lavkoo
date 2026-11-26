@@ -36,8 +36,11 @@ class ProviderCityReview
 
     private const SHOWN_RUNS = 5;
 
-    public function __construct(private readonly ProviderCityMappingService $mappings, private readonly LegacyCityMatcher $matcher)
-    {
+    public function __construct(
+        private readonly ProviderCityMappingService $mappings,
+        private readonly LegacyCityMatcher $matcher,
+        private readonly ProviderStorefrontCountry $providerCountry,
+    ) {
     }
 
     /** @return list<int> our cities the held orders are waiting on, most recent first */
@@ -53,7 +56,8 @@ class ProviderCityReview
      *     directory: array{total: int, missing: int, selected: int},
      *     cities: list<array<string, mixed>>,
      *     typed: list<array{text: string, orders: int, shipments: list<array{id: int, reference: string}>}>,
-     *     approved: list<array{mapping: ProviderCityMapping, city: ?AddressCity, provider_city: ?ProviderCity}>
+     *     approved: list<array{mapping: ProviderCityMapping, city: ?AddressCity, provider_city: ?ProviderCity}>,
+     *     country: ?string
      * }
      */
     public function overview(string $provider): array
@@ -94,6 +98,7 @@ class ProviderCityReview
             'cities' => $blocks,
             'typed' => $this->typedText($held),
             'approved' => $this->approved($provider),
+            'country' => $this->providerCountry->of($provider),
         ];
     }
 
@@ -179,10 +184,33 @@ class ProviderCityReview
         ];
     }
 
-    /** @return list<array{mapping: ProviderCityMapping, city: ?AddressCity, provider_city: ?ProviderCity}> */
+    /**
+     * The approved matches this screen lists, narrowed to the country the connection serves (H1-10).
+     *
+     * `provider_city_mappings.country_code` has carried the country of OUR CITY on every write since H1-10, and until this nothing READ
+     * it on a screen: one carrier code serving two countries with separate credentials (H1-11) would have listed both countries' approved
+     * matches in one list, with nothing in it saying which country a row was about -- and two cities of the same name in two countries read
+     * as one row repeated.
+     *
+     * The country is {@see ProviderStorefrontCountry::of()}, which is the same answer the product search on this very screen is narrowed
+     * by, so the products it offers and the cities it lists belong to one country. It answers NULL while the country-scoped codes switch is
+     * off, and {@see ProviderCityMappingService::ofCountry()} then narrows nothing -- so this ships dormant. When it is on, the default
+     * storefront also takes the rows that name no country, because a mapping made before countries were stated is a mapping of the one
+     * country the platform served.
+     *
+     * Only the APPROVED list. The waiting and conflicting blocks are deliberately NOT narrowed: they are work somebody has to do, and a
+     * held order of another country hidden from the only screen that can release it would be worse than a mixed list. Narrowing those needs
+     * the shipment's own market, which `provider_fulfillments` does not carry; it is named in H1-10 as the half that remains.
+     *
+     * @return list<array{mapping: ProviderCityMapping, city: ?AddressCity, provider_city: ?ProviderCity}>
+     */
     private function approved(string $provider): array
     {
-        $mappings = ProviderCityMapping::query()->approved()->where('provider', $provider)->orderByDesc('approved_at')->orderByDesc('id')->limit(self::SHOWN_APPROVED)->get();
+        $mappings = ProviderCityMappingService::ofCountry(
+            ProviderCityMapping::query()->approved()->where('provider', $provider),
+            $provider,
+            $this->providerCountry->of($provider),
+        )->orderByDesc('approved_at')->orderByDesc('id')->limit(self::SHOWN_APPROVED)->get();
         $cities = AddressCity::query()->with('region')->whereIn('id', $mappings->pluck('address_city_id')->all())->get()->keyBy('id');
         $providerCities = ProviderCity::query()->where('provider', $provider)->whereIn('external_id', $mappings->pluck('external_city_id')->all())->get()->keyBy('external_id');
 

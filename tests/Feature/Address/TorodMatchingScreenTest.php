@@ -21,6 +21,8 @@ use App\Services\Address\AddressSchema;
 use App\Services\Fulfillment\ProviderCityReview;
 use App\Services\Fulfillment\ProviderCityMappingService;
 use App\Services\Fulfillment\ProviderOrderDispatcher;
+use App\Services\Storefront\StorefrontCatalog;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
@@ -225,6 +227,72 @@ class TorodMatchingScreenTest extends TorodAddressTestCase
 
         $this->post(route('admin.fulfillment-providers.torod.cities.retire', $mapping->id))->assertRedirect();
         $this->assertStringContainsString(translate('city_mapping_only_approved_can_be_retired'), $this->toasts());
+    }
+
+    /**
+     * The approved matches this screen lists belong to the country the connection serves (H1-10).
+     *
+     * `provider_city_mappings.country_code` has carried the country of OUR CITY on every write since H1-10, and nothing read it on a
+     * screen: with one carrier code serving two countries (H1-11) both countries' approved matches were listed together, and two cities of
+     * the same name in two countries read as one row repeated.
+     *
+     * Only the APPROVED list is narrowed, on purpose: a city with orders WAITING is work somebody has to do, and hiding another country's
+     * held order from the only screen that can release it would be worse than a mixed list.
+     */
+    public function test_the_approved_list_shows_the_matches_of_the_country_this_connection_serves(): void
+    {
+        $kuwaiti = $this->aKuwaitiCityNamed('الرياض', 'Riyadh');
+        $saudi = $this->mappings()->approve(provider: 'torod_point', cityId: $this->ids['riyadh'], externalCityId: '36189');
+        $foreign = $this->mappings()->approve(provider: 'torod_point', cityId: (int) $kuwaiti->id, externalCityId: '230194');
+
+        $this->assertSame(['SA', 'KW'], [$saudi->refresh()->country_code, $foreign->refresh()->country_code], 'each match names the country of our own city');
+
+        // The platform as it ships: the country-scoped codes switch is off, so nothing is narrowed and both matches are listed.
+        $this->assertEqualsCanonicalizing([$saudi->id, $foreign->id], $this->approvedMappingIds(), 'with the switch off the screen lists what it lists today');
+
+        $this->scopeProviderCataloguesByCountry();
+
+        $this->assertSame([$saudi->id], $this->approvedMappingIds(), 'the Kuwaiti match is not the Saudi connection\'s to show');
+        $this->assertSame('SA', app(ProviderCityReview::class)->overview('torod_point')['country'], 'and the screen says which country it answered for');
+
+        $html = $this->page();
+        $this->assertStringContainsString(route('admin.fulfillment-providers.torod.cities.retire', $saudi->id), $html);
+        $this->assertStringNotContainsString(route('admin.fulfillment-providers.torod.cities.retire', $foreign->id), $html, 'the page itself does not offer another country\'s match');
+    }
+
+    /** A match written before countries were stated is the default storefront's, because a one-country platform's match is that country's. */
+    public function test_a_match_that_names_no_country_stays_with_the_default_storefront(): void
+    {
+        $saudi = $this->mappings()->approve(provider: 'torod_point', cityId: $this->ids['riyadh'], externalCityId: '36189');
+        DB::table('provider_city_mappings')->where('id', $saudi->id)->update(['country_code' => null]);
+        $this->scopeProviderCataloguesByCountry();
+
+        $this->assertSame([$saudi->id], $this->approvedMappingIds());
+    }
+
+    /** @return list<int> the ids of the approved matches the screen would list, in its own order */
+    private function approvedMappingIds(): array
+    {
+        return array_map(
+            static fn (array $row): int => (int) $row['mapping']->id,
+            app(ProviderCityReview::class)->overview('torod_point')['approved'],
+        );
+    }
+
+    /**
+     * Switches on the country-scoped codes (GCC-14b slice 3), which is what makes a provider connection answer a country at all.
+     * `ProductCodeScope::enabled()` asks for the products column as well as the flag, and this fixture's products table predates it.
+     */
+    private function scopeProviderCataloguesByCountry(): void
+    {
+        if (!Schema::hasColumn('products', 'storefront_country')) {
+            Schema::table('products', static function (Blueprint $table): void {
+                $table->string('storefront_country', 2)->nullable();
+            });
+        }
+
+        StorefrontCatalog::flush();
+        config(['gcc.catalog.country_scoped_codes' => true]);
     }
 
     public function test_a_manual_match_picks_one_of_our_cities_and_one_cached_provider_city(): void
