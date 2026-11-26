@@ -166,10 +166,13 @@ class EveryQueuedClassDeclaresItsMarketTest extends QueuedMarketTestCase
     private const BOUND_IN_QUEUE_MIDDLEWARE = [self::THE_DISPATCHING_REQUEST, self::THE_RECORD_IT_NAMES];
 
     /**
-     * The 27 the three criteria were measured against are FILES that name the queue contract. Twenty-six classes actually implement it, and
-     * the difference is a defect rather than a rounding: see the test below.
+     * The 27 the three criteria were measured against are FILES that name the queue contract, and all 27 classes now implement it.
+     *
+     * It read 26 until the 27th was fixed: the difference was `RefundListener`, which named the contract and implemented nothing. The count
+     * is kept rather than dropped because the three criteria were recorded against the number 27, and a reader comparing the register with
+     * the code needs the two halves of that number to still be here.
      */
-    public function test_the_27_the_three_criteria_were_measured_against_is_a_count_of_files_and_26_classes_are_really_queued(): void
+    public function test_the_27_the_three_criteria_were_measured_against_is_a_count_of_files_and_all_27_are_really_queued(): void
     {
         $named = $this->everyClassThatNamesTheQueue();
         $run = $this->everyClassTheQueueRuns();
@@ -177,32 +180,41 @@ class EveryQueuedClassDeclaresItsMarketTest extends QueuedMarketTestCase
         $this->assertCount(27, $named, 'the criteria were recorded against 27 files naming ShouldQueue');
         $this->assertCount(10, array_filter($named, static fn (string $class): bool => str_starts_with($class, 'App\\Jobs\\')));
         $this->assertCount(17, array_filter($named, static fn (string $class): bool => str_starts_with($class, 'App\\Listeners\\')));
-        $this->assertCount(26, $run, 'one of the 27 names the contract without implementing it');
+        $this->assertCount(27, $run, 'a file that names the queue contract and does not implement it is not queued at all');
     }
 
     /**
-     * The one file of the 27 that names the queue contract and does not implement it, pinned with what that costs.
+     * Naming the queue contract and implementing it is one claim, and this test is the only thing that joins them.
      *
-     * `RefundListener` imports `ShouldQueue` and `InteractsWithQueue`, uses neither, and so is NOT queued: telling a customer or a seller
-     * about a refund sends a push inside the request that recorded the refund. Every neighbouring mail listener was queued precisely because
-     * an unreachable host held the request for a minute, and `CustomerStatusUpdateListener`'s own comment says it "follows RefundListener,
-     * which this project already runs on the queue" -- which is not true of the tree this test runs on.
+     * `RefundListener` imported `ShouldQueue` and `InteractsWithQueue`, used neither, and so was NOT queued: telling a customer or a seller
+     * about a refund sent a push -- preceded, once an hour, by an OAuth round trip to Google -- inside the request that recorded the refund
+     * decision. Every neighbouring mail listener had been queued for exactly that fault, and `CustomerStatusUpdateListener`'s own comment
+     * justified its queueing by saying it "follows RefundListener, which this project already runs on the queue", which was false.
      *
-     * It is pinned rather than fixed because queueing it changes WHEN a refund notification is sent, which is a runtime behaviour change
-     * outside the market question. Fixing it flips this test, which then asks for the declaration above to be re-read -- which is the point.
+     * What this test asserted while the defect stood, kept so the fix is legible:
+     *
+     *     $this->assertSame(['App\\Listeners\\RefundListener'], array_values(array_diff($named, $run)), ...);
+     *     $this->assertFalse((new ReflectionClass(RefundListener::class))->implementsInterface(ShouldQueue::class), ...);
+     *
+     * Both are now the other way round, and the set is asserted in BOTH directions so the next file to import the contract without
+     * implementing it is reported by name rather than by a count that happens to still add up.
+     *
+     * That the refund notification really waits on the queue, rather than merely declaring that it does, is
+     * {@see \Tests\Feature\Notifications\RefundNotificationWaitsOnTheQueueTest}: this test reads a declaration, that one drives the event.
      */
-    public function test_the_refund_notification_names_the_queue_contract_without_implementing_it(): void
+    public function test_no_file_names_the_queue_contract_without_implementing_it(): void
     {
         $this->assertSame(
-            ['App\\Listeners\\RefundListener'],
+            [],
             array_values(array_diff($this->everyClassThatNamesTheQueue(), $this->everyClassTheQueueRuns())),
-            'a file that names ShouldQueue and does not implement it is either a defect to report or a fix to re-read this list after',
+            'this file names ShouldQueue and does not implement it, so nothing it does is queued',
         );
 
-        $this->assertFalse(
+        $this->assertTrue(
             (new ReflectionClass(\App\Listeners\RefundListener::class))->implementsInterface(ShouldQueue::class),
-            'the refund notification is sent inside the request that recorded the refund',
+            'the refund notification is no longer sent inside the request that recorded the refund',
         );
+        $this->assertSame(1, (new \App\Listeners\RefundListener())->tries, 'a push has no idempotency key, so a worker retry would send a second one');
     }
 
     /**

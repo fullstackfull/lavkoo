@@ -188,6 +188,11 @@
             "by": "customer_scope",
             "why": "'customer:<id>' or 'guest:<id>': the key is claimed by whoever pressed submit, so two people may hold the same idempotency key and one person cannot submit it twice (D1-326)."
         },
+        "coupon_redemptions": {
+            "scope": "storefront",
+            "by": "storefront_country, NULL being a redemption of an order that recorded no market",
+            "why": "I1-14: one row per coupon and order group -- the coupon, the code the order carries, the customer, the market the order was sold in, the discount it was given and the currency that discount is in. It is the ledger the per-customer limit, the total cap and the budget are counted from, where before a redemption was a COUNT over `orders` grouped by order_group_id and carried neither a market nor an amount. Scope storefront rather than country, on the A1-09 reading already settled for notification_send_attempts and notification_channel_profiles: a redemption belongs to the SHOP whose coupon it spent -- a coupon belongs to one storefront because its amounts are typed in that storefront's currency (CouponCountry) -- and not to the country as a jurisdiction. NULL means the order recorded no market, which is every order of the platform of today."
+        },
         "customer_market_loyalty_accounts": {
             "scope": "customer",
             "by": "customer_id with market"

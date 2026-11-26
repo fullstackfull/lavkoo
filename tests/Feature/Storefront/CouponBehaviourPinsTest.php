@@ -58,6 +58,12 @@ class CouponBehaviourPinsTest extends ApiAddressTestCase
         return translate('minimum_purchase_amount_not_reached_for_this_coupon.');
     }
 
+    /** I1-11: the refusal of a cart whose eligible lines are worth less than the coupon's own fixed discount. */
+    private function discountIsMoreThanTheItems(): string
+    {
+        return translate('this_coupons_discount_is_more_than_the_items_it_applies_to');
+    }
+
     private function notValidForThisUser(): string
     {
         return translate('sorry_this_coupon_is_not_valid_for_this_user') . '!';
@@ -132,20 +138,38 @@ class CouponBehaviourPinsTest extends ApiAddressTestCase
         return ['one step above the cart' => [100.01], 'far above the cart' => [150.0]];
     }
 
+    /**
+     * REWRITTEN, 2026-11-26 (I1-11): this case pinned the refusal MESSAGE as "minimum purchase amount not reached", and that sentence was
+     * false of the cart in front of it -- the minimum here is 0 and was reached. The condition is unchanged and the coupon is still
+     * refused; what changed is which of the three facts sharing that condition the customer is told
+     * ({@see \App\Utils\OrderManager::refusalOfACartTheCouponDoesNotFit}).
+     *
+     * What it asserted before:
+     *
+     *     $this->assertCouponRefused(message: $this->minimumNotReached(), response: $this->applyTheCoupon(...));
+     *
+     * Still pinned, and the half that matters most: the ORDER is placed without the coupon and records the code 0.
+     */
     #[DataProvider('fixedDiscountsAboveTheCartOfOneHundred')]
-    public function test_a_fixed_coupon_above_the_eligible_total_is_refused_with_the_answer_of_a_minimum_not_reached(float $discount): void
+    public function test_a_fixed_coupon_above_the_eligible_total_is_refused_because_the_discount_is_more_than_the_items(float $discount): void
     {
         $this->giveCoupon(code: 'FIXED', country: null, attributes: ['discount' => $discount, 'min_purchase' => 0]);
         $customer = $this->makeCustomer();
         $this->fillTheCart($customer, self::IN_HOUSE_PRODUCT);
 
-        $this->assertCouponRefused(message: $this->minimumNotReached(), response: $this->applyTheCoupon(customer: $customer, code: 'FIXED'));
+        $this->assertCouponRefused(message: $this->discountIsMoreThanTheItems(), response: $this->applyTheCoupon(customer: $customer, code: 'FIXED'));
 
         $this->placeTheOrder(customer: $customer, code: 'FIXED')->assertOk();
         [$order] = $this->ordersOf($customer);
         $this->assertOrderTookNoCoupon($order);
     }
 
+    /**
+     * A percentage coupon keeps the minimum-purchase sentence, and that is a DEFECT recorded rather than fixed (I1-11): `$couponDiscount`
+     * is a figure of per cent here and the condition compares it with an amount of money, so 31 per cent is refused on a cart of 30 and
+     * applied to a cart of 100. Correcting the condition would let through a coupon this platform refuses today, which changes what a
+     * customer is charged; correcting only the wording would put a third sentence on a refusal nobody should be given at all.
+     */
     public function test_a_percentage_coupon_whose_percentage_figure_is_above_the_eligible_total_is_refused_the_same_way(): void
     {
         $figure = self::SMALL_IN_HOUSE_PRICE + 1;
@@ -390,7 +414,10 @@ class CouponBehaviourPinsTest extends ApiAddressTestCase
         $this->fillTheCart($customer, self::IN_HOUSE_PRODUCT, self::VENDOR_PRODUCT);
 
         $this->assertCouponApplied(discount: self::VENDOR_PRICE, response: $this->applyTheCoupon(customer: $customer, code: 'COVERED'));
-        $this->assertCouponRefused(message: $this->minimumNotReached(), response: $this->applyTheCoupon(customer: $customer, code: 'ABOVE'));
+        // The MESSAGE moved with I1-11 and the subject of this case did not: `ABOVE` is a fixed discount one fils above the vendor's own
+        // lines, so what refuses it is the discount against those lines -- which is exactly what this case is about. It read
+        // `minimumNotReached()` until the three facts sharing that condition were given their own sentences.
+        $this->assertCouponRefused(message: $this->discountIsMoreThanTheItems(), response: $this->applyTheCoupon(customer: $customer, code: 'ABOVE'));
     }
 
     /** @return array<string, array{int, float, float, float}> the vendor of the coupon, the discount, and what each of the two orders of the cart costs */

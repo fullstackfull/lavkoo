@@ -131,6 +131,10 @@ final class StaffJobInventory
             'class' => self::NOT_STAFF_STARTED, 'started' => 'the customer password-reset paths',
             'reason' => 'Sends the reset link for the account a customer asked about. Started by that customer, on their own account.',
         ],
+        'App\Listeners\RefundListener' => [
+            'class' => self::ONE_RECORD, 'started' => 'Admin\Order\RefundController, the seller API\'s RefundController, the vendor panel and the customer\'s own refund request',
+            'reason' => 'Tells the shop and the buyer about the one refund the event names, on the one order it names. An employee reaches it by deciding a refund, and both recipients come off that order, so there is no list of a country to narrow. It was not on this list until it was queued at all: the file named ShouldQueue and implemented nothing.',
+        ],
         'App\Listeners\RequestProductRestockListener' => [
             'class' => self::NOT_STAFF_STARTED, 'started' => 'the cart, on the website and in the API',
             'reason' => 'Records that one customer wants to hear when one product is back in stock. Started by that customer, from the cart.',

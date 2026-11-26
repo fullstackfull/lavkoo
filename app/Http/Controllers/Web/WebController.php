@@ -841,6 +841,17 @@ class WebController extends Controller
             return redirect()->route('checkout-details');
         }
 
+        // D1-17: the same engine the app and the cash-on-delivery checkout ask. It was asked on ONE of the website's three checkouts, so
+        // a basket the app refused was accepted here -- and the address guard above answers only half the question (whether this market
+        // may send a parcel to that country), not what the PRODUCT is permitted to do, what the carrier is contracted to carry, whether a
+        // regulated line has a recorded clearance, or whether the duty on the route can be determined at all. Asked before the guest's
+        // account is created, for the reason the address refusal above is: a refusal must not leave an account behind with no order.
+        if ($shippingRefusal = $this->crossBorderRefusal($request)) {
+            Toastr::error($shippingRefusal);
+
+            return back();
+        }
+
         if (session('newCustomerRegister')) {
             $newCustomerRegister = session('newCustomerRegister');
             if (User::where(['email' => $newCustomerRegister['email']])->orWhere(['phone' => $newCustomerRegister['phone']])->first()) {
@@ -955,6 +966,14 @@ class WebController extends Controller
             if ($addressRefusal !== null) {
                 Toastr::error($addressRefusal);
                 return redirect()->route('checkout-details');
+            }
+
+            // D1-17: as on the offline-payment checkout above, and before the wallet is debited rather than after -- a cross-border refusal
+            // found after the money has left the wallet is a refund and an apology.
+            if ($shippingRefusal = $this->crossBorderRefusal($request)) {
+                Toastr::error($shippingRefusal);
+
+                return back();
             }
 
             try {

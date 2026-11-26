@@ -152,6 +152,18 @@ return [
             'enabled' => filter_var(env('GCC_STOREFRONT_PATHS', false), FILTER_VALIDATE_BOOLEAN),
         ],
 
+        'stop' => [
+            // The answer a web GET of a market paused in stop mode "redirect" is given (I2-15). 302 by default and deliberately: whether
+            // a stop is announced to search engines as PERMANENT is the owner's question (I2-15 records it as open), and 302 is the answer
+            // that can be taken back -- a 301 is remembered by browsers and by crawlers long after the market is selling again. Only 301
+            // and 302 are accepted; anything else is read as 302 rather than sent.
+            //
+            // There is no switch beside this one, and that is a choice with a reason: the mode is already something an operator chooses per
+            // market, stored and audited, and it ships with no market paused at all. A switch that defaulted off would make a market whose
+            // operator chose "redirect" behave as browse-only while its own screens, its audit line and both apps said it redirects.
+            'redirect_status' => (int) env('GCC_STOREFRONT_STOP_REDIRECT_STATUS', 302),
+        ],
+
         'queues' => [
             // Off by default: every job and every queued listener waits on the queue it waits on today, whatever market it carries. When it is on, work
             // that carries a market other than the default storefront's waits on that market's own queue (`storefront-kw` and so on), so an operator can
@@ -748,6 +760,24 @@ return [
             // it ships as and what every installation keeps until somebody chooses otherwise. A text that was ever approved, published,
             // archived or revoked is kept for good whatever this says: an acceptance row points at it by id, version and hash.
             'draft_days' => (int) env('GCC_LEGAL_DRAFT_RETENTION_DAYS', 0),
+        ],
+    ],
+
+    'coupons' => [
+        'limits' => [
+            // I1-14. OFF by default and the whole feature is dormant behind it: no ledger row is written, no cap and no budget is read,
+            // and `OrderManager::countCouponUses` counts the customer's order groups exactly as it always has.
+            //
+            // When it is on, a coupon's redemptions are recorded in `coupon_redemptions` (one row per coupon and order group) and two
+            // columns of `coupons` are honoured: `total_uses_limit`, how many times the coupon may be redeemed in total, and `budget`,
+            // how much discount it may give away in the money of its own storefront. Both are NULL on every coupon that exists, and null
+            // means no limit -- an administrator who has typed no cap has capped nothing.
+            'enabled' => filter_var(env('GCC_COUPON_LIMITS', false), FILTER_VALIDATE_BOOLEAN),
+
+            // Whether the per-customer limit and the first-order rule are counted WITHIN ONE MARKET rather than over every order of the
+            // customer. With six markets those are different coupons, and which one the owner wants is Q-04 (its own proposal is per
+            // store). OFF, so the count is what this platform has always counted; it needs the switch above as well.
+            'per_store' => filter_var(env('GCC_COUPON_LIMITS_PER_STORE', false), FILTER_VALIDATE_BOOLEAN),
         ],
     ],
 

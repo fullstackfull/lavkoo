@@ -121,7 +121,13 @@ class StaffJobInventoryTest extends TestCase
         $this->assertDoesNotMatchRegularExpression('/StaffCountryScope|staffScope/', $this->scanner->scheduleSource(), 'the schedule must bind no employee scope: there is no employee behind a scheduled run');
     }
 
-    /** And no queued work reads a list across countries today, which is why G-11's staff job context has no first caller yet. */
+    /**
+     * And no queued work reads a list across countries today, which is why G-11's staff job context has no first caller yet.
+     *
+     * It was five until `RefundListener` was made to implement the contract it had only imported (I1-09). That listener is the sixth for
+     * the same reason the others are: a refund names one order, and the shop and the buyer it writes to are both that order's, so there is
+     * no country's list behind it. The list is ORDERED, so a new entry goes where the entries are already sorted.
+     */
     public function test_no_queued_job_is_classified_as_needing_a_scope_it_does_not_carry(): void
     {
         $oneRecord = array_keys(array_filter(StaffJobInventory::QUEUED, static fn (array $entry): bool => $entry['class'] === StaffJobInventory::ONE_RECORD));
@@ -132,6 +138,7 @@ class StaffJobInventoryTest extends TestCase
             'App\Listeners\CustomerStatusUpdateListener',
             'App\Listeners\DigitalProductDownloadListener',
             'App\Listeners\OrderEditReturnPaymentListener',
+            'App\Listeners\RefundListener',
             'App\Listeners\VendorRegistrationListener',
         ], $oneRecord, 'the queued work an employee starts changed: a job that reads a list across countries is the first caller of a staff job context, and it must carry the actor and re-read the scope');
     }

@@ -72,6 +72,8 @@ use App\Services\Customer\CustomerWalletWriter;
 use App\Services\Shipping\OrderCustomsQuote;
 use App\Services\Shipping\OrderShippingDecision;
 use App\Services\Shipping\ShippingEligibility;
+use App\Services\Coupon\CouponAllowance;
+use App\Services\Coupon\CouponRedemption;
 use App\Services\Checkout\OneOrderPerCheckoutSubmit;
 use App\Services\Payments\OneOrderPerPayment;
 use App\Services\Tax\IncludedTax;
@@ -578,13 +580,49 @@ class OrderManager
     }
 
     /** How many checkouts of the customer used the coupon: the orders of one checkout share a group and count once. */
+    /**
+     * How many times this customer has redeemed this code.
+     *
+     * The ledger answers it when it is in use (I1-14): it records one row per coupon and order group, so it counts the same thing this
+     * query counts -- and it can also count within ONE MARKET, which an order-group count over `orders` cannot without re-reading every
+     * order's storefront. While the ledger is off, which is how the platform ships, this is the query it has always been, to the row.
+     */
     public static function countCouponUses(int|string $customerId, mixed $couponCode): int
     {
+        $recorded = CouponRedemption::usesByCustomer(
+            customerId: $customerId,
+            couponCode: is_string($couponCode) ? $couponCode : null,
+            market: CouponAllowance::marketOfTheCount(),
+        );
+
+        if ($recorded !== null) {
+            return $recorded;
+        }
+
         return Order::where(['customer_id' => $customerId, 'coupon_code' => $couponCode])
             ->select('order_group_id')
             ->groupBy('order_group_id')
             ->get()
             ->count();
+    }
+
+    /**
+     * Whether this customer has ordered before, which is what a `first_order` coupon asks (I1-14).
+     *
+     * Counted within one market when the counting is per store (Q-04) and over every order otherwise, which is what it has always been.
+     * The market is the order's own record and not the request's: a customer's first order in Kuwait is a first order there whichever
+     * storefront they are looking at now.
+     */
+    private static function customerHasOrderedBefore(int|string $customerId): bool
+    {
+        $orders = Order::where(['customer_id' => $customerId]);
+        $market = CouponAllowance::marketOfTheCount();
+
+        if ($market !== null && Schema::hasColumn('orders', 'storefront_country')) {
+            $orders->where('storefront_country', $market);
+        }
+
+        return $orders->count() > 0;
     }
 
     public static function getTotalCouponAmount($request, $couponCode): array
@@ -624,12 +662,25 @@ class OrderManager
         }
 
         if ($coupon && $coupon['coupon_type'] == 'first_order') {
-            if (Order::where(['customer_id' => $user['id']])->count() > 0) {
+            if (self::customerHasOrderedBefore(customerId: $user['id'])) {
                 return [
                     'status' => false,
                     'messages' => translate('sorry_this_coupon_is_not_valid_for_this_user') . '!',
                 ];
             }
+        }
+
+        // I1-14: what is left of the coupon itself -- its total cap and its spending budget -- after the per-customer limit and the
+        // first-order rule, which are about this customer. Null while the cap and budget are off, which is how the platform ships, so
+        // the coupon reaches the lines below exactly as it always has. The eligible total is not known yet, so the budget is judged on
+        // what it has already given away; the amount is added where the discount is known, below.
+        $exhausted = CouponAllowance::refusalFor(coupon: $coupon);
+
+        if ($exhausted !== null) {
+            return [
+                'status' => false,
+                'messages' => translate($exhausted) . '!',
+            ];
         }
 
         $cartList = CartManager::getCartListQueryAPI(request: $request, type: 'checked');
@@ -686,7 +737,11 @@ class OrderManager
             if ($onlyProductTotalAmount <= 0 || $couponDiscount > $onlyProductTotalAmount || $coupon['min_purchase'] > $onlyProductTotalAmount) {
                 return [
                     'status' => false,
-                    'messages' => translate('minimum_purchase_amount_not_reached_for_this_coupon.')
+                    'messages' => translate(self::refusalOfACartTheCouponDoesNotFit(
+                        eligibleTotal: $onlyProductTotalAmount,
+                        minimumPurchase: (float) $coupon['min_purchase'],
+                        discountType: $couponDiscountType,
+                    ))
                 ];
             }
 
@@ -720,6 +775,17 @@ class OrderManager
             }
         }
 
+        // I1-14, the other half of the budget: above, the coupon was judged on what it had already given away, because the eligible total
+        // was not known yet. Here the discount IS known, and a budget with 3 left refuses a 5 and would have allowed a 2.
+        $overBudget = CouponAllowance::refusalFor(coupon: $coupon, discount: $discount);
+
+        if ($discount > 0 && $overBudget !== null) {
+            return [
+                'status' => false,
+                'messages' => translate($overBudget) . '!',
+            ];
+        }
+
         if ($discount > 0) {
             session()->put('coupon_code', $coupon['code']);
             session()->put('coupon_type', $couponType);
@@ -740,6 +806,38 @@ class OrderManager
             'status' => false,
             'messages' => translate('coupon_not_valid')
         ];
+    }
+
+    /**
+     * Which of the three refusals the one condition above actually hit (I1-11).
+     *
+     * Three different facts share that condition and shared one sentence: nothing in the cart is eligible, the coupon's own FIXED discount
+     * is larger than the lines it applies to, and the minimum purchase is not reached. Only the third is what the sentence says, and the
+     * second is the one a customer meets: a cart of 30 with a 50-off coupon whose minimum is 20 was told "minimum purchase amount not
+     * reached", which is FALSE -- the minimum was reached, and the customer who adds items to reach a minimum they already met is being
+     * sent to do the one thing that cannot help.
+     *
+     * The order is the order of truth and not of convenience. A cart below the minimum is told so first, whatever else is also true of it,
+     * because that sentence is then correct and it is the rule the admin form and the owner's note are about -- `min_purchase > eligible
+     * total` is untouched here and nothing in this method moves it.
+     *
+     * Two cases deliberately keep the old sentence, and both are reported rather than fixed:
+     *
+     *  - a PERCENTAGE coupon, where `$couponDiscount` is a figure of per cent and the condition compares it with an amount of money. A 31
+     *    per cent coupon is refused on a cart of 30 and applied to a cart of 100, which is a defect in the CONDITION and not in the
+     *    wording: correcting it would let through a coupon this platform refuses today, which is a change to what a customer is charged.
+     *  - a cart with nothing eligible at all (`<= 0`), whose honest sentence is a third one again. The criterion names the fixed discount,
+     *    and a message nobody asked for is a message nobody has read in Arabic.
+     */
+    private static function refusalOfACartTheCouponDoesNotFit(float|int $eligibleTotal, float $minimumPurchase, ?string $discountType): string
+    {
+        $minimumNotReached = 'minimum_purchase_amount_not_reached_for_this_coupon.';
+
+        if ($minimumPurchase > $eligibleTotal || $eligibleTotal <= 0 || $discountType === 'percentage') {
+            return $minimumNotReached;
+        }
+
+        return 'this_coupons_discount_is_more_than_the_items_it_applies_to';
     }
 
     public static function getGroupWiseCouponArray($request, $couponCode, $applicableAmount, $discountAmount, $groupId, $cartListGroup): array
@@ -763,6 +861,18 @@ class OrderManager
             ->whereDate('expire_date', '>=', date('Y-m-d'))->first();
 
         $coupon = $firstCoupon && $firstCoupon['coupon_type'] == 'first_order' ? $firstCoupon : ($firstCoupon['limit'] > $couponLimit ? $firstCoupon : null);
+
+        // I1-14: a coupon whose cap or budget is spent gives this group nothing, which is the answer this function already gives for a
+        // coupon that does not apply -- discount 0 and coupon code 0 on the order. Asked here as well as in getTotalCouponAmount because
+        // this is the function whose answer is WRITTEN onto the order, and the two are called from the same request a moment apart.
+        if (CouponAllowance::refusalFor(coupon: $coupon, discount: $discountAmount) !== null) {
+            return [
+                'discount' => 0,
+                'coupon_bearer' => 'inhouse',
+                'coupon_code' => 0,
+                'coupon_type' => NULL,
+            ];
+        }
 
         $firstOrderCoupon = $coupon->coupon_type == 'first_order';
         $discountOnPurchaseCoupon = $coupon->coupon_type == 'discount_on_purchase';
@@ -1651,6 +1761,11 @@ class OrderManager
         // And what was quoted for customs duty (H1-09), beside it and for the same reason: a tariff changes, a rule is written or
         // withdrawn, and an order recomputed a year later would show a figure nobody ever charged. Silent while duty is off.
         OrderCustomsQuote::record($orderId);
+
+        // And the coupon this order redeemed (I1-14), from the order's own row: the code it carries, the market it was sold in and the
+        // money it was priced in. One row per ORDER GROUP, so a group of two vendors reaches this twice and writes one redemption -- the
+        // discount is re-summed from the group each time rather than added to. Silent while the coupon ledger is off.
+        CouponRedemption::record($orderId);
 
         foreach ($savedLines as $savedLine) {
             // Freeze the commission for this line, here, inside the order transaction.

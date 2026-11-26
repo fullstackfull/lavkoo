@@ -16,9 +16,14 @@ use App\Listeners\Concerns\QueuedMailDelivery;
  * The admin sat through a minute per toggle, and any batch died mid-way.
  *
  * The exception in sendingMail() is already swallowed, so the failure was silent
- * as well as slow. Queuing follows RefundListener, which this project already runs
- * on the queue, so it needs no new infrastructure — but it does need the queue
- * worker to be running, exactly as refunds already do.
+ * as well as slow. Queuing needs no new infrastructure, but it does need the queue
+ * worker to be running.
+ *
+ * This paragraph used to read "Queuing follows RefundListener, which this project already runs on the queue", and that was NOT true when it
+ * was written: RefundListener named ShouldQueue and implemented nothing, so a refund push was sent inside the request that recorded the
+ * refund. It is queued now, so the sentence would be true -- but it is taken out rather than corrected, because a justification that rests
+ * on another class is a justification that can go stale silently. The reason this listener is queued is the measured 60-second SMTP connect
+ * above, which stands on its own.
  */
 class CustomerStatusUpdateListener implements ShouldQueue
 {
