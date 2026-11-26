@@ -778,6 +778,23 @@ return [
         //
         // It decides what a customer owes for points they have already spent, so it is the owner's and nobody else's:
         // docs/gcc/OPEN-FINANCIAL-DECISIONS.md section 5. An unrecognised value is read as the default.
+        // Whether a delivery earns points under ONE rule on every channel (E-14, finding LO-08). Five places decide it today and all five
+        // decide it differently -- the table is in `App\Services\Loyalty\WhenADeliveryEarnsPoints`, measured condition by condition.
+        // The costly disagreement is that the three seller-API sites claim no reward row, so one order can earn more than once, while the
+        // panels take the row first (IDEM-08) and so credit once.
+        //
+        //   'as_each_channel_does_today'  the default: each channel's own conditions, unchanged, to the condition
+        //   'one_rule'                    the admin panel's reading on every channel, and every channel claims the reward row
+        //
+        // The one rule deliberately does not require the wallet to be on (points are not wallet money) and does not require the payment to
+        // be paid (four of the five do not), so it is more permissive than four channels in the first respect and than seller API v2 in the
+        // second. Both change what a customer is credited, so the reading is the owner's: docs/gcc/OPEN-FINANCIAL-DECISIONS.md. An
+        // unrecognised value is read as the default.
+        'when_a_delivery_earns_points' => env(
+            'GCC_WHEN_A_DELIVERY_EARNS_POINTS',
+            App\Services\Loyalty\WhenADeliveryEarnsPoints::AS_EACH_CHANNEL_DOES_TODAY,
+        ),
+
         'when_a_refund_would_take_points_below_zero' => env(
             'GCC_REFUND_POINTS_BELOW_ZERO',
             App\Services\Loyalty\WhenARefundWouldTakePointsBelowZero::ALLOW_AS_TODAY,

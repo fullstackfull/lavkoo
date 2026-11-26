@@ -19,6 +19,8 @@ use App\Http\Middleware\ScopeOrdersToStaffCountries;
 use App\Models\OrderEditHistory;
 use App\Services\CustomerWalletService;
 use App\Services\DigitalProductFileService;
+use App\Services\Loyalty\DeliveryEarnFacts;
+use App\Services\Loyalty\WhenADeliveryEarnsPoints;
 use App\Services\Refund\RefundClaims;
 use App\Services\Storefront\LedgerOrigin;
 use App\Services\Wallet\WalletCreditRefused;
@@ -759,9 +761,23 @@ class OrderController extends BaseController
         // IDEM-08: the reward is claimed before its points are credited, not marked delivered after. Two deliveries of one order both
         // read `reward_delivered != 1` and both credited; the conditional UPDATE lets one of them through, and it is in the same
         // transaction as the credit so a credit that fails gives the claim back.
-        if ($orderDetailsRewards && $orderDetailsRewards['reward_delivered'] != 1 && $orderDetailsRewards['reward_amount'] > 0 && $loyaltyPointStatus == 1 && $loyaltyPointEachOrder == 1 && !$order['is_guest'] && $request['order_status'] == 'delivered') {
+        // The one place the five delivery channels ask the same question, so that they can stop answering it differently (E-14, LO-08).
+        // This channel's own conditions are what the rule's default answers, to the condition, so nothing here changed.
+        $earns = WhenADeliveryEarnsPoints::earns(channel: WhenADeliveryEarnsPoints::ADMIN_PANEL, facts: new DeliveryEarnFacts(
+            statusIsDelivered: $request['order_status'] == 'delivered',
+            isGuest: (bool) $order['is_guest'],
+            paymentIsPaid: $order['payment_status'] == 'paid',
+            walletIsOn: getWebConfig(name: 'wallet_status') == 1,
+            programmeIsOn: $loyaltyPointStatus == 1,
+            pointsForEachOrder: $loyaltyPointEachOrder == 1,
+            rewardIsClaimable: (bool) $orderDetailsRewards && $orderDetailsRewards['reward_delivered'] != 1 && $orderDetailsRewards['reward_amount'] > 0,
+            hasSeller: $order['seller_id'] !== null,
+        ));
+
+        if ($earns) {
             DB::transaction(function () use ($order, $orderDetailsRewards, $claims): void {
-                if (!$claims->claimRewardDelivered($orderDetailsRewards['id'])) {
+                if (WhenADeliveryEarnsPoints::claimsTheRewardRow(channel: WhenADeliveryEarnsPoints::ADMIN_PANEL)
+                    && !$claims->claimRewardDelivered($orderDetailsRewards['id'])) {
                     return;
                 }
 
