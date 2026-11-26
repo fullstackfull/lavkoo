@@ -826,3 +826,50 @@ in the tests. The step added by that commit matches its siblings' shape exactly,
 exist, its own scan reproduces to the 3 permitted files, and there is no duplicate step name within the job. The
 failing step cannot be identified from the log's tail and there is no Flutter here to reproduce it. The branch is
 test-and-workflow only and is merged nowhere.
+
+### Learned on 2026-11-26, in the FAST EXECUTION round
+
+**The container can restart under you, and it takes the toolchain with it.** MariaDB was stopped and the Dart SDK
+installed earlier in the session had vanished from `/home/user`; the engine's uptime read 1,259 seconds while the
+session was hours old. Track M's "MariaDB was not running, I started it by hand" was not noise, it was the symptom.
+Before trusting any run after a gap, check `mysqladmin status` uptime and that the SDK is still on disk. A green
+report from before the restart proves nothing about now.
+
+**There is no standalone Dart 3.13.0 archive.** `dart-archive/channels/stable/release/3.13.0/sdk/...` answers
+`NoSuchKey`: that version ships only inside Flutter 3.47.0. Take the archive path out of
+`flutter_infra_release/releases/releases_linux.json` -- match the release whose `dart_sdk_version` is the one the
+workflow pins -- rather than guessing a URL. The tarball is 1.5 GB against the 230 MB an SDK alone would be, so
+start the download in the background and do other work.
+
+**A whitespace-only reformat CAN change the analyzer's count, and the proof that it was whitespace-only does not
+contradict that.** `curly_braces_in_flow_control_structures` exempts a braceless `if` only while the WHOLE statement
+sits on one line. J-09's config guard was an 89-character line; the formatter wrapped it at 80; the exemption went
+with the wrap and the project's count-based gate went red. The earlier reading here -- that the reformat could not
+be the cause because it was proven whitespace-only -- was wrong in its conclusion while right in its measurement.
+Braces fix it for good, because a braced statement cannot lose an exemption to the next wrap. `0e4a387`, run 73:
+all six jobs green, `analyze-whole-project` back to "no finding added".
+
+**The test fixtures' money columns are NARROWER THAN PRODUCTION, and that nearly produced a false defect report.**
+`2026_05_07_000001_update_all_decimal_columns_to_40_20` widens 90 `table.column` pairs to `DECIMAL(40,20)`. The
+fixtures in `tests/Support` declare **251 of those narrower**, across 71 distinct pairs, and they do not even agree
+with each other: `carts.price` was built at `(16,2)` in three fixtures, `(24,2)` in one and `(24,3)` in another, so
+a money test's answer depended on which fixture it happened to compose. A dinar price of 3.505 was therefore stored
+as **3.51 in `products.unit_price` before the cart ever saw it**, and the first reading of that failure is "the cart
+rounds three-decimal currencies", a defect the platform does not have. `CartManager::addToCart` writes
+`$product->unit_price` verbatim, exactly as it appeared to; the rounding was the test world's.
+
+So: **before concluding anything about money precision, read the fixture's declared scale, not just the code path.**
+`products` and `carts` now match the migration, and `CartThreeDecimalPriceTest` carries a guard
+(`test_the_cart_column_can_hold_what_the_platform_stores`) that reads `information_schema` rather than the fixture
+source, so a later narrowing is caught by the engine instead of silently making the other cases meaningless. The
+remaining ~233 declarations on other tables (`orders`, `order_details`, `users.wallet_balance` and the rest) are a
+known, measured gap, not an oversight.
+
+**Do not edit a shared fixture while a verification run is in flight.** PHPUnit loads support classes lazily, so an
+edit part-way through a run changes the world for the tests that have not started yet and the result describes
+neither tree. This is the same sequencing mistake as merging into the main checkout during a gate run, in a smaller
+place: stage the edit, wait for the run, then edit.
+
+**`travelTo()` reaches no worker process** (measured by Track M, cost it two failures). Each worker boots its own
+application on the real clock, so a world stamped at a travelled time reads stale inside the worker -- a blocked
+pool and a `null` net, symptoms that point at the market rather than at the clock.

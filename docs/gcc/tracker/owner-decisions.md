@@ -349,3 +349,44 @@ None of these blocks other work; each is isolated and the project continues arou
 - **M3-16:** PR 3 sign-off by the payments owner.
 - **M3-17:** Approve the N6 errata to DECISIONS.md and STATUS.md (still not applied); whether the audit branch documents are merged to main.
 - **M3-18:** Raising the 110-minute ceiling or splitting the sales-channel A-M group (handoff: the owner's call).
+
+## Raised 2026-11-26 in the FAST EXECUTION round (each with the recommendation, so a yes needs one word)
+
+These came out of real code work, not a survey. Where a safe reversible default existed it was taken under the
+standing delegation and is recorded as taken, not asked again.
+
+- **G-14.2 — the delivery man's money, five routes.** `Admin\Deliveryman\DeliverymanWithdrawController` (list,
+  filter, export, one request's screen, status POST) stays outside the country-scope regime, reachable on
+  `module:people` alone. This is not an omission: **a delivery man belongs to no market in this schema** --
+  `delivery_men` carries no country column and is not a shop, so `SellerMarketScope` has nothing to read. There is
+  no rule to discover here, only one to decide. (a) `unavailable`: a restricted employee may not touch a delivery
+  man's money at all. (b) Give `delivery_men` a market column and scope by it. (c) Leave open.
+  **Recommendation: (a) now, (b) when couriers get markets.** A ratchet test pins exactly those five routes
+  meanwhile, so the gap cannot widen unnoticed.
+- **G-07's fifth criterion — the name of a widening permission.** The criterion asks for a named permission that
+  lets a role such as finance see customer transactions of EVERY country. No capability key exists, and what is open
+  is the key's name and who holds it. Building a privilege-WIDENING key whose holder nobody has named is the one
+  thing not to guess at. **Recommendation: `customer_money_all_countries`, held by the master admin only until a
+  finance role exists.**
+- **M1-16 — is 18% margin enough?** Run 682 took **930 runner-minutes** over 50 jobs, not the 460 the register
+  carries. `Tests, SQLite (PHP 8.2)` finished in 89.7 of its 110 minutes and `Strict-mode tests, MariaDB 11.4.2` in
+  82.3. Nothing was cancelled. Whether 18% spare on the tightest job counts as margin is an owner call, and it
+  governs how much more test work may join those jobs. Related: M3-18.
+- **L-15 — the write endpoints cannot be written at all yet.** Five MISSING criteria are frozen behind one
+  authorization: which action classes a platform admin may perform, the dual-approval policy, and who may hold
+  level 2 and level 3. The step-up primitive exists and is deliberately used by no action. AC5's store-status
+  switch additionally needs GCC-12 pause modes, which do not exist.
+- **L-10 / L-13 — what personal data may a list show?** This blocks the alert deep link to an entity (order,
+  product, seller). Note that L-16's MET criterion deliberately carries market, code and count and NO entity link,
+  because a notification is read on a lock screen by whoever holds the phone. An entity id in an alert body needs
+  this decision first. L-10 also needs alert thresholds for a real catalogue.
+- **L-18 — the acceptable latency budget**, plus a 200k-order seed, before its criterion can be measured at all.
+- **L-17 — the live `seller_app_version_control` minimum is still unrecorded.** `pubspec.yaml` is left at
+  `2.0.1+4`, unchanged: no seller app version change without verified release evidence.
+- **K-13 — a native Arabic read** of the 11 scanned strings and 2 server messages. The sheet now exists
+  (`tool/list_new_strings.dart`); the read is the owner's gate and no code can substitute for it.
+- **The fixture precision gap, for information rather than decision.** 233 money-column declarations in
+  `tests/Support` are still narrower than the production migration (`orders`, `order_details`,
+  `users.wallet_balance` and others). `products` and `carts` were corrected on 2026-11-26 because M2-07's cart
+  criterion could not otherwise be proved. No decision needed: this is scheduled work, recorded so that a money
+  result measured on the other tables is read with it in mind.

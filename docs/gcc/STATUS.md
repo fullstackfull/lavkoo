@@ -13,7 +13,19 @@ dispatch). It is the first fully green comprehensive run of this effort, and it 
 SQLite jobs, the strict-mode run and the secret guard.
 
 Figures, printed by `php docs/gcc/audits/2026-11-24-post-merge-assessment/count.php` and never typed:
-**in code 1,538 of 1,754 (88%) · proven 1,128 of 1,754 (64%) · missing 216**, and the three states still sum to 1,754.
+**in code 1,543 of 1,754 (88%) · proven 1,132 of 1,754 (65%) · missing 211**, and the three states still sum to 1,754.
+
+**The FAST EXECUTION round (2026-11-26) is in progress.** Three of its five tracks have handed back and are merged
+after independent verification -- M (CI strict mode, a two-market stock-pool concurrency proof), K/L/J (per-market
+payments and recorded tax, the route-table selector walk) and E/G/B/F (ledger payouts inside the country scope, the
+customer's two balances, a recent-search narrowing, and an export guard that was failing OPEN). I/D and H/A/C are
+still working. The PlatformAdmin suite was re-run whole against the merged tree: **1,231 tests / 27,490 assertions,
+green.**
+
+**All three Flutter CI items are green**, which clears Priority 3: the customer app's J-09 at `0e4a387` (run 73, six
+jobs, including the formatting gate and `analyze-whole-project` back to "no finding added"), its J-14 branch, and the
+seller app's K-12 at `45300f7` (run 79) -- where fixing the formatting also revealed that `Analyze` and `Check
+translation keys` had been SKIPPED rather than passing.
 
 **Run 678's four causes are all closed**, three of them fixed and one answered by the owner:
 A the staging seeder's balance write (it goes through the one locked writer now, and the writers list is unchanged,
