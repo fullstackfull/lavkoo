@@ -36,6 +36,7 @@ use App\Utils\CartManager;
 use App\Utils\CustomerManager;
 use App\Utils\Helpers;
 use App\Utils\ImageManager;
+use App\Services\Checkout\OrderRefused;
 use App\Services\Storefront\RefundOrderMoney;
 use App\Services\Shipping\ShippingEligibility;
 use App\Utils\OrderManager;
@@ -322,12 +323,13 @@ class OrderController extends Controller
         ]);
 
 
-        // generateOrder() returns an empty list when it refused the order inside its transaction:
-        // stock ran out between the check above and the write. Nothing was created and no stock was
-        // taken. Reported with the same 403 + message shape this endpoint already uses for the
-        // pre-order stock check, so existing app builds handle it without a change.
+        // generateOrder() returns an empty list when it refused the order inside its transaction: stock ran out between the check above
+        // and the write, or the coupon reached a limit of its own (I1-14). Nothing was created, no stock was taken and no money moved.
+        // Reported with the same 403 + message shape this endpoint already uses for the pre-order stock check, so existing app builds
+        // handle it without a change -- and the SENTENCE is the refusal's own where the writer named one, because telling a customer whose
+        // coupon is spent to go and look for an item that ran out sends them to do the one thing that cannot help.
         if (empty($orderIds)) {
-            return response()->json(['message' => translate('The_following_items_in_your_cart_are_currently_out_of_stock')], 403);
+            return response()->json(['message' => OrderRefused::message() ?? translate('The_following_items_in_your_cart_are_currently_out_of_stock')], 403);
         }
 
         return response()->json([
@@ -458,10 +460,10 @@ class OrderController extends Controller
             'requestObj' => $request,
         ]);
 
-        // Same refusal signal as the other order endpoints: an empty list means the order was
-        // rolled back because stock ran out between the check and the write.
+        // Same refusal signal as the other order endpoints: an empty list means the order was rolled back, for stock or for the coupon's
+        // own limit, and OrderRefused carries which of the two where the writer named it.
         if (empty($orderIds)) {
-            return response()->json(['message' => translate('The_following_items_in_your_cart_are_currently_out_of_stock')], 403);
+            return response()->json(['message' => OrderRefused::message() ?? translate('The_following_items_in_your_cart_are_currently_out_of_stock')], 403);
         }
 
         return response()->json([
@@ -561,9 +563,10 @@ class OrderController extends Controller
                 return $this->insufficientWalletBalance();
             }
 
-            // The debit is written inside the order transaction, so an order refused for stock took nothing from the wallet.
+            // The debit is written inside the order transaction, so an order refused for stock or for its coupon's limit took nothing
+            // from the wallet.
             if (empty($orderIds)) {
-                return response()->json(['message' => translate('The_following_items_in_your_cart_are_currently_out_of_stock')], 403);
+                return response()->json(['message' => OrderRefused::message() ?? translate('The_following_items_in_your_cart_are_currently_out_of_stock')], 403);
             }
 
             return response()->json([

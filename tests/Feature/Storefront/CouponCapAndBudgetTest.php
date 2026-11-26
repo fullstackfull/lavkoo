@@ -36,11 +36,13 @@ use Tests\Support\BuildsStorefrontCouponWorld;
  * coupon carrying a cap of 1 and a budget of 1 is redeemed again and again and no ledger row is written. The switch is what makes any of
  * the rest true.
  *
- * **What this does NOT prove, and it is a criterion rather than an omission:** two CONCURRENT checkouts. The cap and the budget are read
- * where every other coupon refusal is read -- the eligibility functions, before the order's money is computed -- so two checkouts that both
- * read the last remaining use before either records it are both granted the discount. The ledger's unique key makes the RECORDED count
- * exact (the replay case below), and `coupon_redemption_group_unique` is what two checkouts of ONE order group contend on; it does not make
- * the grant atomic. The handback states the two ways of closing that and why neither was slipped in here.
+ * **What this file does not prove, and where it now IS proved.** The cap and the budget are read here where every other coupon refusal is
+ * read -- the eligibility functions, before the order's money is computed -- so two checkouts that both read the last remaining use before
+ * either records it would both be granted the discount by THIS read. The ledger's unique key makes the RECORDED count exact (the replay
+ * case below), and `coupon_redemption_group_unique` is what two checkouts of ONE order group contend on; neither makes the grant atomic.
+ * On the owner's decision of 2026-11-26 that is closed inside the order's transaction, under a lock on the coupon's row, by
+ * {@see \App\Services\Coupon\CouponGrant}: the rules and the refusal reaching the customer are {@see CouponGrantIsAtomicTest}, and the
+ * race itself -- two independent connections against MariaDB -- is {@see \Tests\Feature\Concurrency\CouponGrantConcurrencyTest}.
  */
 class CouponCapAndBudgetTest extends ApiAddressTestCase
 {

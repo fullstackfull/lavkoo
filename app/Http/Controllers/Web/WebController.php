@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Web;
 use App\Services\Payments\CheckoutCurrency;
 use App\Services\Address\AddressSchema;
 use App\Services\Address\StorefrontAddressService;
+use App\Services\Checkout\OrderRefused;
 use App\Services\Customer\WalletOrderDebit;
 use App\Services\Analytics\Analytics;
 use App\Services\DigitalFileAddressService;
@@ -733,11 +734,12 @@ class WebController extends Controller
             'bring_change_amount_currency' => $this->storefrontCurrency->purchaseCurrencyCode(picked: $pickedByTheVisitor),
         ]);
 
-        // generateOrder() returns an empty list when the order was refused inside its transaction —
-        // stock ran out between the pre-order check and the write. Nothing was created and nothing
-        // was taken, so the cart is intact and the customer can simply try again with less.
+        // generateOrder() returns an empty list when the order was refused inside its transaction — stock ran out between the pre-order
+        // check and the write, or the coupon reached a limit of its own (I1-14). Nothing was created and nothing was taken, so the cart is
+        // intact and the customer can simply try again. The sentence is the refusal's own where the writer named one: a customer whose
+        // coupon is spent is told that, not to go and look for an item that ran out.
         if (empty($orderIds)) {
-            $message = translate('sorry_an_item_in_your_cart_just_went_out_of_stock') . '. ' . translate('your_cart_has_not_been_changed');
+            $message = OrderRefused::message() ?? translate('sorry_an_item_in_your_cart_just_went_out_of_stock') . '. ' . translate('your_cart_has_not_been_changed');
             if ($request->ajax()) {
                 return response()->json(['status' => 0, 'message' => $message], 200);
             }
@@ -890,11 +892,10 @@ class WebController extends Controller
             'offline_payment_info' => $offlinePaymentInfo,
         ]);
 
-        // generateOrder() returns an empty list when the order was refused inside its transaction —
-        // stock ran out between the pre-order check and the write. Nothing was created and nothing
-        // was taken, so the cart is intact and the customer can simply try again with less.
+        // Same refusal signal as the cash-on-delivery checkout above: an empty list means the order was rolled back, for stock or for
+        // the coupon's own limit, and nothing was created or taken.
         if (empty($orderIds)) {
-            Toastr::error(translate('sorry_an_item_in_your_cart_just_went_out_of_stock') . '. ' . translate('your_cart_has_not_been_changed'));
+            Toastr::error(OrderRefused::message() ?? translate('sorry_an_item_in_your_cart_just_went_out_of_stock') . '. ' . translate('your_cart_has_not_been_changed'));
 
             return back();
         }
@@ -995,9 +996,10 @@ class WebController extends Controller
 
             if (empty($order_ids)) {
                 // generateOrder returns [] after rolling back its transaction (e.g. an item went out of
-                // stock, or a conditional stock decrement failed). The wallet debit is written inside
-                // that transaction, so it rolled back too and the customer was charged nothing.
-                Toastr::error(translate('order_place_failed_please_try_again'));
+                // stock, a conditional stock decrement failed, or the coupon reached a limit of its own).
+                // The wallet debit is written inside that transaction, so it rolled back too and the
+                // customer was charged nothing.
+                Toastr::error(OrderRefused::message() ?? translate('order_place_failed_please_try_again'));
                 return redirect()->route('shop-cart');
             }
 
