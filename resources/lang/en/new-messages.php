@@ -8689,6 +8689,7 @@ return [
 	'hold_route_unsupported' => 'The destination is outside the routes this carrier serves.',
 	'this_coupon_has_been_fully_redeemed' => 'This coupon has been fully redeemed.',
 	'this_coupons_discount_budget_has_been_used_up' => "This coupon's discount budget has been used up.",
+	'this_coupons_discount_is_more_than_the_items_it_applies_to' => "This coupon's discount is more than the items it applies to, so it cannot be used on this cart.",
 	'shipping_destination_unknown' => 'The destination country is not known.',
 	'shipping_no_carrier_serves_this_route' => 'No carrier serves the route to that country.',
 	'shipping_regulated_product_needs_a_recorded_clearance' => 'This product is regulated and needs a recorded clearance for that country before it can be shipped there.',

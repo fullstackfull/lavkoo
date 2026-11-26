@@ -737,7 +737,11 @@ class OrderManager
             if ($onlyProductTotalAmount <= 0 || $couponDiscount > $onlyProductTotalAmount || $coupon['min_purchase'] > $onlyProductTotalAmount) {
                 return [
                     'status' => false,
-                    'messages' => translate('minimum_purchase_amount_not_reached_for_this_coupon.')
+                    'messages' => translate(self::refusalOfACartTheCouponDoesNotFit(
+                        eligibleTotal: $onlyProductTotalAmount,
+                        minimumPurchase: (float) $coupon['min_purchase'],
+                        discountType: $couponDiscountType,
+                    ))
                 ];
             }
 
@@ -802,6 +806,38 @@ class OrderManager
             'status' => false,
             'messages' => translate('coupon_not_valid')
         ];
+    }
+
+    /**
+     * Which of the three refusals the one condition above actually hit (I1-11).
+     *
+     * Three different facts share that condition and shared one sentence: nothing in the cart is eligible, the coupon's own FIXED discount
+     * is larger than the lines it applies to, and the minimum purchase is not reached. Only the third is what the sentence says, and the
+     * second is the one a customer meets: a cart of 30 with a 50-off coupon whose minimum is 20 was told "minimum purchase amount not
+     * reached", which is FALSE -- the minimum was reached, and the customer who adds items to reach a minimum they already met is being
+     * sent to do the one thing that cannot help.
+     *
+     * The order is the order of truth and not of convenience. A cart below the minimum is told so first, whatever else is also true of it,
+     * because that sentence is then correct and it is the rule the admin form and the owner's note are about -- `min_purchase > eligible
+     * total` is untouched here and nothing in this method moves it.
+     *
+     * Two cases deliberately keep the old sentence, and both are reported rather than fixed:
+     *
+     *  - a PERCENTAGE coupon, where `$couponDiscount` is a figure of per cent and the condition compares it with an amount of money. A 31
+     *    per cent coupon is refused on a cart of 30 and applied to a cart of 100, which is a defect in the CONDITION and not in the
+     *    wording: correcting it would let through a coupon this platform refuses today, which is a change to what a customer is charged.
+     *  - a cart with nothing eligible at all (`<= 0`), whose honest sentence is a third one again. The criterion names the fixed discount,
+     *    and a message nobody asked for is a message nobody has read in Arabic.
+     */
+    private static function refusalOfACartTheCouponDoesNotFit(float|int $eligibleTotal, float $minimumPurchase, ?string $discountType): string
+    {
+        $minimumNotReached = 'minimum_purchase_amount_not_reached_for_this_coupon.';
+
+        if ($minimumPurchase > $eligibleTotal || $eligibleTotal <= 0 || $discountType === 'percentage') {
+            return $minimumNotReached;
+        }
+
+        return 'this_coupons_discount_is_more_than_the_items_it_applies_to';
     }
 
     public static function getGroupWiseCouponArray($request, $couponCode, $applicableAmount, $discountAmount, $groupId, $cartListGroup): array
