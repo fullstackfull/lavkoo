@@ -192,6 +192,35 @@ and the audit README. Never type a number that script can print.
 
 ## Owner decisions taken (do not re-ask)
 
+### Taken 2026-11-26, on the five-track round's findings
+
+- **I1-14 concurrency — OPTION A.** A coupon's use and budget limits must be enforced ATOMICALLY, inside the
+  transaction, under a lock on the coupon row or an equivalent atomic mechanism. Two concurrent orders being granted
+  two discounts that together exceed the limit is **not accepted**. The refusal reason must also be threaded to the
+  six `generateOrder` callers, so a customer whose coupon is exhausted is not shown "an item in your cart just went
+  out of stock". Concurrency must be proved with **two independent connections against an engine that locks**, not by
+  a sequential test.
+- **The per-cent-compared-with-money defect — FIX IT.** A percentage coupon's discount must be computed as a share of
+  the eligible value, never compared directly with the cart amount. Preserve the coupons' existing limits, and verify
+  the maximum discount, the minimum purchase, the budget and GCC currency precision -- especially the **three-decimal**
+  currencies (KWD, BHD, OMR). Tests for percentages, for money amounts and for the boundary cases. **A financial
+  behaviour change is not to be released to production without the owner's approval.**
+- **`OrderStatusListener` — FIX IT, after measuring the impact.** Adding `ShouldQueue` is not sufficient: the send
+  must be proved not to slow the request, and the queue semantics proved correct -- after-commit dispatch, no
+  duplicate send, no lost send.
+- **`ApplySeoRedirects` — INVESTIGATE AND FIX.** Examine the middleware order and where the storefront context is
+  bound, and fix any proven defect in per-country redirect isolation. Test that Saudi, Kuwaiti and the other markets'
+  links do not bleed into each other, and that no redirect loop is reachable.
+- **Stop mode "redirect" without a feature flag — ACCEPTED as designed**, conditional on proof: it must be shown
+  never to fire outside the market whose own setting chose it, and no unsafe redirect path may exist.
+- **The method stands.** Five git worktrees for independent work, re-cut on what actually remains. No heavy test
+  groups in parallel on the same resources. Progress committed and pushed to GitHub after every batch, with
+  `EXECUTION_STATE.md` updated.
+- **Standing prohibitions unchanged:** no merge to `main`, no release, no market activation, no production access
+  without the owner's approval. The open legal and commercial decisions stay open until the owner settles them.
+- **And a standing instruction on pace:** a pending decision in one independent task must not stop the project.
+
+
 - **F-13** — LAVKOO identity is global by default; a market may override its marketing name, logos and colours. The
   legal identity of each company stays separate, and legal use needs review.
 - **I2-09** — every NEW point-of-sale sale follows the country of its products and their legal company and respects the
