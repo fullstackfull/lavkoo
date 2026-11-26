@@ -9,7 +9,7 @@ use Illuminate\Contracts\Validation\ValidationRule;
 /**
  * One account per phone NUMBER, not per spelling of it (A2-06).
  *
- * `unique:users` compares the string that was typed, so `0551234567`, `+966551234567` and `00966 55 123 4567` are three customers with
+ * `unique:users` compares the string that was typed, so `05XX XXX XXX`, `+9665XX XXX XXX` and `00966 5X XXX XXX` are three customers with
  * one phone -- and whichever row a later sign-in finds first decides which account the person gets. This rule asks
  * {@see CustomerPhone::accountHoldingTheSameNumber()}, which compares the number.
  *

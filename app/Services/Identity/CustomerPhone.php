@@ -20,8 +20,8 @@ use Illuminate\Support\Facades\DB;
  * same rule every market-owning row of this platform is read by ({@see StorefrontMarketRows}), so a Saudi installation answers Saudi
  * Arabia exactly as it always has.
  *
- * **A second account for the same number was refused only by an exact string.** `unique:users` compares what was typed, so `0551234567`,
- * `+966551234567` and `00966 55 123 4567` were three different customers with one phone, and whichever row a later sign-in found first
+ * **A second account for the same number was refused only by an exact string.** `unique:users` compares what was typed, so `05XX XXX XXX`,
+ * `+9665XX XXX XXX` and `00966 5X XXX XXX` were three different customers with one phone, and whichever row a later sign-in found first
  * decided which account the person got. The canonical key is the one spelling of a number -- `+` then the market's dialling code then the
  * national digits with no trunk zero -- and {@see accountHoldingTheSameNumber()} looks for an account by it.
  *
@@ -31,7 +31,7 @@ use Illuminate\Support\Facades\DB;
  * with `SaudiPhone::isSameNumber()`, which compares by digits across any country code and one trunk zero: the helper PR 62 already proved
  * on eighteen codes and five thousand seeded pairs.
  *
- * The limit is a row whose number was stored WITH SEPARATORS in it (`00966 55 123 4567`): it is not one of the spellings, so it is not
+ * The limit is a row whose number was stored WITH SEPARATORS in it (`00966 5X XXX XXX`): it is not one of the spellings, so it is not
  * found, and a second account for that number is still possible. A suffix search would find it only by scanning the table and then
  * truncating the candidates, which on a live table is both slow and wrong -- the real duplicate may not be in the first page of rows
  * matching the last digits. The remedy is the canonical column, which is the owner's decision; until then this limit is pinned by a test

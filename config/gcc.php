@@ -1034,7 +1034,7 @@ return [
         ],
 
         // A2-06: whether a customer's phone number is read as ONE identity across its spellings. Off by default, and off is the platform
-        // of today: `unique:users` compares the string that was typed, so `0551234567`, `+966551234567` and `00966 55 123 4567` are three
+        // of today: `unique:users` compares the string that was typed, so `05XX XXX XXX`, `+9665XX XXX XXX` and `00966 5X XXX XXX` are three
         // customers with one phone, and whichever row a later sign-in finds first decides which account the person gets.
         //
         // With it on, a creation path asks `App\Services\Identity\CustomerPhone` whether an account already holds the same NUMBER --
