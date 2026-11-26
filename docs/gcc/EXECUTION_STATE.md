@@ -463,3 +463,35 @@ criteria names more signals than are built -- which is the honest record and is 
   refuses `badCertificateCallback`, and the comment that stops anyone reinstalling it names that callback -- so the scan
   strips whole-line comments first, and a run with stripping disabled was recorded as the measurement that the strip is
   load-bearing. Fourth occurrence of this shape in this programme.
+- **Read a PHPUnit array diff by its markers, not by its shape.** A `-` line is EXPECTED-only and a `+` line is
+  ACTUAL-only, so a list that looks truncated may be the longer one. The `orders.currency_rate` guard printed eight
+  expected entries against twelve actual, and I read it as "the scan found one file and the declaration has seven",
+  concluded the scan was broken, and went looking at `applicationSources()` for a fault that was not there. The real
+  answer was the opposite: FOUR new files had started naming the column. Grep the diff for `^ *[+-] *[0-9]+ =>` and
+  count both sides before forming a theory.
+- **A declaration list compared with `assertSame` is ORDERED.** The scan sorts, so an entry appended at the end of the
+  declared array fails even when the set is right -- and the failure looks like a wrong set rather than a wrong
+  position. Put a new entry where sorting puts it.
+- **A test that pins a defect becomes WRONG the moment somebody fixes the defect, and that is not a regression.**
+  `ThemeCopyToMarketTest` asserted that dropping `storages` made a banner copy report the banner as missing, because
+  `Banner::saved` threw after its own insert; its docblock said the root cause was "reported rather than fixed here".
+  Another track then fixed it at the cause, so the copy succeeds and the test failed. The answer is to rewrite the test
+  to the corrected behaviour with the OLD assertions quoted in its docblock -- never to delete it, and never to
+  "restore" the defect to make it pass. Say also what is now UNPINNED: the transaction that behaviour forced is still
+  right, but nothing reachable makes it fail that way, so a reproducer needs a writer that still throws after its
+  insert.
+- **`dart format` picks its style from the PACKAGE'S LANGUAGE VERSION, so a formatter with no package config is a
+  formatter checking the wrong standard.** Tall style applies at Dart 3.7 and later; `pubspec.yaml` saying `sdk:
+  ^3.6.2` means short style. In a container with no `flutter pub get` there is no `.dart_tool/package_config.json`,
+  `dart format` warns that it cannot resolve `analysis_options.yaml` -- a warning that reads like noise about a lint
+  package -- falls back to the newest style, and reports "0 changed" against a standard CI does not use. CI then
+  reports the same two files as changed, on the same base and the same Dart version. Reproduce with
+  `--language-version=<the pubspec's>` before concluding the job is wrong.
+- **A key built from a variable is invisible to every key scan, including the ratchet.** Twice in one session the
+  thing that found a missing translation was the suite that RENDERS the screen: `connect_noon` (built as
+  `translate('connect_' . $channel)`) and `noon_merchant_code` (built as `translate($isAmazon ? ... : ($isNoon ? ...))`).
+  A literal-key scan is complete for literals only, and the ratchet that counts untranslated keys will never report
+  these. When a screen gains a channel, a provider or a market, check its dynamic keys by rendering it.
+- **A refusal reason needs words wherever it can surface.** `MARKET_STOPPED` was added to the transport and never to
+  `ListingLabels::CHANNEL_REFUSALS`, so the listing screen printed the bare code `market_stopped` at an operator
+  trying to find out why nothing was sent. A new enum case or constant in a refusal family is only half the change.
