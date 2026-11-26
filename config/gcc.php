@@ -739,6 +739,30 @@ return [
         ],
     ],
 
+    'wallet' => [
+        // The UNIT a wallet order debit is counted in (E-16). `App\Services\Customer\WalletOrderDebit` has always rounded the stored
+        // amount half up to TWO places, once, for the check and the debit alike -- which is the riyal's, the dirham's, the Qatari riyal's
+        // and the dollar's smallest coin, and is ten times COARSER than the smallest coin of the Kuwaiti dinar, the Bahraini dinar and
+        // the Omani rial, all of which have three places (ISO 4217, and `storefronts.currency.decimals` above says so). In those three
+        // markets an order of 10.015 was checked and debited as 10.02: a figure the customer's own money cannot express, and a ledger row
+        // that is not the order's amount.
+        //
+        // OFF as it ships: every market's wallet debit rounds at two places exactly as it always has, and the switch is read before
+        // anything else, so not one query is made. With it on, a request served from a storefront that sells in its own currency rounds
+        // at THAT currency's places and every other request -- a panel, a queue worker, a console command, and every request while the
+        // storefronts are off -- still rounds at two. Saudi Arabia, the United Arab Emirates and Qatar therefore round at two whatever
+        // this says.
+        //
+        // The places come from `StorefrontCurrency::decimalsOf()`, which is the one authority on how many places a currency has, and
+        // never from `decimal_point_settings`: that is a display choice whose own admin field allows 0, and reading it as a money unit is
+        // the defect `ATopUpCreditsWhatWasPaidTest` already measures on the top-up path.
+        //
+        // What this does NOT reach, each because it is the owner's: the point-of-sale tills, which debit unrounded (half of D18); the four
+        // writers of the one balance and the top-up's double conversion (open financial decision 1); and the points, refund and referral
+        // CREDITS (LF-1, LF-2, RF-10).
+        'debit_in_the_markets_minor_unit' => filter_var(env('GCC_WALLET_DEBIT_IN_THE_MARKETS_MINOR_UNIT', false), FILTER_VALIDATE_BOOLEAN),
+    ],
+
     'refunds' => [
         // Whether cancelling an order pays the customer's wallet back (E-13, finding E04-F10). Today a POS sale paid with the wallet refunds
         // itself and any other wallet-paid order does not: the customer keeps waiting until somebody refunds it by hand. Each answer has a
