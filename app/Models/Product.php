@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\SellerMarketProductScope;
 use App\Models\Scopes\StaffCountryProductScope;
 use App\Services\Storefront\StorefrontCatalog;
 use App\Traits\CacheManagerTrait;
@@ -526,6 +527,7 @@ class Product extends Model
         });
 
         static::addGlobalScope(new StaffCountryProductScope());
+        static::addGlobalScope(new SellerMarketProductScope());
 
         static::addGlobalScope('translate', function (Builder $builder) {
             $builder->with(['translations' => function ($query) {

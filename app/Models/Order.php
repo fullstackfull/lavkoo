@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Scopes\SellerMarketOrderScope;
 use App\Models\Scopes\StaffCountryOrderScope;
 use App\Traits\HidesCustomerBalances;
 use App\Services\Address\AddressSnapshot;
@@ -373,6 +374,7 @@ class Order extends Model
     {
         parent::boot();
         static::addGlobalScope(new StaffCountryOrderScope());
+        static::addGlobalScope(new SellerMarketOrderScope());
         //static::addGlobalScope(new RememberScope);
     }
 }

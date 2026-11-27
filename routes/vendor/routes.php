@@ -84,7 +84,7 @@ Route::group(['middleware' => ['maintenance_mode', 'actch:admin_panel']], functi
             });
         });
 
-        Route::group(['middleware' => ['seller', 'seller_staff_access']], function () {
+        Route::group(['middleware' => ['seller', 'seller_staff_access', 'seller_panel_market']], function () {
             Route::controller(FirebaseController::class)->group(function () {
                 Route::post('system/save-fcm-web-token', 'saveSellerWebToken')->name('system.save-fcm-web-token');
             });

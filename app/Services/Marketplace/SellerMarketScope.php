@@ -5,6 +5,7 @@ namespace App\Services\Marketplace;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\Seller;
+use App\Models\SellerStaff;
 use App\Services\Storefront\OrderStorefront;
 use App\Services\Storefront\StorefrontCatalog;
 use App\Services\Storefront\StorefrontResolver;
@@ -51,6 +52,17 @@ final class SellerMarketScope
 
     /** Where the one market a request works in lives, when it names one. */
     private const WORKING_MARKET_ATTRIBUTE = 'seller_working_market';
+
+    /**
+     * Where the grant of a VENDOR WEB PANEL request lives, kept apart from the API's on purpose (M2-03).
+     *
+     * The API narrows query by query, in its controllers, and compares a narrowed query with an unnarrowed one to answer whether a record
+     * names a product outside the grant ({@see anyProductOutsideTheGrant}). The panel narrows structurally, through a global scope on the
+     * models, because its reads are spread over twenty-five controllers and a repository layer that no single call site owns. Those two
+     * cannot share one attribute: a global scope reading the API's grant would narrow BOTH sides of that comparison, and the comparison
+     * would then always answer "inside the grant" -- a guard that looks like it works and refuses nothing.
+     */
+    private const PANEL_GRANT_ATTRIBUTE = 'seller_market_panel_grant';
 
     /** The field a seller route reads a market from besides the header, as the order list already does. */
     public const REQUEST_FIELD = 'storefront';
@@ -283,9 +295,96 @@ final class SellerMarketScope
      */
     private function grantOfTheSignedInSeller(): ?array
     {
-        $seller = $this->enabled() ? auth('seller')->user() : null;
+        $principal = $this->enabled() ? $this->principalOfThePanel() : null;
 
-        return $seller instanceof Seller ? $this->grantOf(SellerPrincipal::owner($seller)) : null;
+        return $principal === null ? null : $this->grantOf($principal);
+    }
+
+    /**
+     * Who is acting in the vendor web panel, or null when nobody is signed in there (M2-03).
+     *
+     * The panel signs a staff member in AS THEIR EMPLOYER -- `auth('seller')` is the shop and `session('seller_staff_id')` is the person --
+     * so the shop alone was all the grant could ever see from a session request, and a staff member of a limited shop was read as the shop.
+     * Reading the person as well is what makes a staff member's own rows count in the panel exactly as they count on the API: with no row of
+     * their own they take the shop's grant, and with rows of their own they take the overlap, never more ({@see heldUnderTheShop}). It can
+     * therefore only ever narrow what the panel already showed.
+     *
+     * The staff row is read back and checked against the shop that is signed in, because a session is not a grant: a stale or tampered
+     * `seller_staff_id` falls back to the shop's own account rather than lending its rows to another shop's employee.
+     *
+     * The permissions come from the staff record, as they do for an API staff principal, so nothing that reads this principal is handed an
+     * empty set that would look like a role with no rights. What the panel may DO is still decided by SellerStaffAccessMiddleware; what this
+     * answers is which markets it may do it in.
+     */
+    private function principalOfThePanel(): ?SellerPrincipal
+    {
+        $seller = auth('seller')->user();
+
+        if (!$seller instanceof Seller) {
+            return null;
+        }
+
+        $staff = $this->staffOfThePanelSession(sellerId: (int) $seller->getKey());
+
+        return $staff === null
+            ? SellerPrincipal::owner($seller)
+            : SellerPrincipal::staff(seller: $seller, staff: $staff, permissions: $this->permissions->permissionsOf($staff));
+    }
+
+    /** The staff member the panel session names, when it names one that is still active and still belongs to the shop signed in. */
+    private function staffOfThePanelSession(int $sellerId): ?SellerStaff
+    {
+        $staffId = session('seller_staff_id');
+
+        if (!is_numeric($staffId)) {
+            return null;
+        }
+
+        $staff = SellerStaff::query()->find((int) $staffId);
+
+        return $staff instanceof SellerStaff
+            && $staff->status === SellerStaff::STATUS_ACTIVE
+            && (int) $staff->seller_id === $sellerId ? $staff : null;
+    }
+
+    /**
+     * Resolves the grant of a vendor web panel request and binds it to that request (M2-03).
+     *
+     * The panel's reads were the hole this closes. `seller_market` is declared on the seller API group and its middleware resolves a
+     * principal the API's token middleware put on the request, which a session request never has -- so every list, picker, report and
+     * lookup-by-id of `app/Http/Controllers/Vendor/` answered across every market, while the panel's WRITES were already held to the
+     * grant. A seller granted Dubai alone could not add a product outside Dubai and could read, edit, price and discount every product
+     * the shop had in Riyadh.
+     *
+     * What is bound here narrows the panel through the global scopes of the models ({@see \App\Models\Scopes\SellerMarketProductScope},
+     * {@see \App\Models\Scopes\SellerMarketOrderScope}) rather than through twenty-five controllers, so a screen cannot forget it and
+     * one added tomorrow is covered. It lives on the request alone, so the next request of the same worker starts unbound.
+     *
+     * Null for a principal with no grant -- every seller while the switch is off -- and the panel is then the panel it always was.
+     *
+     * @return list<string>|null
+     */
+    public function bindPanel(Request $request): ?array
+    {
+        $grant = $this->enabled() ? $this->grantOfTheSignedInSeller() : null;
+
+        $request->attributes->set(self::PANEL_GRANT_ATTRIBUTE, $grant);
+
+        return $grant;
+    }
+
+    /**
+     * What a vendor panel request is narrowed to: null when it is not narrowed, `[]` when it may see nothing.
+     *
+     * Read by the global scopes of the models and by nothing else. It is deliberately NOT {@see boundGrant}: see PANEL_GRANT_ATTRIBUTE.
+     *
+     * @return list<string>|null
+     */
+    public function panelGrant(): ?array
+    {
+        $bound = request()->attributes->get(self::PANEL_GRANT_ATTRIBUTE);
+
+        return is_array($bound) ? $bound : null;
     }
 
     /**
