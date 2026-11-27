@@ -44,6 +44,17 @@ class OneWalletWriterTest extends TestCase
      */
     private const KNOWN_EXCEPTION = 'app/Repositories/WalletTransactionRepository.php';
 
+    /**
+     * Where each writer's CREDIT arithmetic lives, for the writers that do not keep it in their own file.
+     *
+     * Four of the five work the credit out inline. CustomerWalletWriter keeps its shaping in WalletPosting on purpose -- the lost update
+     * and the row that disagreed with the balance were both in the writing, and holding the arithmetic apart is what lets one locked
+     * writer serve every caller -- so that is where its credit is rounded.
+     */
+    private const CREDIT_ARITHMETIC = [
+        'app/Services/Customer/CustomerWalletWriter.php' => 'app/Services/Customer/WalletPosting.php',
+    ];
+
     /** Where a wallet balance is read and written: a file not listed above has no business doing either. */
     private const BALANCE_ARITHMETIC = 'wallet_balance[^\n]*(\+|-)[^\n]*(credit|debit|bonus|amount)|(credit|debit|bonus)[^\n]*wallet_balance\s*=';
 
@@ -71,6 +82,30 @@ class OneWalletWriterTest extends TestCase
         $this->assertStringContainsString('CustomerBalanceLock::apply(', $source, "{$file} writes a wallet balance without taking the customer's row lock.");
         $this->assertStringContainsString('WalletOverdraft::refuses(', $source, "{$file} writes a wallet balance without refusing an overdraft.");
         $this->assertStringNotContainsString('DB::beginTransaction(', $source, "{$file} opens its own transaction instead of going through the lock service.");
+    }
+
+    /**
+     * One unit for the credit, in every writer (E-16).
+     *
+     * Each of the five computed its credit where it stood and none rounded it, so one reward reached the ledger as whatever float the
+     * path's own conversion produced. `WalletMinorUnit::credited()` is the one helper they round through, and it hands the amount straight
+     * back while `gcc.wallet.credits_in_the_markets_minor_unit` is off, which is how it ships -- so this asserts the SEAM is there, and
+     * `Tests\Feature\Wallet\EveryWriterCreditsTheSameAmountTest` asserts what comes through it in both positions of the switch.
+     *
+     * A sixth writer, or a fifth that works its credit out again downstream of the helper, fails here rather than in a quarterly
+     * reconciliation.
+     */
+    #[DataProvider('theWriters')]
+    public function test_every_writer_rounds_its_credit_through_the_one_helper(string $file): void
+    {
+        $arithmetic = self::CREDIT_ARITHMETIC[$file] ?? $file;
+        $source = self::codeWithoutComments((string) file_get_contents(base_path($arithmetic)));
+
+        $this->assertStringContainsString(
+            'WalletMinorUnit::credited(',
+            $source,
+            "{$file} works out a wallet credit without the one helper that says what unit a market counts money in.",
+        );
     }
 
     /** A ledger row built outside these files is a balance nobody locked. */

@@ -50,4 +50,37 @@ final class SensitiveAdminAction
 
         return DB::transaction(static fn (): mixed => AuditLogger::whileLinesAreRequired($write));
     }
+
+    /**
+     * The same, for an action the trail would otherwise say NOTHING about.
+     *
+     * `perform()` is enough where the platform already records the action -- a model write the observer watches -- and all that was missing
+     * was that the line could fail silently. Some sensitive actions raise no model event at all: emptying a table is
+     * `DB::table($name)->delete()`, so there is no model, no event, no line, and nothing for a fail-closed mark to fail about. Such a
+     * caller hands its own line over and it is written INSIDE the transaction and inside the mark, so a line that cannot be written takes
+     * the action back with it.
+     *
+     * `$record` is not called at all while the switch is off, which is what keeps a host that has never migrated `audit_logs` working
+     * exactly as it does today -- `recordOrFail()` on such a host throws by design, and an action that started refusing because a note
+     * could not be taken would be a switch that is not off.
+     *
+     * @template TResult
+     * @param callable(): TResult $write the change itself
+     * @param callable(TResult): void $record writes the line, through `AuditLogger::recordOrFail()`
+     * @return TResult
+     *
+     * @throws AuditLineNotWrittenException|\RuntimeException when a line could not be written; the change is taken back first
+     */
+    public function performAndRecord(callable $write, callable $record): mixed
+    {
+        return $this->perform(function () use ($write, $record): mixed {
+            $result = $write();
+
+            if ($this->isRecorded()) {
+                $record($result);
+            }
+
+            return $result;
+        });
+    }
 }

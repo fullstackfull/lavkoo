@@ -10,6 +10,7 @@ use App\Enums\GlobalConstant;
 use App\Http\Controllers\BaseController;
 use App\Http\Requests\Admin\PaymentMethodUpdateRequest;
 use App\Services\SettingService;
+use App\Services\Settings\MaskedCredentials;
 use App\Traits\PaymentGatewayTrait;
 use App\Traits\Processor;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
@@ -183,10 +184,18 @@ class PaymentMethodController extends BaseController
             }
         }
 
+        // A credential the form showed as a mask is put back from the row it was read from (G-16), or pressing Save on any other field of
+        // this screen would replace every secret with asterisks. Off, this hands the validated set straight back.
+        $stored = $this->settingRepo->getFirstWhere(params: ['key_name' => $request['gateway'], 'settings_type' => 'payment_config']);
+        $values = app(MaskedCredentials::class)->restore(
+            submitted: $request->validated(),
+            stored: is_array($stored['live_values'] ?? null) ? $stored['live_values'] : null,
+        );
+
         $this->settingRepo->updateOrInsert(params: ['key_name' => $request['gateway'], 'settings_type' => 'payment_config'], data: [
             'key_name' => $request['gateway'],
-            'live_values' => $request->validated(),
-            'test_values' => $request->validated(),
+            'live_values' => $values,
+            'test_values' => $values,
             'settings_type' => 'payment_config',
             'mode' => $request['mode'],
             'is_active' => $status,

@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Admin\Settings;
 
 use App\Http\Controllers\BaseController;
+use App\Services\AuditLogger;
+use App\Services\Staff\SensitiveAdminAction;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Exception;
 use Illuminate\Contracts\View\View;
@@ -14,6 +16,12 @@ use Illuminate\Support\Facades\Schema;
 
 class DatabaseSettingController extends BaseController
 {
+    public function __construct(
+        private readonly SensitiveAdminAction $sensitive,
+        private readonly AuditLogger $audit,
+    ) {
+    }
+
     /**
      * The tables this screen never offers and never empties, whoever asks. Beside the settings, roles and session tables the store cannot
      * start without, the two money ledgers are here: a wallet or a loyalty movement is a financial record, so emptying the table would
@@ -82,12 +90,34 @@ class DatabaseSettingController extends BaseController
             return back();
         }
 
+        // Emptying a table is a sensitive action the trail used to say NOTHING about: the rows go through `DB::table()->delete()`, which
+        // raises no model event, so there was no line, no actor and no before. With `gcc.staff.sensitive_actions.recorded` on, the delete
+        // and its line are one transaction and the line is written through `recordOrFail()`: a trail that cannot be written takes the
+        // emptying back with it, and the operator is told the action failed -- which it did. Off, which is how it ships, not one query goes
+        // near the trail and this is the delete it has always been.
+        //
+        // The counts are taken BEFORE and AFTER, because "which tables" is not what a reader of the trail needs to know: how many rows
+        // were destroyed is. They are only counted when there is a line to put them on, so an installation with the switch off makes the
+        // queries it makes today and no others.
+        $rowsBefore = $this->sensitive->isRecorded() ? $this->rowCountsOf(tables: $tables) : [];
+
         try {
-            DB::transaction(function () use ($tables) {
-                foreach ($tables as $table) {
-                    DB::table($table)->delete();
-                }
-            });
+            $this->sensitive->performAndRecord(
+                write: function () use ($tables): void {
+                    DB::transaction(function () use ($tables): void {
+                        foreach ($tables as $table) {
+                            DB::table($table)->delete();
+                        }
+                    });
+                },
+                record: fn () => $this->audit->recordOrFail(
+                    action: 'system.tables_emptied',
+                    subject: ['type' => 'database', 'id' => (string) Schema::getCurrentSchemaName()],
+                    before: $rowsBefore,
+                    after: $this->rowCountsOf(tables: $tables),
+                    context: ['tables' => $tables],
+                ),
+            );
         } catch (Exception $exception) {
             ToastMagic::error(translate('Failed_to_update'));
             return back();
@@ -107,6 +137,22 @@ class DatabaseSettingController extends BaseController
      *
      * @return list<string>
      */
+    /**
+     * How many rows each of these tables holds, for the two sides of the audit line.
+     *
+     * @param list<string> $tables names already narrowed to the offered list, so nothing a request invents is counted
+     * @return array<string, int>
+     */
+    private function rowCountsOf(array $tables): array
+    {
+        $counts = [];
+        foreach ($tables as $table) {
+            $counts[$table] = DB::table($table)->count();
+        }
+
+        return $counts;
+    }
+
     private function emptiableTables(): array
     {
         $tables = Schema::getTableListing(schema: Schema::getCurrentSchemaName(), schemaQualified: false);

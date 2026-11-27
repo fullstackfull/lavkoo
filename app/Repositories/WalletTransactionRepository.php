@@ -8,6 +8,7 @@ use App\Models\AddFundBonusCategories;
 use App\Models\BusinessSetting;
 use App\Models\User;
 use App\Services\Customer\CustomerBalanceLock;
+use App\Services\Customer\WalletMinorUnit;
 use App\Services\Storefront\LedgerAttribution;
 use App\Services\Storefront\LedgerOrigin;
 use App\Services\Wallet\WalletOverdraft;
@@ -126,7 +127,8 @@ class WalletTransactionRepository implements WalletTransactionRepositoryInterfac
                 $debit = $amount;
             }
 
-            $credit_amount = currencyConverter(amount: $credit);
+            // One unit for the credit, whichever writer is asked (E-16). Off as it ships: the amount is handed straight back.
+            $credit_amount = WalletMinorUnit::credited(currencyConverter(amount: $credit));
             $debit_amount = currencyConverter(amount: $debit);
             if (WalletOverdraft::refuses($currentBalance, $debit_amount)) {
                 return false;

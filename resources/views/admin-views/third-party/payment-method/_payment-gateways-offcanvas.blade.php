@@ -350,7 +350,7 @@
                                         data-required-msg="{{ translate($gatewayKey).translate('_key_field_is_required') }}"
                                         id="gateway-key-{{ $gateway->key_name }}-{{ $gatewayKey }}"
                                         placeholder="{{ ucwords(str_replace('_',' ', $gatewayKey)) }} *"
-                                        value="{{ showDemoModeInputValue(value: $value) }}"
+                                        value="{{ showDemoModeInputValue(value: app(\App\Services\Settings\MaskedCredentials::class)->shown(key: $gatewayKey, value: $value)) }}"
                                         required>
 
                                 </div>

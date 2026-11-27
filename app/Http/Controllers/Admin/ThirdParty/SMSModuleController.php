@@ -9,6 +9,7 @@ use App\Http\Requests\Admin\SMSModuleUpdateRequest;
 use App\Services\FirebaseService;
 use App\Services\RecaptchaService;
 use App\Services\SettingService;
+use App\Services\Settings\MaskedCredentials;
 use App\Utils\SMSModule;
 use Devrabiul\ToastMagic\Facades\ToastMagic;
 use Illuminate\Contracts\View\View;
@@ -49,6 +50,12 @@ class SMSModuleController extends BaseController
     public function update(SMSModuleUpdateRequest $request, SettingService $settingService): RedirectResponse
     {
         $service = $settingService->getSMSModuleValidationData(request: $request);
+        // A credential the form showed as a mask is put back from the row it was read from (G-16). Off, the submitted set is unchanged.
+        $stored = $this->settingRepo->getFirstWhere(params: ['key_name' => $request['gateway'], 'settings_type' => 'sms_config']);
+        $service = app(MaskedCredentials::class)->restore(
+            submitted: $service,
+            stored: is_array($stored['live_values'] ?? null) ? $stored['live_values'] : null,
+        );
         $this->settingRepo->updateOrInsert(params: ['key_name' => $request['gateway'], 'settings_type' => 'sms_config'], data: [
             'key_name' => $request['gateway'],
             'live_values' => $service,

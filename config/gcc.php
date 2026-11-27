@@ -61,12 +61,18 @@ return [
         /*
         | Recording an action that changes who may do what, and REFUSING to carry it out when the line cannot be written (G-14).
         |
-        | Off by default: adding, rewriting or switching off an employee, and adding, rewriting, switching off or deleting a role, write no
-        | audit line at all today, which is what the platform does and what this leaves alone while the switch is off -- not one query goes
-        | near the trail, and no transaction is opened.
+        | Off by default: adding, rewriting or switching off an employee, adding, rewriting, switching off or deleting a role, and EMPTYING A
+        | TABLE from the database screen, write no audit line at all today, which is what the platform does and what this leaves alone while
+        | the switch is off -- not one query goes near the trail, and no transaction is opened.
         |
         | With it on, each of those actions and its line are one transaction, and the line is written through `recordOrFail()`: a trail that
         | could not be written takes the change back with it. That is the deliberate choice of this switch and the reason it is a switch.
+        |
+        | Emptying a table is the one of them the trail said NOTHING about rather than saying it unreliably: the rows go through
+        | `DB::table()->delete()`, which raises no model event, so there was no line, no actor and no count of what was destroyed. Its line
+        | carries the rows each table held before and after, and it is the first of these actions a RESTRICTED employee can reach (the
+        | screen is behind `module:system_settings`, not behind a master account), so the asker's country scope on the line is that
+        | employee's countries rather than `unrestricted`.
         | `record()` swallows a failure because a missing note is better than a rolled-back payout; here the reverse holds -- a permission
         | change nobody can trace is worse than a permission change that did not happen.
         |
@@ -75,6 +81,32 @@ return [
         */
         'sensitive_actions' => [
             'recorded' => filter_var(env('GCC_ADMIN_SENSITIVE_ACTION_AUDIT', false), FILTER_VALIDATE_BOOLEAN),
+        ],
+
+        /*
+        | Showing a stored credential back to the panel as a MASK rather than as itself (G-16).
+        |
+        | The payment-gateway and SMS screens render every value of `addon_settings.live_values` into an input, so on a live installation
+        | the API keys, secrets and auth tokens of every configured gateway are in the HTML of one panel page: in the page source, in a
+        | screenshot, in whatever the browser cached, and readable by any employee whose role reaches the third-party module.
+        |
+        | Off by default: every field shows exactly what it shows today, and the save path hands the submitted set straight back, key for
+        | key. With it on, a value whose key name says it is a credential is shown as asterisks, and a field that comes BACK as those
+        | asterisks is put back from the stored row -- which is the half that makes the mask safe, because both screens write the whole
+        | submitted set into `live_values` and `test_values`, so masking alone would replace every secret the first time anybody pressed
+        | Save. A credential the row does not hold is restored as empty and never as the mask.
+        |
+        | What stays open: the values are still PLAINTEXT in `addon_settings`. Encrypting them at rest is the other half of G-16 and is a
+        | migration with an owner's decision in it, not a switch -- the column holds live credentials on every existing installation, and a
+        | rewrite that goes wrong, or an `APP_KEY` that later changes, locks an operator out of their own payment gateway. The per-company
+        | accounts of `payment_gateway_accounts` already store ciphertext only (App\Services\Payments\GatewayAccountSecrets).
+        |
+        | The rule for what is a credential is a name rule and it is deliberately the permissive way round
+        | (App\Services\Settings\MaskedCredentials): an unknown gateway's secret is masked, and only a name that is plainly not a secret
+        | -- a gateway title, a publishable key, an identifier a support call quotes -- is shown.
+        */
+        'credentials' => [
+            'masked' => filter_var(env('GCC_ADMIN_CREDENTIALS_MASKED', false), FILTER_VALIDATE_BOOLEAN),
         ],
     ],
 
@@ -802,6 +834,25 @@ return [
         // writers of the one balance and the top-up's double conversion (open financial decision 1); and the points, refund and referral
         // CREDITS (LF-1, LF-2, RF-10).
         'debit_in_the_markets_minor_unit' => filter_var(env('GCC_WALLET_DEBIT_IN_THE_MARKETS_MINOR_UNIT', false), FILTER_VALIDATE_BOOLEAN),
+
+        // The same question on the CREDIT side (E-16). There are FIVE writers of a wallet balance -- CustomerWalletWriter,
+        // CustomerTrait::createWalletTransaction, CustomerManager::create_wallet_transaction, OrderManager::createWalletTransaction and
+        // WalletTransactionRepository::addWalletTransaction -- and each computed its credit where it stood, unrounded, so a points
+        // conversion, a refund and a referral reward of one amount reached the ledger as three amounts depending on the path, and in
+        // Kuwait, Bahrain and Oman a credit could carry more places than the currency has coins for.
+        //
+        // OFF as it ships, and off is stronger here than on the debit side: an amount is handed straight back, NOT rounded at two places,
+        // because a credit has never been rounded at all and rounding it "by default" would move money on every path that reaches a
+        // writer. Not one query is made while it is off. With it on, all five writers round their credit half up through the one helper
+        // (App\Services\Customer\WalletMinorUnit::credited) at the places of the currency the storefront being served sells in, and
+        // every other request -- a panel, a queue worker, a console command, and every request while the storefronts are off -- rounds at
+        // two, which is Saudi Arabia, the United Arab Emirates and Qatar whatever this says.
+        //
+        // What it does NOT settle, each because it is the owner's: WHAT a point is worth, which is still two formulas and is LF-1 and LF-2
+        // of open financial decision 1 -- this rounds whatever they answer; the add-fund BONUS, which is added to the balance beside the
+        // credit and keeps its own double conversion; and the DEBIT of any writer that does not come through WalletOrderDebit, the
+        // point-of-sale tills among them (half of D18).
+        'credits_in_the_markets_minor_unit' => filter_var(env('GCC_WALLET_CREDITS_IN_THE_MARKETS_MINOR_UNIT', false), FILTER_VALIDATE_BOOLEAN),
     ],
 
     'refunds' => [
