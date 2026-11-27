@@ -23,6 +23,9 @@ final class ProductCodeScope
 {
     public const FLAG = 'gcc.catalog.country_scoped_codes';
 
+    /** What turning {@see FLAG} off again means once two countries share a code (M1-18). */
+    public const OFF_IS_ONE_MARKET = 'gcc.catalog.off_is_one_market';
+
     /** The country of a product no path gave one to: the default of the column. A seller product, a bulk import and an M5AZN import all take it. */
     public const TABLE_DEFAULT_COUNTRY = 'SA';
 
@@ -92,7 +95,7 @@ final class ProductCodeScope
     public function scan(EloquentBuilder $ownedProducts, mixed $code, ?string $country): Collection
     {
         if (!$this->enabled()) {
-            return $ownedProducts->where(['code' => $code])->limit(1)->get();
+            return $this->narrowToTheMarketLeftBehind($ownedProducts)->where(['code' => $code])->limit(1)->get();
         }
 
         if (!is_scalar($code) || (string) $code === '') {
@@ -255,5 +258,31 @@ final class ProductCodeScope
     private function scopesTo(?string $country): bool
     {
         return $country !== null && $country !== '' && $this->enabled();
+    }
+
+    /**
+     * Keeps a scan to the market left behind once the scope has been turned OFF AGAIN, or returns the query untouched while nothing is
+     * left behind (M1-18).
+     *
+     * Off means a code names one product across the whole table again, which is why the runbook of GCC-14b has to say "never switch the
+     * codes switch off once two countries share a code": the till in Riyadh scans a box and is answered the Dubai product that carries the
+     * same code -- a product of a market this operator does not sell in. A switch somebody is told never to use is not a switch.
+     *
+     * With `gcc.catalog.off_is_one_market` on, off means ONE MARKET: the scan reads the default market's products and the market that was
+     * added cannot answer it. Only the ROWS it may reach change. The shape of the answer is still the one off gives -- the code and never
+     * the barcode, one product and never an ambiguity list -- because this is a kill switch for the exposure and not a way of
+     * half-enabling the feature, and a caller that learned to expect one row must not start receiving two.
+     *
+     * Uniqueness is not narrowed here on purpose: with the feature off a code is taken when any country holds it, and refusing a code that
+     * is free is safe where accepting one that is held is not. It ships off and is inert before the products column exists, so a platform
+     * that never ran the storefront migration scans exactly as it always did.
+     */
+    private function narrowToTheMarketLeftBehind(EloquentBuilder $query): EloquentBuilder
+    {
+        if (!filter_var(config(self::OFF_IS_ONE_MARKET, false), FILTER_VALIDATE_BOOLEAN) || !StorefrontCatalog::columnReady()) {
+            return $query;
+        }
+
+        return $query->where(self::TABLE . '.' . StorefrontCatalog::COLUMN, ProductCountry::defaultCountry());
     }
 }

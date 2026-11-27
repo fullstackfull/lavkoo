@@ -21,10 +21,12 @@ use Tests\TestCase;
  * catalogue and the added market's rows stay out of it, while the panels, the seller APIs, the webhooks and the platform admin API stay
  * cross-country, which is what they are for.
  *
- * The other three switches M1-18 names are NOT closed here and are not pretended to be. `gcc.staff.country_scopes` off makes a restricted
- * employee unrestricted, `gcc.catalog.country_scoped_codes` off makes a code lookup reach another country's product, and
- * `gcc.platform_admin.enabled` off removes a capability and widens nothing. Each needs the same shape of mechanism as this one, in its own
- * reader, and each is its own measurement.
+ * The other three switches M1-18 names are not closed HERE, and each is now measured where its own reader lives, in this same shape:
+ * `gcc.staff.country_scopes` off made a restricted employee unrestricted and now has `gcc.staff.off_is_one_market`
+ * ({@see \Tests\Feature\StaffScope\StaffScopeKillSwitchTest}); `gcc.catalog.country_scoped_codes` off made a code lookup reach another
+ * country's product and now has `gcc.catalog.off_is_one_market` ({@see \Tests\Feature\Catalog\CodeScopeKillSwitchTest}); and
+ * `gcc.platform_admin.enabled` off removes a capability and widens nothing, which
+ * {@see \Tests\Feature\PlatformAdmin\FlagAndDormancyTest} measures -- off answers like a route that does not exist and reads no row.
  */
 class StorefrontKillSwitchTest extends TestCase
 {

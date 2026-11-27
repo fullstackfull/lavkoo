@@ -11,6 +11,7 @@ use App\Services\Storefront\CouponCountry;
 use App\Services\Storefront\StorefrontCatalog;
 use App\Services\Storefront\StorefrontCategoryShippingCosts;
 use App\Services\Storefront\StorefrontMarketRows;
+use App\Services\Storefront\StorefrontResolver;
 use App\Services\Storefront\StorefrontShippingMethods;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Http\Request;
@@ -34,6 +35,9 @@ use Illuminate\Support\Facades\Schema;
 final class StaffCountryScope
 {
     public const SWITCH = 'gcc.staff.country_scopes';
+
+    /** What turning {@see SWITCH} off again means once the panel has more than one market's rows in it (M1-18). */
+    public const OFF_IS_ONE_MARKET = 'gcc.staff.off_is_one_market';
 
     public const TABLE = 'admin_country_scopes';
 
@@ -98,7 +102,64 @@ final class StaffCountryScope
     /** Whether scopes are enforced: the switch is on and both the table of countries and the column of the products exist. */
     public function enabled(): bool
     {
-        return $this->isOn() && Schema::hasTable(self::TABLE) && Schema::hasColumn('products', StorefrontCatalog::COLUMN);
+        return $this->isOn() && $this->tablesReady();
+    }
+
+    /** Whether there is anything to narrow BY: the table of countries and the column of the products. Asked by both states of the switch. */
+    private function tablesReady(): bool
+    {
+        return Schema::hasTable(self::TABLE) && Schema::hasColumn('products', StorefrontCatalog::COLUMN);
+    }
+
+    /**
+     * The market the panel is left with once the country scopes have been turned OFF AGAIN, or null while nothing is left behind (M1-18).
+     *
+     * Off used to mean "narrow nothing", which is the right answer for the platform of today -- one market, one country's rows, no column
+     * to narrow by -- and the WRONG answer AFTER the switch has been used. A second market's rows are then in the tables, every scope row
+     * that was written stops being read, and the employee who was restricted to Dubai is served Riyadh's products, orders, refunds and
+     * money. So turning the switch off was never a way of stopping the feature; it was a way of handing every employee every market, which
+     * is the thing the criterion asks a switch not to do.
+     *
+     * Off now means ONE MARKET, as `gcc.storefronts.off_is_one_market` already means for the catalogue: the panel is the market the platform
+     * started as (`gcc.storefronts.default_country`), and the rows of the markets that were added stay out of every screen until the switch
+     * is turned on again. Nothing is deleted and no scope row is rewritten, so turning it back on restores exactly what was granted.
+     *
+     * It ships off (`gcc.staff.off_is_one_market`) and off is today's behaviour in every detail. It is inert until there is something to
+     * narrow by, so a platform that never ran the storefront migration is untouched whatever the switch says.
+     *
+     * The platform admin API is NOT answered from here ({@see countriesOfAdmin}): it is a cross-country API by design, reached only through
+     * its own switch, and what it serves an admin is bounded by that admin's own `platform_admin_grants` row and not by this one.
+     */
+    private function theMarketLeftBehind(): ?string
+    {
+        if ($this->isOn() || !filter_var(config(self::OFF_IS_ONE_MARKET, false), FILTER_VALIDATE_BOOLEAN) || !$this->tablesReady()) {
+            return null;
+        }
+
+        return StorefrontResolver::fromConfig()->defaultCountry();
+    }
+
+    /**
+     * What an employee is restricted to while the switch is off and one market is left behind: that market, and never more than the rows
+     * they were granted already allowed.
+     *
+     * The overlap and not the market alone, because this branch may only ever narrow. An employee granted Dubai alone is restricted to
+     * NOTHING once the panel is one Saudi market: they were never granted Riyadh, and a switch being turned off is not a grant. An employee
+     * who holds no row is restricted to the one market, which is what every employee of a one-market platform already sees.
+     *
+     * @return list<string>|null
+     */
+    private function countriesOfTheMarketLeftBehind(int $adminId, ?int $roleId): ?array
+    {
+        $market = $this->theMarketLeftBehind();
+
+        if ($market === null) {
+            return null;
+        }
+
+        $granted = $this->resolve(adminId: $adminId, roleId: $roleId);
+
+        return $granted === null ? [$market] : array_values(array_intersect($granted, [$market]));
     }
 
     /**
@@ -122,7 +183,13 @@ final class StaffCountryScope
      */
     public function countriesOf(?Admin $admin): ?array
     {
-        return $admin !== null && !$this->isMasterAdmin(roleId: $admin->admin_role_id) && $this->enabled() ? $this->resolve(adminId: (int) $admin->getKey(), roleId: $admin->admin_role_id) : null;
+        if ($admin === null || $this->isMasterAdmin(roleId: $admin->admin_role_id)) {
+            return null;
+        }
+
+        return $this->enabled()
+            ? $this->resolve(adminId: (int) $admin->getKey(), roleId: $admin->admin_role_id)
+            : $this->countriesOfTheMarketLeftBehind(adminId: (int) $admin->getKey(), roleId: $admin->admin_role_id);
     }
 
     /**

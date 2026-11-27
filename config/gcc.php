@@ -17,6 +17,24 @@ return [
     'staff' => [
         'country_scopes' => filter_var(env('GCC_STAFF_COUNTRY_SCOPES', false), FILTER_VALIDATE_BOOLEAN),
 
+        // What turning `country_scopes` OFF AGAIN means once the panel holds more than one market's rows (M1-18).
+        //
+        // Off by default, and off is today's behaviour in every detail: `country_scopes` off narrows nothing, which is the right answer for
+        // the platform of today -- one market, one country's rows, no column to narrow by -- and the WRONG answer after the switch has been
+        // used. Every scope row that was written stops being read, and the employee who was restricted to Dubai is served Riyadh's
+        // products, orders, refunds and money. So turning the switch off was never a way of stopping the feature; it was a way of handing
+        // every employee every market.
+        //
+        // With it on, off means ONE MARKET, exactly as `storefronts.off_is_one_market` means it for the catalogue: every employee the
+        // scopes could restrict works in `storefronts.default_country` and in no other market, and an employee whose rows never named that
+        // market works in none -- this branch may only narrow, because a switch being turned off is not a grant. Nothing is deleted and no
+        // row is rewritten, so turning `country_scopes` back on restores exactly what was granted. It is inert until the scope table and
+        // the products column exist, because there is nothing to narrow by before that.
+        //
+        // The platform admin API is not answered from here: it is cross-country by design, reached only through its own switch, and
+        // bounded by the admin's own `platform_admin_grants` row.
+        'off_is_one_market' => filter_var(env('GCC_STAFF_OFF_IS_ONE_MARKET', false), FILTER_VALIDATE_BOOLEAN),
+
         /*
         | Asking an employee to prove who they are again before an action that changes who may do what (G-14).
         |
@@ -115,6 +133,22 @@ return [
 
     'catalog' => [
         'country_scoped_codes' => filter_var(env('GCC_COUNTRY_SCOPED_CODES', false), FILTER_VALIDATE_BOOLEAN),
+
+        // What turning `country_scoped_codes` OFF AGAIN means once two countries share a code (M1-18).
+        //
+        // Off by default, and off is today's behaviour in every detail. The runbook of GCC-14b has to say "never switch the codes switch
+        // off once two countries share a code", because off means a code names one product across the whole table again: a till that scans
+        // a box in Riyadh is answered the Dubai product that carries the same code, and the answer is a product the operator may not even
+        // sell. A switch somebody is told never to use is not a switch.
+        //
+        // With it on, off means ONE MARKET: a scan is answered from `storefronts.default_country`'s products alone, so the market that was
+        // added cannot answer a scan of the market that remains. The SHAPE of the answer stays what off gives -- a code and never a
+        // barcode, one product and never an ambiguity list, no country tag on any row and no country column in any picker -- because this
+        // is a kill switch for the exposure and not a way of half-enabling the feature.
+        //
+        // Uniqueness is deliberately NOT narrowed by it: with the feature off a code is taken when any country holds it, and refusing a
+        // code that is free is safe where accepting one that is held is not. It is inert before the products column exists.
+        'off_is_one_market' => filter_var(env('GCC_CATALOG_OFF_IS_ONE_MARKET', false), FILTER_VALIDATE_BOOLEAN),
     ],
 
     /*
