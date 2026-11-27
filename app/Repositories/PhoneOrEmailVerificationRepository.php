@@ -25,8 +25,9 @@ class PhoneOrEmailVerificationRepository implements PhoneOrEmailVerificationRepo
     {
         $query = $this->phoneOrEmailVerification->with($relations);
 
+        // Asking for a row BY ITS TOKEN is a redemption, and a code older than its lifetime is not one that may be redeemed (A2-05).
         if (array_key_exists('token', $params)) {
-            $query->holdingToken($params['token']);
+            $query->holdingToken($params['token'])->withinLifetime();
             unset($params['token']);
         }
 

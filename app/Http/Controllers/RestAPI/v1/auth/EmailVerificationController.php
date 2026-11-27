@@ -184,7 +184,7 @@ class EmailVerificationController extends Controller
 
         $max_otp_hit = getWebConfig(name: 'maximum_otp_hit') ?? 5;
         $temp_block_time = getWebConfig(name: 'temporary_block_time') ?? 5; //minute
-        $verify = PhoneOrEmailVerification::where(['phone_or_email' => $request['email'], 'token' => $request['token']])->first();
+        $verify = PhoneOrEmailVerification::where(['phone_or_email' => $request['email'], 'token' => $request['token']])->withinLifetime()->first();
 
         if (isset($verify)) {
             $user = User::where(['temporary_token' => $request['temporary_token']])->first();

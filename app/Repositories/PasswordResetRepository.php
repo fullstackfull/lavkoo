@@ -23,7 +23,12 @@ class PasswordResetRepository implements PasswordResetRepositoryInterface
 
     public function getFirstWhere(array $params, array $relations = []): ?Model
     {
-        return $this->passwordReset->with($relations)->where($params)->first();
+        $query = $this->passwordReset->with($relations)->where($params);
+
+        // Asking for a proof BY ITS TOKEN is a redemption -- the customer OTP page, the vendor reset link, the seller reset form -- and a
+        // proof older than its lifetime is not one that may be redeemed (A2-05). A lookup by identity alone is the attempt counter and is
+        // left alone: it must still find the row it is counting against.
+        return (array_key_exists('token', $params) ? $query->withinLifetime() : $query)->first();
     }
 
     public function getList(array $orderBy = [], array $relations = [], int|string $dataLimit = DEFAULT_DATA_LIMIT, ?int $offset = null): Collection|LengthAwarePaginator

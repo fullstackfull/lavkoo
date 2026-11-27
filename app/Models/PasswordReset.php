@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Services\Identity\OneTimeCodeLifetime;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
@@ -48,4 +50,14 @@ class PasswordReset extends Model
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
+
+    /**
+     * The proofs that are still within their lifetime (A2-05). Hands the query back untouched while the lifetime switch is off, which is
+     * every installation today. This table holds the typed codes AND the long token the seller reset mails as a link, so it is judged by
+     * `OneTimeCodeLifetime::RESET`, the longer of the two figures.
+     */
+    public function scopeWithinLifetime(Builder $query): Builder
+    {
+        return app(OneTimeCodeLifetime::class)->narrow(query: $query, kind: OneTimeCodeLifetime::RESET);
+    }
 }

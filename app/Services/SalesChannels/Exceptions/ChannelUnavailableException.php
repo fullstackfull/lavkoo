@@ -29,6 +29,11 @@ class ChannelUnavailableException extends RuntimeException
      * so a caller that counts refusals does not count this one and park work the other process is finishing.
      */
     public const ANOTHER_ATTEMPT_RUNNING = 'another_attempt_running';
+    /**
+     * H2-07: the account sells in more than one country's marketplace and nothing names which one this write belongs to. Nothing left this
+     * host and no marketplace was guessed at, because a write sent to the wrong country's catalogue cannot be taken back.
+     */
+    public const MARKETPLACE_AMBIGUOUS = 'marketplace_ambiguous';
 
     public function __construct(public readonly string $reason, string $message)
     {

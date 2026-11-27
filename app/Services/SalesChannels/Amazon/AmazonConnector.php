@@ -58,6 +58,7 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
         private readonly AmazonListingMapper $listings,
         private readonly AmazonFinanceMapper $finances,
         private readonly AmazonCatalogMapper $catalog,
+        private readonly AmazonMarketplaceChoice $marketplaces,
     ) {
     }
 
@@ -519,7 +520,12 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
         $failed = [];
         $transient = [];
         $dryRun = false;
-        $marketplace = $this->primaryMarketplace($account);
+        $marketplace = $this->marketplaces->forListingWrite($this->marketplaceIds($account));
+        if ($marketplace === null) {
+            // The account sells in more than one country and the listing row says nothing about which marketplace it is in (H2-07). Every
+            // line is refused in the shape a refused line already takes, so nothing is written to a country it may not belong to.
+            return new PublishResult([], array_fill_keys(array_map(static fn (PublishUpdate $update): int => $update->mappingId, $updates), AmazonMarketplaceChoice::CANNOT_BE_DECIDED));
+        }
         $seller = rawurlencode((string) $account->external_account_id);
         $capability = $field === 'price' ? IntegrationCapability::PricePublishing : IntegrationCapability::InventoryPublishing;
         $scope = $field === 'price' ? 'price_publishing' : 'inventory_publishing';
@@ -650,13 +656,17 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
         if ($sku === '' || (string) $draft->product_type === '') {
             return ListingSubmission::rejected(['A listing needs our own SKU and Amazon\'s product type.']);
         }
+        $marketplace = $this->marketplaces->forListingWrite($this->marketplaceIds($account));
+        if ($marketplace === null) {
+            return ListingSubmission::rejected([AmazonMarketplaceChoice::CANNOT_BE_DECIDED]);
+        }
 
         $response = $this->client->call(
             $account,
             'amazon.listings_put',
             'PUT',
             $this->listingPath($account, $sku),
-            ['marketplaceIds' => $this->primaryMarketplace($account), 'issueLocale' => $this->issueLocale($account)],
+            ['marketplaceIds' => $marketplace, 'issueLocale' => $this->issueLocale($account)],
             [
                 'productType' => (string) $draft->product_type,
                 // UNVERIFIED for the KSA product types: that LISTING_PRODUCT_ONLY is accepted for a product with no offer. It is an account setting so that it can be changed
@@ -681,6 +691,10 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
         if ($changedAttributes === []) {
             return ListingSubmission::working(null, 'nothing_changed');
         }
+        $marketplace = $this->marketplaces->forListingWrite($this->marketplaceIds($account));
+        if ($marketplace === null) {
+            return ListingSubmission::rejected([AmazonMarketplaceChoice::CANNOT_BE_DECIDED]);
+        }
 
         $patches = [];
         foreach ($changedAttributes as $field => $value) {
@@ -692,7 +706,7 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
             'amazon.listings_patch_content',
             'PATCH',
             $this->listingPath($account, $sku),
-            ['marketplaceIds' => $this->primaryMarketplace($account), 'issueLocale' => $this->issueLocale($account)],
+            ['marketplaceIds' => $marketplace, 'issueLocale' => $this->issueLocale($account)],
             ['productType' => (string) $draft->product_type, 'patches' => $patches],
             IntegrationCapability::ProductSync,
             'product_writes',
@@ -862,8 +876,14 @@ class AmazonConnector implements ChannelConnector, ReadsListings, ReadsOrders, R
         foreach ($confirmation->lineQuantities as $orderItemId => $quantity) {
             $items[] = ['orderItemId' => (string) $orderItemId, 'quantity' => $quantity];
         }
+        // The marketplace the order itself was bought in, which an Amazon order records; the first id of the account's list while the
+        // switch is off, exactly as before (H2-07).
+        $marketplace = $this->marketplaces->forOrderWrite($this->marketplaceIds($account), $confirmation->marketplaceId);
+        if ($marketplace === null) {
+            throw new ChannelUnavailableException(ChannelUnavailableException::MARKETPLACE_AMBIGUOUS, AmazonMarketplaceChoice::CANNOT_BE_DECIDED);
+        }
         $body = [
-            'marketplaceId' => $this->primaryMarketplace($account),
+            'marketplaceId' => $marketplace,
             'packageDetail' => array_filter([
                 'packageReferenceId' => $confirmation->packageId !== '' ? $confirmation->packageId : '1',
                 // The list of allowed carrier codes is not published; "Other" with the carrier's name is the documented way to name any other carrier.

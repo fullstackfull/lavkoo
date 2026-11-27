@@ -425,7 +425,7 @@ class RegisterController extends Controller
         $phone_status = getLoginConfig(key: 'phone_verification');
 
         $user = $this->customerRepo->getFirstWhere(params: ['id' => $request['id']]);
-        $verify = PhoneOrEmailVerification::where(['phone_or_email' => $user['email']])->holdingToken($request['token'])->first();
+        $verify = PhoneOrEmailVerification::where(['phone_or_email' => $user['email']])->holdingToken($request['token'])->withinLifetime()->first();
 
         $maxOTPHit = getWebConfig(name: 'maximum_otp_hit') ?? 5;
         $temp_block_time = getWebConfig(name: 'temporary_block_time') ?? 5; //minute

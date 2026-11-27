@@ -43,6 +43,8 @@ class SplitShipmentConfirmationTest extends TestCase
     private const TOROD_PRODUCT = 81;
     private const M5AZN_PRODUCT = 82;
     private const ORDER = 5100;
+    private const SAUDI_MARKETPLACE = 'A17E79C6D8DWNP';
+    private const EMIRATI_MARKETPLACE = 'A2VIGQ35RCS4UG';
 
     private SalesChannelAccount $account;
 
@@ -192,6 +194,38 @@ class SplitShipmentConfirmationTest extends TestCase
     }
 
     // ---- fixtures ------------------------------------------------------------------------------------------------
+
+    // ---- which marketplace each confirmation names (H2-07) -----------------------------------------------
+
+    /**
+     * An Amazon account may sell in two countries' marketplaces, and a confirmation names ONE. The marketplace the order was bought in is a
+     * fact the order itself records, so `ChannelShipmentNotifier` reads it off the mapping's own snapshot and the connector sends it.
+     */
+    public function test_a_confirmation_names_the_marketplace_the_order_was_bought_in(): void
+    {
+        config(['gcc.sales_channels.amazon.marketplace_of_the_write' => true]);
+        $this->account->forceFill(['marketplace_ids' => [self::SAUDI_MARKETPLACE, self::EMIRATI_MARKETPLACE]])->save();
+        $this->fake();
+        $mapping = $this->orderInOneBox();
+        $mapping->forceFill(['snapshot' => ['marketplace_id' => self::EMIRATI_MARKETPLACE]])->save();
+
+        app(ChannelShipmentNotifier::class)->notify($mapping->refresh()->load('lines', 'account'));
+
+        $this->assertSame([self::EMIRATI_MARKETPLACE], array_column($this->confirmations(), 'marketplaceId'));
+    }
+
+    /** With the switch off the first id of the account's list is named, whatever the order says: today's platform. */
+    public function test_with_the_switch_off_a_confirmation_names_the_first_marketplace_of_the_account(): void
+    {
+        $this->account->forceFill(['marketplace_ids' => [self::SAUDI_MARKETPLACE, self::EMIRATI_MARKETPLACE]])->save();
+        $this->fake();
+        $mapping = $this->orderInOneBox();
+        $mapping->forceFill(['snapshot' => ['marketplace_id' => self::EMIRATI_MARKETPLACE]])->save();
+
+        app(ChannelShipmentNotifier::class)->notify($mapping->refresh()->load('lines', 'account'));
+
+        $this->assertSame([self::SAUDI_MARKETPLACE], array_column($this->confirmations(), 'marketplaceId'));
+    }
 
     private function fake(): void
     {

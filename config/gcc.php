@@ -1216,6 +1216,71 @@ return [
         'canonical_email' => [
             'checked' => filter_var(env('GCC_CANONICAL_EMAIL', false), FILTER_VALIDATE_BOOLEAN),
         ],
+
+        // A2-05: whether a one-time code is refused once it is older than its lifetime. Off by default, and off is the platform of today:
+        // `password_resets` and `phone_or_email_verifications` have each carried an `expires_at` column since 2023 and NOTHING has ever
+        // written or read it, so a code lives until the next one for the same identity replaces it or the row is spent. A code texted to a
+        // customer last March still signs them in, and a reset token mailed to an address the customer has since lost still changes their
+        // password. The attempt counter does not close that: it is reset the moment a new code is asked for, and the old row's code stays
+        // good either way.
+        //
+        // With it on, a redemption asks `App\Services\Identity\OneTimeCodeLifetime` whether the row's code has run out and the path then
+        // answers exactly as it already answers a code it cannot find -- no new response shape, no new message, so neither app needs a
+        // release. The lifetime is measured from `created_at`, which every issuing path in the application sets to `now()` when it writes
+        // the code, and a row whose `created_at` is NULL (none is written that way today) is read as run out rather than as ageless.
+        //
+        // Two lifetimes, because the two tables hold two different things. `phone_or_email_verifications` holds only codes a person TYPES
+        // -- the login OTP, the phone and e-mail confirmations -- and ten minutes is longer than any of them is meant to be alive.
+        // `password_resets` holds those AND the long random token that is mailed as a LINK (the seller reset mail), which a person reaches
+        // through their inbox, so it is given the hour that a mailed link needs. There is no invitation-link flow in this repository, so
+        // the criterion's exception for one has nothing to exempt; if one is added it must take a lifetime of its own rather than widen
+        // these.
+        //
+        // It ships off because the figures are an operator's decision about the live Saudi login, not a detail of this change, and because
+        // a value set too low locks out a customer who is slow to read a message. A row issued before the switch is turned on is judged by
+        // the same arithmetic, so turning it on refuses the codes already outstanding -- which is the point, and the reason it is announced
+        // rather than assumed. Turning it off restores today's behaviour exactly: no query is narrowed and no column is written.
+        'one_time_code_lifetime' => [
+            'enabled' => filter_var(env('GCC_ONE_TIME_CODE_LIFETIME', false), FILTER_VALIDATE_BOOLEAN),
+            'code_minutes' => (int) env('GCC_ONE_TIME_CODE_MINUTES', 10),
+            'reset_minutes' => (int) env('GCC_PASSWORD_RESET_PROOF_MINUTES', 60),
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Sales channels: which marketplace a write of an Amazon account goes to (H2-07)
+    |--------------------------------------------------------------------------
+    |
+    | Off by default, and off is the platform of today, to the request: every Amazon write that names a marketplace takes the FIRST id of
+    | the account's list, as it always has. Reads already go through the account's marketplaces one after another; the writes never did, and
+    | it was a declared limit of the module (docs/sales-channels/operations.md).
+    |
+    | That first id is right for an account of one country and wrong for an account of two. A Saudi price went into the Emirati catalogue,
+    | or the Emirati listing never changed at all, and nothing on the account said which had happened -- a publish was reported as accepted
+    | either way, because Amazon accepted it for the marketplace it was told.
+    |
+    | With it on, and only for an account whose marketplaces are of more than one COUNTRY (`AmazonMarketplaceChoice`):
+    |
+    |   - a SHIPMENT CONFIRMATION goes to the marketplace the ORDER was bought in. An Amazon order already records it, so this is a read of
+    |     a fact the order holds and not a new record of it; an order that records none, or one this account does not sell in, decides
+    |     nothing and falls to the rule below;
+    |   - a LISTING write -- price, quantity, `putListingsItem`, a content patch -- is REFUSED, in the shape its caller already refuses one
+    |     (a failed line of the publish result with a reason; a rejected submission). It is refused and not guessed because the listing row
+    |     is keyed `(account_id, listing_key)`, so one Amazon SKU sold in two marketplaces of one account is ONE row and there is no fact
+    |     on it to read. A listing row per marketplace would change that unique key AND the single currency an account carries, which is
+    |     the owner's decision, not this switch's.
+    |
+    | An account whose marketplaces are all of one country is unaffected either way, which is every account of this platform today, Saudi
+    | Arabia's among them. READS are untouched in both positions, the connection test included: refusing to TEST an account would stop it
+    | ever being set up, and a read that names the first marketplace reports on that marketplace honestly.
+    |
+    */
+
+    'sales_channels' => [
+        'amazon' => [
+            'marketplace_of_the_write' => filter_var(env('GCC_AMAZON_MARKETPLACE_OF_THE_WRITE', false), FILTER_VALIDATE_BOOLEAN),
+        ],
     ],
 
     /*
