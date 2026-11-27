@@ -3,6 +3,7 @@
 namespace App\Services\Payments;
 
 use App\Models\PaymentRequest;
+use App\Services\Payments\CurrencyMinorUnit;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
@@ -21,13 +22,16 @@ use Illuminate\Support\Facades\Schema;
  * written in a register under a unique key over the gateway and that reference, inside the same transaction as the settlement.
  * Until the register's migration has run there is no such table and this question is not asked, which is said out loud rather
  * than assumed: a shop that has the code and not the table is where it was before, minus the amount check.
+ *
+ * HOW MANY MINOR UNITS ARE IN ONE. A gateway states its amount in the currency's smallest coin, so this comparison has to
+ * convert the stored amount into the same coin, and it did that by multiplying by 100 -- the riyal's answer and not the dinar's.
+ * {@see CurrencyMinorUnit} is the one authority the outgoing CHARGE reads as well, so the amount asked for and the amount checked
+ * cannot disagree about the unit. It ships answering 100 for every currency, which is this comparison unchanged.
  */
 class GatewayConfirmations
 {
     public const TABLE = 'gateway_confirmations';
 
-    /** The smallest unit of a currency that has none: a gateway states its amount in minor units. */
-    private const MINOR_UNITS_IN_ONE = 100;
 
     public function __construct(private readonly PaymentRequest $payments)
     {
@@ -85,6 +89,10 @@ class GatewayConfirmations
             return false;
         }
 
-        return (int) round((float) $minorUnits) === (int) round((float) $payment->payment_amount * self::MINOR_UNITS_IN_ONE);
+        // The stored amount is converted by the one authority the CHARGE goes through, so a payment started in a currency whose
+        // smallest coin is a thousandth is checked against the figure that currency was actually charged in. While that switch is off
+        // this is `(int) round($amount * 100)`, which is what it has always been.
+        return (int) round((float) $minorUnits)
+            === (int) CurrencyMinorUnit::of(amount: $payment->payment_amount, currencyCode: $payment->currency_code);
     }
 }

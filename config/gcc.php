@@ -1030,6 +1030,34 @@ return [
             App\Services\Payments\WhatAPaymentIsWorth::AS_TODAY,
         ),
 
+        // Whether an amount handed to a gateway, and the confirmation that amount is checked against, are counted in the smallest coin
+        // the currency ACTUALLY has (D2-V1). A gateway is never told an amount in riyals: it is told an integer number of the currency's
+        // smallest coin, and every outbound amount on this platform multiplied by 100 -- the riyal's, the dirham's, the Qatari riyal's
+        // and the dollar's answer. `storefronts.currency.decimals` above says the Kuwaiti dinar, the Bahraini dinar and the Omani rial
+        // have THREE places (ISO 4217), so an order of 10.234 KWD was sent to Paymob as 1,023 fils: 1.023 dinars charged for a basket
+        // of 10.234, a tenth of what the shop sold.
+        //
+        // OFF as it ships, and off is the platform of today to the digit: `App\Services\Payments\CurrencyMinorUnit` answers 100 for
+        // every currency and produces the figure with PHP's own `round()`, so neither the value nor its type moves. SAR, AED and QAR
+        // are 100 whatever this says, because those currencies have two places -- Saudi Arabia, the United Arab Emirates and Qatar do
+        // not move either way.
+        //
+        // ONE switch for the charge AND the check, deliberately. `App\Services\Payments\GatewayConfirmations` asks whether the amount
+        // a gateway says it took is the payment's, and it asked by multiplying the stored amount by 100 as well. Charging 10,234 fils
+        // while checking against 1,023 would mean no three-decimal payment ever settled: money taken by the gateway with the order
+        // never placed, which is worse than the undercharge. So both read the one authority and both move in this one step.
+        //
+        // What it does NOT reach: `App\Services\MyFatoorah\Money` and the MyFatoorah initiation and verification paths that read it.
+        // That class is two-decimal by definition and decides whether a payment is ACCEPTED, where an answer wrong by a halala releases
+        // an order that was underpaid -- a larger money change than this one, with its own evidence to gather.
+        //
+        // A second gate stands in front of this one either way: `App\Services\Storefront\GatewayCurrencyPolicy` lets a three-decimal
+        // currency reach only a gateway named in `storefronts.currency.verified_three_decimal_gateways`, which is empty.
+        'amount_in_the_currencys_minor_unit' => filter_var(
+            env('GCC_PAYMENT_AMOUNT_IN_THE_CURRENCYS_MINOR_UNIT', false),
+            FILTER_VALIDATE_BOOLEAN,
+        ),
+
         // WHICH PROVIDER SUPPORT HAS ACTUALLY BEEN CONFIRMED, per gateway, market, currency and method (D2-05).
         //
         // The foundation rule is that a country named in documentation counts for nothing. A gateway's own currency list says what the

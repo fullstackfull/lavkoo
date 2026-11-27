@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Payment_Methods;
 
 use App\Models\PaymentRequest;
 use App\Models\User;
+use App\Services\Payments\CurrencyMinorUnit;
 use App\Services\Payments\GatewayAccountSecrets;
 use App\Services\Payments\GatewayReturnVerification;
 use App\Services\Payments\PaymentAccountBinding;
@@ -157,13 +158,13 @@ class PaymobController extends Controller
         // Data for the request
         $integration_id = (int) $credentials['integration_id'];
         $data = [
-            'amount' => round($payment_data->payment_amount * 100),
+            'amount' => CurrencyMinorUnit::of(amount: $payment_data->payment_amount, currencyCode: $payment_data->currency_code),
             'currency' => $payment_data->currency_code,
             'payment_methods' => [$integration_id], //integration id will be integer
             'items' => [
                 [
                     'name' => 'payable amount',
-                    'amount' => round($payment_data->payment_amount * 100),
+                    'amount' => CurrencyMinorUnit::of(amount: $payment_data->payment_amount, currencyCode: $payment_data->currency_code),
                     'description' => 'payable amount',
                     'quantity' => 1,
                 ]
@@ -223,7 +224,7 @@ class PaymobController extends Controller
     {
         $items[] = [
             'name' => $business_name,
-            'amount_cents' => round($payment_data->payment_amount * 100),
+            'amount_cents' => CurrencyMinorUnit::of(amount: $payment_data->payment_amount, currencyCode: $payment_data->currency_code),
             'description' => 'payment ID :' . $payment_data->id,
             'quantity' => 1
         ];
@@ -231,7 +232,7 @@ class PaymobController extends Controller
         $data = [
             "auth_token" => $token,
             "delivery_needed" => "false",
-            "amount_cents" => round($payment_data->payment_amount * 100),
+            "amount_cents" => CurrencyMinorUnit::of(amount: $payment_data->payment_amount, currencyCode: $payment_data->currency_code),
             "currency" => $payment_data->currency_code,
             "items" => $items,
 
@@ -264,7 +265,7 @@ class PaymobController extends Controller
 
         $data = [
             "auth_token" => $token,
-            "amount_cents" => round($value * 100),
+            "amount_cents" => CurrencyMinorUnit::of(amount: $value, currencyCode: $payment_data->currency_code),
             "expiration" => 3600,
             "order_id" => $order->id,
             "billing_data" => $billingData,
