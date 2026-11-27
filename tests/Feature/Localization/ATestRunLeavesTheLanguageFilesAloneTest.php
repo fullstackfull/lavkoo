@@ -4,6 +4,10 @@ namespace Tests\Feature\Localization;
 
 use Illuminate\Support\Facades\Session;
 use PHPUnit\Framework\Attributes\DataProvider;
+use ReflectionClass;
+use ReflectionProperty;
+use Tests\Support\LanguageFiles;
+use Tests\Support\RestoresLanguageFiles;
 use Tests\TestCase;
 
 /**
@@ -105,5 +109,29 @@ class ATestRunLeavesTheLanguageFilesAloneTest extends TestCase
     public function test_a_file_nothing_wrote_to_is_reported_without_being_read(): void
     {
         $this->assertSame([], $this->keysWrittenToTheLanguageFiles());
+    }
+
+    /**
+     * The copy is held ONCE for the process, which is why it may be held at all.
+     *
+     * A trait's static property belongs to the class that USES the trait, not to the trait -- measured on PHP 8.3, a parent and a child
+     * that both `use` it each get their own. 196 classes use this one and the seven files are 3.8MB, so a copy per class would hold three
+     * quarters of a gigabyte for the length of a run, where the per-instance copy it replaced was freed after each test. So the state
+     * lives in one class and the trait holds none, and this is the assertion that stops it moving back.
+     */
+    public function test_the_trait_holds_no_state_of_its_own(): void
+    {
+        $this->assertSame(
+            [],
+            array_map(
+                static fn (ReflectionProperty $property): string => $property->getName(),
+                (new ReflectionClass(RestoresLanguageFiles::class))->getProperties(),
+            ),
+            'a property declared here is one copy per using class, and there are 196 of them',
+        );
+
+        $held = (new ReflectionProperty(LanguageFiles::class, 'copies'))->getValue();
+
+        $this->assertCount(7, (array) $held, 'one copy of each tracked locale, for the whole process');
     }
 }
