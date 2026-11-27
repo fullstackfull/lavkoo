@@ -72,10 +72,23 @@ final class OrderMarketReading
     /**
      * Writes the reading onto each order of a list, next to the row's own columns.
      *
+     * **It writes nothing while storefronts are off, and that is not caution but the Saudi baseline.** These three keys are new to the
+     * payload, so adding them unconditionally changed an answer the customer app already reads: `SaudiGoldenResponsesTest` compares the
+     * cash-on-delivery order list against a recorded golden answer, and it went red on `sold_in_market` and `sold_in_currency` appearing
+     * in a platform that has one market and no storefronts at all. A market a customer cannot choose between is not worth naming, and the
+     * golden file is the mechanism that says so -- changing IT to match would have been changing the baseline to fit the code.
+     *
+     * The gate is here rather than in {@see of()} on purpose: `of()` is the reading itself, which a caller may legitimately ask for, and
+     * this is the one method that puts it into a response.
+     *
      * @param iterable<object> $orders
      */
     public function nameOn(iterable $orders): void
     {
+        if (!config('gcc.storefronts.enabled')) {
+            return;
+        }
+
         foreach ($orders as $order) {
             foreach ($this->of($order) as $key => $value) {
                 $order->{$key} = $value;
