@@ -1165,6 +1165,35 @@ return [
         'canonical_email' => [
             'checked' => filter_var(env('GCC_CANONICAL_EMAIL', false), FILTER_VALIDATE_BOOLEAN),
         ],
+
+        // A2-05: whether a one-time code is refused once it is older than its lifetime. Off by default, and off is the platform of today:
+        // `password_resets` and `phone_or_email_verifications` have each carried an `expires_at` column since 2023 and NOTHING has ever
+        // written or read it, so a code lives until the next one for the same identity replaces it or the row is spent. A code texted to a
+        // customer last March still signs them in, and a reset token mailed to an address the customer has since lost still changes their
+        // password. The attempt counter does not close that: it is reset the moment a new code is asked for, and the old row's code stays
+        // good either way.
+        //
+        // With it on, a redemption asks `App\Services\Identity\OneTimeCodeLifetime` whether the row's code has run out and the path then
+        // answers exactly as it already answers a code it cannot find -- no new response shape, no new message, so neither app needs a
+        // release. The lifetime is measured from `created_at`, which every issuing path in the application sets to `now()` when it writes
+        // the code, and a row whose `created_at` is NULL (none is written that way today) is read as run out rather than as ageless.
+        //
+        // Two lifetimes, because the two tables hold two different things. `phone_or_email_verifications` holds only codes a person TYPES
+        // -- the login OTP, the phone and e-mail confirmations -- and ten minutes is longer than any of them is meant to be alive.
+        // `password_resets` holds those AND the long random token that is mailed as a LINK (the seller reset mail), which a person reaches
+        // through their inbox, so it is given the hour that a mailed link needs. There is no invitation-link flow in this repository, so
+        // the criterion's exception for one has nothing to exempt; if one is added it must take a lifetime of its own rather than widen
+        // these.
+        //
+        // It ships off because the figures are an operator's decision about the live Saudi login, not a detail of this change, and because
+        // a value set too low locks out a customer who is slow to read a message. A row issued before the switch is turned on is judged by
+        // the same arithmetic, so turning it on refuses the codes already outstanding -- which is the point, and the reason it is announced
+        // rather than assumed. Turning it off restores today's behaviour exactly: no query is narrowed and no column is written.
+        'one_time_code_lifetime' => [
+            'enabled' => filter_var(env('GCC_ONE_TIME_CODE_LIFETIME', false), FILTER_VALIDATE_BOOLEAN),
+            'code_minutes' => (int) env('GCC_ONE_TIME_CODE_MINUTES', 10),
+            'reset_minutes' => (int) env('GCC_PASSWORD_RESET_PROOF_MINUTES', 60),
+        ],
     ],
 
     /*

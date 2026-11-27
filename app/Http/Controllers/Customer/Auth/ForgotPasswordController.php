@@ -283,6 +283,7 @@ class ForgotPasswordController extends Controller
         $id = session('forgot_password_identity');
 
         $password_reset_token = PasswordReset::where(['token' => RequestText::of($request['otp']), 'user_type' => 'customer', 'identity' => (string)$id])
+            ->withinLifetime()
             ->latest()
             ->first();
 

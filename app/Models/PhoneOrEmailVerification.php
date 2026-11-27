@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Identity\OneTimeCodeLifetime;
 use App\Utils\RequestText;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -54,5 +55,14 @@ class PhoneOrEmailVerification extends Model
         $code = RequestText::of($token);
 
         return $code === '' ? $query->whereRaw('1 = 0') : $query->where('token', $code);
+    }
+
+    /**
+     * The rows whose code is still within its lifetime (A2-05). Hands the query back untouched while the lifetime switch is off, which is
+     * every installation today. This table holds only codes a person types, so it is judged by `OneTimeCodeLifetime::CODE`.
+     */
+    public function scopeWithinLifetime(Builder $query): Builder
+    {
+        return app(OneTimeCodeLifetime::class)->narrow(query: $query, kind: OneTimeCodeLifetime::CODE);
     }
 }
