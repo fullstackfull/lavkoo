@@ -997,3 +997,44 @@ look identical in the run's output, and the first conclusion is the flattering o
 other agent's work rather than your own command. The same error in the other direction is what the
 earlier note about `git checkout` wiping uncommitted edits describes: Track STEPUP hit that itself
 and re-measured all five of its readings against the commit, which is the right response.
+
+## Batch `5ae65ea8` CLOSED by the owner (CI 683 green) — 2026-11-27
+
+The owner reports CI run 683 on the frozen SHA `5ae65ea8` as **50 success, 0 failure, 2 skipped by
+design** and has approved closing the batch. Figures at closure, from `count.php`:
+**1,553 in code of 1,754 (89%) · 1,142 proven (65%) · 201 missing.**
+
+What the batch carried: five round-2 tracks merged (M, I/D, H/A/C, K/L/J, E/G/B/F) plus three
+fixes of mine — the Saudi order-payload dormancy, the coupon schema-cache leak, and the
+concurrency worker's stack trace.
+
+## The open-defects register
+
+### OPEN — wallet checkout concurrency, `Undefined array key 0` in a worker
+
+`tests/Feature/Concurrency/WalletCheckoutConcurrencyTest::test_two_simultaneous_checkouts_of_sixty_from_one_hundred_place_exactly_one_order`
+lost a worker to `ErrorException: Undefined array key 0` once in a 125-test concurrency run on
+2026-11-27. Three solo re-runs of that test were green, and the whole concurrency suite passes on
+an idle machine.
+
+**The owner's instruction, recorded verbatim in effect: this is NOT an exempt flake, and it is NOT
+a proven overdraw.** Both readings are wrong and the register holds the middle ground:
+
+- **Not a proven overdraw.** The run that failed had one worker report `placed` and the other die,
+  so at most one order existed and the balance was never drawn twice. The test fails at its FIRST
+  assertion ("a worker failed"), so its own overdraw assertions were never reached and prove
+  nothing either way on that run.
+- **Not an exempt flake.** The expected result is `['placed', 'refused']`: one checkout places and
+  the other is refused CLEANLY. A worker dying of a PHP error instead of being refused is a real
+  defect in the losing side of a wallet race, whatever its frequency.
+
+Pre-existing: the test dates from `be618cf1`, 2026-11-23, and no merge of 2026-11-26/27 touches it.
+
+**Ruled out by reading, so do not re-read these:** `OrderManager.php:106` (`$cart[0]->seller_id`
+short-circuits unless the coupon is seller-specific) and `CartManager.php:1064`
+(`$cart[0]->cart_group_id` is guarded by `$cart->count() > 0`).
+
+**How the next occurrence gets diagnosed:** `tests/Support/Concurrency/worker.php` now records the
+first six project frames of any worker exception as `where`. Read that field rather than guessing
+again — guessing cost two wrong candidate sites.
+
