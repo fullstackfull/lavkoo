@@ -1038,3 +1038,85 @@ short-circuits unless the coupon is seller-specific) and `CartManager.php:1064`
 first six project frames of any worker exception as `where`. Read that field rather than guessing
 again — guessing cost two wrong candidate sites.
 
+
+## Round 3 — the wallet defect is SOLVED, and four findings that change how we work
+
+### The open wallet concurrency defect: root cause found, reproduced, NOT fixed
+
+**The instrumentation is what found it.** The worker's `where` recorder, added on 2026-11-27
+precisely so the next occurrence would be diagnosable, fired on the next occurrence and named the
+line:
+
+```
+app/Utils/Helpers.php:606   <- sales_commission_before_order()
+app/Utils/OrderManager.php:1398  <- getOrderAddData
+app/Utils/OrderManager.php:2170  <- generateOrder, inside the order transaction
+```
+
+`Helpers::sales_commission_before_order()` re-reads the carts table by group id and indexes it
+twice at `[0]` **with no guard**. It is the THIRD `[0]` site: `OrderManager:106` and
+`CartManager:1064` were read by hand earlier and correctly ruled out, which is why guessing failed
+twice and the trace succeeded first time.
+
+**The window.** Two checkouts of one customer share one cart. Both read it outside the
+transaction, so the loser passes the outer empty-cart guard. The loser then blocks on
+`User::lockForUpdate()`. The winner commits and deletes the cart rows -- *after* its transaction
+closes. The loser takes the lock, and because its first statement in the transaction was a
+LOCKING read, its consistent snapshot for plain reads is taken after the delete. Empty cart,
+`[0]`, raise. Sibling timestamps put the winner's finish 23 ms before the throw.
+
+**Still not an over-draw, now for a reason rather than for want of evidence:** the loser raises
+before the wallet debit and rolls back, so at most one order exists and no balance is drawn twice.
+What it costs is the ANSWER -- a customer who should be told their balance is short gets a 500.
+
+A reproducer **with no timing in it** is committed (`CommissionReReadsTheClearedCartTest`, green on
+both engines) and **no fix is applied**: `sales_commission_before_order()` is on the commission path
+of EVERY checkout, not only the wallet one, so the shape of the fix is the owner's -- a guard
+there, a cart read that cannot come back empty, or holding the cart rows until the transaction
+closes. `WalletCheckoutConcurrencyTest` is left exactly as it is, because it asserts the right
+thing and is right to be red.
+
+### `flutter test` and `flutter analyze` WORK in this container
+
+This corrects a limitation recorded four times in this file. `flutter pub get` resolves after one
+`git config --global --add safe.directory /home/user/flutter`; after that both commands run in
+either app worktree. Confirmed by the coordinator independently: `flutter analyze` on the seller
+app gives 40 issues, all info, and `flutter test` gives **1,986 passed, 2 skipped, 0 failed** --
+the same figures the track reported. The customer app is 1,060 passed, 105 skipped.
+
+So **Dart logic is now verifiable here, not only by CI**. Two consequences: a track must no longer
+write "unverified for want of a toolchain", and `dart format` inside the worktree reads
+`.dart_tool/package_config.json` so it equals CI's own invocation. The `--language-version` trap
+survives only for a file copied OUTSIDE the package, where the formatter still falls back to the
+newest style. `pubspec.lock` and `GeneratedPluginRegistrant.swift` are rewritten by a pub-get or a
+test run and must be reverted.
+
+### TWO SELLER TESTS COULD HAVE POSTED TO PRODUCTION
+
+`AppConstants.baseUrl` is `https://lavkoo.com`, and `second_login_on_one_device_test.dart` and
+`offline_outbox_owner_test.dart` each built a real `AuthController` over a real `Dio()` with **no
+adapter**. They sent nothing only because sign-out made no request. The moment sign-out began
+making one, both would have POSTed a logout to production from CI. Both now carry a
+`RecordingAdapter` with nothing behind it -- which is what the second-login test already claimed
+("Only the network is faked"), so the claim became true rather than aspirational.
+
+**Rule: a test that builds a real `Dio()` must be given an adapter, whatever it currently sends.**
+Any future test added through those harnesses has the same hole.
+
+### The app CI format step reads against `origin/main` on a new branch's first push
+
+Both app workflows resolve the base as PR-base, then `github.event.before`, then **fall back to
+`origin/main`**. On a brand-new branch's first push `github.event.before` is all zeros, so the
+gate reads every Dart file the branch adds since `main`: seller 32 files with 17 unclean, customer
+15 with 9 unclean. **Every one of those 26 is pre-existing on `gcc/development` and none was
+touched this round.** Opening a pull request against `gcc/development` takes the PR-base path and
+the list is only the branch's own files. This affects every branch cut from `gcc/development`, not
+only this round's.
+
+### A money surface nobody had named
+
+The seller analytics screen prints one `revenue` figure from the event-sourced analytics store
+(`EventRecorder` accumulates `$delta['revenue'] += $event->value`). **No analytics table has a
+currency column anywhere**, so that figure is a sum of riyals and dirhams presented as money,
+pre-aggregated, with no currency key to refuse on. It is K-04's last app-visible surface, it needs
+a migration plus a decision about historical rows, and it was deliberately not touched.
