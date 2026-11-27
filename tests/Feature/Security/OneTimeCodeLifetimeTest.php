@@ -103,6 +103,7 @@ class OneTimeCodeLifetimeTest extends CustomerPasswordResetTestCase
         }
 
         $this->assertFalse($this->lifetime()->enabled(), 'the switch ships off');
+        $this->assertMatchesRegularExpression('/^GCC_ONE_TIME_CODE_LIFETIME=false$/m', (string) file_get_contents(base_path('.env.example')), 'and the example file each CI job copies ships it off too');
     }
 
     public function test_with_the_switch_off_a_code_issued_a_year_ago_still_resets_the_password(): void

@@ -79,6 +79,19 @@ class ChannelShipmentNotifier
         return $this->worstOf($outcomes);
     }
 
+    /** The marketplace the order was bought in, as its own snapshot recorded it. Null for a channel, or an order, that recorded none. */
+    private function marketplaceOf(ExternalOrderMapping $mapping): ?string
+    {
+        $recorded = (array) ($mapping->snapshot ?? []);
+        $marketplaceId = $recorded['marketplace_id'] ?? null;
+
+        if (!is_scalar($marketplaceId)) {
+            return null;
+        }
+
+        return trim((string) $marketplaceId) === '' ? null : trim((string) $marketplaceId);
+    }
+
     /**
      * One parcel: sent, skipped or failed, remembered under the parcel's OWN reference.
      *
@@ -103,6 +116,9 @@ class ChannelShipmentNotifier
             shippedAt: CarbonImmutable::parse($parcel->shippedAt ?? $mapping->shipped_at ?? now()),
             // Only what is in THIS box.
             lineQuantities: $parcel->lineQuantities,
+            // Which of the account's marketplaces this order was bought in, as the order itself recorded it (H2-07). A channel that records
+            // none leaves it null and the connector decides as it did before.
+            marketplaceId: $this->marketplaceOf($mapping),
         );
 
         try {

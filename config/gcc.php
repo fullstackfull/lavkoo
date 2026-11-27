@@ -1198,6 +1198,42 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Sales channels: which marketplace a write of an Amazon account goes to (H2-07)
+    |--------------------------------------------------------------------------
+    |
+    | Off by default, and off is the platform of today, to the request: every Amazon write that names a marketplace takes the FIRST id of
+    | the account's list, as it always has. Reads already go through the account's marketplaces one after another; the writes never did, and
+    | it was a declared limit of the module (docs/sales-channels/operations.md).
+    |
+    | That first id is right for an account of one country and wrong for an account of two. A Saudi price went into the Emirati catalogue,
+    | or the Emirati listing never changed at all, and nothing on the account said which had happened -- a publish was reported as accepted
+    | either way, because Amazon accepted it for the marketplace it was told.
+    |
+    | With it on, and only for an account whose marketplaces are of more than one COUNTRY (`AmazonMarketplaceChoice`):
+    |
+    |   - a SHIPMENT CONFIRMATION goes to the marketplace the ORDER was bought in. An Amazon order already records it, so this is a read of
+    |     a fact the order holds and not a new record of it; an order that records none, or one this account does not sell in, decides
+    |     nothing and falls to the rule below;
+    |   - a LISTING write -- price, quantity, `putListingsItem`, a content patch -- is REFUSED, in the shape its caller already refuses one
+    |     (a failed line of the publish result with a reason; a rejected submission). It is refused and not guessed because the listing row
+    |     is keyed `(account_id, listing_key)`, so one Amazon SKU sold in two marketplaces of one account is ONE row and there is no fact
+    |     on it to read. A listing row per marketplace would change that unique key AND the single currency an account carries, which is
+    |     the owner's decision, not this switch's.
+    |
+    | An account whose marketplaces are all of one country is unaffected either way, which is every account of this platform today, Saudi
+    | Arabia's among them. READS are untouched in both positions, the connection test included: refusing to TEST an account would stop it
+    | ever being set up, and a read that names the first marketplace reports on that marketplace honestly.
+    |
+    */
+
+    'sales_channels' => [
+        'amazon' => [
+            'marketplace_of_the_write' => filter_var(env('GCC_AMAZON_MARKETPLACE_OF_THE_WRITE', false), FILTER_VALIDATE_BOOLEAN),
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | What a TEST RUN may leave behind (M2, the language-file guard)
     |--------------------------------------------------------------------------
     |
