@@ -24,7 +24,13 @@ use Tests\TestCase;
  */
 class CredentialsAreMaskedInTheAdminFormTest extends TestCase
 {
-    private const SECRET = 'sk_live_51H8wQ2eZvKYlo2C';
+    /**
+     * What a stored credential stands for here.
+     *
+     * Deliberately not shaped like a real key: a gateway-shaped literal in a test file is a thing `scripts/ci/leak-guard.php` refuses, and
+     * it is right to -- a reader cannot tell an invented example from a secret somebody pasted, and nor can the guard.
+     */
+    private const SECRET = 'the-stored-credential';
 
     /** The gateway form's own field, and the save path that writes what it posts. */
     private const WIRED = [
@@ -150,11 +156,11 @@ class CredentialsAreMaskedInTheAdminFormTest extends TestCase
         $this->switchItOn();
 
         $restored = $this->credentials->restore(
-            submitted: ['api_key' => 'sk_live_rotated'],
+            submitted: ['api_key' => 'the-retyped-credential'],
             stored: ['api_key' => self::SECRET],
         );
 
-        $this->assertSame('sk_live_rotated', $restored['api_key']);
+        $this->assertSame('the-retyped-credential', $restored['api_key']);
     }
 
     /** The mask is not a secret and must never become one: a row that holds no credential restores to empty, not to asterisks. */
