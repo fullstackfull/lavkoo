@@ -61,12 +61,18 @@ return [
         /*
         | Recording an action that changes who may do what, and REFUSING to carry it out when the line cannot be written (G-14).
         |
-        | Off by default: adding, rewriting or switching off an employee, and adding, rewriting, switching off or deleting a role, write no
-        | audit line at all today, which is what the platform does and what this leaves alone while the switch is off -- not one query goes
-        | near the trail, and no transaction is opened.
+        | Off by default: adding, rewriting or switching off an employee, adding, rewriting, switching off or deleting a role, and EMPTYING A
+        | TABLE from the database screen, write no audit line at all today, which is what the platform does and what this leaves alone while
+        | the switch is off -- not one query goes near the trail, and no transaction is opened.
         |
         | With it on, each of those actions and its line are one transaction, and the line is written through `recordOrFail()`: a trail that
         | could not be written takes the change back with it. That is the deliberate choice of this switch and the reason it is a switch.
+        |
+        | Emptying a table is the one of them the trail said NOTHING about rather than saying it unreliably: the rows go through
+        | `DB::table()->delete()`, which raises no model event, so there was no line, no actor and no count of what was destroyed. Its line
+        | carries the rows each table held before and after, and it is the first of these actions a RESTRICTED employee can reach (the
+        | screen is behind `module:system_settings`, not behind a master account), so the asker's country scope on the line is that
+        | employee's countries rather than `unrestricted`.
         | `record()` swallows a failure because a missing note is better than a rolled-back payout; here the reverse holds -- a permission
         | change nobody can trace is worse than a permission change that did not happen.
         |

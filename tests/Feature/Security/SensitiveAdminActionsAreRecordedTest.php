@@ -46,10 +46,13 @@ use Tests\TestCase;
  *
  * **The switch ships off and the first tests say so.**
  *
- * **What is INERT here, and it is a finding rather than a tidy-up:** the asker's country scope goes on a required line, and on these
+ * **What is INERT HERE, and it is a finding rather than a tidy-up:** the asker's country scope goes on a required line, and on these
  * routes it is always `unrestricted`, because staff management lets in only a master account and `StaffCountryScope` never restricts one.
- * The field earns its place the day a sensitive action a RESTRICTED employee can reach is wrapped -- a withdrawal approval, a coupon
- * change (G-14's second criterion). It is asserted below as `unrestricted` so that a change making it say something else is noticed.
+ * It is asserted below as `unrestricted` so that a change making it say something else is noticed.
+ *
+ * The field is no longer inert on the platform: emptying a table from the database screen is wrapped as well, that screen is behind
+ * `module:system_settings` rather than behind a master account, and {@see EmptyingATableIsRecordedTest} drives it as a restricted employee
+ * and reads their two countries off the line. A withdrawal approval and a coupon change (G-14's second criterion) are still unwrapped.
  */
 class SensitiveAdminActionsAreRecordedTest extends TestCase
 {
