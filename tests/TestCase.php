@@ -11,6 +11,7 @@ use App\Services\Shipping\OrderCustomsQuote;
 use App\Services\Shipping\OrderShippingDecision;
 use App\Services\Shipping\ProductDestinationPermission;
 use App\Services\Shipping\RegulatedShippingGate;
+use App\Services\Storefront\CouponCountry;
 use App\Services\Storefront\StorefrontCatalog;
 use App\Services\Storefront\StorefrontVisibility;
 use App\Services\Theme\LocalisedSettings;
@@ -51,6 +52,13 @@ abstract class TestCase extends BaseTestCase
         ProductDestinationPermission::forget();
         RegulatedShippingGate::forget();
         CrossBorderPolicy::forget();
+        // The coupon market narrowing caches a POSITIVE schema answer for the life of the process and never asks again -- right in
+        // production, where `coupons.storefront_country` is only ever added, and wrong here, where every test builds its own tables. A
+        // test that ran the coupon migration therefore made every LATER test in the process narrow by a column its own world does not
+        // have, and the request died with `Unknown column 'coupons.storefront_country'` rather than failing an assertion. Measured:
+        // StaffCouponRoutesTest followed by EachSubOrderCarriesItsOwnMarketTest in one process, which is four of the seven failures the
+        // cross-track gate of 2026-11-26 found. `flush()` already existed for this and was simply never called from here.
+        CouponCountry::flush();
 
         $this->startFromAnEmptyRealDatabase();
         StorefrontVisibility::flush();
