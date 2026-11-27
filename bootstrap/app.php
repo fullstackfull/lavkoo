@@ -142,6 +142,9 @@ return Application::configure(basePath: dirname(__DIR__))
             // Declared on the authenticated seller group, so a market a request names is checked against the grant on every
             // route inside it rather than on the ones somebody remembered (K-09).
             'seller_market' => \App\Http\Middleware\EnforceSellerMarketScope::class,
+            // The same grant on the vendor web PANEL, whose session requests carry no API principal and so were never narrowed on
+            // their reads (M2-03). It binds the panel's own grant, which the global scopes of the models read.
+            'seller_panel_market' => \App\Http\Middleware\ScopeVendorPanelToSellerMarkets::class,
             // The shop-wide actions: beside `seller_owner`, never instead of it (K-V2).
             'seller_all_markets' => \App\Http\Middleware\EnsureSellerHoldsEveryMarket::class,
             'deliverysyria_auth' => \App\Http\Middleware\DeliverySyriaWebhookAuthMiddleware::class,
